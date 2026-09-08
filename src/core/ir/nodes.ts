@@ -588,18 +588,39 @@ export type DeclarableCapability = Exclude<
   'storageBuffer' | 'compute' | 'msaaTextureLoad'
 >
 
-/** THE whole-shader unit: everything a backend needs to emit a complete WGSL or
- *  GLSL ES 3.00 module (or evaluate one on the CPU oracle) — consts, structs,
- *  bindings, functions, and the two opt-in seams (`overrides`, `enables`).
- *  Authors assemble one via {@link module}, which dedupes/merges `uses:`-derived
- *  decls rather than requiring every struct/binding to be restated by hand; a
- *  hand-built `ModuleDecl` object literal works too (backends only ever read
- *  this shape) but loses that convenience. This is the argument every backend
- *  entry point takes — {@link emitModule} (WGSL), {@link emitGlslModule}, the CPU
- *  oracle's {@link compileModule} — so it is the seam where authoring ends and
- *  backend-neutral emit begins.
+/** The whole-shader unit: everything a backend needs to emit a complete WGSL or GLSL ES 3.00
+ *  module, or to evaluate one on the CPU oracle. It holds the four declaration arrays,
+ *  `consts`, `structs`, `bindings` and `funcs`, plus the opt-in seams `overrides`, `externs`
+ *  and `enables`. It is the argument every backend entry point takes, {@link emitModule},
+ *  {@link emitGlslModule} and {@link compileModule}, so it is the seam where authoring ends
+ *  and backend-neutral emit begins.
+ *
+ *  Assemble one with {@link module}, which also derives structs, bindings and consts from the
+ *  handles passed in `uses`. A hand-built object literal works too, since backends only ever
+ *  read this shape, and gives up that convenience.
+ *
+ *  `enables` is where a module names the GPU features its emit needs, by neutral id, and its
+ *  type is what keeps that list honest. It is `readonly DeclarableCapability[]`, which is
+ *  {@link Capability} minus the three ids derived from the module's own shape:
+ *  `storageBuffer` (a storage binding), `compute` (a `@compute` entry) and `msaaTextureLoad`
+ *  (a multisampled texture load). Naming one of those here is a compile error, so it cannot
+ *  read as a declaration that quietly does nothing. Each backend's own `capProfile` table is
+ *  the authority for the ids that remain: it maps a neutral id to that target's `directive`
+ *  and `hostFeature`, coverage is built from its keys, and a backend whose table has no row
+ *  for a declared id fails closed at emit.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { module } from '@xgis/shader-dsl'
+ *
+ *  const m = module({ enables: ['floatRenderTarget'], structs: [VsOut.decl], funcs: [vs, fs] })
+ *  ```
+ *
+ *  @see {@link module} for the assembler.
+ *  @see {@link reflect} for the pipeline metadata read back out of one.
+ *  @see {@link capabilityMatrix} for which target can spell which capability.
  */
 export interface ModuleDecl {
   readonly consts: readonly ConstDecl[]
@@ -617,16 +638,17 @@ export interface ModuleDecl {
    *  preserves the branches they guard for the driver to eliminate. Absent/empty ⇒
    *  no override declaration, byte-identical emit. */
   readonly overrides?: readonly OverrideDecl[]
-  /** OPT-IN capabilities this module turns on (#628, #1670) — e.g. `['f16']`,
-   *  `['floatRenderTarget']`. Each folds into requiredCaps, so a backend whose
-   *  `capProfile` lacks it fails closed (UnsupportedFeatureError naming the cap), and a
-   *  backend whose row carries a `directive` emits it (WGSL `enable f16;`, GLSL
-   *  `#extension GL_OVR_multiview2 : require`). A row with NO directive is HOST-side
-   *  only — the host activates it off `reflect().requiredFeatures` and the emit stays
-   *  byte-identical. Absent/empty ⇒ no directive, byte-identical emit. Resource caps
-   *  (storageBuffer/compute/msaaTextureLoad) are DERIVED from the module shape, never
-   *  declared here — `DeclarableCapability` (#1681 A2) makes that unrepresentable, so
-   *  naming one is a COMPILE error rather than a comment an author can miss. */
+  /** The opt-in capabilities this module turns on, by neutral id, such as
+   *  `['floatRenderTarget']` or `['f16']`. Each folds into the module's required caps, so a
+   *  backend whose `capProfile` lacks a row fails closed with `SD0030` naming the cap, and a
+   *  backend whose row carries a `directive` emits it: `enable f16;` on WGSL, an
+   *  `#extension` line on GLSL ES 3.00. A row with no directive is host-side only, the host
+   *  activates it from `reflect(m).requiredFeatures` and the emitted bytes do not move.
+   *  Absent or empty means no directive and a byte-identical emit.
+   *
+   *  The type is `DeclarableCapability`, which excludes the three caps derived from the
+   *  module's shape (`storageBuffer`, `compute`, `msaaTextureLoad`); naming one here is a
+   *  compile error. */
   readonly enables?: readonly DeclarableCapability[]
 }
 

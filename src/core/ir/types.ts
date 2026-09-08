@@ -89,15 +89,61 @@ export type ShaderType =
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderType
-/** The emulated-double-precision scalar type (df64) — a LOGICAL `f64`, not a native GPU type:
- *  it lowers to a `vec2<f32>` (hi/lo error-free-transform pair) before emit
- *  (`passes/fp64-lower.ts`), so a value typed `f64T` costs one native `f32` pair, not a real
- *  64-bit register. Its own `ShaderType.kind` (not a {@link Scalar}) keeps it out of native
- *  scalar promotion and forces every `t.kind` switch to decide about it. Reach for it only
- *  when f32's ~7 decimal digits aren't enough — deep-zoom world coordinates, long-running
- *  clocks — never as a general "more precision" default; it costs several f32 ops per f64 op.
+/** The emulated double-precision scalar type. It is a logical `f64`, since no GPU has one: a
+ *  value typed `f64T` is an unevaluated pair of f32 values, a high part and a low part holding
+ *  the residual the high part could not represent, and the pre-emit lowering rewrites every
+ *  operation on it into arithmetic on that pair. The pair carries about 48 significand bits at
+ *  f32's exponent range, against f32's 24, so it costs one f32 pair per value and no real
+ *  64-bit register.
+ *
+ *  The authoring surface is the same as f32's; only the declared type differs. Declare a
+ *  parameter, a uniform field or a struct field `f64T` and the operators, the comparisons and
+ *  the builtins read exactly as they do for f32.
+ *
+ *  These operations are emulated: `+`, `-`, `*`, `/`, all comparisons, `neg`, `abs`, `min`,
+ *  `max`, `sqrt`, `mix` with an f32 interpolant, `floor`, `fract`, `sin` and `cos`, and on the
+ *  vector types {@link vec2f64T} and its siblings also `dot`, `length`, `distance` and
+ *  `normalize`. Anything else on an f64 operand fails at emit with `SD0041`, naming the
+ *  operation: narrow explicitly with {@link toF32} first. `%` and the bitwise operators are
+ *  rejected at author time, since neither has a meaning on a two-part value.
+ *
+ *  Conversion goes one way implicitly. An f32 widens to f64 in arithmetic, exactly, and
+ *  {@link toF64} or a bare number literal does it explicitly; a JavaScript number is already a
+ *  double, so a literal splits losslessly at build time. Narrowing is always explicit,
+ *  {@link toF32}, and loses precision. Mixing f64 with an integer or a boolean is `SD0004` at
+ *  author time.
+ *
+ *  An f64 varying is rejected with `SD0044`: interpolating a high and low pair independently
+ *  is numerically wrong. Narrow to f32 for the varying, or carry the two parts as two f32
+ *  locations and rebuild them with `f64FromParts`.
+ *
+ *  `sin` and `cos` are less accurate than the arithmetic. They use a three-stage argument
+ *  reduction, a tabled angle addition and a short Taylor series on the remainder, and the
+ *  truncation floors the relative error at about 2^-36 for the transcendental itself, which
+ *  then degrades with the argument's magnitude through the reduction. That is still far past
+ *  f32, whose sine of an argument near 2^24 is noise.
+ *
+ *  Each f64 operation costs several to ten times an f32 one, so opt in per value and not per
+ *  shader.
+ *
+ *  A module doing f64 arithmetic gets the {@link fp64Guard} texture injected automatically.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, module, uniformStruct, sqrt, toF32, f64T, f32T } from '@xgis/shader-dsl'
+ *
+ *  const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { origin: f64T })
+ *
+ *  // The operators are unchanged; only the declared type says f64.
+ *  const k = fn('k', { x: f64T, s: f32T }, ({ x, s }) => toF32(sqrt(x.add(U.field.origin).mul(s))))
+ *  const m = module({ uses: [U], funcs: [k] })
+ *  ```
+ *
+ *  @see {@link splitF64} for packing a host-side double into the pair.
+ *  @see {@link fp64Guard} for the guard texture and its slot.
+ *  @see {@link recommendFp64Flavor} for the per-device lowering flavour.
  */
 export const f64T = { kind: 'f64' } as const satisfies ShaderType
 /** A 2-component emulated-double vector (`vec2<f64>` logically), lowered to a

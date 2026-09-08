@@ -97,16 +97,44 @@ export class Capabilities {
   }
 }
 
-/** THE host-activation lookup (#1670): the concrete per-target feature strings a host
- *  must have ACTIVE before it creates a pipeline for a module needing `caps` — WebGL2
- *  `gl.getExtension('EXT_color_buffer_float')`, WebGPU
- *  `requestDevice({ requiredFeatures: ['float32-filterable'] })`.
+/** Translate neutral capability ids into the feature strings one target's host has to
+ *  activate before it creates a pipeline. On WebGL2 those are extension names for
+ *  `gl.getExtension`, and on WebGPU they are feature names for
+ *  `requestDevice({ requiredFeatures })`.
  *
- *  Feed it `reflect(m).requiredFeatures`. Rows with no `hostFeature` (the cap is core on
- *  this target, or purely a source directive) contribute NOTHING — which is why this
- *  exists as one function rather than a `.map(c => be.capProfile[c]?.hostFeature)` at
- *  each call site: that shape yields `undefined` holes a host then passes to
- *  `getExtension` / `requiredFeatures` verbatim. */
+ *  Feed it `reflect(m).requiredFeatures`, which reports the ids neutrally because reflection
+ *  takes a module and never a backend.
+ *
+ *  It skips every id with no host half. A capability that is core on this target, or one the
+ *  backend covers by emitting a source directive, contributes nothing. That is why this is a
+ *  function: a `map` over the profile at each call site yields `undefined` holes a host then
+ *  hands to `getExtension` verbatim. The returned list has no holes.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param be - the backend whose capability profile does the translating.
+ *  @param caps - the neutral ids, usually `reflect(m).requiredFeatures`.
+ *  @returns the host-side feature strings, in the order the ids arrived, with the id-less ones
+ *    dropped.
+ *
+ *  @example
+ *  ```ts
+ *  import { hostFeaturesFor, reflect, glslEs300Backend, wgslBackend } from '@xgis/shader-dsl'
+ *
+ *  const caps = reflect(MODULE).requiredFeatures
+ *
+ *  for (const ext of hostFeaturesFor(glslEs300Backend, caps)) {
+ *    if (!gl.getExtension(ext)) throw new Error(`WebGL2 lacks ${ext}`)
+ *  }
+ *
+ *  const device = await adapter.requestDevice({
+ *    requiredFeatures: hostFeaturesFor(wgslBackend, caps),
+ *  })
+ *  ```
+ *
+ *  @see {@link reflect} for where the ids come from.
+ *  @see {@link capabilityMatrix} for which target can spell which id.
+ */
 export function hostFeaturesFor(be: Backend, caps: readonly Capability[]): readonly string[] {
   return caps.flatMap((c) => {
     const h = be.capProfile[c]?.hostFeature
@@ -290,22 +318,47 @@ export interface CapabilityRow {
   readonly declarable: boolean
 }
 
-/**
- * The capability × backend support matrix (#1717 Ask 2), DERIVED from the backends'
- * own `capProfile`s rather than transcribed.
+/** Report which backend can spell which capability, as one row per capability with a support
+ *  class per backend.
  *
- * #1717 asked for this as a documentation page. It is a function instead, because the
- * repo already has three authorities describing this API (#1700) and a hand-written table
- * would be the fourth — one that goes stale silently, since nothing checks prose against
- * a `capProfile`. A renderer can turn this into the page; the data has one home.
+ *  The support classes are read from each backend's own `capProfile` table, so the matrix
+ *  cannot go stale against the thing it describes. A row
+ *  reads `'native'` when the target needs nothing, `'directive'` when the backend emits a
+ *  source line for it, `'host-feature'` when the host activates it before pipeline creation,
+ *  and `'unsupported'` when that target has no row at all. A capability may need both halves,
+ *  a directive and a host feature, and the class names the one that decides the row.
  *
- * ```ts
- * capabilityMatrix([wgslBackend, glslEs300Backend])
- * // → [{ capability: 'f16', support: { wgsl: 'directive', 'glsl-es300': 'unsupported' }, … }, …]
- * ```
+ *  Support is not reachability. A capability can have a profile row and no way to author it:
+ *  a row says the backend would emit the directive, and whether the DSL has a construct that
+ *  needs it is a separate question. Read a row as a fact about the emit, and check the
+ *  authoring surface separately.
  *
- * @param backends - the backends to compare, in the column order you want.
- * @returns one row per {@link Capability}, in `ALL_CAPABILITIES` order.
+ *  A missing row is a hard stop by design, and it is no hint to work around. Emit throws
+ *  `UnsupportedFeatureError` with `SD0030` naming the capability, and no source the driver
+ *  would reject is produced.
+ *
+ *  `declarable` is false for the three capabilities derived from a module's shape,
+ *  `storageBuffer`, `compute` and `msaaTextureLoad`, which `enables` cannot name.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param backends - the backends to compare, in the column order you want.
+ *  @returns one row per capability, in the canonical capability order.
+ *
+ *  @example
+ *  ```ts
+ *  import { capabilityMatrix, wgslBackend, glslEs300Backend } from '@xgis/shader-dsl'
+ *
+ *  capabilityMatrix([wgslBackend, glslEs300Backend])
+ *  // [{ capability: 'storageBuffer',
+ *  //    support: { wgsl: 'native', 'glsl-es300': 'unsupported' }, declarable: false },
+ *  //  …,
+ *  //  { capability: 'f16',
+ *  //    support: { wgsl: 'directive', 'glsl-es300': 'unsupported' }, declarable: true }]
+ *  ```
+ *
+ *  @see {@link hostFeaturesFor} for the host half of a row.
+ *  @see {@link ModuleDecl} for where a declarable capability is named.
  */
 export function capabilityMatrix(backends: readonly Backend[]): readonly CapabilityRow[] {
   return ALL_CAPABILITIES.map((capability) => ({

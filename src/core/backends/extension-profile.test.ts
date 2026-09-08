@@ -430,16 +430,16 @@ describe('#1670 — WebGL2 extension profile surface (fail-before)', () => {
     })
   })
 
-  // ── 16. DOC-SYNC RATCHET — AUTHORING.md §10 vs the profiles ──
-  // The §10 table is the only place an author learns which id costs what, and a table is
-  // exactly the artifact that rots: adding a profile row is a code change no doc gate
+  // ── 16. DOC-SYNC RATCHET: the guide's capabilities page vs the profiles ──
+  // That page's table is the only place an author learns which id costs what, and a table
+  // is exactly the artifact that rots: adding a profile row is a code change no doc gate
   // sees. This asserts the doc MENTIONS every capability id and every concrete
   // directive/hostFeature string both profiles carry — presence, not layout, so
   // rewording the prose is free while dropping a row is not.
   //
-  // §12 (path-keyed gates die silently when the thing they key on moves): the section
-  // header is asserted to EXIST first, so renaming '## 10.' fails loudly here instead of
-  // leaving the arm vacuously green over an empty slice.
+  // Path-keyed gates die silently when the thing they key on moves, so the section header
+  // is asserted to EXIST first: renaming the heading fails loudly here instead of leaving
+  // the arm vacuously green over an empty slice.
   const AUTHORING = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), '../../../AUTHORING.md'),
     'utf8',
@@ -456,11 +456,11 @@ describe('#1670 — WebGL2 extension profile surface (fail-before)', () => {
     'multiview',
   ]
 
-  it('AUTHORING.md §10 names every capability id and every profile string', () => {
-    const start = AUTHORING.indexOf('\n## 10.')
+  it('the capabilities guide page names every capability id and every profile string', () => {
+    const start = AUTHORING.indexOf('\n## Capabilities')
     expect(
       start,
-      "AUTHORING.md has no '## 10.' section — the ratchet lost its anchor",
+      "AUTHORING.md has no '## Capabilities' section: the ratchet lost its anchor",
     ).toBeGreaterThan(-1)
     const rest = AUTHORING.slice(start + 1)
     const end = rest.indexOf('\n## ')
@@ -468,7 +468,8 @@ describe('#1670 — WebGL2 extension profile surface (fail-before)', () => {
     // Non-empty by construction, but assert it: an empty slice would pass nothing below.
     expect(section.length).toBeGreaterThan(200)
 
-    for (const cap of ALL_CAPS) expect(section, `§10 never mentions '${cap}'`).toContain(cap)
+    for (const cap of ALL_CAPS)
+      expect(section, `the capabilities page never mentions '${cap}'`).toContain(cap)
 
     // Both halves of every row in BOTH profiles — the host-activation strings included,
     // which is the half AUTHORING.md's one-per-cell vocabulary used to delete.
@@ -476,7 +477,10 @@ describe('#1670 — WebGL2 extension profile surface (fail-before)', () => {
       for (const [cap, row] of Object.entries(be.capProfile)) {
         for (const s of [row?.directive, row?.hostFeature]) {
           if (s === undefined) continue
-          expect(section, `§10 never mentions '${s}' (${be.id} ${cap})`).toContain(s)
+          expect(
+            section,
+            `the capabilities page never mentions '${s}' (${be.id} ${cap})`,
+          ).toContain(s)
         }
       }
     }

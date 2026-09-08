@@ -405,25 +405,54 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
  */
 export type CpuPrecision = 'f64' | 'f32'
 
-/** The CPU (f64) tree-walk interpreter — a differential reference for the WGSL/GLSL
- *  GPU backends, re-walking the SAME IR node-by-node on every call (no code
- *  generation) and evaluating every op with `Math.*` in full f64, never `fround`.
- *  That makes it an ALGEBRA oracle, not an f32-precision one: it proves the IR picked
- *  the right ops in the right order (matching the hand-written f64 mirror to ≤1mm),
- *  and it is structurally blind to f32-rounding bugs that exist only once the GPU
- *  truncates per-vertex — see this module's header for two bugs it could never have
- *  caught. Shares `validate`/`autoVars` with the WGSL/GLSL writers, so it rejects the
- *  same malformed modules they would. `opts.gpuStubs` is off by default — a call to a
- *  GPU-only intrinsic (`ORACLE_GPU_STUB_NAMES`) throws rather than returning a
- *  plausible-wrong value; pass `{ gpuStubs: true }` only when a placeholder value
- *  (opaque black texture reads, zero derivatives) is an acceptable stand-in for the
- *  test at hand. Production-used (map's cpu-projections) as the fallback
- *  `compileModuleJs` reaches for when `new Function` itself is unavailable — prefer
- *  that backend on any hot per-frame path, and reach for this one directly when
- *  debugging (one implementation, no generated-source layer between you and the IR)
- *  or when the host cannot `eval`.
+/** Compile a module for the CPU: a tree-walk interpreter over the same IR the GPU backends
+ *  receive, returning a {@link CpuModule} whose `fns` are ordinary JavaScript functions. It is
+ *  the differential reference a parity test compares a GPU result against.
+ *
+ *  `opts.precision` picks what the arithmetic means. `'f64'`, the default, is the algebra
+ *  oracle: every value is a JavaScript double, so the result is the mathematically intended
+ *  one to 53 bits. It proves the IR picked the right operations in the right order, and it is
+ *  blind by construction to f32 rounding, which only appears once the target truncates.
+ *  `'f32'` is a correctly-rounding f32 machine over the same IR: every f32-typed operation
+ *  rounds to f32 afterwards, with infinities on overflow. Reach for `'f32'` when the question
+ *  is what the target computes, so a parity gate can compare at ulp scale instead of behind a
+ *  tolerance wide enough to hide a real error.
+ *
+ *  `opts.gpuStubs` decides what happens at an operation the CPU cannot perform. A texture
+ *  read, a screen-space derivative and the rest of the GPU-only intrinsics have no CPU
+ *  meaning, and by default a call to one throws instead of returning a plausible wrong
+ *  number. Turn it on and each stands in for its GPU value: an opaque black texture read, a
+ *  zero derivative. Do that only where a placeholder is acceptable for the test at hand.
+ *
+ *  `setBinding(name, value)` supplies a uniform or storage binding by its declared name, since
+ *  a CPU run has no bind groups. Call it before invoking an entry that reads that binding.
+ *
+ *  A raw statement has no CPU evaluation at all. Reaching one throws, whichever target its
+ *  payload was written for, because raw text is opaque to the IR and the oracle has nothing to
+ *  walk.
+ *
+ *  It shares {@link validate} and the auto-var pass with the GPU writers, so it rejects the
+ *  same malformed modules they do.
  *
  *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param m - the module to evaluate.
+ *  @param opts - `precision` and `gpuStubs`, as above.
+ *  @returns the compiled module: `fns` by name, and `setBinding`.
+ *  @throws {@link ValidationError} when the module fails a core rule, and `Error` when a
+ *    GPU-only intrinsic is called with `gpuStubs` off, or when a raw statement is reached.
+ *
+ *  @example
+ *  ```ts
+ *  import { compileModule } from '@xgis/shader-dsl'
+ *
+ *  const cpu = compileModule(MODULE, { precision: 'f32' })
+ *  cpu.setBinding('u', { mvp, raster_params })
+ *  const got = cpu.fns.project(lon, lat)
+ *  ```
+ *
+ *  @see {@link compileModuleJs} for the same results on a hot path.
+ *  @see {@link CpuPrecision} for the two precision modes.
  */
 export function compileModule(
   m: ModuleDecl,

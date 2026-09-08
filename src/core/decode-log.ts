@@ -48,14 +48,47 @@ export function invertRenames(
   return out
 }
 
-/** Rewrite a driver log / GPU capture back into authored names.
+/** Rewrite a driver log or a GPU capture back into authored names, using the map
+ *  {@link mangle} and {@link aliasTypes} filled.
  *
- *  A name that inverts uniquely is REPLACED; one that inverts to several (the
- *  reused function-scoped names) is annotated `f⟨p (in noise) | t (in shade)⟩`,
- *  because picking one would be a guess the log cannot support. Text that is not
- *  an identifier — the driver's own prose, line numbers, source excerpts — is
- *  untouched, since the substitution is token-wise, not a substring replace:
- *  replacing `b` as a substring would corrupt every word containing it. */
+ *  Substitution is token-wise. Only whole identifiers are looked up, so the driver's own prose,
+ *  its line and column numbers and its source excerpts come through untouched, where a
+ *  substring replace of a name like `b` would corrupt every word containing it.
+ *
+ *  A name that inverts uniquely is replaced. Module-scope names, helper functions, plain
+ *  structs, module constants and type aliases are unique by construction, and they are what a
+ *  driver actually names, so those decode cleanly.
+ *
+ *  A name that inverts to several is annotated instead of guessed at:
+ *  `f⟨coordinate (in noise) | tint (in shade)⟩`. Function-scoped names are deliberately reused
+ *  across functions, which is where the byte saving comes from, so one emitted name can stand
+ *  for several authored ones, and picking one would be a guess the log cannot support.
+ *
+ *  {@link invertRenames} exposes the same table as data, one entry per emitted name with the
+ *  authored candidates in the map's insertion order, for a caller that wants to present the
+ *  ambiguity its own way.
+ *
+ *  Nothing here runs at emit time. Keep the map and this decoder out of the shipped bundle;
+ *  both live on the production-emit subpath.
+ *
+ *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *
+ *  @param log - the driver message to decode.
+ *  @param renames - the authored-to-emitted map the emit plugins filled.
+ *  @returns the log with every recognised identifier replaced or annotated.
+ *
+ *  @example
+ *  ```ts
+ *  import { obfuscate, decodeShaderLog } from '@xgis/shader-dsl/emit-prod'
+ *
+ *  const renames = new Map<string, string>()
+ *  const wgsl = emitModule(MODULE, { plugins: obfuscate({ renames }) })
+ *  console.error(decodeShaderLog(info.messages[0].message, renames))
+ *  ```
+ *
+ *  @see {@link invertRenames} for the same table as data.
+ *  @see {@link mangle} for what fills the map.
+ */
 export function decodeShaderLog(log: string, renames: ReadonlyMap<string, string>): string {
   const table = invertRenames(renames)
   if (table.size === 0) return log

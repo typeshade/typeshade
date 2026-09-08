@@ -206,26 +206,62 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
   return active?.join('\n')
 }
 
-/**
- * Build a family of shader variants from a typed axis matrix (#1712).
+/** Build a family of shader variants from a typed axis matrix. Give it the axes a host can
+ *  select, a builder for one point in the space, and a key derivation, and it builds every
+ *  point once.
  *
- * ```ts
- * const family = variantFamily({
- *   axes: { terrain: [false, true], drape: ['ground', 'absolute'] },
- *   build: ({ terrain, drape }) => module({ … }),   // plain TS branching (§11)
- *   key: ({ terrain, drape }) => `${terrain ? 't' : 'f'}:${drape}`,
- * })
+ *  Each axis is a name mapped to the list of values the host chooses among, so the family is
+ *  the product of the axes and every point is type-checked: the builder receives one value per
+ *  axis, and a typo in an axis name is a tsc error. The builder is ordinary TypeScript, so the
+ *  variation is a plain `if` and the losing arm is never built, which means its bindings are
+ *  never declared and never reach {@link reflect}.
  *
- * family.emit('wgsl')                                  // 4 preprocessor-free sources
- * family.emitGuarded({ terrain: 'TERRAIN3D', drape: { ground: 'DRAPE_GROUND', … } })
- * ```
+ *  `variants` holds one entry per point: the axis values, the built {@link ModuleDecl}, its
+ *  {@link reflect} result, and the derived key. `keys` lists those keys and `get(key)` looks a
+ *  variant up. The key is the part that outlives everything else, because a specialized
+ *  program is a different program and every axis has to appear in every key that names it: a
+ *  pipeline cache keyed without an axis serves one variant's program to another variant's
+ *  draw, which compiles, links, renders and is wrong. Deriving the key from the axis values is
+ *  what makes omitting one impossible, and two points deriving the same key throws here.
  *
- * @param spec - the axes, the per-point builder, and the key derivation.
- * @returns the built family: every variant with its module, reflection and key, plus the
- *   two emit shapes.
- * @throws when an axis declares no values, or two points derive the same key — a
- *   collision means the key does not name every axis the builder read, which is the
- *   failure AUTHORING.md §11 warns about and `ids.ts` has already paid for once.
+ *  `emit(target)` returns one preprocessor-free source per key. That is the WGSL path, and it
+ *  is what a pipeline cache should prefer on either target.
+ *
+ *  `emitGuarded(defines, opts)` is the GLSL-only alternative, for a host that owns the define
+ *  and decides at draw time. It generates one source with an `#if` ladder over the arms, one
+ *  arm per variant, from the same typed matrix, so the ladder is a lowering of that matrix and
+ *  is checkable for it. Every arm is byte-identical to the standalone variant of the same key,
+ *  which is what keeps the guarded and unguarded paths from being two programs.
+ *
+ *  `emitGuardedFragment(defines, opts)` returns the same ladder as a header-less fragment: the
+ *  `source`, and the `preamble`, the declares and the requires as data. It exists because the
+ *  ladder usually goes inside an include, and an include cannot carry a second `#version`.
+ *  Joining the preamble to the source reproduces `emitGuarded` byte for byte.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param spec - the axes, the per-point builder, and the key derivation.
+ *  @returns the built family: every variant with its module, reflection and key, plus the
+ *    three emit shapes.
+ *  @throws `Error` when an axis declares no values, or when two points derive the same key,
+ *    which means the key does not name every axis the builder read.
+ *
+ *  @example
+ *  ```ts
+ *  import { variantFamily } from '@xgis/shader-dsl'
+ *
+ *  const family = variantFamily({
+ *    axes: { terrain: [false, true], drape: ['ground', 'absolute'] },
+ *    build: ({ terrain, drape }) => buildModule(terrain, drape),
+ *    key: ({ terrain, drape }) => `${terrain ? 't' : 'f'}:${drape}`,
+ *  })
+ *
+ *  family.emit('wgsl') // four sources, keyed
+ *  family.emitGuarded({ terrain: 'TERRAIN3D', drape: { ground: 'DRAPE_GROUND', absolute: 'DRAPE_ABS' } })
+ *  ```
+ *
+ *  @see {@link composeModule} for a variant that differs by one statement list.
+ *  @see {@link overrideConst} when the variants differ only in a value.
  */
 export function variantFamily<A extends Record<string, readonly unknown[]>>(
   spec: VariantFamilySpec<A>,

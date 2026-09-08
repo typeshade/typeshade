@@ -71,12 +71,46 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
   return lint(m, RULES, config)
 }
 
-/** Validate an authored module at EMIT time. Runs only CORE_RULES — the structural
- *  invariants that hold for EVERY module, including runtime-composed variants and compute
- *  kernels (e.g. eval_match) that legitimately early-return. Throws ValidationError on the
- *  first error. The opinionated rules (single-exit, etc.) are LINT-ONLY: the shader
- *  static-analysis tests gate the shader modules via lintModule(), so an emit-time gate
- *  never false-flags non-shader code (cf. the OPACITY / single-exit-on-eval_match regressions). */
+/** Check an authored module against the structural rules every emit depends on, and throw a
+ *  {@link ValidationError} when any of them fails.
+ *
+ *  {@link emitModule}, {@link emitGlslModule} and {@link compileModule} each run this first,
+ *  before any lowering, so a structurally invalid module surfaces at the authoring line
+ *  instead of as source a driver rejects. Call it directly when you want that answer without
+ *  emitting.
+ *
+ *  One error reports every failure. `validate` collects every
+ *  error-severity diagnostic, and the throw carries them all on `err.diagnostics`; the
+ *  message renders the same list as text. Each diagnostic names its `code` (`SD0107` and its
+ *  siblings), the `rule` that raised it, the `fn` it was found in, and, with
+ *  {@link setSourceTracing} on, the `file:line:col` that authored the node.
+ *
+ *  It runs the core ruleset, the invariants that hold for every module, including
+ *  runtime-composed variants and compute kernels that legitimately return early. The
+ *  opinionated style rules are lint-only; run {@link lintModule} or {@link diagnose} for
+ *  those.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *
+ *  @param m - the authored module, before any lowering pass rebuilds its nodes.
+ *  @throws {@link ValidationError} carrying every error-severity diagnostic, with code
+ *    `SD0020`.
+ *
+ *  @example
+ *  ```ts
+ *  import { validate, ValidationError } from '@xgis/shader-dsl'
+ *
+ *  try {
+ *    validate(MODULE)
+ *  } catch (e) {
+ *    if (e instanceof ValidationError) for (const d of e.diagnostics) report(d.code, d.message)
+ *    else throw e
+ *  }
+ *  ```
+ *
+ *  @see {@link diagnose} for the non-throwing report, lint and capabilities together.
+ *  @see {@link setSourceTracing} for `file:line:col` on each diagnostic.
+ */
 export function validate(m: ModuleDecl): void {
   const errors = lint(m, CORE_RULES).filter((d) => d.severity === 'error')
   if (errors.length) throw new ValidationError(errors)

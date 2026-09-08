@@ -20,7 +20,40 @@ import type { SourceLoc } from './error.js'
 const _env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
 let tracing = _env?.XGIS_SHADER_DSL_TRACE === '1'
 
-/** Turn authored-source tracing on/off. Default OFF (honours XGIS_SHADER_DSL_TRACE=1). */
+/** Turn authored-source tracing on or off. With it on, each authored statement and function
+ *  is stamped with the TypeScript line that produced it, so a diagnostic can print
+ *  `file:line:col` beside the rule and the function name.
+ *
+ *  It is off by default, and it honours `XGIS_SHADER_DSL_TRACE=1` in the environment, which is
+ *  how a test or a development run turns it on without touching the code.
+ *
+ *  Off, it costs nothing. Capture returns before allocating an `Error`, so no stack string is
+ *  ever materialised; the switch is one boolean read per authored node.
+ *
+ *  Locations live in a side table keyed by node identity. They are no part of the IR shapes,
+ *  so the emit walk never sees them and the emitted bytes are identical whether tracing is on
+ *  or off.
+ *
+ *  That identity key is also the limit. Locations resolve only on the authored module: the
+ *  auto-var, lowering and optimizer passes rebuild every node, which breaks identity.
+ *  {@link validate}, {@link lintModule} and {@link diagnose} all run before those passes, which
+ *  is exactly where a location is worth having.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *
+ *  @param on - whether to capture a location for each node authored from here on.
+ *
+ *  @example
+ *  ```ts
+ *  import { setSourceTracing, diagnose, formatReport } from '@xgis/shader-dsl/dev'
+ *
+ *  setSourceTracing(true) // or run with XGIS_SHADER_DSL_TRACE=1
+ *  const m = buildModule() // authored under tracing, so its nodes carry locations
+ *  console.log(formatReport(diagnose(m)))
+ *  ```
+ *
+ *  @see {@link diagnose} for the report that prints the locations.
+ */
 export const setSourceTracing = (on: boolean): void => {
   tracing = on
 }

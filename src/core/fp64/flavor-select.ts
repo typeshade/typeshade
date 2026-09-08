@@ -63,9 +63,44 @@ export function isAppleGpu(s: Fp64FlavorSignals): boolean {
   return false
 }
 
-/** The df64 lowering flavor this device needs for CORRECT results: 'integer'
- *  on Apple/Metal (where the float EFTs are reassociated away), 'float'
- *  everywhere else. Pass the result as `EmitOptions.fp64Flavor`. */
+/** Pick the df64 lowering flavour a device needs for correct results, from whatever
+ *  identifying signals a host has. Pass the result as `EmitOptions.fp64Flavor`.
+ *
+ *  The flavour differs by device because of one operation. The df64 multiply relies on error
+ *  terms that are algebraically zero, and a compiler allowed to reassociate can cancel them.
+ *  On Apple GPUs, where Metal is underneath whether the path is WebGPU or WebGL2 through
+ *  ANGLE, the shader compiler defaults to fast math and collapses that multiply at any
+ *  large-magnitude cancellation, and no in-shader barrier holds it: every float barrier
+ *  probed on device collapsed, while the integer lowering passed. `sin` and `cos` are built on
+ *  that multiply, so they inherit the same fragility there. So an Apple signal selects
+ *  `'integer'`, which does the same arithmetic through integer primitives fast math cannot
+ *  touch, and every other device gets `'float'`, which is correct on the real chains there and
+ *  cheaper.
+ *
+ *  D3D11 through ANGLE stays on `'float'` deliberately. Its compiler also folds deep synthetic
+ *  composition trees, but the production chains hold under the float flavour's renormalisation
+ *  there, and its compile cost on the fully inlined integer bodies can reset the device.
+ *
+ *  The DSL cannot see a GPU, so the signals come from the caller: a WebGPU adapter's `info`, a
+ *  WebGL2 `UNMASKED_RENDERER_WEBGL` string, a user agent. All are optional, any single Apple
+ *  signal selects `'integer'`, and passing none returns `'float'`.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param s - the device signals the host was able to collect.
+ *  @returns `'integer'` on an Apple or Metal-backed context, `'float'` everywhere else.
+ *
+ *  @example
+ *  ```ts
+ *  import { recommendFp64Flavor, emitModule } from '@xgis/shader-dsl'
+ *
+ *  const fp64Flavor = recommendFp64Flavor({ adapterInfo: adapter.info, userAgent: navigator.userAgent })
+ *  const wgsl = emitModule(MODULE, { fp64Flavor })
+ *  ```
+ *
+ *  @see {@link isAppleGpu} for the predicate behind it.
+ *  @see {@link f64T} for the emulation this configures.
+ */
 export function recommendFp64Flavor(s: Fp64FlavorSignals): Fp64Flavor {
   return isAppleGpu(s) ? 'integer' : 'float'
 }

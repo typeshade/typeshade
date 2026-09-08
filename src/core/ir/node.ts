@@ -1190,13 +1190,35 @@ export const max = <K extends FloatKey | Float64Key | IntKey>(
  *  binResultType for parity with `min` / `max`. */
 export const pow = <K extends FloatKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> =>
   call('pow', binResultType(a.type, lift(b).type, 'pow'), a, b) as Node<K>
-/** `mod(x, y)` — FLOOR-mod (x − y·⌊x/y⌋) with identical semantics on both
- *  targets, matching GLSL/TSL `mod()` (#839). Float `%` (the `.mod` METHOD) is
- *  TRUNC-mod on WGSL and integer-only in GLSL ES 3.00, so this free fn is THE
- *  portable float modulo — reach for it wherever a negative operand is possible
- *  (domain repetition, angle folds). Deliberately not named `fmod`: C/HLSL
- *  `fmod` is TRUNC-mod, the opposite semantics. Component-wise; `y` may be a
- *  scalar broadcast over a vector `x`. */
+/** Floor modulo: `x - y * floor(x / y)`, with identical semantics on both targets. Use it
+ *  wherever a negative operand is possible, which is what domain repetition and angle folds
+ *  need: the result takes the sign of `y`, so for a positive `y` every input wraps into
+ *  `[0, y)` and `mod(-1, 4)` is `3`.
+ *
+ *  The `.mod` method and `%` are the other modulo, truncated modulo, whose result takes the
+ *  sign of `x`: there `(-1) % 4` is `-1`. That is WGSL's `%` semantics, and since GLSL ES
+ *  3.00 keeps `%` for integers only, the GLSL writer spells the float case as
+ *  `a - b * trunc(a / b)`. This free function is the portable float modulo of the two. It is
+ *  deliberately not named `fmod`, which in C and HLSL means the truncated one.
+ *
+ *  Component-wise. `y` may be a scalar broadcast over a vector `x`.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param x - the value to wrap.
+ *  @param y - the modulus, a vector of the same shape or a scalar to broadcast.
+ *  @returns the wrapped value, in `[0, y)` for a positive `y`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, mod, f32T } from '@xgis/shader-dsl'
+ *
+ *  // Fold an angle into one revolution, whatever sign it arrives with.
+ *  const wrap = fn('wrap_angle', { a: f32T }, ({ a }) => mod(a, 6.283185307179586))
+ *  ```
+ *
+ *  @see {@link floor} for the rounding this is built on.
+ */
 export const mod = <K extends FloatKey>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>>): Node<K> =>
   call('mod', binResultType(x.type, lift(y).type, 'mod'), x, y) as Node<K>
 /** `clamp(x, lo, hi)` — restricts `x` to `[lo, hi]`, component-wise. `lo`/`hi` may be scalar
@@ -1470,29 +1492,62 @@ const levelArg = (l: NodeLike): NodeLike => {
   }
   return l
 }
-/** Sample a 2D texture → vec4<f32>. (CPU eval: opt-in stub.) First-arg
- *  constraints (#763 X6): a texture/sampler swap used to type-check and die
- *  at naga — KeyOf now carries specific texture/sampler keys.
+/** Sample a 2D texture, returning `vec4<f32>`.
  *
- *  FRAGMENT-ONLY in WGSL: the implicit LOD comes from screen-space derivatives,
- *  which exist only in a fragment invocation. Enforced by the
- *  `fragment-only-builtin` lint rule (a CORE rule — it fires at every emit); use
- *  {@link textureSampleLevel} in a vertex or compute stage. */
+ *  The level of detail is implicit: it comes from screen-space derivatives, which exist only
+ *  in a fragment invocation. That makes this call fragment-only, and the `fragment-only-builtin`
+ *  lint rule, a core rule that fires at every emit, reports `SD0109` when it appears in a
+ *  vertex or compute stage. {@link textureSampleLevel} takes the level as an argument and is
+ *  legal in every stage, so it is the form a vertex or compute shader reaches for.
+ *
+ *  A 2D array texture uses the same name, and the first argument's key picks the overload: a
+ *  `texture_2d_array<f32>` requires the `layer` argument, and omitting it is a tsc error. A
+ *  `number` layer lifts to an `i32` literal. The targets spell the layer differently and the
+ *  DSL absorbs that: WGSL takes it as its own argument, `textureSample(t, s, uv, layer)`,
+ *  while GLSL ES 3.00 folds it into the coordinate, `texture(t, vec3(uv, float(layer)))`.
+ *  Both spellings are core, so an array texture needs no capability on either target.
+ *
+ *  Integer texture keys (`texture_2d<u32>`, `texture_2d<i32>` and their array twins) are
+ *  rejected at tsc, deliberately. Filtering is a weighted average, and interpolating integer
+ *  texels has no meaning, so WGSL has no `textureSample` for them at all. GLSL's
+ *  `texture(usampler2D, …)` would compile, and accepting it would mint a construct that runs
+ *  on WebGL2 and cannot be expressed on WebGPU. The surface both targets share for an integer
+ *  texture is {@link textureLoad}, {@link textureDimensions} and {@link textureNumLayers}.
+ *
+ *  The CPU oracle has no evaluation for a texture read and stubs it under `gpuStubs`.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param tex - the sampled texture binding, `resource(name, texture2dfT, at).node`.
+ *  @param smp - the sampler binding to filter with.
+ *  @param uv - normalised texture coordinates.
+ *  @param layer - which layer to read, required for an array texture and rejected otherwise.
+ *  @returns the filtered texel.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, resource, textureSample, texture2dfT, samplerT, vec2fT, vec4fT } from '@xgis/shader-dsl'
+ *
+ *  const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
+ *  const smp = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
+ *
+ *  const fs = fn('fs_main', { uv: vec2fT }, vec4fT, ({ uv }) => textureSample(tex.node, smp.node, uv), {
+ *    stage: 'fragment',
+ *  })
+ *  ```
+ *
+ *  @see {@link textureSampleLevel} for the any-stage form.
+ *  @see {@link textureLoad} for an unfiltered texel fetch.
+ */
 export function textureSample(
   tex: ReadonlyNode<'texture_2d<f32>'>,
   smp: ReadonlyNode<'sampler'>,
   uv: ReadonlyNode<'vec2<f32>'>,
 ): Node<'vec4<f32>'>
-/** Sample one LAYER of a 2D ARRAY texture → vec4<f32> (#1651). The layer is an
- *  ARGUMENT, not a binding, so an N-layer atlas costs one binding slot; a `number`
- *  layer lifts to an i32 literal. Carries the DISTINCT neutral id
- *  `textureSampleArray` — WGSL appends the layer to `textureSample`, GLSL folds it
- *  into the coordinate (`texture(t, vec3(uv, float(layer)))`), so the two targets
- *  RESTRUCTURE the arguments rather than merely adding one.
- *
- *  FRAGMENT-ONLY in WGSL, like its non-array twin (the implicit LOD comes from
- *  screen-space derivatives) — enforced by the `fragment-only-builtin` lint rule;
- *  use {@link textureSampleLevel}'s array form in a vertex or compute stage. */
+/** Sample one layer of a 2D array texture, returning `vec4<f32>`. The layer is an argument, so
+ *  an atlas of N layers costs one binding slot. See the non-array
+ *  overload above for the fragment-only rule, the per-target layer spelling, and why an
+ *  integer texture has no sampling form. */
 export function textureSample(
   tex: ReadonlyNode<'texture_2d_array<f32>'>,
   smp: ReadonlyNode<'sampler'>,
@@ -1635,19 +1690,40 @@ export const f64GuardOne = (): Node<'f32'> =>
 export const textureDimensions = (
   tex: ReadonlyNode<TextureLoad2dKey | TextureLoadArrayKey>,
 ): Node<'vec2<u32>'> => call('textureDimensions', vec2uT, tex) as Node<'vec2<u32>'>
-/** Layer COUNT of a 2D ARRAY texture → u32 (#1658) — the one extent
- *  {@link textureDimensions} cannot report (it returns vec2<u32> for an array texture
- *  too). ARRAY-key only: a plain 2d / multisampled texture has no layer count, so
- *  passing one is a tsc error. Carries its OWN neutral id, never an overload of
- *  textureDimensions: the targets spell it structurally differently — WGSL has the
- *  dedicated `textureNumLayers(t)`, GLSL ES 3.00 has no such function at all and reads
- *  the THIRD component of its `ivec3 textureSize(sampler2DArray, lod)` (exactly the
- *  component textureDimensions' `uvec2()` constructor drops). u32 is WGSL's return
- *  type; wrap in {@link toF32} for float arithmetic. (CPU stub.)
+/** How many layers a 2D array texture has, as a `u32`.
  *
- *  Accepts an INTEGER array texture too (#1703) — the layer COUNT is a property of the
- *  view, not of the texel element, so `usampler2DArray` reads it through the identical
- *  `uint(textureSize(t, 0).z)`. */
+ *  {@link textureDimensions} reports the width and height only, `vec2<u32>`, for an array
+ *  texture as much as for a plain one, so the layer count is this separate query. Wrap the
+ *  result in {@link toF32} for float arithmetic.
+ *
+ *  It accepts an array key only: a plain 2D or multisampled texture has no layer count, and
+ *  passing one is a tsc error. An integer array texture is accepted, since the count is a
+ *  property of the view and not of the texel element.
+ *
+ *  The targets spell it differently, which is why it carries its own id instead of overloading
+ *  `textureDimensions`. WGSL has the dedicated `textureNumLayers(t)`. GLSL ES 3.00
+ *  has no such function and reads the third component of `textureSize(t, 0)`, exactly the
+ *  component the `uvec2()` constructor behind `textureDimensions` drops. The lod argument is
+ *  required there, and the layer count does not vary with lod, so `0` is always right.
+ *
+ *  The CPU oracle has no evaluation for a texture query and stubs it under `gpuStubs`.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param tex - the array-texture binding to measure.
+ *  @returns the layer count.
+ *
+ *  @example
+ *  ```ts
+ *  import { resource, textureNumLayers, toF32, texture2dArrayfT } from '@xgis/shader-dsl'
+ *
+ *  const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 1 })
+ *  const layers = toF32(textureNumLayers(atlas.node))
+ *  ```
+ *
+ *  @see {@link textureDimensions} for the width and height.
+ *  @see {@link textureSample} for reading one layer.
+ */
 export const textureNumLayers = (tex: ReadonlyNode<TextureLoadArrayKey>): Node<'u32'> =>
   call('textureNumLayers', u32T, tex) as Node<'u32'>
 /** Screen-space derivative magnitude — GPU-only (uncomputable per-invocation
