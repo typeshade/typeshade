@@ -1,74 +1,66 @@
-<!-- Generated: 2026-06-23 | Updated: 2026-09-07 -->
+<!-- Generated: 2026-06-23 | Updated: 2026-09-08 -->
 
 # TypeShade (`@xgis/shader-dsl`)
 
 ## Purpose
 
-A zero-dependency TypeScript shader DSL that eliminates hand-maintained GPU/CPU drift. A shader is authored
-ONCE as a typed node graph (the IR); three backends then emit it over ONE shared tree-walk — a **WGSL**
-writer (the production strings for `device.createShaderModule`), a **GLSL ES 3.00** writer (real for
-render pipelines — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+render-verified; a read-only
-SSBO lowers to a data texture by default, compute emulation is opt-in, writes/unsupported shapes/MSAA
-fail closed), and a **CPU f64 oracle** that walks the same IR on the host in double precision. The
-authoring surface is deliberately ceremony-free (TSL-grade): plain `const x = expr`, method ops +
-`.assign()`, `fn()` with inferred return type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the
-full guide.
+A zero-dependency TypeScript shader DSL. A shader is authored once as a typed node graph
+(the IR). Three backends emit it over one shared tree walk: a WGSL writer, a GLSL ES 3.00
+writer, and a CPU f64 oracle that evaluates the same IR on the host in double precision.
+The authoring surface is plain TypeScript: `const x = expr`, method operators, `.assign()`,
+`fn()` with an inferred return type, and `If` / `Switch`. `AUTHORING.md` is the guide.
 
-## Key Files
+## Key files
 
-| File                       | Description                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `package.json`             | `@xgis/shader-dsl`, ESM, zero runtime deps; `main`/`exports` point at `src/index.ts` (source-only package — consumers type-resolve the TS directly). Owns the three scripts below: `build`, `test`, `gate:compile`.                                                                                                                                      |
-| `tsconfig.json`            | Standalone TS project; it extends the PACKAGE-LOCAL `tsconfig.base.json` — nothing tracked here may name a path outside this tree, or the vendored copy cannot compile. `tsc --build` (i.e. `bun run build`) is the canonical typecheck.                                                                                                                 |
-| `vitest.config.ts`         | The suite config for this tree: `src/**` + `examples/**` specs, `testTimeout` 30 s — the df64 property suites sample random inputs for 8–16 s per test and fail on vitest's 5 s default.                                                                                                                                                                 |
-| `scripts/compile-gate.ts`  | `bun run gate:compile` — emits every registered example and hands each emit to the compiler that would receive it in production: the WGSL to Tint (Chromium's headless WebGPU), both GLSL ES 3.00 stages to a real WebGL2 context. Each compiler is fed a deliberately broken shader FIRST, so a blind instrument fails the gate instead of greening it. |
-| `.github/workflows/ci.yml` | CI: typecheck + unit suite, and the compile gate, on every push and pull request.                                                                                                                                                                                                                                                                        |
-| `AUTHORING.md`             | **The developer authoring guide** — `fn(name, params, body)` (ret inferred), `const x = expr` + auto-var, `.assign()`, contextual literal lift, `If`/`Switch`/combinators, the SoT helpers (`ioStruct`/`storageBuffer`/`structDecl`), typed const + fn handles. Start here before writing a shader.                                                      |
-| `src/index.ts`             | The public barrel — the ONLY import surface for consumers outside this package. Re-exports the finished shader graphs + the emit entry points; `core/` is private and never imported directly.                                                                                                                                                           |
+| File | What it is |
+| --- | --- |
+| `package.json` | `@xgis/shader-dsl`, ESM, no runtime dependencies. `main` and `exports` point at `src/index.ts`; consumers compile the TypeScript. Scripts: `build`, `test`, `gate:compile`. |
+| `tsconfig.json` | Standalone project. It extends the package-local `tsconfig.base.json`; nothing tracked here may name a path outside this tree, or the vendored copy stops compiling. `tsc --build` (`bun run build`) is the canonical type check. |
+| `vitest.config.ts` | Test config: `src/**` and `examples/**` specs, 30 s timeout because the df64 property suites run 8 to 16 s. |
+| `scripts/compile-gate.ts` | `bun run gate:compile`. Emits every registered example and hands the WGSL to Tint (Chromium's headless WebGPU) and both GLSL ES 3.00 stages to a real WebGL2 context. Each compiler is fed a broken shader first, so an instrument that cannot fail cannot pass. |
+| `.github/workflows/ci.yml` | Type check, unit suite and compile gate on every push and pull request. |
+| `AUTHORING.md` | The authoring guide. Read it before writing a shader. |
+| `src/index.ts` | The public barrel and the only import surface for consumers. `core/` is private. |
 
 ## Subdirectories
 
-| Directory | Purpose                                                                                                                                                                                                                                                                                                                             |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/`    | All source. `core/` holds the IR, the neutral emitter + backend contract, the pass pipeline and the SoT layer; the entry points beside it (`index.ts`, `dev.ts`, `compute.ts`, `emit-prod.ts`) are the public surface. Concrete shader graphs are NOT here — a consumer authors its own through this package. (see `src/AGENTS.md`) |
+| Directory | Purpose |
+| --- | --- |
+| `src/` | All source. `core/` holds the IR, the neutral emitter and backend contract, the pass pipeline and the layout layer. The entry points beside it (`index.ts`, `dev.ts`, `compute.ts`, `emit-prod.ts`) are the public surface. Concrete shader graphs live in consuming projects. See `src/AGENTS.md`. |
 
-## For AI Agents
+## Working in this repository
 
-### Working In This Directory
+- Read `AUTHORING.md` first. Several older patterns are gone (`Var` / `Let` names,
+  `.field()` / `.of()` / `.get()`, `entryFn` / `computeFn`, `callFn('name')`, `constRef('PI')`,
+  explicit `fn()` return tokens, free `assign()`). Use the current forms.
+- Emit changes come in two kinds. A byte-identical change (a pure authoring refactor) is
+  gated by the emit goldens. A semantic change (the emitted text changes) needs the CPU
+  oracle parity gate and a real compile through `bun run gate:compile`.
+- `core/` is private. Do not widen the public barrel to export it.
 
-- **Read `AUTHORING.md` first** — the API is intentionally ceremony-free and several older patterns are gone
-  (`Var`/`Let` names, `.field()`/`.of()`/`.get()`, `entryFn`/`computeFn`, `callFn('name')`, `constRef('PI')`,
-  explicit `fn()` ret tokens, free `assign()`). Use the current form or you reintroduce removed ceremony.
-- Emit changes split into TWO classes: **byte-identical** (pure authoring refactor — the emit goldens ARE the
-  gate, no compiler needed) and **semantic** (the emitted text changes — needs the CPU-oracle parity gate AND
-  a real compile through `bun run gate:compile`, so the new bytes are proven to still BE a program).
-- `core/` is private; never widen the public barrel to export it.
+## Tests
 
-### Testing Requirements
+- `bun run build`: `tsc --build` (dist and `.d.ts`), then `tsc -p tsconfig.tests.json`, the
+  noEmit pass over tests, examples and scripts.
+- `bun run test`: vitest over `src/**` and `examples/**` (146 test files).
+- `bun run gate:compile`: every registered example emitted and compiled. Needs Chromium once:
+  `./node_modules/.bin/playwright install --only-shell chromium`.
 
-- `bun run build` — `tsc --build` (dist + `.d.ts`) then `tsc -p tsconfig.tests.json`, the noEmit pass over
-  tests, examples and scripts. This is the canonical typecheck.
-- `bun run test` — vitest over `src/**` and `examples/**` (146 test files).
-- `bun run gate:compile` — every registered example emitted and compiled: WGSL on Tint, both GLSL ES 3.00
-  stages on a real WebGL2 context. Needs the browser once: `./node_modules/.bin/playwright install --only-shell chromium`.
+## Patterns
 
-### Common Patterns
-
-- One IR, three backends, one tree-walk — any new emit feature must be added to the shared walk, not a single
-  backend, or the CPU oracle / GLSL writer drift.
-- The auto-var pass relies on Expr OBJECT IDENTITY; it runs on ALL THREE backends — never skip it on a new one.
-- **Module constants** are scalar dual-precision by default (`ConstDecl.wgslValue` truncated vs `cpuValue`
-  full-precision, e.g. `PI`). A non-scalar const (vec / array / struct) sets `ConstDecl.valueExpr` instead —
-  a constant-foldable literal Expr that supersedes `wgslValue`/`cpuValue` on every backend (WGSL + GLSL emit
-  it through the neutral `emitExpr`; the oracle evaluates it via the same tree-walk, consts populated in
-  declaration order). Author one with the `constExpr(name, type, valueNode)` helper.
+- One IR, three backends, one tree walk. A new emit feature goes into the shared walk, or
+  the CPU oracle and the GLSL writer drift.
+- The auto-var pass relies on Expr object identity and runs on all three backends.
+- Module constants are scalar dual-precision by default (`ConstDecl.wgslValue` truncated,
+  `cpuValue` full precision, for example `PI`). A non-scalar constant (vec, array, struct)
+  sets `ConstDecl.valueExpr` instead: a constant-foldable literal Expr that every backend
+  uses. Author one with `constExpr(name, type, valueNode)`.
 
 ## Dependencies
 
-- **None at runtime** (zero-dep by design). Dev-only: `typescript`, `vitest`, `@types/node`, `@webgpu/types`,
-  and `playwright` (the compile gate's browser).
-- ZERO outbound dependency on any host, and it stays that way: what a host must supply — e.g. the projection
-  spec list (projType order, globe flag, cull thresholds) — is INJECTED through `configureProjections()`,
-  never imported.
+- None at runtime. Dev only: `typescript`, `vitest`, `@types/node`, `@webgpu/types` and
+  `playwright` for the compile gate.
+- No dependency on any host. What a host must supply, such as the projection spec list, is
+  injected through `configureProjections()`.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
