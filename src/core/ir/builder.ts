@@ -681,26 +681,96 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[
   Symbol.for('xgis.shader-dsl.fnAutoId')
 ] ??= { n: 0 }) as { n: number }
 
-/** Author a function. The body receives the typed param Nodes FIRST (each keyed by its
- *  ShaderType); the Builder is the optional SECOND arg — TSL-style (three.js Fn passes the
- *  inputs then the node-builder), so a clean body is just `(p) => …` using the ambient
- *  surface (Let/Var/If/Loop/Return + native terminal return) and only reaches for `b` when
- *  it must. The body's native `return` is type-checked against `ret` (`Node<KeyOf<R>>`), so a
- *  wrong-typed return is a compile error. The name is OPTIONAL — an anonymous handle gets an
- *  auto `_fn{n}` placeholder that a `funcs:` key-record deterministically renames at module
- *  assembly (#763 H9 — the name-once form); keep an EXPLICIT name only where the fn is
- *  referenced by string outside its own handle (externFn / callFn / placeholder-swap lookups)
- *  and no record names it.
+/** Author a function. One call covers a plain helper and a `@vertex`, `@fragment` or
+ *  `@compute` entry point. The returned {@link FnHandle} is both the callable and the
+ *  declaration: call it directly, list it in `module({ funcs })`, or read its `.decl`.
  *
- *  The return-type token `ret` is OPTIONAL only when the body RETURNS a value TypeScript can
- *  see — `(p) => expr`, or a struct field proxy. A body that returns nothing at the TS level
- *  MUST pass `ret` (#2458): a guard-style body sends its value out through an ambient
- *  `Return()` inside a nested closure, which `inferReturnType` finds at runtime but tsc
- *  cannot, so without the token the handle would collapse to `FnHandle<P, string>` and put
- *  every one of its call sites outside the phantom-key checker. A genuinely void fn (a
- *  compute entry, a statement-only mutator) passes `voidT` and lands on `'void'`.
- *  Returns an FnHandle — call it directly (`foo(a, b)`), list it in a module (`funcs: [foo]`),
- *  or take `foo.decl`. */
+ *  The leading name is optional. An anonymous handle carries a placeholder name (`_fn0`,
+ *  `_fn1`, and so on) that a `funcs` key record renames when {@link module} assembles, so no
+ *  generated name reaches the emitted source. Keep an explicit name when a string refers to
+ *  the function and no record renames it: an {@link externFn} declaration, a `callFn` call,
+ *  or a placeholder-swap lookup.
+ *
+ *  `params` is a record whose keys are the parameter names, in declaration order. A value is
+ *  one of three things. A plain {@link ShaderType} declares an ordinary parameter. A
+ *  {@link builtin} or {@link location} spec declares a stage-attributed entry-point
+ *  parameter, emitting `@builtin(...)` or `@location(...)` on it; these are the same two
+ *  helpers an {@link ioStruct} field uses, so an entry parameter and a struct field are
+ *  authored alike. A struct handle ({@link structDecl} or {@link ioStruct}) hands the body
+ *  that struct's typed field proxy, so the body reads `p.vo.uv` with no `VsOut.of(p.vo)`
+ *  step. Params are read-only, so `p.uv.assign(...)` is a tsc error; declare a {@link Var}
+ *  where the body has to mutate.
+ *
+ *  A parameter may be named `in`, or any other word GLSL reserves. The IR carries the name
+ *  and the GLSL backend renames it at emit. JavaScript cannot bind that name in a
+ *  destructuring pattern, so give it a local name there: `({ in: inp }) => inp.uv`.
+ *
+ *  The return-type token `ret` is optional when the body returns a value TypeScript can see,
+ *  `(p) => expr` or a struct field proxy, since the handle takes that value's key. Pass the
+ *  token when the body sends its value out through an ambient {@link Return} inside a nested
+ *  closure: TypeScript reads such a body as returning nothing, and without the token the
+ *  handle widens to `FnHandle<P, string>`, which puts every call site outside the key check.
+ *  A function that returns nothing passes `voidT` and lands on `'void'`.
+ *
+ *  The body is `(p, b) => …`: the typed param nodes first, the {@link Builder} second. Most
+ *  bodies need only `p` and the ambient statement surface ({@link Let}, {@link Var},
+ *  {@link If}, {@link Loop}, {@link Return}) plus a final native `return`, which is
+ *  type-checked against the return type. Reach for `b` when a statement is authored outside
+ *  an active scope, and for `b.raw(...)`.
+ *
+ *  `opts` carries six fields:
+ *
+ *  - `stage: 'vertex' | 'fragment' | 'compute'` makes the function a pipeline entry point.
+ *    Omit it for an ordinary helper.
+ *  - `workgroupSize` sizes a compute entry, emitting `@compute @workgroup_size(N)`. It
+ *    defaults to 64.
+ *  - `retAttr` attaches an attribute to a bare, non-struct stage return, giving
+ *    `-> @location(0) vec4<f32>`. A typed `location(0, T)` spec is accepted and its `.attr`
+ *    is used. A bare non-struct fragment return defaults to `@location(0)`. A struct return
+ *    carries its attributes in the struct instead.
+ *  - `allowEarlyReturn` records a deliberate deviation from the `single-exit` lint rule, for
+ *    a body whose early {@link Return} skips work, such as a guard in front of a bounded
+ *    loop.
+ *  - `portable` declares a compute entry a portable kernel; see below.
+ *  - `lintDisable` lists rule ids whose diagnostics are dropped for this function, the
+ *    general form of `allowEarlyReturn`. Use either with a comment saying why.
+ *
+ *  A portable kernel emits on both backends: natively as `@compute` on WGSL, and on GLSL ES
+ *  3.00 through the compute-to-fragment lowering, which WebGL2 dispatches as a fullscreen
+ *  draw into an R32UI target. In exchange the kernel stays inside the gather-only tier: a
+ *  `global_invocation_id` read only as `.x`, exactly one `read_write` storage binding of
+ *  `array<u32>` written exactly once at the invocation index, a first `uniform` binding of
+ *  `vec4<u32>` whose `.x` is the invocation count and `.y` the output-grid width, and no raw
+ *  statements anywhere the entry can reach. Anything outside that shape fails validation on
+ *  both writers with `SD0111` and a per-violation remedy.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param name - the emitted function name. Omit it to let a `funcs` key record name the
+ *    function at module assembly.
+ *  @param params - the parameter record, in declaration order, as described above.
+ *  @param ret - the return type to pin. Omit it when the body's own `return` carries the type.
+ *  @param body - the function body, receiving the typed params and the builder.
+ *  @param opts - the stage, the workgroup size, the return attribute, and the lint deviations
+ *    listed above.
+ *  @returns a callable handle that is also the function declaration.
+ *  @throws `SD0110` when `portable` is declared without `stage: 'compute'`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, location, vec4, length, vec2fT } from '@xgis/shader-dsl'
+ *
+ *  const dist = fn('dist', { p: vec2fT, q: vec2fT }, ({ p, q }) => length(p.sub(q)))
+ *
+ *  const fs = fn('fs_main', { uv: location(0, vec2fT) }, ({ uv }) => vec4(uv, 0, 1), {
+ *    stage: 'fragment',
+ *  })
+ *  ```
+ *
+ *  @see {@link module} for assembling handles into a module.
+ *  @see {@link externFn} for calling a function whose body is linked in later.
+ *  @see {@link FnParamSpec} for the param record's type.
+ */
 export function fn<P extends FnParamSpec, R extends string>(
   params: P,
   body: FnBodyValue<P, R>,
@@ -1044,9 +1114,54 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
   return funcs
 }
 
-/** Assemble a module from its declarations. `funcs` may be the classic array
- *  (order preserved verbatim; transitively handle-called fns are prepended
- *  callee-first) or a key-named record — see ModuleParts. */
+/** Assemble a module from its declarations. `consts`, `structs`, `bindings` and `funcs` are
+ *  the four arrays a module is made of, and each defaults to empty; `overrides`, `externs`,
+ *  `enables` and `uses` are the optional rest. The result is a plain {@link ModuleDecl}, the
+ *  value {@link emitModule}, {@link emitGlslModule}, {@link reflect} and {@link compileModule}
+ *  all take.
+ *
+ *  The order of `funcs` is the emit order, and two things depend on it. GLSL ES 3.00 requires
+ *  declare-before-use: the backend topologically sorts its own function section and emits a
+ *  forward prototype where the call graph forces one, and a callee-first list keeps working
+ *  without them. A fixed order also keeps the emitted bytes deterministic across rebuilds,
+ *  which is what the byte-identical golden tests compare. A function reached only through a
+ *  handle call is collected transitively and prepended callee-first, so listing the entry
+ *  points is usually enough.
+ *
+ *  `funcs` also accepts a record. Each key renames the handle it holds, an anonymous
+ *  `fn(params, body)` handle included, and key order is the emit order, since JavaScript
+ *  preserves string-key insertion order. The record therefore names every function
+ *  deterministically and no auto-generated `_fn0` name reaches the output, which is what a
+ *  snapshot-gated or string-referenced module needs. Keep the array form when the list is
+ *  spread across sources or post-processed as data.
+ *
+ *  `uses` takes declarator handles, {@link uniformStruct}, {@link storageBuffer},
+ *  {@link resource}, {@link ioStruct}, {@link structDecl}, {@link constDecl} and
+ *  {@link fp64Guard} among them, and derives the struct, binding and const entries from what
+ *  each handle already knows. Explicit arrays still work and merge with the derived ones.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param parts - the declaration arrays, the optional `funcs` record, and `uses`.
+ *  @returns the assembled module.
+ *  @throws `Error` when a `funcs` record key renames a declaration that was already assembled
+ *    under a different name, which would corrupt the earlier module's re-emit.
+ *
+ *  @example
+ *  ```ts
+ *  import { module } from '@xgis/shader-dsl'
+ *
+ *  // Array form: the order is the emit order, callees first.
+ *  const m = module({ structs: [VsOut.decl], bindings: [U.binding], funcs: [wrap_lon, vs, fs] })
+ *
+ *  // Record form: each key is the emitted name, and key order is the emit order.
+ *  const n = module({ uses: [U, VsOut], funcs: { wrap_lon, vs_main: vs, fs_main: fs } })
+ *  ```
+ *
+ *  @see {@link fn} for the handles this collects.
+ *  @see {@link ModuleParts} for the input shape.
+ *  @see {@link reflect} for reading the assembled module's pipeline metadata.
+ */
 export function module(parts: ModuleParts): ModuleDecl {
   // #763 X1 — `uses:` derives structs/bindings/consts from the HANDLES, which
   // already know their own decls; every module used to restate them by hand,
@@ -1109,36 +1224,88 @@ export function module(parts: ModuleParts): ModuleDecl {
   return parts.enables ? { ...decl, enables: parts.enables } : decl
 }
 
-/** Author a module-level constant from an IR VALUE expression — the general
- *  (non-scalar) const form. `value` may be any constant-foldable literal Node:
- *  a vector `vec4(…)`, an `array(…)` literal, a struct constructor, or a scalar.
- *  Emits `const <name>: <type> = <value>;` on WGSL + GLSL and evaluates `value`
- *  on the CPU oracle. For a plain scalar `f32` const that needs the truncated-
- *  vs-full-precision split (e.g. `PI`), author the `{wgslValue, cpuValue}` form
- *  directly instead. */
+/** Author a module-level constant from an IR value expression: the form for a constant that
+ *  is not a plain scalar. `value` is any constant-foldable literal node, a `vec4(...)`, an
+ *  `arrayLit(...)`, a struct constructor. It emits `const <name>: <type> = <value>;` on both
+ *  WGSL and GLSL ES 3.00, and the CPU oracle evaluates the same expression, so all three
+ *  agree on the value.
+ *
+ *  A scalar constant is the other form. {@link constDecl} takes a `{ wgsl, cpu }` pair and
+ *  writes them into a `ConstDecl`'s `wgslValue` and `cpuValue`: the shader gets the spelling
+ *  you want in the source, often a truncated one such as `3.14159265`, while the oracle
+ *  evaluates the full double. `constExpr` has no such split, because a folded literal node
+ *  carries one value for both.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param name - the emitted constant name, and the name every reference spells.
+ *  @param type - the constant's shader type, emitted as its declared type.
+ *  @param value - a constant-foldable literal node holding the value.
+ *  @returns the `ConstDecl` to put in `module({ consts })`.
+ *
+ *  @example
+ *  ```ts
+ *  import { constExpr, arrayLit, arrayT, vec4, vec4fT } from '@xgis/shader-dsl'
+ *
+ *  const SKY = constExpr('SKY', vec4fT, vec4(0.4, 0.6, 0.9, 1))
+ *  const PALETTE = constExpr('PALETTE', arrayT(vec4fT, 2), arrayLit(vec4fT, c0, c1))
+ *  ```
+ *
+ *  @see {@link constDecl} for a scalar constant with a separate CPU value.
+ *  @see {@link module} for where the returned declaration goes.
+ */
 export function constExpr(name: string, type: ShaderType, value: Node): ConstDecl {
   return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
 }
 
-/** Author a `raw` Stmt — the verbatim-splice escape hatch (#1671). Give the
- *  spelling for every target the module must build for:
+/** Author a raw statement, the escape hatch that splices verbatim text into a function body.
+ *  Reach for it when a statement has to be hand-written: a string from another generator, or
+ *  a construct the IR does not model.
  *
+ *  The payload carries one spelling per target, `{ wgsl, glsl }`. The meaning is fixed, only
+ *  the spelling differs, and each backend splices its own side. One side may be omitted, and
+ *  the other backend then throws `SD0030` naming the missing side and quoting the side you
+ *  did give, so leaving a side out states that the module does not build for that target. At
+ *  least one side is required at the type level: `rawStmt({})` does not compile.
+ *
+ *  Only the first line receives the enclosing body's indent. The emitter prepends that indent
+ *  to the payload as a whole, so line two onward of a multi-line payload lands at column
+ *  zero. Indent the continuation lines yourself when the output shape matters.
+ *
+ *  Identifiers inside the payload are yours to keep valid. Nothing reads into raw text, so
+ *  nothing rewrites it, and the GLSL backend renames params and locals that collide with GLSL
+ *  reserved words (`in`, `sample`, `filter`, `texture`, and the rest); a `glsl` payload naming
+ *  the pre-rename identifier references a variable that no longer exists. WGSL has no such
+ *  renamer, so the risk is one-sided even though the contract is the same on both. For the
+ *  same reason a module holding a raw statement makes {@link mangle} a no-op module-wide, and
+ *  the CPU oracle has no evaluation for raw text and throws when it reaches one.
+ *
+ *  This factory returns the `Stmt`, which is what you want when assembling a `Stmt[]` body by
+ *  hand. Inside a fluent {@link fn} body use `b.raw(payload)` instead: a bare `rawStmt(...)`
+ *  call there is a discarded expression, since the returned statement is never pushed and
+ *  nothing is emitted.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param payload - the per-target spellings, at least one of `wgsl` and `glsl`.
+ *  @returns the raw statement node, ready to place in a body array.
+ *
+ *  @example
  *  ```ts
- *  rawStmt({ wgsl: 'return vec4<f32>(1.0);', glsl: 'return vec4(1.0);' })
+ *  import { fn, rawStmt, vec4fT } from '@xgis/shader-dsl'
+ *
+ *  // Inside a fn body, through the builder:
+ *  const fs = fn('fs_main', {}, vec4fT, (_p, b) => {
+ *    b.raw({ wgsl: 'return vec4<f32>(1.0, 0.0, 0.0, 1.0);', glsl: 'return vec4(1.0, 0.0, 0.0, 1.0);' })
+ *  }, { stage: 'fragment' })
+ *
+ *  // Assembling a Stmt[] by hand:
+ *  const stmt = rawStmt({ wgsl: 'discard;', glsl: 'discard;' })
  *  ```
  *
- *  The object form is deliberate: the payloads are SYMMETRIC (a glsl-only raw is
- *  as expressible as a wgsl-only one), and each backend fails closed (SD0030) on
- *  the side it was not given — so an omitted spelling is a build error on that
- *  target, never a silent mis-emit. At least ONE side is required at the type
- *  level: `rawStmt({})` is a compile error (see `RawPayload`).
- *
- *  PLACEMENT: this FACTORY returns a Stmt — use it when assembling a `Stmt[]`
- *  body array by hand. Inside a fluent `fn()` body use `b.raw(payload)` instead;
- *  a bare `rawStmt(...)` call there is a silently discarded expression (the
- *  returned Stmt is never pushed, so nothing is emitted). Not to be confused
- *  with the Backend fragment of the same name (backend.ts), which CONSUMES this
- *  node. */
+ *  @see {@link RawPayload} for the payload type.
+ *  @see {@link mangle} for what a raw statement costs a production emit.
+ */
 export function rawStmt(payload: RawPayload): RawStmt {
   return { s: 'raw', ...payload }
 }
@@ -1151,19 +1318,44 @@ export interface OverrideHandle<K extends string> {
   readonly decl: OverrideDecl
 }
 
-/** Author a pipeline specialization constant (#923): one declarator that lowers to a
- *  WGSL module-scope `override name: type = default;` (host specializes via
- *  `createRenderPipeline({ constants: { name } })`) AND a GLSL `#define` permutation
- *  seam (host specializes by re-emitting with `emitGlslModule(m, stage, { overrideValues })`
- *  per variant — GLSL forbids a prepended `#define`, so the value is spelled and placed
- *  after the `#version` preamble by the emitter). The value is fixed at PIPELINE
- *  CREATION, not module build, so its read stays OPAQUE to the optimizer — a branch
- *  guarded by `q.node` (e.g. `If(q.node.gt(1), …)`) survives every DSL pass and is
- *  eliminated by the DRIVER per variant, giving the classic ubershader mechanism.
+/** Declare a pipeline specialization constant: one value that is fixed when a pipeline is
+ *  created, later than module build and earlier than the draw.
  *
- *  WGSL scalars ONLY (bool/i32/u32/f32) — WGSL forbids vec/matrix overrides, so a
- *  non-scalar type is rejected here (SD0014). `f16` slots in once it joins the Scalar
- *  union (gated by the #957 f16 `enable`). */
+ *  WGSL emits a module-scope `override name: type = default;`, and the host pins it through
+ *  pipeline constants, `createRenderPipeline({ constants: { name } })`. GLSL ES 3.00 has no
+ *  driver-side equivalent, so a specialized variant is a re-emit: pass
+ *  `emitGlslModule(m, stage, { overrideValues })` and the backend writes a generated
+ *  `#define NAME <value>` placed after the `#version` line, which is where GLSL will accept
+ *  it. An override the caller does not name keeps its default. The values a host passes on
+ *  either target come from `reflect(m).overrides`, which reports each name, type and default.
+ *
+ *  The read stays opaque to the optimizer, so a branch guarded by `q.node` survives every DSL
+ *  pass and the driver eliminates it per variant. That is the ubershader mechanism: one
+ *  module, one emit, N specialized pipelines.
+ *
+ *  WGSL allows scalar overrides only, so `type` must be `bool`, `i32`, `u32` or `f32`.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param name - the override's name, as the host spells it in `constants` or in a define.
+ *  @param type - the scalar shader type of the value.
+ *  @param defaultValue - the value used when the host pins nothing.
+ *  @returns an {@link OverrideHandle}: `.node` reads the value, `.decl` goes into
+ *    `module({ overrides })`.
+ *  @throws `SD0014` when `type` is not a scalar.
+ *
+ *  @example
+ *  ```ts
+ *  import { overrideConst, module, reflect, u32T } from '@xgis/shader-dsl'
+ *
+ *  const quality = overrideConst('QUALITY', u32T, 1)
+ *  const m = module({ overrides: [quality.decl], funcs: [fs] })
+ *  reflect(m).overrides // [{ name: 'QUALITY', type: u32T, default: 1 }]
+ *  ```
+ *
+ *  @see {@link reflect} for the values a host pins.
+ *  @see {@link variantFamily} when the variants differ in shape and not only in a value.
+ */
 export function overrideConst<T extends ShaderType>(
   name: string,
   type: T,
@@ -1231,20 +1423,45 @@ export function externVar<T extends ShaderType>(
 // emit stays byte-identical. IfChain.elif/.else accept a zero-arg `() => …` body
 // (a 0-arg fn is assignable where `(b) => void` is wanted), so chains read clean too.
 
-/** Immutable binding — `let name = expr;` — over the innermost active scope. The ambient
- *  counterpart of {@link Builder.let}: routes to `currentBuilder()` instead of taking a
- *  `Builder` param, so it reads plainly inside a `fn()` body without threading `b` through
- *  every nested `If`/`Loop` callback. Prefer this over re-evaluating an expensive expression
- *  (a texture sample, a swizzle chain) at each use site — the WGSL/GLSL backends do not CSE
- *  arbitrary sub-expressions for you.
+/** Bind a value to an immutable local, emitting `let name = expr;` into the innermost active
+ *  scope. It is the ambient counterpart of `Builder.let`, resolving `currentBuilder()` so a
+ *  body reads plainly without threading `b` through every nested {@link If} or {@link Loop}
+ *  callback.
+ *
+ *  It returns the read-only node type, so `binding.assign(...)` is a tsc error. To mutate,
+ *  declare with {@link Var}. Read APIs take the read-only type too, so a `Let` result flows
+ *  everywhere a value is read.
+ *
+ *  Most intermediates need no wrapper at all: author a plain `const` and the emit decides
+ *  between inlining, a shared `let` and a `var`. The case where a `Let` is load-bearing is a
+ *  loop that mutates a var. Common-subexpression elimination cannot cache a subexpression
+ *  that reads a mutated var, because its value differs per read site, so a value derived from
+ *  that var re-emits at every read unless it is materialised. Inside such a loop, wrap
+ *  anything derived from the mutated var that you read more than once.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
+ *  @param name - the emitted binding name. Omit it and the builder generates one.
+ *  @param value - the expression to bind.
+ *  @returns a read-only node reading the binding.
+ *
  *  @example
  *  ```ts
- *  const vu = Let(textureSample(uTex.node, samp.node, uv).x)
- *  const vv = Let(textureSample(vTex.node, samp.node, uv).x)
+ *  import { fn, Loop, Let, If, Break, length, f32, u32, f32T, vec3fT } from '@xgis/shader-dsl'
+ *
+ *  const march = fn('march', { ro: vec3fT, rd: vec3fT }, f32T, ({ ro, rd }) => {
+ *    const t = f32(0) // mutated below, so the emit materialises it as a var
+ *    Loop(u32(0), (i) => i.lt(u32(72)), () => {
+ *      const p = ro.add(rd.mul(t))
+ *      const d = Let(length(p).sub(1)) // computed once; without Let it re-emits per read
+ *      If(d.lt(0.001), () => Break())
+ *      t.assign(t.add(d))
+ *    })
+ *    return t
+ *  })
  *  ```
+ *
+ *  @see {@link Var} for a binding you can assign to.
  */
 export function Let<K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>
 export function Let<K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>
@@ -1256,6 +1473,43 @@ export function Let<K extends string>(
     ? currentBuilder().let(nameOrValue, maybeValue!)
     : currentBuilder().let(nameOrValue)
 }
+/** Declare a mutable local and return the node that reads and writes it. `Var` is the one
+ *  declarator whose result carries `.assign`, so it is what a body reaches for when a value
+ *  changes: an accumulator, a counter, a value a {@link Switch} chain fills in per case.
+ *
+ *  Four shapes are accepted: `Var(init)` infers the type from the initialiser, `Var(type)` and
+ *  `Var(type, init)` state it, and `Var(name, init)` or `Var(name, type, init)` also pin the
+ *  emitted identifier, which keeps the bytes stable across rebuilds.
+ *
+ *  A plain `const` usually needs no `Var`. Author the intermediate as a JavaScript `const` and
+ *  the emit decides between an inlined expression, a shared `let` and a `var`; if the value is
+ *  later assigned to, the auto-var pass materialises it as a real `var` with no marker from
+ *  you. Reach for `Var` when you want the binding named, or when the declaration and the first
+ *  assignment are far apart.
+ *
+ *  The read-only bindings are the other half of the rule. A {@link Let} result, an {@link fn}
+ *  parameter and a module constant all return the read-only node type, which has no `.assign`,
+ *  so mutating one is a tsc error at the authoring line.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param name - the emitted identifier. Omit it and the builder generates one.
+ *  @param type - the declared type. Omit it when an initialiser carries the type.
+ *  @param init - the initial value.
+ *  @returns a mutable node reading the binding, and the target of `.assign`.
+ *
+ *  @example
+ *  ```ts
+ *  import { Var, Switch, f32 } from '@xgis/shader-dsl'
+ *
+ *  const radiusPx = Var('radius_px', rawRadius)
+ *  Switch(sizeMode)
+ *    .case(1, () => radiusPx.assign(rawRadius.div(viewport.z)))
+ *    .default(() => {})
+ *  ```
+ *
+ *  @see {@link Let} for an immutable binding.
+ */
 export function Var<K extends string>(init: ReadonlyNode<K>): Node<K>
 export function Var<T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>
 export function Var<T extends ShaderType>(
@@ -1263,9 +1517,8 @@ export function Var<T extends ShaderType>(
   type: T,
   init?: ReadonlyNode<KeyOf<T>>,
 ): Node<KeyOf<T>>
-/** Named + type-inferred (#763 X9) — the one missing cell of the naming matrix:
- *  `Var('n', init)` mirrors `Let('n', init)`; the mutable form used to force
- *  restating the type token the init already carries. */
+/** Named and type-inferred: `Var('n', init)` mirrors `Let('n', init)`, taking the type from
+ *  the initialiser. */
 export function Var<K extends string>(name: string, init: ReadonlyNode<K>): Node<K>
 export function Var<T extends ShaderType>(
   nameOrTypeOrInit: string | T | ReadonlyNode,
@@ -1359,10 +1612,48 @@ export const Discard = (): void => currentBuilder().discard()
 export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void): IfChain =>
   currentBuilder().if(cond, () => body())
 
-/** C-style for over the innermost scope; the body receives the typed counter Node.
- *  init/step/cond-result are READ positions — they accept `ReadonlyNode` (#763 G4);
- *  the counter handed to the callbacks stays a mutable `Node` (loop-var reassignment
- *  is legal WGSL). */
+/** Author a C-style `for` loop over the innermost active scope. The counter starts at `init`,
+ *  runs while `cond` holds, and advances by `step` after each iteration.
+ *
+ *  The leading name is optional and pins the emitted counter identifier; omit it and the
+ *  builder generates one. `step` is optional too and defaults to `+1`, so an ascending loop
+ *  passes nothing. The counter is a mutable node, since reassigning a loop variable is legal
+ *  on both targets.
+ *
+ *  Both callbacks receive the counter: `cond` as `(i) => i.lt(...)`, and the body as
+ *  `(i) => { ... }`. Declaring the parameter on the condition and omitting it on the body is
+ *  the mistake worth knowing. A body written `() => { ... }` that mentions `i` is still valid
+ *  JavaScript closure syntax, so nothing is wrong at the call site, but `i` is not in scope:
+ *  tsc reports `Cannot find name 'i'`, and a transpile-only runner reports it while the module
+ *  is being built, as `while building fn '…': in Loop body: i is not defined`.
+ *
+ *  {@link Break} and {@link Continue} are the loop terminators. For a loop whose only job is
+ *  to fold a value, {@link reduce} returns the accumulator and needs no `Var`.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param name - the emitted counter identifier. Omit it and one is generated.
+ *  @param init - the counter's initial value, which also fixes its type.
+ *  @param cond - the continue test, receiving the counter.
+ *  @param body - the loop body, receiving the counter.
+ *  @param step - the per-iteration increment. Defaults to `+1`.
+ *
+ *  @example
+ *  ```ts
+ *  import { Loop, toF32, u32 } from '@xgis/shader-dsl'
+ *
+ *  Loop(
+ *    u32(0),
+ *    (i) => i.lt(u32(64)),
+ *    (i) => {
+ *      acc.assign(acc.add(toF32(i)))
+ *    },
+ *  )
+ *  ```
+ *
+ *  @see {@link reduce} for the value-returning fold.
+ *  @see {@link Break} and {@link Continue} for the terminators.
+ */
 export function Loop<K extends string>(
   init: ReadonlyNode<K>,
   cond: (i: Node<K>) => ReadonlyNode<'bool'>,
@@ -1415,15 +1706,56 @@ export function reduce<K extends string, J extends string>(
   return acc
 }
 
-/** Immutable value-by-CONDITION dispatch — `var v; if (c0) v=e0; else if (c1) v=e1; … else v=eN`.
- *  Each arm RETURNS its value; `when` materialises the var + if/elif/else chain internally, so the
- *  emit is byte-identical to the hand form (it does NOT lower to `select`). Two shapes:
- *    when(cond, () => a, () => b)                      — 2-arm
- *    when([[c0, () => e0], [c1, () => e1]], () => eN)  — N-arm (first true condition wins)
+/** Dispatch a value on a condition, returning the value instead of mutating a var. Two shapes
+ *  are accepted: `when(cond, () => a, () => b)` for two arms, and
+ *  `when([[c0, () => e0], [c1, () => e1]], () => eN)` for N arms, where the first true
+ *  condition wins.
  *
- *  The orthogonal value-dispatch surface: `when` for a boolean TEST, `matchExpr`/`Switch` for integer
- *  SCRUTINEE dispatch, `select` for an eager 2-way (both arms evaluated). (Subsumes the former
- *  `ifExpr`/`condExpr`.) Conditions are read positions, so they accept the immutable `ReadonlyNode`. */
+ *  Each arm returns its value; `when` materialises the var and the if/elif/else chain
+ *  internally, so the emit is identical to the hand-written `var v; if (c) v = …` form. The
+ *  arms take values only, with no var name and no type token: the result type comes from the
+ *  arms.
+ *
+ *  Choosing between the three dispatch surfaces is a question about the subject. `when` is for
+ *  condition and range dispatch, where each arm tests something different and there is no
+ *  single subject: a threshold ladder, a pair of unrelated flags. {@link Switch} and
+ *  `matchExpr` are for dispatch on one integer scrutinee, the value that decides which arm
+ *  runs; `matchEnum` is the same with an exhaustiveness check. {@link select} is the eager
+ *  two-way form, which evaluates both arms.
+ *
+ *  `ifExpr` and `condExpr` are deprecated aliases of the two-arm and N-arm shapes. They
+ *  forward here unchanged.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param cond - the test, for the two-arm shape.
+ *  @param arms - condition and value pairs, for the N-arm shape, evaluated in order.
+ *  @param thenVal - the value when `cond` holds.
+ *  @param elseVal - the value when no condition holds.
+ *  @returns a node reading the chosen value.
+ *
+ *  @example
+ *  ```ts
+ *  import { when, vec2 } from '@xgis/shader-dsl'
+ *
+ *  const dir = when(
+ *    segLen.lt(1e-6),
+ *    () => vec2(1, 0),
+ *    () => segVec.div(segLen),
+ *  )
+ *
+ *  const zoomBand = when(
+ *    [
+ *      [zoom.lt(4), () => coarse],
+ *      [zoom.lt(9), () => medium],
+ *    ],
+ *    () => fine,
+ *  )
+ *  ```
+ *
+ *  @see {@link Switch} for dispatch on one integer scrutinee.
+ *  @see {@link reduce} for the loop-fold counterpart.
+ */
 export function when<K extends string>(
   cond: ReadonlyNode<'bool'>,
   thenVal: () => ReadonlyNode<K>,

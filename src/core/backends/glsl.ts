@@ -1576,34 +1576,31 @@ export interface GlslEmitOptions extends EmitOptions {
    *  values derive from `reflect().overrides` (name→chosen value); the WGSL twin is
    *  `createRenderPipeline({ constants })`. */
   overrideValues?: Readonly<Record<string, number | boolean>>
-  /** #1673 — default FLOAT precision qualifier for this emit. `'highp'` (the default)
-   *  is BYTE-NEUTRAL: an emit that omits this option is byte-identical to every emit
-   *  produced before the option existed.
+  /** The default float precision qualifier for this emit. `'highp'` is the default and is
+   *  byte-neutral: an emit that omits this option is byte-identical to one that could not
+   *  pass it.
    *
-   *  WHY: a mobile GPU pays real bandwidth and power for highp arithmetic and highp
-   *  varyings where mediump suffices, and the precision qualifier is the only lever
-   *  GLSL ES gives for it. BUILD-TIME by design — an emit option, not a runtime device
-   *  probe: `map/src/shaders/emit/shader-emit-request.ts` caches emitted source under a
-   *  `shaderRequestKey` that has NO precision component, so a runtime-varying precision
-   *  would serve a mediump program to a highp request (second-authority drift).
+   *  A mobile GPU pays real bandwidth and power for highp arithmetic and highp varyings
+   *  where mediump suffices, and the precision qualifier is the only lever GLSL ES gives for
+   *  it. It is a build-time option and never a runtime device probe, so a cache holding
+   *  emitted source must include the precision in its key; a key without one will serve a
+   *  mediump program to a highp request.
    *
    *  SCOPE — this spells the `precision <p> float;` line and NOTHING else:
-   *  - `precision highp int;` is LOAD-BEARING (storage-emulation index math, bitcast
-   *    lanes) and is never qualified by this option. MapLibre sets no int precision at
-   *    all; we keep ours pinned at highp.
-   *  - The #1651/#1703 `precision highp <sampler type>;` lines are likewise untouched.
+   *  - `precision highp int;` is load-bearing, for the storage-emulation index math and the
+   *    bitcast lanes, and is never qualified by this option.
+   *  - The `precision highp <sampler type>;` lines are likewise untouched.
    *  - It is a WHOLE-STAGE default, so it covers positions and coordinates too. mediump
-   *    is ~fp16: ~3 decimal digits over a ±65504 range, far short of what a projected
-   *    map coordinate needs — f32 ALREADY collapses at deep zoom, which is the entire
-   *    reason the df64 emulation in `core/fp64` exists (AUTHORING.md §7). Use this ONLY
-   *    for fragment-colour-class shaders whose output is a bounded, low-dynamic-range
-   *    colour; never for a stage computing a position, a tile/world coordinate, or a
-   *    df64 lane.
+   *    is roughly fp16: about 3 decimal digits over a range of plus or minus 65504, far
+   *    short of what a projected map coordinate needs. f32 already collapses at deep zoom,
+   *    which is the whole reason the df64 emulation exists. Use this for fragment-colour
+   *    shaders whose output is a bounded, low-dynamic-range colour, and keep it away from any
+   *    stage computing a position, a tile or world coordinate, or a df64 lane.
    *
-   *  NOT verifiable in CI beyond compile validity + header shape: the CI rasterizer
-   *  ADVERTISES mediump as 10-bit yet BEHAVES as f32 (computed at >=f32 or the probe
-   *  form reassociated — indistinguishable from outside), so no pixel gate can
-   *  distinguish the two emits (census: `playground/e2e/_glsl-compile-gate.spec.ts`). */
+   *  Not verifiable in CI beyond compile validity and header shape: the CI rasterizer
+   *  advertises mediump as 10-bit yet behaves as f32, either computing it at f32 or
+   *  reassociating the probe, which are indistinguishable from outside. No pixel gate can
+   *  tell the two emits apart. */
   floatPrecision?: 'highp' | 'mediump'
 }
 
@@ -2034,7 +2031,71 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
   return { ...opts, emulateCompute: true } as T
 }
 
-/** Emit one stage (or, with `stage` omitted, the whole module) as GLSL ES 3.00. */
+/** Emit a module as GLSL ES 3.00. Pass `'vertex'` or `'fragment'` for one stage, or omit the
+ *  stage for the whole module. The returned string is what goes to `gl.shaderSource`.
+ *
+ *  `opts.floatPrecision` sets the default float precision qualifier for the emitted stage.
+ *  `'highp'` is the default and is byte-neutral: omit the option and you get the bytes the
+ *  backend has always emitted. `'mediump'` exists because a mobile GPU pays real bandwidth and
+ *  power for highp arithmetic and highp varyings where mediump would do, and the precision
+ *  qualifier is the only lever GLSL ES gives for it.
+ *
+ *  Four things to know before reaching for `'mediump'`:
+ *
+ *  - It is a whole-stage default, so it covers positions and coordinates too. mediump is
+ *    roughly fp16: about three decimal digits over a range of plus or minus 65504. A projected
+ *    map coordinate does not survive that; f32 already collapses at deep zoom, which is why
+ *    the df64 emulation behind {@link f64T} exists. Use it for fragment-colour shaders whose
+ *    output is a bounded, low-dynamic-range colour, and keep it away from any stage computing
+ *    a position, a tile or world coordinate, or a df64 lane.
+ *  - It spells the float line only. `precision highp int;` stays highp, because the
+ *    storage-to-data-texture index math and the bitcast lanes need the full integer range, and
+ *    the sampler precision lines the backend derives from the module's texture types stay
+ *    highp as well.
+ *  - It is decided at build time and never probed from the device, so the shader cache key
+ *    has to carry it. Emitted GLSL is usually cached under a key derived from the module and the
+ *    options; a key with no precision component will serve a mediump program to a highp
+ *    request.
+ *  - CI cannot judge the numeric effect. The census in the compile gate measured a rasterizer
+ *    that advertises MEDIUM_FLOAT as 10 bits of precision against HIGH_FLOAT's 23, yet a
+ *    shader compiled under `precision mediump float;` there behaves as f32: the probe
+ *    `((1.0 + 2^-12) - 1.0) * 4096.0` reads the same on both arms. A precision format is a
+ *    declared minimum, and either the stack computes mediump at f32 or its compiler
+ *    reassociates the probe, which are indistinguishable from outside. So no pixel gate can
+ *    tell the two emits apart; the gates here cover the header shape and compile-and-link
+ *    validity, and real-device mediump behaviour is verifiable only on real mobile hardware.
+ *
+ *  `opts.overrideValues` pins specialization constants for this emit, since GLSL ES 3.00 has
+ *  no driver-side equivalent. `opts.emulateCompute` is superseded: declare the kernel
+ *  `portable: true` at the authoring site, and the compute-to-fragment lowering runs with no
+ *  emit option at all. The flag remains as the synonym for an undeclared kernel, on the same
+ *  code path and with the same bytes, so nothing that passes it has to change. Declaring it at
+ *  the authoring site is what lets both writers validate the kernel's gather-only shape at
+ *  every emit.
+ *
+ *  The neutral options apply too: `parens` and the production `plugins`.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param m - the module to emit.
+ *  @param stage - which stage to emit, or omitted for the whole module.
+ *  @param opts - the GLSL-only knobs above, plus the neutral emit options.
+ *  @returns the GLSL ES 3.00 source, `#version 300 es` first.
+ *  @throws {@link ValidationError} when the module fails a core rule, and
+ *    `UnsupportedFeatureError` (`SD0030`) when this target cannot spell a capability the
+ *    module needs, including a raw statement with no `glsl` payload.
+ *
+ *  @example
+ *  ```ts
+ *  import { emitGlslModule } from '@xgis/shader-dsl'
+ *
+ *  const vs = emitGlslModule(MODULE, 'vertex')
+ *  const fs = emitGlslModule(MODULE, 'fragment', { floatPrecision: 'mediump' })
+ *  ```
+ *
+ *  @see {@link GlslEmitOptions} for the full option shape.
+ *  @see {@link emitModule} for the WGSL twin.
+ */
 export function emitGlslModule(
   m: ModuleDecl,
   stage?: 'vertex' | 'fragment',

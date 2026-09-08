@@ -397,12 +397,20 @@ export interface EmitPlugin {
  *  byte-identical. */
 export interface EmitOptions {
   readonly plugins?: readonly EmitPlugin[]
-  /** How much parenthesis the expression walk writes: `'full'` (default — the
-   *  historical bytes, every operator wrapped) or `'minimal'`, which omits a
-   *  paren wherever operator precedence already implies the same parse. A
-   *  BUILD-TIME knob like `floatPrecision` (#1673), not a plugin: parenthesis is
-   *  an emit decision, not a rewrite of emitted text. Pair it with
-   *  `{ plugins: obfuscate() }` for the smallest shipped shader. */
+  /** How much parenthesis the expression walk writes. `'full'` is the default and wraps
+   *  every operator. `'minimal'` omits a paren wherever operator precedence already implies
+   *  the same parse, which is a build-time emit decision the IR can make exactly, so it is an
+   *  option here instead of a text-rewriting plugin. Pair it with `{ plugins: obfuscate() }`
+   *  for the smallest shipped shader.
+   *
+   *  `'minimal'` omits a paren only where WGSL and GLSL ES 3.00 define the same precedence:
+   *  `*`, `/` and `%` over `+` and `-` over unary `-`. The relational, logical, bitwise and
+   *  shift operators stay wrapped on purpose, because WGSL gives them no chaining precedence
+   *  at all, so mixing them unparenthesised is a compile error there and ranking them would
+   *  invent a rule one target lacks.
+   *
+   *  It never reassociates. `a + (b + c)` keeps its parens, because in floating point that is
+   *  a different number from `a + b + c`. */
   readonly parens?: ParenMode
   /** Which df64 EFT registry backs f64 lowering: 'float' (default — the
    *  guarded float EFTs, byte-identical emit) or 'integer' (the fast-math-

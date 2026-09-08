@@ -59,8 +59,50 @@ export interface DiagnosticReport {
   readonly summary: LintSummary
 }
 
-/** Run the lint ruleset (+ optional backend capability check) over an authored module and
- *  collect every diagnostic into one report. Never throws. */
+/** Ask one question of a module, "what is wrong with this?", and get every answer at once.
+ *  It runs the lint ruleset and, when a backend is given, a capability check, and collects
+ *  both into one report. It never throws.
+ *
+ *  Two options steer it. `rules` picks the ruleset: `'all'`, the default, runs the full set,
+ *  including the style rules emit does not gate on; `'core'` runs only what {@link validate}
+ *  runs. `backend` adds the capability check: the module's required caps are compared against
+ *  that backend's own capability profile, and a shortfall arrives as a diagnostic with code
+ *  `SD0030` naming the missing ids, where {@link emitModule} would have thrown.
+ *
+ *  It is read-only over the IR and never on the emit path, and it runs over the authored
+ *  module, before lowering rebuilds the nodes, which is what lets each diagnostic resolve a
+ *  source location when {@link setSourceTracing} is on.
+ *
+ *  {@link formatReport} renders the result the way a compiler does: one block per diagnostic,
+ *  severity and code and rule id on the first line, the function in parentheses, the
+ *  `--> file:line:col` line when a location resolved, the message, and a `hint:` line where
+ *  the rule offers a remedy, ending with a count of errors and warnings. Sort the
+ *  `diagnostics` array yourself if you present it some other way; it is in no promised order.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ *
+ *  @param m - the authored module to inspect.
+ *  @param opts - the ruleset, an optional backend to check capabilities against, and per-rule
+ *    severity overrides.
+ *  @returns every diagnostic found, with the summary counts over the same set.
+ *
+ *  @example
+ *  ```ts
+ *  import { diagnose, formatReport } from '@xgis/shader-dsl/dev'
+ *  import { wgslBackend } from '@xgis/shader-dsl'
+ *
+ *  const report = diagnose(MODULE, { rules: 'all', backend: wgslBackend })
+ *  if (report.summary.errors > 0) console.log(formatReport(report))
+ *  // error[SD0107] no-assign-to-let  (fn rim_alpha)
+ *  //   --> src/shaders/line.ts:721:9
+ *  //   assignment to immutable 'let' binding 'x'
+ *  //   hint: declare the binding with Var() instead of Let() to mutate it
+ *  // 1 error, 0 warnings
+ *  ```
+ *
+ *  @see {@link validate} for the throwing, emit-time gate.
+ *  @see {@link formatReport} for the rendering shown above.
+ */
 export function diagnose(m: ModuleDecl, opts?: DiagnoseOptions): DiagnosticReport {
   const rules = opts?.rules === 'core' ? CORE_RULES : RULES
   const diagnostics: Diagnostic[] = [...lint(m, rules, opts?.config)]

@@ -444,24 +444,48 @@ interface CodegenRuntime {
   intRem: typeof intRem
 }
 
-/** The perf-critical twin of `compileModule` — same IR, same `CpuModule` shape, and
- *  the SAME bit-identity contract by construction (every op calls the exact
- *  cpu-runtime helper — `applyBin`/`matVec`/`matMul`/`BUILTINS` — the interpreter
- *  calls, so there is no second implementation to drift). Instead of re-walking the
- *  IR node-by-node on every invocation, it walks each fn body ONCE here, emits a JS
- *  source string, and `new Function`s it — collapsing the interpreter's recursive
- *  per-node dispatch and per-call argument-array allocation (measured ~40% of frame
- *  time on the hot path, #1162) into straight-line JS with real local variables.
- *  HYBRID by design: a fn body that hits an IR shape this codegen cannot emit
- *  bit-identically (a `raw`/`placeholder` Stmt, an unrepresentable lvalue) falls
- *  back, per-fn, to the interpreter — so the returned module can be part-compiled,
- *  part-interpreted, transparently to the caller. Reach for this over
- *  `compileModule` on any hot per-frame path (map's cpu-projections recompiles per
- *  body-epoch and reuses the result); `new Function` construction can itself throw
- *  (a CSP `unsafe-eval` host), which is the one case the caller must catch and fall
- *  back to `compileModule` for.
+/** Compile a module for the CPU by generating JavaScript, returning the same
+ *  {@link CpuModule} shape {@link compileModule} returns and the same results bit for bit.
+ *  Prefer it on any hot path.
+ *
+ *  Bit identity holds by construction: every operation calls the exact runtime helper the
+ *  interpreter calls, so there is no second implementation to drift. What differs is when the
+ *  work happens. Instead of re-walking the IR node by node on every invocation, this walks
+ *  each function body once, emits a JavaScript source string and builds it with `new Function`,
+ *  which collapses the interpreter's recursive per-node dispatch and per-call argument arrays
+ *  into straight-line code with real local variables.
+ *
+ *  The interpreter stays the reference and the fallback. A function body holding a shape this
+ *  codegen cannot emit bit-identically, a raw or placeholder statement, an unrepresentable
+ *  lvalue, falls back to the interpreter for that function alone, so a returned module can be
+ *  part compiled and part interpreted with nothing to do at the call site. Where `new Function`
+ *  itself is unavailable, a host whose content security policy forbids `unsafe-eval`,
+ *  construction throws and the caller catches it and calls {@link compileModule} instead. Reach
+ *  for the interpreter directly when debugging, too, since it puts no generated source between
+ *  you and the IR.
  *
  *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param m - the module to evaluate.
+ *  @param opts - the same `precision` and `gpuStubs` {@link compileModule} takes.
+ *  @returns the compiled module: `fns` by name, and `setBinding`.
+ *  @throws `Error` when the host forbids `new Function`, which is the case to catch and fall
+ *    back to {@link compileModule} for.
+ *
+ *  @example
+ *  ```ts
+ *  import { compileModuleJs, compileModule } from '@xgis/shader-dsl'
+ *
+ *  const cpu = (() => {
+ *    try {
+ *      return compileModuleJs(MODULE)
+ *    } catch {
+ *      return compileModule(MODULE) // no new Function on this host
+ *    }
+ *  })()
+ *  ```
+ *
+ *  @see {@link compileModule} for the interpreter this matches.
  */
 export function compileModuleJs(
   m: ModuleDecl,

@@ -620,16 +620,69 @@ function bindingsIncludingInjected(
   }
 }
 
-/**
- * Recover the target-neutral pipeline metadata from a module's IR. Pure + read-only.
+/** Recover a module's pipeline metadata from its IR. It is what a host reads to build bind
+ *  groups, write uniform buffers, describe vertex state and check device features, without
+ *  parsing a line of emitted source.
  *
- * Reports the bindings a host must create — including the ones a LOWERING injects rather
- * than the author declaring (#1724, see {@link ReflectOptions.fp64Flavor}), because a host
- * builds its bind group from this and a binding missing here is a binding never bound.
+ *  The result carries:
  *
- * @param m - the module to describe.
- * @param opts - emit facts that change what the host must bind. Pass the same values the
- *   emit will get; a default here that disagrees with the emit describes a different program.
+ *  - `bindGroups`: every declared binding, sorted by group then binding, each with its name,
+ *    address space, access mode, resource kind, owner, and the stages that reference it. This
+ *    includes the bindings a lowering injects as well as the ones the author declared, the
+ *    fp64 guard texture among them, because a host builds its bind group from this list and a
+ *    binding missing here is a binding never bound.
+ *  - `uniforms` and `storage`: std140 and std430 struct layouts, per field offset, align and
+ *    size plus the struct's own size and alignment. This is where a byte offset comes from,
+ *    so nothing counts them by hand.
+ *  - `vertex`: the vertex entry's `@location` attributes with their offsets and the array
+ *    stride. Offsets are std430-aligned, each field rounded up to its type's alignment.
+ *  - `entries`: one signature per entry point, with its stage, its workgroup size for a
+ *    compute entry, its input and output types, its structured location and builtin interface,
+ *    and `portable` when the kernel declares that tier.
+ *  - `requiredFeatures`: every capability the emit needs, sorted and deduplicated. It covers
+ *    the caps derived from the module's shape (a storage binding, a compute entry, a
+ *    multisampled texture load), the caps the module declared in `enables`, and the closure
+ *    over implication, so a module declaring `float32Blend` also reports `floatRenderTarget`,
+ *    since blending into a float target needs that target to be colour-renderable first. The
+ *    ids are neutral, so translate them through {@link hostFeaturesFor} for one target.
+ *  - `overrides`: each specialization constant's name, type and default, the values a host
+ *    pins through pipeline constants or a define header.
+ *  - `requires`: the host-provided globals the module references and does not declare.
+ *
+ *  A texture binding reports two more fields a host needs to create a matching view.
+ *  `textureDim` is `'2d'`, `'2d-ms'` or `'2d-array'`, and `textureElem` is the texel element,
+ *  `f32`, `u32` or `i32`. Both axes are needed: WebGPU's `sampleType` must be `'uint'` or
+ *  `'sint'` for an integer texture, and WebGL2 must back one with an integer internal format.
+ *  Getting that pairing wrong raises nothing, since a texture whose format disagrees with its
+ *  sampler type is merely incomplete and reads zero.
+ *
+ *  Reflection is read-only over the IR and never runs on the emit path. It takes a module and
+ *  never a backend, which is why every id it reports is target-neutral.
+ *
+ *  {@link wgslLayout} is the same offset engine on its own, for a single struct with no module
+ *  around it.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param m - the module to describe.
+ *  @param opts - the emit facts that change what a host must bind, the fp64 flavour among
+ *    them. Pass the same values the emit will get; a default here that disagrees with the
+ *    emit describes a different program.
+ *  @returns the target-neutral pipeline metadata described above.
+ *
+ *  @example
+ *  ```ts
+ *  import { reflect, hostFeaturesFor, wgslBackend } from '@xgis/shader-dsl'
+ *
+ *  const r = reflect(MODULE)
+ *  const device = await adapter.requestDevice({
+ *    requiredFeatures: hostFeaturesFor(wgslBackend, r.requiredFeatures),
+ *  })
+ *  r.uniforms[0].fields // [{ name: 'mvp', offset: 0, size: 64, align: 16 }, …]
+ *  ```
+ *
+ *  @see {@link wgslLayout} for the offset engine alone.
+ *  @see {@link hostFeaturesFor} for turning `requiredFeatures` into one target's strings.
  */
 export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   const structs = new Map(m.structs.map((s) => [s.name, s]))

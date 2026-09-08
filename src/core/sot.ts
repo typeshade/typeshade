@@ -126,9 +126,59 @@ export type WgslBuiltinName =
   | 'subgroup_size'
   | 'clip_distances'
 
-/** A `@builtin(<name>)` IO field (e.g. builtin('position', vec4fT)). `name` is bounded
- *  to {@link WgslBuiltinName} — the closed WGSL vocabulary — so a typo or a GLSL-only
- *  spelling is a `tsc` error here instead of a naga error with no authoring line. */
+/** Attribute a field or an entry-point parameter with a `@builtin(<name>)`, the value the
+ *  pipeline supplies to the shader. The same helper serves an
+ *  {@link ioStruct} field map and an {@link fn} param record.
+ *
+ *  The vocabulary is WGSL's, passed through verbatim, and `name` is typed as the closed
+ *  {@link WgslBuiltinName} union: `'position'`, `'vertex_index'`, `'instance_index'`,
+ *  `'front_facing'`, `'frag_depth'`, `'sample_index'`, `'sample_mask'`, the compute family
+ *  (`'global_invocation_id'`, `'local_invocation_id'`, `'local_invocation_index'`,
+ *  `'workgroup_id'`, `'num_workgroups'`), the subgroup pair and `'clip_distances'`. A typo or
+ *  a GLSL spelling is therefore a tsc error at the authoring line, where a WGSL writer would
+ *  otherwise pass the name through and the failure would land in the GPU compiler with no way
+ *  back to the source.
+ *
+ *  The GLSL backend spells each id in that target's terms, so these are the `gl_*` globals the
+ *  ids replace:
+ *
+ *  | id | GLSL ES 3.00 |
+ *  | --- | --- |
+ *  | `position` on a vertex output | `gl_Position` |
+ *  | `position` on a fragment input | `gl_FragCoord` |
+ *  | `vertex_index` | `uint(gl_VertexID)` |
+ *  | `instance_index` | `uint(gl_InstanceID)` |
+ *  | `front_facing` | `gl_FrontFacing` |
+ *  | `frag_depth` | `gl_FragDepth` |
+ *
+ *  The two `position` rows are one id because WGSL has one: a vertex stage writes clip space,
+ *  a fragment stage reads window space. Mind the y origin when a fragment reads it, since GL
+ *  window space runs bottom-up and WGSL framebuffer space runs top-down.
+ *
+ *  `vertex_index` and `instance_index` are `u32` here and `int` in GLSL, which is why the
+ *  GLSL read is wrapped in `uint(...)`.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param name - the WGSL builtin id.
+ *  @param type - the field's type, which must match what the builtin supplies.
+ *  @returns a {@link FieldSpec} for an `ioStruct` field map or an `fn` param record.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, ioStruct, builtin, location, u32T, vec4fT, vec2fT } from '@xgis/shader-dsl'
+ *
+ *  const VsOut = ioStruct('VsOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+ *
+ *  // The same helper attributes an entry point's parameter.
+ *  const vs = fn('vs_main', { vid: builtin('vertex_index', u32T) }, ({ vid }) => vsOutFor(vid), {
+ *    stage: 'vertex',
+ *  })
+ *  ```
+ *
+ *  @see {@link location} for the other field attribute.
+ *  @see {@link WgslBuiltinName} for the full vocabulary.
+ */
 export const builtin = <T extends ShaderType>(name: WgslBuiltinName, type: T): FieldSpec<T> => ({
   type,
   attr: `@builtin(${name})`,
@@ -194,8 +244,48 @@ export interface IoStruct<F extends Record<string, FieldSpec>, N extends string 
   }): Node<`struct:${N}`>
 }
 
-/** Declare an IO struct (vertex/fragment in/out) from one field map; derive the
- *  StructDecl (with attrs), the struct type, and typed field access. */
+/** Declare a struct that crosses a stage boundary, a vertex output, a fragment input, a
+ *  compute IO record, from one field map. Every field is a {@link builtin} or {@link location}
+ *  spec, so the attributes live with the field they belong to and the struct is declared once.
+ *
+ *  The returned handle carries everything the rest of the module needs:
+ *
+ *  - `.type` is the struct's {@link ShaderType}. Use it as a parameter type, `{ vo: VsOut.type }`,
+ *    or pass the handle itself in an {@link fn} param record and the body receives the typed
+ *    field proxy.
+ *  - `.decl` is the `StructDecl` for `module({ structs })`, or pass the handle in `uses`.
+ *  - `.of(node)` reads fields off a value of this struct: `VsOut.of(p.vo).uv` is typed, and a
+ *    misspelled field is a tsc error. The view follows its base, so a read-only base yields
+ *    read-only fields.
+ *  - `.var(name)` declares a `var` of the struct and returns assignable fields:
+ *    `o.pos.assign(...)`. The proxy reads as the raw node in value positions, and `.$` is that
+ *    raw struct value where an explicit one is wanted.
+ *  - `.construct({ ... })` builds the value in one expression, keyed by field name, with a
+ *    missing or extra field a tsc error. It is the form to prefer when nothing needs mutating.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param name - the emitted struct name.
+ *  @param fields - the field map, each value a `builtin(...)` or `location(...)` spec.
+ *  @returns the {@link IoStruct} handle described above.
+ *
+ *  @example
+ *  ```ts
+ *  import { ioStruct, builtin, location, vec4fT, vec2fT, f32T } from '@xgis/shader-dsl'
+ *
+ *  const VsOut = ioStruct('VsOut', {
+ *    pos: builtin('position', vec4fT),
+ *    uv: location(0, vec2fT),
+ *    vis: location(1, f32T),
+ *  })
+ *
+ *  const pin = VsOut.of(p.vo) // pin.uv, pin.vis are typed reads
+ *  return VsOut.construct({ pos: clip, uv, vis })
+ *  ```
+ *
+ *  @see {@link structDecl} for a struct that never crosses a stage boundary.
+ *  @see {@link uniformStruct} for a struct that comes with its binding.
+ */
 export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
   name: N,
   fields: F,
@@ -298,10 +388,45 @@ export interface PlainStruct<F extends Record<string, ShaderType>, N extends str
   construct(values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> }): Node<`struct:${N}`>
 }
 
-/** Declare a plain (non-binding, non-IO) struct — a storage-buffer element type used in
- *  `array<T>`, or a nested struct — from one field map; derive the StructDecl, the struct
- *  type (`.type` replaces every `structT('Name')` string), and typed field access. The one
- *  struct kind the binding/IO helpers don't cover, so a layout has exactly ONE declaration. */
+/** Declare a plain struct: one that never crosses a stage boundary. That is a storage-buffer
+ *  element type, or a struct nested inside another struct. Fields are plain shader types with
+ *  no `@location` or `@builtin` attribute, which is the whole difference from
+ *  {@link ioStruct}.
+ *
+ *  The returned handle carries:
+ *
+ *  - `.decl` for `module({ structs })`, or pass the handle in `uses`.
+ *  - `.type` for the struct's shader type, which is what a parameter, a nested field or a
+ *    {@link storageBuffer} element takes.
+ *  - `.of(node).field` for typed field reads off a value you hold as a raw node, and
+ *    `.get(node, 'field')` for the positional spelling of the same read, which suits a call
+ *    site that reads many fields through one shorthand.
+ *  - `.var(name)` for a mutable `var` of the struct, and `.construct({ ... })` for the
+ *    one-expression build, exactly as {@link ioStruct} has them.
+ *
+ *  As a storage-buffer element type it is the argument {@link storageBuffer} takes, and
+ *  `buf.at(i)` then returns this struct's field proxy directly, with no `.of` step.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param name - the emitted struct name.
+ *  @param fields - the field map, each value a plain shader type.
+ *  @returns the {@link PlainStruct} handle described above.
+ *
+ *  @example
+ *  ```ts
+ *  import { structDecl, storageBuffer, u32T, vec2fT } from '@xgis/shader-dsl'
+ *
+ *  const ShapeSegment = structDecl('ShapeSegment', { kind: u32T, p0: vec2fT, p1: vec2fT })
+ *  const segments = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })
+ *
+ *  segments.at(i).p0 // Node<'vec2<f32>'>
+ *  ShapeSegment.get(someNode, 'kind') // the same read, positionally
+ *  ```
+ *
+ *  @see {@link ioStruct} for a struct with stage attributes.
+ *  @see {@link storageBuffer} for the binding whose element this is.
+ */
 export function structDecl<F extends Record<string, ShaderType>, N extends string>(
   name: N,
   fields: F,
@@ -432,8 +557,49 @@ export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
   readonly field: { readonly [K in keyof F]: UniformFieldNode<F[K]> }
 }
 
-/** Declare a uniform-buffer struct + its binding from one place; derive the StructDecl,
- *  the binding decl, the access node, and typed field access. `at.as` is the WGSL var name. */
+/** Declare a uniform-buffer struct together with its binding, from one field map. The struct,
+ *  the binding and every field read then come from the same declaration, so a slot or a field
+ *  type cannot drift between them.
+ *
+ *  The returned handle carries:
+ *
+ *  - `.struct` (also spelled `.decl`) for `module({ structs })` and `.binding` for
+ *    `module({ bindings })`. Passing the handle in `uses` contributes both.
+ *  - `.field.<name>` for typed field access, which chains straight into the value surface:
+ *    `U.field.raster_params.x`, `U.field.mvp.mul(v)`. A field declared with {@link arrayOf}
+ *    exposes `.at(i)` instead. Uniforms are read-only, so `U.field.opacity.assign(...)` is a
+ *    tsc error.
+ *  - `.node` for the raw binding access node, which is what a hand-built `member(...)` read
+ *    needs and is rarely wanted otherwise.
+ *  - `.type` for the struct's shader type.
+ *
+ *  Byte offsets are std140 and come from `reflect(m).uniforms`, so a host never counts them by
+ *  hand.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param typeName - the emitted struct name.
+ *  @param at - the `group` and `binding` slot, and `as`, the emitted variable name every field
+ *    read is spelled through.
+ *  @param fields - the field map: a shader type, or an {@link arrayOf} array field.
+ *  @returns the {@link UniformStruct} handle described above.
+ *
+ *  @example
+ *  ```ts
+ *  import { uniformStruct, mat4x4fT, vec4fT } from '@xgis/shader-dsl'
+ *
+ *  const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
+ *    mvp: mat4x4fT,
+ *    raster_params: vec4fT,
+ *  })
+ *
+ *  const opacity = U.field.raster_params.x
+ *  const m = module({ uses: [U], funcs: [vs, fs] })
+ *  ```
+ *
+ *  @see {@link reflect} for the std140 byte offsets a host writes against.
+ *  @see {@link hostUniform} when the surrounding renderer owns the uniform.
+ */
 export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
   typeName: string,
   at: { group: number; binding: number; as: string },
@@ -500,10 +666,38 @@ export interface Resource<T extends ShaderType = ShaderType> {
   readonly node: Node<KeyOf<T>>
 }
 
-/** A non-struct bound resource (texture / sampler): derive its binding decl + access
- *  node from one place. Generic over the resource type, so `r.node` keeps the SPECIFIC key
- *  (`Node<'texture_2d<f32>'>`, `Node<'sampler'>`) and texture/sampler ops are type-checked —
- *  not the widened `Node`. Space defaults to 'uniform' (the texture/sampler convention). */
+/** Declare a bound resource that is not a struct: a texture or a sampler. The binding
+ *  declaration and the access node come from this one call.
+ *
+ *  `.node` keeps the specific key of the type you passed, `Node<'texture_2d<f32>'>`,
+ *  `Node<'sampler'>`, `Node<'texture_2d_array<u32>'>`, and not the widened node type. That is
+ *  what makes the texture calls type-checked at the authoring line: {@link textureSample}
+ *  takes a sampled 2D texture and a sampler in that order, so swapping them is a tsc error,
+ *  an integer texture is rejected where filtering has no meaning, and an array texture
+ *  requires its layer argument.
+ *
+ *  `.binding` goes in `module({ bindings })`, or pass the handle in `uses`. The address space
+ *  defaults to `'uniform'`, the texture and sampler convention.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param name - the emitted binding name, which is also the name a host binds by.
+ *  @param type - the resource's type, such as `texture2dfT`, `texture2dArrayfT` or `samplerT`.
+ *  @param at - the `group` and `binding` slot, and optionally the address `space`.
+ *  @returns the {@link Resource} handle, `.binding` and `.node`.
+ *
+ *  @example
+ *  ```ts
+ *  import { resource, textureSample, texture2dfT, samplerT } from '@xgis/shader-dsl'
+ *
+ *  const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
+ *  const smp = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
+ *  const c = textureSample(tex.node, smp.node, uv)
+ *  ```
+ *
+ *  @see {@link textureSample} and {@link textureLoad} for reading one.
+ *  @see {@link storageBuffer} for a bound array.
+ */
 export function resource<T extends ShaderType>(
   name: string,
   type: T,
@@ -670,34 +864,62 @@ type MutableView<V> = {
 // The element view's WRITE capability follows the declared ACCESS (#763 G2):
 // `access: 'read'` hands out read views (`buf.at(i).p0.assign(…)` is a tsc error —
 // it used to compile and die at the driver); `read_write` hands out mutable views.
-/** Declare a bound `array<Element>` STORAGE buffer from its element alone — a struct handle
- *  (`structDecl`/`ioStruct`) or a scalar/vector `ShaderType` — deriving the binding decl (space
- *  `'storage'`), the access node, and a typed `.at(i)` in one place; see {@link StorageBuffer}
- *  for what `.at(i)` returns for each element kind. Unlike {@link arrayOf}, there is no
- *  `count` — the WGSL array is runtime-length, sized by whatever buffer the host binds.
+/** Declare a bound `array<Element>` storage buffer from its element alone. The element is a
+ *  struct handle ({@link structDecl} or {@link ioStruct}) or a scalar or vector shader type.
+ *  The handle derives the binding declaration, the access node, and a typed `.at(i)`. There is
+ *  no count: the array is runtime-length, sized by whatever buffer the host binds.
  *
- *  `access` decides the returned element view's write capability at the TYPE level (#763 G2):
- *  `'read'` hands out read-only fields (`buf.at(i).p0.assign(…)` is now a `tsc` error, not a
- *  driver-time failure); `'read_write'` hands out mutable ones.
+ *  `.at(i)` returns the element's typed field proxy for a struct element, so `buf.at(i).p0` is
+ *  a typed read with no `.of()` and no element-type argument. For a scalar element it returns
+ *  the element node directly. `.binding` goes in `module({ bindings })`, or pass the handle in
+ *  `uses`, which registers the element struct too.
  *
- *  **On GLSL ES 3.00 (WebGL2), which has no SSBO, `'read_write'` is a hard build-time error.**
- *  A storage binding lowers automatically to a data-texture read (`texelFetch`) at GLSL emit —
- *  no authoring change needed — but that lowering is GATHER-ONLY: it rewrites reads, has no
- *  write form, and throws `UnsupportedFeatureError` on a `read_write` binding rather than
- *  silently dropping the write (a compute kernel's output instead lowers through the
- *  compute→fragment path — declare the kernel `portable: true`, #1812; the legacy
- *  `emitGlslModule({ emulateCompute: true })` opt-in remains for undeclared kernels).
- *  Prefer `'read'` unless the module is
- *  WGSL-only, or the divergent access mode surfaces only once someone finally emits it for
- *  GLSL.
+ *  `access` decides the element view's write capability at the type level: `'read'` hands out
+ *  read-only fields, so `buf.at(i).p0.assign(...)` is a tsc error, and `'read_write'` hands
+ *  out mutable ones.
+ *
+ *  WebGL2 has no storage buffers, so on GLSL ES 3.00 the array lowers to a data texture and
+ *  each read becomes a `texelFetch`. Nothing changes at the authoring site. The lowering is
+ *  gather-only: it rewrites reads, has no write form, and a `read_write` binding throws
+ *  `UnsupportedFeatureError` at GLSL emit, so a write is never silently dropped. A compute
+ *  kernel's
+ *  output takes the compute-to-fragment path instead; declare the kernel `portable: true`.
+ *
+ *  The host has one obligation the DSL cannot check for it: give that data texture the
+ *  internal format matching the element. `array<u32>` lowers to a `usampler2D` and wants
+ *  R32UI, `array<i32>` to an `isampler2D` and wants R32I, and the float case wants R32F. A
+ *  texture whose format disagrees with its sampler type is merely incomplete, which raises
+ *  nothing: `texelFetch` on it returns zero. Read the element off `reflect(m)`, whose
+ *  per-binding `textureElem` reports it, instead of tracking it separately.
+ *
+ *  Carrying integers through an R32F texture and recovering them with `floatBitsToUint` is not
+ *  the fallback it looks like. GLSL ES 3.00 permits an implementation to flush any denormal to
+ *  zero, and small integers are denormal f32 bit patterns, `1u` is 1.4e-45, so that route can
+ *  legally lose values. It survives on every driver measured so far, which is why it is not a
+ *  foundation to build on.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param name - the emitted binding name, which is also the name a host binds by.
+ *  @param element - the array's element: a struct handle, or a scalar or vector type.
+ *  @param at - the `group` and `binding` slot, and `access`, `'read'` or `'read_write'`.
+ *  @returns the {@link StorageBuffer} handle described above.
  *
  *  @example
  *  ```ts
- *  const segmentsB = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })
- *  const p0 = segmentsB.at(i).p0 // typed field read, no `.of()`, no element-type argument
+ *  import { storageBuffer, structDecl, u32T, vec2fT } from '@xgis/shader-dsl'
+ *
+ *  const ShapeSegment = structDecl('ShapeSegment', { kind: u32T, p0: vec2fT, p1: vec2fT })
+ *  const segments = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })
+ *  const seg = segments.at(i)
+ *  seg.p0 // Node<'vec2<f32>'>
+ *
+ *  const featIds = storageBuffer('feat_ids', u32T, { group: 0, binding: 0, access: 'read' })
+ *  featIds.at(i) // Node<'u32'>: an SSBO read on WGSL, a texelFetch on GLSL
  *  ```
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  @see {@link reflect} for the element and dimension a host needs to create the texture.
+ *  @see {@link arrayOf} for a fixed-length array field inside a uniform struct.
  */
 export function storageBuffer<H extends StructHandle>(
   name: string,

@@ -500,50 +500,56 @@ function resolvedLines(prev: readonly string[], next: readonly string[]): string
   return out
 }
 
-/**
- * Compare two modules at the IR + reflection layer, ignoring the noise that makes a
- * textual golden diff unreadable after the optimizer and the production emit plugins
- * have run.
+/** Compare two modules at the IR and reflection layer, above the noise that makes a textual
+ *  diff of emitted source unreadable once the optimizer and the production plugins have run.
  *
- * Reports four buckets — entry/vertex `interface`, bind-group and layout `resources`,
- * `constants` (module consts, overrides, and the multiset of body literals), and the
- * per-statement `controlFlow` skeleton. Empty in all four means the two modules agree
- * on everything a host binds to and everything the code does.
+ *  It reports four buckets: the entry and vertex `interface`, the bind-group and layout
+ *  `resources`, the `constants` (module consts, overrides, and the multiset of body literals),
+ *  and the per-statement `controlFlow` skeleton. Empty in all four means the two modules agree
+ *  on everything a host binds to and everything the code does. Each line is prefixed `-` for a
+ *  fact only in `a` and `+` for one only in `b`, and {@link isSemanticallyEqual} is the
+ *  all-empty test.
  *
- * The load-bearing invariant, and the reason `'names'` canonicalizes exactly the
- * identifiers `mangleModule` is free to rewrite:
+ *  A pass that legitimately changes the program is not expected to be empty here. Inlining
+ *  rewrites call sites and duplicates literals, which is exactly what the buckets report.
+ *  Declare such a pass in `transforms`, the same plugin array the production emit takes, and
+ *  every difference the declared pipeline provably causes moves into `explained`, one entry
+ *  naming the plugin, the bucket and the line, instead of spending the regression budget.
  *
- * ```ts
- * isSemanticallyEqual(semanticDiff(m, mangleModule(m).module)) // always true
- * ```
+ *  Classification is by construction and not by resemblance. A line moves to `explained` only
+ *  when applying that plugin's own `transformIR` to the reference side actually removes the
+ *  line from the diff. A regression that merely looks like an optimizer rewrite stays in its
+ *  bucket, which is what a resemblance test could never promise, so a dev-to-prod parity gate
+ *  budgets only the unexplained residue.
  *
- * `obfuscate()`'s only IR-stage plugin is `mangle` (the rest transform text), so that
- * invariant is what lets a consumer assert "the production emit is the dev emit,
- * optimized" rather than trusting it.
+ *  Text-stage plugins explain nothing, because the comparator never sees emitted text. That is
+ *  why declaring the full production array is safe: {@link minify} and {@link aliasTypes}
+ *  contribute no `explained` entries and remove no coverage, so you can pass the array you
+ *  actually ship without deciding which half to omit.
  *
- * A pass that legitimately changes the program — `inline()`, or const-folding between
- * optimization levels — is NOT expected to be empty here: those rewrite literals and
- * branch structure, which is precisely what this reports. DECLARE such a pass via
- * `transforms` (#1806) and the differences it provably accounts for are reclassified
- * into `explained` instead of spending the regression budget:
+ *  The load-bearing invariant is that mangling is a no-op here, since `'names'` canonicalizes
+ *  exactly the identifiers {@link mangle} is free to rewrite.
  *
- * ```ts
- * const d = semanticDiff(dev, prod, { transforms: [inline()] })
- * isSemanticallyEqual(d) // true ⇔ every difference is explained by the declared pipeline
- * d.explained            // [{ transform: 'inline', bucket: 'controlFlow', line: '…' }, …]
- * ```
+ *  Exported from `@xgis/shader-dsl`.
  *
- * Classification is by construction, not by resemblance: a line is explained only
- * when applying the declared plugin's own `transformIR` to `a` actually removes it
- * from the diff, so a real regression — even one shaped like an optimizer rewrite —
- * survives into the buckets.
+ *  @param a - the reference module, the development side when `transforms` is declared.
+ *  @param b - the module to compare against it, the transformed side.
+ *  @param opts - the axes to disregard, `names` and `declOrder` by default, and optionally the
+ *    declared transform pipeline.
+ *  @returns the four buckets, and `explained` when `transforms` was declared.
  *
- * @param a - the reference module (the DEV side when `transforms` is declared).
- * @param b - the module to compare against it (the transformed side).
- * @param opts - axes to disregard (defaults to ignoring `names` and `declOrder`),
- *   and optionally the declared transform pipeline.
- * @returns the four buckets, each `-`-prefixed for facts only in `a` and `+`-prefixed
- *   for facts only in `b`; with `transforms` declared, also `explained`.
+ *  @example
+ *  ```ts
+ *  import { semanticDiff, isSemanticallyEqual } from '@xgis/shader-dsl'
+ *  import { inline, obfuscate } from '@xgis/shader-dsl/emit-prod'
+ *
+ *  const d = semanticDiff(devModule, prodModule, { transforms: [inline(), ...obfuscate()] })
+ *  isSemanticallyEqual(d) // true when prod differs from dev only as the declared pipeline dictates
+ *  d.explained // [{ transform: 'inline', bucket: 'controlFlow', line: '…' }, …]
+ *  ```
+ *
+ *  @see {@link isSemanticallyEqual} for the all-empty test.
+ *  @see {@link obfuscate} for the array to declare.
  */
 export function semanticDiff(
   a: ModuleDecl,
