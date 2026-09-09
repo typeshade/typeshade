@@ -32,20 +32,21 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
   return [head, ...lines].join('\n')
 }
 
-/** Thrown by `validate()` when a module fails an emit-time gate. Subclasses
- *  {@link ShaderDslError} and carries code `SD0020`, so an `instanceof ShaderDslError` handler
- *  still catches it and a code-based one still routes it.
+/** Thrown by {@link validate} when a module fails one of the structural rules every emit
+ *  depends on. Subclasses {@link ShaderDslError} and carries code `SD0020`, so an
+ *  `instanceof ShaderDslError` handler catches it and a handler that switches on `code`
+ *  routes it.
  *
- *  The reason to catch this specific class is {@link ValidationError.diagnostics}: `validate()`
- *  collects EVERY error-severity diagnostic before throwing, not just the first, so one throw
- *  reports the whole failing surface. `.message` renders the same list as text; the array is
- *  what you present in a UI.
+ *  Catch this class for {@link ValidationError.diagnostics}: `validate()` collects every
+ *  error-severity diagnostic before throwing, so one throw reports every failure in the
+ *  module. `.message` renders the same list as text; the array is the form to present in a
+ *  UI or a test report.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  *
  *  @example
  *  ```ts
- *  import { ValidationError } from '@xgis/shader-dsl'
+ *  import { validate, ValidationError } from '@xgis/shader-dsl'
  *
  *  try {
  *    validate(MODULE)
@@ -56,7 +57,8 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
  *  ```
  */
 export class ValidationError extends ShaderDslError {
-  /** Every error-severity diagnostic that caused the failure (not just the first). */
+  /** Every error-severity diagnostic that caused the failure, in the order the rules
+   *  reported them. */
   readonly diagnostics: readonly Diagnostic[]
   constructor(diags: readonly Diagnostic[]) {
     super({ code: 'SD0020', message: formatValidationMessage(diags) })
@@ -74,25 +76,28 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
 /** Check an authored module against the structural rules every emit depends on, and throw a
  *  {@link ValidationError} when any of them fails.
  *
- *  {@link emitModule}, {@link emitGlslModule} and {@link compileModule} each run this first,
- *  before any lowering, so a structurally invalid module surfaces at the authoring line
- *  instead of as source a driver rejects. Call it directly when you want that answer without
- *  emitting.
+ *  {@link emitModule}, {@link emitGlslModule} and {@link compileModule} each run this check
+ *  first, before they rewrite the module for their target, so a structurally invalid module
+ *  is reported at the line that authored it and never reaches the driver as invalid WGSL or
+ *  GLSL. Call it directly when you want that answer without emitting.
  *
- *  One error reports every failure. `validate` collects every
- *  error-severity diagnostic, and the throw carries them all on `err.diagnostics`; the
- *  message renders the same list as text. Each diagnostic names its `code` (`SD0107` and its
- *  siblings), the `rule` that raised it, the `fn` it was found in, and, with
- *  {@link setSourceTracing} on, the `file:line:col` that authored the node.
+ *  One error reports every failure. `validate` collects every error-severity diagnostic, and
+ *  the throw carries them all on `err.diagnostics`; the message renders the same list as
+ *  text. Each diagnostic names its `code` (`SD0107` and its siblings), the `ruleId` that
+ *  raised it, the `fn` it was found in, and, with {@link setSourceTracing} on, the
+ *  `file:line:col` that authored the node.
  *
- *  It runs the core ruleset, the invariants that hold for every module, including
- *  runtime-composed variants and compute kernels that legitimately return early. The
- *  opinionated style rules are lint-only; run {@link lintModule} or {@link diagnose} for
- *  those.
+ *  It runs the core rules: duplicate struct or function names, binding collisions, a function
+ *  path that ends without returning a value, mixed scalar types in one expression, a call
+ *  whose arity or argument types disagree with the function it names, a fragment-only builtin
+ *  read outside a fragment entry, a portable kernel that cannot emit on both backends, and a
+ *  local that shadows another in the same function. These hold for every module, including
+ *  modules assembled with {@link composeModule} and compute kernels that return early on
+ *  purpose. Style rules are lint-only; run {@link lintModule} or {@link diagnose} for those.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  *
- *  @param m - the authored module, before any lowering pass rebuilds its nodes.
+ *  @param m - the authored module, as built, before any pass has rewritten its nodes.
  *  @throws {@link ValidationError} carrying every error-severity diagnostic, with code
  *    `SD0020`.
  *

@@ -49,12 +49,13 @@ export type AxisValues<A extends Record<string, readonly unknown[]>> = {
 export interface VariantFamilySpec<A extends Record<string, readonly unknown[]>> {
   /** The axes, each as the list of values the host can select. */
   readonly axes: A
-  /** Build the module for one point in the space — plain TS branching, exactly as
-   *  AUTHORING.md §11 recommends. The losing arm is never built. */
+  /** Build the module for one point in the space. Ordinary TypeScript branching: read the
+   *  axis values and construct only what this point needs, so the losing arm is never built. */
   readonly build: (axes: AxisValues<A>) => ModuleDecl
-  /** The program's identity. Must mention every axis `build` reads; a key that does not
-   *  describe what the builder emitted is the sharpest footgun in this codebase
-   *  (AUTHORING.md §11). Derive it from `axes` rather than writing it by hand. */
+  /** The program's identity. Must mention every axis `build` reads: two points that derive
+   *  the same key would share one cache id while naming different programs, and
+   *  {@link variantFamily} throws when that happens. Derive it from `axes`; a key written by
+   *  hand is how an axis gets left out. */
   readonly key: (axes: AxisValues<A>) => string
 }
 
@@ -63,8 +64,8 @@ export interface Variant<A extends Record<string, readonly unknown[]>> {
   readonly key: string
   readonly axes: AxisValues<A>
   readonly module: ModuleDecl
-  /** This variant's own reflection — the point of a family over a single emit: N programs
-   *  the host can select, each described. */
+  /** This variant's own {@link reflect} result, so each program the host can select is
+   *  described separately. */
   readonly reflection: Reflection
 }
 
@@ -77,47 +78,46 @@ export type GuardDefines<A extends Record<string, readonly unknown[]>> = {
 /** A built family. */
 export interface VariantFamily<A extends Record<string, readonly unknown[]>> {
   readonly variants: readonly Variant<A>[]
-  /** Every key, in `variants` order — the pipeline-cache / baked-artifact id set. */
+  /** Every key, in `variants` order: the id set a pipeline cache keys its programs by. */
   readonly keys: readonly string[]
   /** Look one variant up by key; `undefined` when the key names no variant. */
   get(key: string): Variant<A> | undefined
-  /** One PREPROCESSOR-FREE source per key. The only shape WGSL can have, and the one a
+  /** One preprocessor-free source per key. The only shape WGSL can take, and the one a
    *  pipeline cache should prefer on GLSL too. */
   emit(target: 'wgsl', opts?: EmitOptions): ReadonlyMap<string, string>
   emit(
     target: 'glsl-es300',
     opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
   ): ReadonlyMap<string, string>
-  /** ONE GLSL source whose arms are selected by defines the HOST owns (#1712).
+  /** One GLSL source whose arms are selected by preprocessor defines the host owns.
    *
-   *  Opt-in, and GLSL-only by construction: this exists for a host that already sets the
-   *  define (MapLibre today), not as the recommended shape. Every arm is byte-identical to
-   *  the corresponding `emit()` source, so nothing about the preprocessor-free path is
-   *  compromised by using it.
+   *  Opt in to this when the host already sets the define per draw and cannot pick a source
+   *  per variant; otherwise prefer {@link VariantFamily.emit}. GLSL only, because the arms
+   *  are selected by the GLSL preprocessor. Every arm is byte-identical to the corresponding
+   *  `emit()` source, so a program selected through the ladder is the same program as the
+   *  standalone variant.
    *
-   *  Fails closed when the variants disagree about their preamble: `#version` must lead
-   *  the file, so a single guarded source can only carry ONE preamble, and silently
-   *  picking a variant's would emit a program whose precision or extensions are wrong for
-   *  the other arms. */
+   *  @throws `Error` when the variants disagree about their preamble: `#version` must lead
+   *    the file, so a single guarded source can carry only one preamble, and picking one
+   *    variant's would emit a program whose precision or extensions are wrong for the other
+   *    arms. Emit such variants separately. */
   emitGuarded(
     defines: GuardDefines<A>,
     opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
   ): string
-  /** The same generated ladder as {@link VariantFamily.emitGuarded}, as a header-less
-   *  FRAGMENT (#1711) — for a host that owns the program and composes our declarations into
-   *  it, which is the shape the guarded ladder was actually reported from.
+  /** The same generated ladder as {@link VariantFamily.emitGuarded}, returned as a
+   *  header-less fragment for a host that owns the program and composes these declarations
+   *  into it.
    *
-   *  `emitGuarded` bakes the preamble into its string because it returns a whole stage. An
-   *  `#include` cannot carry a second `#version`, so composing a guarded ladder into a host
-   *  program through that entry point means stripping the header again — the regex #1711
-   *  exists to remove. Here the preamble comes back as data, exactly as
-   *  {@link emitGlslFragment} returns it, and `[...preamble, '', source].join('\n')`
-   *  reproduces `emitGuarded`'s output byte for byte.
+   *  `emitGuarded` returns a whole stage, preamble included. A ladder pasted into a host
+   *  program through an `#include` cannot carry a second `#version`, so here the preamble
+   *  comes back as data, exactly as {@link emitGlslFragment} returns it, and
+   *  `[...preamble, '', source].join('\n')` reproduces `emitGuarded`'s output byte for byte.
    *
-   *  `declares` and `requires` are the UNION across the arms, since the host's preprocessor
+   *  `declares` and `requires` are the union across the arms, since the host's preprocessor
    *  picks the arm and the composer cannot know which: every name any arm declares is one
-   *  the prelude must not collide with, and every symbol any arm needs is one it must
-   *  provide. */
+   *  the host's prelude must not collide with, and every symbol any arm needs is one the host
+   *  must provide. Throws for a preamble mismatch exactly as `emitGuarded` does. */
   emitGuardedFragment(
     defines: GuardDefines<A>,
     opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
@@ -167,15 +167,15 @@ function guardCondition<A extends Record<string, readonly unknown[]>>(
 
 /** Recover the arm a set of defined macros selects from an `emitGuarded` source.
  *
- *  Deliberately understands ONLY the ladder shape `emitGuarded` generates — `#if` /
- *  `#elif` / `#endif` at column 0, conditions built from `defined(X)` and `!defined(X)`
- *  joined by `&&`. It is not a GLSL preprocessor and must not grow into one; it exists so
- *  a test (and a consumer's own gate) can assert that each arm equals the standalone
- *  variant without shelling out to a compiler.
+ *  Understands only the ladder shape `emitGuarded` generates: `#if`, `#elif` and `#endif` at
+ *  column 0, with conditions built from `defined(X)` and `!defined(X)` joined by `&&`. Use it
+ *  to assert, in a test or a build step, that the arm the host's defines select equals the
+ *  standalone variant from {@link VariantFamily.emit}, without running a compiler.
  *
  *  @param source - output of {@link VariantFamily.emitGuarded}.
  *  @param defined - the macro names the host would have defined.
  *  @returns the selected arm's text, or `undefined` when no arm matches.
+ *  @throws `Error` when a condition in `source` is not of the form the ladder generates.
  */
 export function selectGuardedArm(source: string, defined: Iterable<string>): string | undefined {
   const on = new Set(defined)
@@ -229,8 +229,8 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
  *
  *  `emitGuarded(defines, opts)` is the GLSL-only alternative, for a host that owns the define
  *  and decides at draw time. It generates one source with an `#if` ladder over the arms, one
- *  arm per variant, from the same typed matrix, so the ladder is a lowering of that matrix and
- *  is checkable for it. Every arm is byte-identical to the standalone variant of the same key,
+ *  arm per variant, from the same typed matrix, so the ladder can be checked against that
+ *  matrix. Every arm is byte-identical to the standalone variant of the same key,
  *  which is what keeps the guarded and unguarded paths from being two programs.
  *
  *  `emitGuardedFragment(defines, opts)` returns the same ladder as a header-less fragment: the
@@ -251,13 +251,13 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
  *  import { variantFamily } from '@xgis/shader-dsl'
  *
  *  const family = variantFamily({
- *    axes: { terrain: [false, true], drape: ['ground', 'absolute'] },
- *    build: ({ terrain, drape }) => buildModule(terrain, drape),
- *    key: ({ terrain, drape }) => `${terrain ? 't' : 'f'}:${drape}`,
+ *    axes: { shadows: [false, true], blend: ['add', 'mix'] },
+ *    build: ({ shadows, blend }) => buildModule(shadows, blend),
+ *    key: ({ shadows, blend }) => `${shadows ? 's' : 'n'}:${blend}`,
  *  })
  *
  *  family.emit('wgsl') // four sources, keyed
- *  family.emitGuarded({ terrain: 'TERRAIN3D', drape: { ground: 'DRAPE_GROUND', absolute: 'DRAPE_ABS' } })
+ *  family.emitGuarded({ shadows: 'SHADOWS', blend: { add: 'BLEND_ADD', mix: 'BLEND_MIX' } })
  *  ```
  *
  *  @see {@link composeModule} for a variant that differs by one statement list.

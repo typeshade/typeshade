@@ -74,9 +74,9 @@ import {
  *  This is the host side of the packing. An f64 uniform field or vertex attribute occupies one
  *  plain `vec2<f32>` slot, size 8 and align 8, and the host writes `splitF64(value)` into it.
  *
- *  A `vecN<f64>` attribute is rejected, so a vector's parts travel as two `vecN<f32>`
- *  locations, one carrying every high part and one every low part, and the shader rebuilds the
- *  lanes with `f64FromParts`.
+ *  A vertex attribute cannot be a `vecN<f64>`. Pass a vector as two `vecN<f32>` locations, one
+ *  carrying every high part and one every low part, and rebuild the components in the shader
+ *  with {@link f64FromParts}.
  *
  *  Exported from `@xgis/shader-dsl`.
  *
@@ -101,14 +101,16 @@ export function splitF64(x: number): [hi: number, lo: number] {
 
 // ── The anti-fast-math guard texture ──
 
-/** The fixed name (`'_fp64'`) of the anti-fast-math guard binding `fp64Lower`
- *  auto-injects into any module using the df64 helpers — see this file's header for
- *  why it is a 1×1 texture read rather than a uniform. Exported so a caller can
- *  recognise the binding by name without hardcoding the string: check whether a
- *  module already declares it (`bindings.find(b => b.name === FP64_GUARD_NAME)`,
- *  exactly what `fp64Lower`'s own injection does before adding a fresh one), or pick
- *  the matching reflected binding out to know which resource a host must supply the
- *  1×1 texture (texel = exactly 1.0) for.
+/** The fixed name (`'_fp64'`) of the guard texture binding that {@link fp64Lower} adds to
+ *  every module that does f64 arithmetic. The binding is a 1×1 `texture_2d<f32>` whose
+ *  single texel reads exactly 1.0; the emulated arithmetic multiplies its error terms by
+ *  that texel so a fast-math compiler cannot fold them away. See {@link fp64Guard} for
+ *  why it is a texture.
+ *
+ *  Use this constant to recognise the binding without hardcoding the string: check
+ *  whether a module already declares it (`bindings.find(b => b.name === FP64_GUARD_NAME)`),
+ *  or pick the matching binding out of {@link reflect} to know which resource the host must
+ *  supply the 1×1 texture for.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -116,19 +118,20 @@ export const FP64_GUARD_NAME = '_fp64'
 /** The guard binding's type: a 1×1 2D texture whose only texel reads 1.0. */
 export const FP64_GUARD_TYPE: ShaderType = texture2dfT
 
-/** The return shape of `fp64Guard(at)`: a binding declaration for the `_fp64` guard
- *  texture, PINNED to the caller's chosen `(group, binding)`. Pass it inside a
- *  module's `uses: [...]` only when an engine's bind-group layout is fixed and needs
- *  the guard at a specific slot — leaving it out is the common case, since
- *  `fp64Lower` auto-injects the binding at group 0 / first free slot for any module
- *  that actually uses f64 arithmetic. A module that pins a slot here but also
- *  declares a CONFLICTING `_fp64` binding elsewhere (wrong type/space) fails emit
- *  with `SD0042`.
+/** The value {@link fp64Guard} returns: a binding declaration for the `_fp64` guard
+ *  texture, pinned to the caller's chosen `(group, binding)`. Pass it inside a
+ *  module's `uses: [...]` only when the host's bind-group layout is fixed and needs
+ *  the guard at a specific slot. Leaving it out is the common case: {@link fp64Lower}
+ *  adds the binding at group 0, in the first free slot, to any module that uses f64
+ *  arithmetic. A module that pins a slot here but also declares a conflicting `_fp64`
+ *  binding elsewhere (a different type or space) fails emit with `SD0042`.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
 export interface Fp64GuardHandle {
+  /** The binding's shader type: a 2D `f32` texture. */
   readonly type: ShaderType
+  /** The binding declaration, ready for a module's `uses: [...]`. */
   readonly binding: BindingDecl
 }
 
@@ -137,7 +140,7 @@ export interface Fp64GuardHandle {
  *  `(group, binding)`.
  *
  *  Every module that does f64 arithmetic gets a `texture_2d<f32>` binding named `_fp64`
- *  injected by the lowering pass, deterministically at group 0 in the first free binding. The
+ *  added by {@link fp64Lower}, deterministically at group 0 in the first free binding. The
  *  host must bind a 1 by 1 texture whose single texel reads back exactly 1.0, an RGBA8 white
  *  texel or an R32F 1.0, and the shader multiplies the error-compensation terms by that texel.
  *
@@ -153,8 +156,8 @@ export interface Fp64GuardHandle {
  *
  *  The names around it are reserved. A module declaring its own `_fp64` binding with a
  *  different type or space fails emit with `SD0042`, and a declaration whose name starts with
- *  `df64_` or is one of the `DF64VecN` structs collides with the injected emulation and fails
- *  with `SD0043`.
+ *  `df64_` or is one of the emitted `DF64Vec2`, `DF64Vec3`, `DF64Vec4` structs collides with
+ *  the emulation and fails with `SD0043`.
  *
  *  Exported from `@xgis/shader-dsl`.
  *
@@ -165,7 +168,7 @@ export interface Fp64GuardHandle {
  *  ```ts
  *  import { fp64Guard, module } from '@xgis/shader-dsl'
  *
- *  // Only needed when the engine's bind-group layout fixes the slot.
+ *  // Only needed when the host's bind-group layout fixes the slot.
  *  const m = module({ uses: [U, fp64Guard({ group: 0, binding: 3 })], funcs: [k] })
  *  ```
  *
@@ -209,7 +212,7 @@ const df64_quickTwoSum = fn('df64_quickTwoSum', { a: f32T, b: f32T }, (p) => {
 
 /** Veltkamp split by 4097 = 2¹² + 1: a == hi + lo with 12-bit hi, 11-bit lo.
  *  The split constant reaches the shader as `4097 * one` so it can never be
- *  folded. Overflows for |a| > ~2¹¹⁵ (out of geographic range). */
+ *  folded. Overflows for |a| > ~2¹¹⁵ (far beyond any input a shader would carry). */
 const df64_split = fn('df64_split', { a: f32T }, (p) => {
   const t = Let(p.a.mul(one.mul(4097.0)))
   const hi = Let(t.mul(one).sub(t.sub(p.a)))

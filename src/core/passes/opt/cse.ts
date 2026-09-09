@@ -225,7 +225,21 @@ function cseFn(f: FuncDecl): FuncDecl {
   return { ...f, body: rewriteBlock(f.body, []) }
 }
 
-/** Hoist repeated input-only subexpressions to shared temps. Pure (module -> module). */
+/**
+ * Common-subexpression elimination. For every function in `m`, finds each compound
+ * expression that appears two or more times and reads only the function's inputs
+ * (parameters, constants and bindings; never a local variable or a name the function
+ * writes to), binds it once to a `let`, and replaces every occurrence with a reference
+ * to that `let`. The `let` is placed at the top of the innermost block that contains all
+ * of the occurrences, just before the first statement that uses it, so a value used only
+ * inside one branch is computed only when that branch runs. A `let` is never placed
+ * inside a loop body. Only the outermost repeated expression is hoisted: two occurrences
+ * of `sqrt(dot(p, p))` become one temporary holding the whole value. A function whose
+ * body contains raw shader text is returned unchanged.
+ *
+ * @param m The module to optimize.
+ * @returns A new module with the rewritten functions; `m` is not modified.
+ */
 export function cse(m: ModuleDecl): ModuleDecl {
   return { ...m, funcs: m.funcs.map(cseFn) }
 }

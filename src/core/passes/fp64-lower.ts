@@ -81,30 +81,34 @@ import { DF64_FNS_INT, DF64_ORDER_INT } from '../fp64/df64-int.js'
 //             Metal oracle where every float formulation collapses; also
 //             immune to ANGLE-D3D11/FXC's composed-tree folding. No `_fp64`
 //             guard binding is injected (the integer bodies never read it).
-/** Which error-free-transform primitives back the emulated-double (`df64`) lowering. Both
- *  flavours compute the same values; they differ in what a DOWNSTREAM shader compiler is able
- *  to do to them.
+/** Which arithmetic primitives back the emulated-double (`df64`) helper functions that
+ *  {@link fp64Lower} injects. Both flavours compute the same values; they differ in what a
+ *  target's shader compiler is able to do to them.
  *
- *  - `'float'` — the guarded float EFTs. The default, and the byte-identical-emit baseline.
- *  - `'integer'` — integer bit arithmetic in the `twoSum`/`twoProd`/`div`/`sqrt` leaves (the
- *    compositions above them are shared). The point is that a fast-math pass CANNOT reassociate
- *    integer ops, so the hi/lo split survives. Proven necessary on the Apple/Metal oracle, where
- *    every float formulation collapses, and it is likewise immune to ANGLE-D3D11/FXC's composed-
- *    tree folding.
+ *  - `'float'`: the default. Error-free transforms written in float arithmetic, protected from
+ *    constant folding by a runtime guard binding, `_fp64`, that the host fills with `1.0`.
+ *  - `'integer'`: the `twoSum`, `twoProd`, division and square-root leaves are written in
+ *    integer bit arithmetic; the compositions above them are shared with `'float'`. A fast-math
+ *    pass cannot reassociate integer operations, so the hi/lo split survives on compilers that
+ *    fold the float form (Apple Metal, and the ANGLE Direct3D 11 path through FXC). No guard
+ *    binding is injected, because the integer bodies never read it.
  *
- *  Reach for `'integer'` when a target's compiler is known to fold the float EFTs — the symptom
- *  is df64 silently degrading to f32 precision on one platform while every other target is fine.
+ *  Choose `'integer'` when a target's compiler folds the float primitives. The symptom is
+ *  emulated-double results degrading to f32 precision on one platform while every other target
+ *  is fine. {@link recommendFp64Flavor} picks a flavour from a device's adapter or renderer
+ *  information.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  */
 export type Fp64Flavor = 'float' | 'integer'
 
-/** Options for the fp64 lowering pass. Omitting `flavor` selects `'float'` — see
- *  {@link Fp64Flavor} for when that default is the wrong one.
+/** Options for {@link fp64Lower}.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  */
 export interface Fp64LowerOptions {
+  /** Which primitives back the injected `df64_*` helper functions. Omitting it selects
+   *  `'float'`; see {@link Fp64Flavor} for when `'integer'` is the right choice. */
   readonly flavor?: Fp64Flavor
 }
 import { isKnownIntrinsic } from '../intrinsics.js'
@@ -929,11 +933,48 @@ function injectGuard(bindings: BindingDecl[]): void {
 
 // ── The pass ──
 
-/** Lower every f64 in a module to its vec2<f32> / df64_* emulation. Identity
- *  (same object) for modules containing no f64. Run inside lowerForBackend —
- *  after match-lower, before the backend optimizer. `opts.flavor` selects the
- *  EFT primitive registry ('float' default — byte-identical; 'integer' swaps
- *  the leaves for the fast-math-immune integer bodies, see df64-int.ts). */
+/** Rewrite every f64 value in a module into its two-f32 emulation, so that no backend has to
+ *  spell the type. An f64 scalar becomes a `vec2<f32>` holding a (hi, lo) pair, `vecN<f64>`
+ *  becomes a `DF64VecN` struct of two `vecN<f32>` planes, `matNxN<f64>` becomes a `DF64MatN`
+ *  struct, and the arithmetic, comparisons and supported builtins over them become calls to
+ *  injected `df64_*` helper functions, which are appended to the module's funcs. A module with
+ *  no f64 anywhere is returned as the same object.
+ *
+ *  Supported on f64 operands: `+ - * /`, negation, the six comparisons, `sqrt`, `abs`, `min`,
+ *  `max`, `mix` (with an f32 interpolant), `floor`, `fract`, `sin`, `cos`, widening from f32 and
+ *  narrowing to f32. On `vecN<f64>` additionally `dot`, `length`, `distance`, `normalize` and
+ *  the componentwise forms of the list above; on `matNxN<f64>`, `*` and `transpose`. Any other
+ *  builtin on an f64 operand throws; narrow the operand to f32 first when you need one.
+ *
+ *  When an injected helper reads the runtime guard, the pass also declares the `_fp64` guard
+ *  binding at group 0, first index past the module's own group-0 bindings. Declare
+ *  {@link fp64Guard} in the module to pin that slot yourself. The host writes `1.0` into it.
+ *
+ *  The emit functions run this pass for you; pass `fp64Flavor` in {@link EmitOptions} to select
+ *  the flavour there. Call it directly when you want to inspect the lowered module.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param m - the module to lower.
+ *  @param opts - `flavor` selects which primitives back the helpers; see {@link Fp64Flavor}.
+ *  @returns a new module with its f64 declarations and bodies rewritten and the helper functions
+ *    appended, or `m` itself when it contains no f64.
+ *  @throws SD0041 for an operation on f64 operands that has no emulation.
+ *  @throws SD0042 when the module declares a `_fp64` binding whose type differs from the guard's.
+ *  @throws SD0043 when the module declares a function named `df64_*` or a struct named
+ *    `DF64Vec*` or `DF64Mat*`; those names are reserved for the injected helpers.
+ *  @throws SD0044 for an f64 in an interpolated `@location` struct field, a fragment input, or a
+ *    stage entry's return value; interpolating a (hi, lo) pair is numerically wrong.
+ *
+ *  @example
+ *  ```ts
+ *  import { fp64Lower } from '@xgis/shader-dsl'
+ *
+ *  // authored: a ModuleDecl whose functions use f64
+ *  const lowered = fp64Lower(authored, { flavor: 'integer' })
+ *  // lowered.funcs ends with the df64_* helpers the module needs
+ *  ```
+ */
 export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   if (!moduleUsesF64(m)) return m
   const integer = opts?.flavor === 'integer'

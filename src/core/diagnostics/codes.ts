@@ -39,7 +39,7 @@ export interface ErrorCodeDef {
  *  ```ts
  *  import { CODES, type ErrorCode } from '@xgis/shader-dsl'
  *
- *  const docsUrl = (code: ErrorCode) => `https://x-gis.dev/errors/${code}`
+ *  const docsUrl = (code: ErrorCode) => `https://example.com/errors/${code}`
  *  console.log(CODES.SD0002.summary) // 'binary op on mismatched vectors'
  *  ```
  */

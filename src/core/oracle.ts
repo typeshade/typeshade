@@ -77,24 +77,23 @@ interface Ctx {
   gpuStubs: boolean
 }
 
-/** The shape both CPU backends return — `compileModule`'s tree-walk interpreter and
- *  `compileModuleJs`'s compiled `new Function` twin — so a caller can swap between
- *  them without touching call sites (map's cpu-projections does exactly that: it
- *  compiles with `compileModuleJs` and falls back to this interpreter only when
- *  `new Function` construction itself throws, e.g. under a CSP `unsafe-eval` block).
- *  `fns` is a callable-by-name table matching the IR module's declared functions,
- *  params positional in declaration order; `setBinding` injects a storage/uniform
- *  binding's value (e.g. the shapes/segments arrays `sdf_shape` reads) before a fn
- *  that reads it runs. The bit-identity contract the two backends hold to —
- *  `compileModuleJs(m).fns.f(args) === compileModule(m).fns.f(args)`, `Object.is`
- *  element-for-element — is exactly this shape being interchangeable.
+/** The shape both CPU backends return, so a caller can compile with {@link compileModuleJs}
+ *  and fall back to {@link compileModule} without touching call sites (for example when the
+ *  host forbids `new Function` under a Content Security Policy). `fns` is a table of the
+ *  module's declared functions by name, each taking its parameters positionally in declaration
+ *  order. `setBinding` supplies a storage or uniform binding's value before a function that
+ *  reads it runs. The two backends return the same value for the same call:
+ *  `compileModuleJs(m).fns.f(args)` and `compileModule(m).fns.f(args)` agree under `Object.is`,
+ *  element for element.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
 export interface CpuModule {
+  /** The module's declared functions by name. Parameters are positional, in declaration
+   *  order; the return value is the function's result as a {@link CpuValue}. */
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
-  /** Inject a storage/uniform binding value (e.g. the shapes/segments arrays
-   *  for sdf_shape) before invoking a fn that reads it. */
+  /** Supply a storage or uniform binding's value by its declared name, before invoking a
+   *  function that reads it. */
   setBinding(name: string, value: CpuValue): void
 }
 
@@ -391,15 +390,14 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
   return NORMAL
 }
 
-/** How the CPU engines evaluate f32 arithmetic.
+/** How the CPU backends evaluate f32 arithmetic.
  *
- *  - `'f64'` (default) — the ALGEBRA oracle this package has always been: every value is a JS
- *    double, so the result is the mathematically-intended one to 53 bits. It is the reference
- *    an implementation is checked AGAINST, and changing it would change what "correct" means.
- *  - `'f32'` — a correctly-rounding f32 machine over the same IR the GPU receives: every
- *    f32-typed operation rounds to f32 after the fact (#2426), with ±Infinity on overflow.
- *    Use it when the question is "does the TARGET compute this", so a parity gate can be an
- *    ulp-scale comparison instead of a tolerance wide enough to hide a real error.
+ *  - `'f64'` (default): every value is a JavaScript double, so the result is the mathematically
+ *    intended one to 53 bits. This is the reference an implementation is checked against.
+ *  - `'f32'`: a correctly rounding f32 machine over the same IR the GPU receives. Every
+ *    f32-typed operation rounds to f32 after it is evaluated, with ±Infinity on overflow. Use
+ *    it when the question is what the target computes, so a parity gate can compare at ulp
+ *    scale without a tolerance wide enough to hide a real error.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -415,14 +413,15 @@ export type CpuPrecision = 'f64' | 'f32'
  *  blind by construction to f32 rounding, which only appears once the target truncates.
  *  `'f32'` is a correctly-rounding f32 machine over the same IR: every f32-typed operation
  *  rounds to f32 afterwards, with infinities on overflow. Reach for `'f32'` when the question
- *  is what the target computes, so a parity gate can compare at ulp scale instead of behind a
- *  tolerance wide enough to hide a real error.
+ *  is what the target computes, so a parity gate can compare at ulp scale without a tolerance
+ *  wide enough to hide a real error.
  *
  *  `opts.gpuStubs` decides what happens at an operation the CPU cannot perform. A texture
  *  read, a screen-space derivative and the rest of the GPU-only intrinsics have no CPU
- *  meaning, and by default a call to one throws instead of returning a plausible wrong
- *  number. Turn it on and each stands in for its GPU value: an opaque black texture read, a
- *  zero derivative. Do that only where a placeholder is acceptable for the test at hand.
+ *  meaning, and by default a call to one throws, since a plausible wrong number is the worst
+ *  failure mode for a reference. Turn it on and each stands in for its GPU value: an opaque
+ *  black texture read, a zero derivative. Do that only where a placeholder is acceptable for
+ *  the test at hand.
  *
  *  `setBinding(name, value)` supplies a uniform or storage binding by its declared name, since
  *  a CPU run has no bind groups. Call it before invoking an entry that reads that binding.
@@ -431,8 +430,8 @@ export type CpuPrecision = 'f64' | 'f32'
  *  payload was written for, because raw text is opaque to the IR and the oracle has nothing to
  *  walk.
  *
- *  It shares {@link validate} and the auto-var pass with the GPU writers, so it rejects the
- *  same malformed modules they do.
+ *  It runs {@link validate} and {@link autoVars} first, the same passes the GPU writers run, so
+ *  it rejects the same malformed modules they do.
  *
  *  Exported from `@xgis/shader-dsl`.
  *
@@ -447,8 +446,8 @@ export type CpuPrecision = 'f64' | 'f32'
  *  import { compileModule } from '@xgis/shader-dsl'
  *
  *  const cpu = compileModule(MODULE, { precision: 'f32' })
- *  cpu.setBinding('u', { mvp, raster_params })
- *  const got = cpu.fns.project(lon, lat)
+ *  cpu.setBinding('u', { scale: 2, offset: [0.5, 0.5] })
+ *  const got = cpu.fns.transform([1, 1])
  *  ```
  *
  *  @see {@link compileModuleJs} for the same results on a hot path.

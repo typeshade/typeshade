@@ -17,24 +17,24 @@
 
 import type { BinOp, ShaderType } from './ir/index.js'
 
-/** The runtime value shape shared by both CPU backends (the tree-walk interpreter in
- *  `oracle.ts` and the compiled `new Function` twin in `cpu-codegen.ts`) — plain JS
- *  values, never a typed array or GPU buffer. A scalar (f32/f64/i32/u32/bool) is a
- *  plain JS `number`/`boolean`, evaluated in full f64 precision with no `fround` (see
- *  this file's header for the f64-algebra caveat that follows from that). A
- *  vec/vec64/mat is a flat `number[]`, mutable and shared BY REFERENCE — a `p.x = …`
- *  field write mutates the caller's array in place, which is what makes the IR's
- *  assignable lvalues (member/index writes) work without a separate store step. A
- *  struct is a `CpuStruct`. This is the one value type `CpuModule.setBinding` accepts.
+/** A value as the CPU backends ({@link compileModule} and {@link compileModuleJs})
+ *  represent it: a plain JavaScript value, never a typed array or a GPU buffer. A scalar
+ *  of any kind (f32, f64, i32, u32, bool) is a `number` or `boolean`, computed in double
+ *  precision; {@link CpuPrecision} says how the arithmetic rounds. A vector or matrix is a
+ *  flat `number[]`, mutable and shared by reference: a field write such as `p.x = …`
+ *  inside a shader function changes the caller's array in place. A struct is a
+ *  {@link CpuStruct}. This is the value type the functions of a {@link CpuModule} take
+ *  and return, and the one its `setBinding` accepts.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
 export type CpuValue = number | boolean | number[] | CpuStruct
-/** A struct value at CPU-eval time: a plain field-keyed object, built either by the
- *  `construct` IR node (`MyStruct(a, b, …)` → fields in declaration order) or
- *  field-by-field through a struct-typed `var` (zero-initialised by `zeroOf`, then
- *  written via `assign(out.f, …)`). Not branded to any particular struct — the field
- *  set is whatever the authoring struct declared, checked structurally by the caller.
+/** A struct value on the CPU: a plain object keyed by field name, holding one
+ *  {@link CpuValue} per field. Calling a struct constructor in shader code
+ *  (`MyStruct(a, b, …)`) produces one with its fields in declaration order; a struct-typed
+ *  `var` starts as an empty object and gains fields as they are assigned. The type carries
+ *  no struct identity of its own: the field set is whatever the declaring struct listed,
+ *  and the caller checks it structurally.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -467,22 +467,30 @@ export const f32ToU32Sat = (v: number): number =>
 export const f32ToI32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(2147483520, Math.max(-2147483648, Math.trunc(v)))
 
-/** Test-only surfaces (#763 O5): the oracle's builtin coverage, pinned against the
- *  intrinsic catalogue so a new portable intrinsic cannot ship without a CPU twin. */
+/** The names of every builtin function the CPU backends ({@link compileModule},
+ *  {@link compileModuleJs}) evaluate with real arithmetic, as a read-only set. Meant for
+ *  tests: the union of this set and {@link ORACLE_GPU_STUB_NAMES} should cover every
+ *  intrinsic in {@link INTRINSICS} and {@link PORTABLE_INTRINSICS}, so a test can assert
+ *  that each intrinsic a shader can emit for WGSL or GLSL also has a CPU implementation
+ *  or a documented placeholder.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS))
-/** The names of every GPU-only intrinsic the oracle cannot genuinely evaluate — the
- *  keys of `GPU_STUBS` (textureSample / textureSampleLevel / fwidth / dpdx / dpdy /
- *  textureLoad and their 2d-array twins, plus textureDimensions / textureNumLayers),
- *  not the placeholder implementations themselves. Calling one of these from a
- *  compiled module THROWS unless it was compiled with `{ gpuStubs: true }`, in which
- *  case it returns an opaque placeholder (`[0,0,0,1]` for a texture read, `0` for a
- *  derivative) instead of a value the interpreter has any way to compute — a
- *  reference backend fails loud by default rather than hand back a plausible-wrong
- *  number. Exists so a test can union this set with `ORACLE_BUILTIN_NAMES` against
- *  the full intrinsic catalogue and assert every WGSL/GLSL-emittable intrinsic has
- *  either a real CPU implementation or a documented stub here — the check that stops
- *  a new "portable" intrinsic from shipping with no CPU twin and throwing
- *  `unknown fn` at first CPU use.
+/** The names of every GPU-only intrinsic the CPU backends cannot genuinely evaluate, as a
+ *  read-only set: `textureSample`, `textureSampleLevel`, `textureLoad`, their 2d-array
+ *  forms (`textureSampleArray`, `textureSampleLevelArray`, `textureLoadArray`),
+ *  `textureDimensions`, `textureNumLayers`, and the derivatives `fwidth`, `dpdx` and
+ *  `dpdy`. A texture read needs the GPU's sampler and texture memory, and a derivative
+ *  needs neighbouring fragments; a CPU run of a single invocation has neither. Calling
+ *  one of these from a module compiled with {@link compileModule} or
+ *  {@link compileModuleJs} throws, unless the module was compiled with
+ *  `{ gpuStubs: true }`; then it returns a placeholder: `[0, 0, 0, 1]` for a texture
+ *  read, `[1, 1]` for `textureDimensions`, `1` for `textureNumLayers` and `0` for a
+ *  derivative. Meant for tests: the union of this set and {@link ORACLE_BUILTIN_NAMES}
+ *  should cover every intrinsic in {@link INTRINSICS} and {@link PORTABLE_INTRINSICS},
+ *  so a test can assert that each intrinsic a shader can emit has either a CPU
+ *  implementation or a documented placeholder.
  *
  *  Exported from `@xgis/shader-dsl`.
  */

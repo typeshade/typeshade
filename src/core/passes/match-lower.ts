@@ -39,14 +39,23 @@ interface Counter {
   n: number
 }
 
-/** The match-lowering pass entry point: rewrites every `matchExpr` in a module into the switch
- *  / select form the backends can spell, per the rules in this file's header.
+/** Rewrites every `matchExpr` in a module into a form the backends can emit: a hoisted
+ *  variable assigned from a `switch` statement, placed immediately before the statement that
+ *  contained the expression. WGSL and GLSL have `switch` only as a statement, so a multi-arm
+ *  conditional expression cannot be emitted in place.
  *
- *  Exported only because `./dev` re-exports the pass modules wholesale. A consumer never calls
- *  this — emit runs it as part of the lowering pipeline, and calling it by hand produces a
- *  module in a half-lowered state that the authored-source location table can no longer be read
- *  against (the pass rebuilds every node, which breaks the object identity `core/diagnostics/
- *  loc.ts` keys on). Run `validate()`/`diagnose()` BEFORE lowering, not after.
+ *  {@link emitModule} runs this pass automatically, so a shader author never calls it. It is
+ *  exported for tests and for hosts that drive the emit pipeline step by step. The pass
+ *  rebuilds every node it touches, so the returned module does not share node identity with
+ *  the authored one and diagnostics cannot map its nodes back to authored source
+ *  locations. Run {@link validate} and `diagnose()` on the module before this pass.
+ *
+ *  @param m The module to rewrite. It is not modified.
+ *  @returns A new module whose function bodies contain no `matchExpr`.
+ *  @throws {Error} When a `matchExpr` appears in a `for` loop header (the init, condition or
+ *    update part). Hoisting it out of the header would evaluate it once where the loop
+ *    evaluates it on every iteration. Compute the value into a `var` inside the loop body, or
+ *    before the loop when it does not depend on the loop variable.
  *
  *  @internal
  */

@@ -136,9 +136,6 @@ const INTERNAL: Readonly<Record<string, string>> = {
   'src/core/backends/wgsl.ts#emitBinding':
     'group/binding indices are assigned across a whole module, so a line emitted alone can ' +
     'disagree with the layout reflect() reports. Un-export tracked by #1697.',
-  'src/core/backends/wgsl.ts#emitFuncsCsed':
-    'a bare alias of emitFuncs; the one in-repo reference reaches it by deep source path, ' +
-    'not through the package exports. Un-export tracked by #1697.',
   'src/core/backends/wgsl.ts#emitStruct':
     'a struct is meaningful only alongside the bindings and funcs that use it, which is what ' +
     'emitModule emits. Un-export tracked by #1697.',

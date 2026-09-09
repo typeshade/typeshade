@@ -36,9 +36,9 @@ export interface RegistryEntry {
 
 /** Options for {@link buildRegistry}. */
 export interface BuildRegistryOptions {
-  /** The curated id order. When given, it must name EVERY discovered id and no others —
-   *  that mutual check is the drift this exists to catch (a new module nobody registered,
-   *  or a registered id whose module was deleted). Omit to use discovery order. */
+  /** The curated id order. When given, it must name every discovered id and no others:
+   *  a new module nobody registered, or a registered id whose module was deleted, both make
+   *  {@link buildRegistry} throw. Omit to use discovery order. */
   readonly order?: readonly string[]
   /** Name of the generated union type. Default `RegistryKey`. */
   readonly typeName?: string
@@ -46,19 +46,17 @@ export interface BuildRegistryOptions {
   readonly recordName?: string
   /** Type annotation for a registry value, e.g. `ShaderExample`. Default `unknown`. */
   readonly valueType?: string
-  /** Extra import line(s) placed above the generated ones — where `valueType` comes from. */
+  /** Extra import line(s) placed above the generated ones, where `valueType` comes from. */
   readonly imports?: readonly string[]
-  /** The command that regenerates this file, named in the banner so a reader who hits a
-   *  drift failure is told what to run rather than left to guess. */
+  /** The command that regenerates this file. It is named in the generated file's banner and
+   *  in the error message when `order` and the discovered set disagree, so a reader who hits
+   *  that failure knows what to run. */
   readonly regenerateWith?: string
-  /** The emit identity this registry's artifacts were produced with — pass
-   *  `emitIdentity(target, opts)` (#1715). Recorded in the banner so a committed registry
-   *  says WHICH emit mode wrote it.
-   *
-   *  This is the fix for the reported failure, and the banner is the right place for it: a
-   *  production build rewrote tracked files and the dev-mode goldens then disagreed with
-   *  what the build produced. Neither emit was wrong; the artifact simply could not say
-   *  which one it was. With a stamp, the diff's first line names the difference. */
+  /** The emit identity the registry's shader artifacts were produced with; pass the string
+   *  returned by {@link emitIdentity}. It is recorded in the generated file's banner, so a
+   *  committed registry says which emit configuration wrote it. When two builds produce
+   *  different output from the same modules, the first line of the diff then names the
+   *  difference. */
   readonly stamp?: string
 }
 
@@ -74,11 +72,16 @@ const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 
 /**
  * Validate a discovered module set against a curated order and render a registry module
- * from it (#1716): a typed key union, an id → module record, and the imports feeding it.
+ * from it: a union type of the ids, a record from id to module, and the imports feeding it.
+ *
+ * The function does not touch the filesystem. The caller scans its own directories,
+ * builds one {@link RegistryEntry} per module, and writes the returned source to a file.
  *
  * ```ts
- * const { source } = buildRegistry(scan('./examples'), {
- *   order: CURATED_IDS,               // editorial; the scan cannot derive it
+ * // `scanExamples` and `CURATED_IDS` are the caller's: a directory walk that returns
+ * // RegistryEntry[], and the hand-written id order it must agree with.
+ * const { source } = buildRegistry(scanExamples('./examples'), {
+ *   order: CURATED_IDS,
  *   valueType: 'ShaderExample',
  *   imports: ["import type { ShaderExample } from './_shared.js'"],
  *   regenerateWith: 'bun scripts/gen-registry.ts > examples/registry.generated.ts',
@@ -89,9 +92,9 @@ const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/
  * @param opts - curated order, naming, and banner details.
  * @returns the rendered source and the ids in file order.
  * @throws when two entries share an id, when an export name is not an identifier, or when
- *   `order` and the discovered set disagree in either direction — a curated id naming no
- *   module, or a module no curated id names. Both are the real drift; reporting only the
- *   first would let a newly added module sit unregistered and invisible.
+ *   `order` and the discovered set disagree in either direction: a curated id that names no
+ *   module, or a module that no curated id names. The error message lists both kinds of
+ *   mismatch, and the `regenerateWith` command when one was given.
  */
 export function buildRegistry(
   entries: readonly RegistryEntry[],

@@ -22,18 +22,16 @@
 
 import type { Fp64Flavor } from '../passes/fp64-lower.js'
 
-/** The device-identification signals `recommendFp64Flavor` (and `isAppleGpu`) use to
- *  pick the df64 lowering flavour a target actually needs — `'integer'` on
- *  Apple/Metal, `'float'` everywhere else (see `Fp64Flavor` for why Apple's shader
- *  compiler forces that split). The DSL is a standalone library with no way to see a
- *  GPU itself, so a consumer collects whatever it has — a WebGPU adapter's `info`, a
- *  WebGL2 `UNMASKED_RENDERER_WEBGL` string, `navigator.userAgent` — and passes it
- *  here; every field is optional, and ANY single Apple-identifying signal is enough
- *  to select `'integer'`. Passing none of them defaults to `'float'`, so an Apple
- *  device whose signals a caller forgot to collect gets the WRONG flavour silently:
- *  df64 keeps compiling and running, but its extended precision collapses back to
- *  plain f32 on that platform the moment the shader compiler reassociates the
- *  guarded EFT terms away.
+/** The device-identification signals {@link recommendFp64Flavor} and {@link isAppleGpu}
+ *  read to pick the df64 flavour a device needs: `'integer'` on Apple GPUs, where Metal
+ *  runs underneath, and `'float'` everywhere else (see `Fp64Flavor` for why Apple's shader
+ *  compiler forces that split). The library cannot see a GPU itself, so the caller collects
+ *  whatever it has, a WebGPU adapter's `info`, a WebGL2 `UNMASKED_RENDERER_WEBGL` string,
+ *  `navigator.userAgent`, and passes it here. Every field is optional, and any single
+ *  Apple-identifying signal is enough to select `'integer'`. Passing none of them selects
+ *  `'float'`, so an Apple device whose signals were never collected silently gets the wrong
+ *  flavour: df64 still compiles and runs, but its extended precision collapses to plain f32
+ *  once the shader compiler reassociates the error terms the float flavour depends on.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -45,7 +43,7 @@ export interface Fp64FlavorSignals {
    *  read like 'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified
    *  Version)' or 'Apple GPU'. */
   readonly rendererString?: string | null
-  /** `navigator.userAgent` — the fallback when the GPU strings are masked
+  /** `navigator.userAgent`, the fallback when the GPU strings are masked
    *  (iOS Safari always runs Metal underneath). */
   readonly userAgent?: string | null
 }
@@ -63,27 +61,27 @@ export function isAppleGpu(s: Fp64FlavorSignals): boolean {
   return false
 }
 
-/** Pick the df64 lowering flavour a device needs for correct results, from whatever
- *  identifying signals a host has. Pass the result as `EmitOptions.fp64Flavor`.
+/** Pick the df64 flavour a device needs for correct results, from whatever identifying
+ *  signals a host has. Pass the result as `EmitOptions.fp64Flavor`.
  *
  *  The flavour differs by device because of one operation. The df64 multiply relies on error
  *  terms that are algebraically zero, and a compiler allowed to reassociate can cancel them.
- *  On Apple GPUs, where Metal is underneath whether the path is WebGPU or WebGL2 through
+ *  On Apple GPUs, where Metal runs underneath whether the path is WebGPU or WebGL2 through
  *  ANGLE, the shader compiler defaults to fast math and collapses that multiply at any
- *  large-magnitude cancellation, and no in-shader barrier holds it: every float barrier
- *  probed on device collapsed, while the integer lowering passed. `sin` and `cos` are built on
- *  that multiply, so they inherit the same fragility there. So an Apple signal selects
- *  `'integer'`, which does the same arithmetic through integer primitives fast math cannot
- *  touch, and every other device gets `'float'`, which is correct on the real chains there and
+ *  large-magnitude cancellation, and no in-shader barrier prevents it. `sin` and `cos` are
+ *  built on that multiply, so they inherit the same fragility there. An Apple signal therefore
+ *  selects `'integer'`, which does the same arithmetic through integer primitives fast math
+ *  cannot touch, and every other device gets `'float'`, which is correct on those devices and
  *  cheaper.
  *
- *  D3D11 through ANGLE stays on `'float'` deliberately. Its compiler also folds deep synthetic
- *  composition trees, but the production chains hold under the float flavour's renormalisation
- *  there, and its compile cost on the fully inlined integer bodies can reset the device.
+ *  D3D11 through ANGLE gets `'float'` as well. Its compiler can fold very deep synthetic df64
+ *  expression trees, but the float flavour's renormalisation holds on the chains that occur in
+ *  practice, and compiling the fully inlined integer bodies there is expensive enough to reset
+ *  the device.
  *
- *  The DSL cannot see a GPU, so the signals come from the caller: a WebGPU adapter's `info`, a
- *  WebGL2 `UNMASKED_RENDERER_WEBGL` string, a user agent. All are optional, any single Apple
- *  signal selects `'integer'`, and passing none returns `'float'`.
+ *  The library cannot see a GPU, so the signals come from the caller: a WebGPU adapter's
+ *  `info`, a WebGL2 `UNMASKED_RENDERER_WEBGL` string, a user agent. All are optional, any
+ *  single Apple signal selects `'integer'`, and passing none returns `'float'`.
  *
  *  Exported from `@xgis/shader-dsl`.
  *

@@ -449,20 +449,19 @@ interface CodegenRuntime {
  *  Prefer it on any hot path.
  *
  *  Bit identity holds by construction: every operation calls the exact runtime helper the
- *  interpreter calls, so there is no second implementation to drift. What differs is when the
- *  work happens. Instead of re-walking the IR node by node on every invocation, this walks
- *  each function body once, emits a JavaScript source string and builds it with `new Function`,
- *  which collapses the interpreter's recursive per-node dispatch and per-call argument arrays
- *  into straight-line code with real local variables.
+ *  interpreter calls, so the two cannot drift apart. What differs is when the work happens.
+ *  Instead of walking the IR node by node on every invocation, this walks each function body
+ *  once, emits a JavaScript source string and builds it with `new Function`, so each call runs
+ *  straight-line code with real local variables.
  *
- *  The interpreter stays the reference and the fallback. A function body holding a shape this
- *  codegen cannot emit bit-identically, a raw or placeholder statement, an unrepresentable
- *  lvalue, falls back to the interpreter for that function alone, so a returned module can be
- *  part compiled and part interpreted with nothing to do at the call site. Where `new Function`
- *  itself is unavailable, a host whose content security policy forbids `unsafe-eval`,
- *  construction throws and the caller catches it and calls {@link compileModule} instead. Reach
- *  for the interpreter directly when debugging, too, since it puts no generated source between
- *  you and the IR.
+ *  The interpreter is the reference and the fallback. A function body holding a shape this
+ *  generator cannot emit bit-identically (a raw statement, a placeholder statement, an
+ *  assignment target with no expression form) falls back to the interpreter for that function
+ *  alone, so a returned module can be part compiled and part interpreted with nothing to do at
+ *  the call site. Where `new Function` itself is unavailable, as on a host whose content
+ *  security policy forbids `unsafe-eval`, construction throws, and the caller catches it and
+ *  calls {@link compileModule} instead. Reach for the interpreter directly when debugging, too,
+ *  since it puts no generated source between you and the IR.
  *
  *  Exported from `@xgis/shader-dsl`.
  *
@@ -470,7 +469,9 @@ interface CodegenRuntime {
  *  @param opts - the same `precision` and `gpuStubs` {@link compileModule} takes.
  *  @returns the compiled module: `fns` by name, and `setBinding`.
  *  @throws `Error` when the host forbids `new Function`, which is the case to catch and fall
- *    back to {@link compileModule} for.
+ *    back to {@link compileModule} for. It also throws {@link ValidationError} when the module
+ *    fails a core rule, and, once a function runs, the same errors {@link compileModule}
+ *    documents for a GPU-only intrinsic called with `gpuStubs` off or a raw statement reached.
  *
  *  @example
  *  ```ts

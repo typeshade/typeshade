@@ -27,18 +27,18 @@ export type Stage = 'vertex' | 'fragment' | 'compute'
 /** In the order `BindEntry.stages` reports them, so the list is deterministic. */
 const STAGES: readonly Stage[] = ['vertex', 'fragment', 'compute']
 
-/** What a set of entry points transitively reaches:
- *   • `fns`      — the call-graph closure from `entries` (the entries themselves included)
- *   • `bindings` — binding names varref'd by a reachable fn (a binding reference IS a
- *                  varref — ir/node.ts `bindingRef`; a same-named LOCAL only over-keeps),
- *                  plus the ones a called intrinsic's SPELLING names textually
- *                  (INTRINSIC_BINDING_REFS — `f64Guard`'s zero-arg fetch from `_fp64`,
- *                  which the IR walk has no argument node to see)
- *   • `refs`     — the raw reference set, for a caller that also needs the struct names
- */
+/** What a set of entry points transitively reaches, as returned by {@link reachFrom}. */
 export interface EntryReach {
+  /** Names of every function reachable through calls from the entries, the entries
+   *  themselves included. */
   readonly fns: Set<string>
+  /** Names of the module's bindings that a reachable function reads or writes, plus the
+   *  bindings a called intrinsic reads by name in its emitted code. A local variable that
+   *  shares a binding's name can only add a binding to this set; it never removes one. */
   readonly bindings: Set<string>
+  /** The underlying reference sets the walk collected: `calls` (function names), `vars`
+   *  (variable and binding names) and `structs` (struct names), for a caller that also
+   *  needs the struct names. */
   readonly refs: RefSet
 }
 

@@ -6,42 +6,42 @@
 // dependency — this is the leaf of the core/ir import DAG
 // (types ← nodes ← node ← builder).
 
-/** The four native scalar kinds — the ones WGSL and GLSL ES 3.00 both represent directly in
- *  hardware, and the set `ShaderType`'s `{ kind: 'scalar' }` arm can carry. Drives the native
- *  promotion order in binary-op type resolution (`f32` > `i32` > `u32`, `node.ts`'s
- *  `binResultType`). `'f64'` is deliberately NOT a member: it is emulated (lowers to a
- *  `vec2<f32>` pair before emit) and has its OWN `ShaderType.kind` for that reason — see
- *  {@link ShaderType} — so it never enters native promotion and every scalar-kind switch is
- *  forced to decide about it separately.
+/** The four native scalar kinds: the ones WGSL and GLSL ES 3.00 both represent directly in
+ *  hardware, and the set a `ShaderType` of `kind: 'scalar'` can carry. When a binary operator
+ *  mixes two of them, the result follows the native promotion order `f32` > `i32` > `u32`.
+ *  Emulated double precision is a separate `ShaderType` kind, {@link f64T}, so it never enters
+ *  native promotion and every code path that switches on the scalar kind decides about it
+ *  separately (see {@link ShaderType}).
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export type Scalar = 'f32' | 'i32' | 'u32' | 'bool'
 
-/** The element type of a SAMPLED texture (#1703) — WGSL's `texture_2d<T>` type
- *  parameter, GLSL ES 3.00's sampler prefix (`f32` → `sampler2D`, `u32` →
- *  `usampler2D`, `i32` → `isampler2D`). All three are CORE in both targets.
+/** The element type of a sampled texture: WGSL's `texture_2d<T>` type parameter, or GLSL ES
+ *  3.00's sampler prefix (`f32` is `sampler2D`, `u32` is `usampler2D`, `i32` is `isampler2D`).
+ *  All three are core in both targets.
  *
- *  An INTEGER texture is UNFILTERABLE: interpolating integer texels is undefined, so
- *  WGSL rejects `textureSample` on `texture_2d<u32>` at the spec level. GLSL's
- *  `texture(usampler2D, …)` would work (NEAREST), but wiring it up would mint a
- *  construct that compiles on WebGL2 and cannot be expressed on WebGPU at all —
- *  which is exactly what authoring once and emitting both targets is meant to rule
- *  out. The honest intersection is `textureLoad` + `textureDimensions` +
- *  `textureNumLayers`; `textureSample`/`textureSampleLevel` fail at tsc on an integer
- *  key (pinned by dx-sweep.test.ts). */
+ *  An integer texture is unfilterable: interpolating integer texels is undefined, and WGSL
+ *  rejects `textureSample` on a `texture_2d<u32>`. GLSL would accept `texture(usampler2D, …)`
+ *  with nearest filtering, but a construct that compiles on WebGL2 and cannot be expressed on
+ *  WebGPU is what authoring once for both targets is meant to rule out. Read an integer
+ *  texture with {@link textureLoad}, {@link textureDimensions} and {@link textureNumLayers};
+ *  {@link textureSample} and {@link textureSampleLevel} on an integer key are `tsc` errors.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export type TextureElem = 'f32' | 'u32' | 'i32'
 
-/** The runtime type descriptor for every value the DSL can represent — a plain, comparable
- *  discriminated union (never a class or a branded object), so a `switch (t.kind)` over it is
- *  exhaustively checked by `tsc` at each site that must decide what to do with a shape
- *  ({@link typeKey}, `wgslLayout`, both backends' emit walkers). Don't build one as a literal —
- *  use the named constants below (`f32T`, `vec3fT`, …) or the `structT` / `arrayT`
- *  constructors, which keep the `as const satisfies ShaderType` narrowing that {@link KeyOf}
- *  depends on to resolve a precise string key instead of `string`. `typeKey` turns any
- *  `ShaderType` into that same key at runtime; `KeyOf<T>` is its type-level mirror, letting
- *  `Node<K>` (the authoring wrapper) carry the key as a compile-time phantom so a type
- *  mismatch is a `tsc` error instead of an `SD0002` thrown at author-run time.
+/** The runtime type descriptor for every value the DSL can represent: a plain, comparable
+ *  discriminated union, so a `switch (t.kind)` over it is exhaustively checked by `tsc` at
+ *  every site that must decide what to do with a shape ({@link typeKey}, {@link wgslLayout},
+ *  both backends' emit walkers). Do not build one as an object literal. Use the named constants
+ *  (`f32T`, `vec3fT`, …) or the {@link structT} and {@link arrayT} constructors, which keep the
+ *  `as const satisfies ShaderType` narrowing that {@link KeyOf} depends on to resolve a precise
+ *  string key instead of `string`. {@link typeKey} turns any `ShaderType` into that same key at
+ *  runtime; `KeyOf<T>` is its type-level mirror, which lets {@link Node} carry the key as a
+ *  compile-time phantom so a type mismatch is a `tsc` error instead of an `SD0002` thrown when
+ *  the authoring code runs.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -81,20 +81,20 @@ export type ShaderType =
 // `as const satisfies` keeps each constant's LITERAL type (so KeyOf<typeof f32T>
 // resolves to the precise key 'f32' / 'vec2<f32>' …) while still checking it is
 // a valid ShaderType — the basis for the compile-time type-safety gate (AC4).
-/** The `f32` scalar type — the DSL's default numeric type: what a bare numeric literal lifts
- *  to (`lift(3)` → `Node<'f32'>`), and what most builtins (`sin`, `mix`, `length`, …) return.
- *  Use it to type an `fn` parameter, a `resource`/uniform field, or a struct field that must
- *  hold a native float rather than the emulated {@link f64T}.
+/** The `f32` scalar type, the DSL's default numeric type: what a bare numeric literal lifts to
+ *  (`lift(3)` is a `Node<'f32'>`) and what most builtins (`sin`, `mix`, `length`, …) return. Use
+ *  it to type an `fn` parameter, a `resource` or uniform field, or a struct field that must
+ *  hold a native float; for emulated double precision use {@link f64T}.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderType
 /** The emulated double-precision scalar type. It is a logical `f64`, since no GPU has one: a
  *  value typed `f64T` is an unevaluated pair of f32 values, a high part and a low part holding
- *  the residual the high part could not represent, and the pre-emit lowering rewrites every
- *  operation on it into arithmetic on that pair. The pair carries about 48 significand bits at
- *  f32's exponent range, against f32's 24, so it costs one f32 pair per value and no real
- *  64-bit register.
+ *  the residual the high part could not represent, and a pass that runs before emit rewrites
+ *  every operation on it into arithmetic on that pair. The pair carries about 48 significand
+ *  bits at f32's exponent range, against f32's 24, so it costs one f32 pair per value and no
+ *  real 64-bit register.
  *
  *  The authoring surface is the same as f32's; only the declared type differs. Declare a
  *  parameter, a uniform field or a struct field `f64T` and the operators, the comparisons and
@@ -115,7 +115,7 @@ export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderT
  *
  *  An f64 varying is rejected with `SD0044`: interpolating a high and low pair independently
  *  is numerically wrong. Narrow to f32 for the varying, or carry the two parts as two f32
- *  locations and rebuild them with `f64FromParts`.
+ *  locations and rebuild them with {@link f64FromParts}.
  *
  *  `sin` and `cos` are less accurate than the arithmetic. They use a three-stage argument
  *  reduction, a tabled angle addition and a short Taylor series on the remainder, and the
@@ -123,10 +123,13 @@ export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderT
  *  then degrades with the argument's magnitude through the reduction. That is still far past
  *  f32, whose sine of an argument near 2^24 is noise.
  *
- *  Each f64 operation costs several to ten times an f32 one, so opt in per value and not per
- *  shader.
+ *  Each f64 operation costs several to ten times an f32 one, so opt in per value: declare f64
+ *  only where the precision is needed.
  *
- *  A module doing f64 arithmetic gets the {@link fp64Guard} texture injected automatically.
+ *  A module doing f64 arithmetic gets a guard texture injected automatically: a 1 by 1
+ *  `texture_2d<f32>` binding named `_fp64` whose texel, always 1.0, multiplies the
+ *  error-compensation terms so a downstream compiler cannot fold them away. {@link fp64Guard}
+ *  pins its slot.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
@@ -143,160 +146,146 @@ export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderT
  *
  *  @see {@link splitF64} for packing a host-side double into the pair.
  *  @see {@link fp64Guard} for the guard texture and its slot.
- *  @see {@link recommendFp64Flavor} for the per-device lowering flavour.
+ *  @see {@link recommendFp64Flavor} for choosing the emulation flavour per device.
  */
 export const f64T = { kind: 'f64' } as const satisfies ShaderType
-/** A 2-component emulated-double vector (`vec2<f64>` logically), lowered to a
- *  `struct DF64Vec2 { hi: vec2<f32>, lo: vec2<f32> }` before emit — componentwise arithmetic
- *  runs on the whole hi/lo plane rather than per-scalar df64 ops. The usual carrier for a
- *  deep-zoom world-space point (see the `shader-dsl/examples/fp64-*.ts` gallery, e.g.
- *  `fp64-mandelbrot.ts`'s `center: vec2f64T` uniform) that must survive far more than f32's
- *  ~7 significant digits.
+/** A 2-component emulated-double vector, logically `vec2<f64>`. Before emit it is rewritten
+ *  into a struct of two `vec2<f32>` planes, `hi` and `lo`, and componentwise arithmetic runs on
+ *  the whole planes at once. The usual carrier for a position in world units that must
+ *  survive far more than f32's roughly 7 significant digits; see {@link f64T} for what is
+ *  emulated and what it costs.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec2f64T = { kind: 'vec64', n: 2 } as const satisfies ShaderType
-/** A 3-component emulated-double vector — see {@link vec2f64T} for the lowering and when to
- *  reach for the df64 family over plain {@link vec3fT}.
+/** A 3-component emulated-double vector; see {@link vec2f64T} for how it is emitted and when
+ *  to prefer the emulated-double family over plain {@link vec3fT}.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec3f64T = { kind: 'vec64', n: 3 } as const satisfies ShaderType
-/** A 4-component emulated-double vector — see {@link vec2f64T} for the lowering and when to
- *  reach for the df64 family over plain {@link vec4fT}.
+/** A 4-component emulated-double vector; see {@link vec2f64T} for how it is emitted and when
+ *  to prefer the emulated-double family over plain {@link vec4fT}.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec4f64T = { kind: 'vec64', n: 4 } as const satisfies ShaderType
-/** The `i32` scalar type — the DSL's signed-integer type. Types the target of the `i32(...)`
- *  cast (`node.ts`) and the scrutinee `match-lower.ts` casts a non-integer `matchExpr` value
- *  to, since WGSL's `switch` only accepts integer scrutinees. Use it for signed-integer `fn`
- *  parameters and fields; for an unsigned count or index, prefer {@link u32T}.
+/** The `i32` scalar type, the DSL's signed-integer type: the result type of the {@link i32}
+ *  cast, and the type a non-integer {@link matchExpr} scrutinee is cast to before emit, since
+ *  WGSL's `switch` only accepts integer scrutinees. Use it for signed-integer `fn` parameters
+ *  and fields; for an unsigned count or index, prefer {@link u32T}.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const i32T = { kind: 'scalar', scalar: 'i32' } as const satisfies ShaderType
-/** The `u32` scalar type — the DSL's unsigned-integer type, used for counts, indices, and
- *  compute/vertex builtins that are unsigned by spec (`builtin('vertex_index', u32T)` in
- *  `shader-dsl/examples/_fullscreen.ts`, `builtin('global_invocation_id', vec3uT)` for the
- *  vector form). Reach for it over {@link i32T} whenever the value can never be negative — it
- *  documents the invariant at the type.
+/** The `u32` scalar type, the DSL's unsigned-integer type: counts, indices, and the compute and
+ *  vertex builtins that are unsigned by spec (`builtin('vertex_index', u32T)`; the vector form
+ *  is `builtin('global_invocation_id', vec3uT)`). Prefer it to {@link i32T} whenever the value
+ *  can never be negative; the type then documents the invariant.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const u32T = { kind: 'scalar', scalar: 'u32' } as const satisfies ShaderType
-/** The `bool` scalar type — the type of every comparison (`.lt`, `.eq`, …) and logical
- *  (`.and`, `.or`) result, and the required return type of a boolean-returning `fn` (e.g.
- *  `map/src/shaders/dsl/coverage-filter.ts`'s `fn(COVERAGE_FILTER_FN, { … }, boolT, …)`, and
- *  the type `If`/`Switch` guards check against at author-run time).
+/** The `bool` scalar type: the type of every comparison (`.lt`, `.eq`, …) and logical (`.and`,
+ *  `.or`) result, the required return type of a boolean-returning `fn`, and the type an
+ *  {@link If} condition is checked against when the authoring code runs.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const boolT = { kind: 'scalar', scalar: 'bool' } as const satisfies ShaderType
-/** A native `vec2<f32>` — the most common vector type in the DSL: screen/UV coordinates and
- *  2D positions. Types the `uv: location(0, vec2fT)` fragment-input field and the
- *  `resolution: vec2fT` uniform shared by every example in `shader-dsl/examples/_fullscreen.ts`.
- *  Pair with the `vec2` literal constructor to build a value; use {@link vec2f64T} instead when
- *  the value must survive more precision than f32 offers.
+/** A native `vec2<f32>`, the most common vector type in the DSL: screen and UV coordinates and
+ *  2D positions, such as a `uv: location(0, vec2fT)` fragment-input field or a
+ *  `resolution: vec2fT` uniform. Build a value with the {@link vec2} constructor; use
+ *  {@link vec2f64T} instead when the value needs more precision than f32 offers.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec2fT = { kind: 'vec', n: 2, elem: 'f32' } as const satisfies ShaderType
-/** A native `vec3<f32>` — the usual carrier for a world-space position or direction (e.g.
- *  `shader-dsl/examples/raymarch-boxes.ts`'s `scene(p: vec3fT)`, or the split ECEF
- *  high/low fields `ecefH: vec3fT, ecefL: vec3fT` in `map/src/shaders/dsl/arrow-retained.ts`).
+/** A native `vec3<f32>`, the usual carrier for a world-space position or direction, such as
+ *  the `p: vec3fT` parameter of a signed-distance scene function.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec3fT = { kind: 'vec', n: 3, elem: 'f32' } as const satisfies ShaderType
-/** A native `vec4<f32>` — RGBA colour or homogeneous clip-space position; types the
- *  `pos: builtin('position', vec4fT)` vertex-output field and `location(0, vec4fT)`
- *  fragment-output field that recur across the `shader-dsl/examples/*` gallery, and any RGBA
- *  uniform field (`mouse: vec4fT` in `julia.ts`).
+/** A native `vec4<f32>`: an RGBA colour or a homogeneous clip-space position. Types the
+ *  `pos: builtin('position', vec4fT)` vertex-output field, a `location(0, vec4fT)`
+ *  fragment-output field, and any RGBA uniform field.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec4fT = { kind: 'vec', n: 4, elem: 'f32' } as const satisfies ShaderType
-/** A native `vec2<u32>` — a 2-wide unsigned-integer field, e.g. a packed pick-ID varying
- *  (`location(1, vec2uT, 'flat')` in `map/src/shaders/dsl/hillshade.ts` and `line.ts`).
+/** A native `vec2<u32>`, a 2-wide unsigned-integer field, such as a packed pick-ID varying
+ *  declared `location(1, vec2uT, 'flat')`.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec2uT = { kind: 'vec', n: 2, elem: 'u32' } as const satisfies ShaderType
-/** A native `vec3<u32>` — chiefly the type of the WGSL/GLSL compute `global_invocation_id`
- *  builtin (`builtin('global_invocation_id', vec3uT)` in
- *  `shader-dsl/examples/compute-reduction.ts`).
+/** A native `vec3<u32>`, chiefly the type of the compute `global_invocation_id` builtin
+ *  (`builtin('global_invocation_id', vec3uT)`).
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec3uT = { kind: 'vec', n: 3, elem: 'u32' } as const satisfies ShaderType
-/** A native `vec4<u32>` — a 4-wide unsigned-integer resource/uniform field (e.g. compute
- *  reduction parameters, `resource('params', vec4uT, { … })` in
- *  `shader-dsl/examples/compute-reduction.ts`).
+/** A native `vec4<u32>`, a 4-wide unsigned-integer resource or uniform field, such as the
+ *  parameter block of a compute kernel (`resource('params', vec4uT, { … })`).
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies ShaderType
-/** A native `vec2<i32>` — pairs with the `vec2i(...)` literal constructor (`node.ts`) to build
- *  a signed-integer 2-vector, e.g. a texel coordinate for `textureLoad`.
+/** A native `vec2<i32>`. Build a value with the {@link vec2i} constructor, for example a texel
+ *  coordinate for {@link textureLoad}.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec2iT = { kind: 'vec', n: 2, elem: 'i32' } as const satisfies ShaderType
-/** A native `vec4<i32>` — completes the signed-integer vector family alongside
- *  {@link vec2iT}; use it to TYPE an `fn` parameter, `resource`, or struct field declared as
- *  `vec4<i32>` (there is no `vec4i(...)` literal constructor — author the value via
- *  `construct`/`.at()` against this type instead).
+/** A native `vec4<i32>`, completing the signed-integer vector family alongside {@link vec2iT}.
+ *  Use it to type an `fn` parameter, `resource` or struct field declared as `vec4<i32>`; build
+ *  a value with `construct(vec4iT, [...])` or read one with `.at()` against this type.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
-/** A native `mat4x4<f32>` — the only native f32 matrix size the DSL exposes a named constant
- *  for (no `mat2x2fT`/`mat3x3fT`; `reflect.ts` notes mat2 std140 layout diverges between WGSL
- *  and real GLSL and is rejected until that dual-rule layout lands). This is the MVP/view
- *  matrix type throughout `map/src/shaders/dsl/*` (`mvp: mat4x4fT` in `raster.ts`, `line.ts`,
- *  `polygon.ts`, `point.ts`, …) and `map/src/render/frame-uniform.ts`'s per-frame uniform.
+/** A native `mat4x4<f32>`, the model-view-projection or view matrix type of a typical
+ *  per-frame uniform (`mvp: mat4x4fT`). It is the only native float matrix size with a named
+ *  constant: a 2×2 or 3×3 float matrix lays out differently under the WGSL and GLSL std140
+ *  rules and is rejected.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies ShaderType
-/** A 2×2 emulated-double matrix (`mat2x2<f64>` logically) — lowers to
- *  `struct DF64Mat2 { c0: DF64Vec2, c1: DF64Vec2 }` before emit, and `matmul` / mat·vec /
- *  `transpose` on it compose the scalar df64 error-free transforms the same way
- *  {@link vec2f64T}'s `length`/`dot` do. See `core/fp64/mat64.test.ts` for worked
- *  `transformMat64` / `mulMat64` / `transpose64` calls against this type.
+/** A 2×2 emulated-double matrix, logically `mat2x2<f64>`. Before emit it is rewritten into a
+ *  struct of two {@link vec2f64T} columns, and {@link mulMat64}, {@link transformMat64} and
+ *  {@link transpose64} on it compose the scalar double-double error-free transforms the same
+ *  way `length` and `dot` on {@link vec2f64T} do.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const mat2f64T = { kind: 'mat', n: 2, elem: 'f64' } as const satisfies ShaderType
-/** A 3×3 emulated-double matrix — see {@link mat2f64T} for the lowering and the df64 matrix
- *  ops available against it.
+/** A 3×3 emulated-double matrix; see {@link mat2f64T} for how it is emitted and the matrix
+ *  operations available on it.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const mat3f64T = { kind: 'mat', n: 3, elem: 'f64' } as const satisfies ShaderType
-/** A 4×4 emulated-double matrix — see {@link mat2f64T} for the lowering and the df64 matrix
- *  ops available against it.
+/** A 4×4 emulated-double matrix; see {@link mat2f64T} for how it is emitted and the matrix
+ *  operations available on it.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const mat4f64T = { kind: 'mat', n: 4, elem: 'f64' } as const satisfies ShaderType
-/** A sampled 2D texture (WGSL `texture_2d<f32>`, GLSL ES 3.00 `sampler2D`) — the ordinary
- *  single-layer binding type behind `textureSample`/`textureLoad`, used throughout
- *  `map/src/shaders/dsl/*` for colour ramps, flow fields, and atlases (`resource('atlas_tex',
- *  texture2dfT, { … })` in `icon-retained.ts`, `coverage-ramp.ts`, `flow-advect.ts`, …). Every
- *  texture kind in this DSL hardcodes `elem: 'f32'` — there is no integer sampled-texture
- *  variant yet (#1703); don't author or document one as if it exists.
+/** A sampled 2D float texture (WGSL `texture_2d<f32>`, GLSL ES 3.00 `sampler2D`): the ordinary
+ *  single-layer binding type behind {@link textureSample} and {@link textureLoad}, for colour
+ *  ramps, lookup tables and atlases (`resource('atlas_tex', texture2dfT, { … })`). For exact
+ *  integer texels use {@link texture2duT} or {@link texture2diT}.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const texture2dfT = { kind: 'texture', dim: '2d', elem: 'f32' } as const satisfies ShaderType
-/** A multisampled 2D texture (WGSL `texture_multisampled_2d<f32>`, GLSL
- *  `sampler2DMS`) — the resolve-source binding for an MSAA render target, read one sample at a
- *  time via `textureLoad(tex, coord, sampleIndex)` inside a per-sample averaging loop rather
- *  than filtered-sampled. `map/src/shaders/dsl/oit-compose.ts` picks this type over
- *  {@link texture2dfT} at emit time based on `sampleCount > 1` (`isMsaa ? texture2dMsfT :
- *  texture2dfT`) so the same shader source handles both the MSAA and single-sample path.
+/** A multisampled 2D texture (WGSL `texture_multisampled_2d<f32>`, GLSL `sampler2DMS`): the
+ *  resolve-source binding for an MSAA render target, read one sample at a time with
+ *  `textureLoad(tex, coord, sampleIndex)` inside a per-sample averaging loop. A host that
+ *  chooses the type at emit time (`sampleCount > 1 ? texture2dMsfT : texture2dfT`) can serve
+ *  both the MSAA and the single-sample path from one shader source.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -305,72 +294,89 @@ export const texture2dMsfT = {
   dim: '2d-ms',
   elem: 'f32',
 } as const satisfies ShaderType
-/** A sampled 2D ARRAY texture (#1651) — one texture object, N independently
- *  addressable layers (a tile atlas, a glyph page set, a per-layer LUT stack).
- *  The layer is a per-sample ARGUMENT, not a binding, so N layers cost one
- *  binding slot and one bind-group switch. */
+/** A sampled 2D array texture (WGSL `texture_2d_array<f32>`, GLSL ES 3.00 `sampler2DArray`):
+ *  one texture object with N independently addressable layers (a tile atlas, a glyph page
+ *  set, a stack of lookup tables). The layer is an argument of each sample call, so N layers
+ *  cost one binding slot and one bind-group switch. Core in both targets, so it needs no
+ *  {@link Capability}.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export const texture2dArrayfT = {
   kind: 'texture',
   dim: '2d-array',
   elem: 'f32',
 } as const satisfies ShaderType
-/** An UNSIGNED-integer 2D texture (#1703) — WGSL `texture_2d<u32>`, GLSL ES 3.00
- *  `usampler2D`. Read with {@link textureLoad} (→ `vec4<u32>`); it carries EXACT
- *  32-bit values, which is what makes it the right backing for an id / packed-colour
- *  / bitfield lookup that must survive the trip to the GPU unchanged. Unfilterable —
- *  `textureSample` on it is a tsc error, by design (see {@link TextureElem}). */
+/** An unsigned-integer 2D texture (WGSL `texture_2d<u32>`, GLSL ES 3.00 `usampler2D`). Read it
+ *  with {@link textureLoad}, which returns a `vec4<u32>`. It carries exact 32-bit values, which
+ *  makes it the right backing for an id, packed-colour or bitfield lookup that must reach the
+ *  GPU unchanged. It is unfilterable: {@link textureSample} on it is a `tsc` error (see
+ *  {@link TextureElem}).
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export const texture2duT = { kind: 'texture', dim: '2d', elem: 'u32' } as const satisfies ShaderType
-/** A SIGNED-integer 2D texture (#1703) — WGSL `texture_2d<i32>`, GLSL ES 3.00
- *  `isampler2D`. The signed twin of {@link texture2duT}; same load-only contract. */
+/** A signed-integer 2D texture (WGSL `texture_2d<i32>`, GLSL ES 3.00 `isampler2D`): the signed
+ *  twin of {@link texture2duT}, with the same load-only contract.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export const texture2diT = { kind: 'texture', dim: '2d', elem: 'i32' } as const satisfies ShaderType
-/** An UNSIGNED-integer 2D ARRAY texture (#1703) — WGSL `texture_2d_array<u32>`,
- *  GLSL ES 3.00 `usampler2DArray`. {@link texture2dArrayfT}'s layer model with
- *  {@link texture2duT}'s exact-integer texels. */
+/** An unsigned-integer 2D array texture (WGSL `texture_2d_array<u32>`, GLSL ES 3.00
+ *  `usampler2DArray`): {@link texture2dArrayfT}'s layer model with {@link texture2duT}'s exact
+ *  integer texels.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export const texture2dArrayuT = {
   kind: 'texture',
   dim: '2d-array',
   elem: 'u32',
 } as const satisfies ShaderType
-/** A SIGNED-integer 2D ARRAY texture (#1703) — WGSL `texture_2d_array<i32>`,
- *  GLSL ES 3.00 `isampler2DArray`. */
+/** A signed-integer 2D array texture (WGSL `texture_2d_array<i32>`, GLSL ES 3.00
+ *  `isampler2DArray`): the signed twin of {@link texture2dArrayuT}.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export const texture2dArrayiT = {
   kind: 'texture',
   dim: '2d-array',
   elem: 'i32',
 } as const satisfies ShaderType
-/** The sampler resource type (WGSL `sampler`, GLSL's implicit combined-sampler half) — always
- *  paired with a texture type ({@link texture2dfT} et al.) as a separate `resource()` binding;
- *  `textureSample`/`textureSampleLevel` take both. See `resource('atlas_sampler', samplerT, {
- *  group: 0, binding: 1 })` in `shader-dsl/examples/texture-array-lod.ts`.
+/** The sampler resource type (WGSL `sampler`; in GLSL, the sampler half of the combined
+ *  texture-sampler). Always declared as its own `resource()` binding next to a texture type
+ *  ({@link texture2dfT} and its siblings); {@link textureSample} and {@link textureSampleLevel}
+ *  take both. For example, `resource('atlas_sampler', samplerT, { group: 0, binding: 1 })`.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const samplerT = { kind: 'sampler' } as const satisfies ShaderType
-/** The absent-value type — the return type of an `fn` whose body never returns a value (a
- *  statement-only vertex mutator, a compute entry point). `inferReturnType`
- *  (`core/ir/builder.ts`) falls back to this when it walks every `Return` in a body and finds
- *  none; you should rarely need to write it explicitly, since an author normally lets the
- *  return-type token be inferred.
+/** The absent-value type: the return type of an `fn` whose body never returns a value (a
+ *  statement-only vertex mutator, a compute entry point). Return-type inference falls back to
+ *  it when it finds no `Return` in a body, so you rarely need to write it explicitly.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const voidT = { kind: 'void' } as const satisfies ShaderType
-/** Builds the `ShaderType` for a named struct — the type you pass wherever a struct-typed
- *  value is authored (a `b.var(name, structT('VsOut'))` local, an `fn` parameter, an array
- *  element via {@link arrayT}). Two calls with the same `name` compare equal under
- *  {@link typeKey}/{@link typeEq} regardless of identity, since the key is the name string, not
- *  the struct's field list — the DSL never checks field shape here. Prefer the higher-level
- *  `ioStruct`/`sotStruct` declarators (`AUTHORING.md`) for new code, which return a typed
- *  accessor built on top of this; reach for `structT` directly only when you already have a
- *  `StructDecl` and need its bare `ShaderType`.
+/** Builds the `ShaderType` for a named struct: the type you pass wherever a struct-typed value
+ *  is authored (a `b.var(name, structT('VsOut'))` local, an `fn` parameter, an array element
+ *  via {@link arrayT}). Two calls with the same `name` compare equal under {@link typeKey} and
+ *  {@link typeEq} regardless of identity, since the key is the name string alone; the field
+ *  list is never compared here. Prefer the higher-level {@link ioStruct} and
+ *  {@link uniformStruct} declarators for new code, which return a typed accessor built on top
+ *  of this; call `structT` directly when you already have a {@link StructDecl} and need its
+ *  bare `ShaderType`.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param name The struct's declared name; it becomes the type's key, `struct:<name>`.
+ *  @returns A `{ kind: 'struct', name }` descriptor whose `name` keeps its literal type.
  *
  *  @example
  *  ```ts
  *  import { structT, typeEq } from '@xgis/shader-dsl'
  *
- *  // Equality is by NAME only — no field-shape check happens here.
+ *  // Equality is by name only.
  *  typeEq(structT('DF64Vec2'), structT('DF64Vec2')) // true
  *  ```
  */
@@ -380,9 +386,16 @@ export const structT = <N extends string>(
   kind: 'struct',
   name,
 })
-/** Array type; pass `size` for a fixed-length WGSL array (`array<T, N>`). Both `elem` and
- *  `size` are preserved as literals so {@link KeyOf} can spell the exact `array<…>` key
- *  {@link typeKey} produces (#2456). */
+/** Builds the `ShaderType` for an array. Pass `size` for a fixed-length array (`array<T, N>`);
+ *  omit it for a runtime-sized one (`array<T>`). Both `elem` and `size` keep their literal
+ *  types so {@link KeyOf} spells the exact `array<…>` key that {@link typeKey} produces.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param elem The element type, itself a literal-typed `ShaderType`.
+ *  @param size The fixed element count, or `undefined` for a runtime-sized array.
+ *  @returns A `{ kind: 'array', elem, size }` descriptor that keeps both literal types.
+ */
 export const arrayT = <E extends ShaderType, S extends number | undefined = undefined>(
   elem: E,
   size?: S,
@@ -393,18 +406,17 @@ export const arrayT = <E extends ShaderType, S extends number | undefined = unde
 })
 
 // Type-level key of a ShaderType literal — the phantom carried by Node<K>.
-/** Turns a `ShaderType` LITERAL into the precise string key `Node<K>` carries as its
- *  compile-time phantom — `KeyOf<typeof vec3fT>` resolves to the literal `'vec3<f32>'`, not
- *  `string`, which is what lets a `vec2`+`vec3` operand mismatch fail `tsc` instead of only the
- *  runtime `SD0002` check `typeKey`/`typeEq` perform. This only narrows correctly against a
- *  `T` that kept its literal shape (the `as const satisfies ShaderType` constants in this file,
- *  or `structT`/`arrayT` results) — a widened `ShaderType` collapses to the `string` fallback
- *  arm. Every arm here must stay byte-identical to {@link typeKey}'s switch; a new `ShaderType`
- *  variant needs a new arm in BOTH.
+/** Turns a `ShaderType` literal into the precise string key that {@link Node} carries as its
+ *  compile-time phantom: `KeyOf<typeof vec3fT>` resolves to `'vec3<f32>'`, so a `vec2` and
+ *  `vec3` operand mismatch fails `tsc` before the runtime `SD0002` check in {@link typeKey} and
+ *  {@link typeEq} would catch it. It narrows only against a `T` that kept its literal shape
+ *  (the `as const satisfies ShaderType` constants in this module, or a {@link structT} or
+ *  {@link arrayT} result); a widened `ShaderType` collapses to the `string` fallback. Every arm
+ *  mirrors one `case` of {@link typeKey}, and a new `ShaderType` variant needs an arm in both.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
- *  @typeParam T — the `ShaderType` (or a subset of it) to resolve a key for.
+ *  @typeParam T The `ShaderType` (or a subset of it) to resolve a key for.
  */
 export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends string }
   ? S
@@ -453,26 +465,27 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                         : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
-/** The `KeyOf` string form of {@link Scalar}, minus `'bool'` — the key set accepted wherever
- *  the DSL needs an indexable/comparable native scalar: array indices (`.at(i:
- *  ReadonlyNode<ScalarKey> | number, …)`), bitwise-op operands, and `matchExpr`/`Switch`
- *  scrutinees. `'f64'` and `'bool'` are excluded on purpose — a `Switch` scrutinee must lower
- *  to a WGSL `switch`, which only accepts integer cases, and an array index or bit-op operand
- *  is never boolean.
+/** The key form of {@link Scalar} without `'bool'`: the set accepted wherever the DSL needs an
+ *  indexable or comparable native scalar, such as array indices (`.at(i, elem)`), bitwise-op
+ *  operands, and {@link matchExpr} or {@link Switch} scrutinees. `'f64'` and `'bool'` are
+ *  excluded because a `Switch` scrutinee must become a WGSL `switch`, which only accepts
+ *  integer cases, and an array index or bit-op operand is never boolean.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export type ScalarKey = 'f32' | 'i32' | 'u32'
 
-/** The runtime twin of {@link KeyOf} — turns any `ShaderType` VALUE (not just a literal `tsc`
- *  can narrow) into its canonical string key (`'vec3<f32>'`, `'mat4x4<f32>'`,
- *  `'texture_2d_array<f32>'`, …), used both for error messages (`SD0002`/`SD0004`: "expected
- *  vec3<f32>, got vec4<f32>") and by {@link typeEq} to compare two types structurally. Every
- *  `case` here must stay byte-identical to `KeyOf`'s matching conditional arm — a mismatch
- *  means a value type-checks at author time but throws a spurious mismatch at author-run time,
- *  or vice versa.
+/** The runtime twin of {@link KeyOf}: turns any `ShaderType` value, literal or widened, into
+ *  its canonical string key (`'vec3<f32>'`, `'mat4x4<f32>'`, `'texture_2d_array<f32>'`, …).
+ *  Error messages use it (`SD0002`, `SD0004`: "expected vec3<f32>, got vec4<f32>"), and
+ *  {@link typeEq} compares two types by it. Every `case` mirrors one arm of `KeyOf`; if they
+ *  disagree, a value type-checks at author time but throws a spurious mismatch when the
+ *  authoring code runs, or the reverse.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param t The type to spell.
+ *  @returns The canonical key string.
  *
  *  @example
  *  ```ts
@@ -527,31 +540,36 @@ export function typeKey(t: ShaderType): string {
   }
 }
 
-/** Structural equality for `ShaderType` — two types are equal iff their {@link typeKey}
- *  strings match, so `boolT`-style constants compare equal to a freshly-built `{ kind:
- *  'scalar', scalar: 'bool' }` object even though they aren't the same reference. This is the
- *  check every binary-op / assignment / `fn`-argument type gate in `node.ts` runs before
- *  raising `SD0002` ("type mismatch") — never compare two `ShaderType`s with `===` or a deep
- *  equal, use this.
+/** Structural equality for `ShaderType`: two types are equal when their {@link typeKey} strings
+ *  match, so a constant like `boolT` compares equal to a freshly built `{ kind: 'scalar',
+ *  scalar: 'bool' }` object even though they are different references. This is the check every
+ *  binary-op, assignment and `fn`-argument type gate runs before raising `SD0002` ("type
+ *  mismatch"). Compare two `ShaderType`s with this function: `===` compares references, and a
+ *  deep equal is slower for the same answer.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @param a The first type.
+ *  @param b The second type.
+ *  @returns `true` when both spell the same key.
  *
  *  @example
  *  ```ts
  *  import { typeEq, boolT } from '@xgis/shader-dsl'
  *
- *  typeEq(boolT, { kind: 'scalar', scalar: 'bool' }) // true — same key, different object
+ *  typeEq(boolT, { kind: 'scalar', scalar: 'bool' }) // true: same key, different object
  *  ```
  */
 export function typeEq(a: ShaderType, b: ShaderType): boolean {
   return typeKey(a) === typeKey(b)
 }
 
-/** Narrows a `ShaderType` to the native `{ kind: 'vec' }` arm — `elem` is `'f32' | 'i32' |
- *  'u32'` (no `'bool'`, no `'f64'`; the emulated-double vector is the SEPARATE `'vec64'` kind,
- *  see {@link isVec64}). Used throughout `node.ts`'s binary-op type resolution (`isMat(a) &&
- *  isVec(b)`, `isVec(a) && isScalar(b)`) to decide vec∘scalar broadcast vs mat·vec vs a
- *  same-kind op, and by `.x`/`.y`/`.r`/`.g` swizzle guards to reject a non-vector receiver.
+/** Narrows a `ShaderType` to the native `{ kind: 'vec' }` arm, whose `elem` is `'f32' | 'i32' |
+ *  'u32'`. The emulated-double vector is the separate `'vec64'` kind; test for it with
+ *  {@link isVec64}. Binary-op type resolution uses it (`isMat(a) && isVec(b)`, `isVec(a) &&
+ *  isScalar(b)`) to decide between a vector-scalar broadcast, a matrix-vector product and a
+ *  same-kind op, and the `.x`/`.y`/`.r`/`.g` swizzle guards use it to reject a non-vector
+ *  receiver.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
@@ -564,11 +582,11 @@ export function typeEq(a: ShaderType, b: ShaderType): boolean {
  *  ```
  */
 export const isVec = (t: ShaderType): t is Extract<ShaderType, { kind: 'vec' }> => t.kind === 'vec'
-/** Narrows a `ShaderType` to the native `{ kind: 'scalar' }` arm (`f32`/`i32`/`u32`/`bool`) —
- *  `false` for {@link f64T}, which is its own kind precisely so this predicate does NOT treat
- *  it as a scalar. Used in `node.ts`'s arithmetic type resolution to detect the vec∘scalar
- *  broadcast case (`isVec(a) && isScalar(b)` — and its mirror `isScalar(a) && isVec(b)` — each
- *  returning the vector operand's type as the result).
+/** Narrows a `ShaderType` to the native `{ kind: 'scalar' }` arm (`f32`, `i32`, `u32`, `bool`).
+ *  It is `false` for {@link f64T}, which is its own kind so that this predicate does not treat
+ *  it as a scalar. Arithmetic type resolution uses it to detect the vector-scalar broadcast
+ *  case (`isVec(a) && isScalar(b)` and its mirror), where the vector operand's type is the
+ *  result.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
@@ -577,15 +595,15 @@ export const isVec = (t: ShaderType): t is Extract<ShaderType, { kind: 'vec' }> 
  *  import { isScalar, f32T, f64T } from '@xgis/shader-dsl'
  *
  *  isScalar(f32T) // true
- *  isScalar(f64T) // false — f64 is its own ShaderType.kind, not a native scalar
+ *  isScalar(f64T) // false: f64 is its own ShaderType kind
  *  ```
  */
 export const isScalar = (t: ShaderType): t is Extract<ShaderType, { kind: 'scalar' }> =>
   t.kind === 'scalar'
-/** Narrows a `ShaderType` to the native `{ kind: 'mat' }` arm — matches BOTH `elem: 'f32'`
- *  (native `matNxN<f32>`) and `elem: 'f64'` (emulated, lowered to a `DF64MatN` struct); use
- *  {@link isMat64} when the f32/f64 distinction itself matters. `node.ts` checks this before a
- *  `mat·vec` or `mat·mat` op (`isMat(a) && isVec(b)`, `isMat(a) && isMat(b)`).
+/** Narrows a `ShaderType` to the `{ kind: 'mat' }` arm. It matches both `elem: 'f32'` (native
+ *  `matNxN<f32>`) and `elem: 'f64'` (emulated, emitted as a struct of double-double columns);
+ *  use {@link isMat64} when the distinction matters. Binary-op type resolution checks it before
+ *  a matrix-vector or matrix-matrix product.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
@@ -594,20 +612,23 @@ export const isScalar = (t: ShaderType): t is Extract<ShaderType, { kind: 'scala
  *  import { isMat, mat4x4fT, mat2f64T } from '@xgis/shader-dsl'
  *
  *  isMat(mat4x4fT) // true
- *  isMat(mat2f64T) // also true — use isMat64 to tell them apart
+ *  isMat(mat2f64T) // also true; use isMat64 to tell them apart
  *  ```
  */
 export const isMat = (t: ShaderType): t is Extract<ShaderType, { kind: 'mat' }> => t.kind === 'mat'
-/** An emulated-double matrix (`matNxN<f64>`), lowered to a DF64MatN column struct. */
+/** Narrows a `ShaderType` to an emulated-double matrix (`matNxN<f64>`, see {@link mat2f64T}),
+ *  which is emitted as a struct of double-double columns.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
 export const isMat64 = (
   t: ShaderType,
 ): t is Extract<ShaderType, { kind: 'mat' }> & { elem: 'f64' } =>
   t.kind === 'mat' && t.elem === 'f64'
-/** Narrows a `ShaderType` to the emulated-double scalar arm ({@link f64T}). `node.ts`'s
- *  arithmetic resolution checks this FIRST, before native scalar promotion, so an `f64`
- *  operand always wins the result type over a plain `f32`/number — mixing `f64` with an
- *  `i32`/`u32`/`bool` operand instead falls through to an `SD0004` throw, since df64 only
- *  widens from f32/number, never from another native integer kind.
+/** Narrows a `ShaderType` to the emulated-double scalar arm ({@link f64T}). Arithmetic type
+ *  resolution checks it first, before native scalar promotion, so an `f64` operand always wins
+ *  the result type over a plain `f32` or number. Mixing `f64` with an `i32`, `u32` or `bool`
+ *  operand throws `SD0004`, since emulated double precision only widens from f32 and number.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
@@ -620,10 +641,11 @@ export const isMat64 = (
  *  ```
  */
 export const isF64 = (t: ShaderType): t is Extract<ShaderType, { kind: 'f64' }> => t.kind === 'f64'
-/** Narrows a `ShaderType` to the emulated-double VECTOR arm ({@link vec2f64T} and its 3/4-wide
- *  siblings) — distinct from {@link isVec}, which only matches the native `vec` kind and is
- *  `false` for a df64 vector. `.comp()`/swizzle guards in `node.ts` accept EITHER `isVec(t) ||
- *  isVec64(t)` since both kinds support component access, just through a different lowering.
+/** Narrows a `ShaderType` to the emulated-double vector arm ({@link vec2f64T} and its 3- and
+ *  4-wide siblings). It is distinct from {@link isVec}, which matches only the native `vec` kind
+ *  and is `false` for an emulated-double vector. Component access (`.comp()` and swizzles)
+ *  accepts either `isVec(t) || isVec64(t)`, since both kinds support it, each through its own
+ *  emitted form.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
@@ -632,7 +654,7 @@ export const isF64 = (t: ShaderType): t is Extract<ShaderType, { kind: 'f64' }> 
  *  import { isVec64, vec2f64T, vec2fT } from '@xgis/shader-dsl'
  *
  *  isVec64(vec2f64T) // true
- *  isVec64(vec2fT) // false — native vec, use isVec for that
+ *  isVec64(vec2fT) // false: a native vec, use isVec for that
  *  ```
  */
 export const isVec64 = (t: ShaderType): t is Extract<ShaderType, { kind: 'vec64' }> =>

@@ -10,11 +10,11 @@
 // identically by both targets (`name(args)`), which also covers user-defined
 // function calls (they flow through the same `call` op and pass through).
 
-/** Which emit target `spellIntrinsic` and the `INTRINSICS` table spell for — `'wgsl'` or
- *  `'glsl'`. Narrower than it looks: this is the two-column key of THIS registry's `Spelling`
- *  record, not a general backend identifier — the GLSL backend's own `Backend.id` is
- *  `'glsl-es300'`, not `'glsl'`. A future third writer (SPIR-V, MSL) needs a new column added
- *  here (and a new case in `spellIntrinsic`) before it needs anything from `core/backend.ts`.
+/** The emit target that {@link spellIntrinsic} and the {@link INTRINSICS} table spell for:
+ *  `'wgsl'` or `'glsl'`. The value names a column of the registry only; a backend identifies
+ *  itself separately through `Backend.id`, and the GLSL backend's id is `'glsl-es300'`. A third
+ *  writer (SPIR-V, MSL) would add a new column to every registry entry and a new case in
+ *  `spellIntrinsic`.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -73,7 +73,13 @@ const storageFetchGlsl =
   (a: readonly string[]): string =>
     `${fn}(${a[0]}, int(${a[1]}))`
 
-/** Neutral intrinsic id -> per-target spelling. Absent = identity passthrough. */
+/** The spelling of each builtin id on each target, keyed by id. Only builtins whose spelling
+ *  differs between WGSL and GLSL ES 3.00 have an entry; a builtin with no entry is spelled the
+ *  same way on both targets, as `name(args)`. The wgsl and glsl members of an entry each take
+ *  the rendered argument expressions and return the call as source text.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // Scalar conversions — toF32/toI32/toU32 (node.ts) emit calls named f32/i32/u32 (the WGSL
   // cast spelling). GLSL spells the same cast `float(x)`/`int(x)`/`uint(x)`; without these
@@ -314,16 +320,14 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
 // calls. An intrinsic that gains a hardcoded binding name MUST register it
 // here, or per-stage emit drops the binding while the spelling still names it
 // (a GPU compile error, caught by the compile gates).
-/** Which binding name(s) an intrinsic's SPELLING references TEXTUALLY, for the one intrinsic
- *  (`f64Guard`) that names a binding inside its emitted string rather than through an `Expr`
- *  argument — normal reference collection over the IR (`ir/collect-refs`) has no argument node
- *  to walk, so it cannot see this reference at all. The real consumer is the GLSL per-stage emit
- *  scope (`backends/glsl.ts` `stageScope`): it keeps only the bindings a reachable function
- *  varrefs, then adds this table's entries for every INTRINSIC CALL it kept, so `_fp64` survives
- *  stage-trimming even though nothing in the IR names it directly. Any new intrinsic that
- *  hardcodes a binding name into its spelling (the way `f64Guard` hardcodes `_fp64`) MUST add a
- *  row here, or per-stage emit will drop the binding while the spelling still reads it — a GLSL
- *  compile error naming an undeclared sampler, not caught until a real WebGL2 driver sees it.
+/** The binding names an intrinsic's emitted text reads directly, keyed by intrinsic id, for
+ *  the intrinsics whose spelling names a binding with no argument carrying it. Today that is
+ *  `f64Guard`, whose fetch reads the `_fp64` texture. Reference collection over the IR walks
+ *  argument nodes, so it cannot see these names. A consumer that trims a shader stage down to
+ *  the bindings it uses must also keep every binding listed here for each intrinsic call it
+ *  keeps; otherwise the emitted GLSL reads a sampler the shader never declares, and the driver
+ *  rejects it at compile time. Any intrinsic that hardcodes a binding name into its spelling
+ *  needs a row here.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -341,15 +345,16 @@ export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>>
 // in any order at the top of its function section with no prototype and no dependency
 // sort. `fn` is the name the spelling calls, exposed so a consumer can assert the pairing
 // rather than re-derive it from the definition text.
-/** Helper function(s) an intrinsic's GLSL SPELLING calls, for the intrinsics that emit a
- *  call rather than an inline expansion (#1878). The GLSL writer must emit `def` for every
- *  such intrinsic a reachable function calls — the same reachability walk `stageScope`
- *  already runs for bindings — or the spelling calls a function the unit never defines.
- *  Emitting an entry nothing calls is a size regression, not a compile error, so the writer
- *  keys off the calls it actually collected rather than off the module's bindings.
+/** The helper functions an intrinsic's GLSL spelling calls, keyed by intrinsic id. `fn` is the
+ *  name the spelling calls and `def` is the GLSL definition of that function. A GLSL writer must
+ *  emit `def` for every listed intrinsic that a reachable function calls; otherwise the spelling
+ *  calls a function the shader never defines. Each definition calls only GLSL builtins, so the
+ *  definitions can be emitted in any order at the top of the function section, with no
+ *  prototype. A helper that nothing calls compiles but adds bytes, so key the emit off the calls
+ *  actually collected.
  *
- *  Only the GLSL column has entries: WGSL indexes storage buffers directly and spells no
- *  helper. Exported from `@xgis/shader-dsl`.
+ *  Only the GLSL target has helpers: WGSL indexes storage buffers directly. Exported from
+ *  `@xgis/shader-dsl`.
  */
 export const INTRINSIC_HELPERS: Readonly<
   Record<string, { readonly fn: string; readonly def: string }>
@@ -359,8 +364,19 @@ export const INTRINSIC_HELPERS: Readonly<
   storageFetchI32: { fn: '_sfetchI', def: storageFetchDef('int', 'isampler2D', '_sfetchI') },
 }
 
-/** Spell an intrinsic / call for a target. Registry id -> mapped spelling;
- *  otherwise identity `name(args)` (portable builtins + user-defined fn calls). */
+/** Spells a call for one target. When `name` has an {@link INTRINSICS} entry, returns that
+ *  entry's spelling for `target` applied to `args`; otherwise returns `name(args)` with the
+ *  arguments joined by `, `, which covers portable builtins and user-defined function calls
+ *  alike.
+ *
+ *  @param target The target to spell for, `'wgsl'` or `'glsl'`.
+ *  @param name The builtin id or function name.
+ *  @param args The argument expressions, already rendered as source text.
+ *  @returns The call as source text for `target`.
+ *  @example
+ *  spellIntrinsic('glsl', 'atan2', ['y', 'x']) // 'atan(y, x)'
+ *  spellIntrinsic('wgsl', 'dot', ['a', 'b'])   // 'dot(a, b)'
+ */
 export function spellIntrinsic(
   target: IntrinsicTarget,
   name: string,
@@ -371,11 +387,14 @@ export function spellIntrinsic(
   return `${name}(${join(args)})`
 }
 
-/** True if `name`'s spelling re-embeds an argument where a bare operator would re-parse, so
- *  the caller must render every argument as a PRIMARY rather than in the loosest argument
- *  position (#2350). Read by the neutral emit walk (`core/emit.ts`, the ONE place call
- *  arguments become text) so the requirement lives beside the spelling that imposes it
- *  instead of being re-derived per template. */
+/** Returns true when `name`'s spelling splices an argument into a position that binds tighter
+ *  than a plain argument slot, such as an operand of an inlined operator or the base of a
+ *  `.field` postfix. In that case the caller must render every argument as a primary expression
+ *  (parenthesized unless it is already a single token), because a bare `a + b` spliced into
+ *  `a + b / c` parses as different arithmetic. Returns false for an id with no entry.
+ *
+ *  @param name The builtin id.
+ */
 export const intrinsicNeedsAtomArgs = (name: string): boolean => INTRINSICS[name]?.atomArgs === true
 
 // ── Portable builtins (the EXPLICIT identity-spelled set) ──
@@ -388,15 +407,14 @@ export const intrinsicNeedsAtomArgs = (name: string): boolean => INTRINSICS[name
 // compile time. Listing the portable ids EXPLICITLY here turns "absent = assume identity" into
 // "absent = unclassified", which the catalogue test (intrinsic-coverage.test.ts) flags: every
 // builtin id the surface emits must be in INTRINSICS (divergent) OR here (asserted identical).
-/** The builtin ids asserted to spell IDENTICALLY on both targets — `sin`, `dot`, `clamp`, and
- *  friends — so they carry no `INTRINSICS` entry and fall through `spellIntrinsic` as the plain
- *  `name(args)` identity. This set itself is never consulted BY `spellIntrinsic` (which only
- *  reads `INTRINSICS`); it exists so `isKnownIntrinsic` can tell "deliberately identical" apart
- *  from "nobody has classified this yet" — and that distinction is load-bearing at RUNTIME, not
- *  just in the coverage test: `fp64Lower` calls `isKnownIntrinsic` while walking f64 operands
- *  (e.g. to reject an unsupported builtin over a `mat64` value), so a new divergent builtin
- *  added here BY MISTAKE would silently emit the same (wrong-on-one-target) string instead of
- *  failing the catalogue test that actually catches it.
+/** The builtin ids that spell identically on both targets, such as `sin`, `dot` and `clamp`.
+ *  These carry no {@link INTRINSICS} entry and fall through {@link spellIntrinsic} as the plain
+ *  `name(args)` form. `spellIntrinsic` never reads this set; it exists so that
+ *  {@link isKnownIntrinsic} can tell a builtin known to be identical from an id nobody has
+ *  classified, a distinction {@link fp64Lower} relies on when it checks which builtins may be
+ *  applied to `f64` values. Add a builtin here only when its spelling is the same in WGSL and
+ *  GLSL ES 3.00; a builtin whose spelling differs belongs in `INTRINSICS`, since listing it here
+ *  would emit the same text on both targets and one of them would be wrong.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -455,23 +473,25 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
 // fp64Lower into constructs / the identity. The CPU oracle evaluates them
 // natively (BUILTINS); if one leaked to a backend the emitted call is invalid
 // GLSL — the wgslType/glslType SD0040 backstops make the leak loud.
-/** Builtin ids the authoring surface can produce that are consumed ENTIRELY by `fp64Lower`
- *  before any backend ever runs — the f64 widen/pack/unpack trio. Unlike `PORTABLE_INTRINSICS`
- *  (which DOES reach `spellIntrinsic`, just spelled identically), these are rewritten away
- *  during lowering and must NEVER survive to it: `isKnownIntrinsic` deliberately excludes them,
- *  so if one leaks through unlowered, the backend's type-spelling backstop (`wgslType`/
- *  `glslType`, error code SD0040) catches it loudly instead of emitting an invalid call the
- *  driver would reject with no line back to the authoring site.
+/** The builtin ids that {@link fp64Lower} rewrites away before any backend runs: `'f64'` (the
+ *  widen from `f32` to `f64`), `'f64FromParts'` (an `f64` assembled from its high and low `f32`
+ *  parts) and `'f64Parts'` (an `f64` split into that pair). Ids in {@link PORTABLE_INTRINSICS}
+ *  do reach {@link spellIntrinsic}; these must not. {@link isKnownIntrinsic} excludes them, so
+ *  if one survives to a backend, that backend throws `SD0040` when it is asked to spell the
+ *  `f64` type the call carries, and the failure is reported before the driver sees invalid
+ *  source.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
 export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set(['f64', 'f64FromParts', 'f64Parts'])
 
-/** True if `name` is a builtin the registry knows how to spell on every target — either a
- *  DIVERGENT id (INTRINSICS) or an asserted-portable identity id (PORTABLE_INTRINSICS). A `call`
- *  id that is neither is EITHER a user/extern fn (fine — same spelling everywhere) OR an
- *  unclassified builtin (a latent silent-wrong-emit). The catalogue test uses this to assert the
- *  DSL's own builtin surface is fully classified. (PRE_EMIT_INTRINSICS ids are deliberately NOT
- *  "known" here — they are unspellable by construction.) */
+/** Returns true when `name` is a builtin the registry can spell on every target: either an id
+ *  with an {@link INTRINSICS} entry or a member of {@link PORTABLE_INTRINSICS}. An id that is
+ *  neither is a user-defined or external function, which spells the same everywhere, or a
+ *  builtin nobody has classified yet. Ids in {@link PRE_EMIT_INTRINSICS} return false: they are
+ *  removed before emit and have no spelling.
+ *
+ *  @param name The `call` id to test.
+ */
 export const isKnownIntrinsic = (name: string): boolean =>
   Object.prototype.hasOwnProperty.call(INTRINSICS, name) || PORTABLE_INTRINSICS.has(name)

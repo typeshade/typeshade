@@ -361,47 +361,62 @@ function assembleLowered(lowered: ModuleDecl, be: Backend, parens: ParenMode = '
   return parts.join('\n\n') + '\n'
 }
 
-/** An emit plugin — the Vite/Webpack-style unit production-emit tooling composes
- *  through. The CORE knows nothing about what a plugin does; the implementations
- *  (mangle/minify — `@xgis/shader-dsl/emit-prod`) live on their own subpath so a
- *  runtime-emit consumer that never imports them bundles ZERO bytes of them.
+/** A transform that runs inside module emit. Plugins are passed to `emitModule` and
+ *  `emitGlslModule` through {@link EmitOptions} as `{ plugins: [...] }`. The core emit knows
+ *  nothing about what a plugin does. The plugins shipped with the package (`mangle`, `minify`,
+ *  `prune`, `obfuscate` and others) live on the `@xgis/shader-dsl/emit-prod` subpath, so an
+ *  application that emits at runtime and never imports them does not bundle them.
  *
- *  Two staged hooks, both optional (a plugin may use either or both):
- *   - `transformIR` receives the fully LOWERED module (post match-lower /
- *     fp64Lower / optimize; on GLSL also post reserved-ident sanitisation) and
- *     returns a module the backend can spell. It must be DETERMINISTIC per
- *     module — the GLSL vertex/fragment emits are separate calls that must
- *     agree on every shared name.
- *   - `transformText` receives the assembled string.
+ *  A plugin has two hooks, both optional. `transformIR` receives the module after every
+ *  lowering and optimisation pass has run, and returns a module the backend can spell into
+ *  source text. `transformText` receives the assembled source string and returns the string
+ *  to use in its place.
  *
- *  Like Vite, hooks fire STAGED across all plugins: every plugin's `transformIR`
- *  runs (in `plugins` order) before the module is assembled, then every plugin's
- *  `transformText` runs (in `plugins` order) on the string. `name` identifies
- *  the plugin (debugging / error context), same as a Vite/Webpack plugin name. */
+ *  The hooks fire in stages across all plugins: every plugin's `transformIR` runs, in `plugins`
+ *  order, before the module is assembled; then every plugin's `transformText` runs, in
+ *  `plugins` order, on the assembled string.
+ *
+ *  @example
+ *  ```ts
+ *  const banner: EmitPlugin = {
+ *    name: 'banner',
+ *    transformText: (code) => `// generated\n${code}`,
+ *  }
+ *  const wgsl = emitModule(MODULE, { plugins: [banner] })
+ *  ``` */
 export interface EmitPlugin {
+  /** The plugin's name, used in error messages and diagnostics. */
   readonly name: string
-  /** How this plugin appears in {@link emitIdentity}'s stamp (#1715), when its own OPTIONS
-   *  change the emitted bytes and `name` therefore under-describes it — `minify({a})` and
-   *  `minify({b})` are otherwise the same string. Optional, and unset on every plugin
-   *  shipped here: dev-vs-prod is the distinction that was actually reported, and plugin
-   *  names separate those completely. Set it if you write a plugin whose configuration a
-   *  consumer needs to tell apart from a committed artifact. */
+  /** How this plugin appears in the identity string that {@link emitIdentity} computes for an
+   *  emit configuration. When it is unset, `name` is used. Set it when the plugin's own options
+   *  change the emitted bytes, so that two configurations of the same plugin produce different
+   *  identities: `minify({a})` and `minify({b})` would otherwise be the same string. None of the
+   *  plugins shipped with the package set it. */
   readonly identity?: string
+  /** Rewrites the module after every lowering and optimisation pass. The result must be
+   *  deterministic for a given module: the GLSL vertex and fragment stages are emitted by
+   *  separate calls that must agree on every shared name. */
   readonly transformIR?: (lowered: ModuleDecl) => ModuleDecl
+  /** Rewrites the assembled source string. */
   readonly transformText?: (code: string) => string
 }
 
-/** Emit configuration — a Vite/Webpack-style `{ plugins: [...] }` bag. A config
- *  object (rather than a bare array) leaves room for future top-level emit
- *  options without another signature change. Absent/empty ⇒ the plain emit,
- *  byte-identical. */
+/** Options accepted by `emitModule` and `emitGlslModule`. Every field is optional; an
+ *  omitted or empty options object gives the plain emit.
+ *
+ *  @example
+ *  ```ts
+ *  import { obfuscate } from '@xgis/shader-dsl/emit-prod'
+ *
+ *  const wgsl = emitModule(MODULE, { plugins: obfuscate(), parens: 'minimal' })
+ *  ``` */
 export interface EmitOptions {
+  /** Plugins to run around the assembly, in order. See {@link EmitPlugin} for the hook
+   *  sequence. */
   readonly plugins?: readonly EmitPlugin[]
-  /** How much parenthesis the expression walk writes. `'full'` is the default and wraps
+  /** How many parentheses the emitted expressions carry. `'full'` is the default and wraps
    *  every operator. `'minimal'` omits a paren wherever operator precedence already implies
-   *  the same parse, which is a build-time emit decision the IR can make exactly, so it is an
-   *  option here instead of a text-rewriting plugin. Pair it with `{ plugins: obfuscate() }`
-   *  for the smallest shipped shader.
+   *  the same parse. Pair it with `{ plugins: obfuscate() }` for the smallest shipped shader.
    *
    *  `'minimal'` omits a paren only where WGSL and GLSL ES 3.00 define the same precedence:
    *  `*`, `/` and `%` over `+` and `-` over unary `-`. The relational, logical, bitwise and
@@ -412,10 +427,10 @@ export interface EmitOptions {
    *  It never reassociates. `a + (b + c)` keeps its parens, because in floating point that is
    *  a different number from `a + b + c`. */
   readonly parens?: ParenMode
-  /** Which df64 EFT registry backs f64 lowering: 'float' (default — the
-   *  guarded float EFTs, byte-identical emit) or 'integer' (the fast-math-
-   *  immune integer primitives — see core/fp64/df64-int.ts; no `_fp64` guard
-   *  binding is injected). */
+  /** Which arithmetic primitives back the emulated-double helper functions that f64 lowering
+   *  injects. `'float'` is the default. `'integer'` writes the primitives in integer bit
+   *  arithmetic, which a fast-math compiler pass cannot reassociate, and injects no `_fp64`
+   *  guard binding. See {@link Fp64Flavor} for when to choose each. */
   readonly fp64Flavor?: Fp64Flavor
 }
 

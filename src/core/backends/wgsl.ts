@@ -35,15 +35,14 @@ import { dslError } from '../diagnostics/error.js'
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
  *
- *  @internal Reachable from the package entry only because `index.ts` star-re-exports this
- *  backend module; it was never chosen as public API and has no consumer outside the
- *  backend. Type spelling is a backend's private business — the neutral surface is
- *  {@link emitModule}. Whether it should stay exported at all is #1697.
+ *  @internal Exported for the backend's own use. The public entry point for producing WGSL
+ *  is {@link emitModule}.
  *
- *  @throws if `t` is an `f64`/`vec64` kind. Those are PRE-LOWERING types: `fp64Lower` (run
- *  inside `lowerForBackend`) rewrites them to `vec2<f32>` / `DF64VecN` before any backend
- *  spells a type, so reaching them here means the pass was bypassed. Failing loud beats
- *  emitting a shader whose double-precision silently became single. */
+ *  @throws `SD0040` if `t` is an `f64` or `vec64` type, or a matrix of `f64`. Those types
+ *  exist only before the double-precision lowering pass ({@link fp64Lower}, which every emit
+ *  runs) rewrites them to `vec2<f32>` and the `DF64` struct types. Reaching one here means
+ *  that pass did not run, and the error is raised so a shader never ships with its double
+ *  precision quietly reduced to single precision. */
 export function wgslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
@@ -92,20 +91,23 @@ export function wgslType(t: ShaderType): string {
   }
 }
 
-/** A WGSL/GLSL-shared f32 literal: append `.0` to an integer-looking value so a
- *  float context never sees an int literal. Reused by the GLSL writer. Fail-closed on a
- *  non-finite value (#2276, SD0017): neither target has a NaN/Infinity literal, so
- *  `String(v)` would bake an unparseable token into the module. */
+/** Spell `v` as an `f32` literal, in the form WGSL and GLSL share: an integer-looking value
+ *  gets a `.0` suffix so a float context never sees an integer literal.
+ *
+ *  @throws `SD0017` if `v` is not finite. Neither WGSL nor GLSL has a NaN or Infinity
+ *  literal, so `String(v)` would place an unparseable token in the module. */
 export function f32Lit(v: number): string {
   if (!Number.isFinite(v)) throw dslError('SD0017', `f32 literal ${v}`)
   const s = String(v)
   return /[.eE]/.test(s) ? s : `${s}.0`
 }
 
-/** A WGSL/GLSL-shared integer literal body (no suffix). The value must be an integer inside
- *  the kind's 32-bit range — Tint rejects `2147483648` as an i32 literal, and a fractional
- *  or out-of-range value printed verbatim is a driver compile error on both targets
- *  (#2276, SD0017). Reused by the GLSL writer. */
+/** Spell `v` as the body of an `i32` or `u32` literal (no suffix), in the form WGSL and GLSL
+ *  share.
+ *
+ *  @throws `SD0017` if `v` is not an integer or lies outside the 32-bit range of `scalar`.
+ *  WGSL rejects `2147483648` as an `i32` literal, and a fractional or out-of-range value
+ *  printed verbatim is a compile error on both targets. */
 export function intLit(v: number, scalar: 'i32' | 'u32'): string {
   const lo = scalar === 'i32' ? -2147483648 : 0
   const hi = scalar === 'i32' ? 2147483647 : 4294967295
@@ -190,8 +192,11 @@ const WGSL_ABSENT_BUILTINS: ReadonlyMap<string, string> = new Map([
   ],
 ])
 
-/** The WGSL target writer. Every method reproduces the exact pre-refactor
- *  spelling, so any emit driven by wgslBackend is byte-identical. */
+/** The WGSL target: a {@link Backend} that spells types, literals, intrinsics and module
+ *  declarations for `device.createShaderModule`. Pass it to any API that takes a backend,
+ *  such as {@link hostFeaturesFor} or {@link capabilityMatrix}. The WGSL emitters in this
+ *  module ({@link emitModule}, {@link emitFragment}, {@link emitFuncs}, …) are already
+ *  bound to it. */
 export const wgslBackend: Backend = {
   id: 'wgsl',
   capProfile: WGSL_CAP_PROFILE,
@@ -291,9 +296,9 @@ export const wgslBackend: Backend = {
   },
 }
 
-/** Single-arg WGSL-bound expr emit. The compiler keeps a structural copy
- *  (compiler/src/codegen/node-to-wgsl.ts) pinned against this; match-expr.test
- *  uses it for the defensive-throw probe. */
+/** Emit one {@link Expr} as WGSL source text, using {@link wgslBackend} with the default
+ *  `'full'` parenthesisation. The expression is written as given; the lowering and
+ *  optimization passes that {@link emitModule} runs do not run here. */
 export const emitExpr = (e: Expr): string => emitExprNeutral(e, wgslBackend)
 
 // The module-decl emit functions live as wgslBackend methods; these thin wrappers keep the
@@ -302,56 +307,53 @@ export const emitExpr = (e: Expr): string => emitExprNeutral(e, wgslBackend)
 
 /** Emit one {@link ConstDecl} as a WGSL `const` line, without the surrounding module.
  *
- *  For composing a shader out of separately-authored fragments: emit the consts once, cache
- *  the string, and concatenate. `map/src/shaders/dsl/ecef.ts` and `projections.ts` both use
- *  it this way to publish their constant blocks as module-scope strings.
+ *  Use it to compose a shader out of separately authored pieces: emit the constants once,
+ *  keep the string, and concatenate it with the rest of the source. The line is identical to
+ *  the one {@link emitModule} writes for the same declaration, so a piece emitted here and a
+ *  module emitted there agree, which is what makes concatenation safe.
  *
- *  Byte-identical to the same decl's line inside {@link emitModule}, so a fragment emitted
- *  here and a module emitted there agree — that is the property that makes concatenation
- *  safe. Takes an ALREADY-LOWERED decl: no `override`/spec-constant resolution happens here
- *  (see {@link emitFuncs} for the pipeline caveat, which applies equally). */
+ *  The declaration is written as given: the passes {@link emitModule} runs before writing a
+ *  module do not run here, so pass a declaration that needs none of them. The caveat on
+ *  {@link emitFuncs} applies equally. */
 export const emitConst = (c: ConstDecl): string => wgslBackend.emitConst(c)
 
 /** Emit one {@link StructDecl} as a WGSL `struct` block.
  *
- *  @internal Reachable only through `index.ts`'s star re-export of this backend module, and
- *  imported by nothing outside it. Unlike {@link emitConst}, no consumer composes structs as
- *  standalone fragments — a struct is meaningful only alongside the bindings and functions
- *  that use it, which is what {@link emitModule} emits. Un-export is tracked by #1697. */
+ *  @internal Exported for the backend's own use. A struct is meaningful only alongside the
+ *  bindings and functions that use it, which {@link emitModule} emits together. */
 export const emitStruct = (s: StructDecl): string => wgslBackend.emitStruct(s)
 
 /** Emit one {@link BindingDecl} as a WGSL `@group(…) @binding(…) var` line.
  *
- *  @internal Same story as {@link emitStruct}: star-re-exported, imported by nothing outside
- *  this backend. A binding emitted alone is especially misleading — group/binding indices are
- *  assigned across the whole module, so a line taken out of context can disagree with the
- *  layout `reflect()` reports. Un-export is tracked by #1697. */
+ *  @internal Exported for the backend's own use. Group and binding indices are assigned
+ *  across the whole module, so a line emitted alone can disagree with the layout
+ *  {@link reflect} reports for that module. Use {@link emitModule}. */
 export const emitBinding = (b: BindingDecl): string => wgslBackend.emitBinding(b)
 
-/** Emit one ALREADY-LOWERED {@link FuncDecl} as a WGSL function.
+/** Emit one {@link FuncDecl} as a WGSL function, exactly as given.
  *
- *  Prefer {@link emitFuncs} for authored functions. This wrapper spells the decl exactly as
- *  given and runs NONE of the pipeline — no `autoVars`, no match lowering, no `fp64Lower`,
- *  no optimizer — so an authored func that still contains a `match` construct or an `f64`
- *  type will either throw (`wgslType` fails loud on the pre-lowering types — deliberately NOT
- *  a `{@link}`, since that symbol is `@internal` and the reference does not publish it) or emit
- *  something the optimizer would have folded. It is the right call only when the caller
- *  knows the decl needs no lowering, as `map/src/shaders/dsl/polygon.ts` does for its
- *  hand-written dequantiser.
+ *  Prefer {@link emitFuncs} for authored functions. This function skips every pass
+ *  {@link emitModule} runs before writing: {@link autoVars}, `match` lowering
+ *  ({@link lowerModule}), double-precision lowering ({@link fp64Lower}) and the optimizer.
+ *  A function that still contains a `match` expression or an `f64` type therefore throws,
+ *  because those constructs exist only before lowering, and a function the optimizer would
+ *  have simplified is written as authored. Use it only when the declaration needs none of
+ *  those passes, such as a hand-written helper built from plain `f32` arithmetic.
  *
- *  It also fixes the paren mode. {@link emitModule} threads its `ParenMode` down to the
- *  backend, so under minification it spells the same func with `'minimal'` parens; this
- *  wrapper always takes the `'full'` default. A fragment emitted here therefore matches its
- *  line inside a NON-minified module byte for byte, and may differ inside a minified one. */
+ *  Parenthesisation is always `'full'`. {@link emitModule} passes its `parens` option down
+ *  to the same speller, so a module emitted with `parens: 'minimal'` spells the same function
+ *  with fewer parentheses. A function emitted here matches its text inside a module emitted
+ *  with the default option, and may differ from its text inside a `'minimal'` one. */
 export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
 
-/** Emit a bare list of funcs through the SAME lower+optimize pipeline emitModule uses, so the
- *  parity-harness emitted-WGSL accessors (getProjectionWgslFns / ECEF_WGSL_FNS / LOG_DEPTH_WGSL_FNS / …)
- *  stay byte-consistent with the decl-merged module emit — the optimizer applies on BOTH paths, so
- *  folding / dead-code / reuse-binding happen uniformly regardless of which emit path a consumer takes.
- *  (Skips the validate/assertCaps preamble on purpose — a bare func list is not a complete authored
- *  module — so it runs only the lower+optimize the spelling needs; it mirrors `wgslBackend.optimize`
- *  (fixpoint) so this stays byte-identical to the func section of emitModule.) */
+/** Emit a list of functions as WGSL, joined by blank lines, through the same lowering and
+ *  optimization passes {@link emitModule} runs. Constant folding, dead-code removal and reuse
+ *  binding apply exactly as they would inside a full module, so the text matches the function
+ *  section {@link emitModule} would write for the same declarations.
+ *
+ *  A bare list of functions is not a complete module, so validation and the capability check
+ *  are skipped; only the passes the spelling needs run. {@link emitFragment} runs the full
+ *  set when the declarations form a module. */
 export function emitFuncs(funcs: readonly FuncDecl[]): string {
   const lowered = fixpoint(
     fp64Lower(lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] }))),
@@ -359,46 +361,50 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n')
 }
 
-/** Legacy alias of {@link emitFuncs}, kept so an existing import keeps resolving.
+/** Alias of {@link emitFuncs}.
  *
- *  @internal Star-re-exported, and imported through the package entry by nothing. The one
- *  in-repo reference (`playground/e2e/_absorbed-fn-parity.spec.ts`) reaches it by deep source
- *  path, which does not go through `exports` at all. Being a bare alias, dropping it costs a
- *  caller one rename and never a reimplementation — #1697.
- *
- *  @deprecated Renamed `emitFuncs` — the "Csed" suffix described a pipeline that was
- *  once cse-only and has been the full fixpoint optimizer for a long time. */
+ *  @deprecated Use {@link emitFuncs}. Its name describes what the function does, which is to
+ *  run the full optimization pipeline; the `Csed` suffix names only one of its passes. */
 export const emitFuncsCsed = emitFuncs
 
-/** Emit a ModuleDecl as a WGSL string. Thin wrapper over the shared backend-parameterised
- *  driver (core/emit.ts) bound to wgslBackend — the module assembly lives once. `opts` is
- *  the optional `{ plugins }` bag (production tooling: `@xgis/shader-dsl/emit-prod`). */
+/** Emit a {@link ModuleDecl} as a complete WGSL module string, ready for
+ *  `device.createShaderModule`. Runs validation, the capability check, the lowering passes and
+ *  the optimizer, then assembles the `enable` directives, structs, bindings, constants and
+ *  functions.
+ *
+ *  `opts` is an optional {@link EmitOptions}: `plugins` for emit-time transforms such as the
+ *  production ones on the `@xgis/shader-dsl/emit-prod` subpath, and `parens` to choose how
+ *  many parentheses the expressions carry. */
 export const emitModule = (m: ModuleDecl, opts?: EmitOptions): string =>
   emitModuleDriver(m, wgslBackend, opts)
 
-/** Emit a module as a WGSL FRAGMENT (#1711) — declarations and helpers without the
- *  `enable` directive header and, unless `entryPoints: true`, without the stage entries —
- *  for a host that assembles the final module itself. WGSL has no preprocessor and no
- *  `#include`, so a host-integrated renderer composes by concatenating fragments, and the
- *  directives it must hoist come back as `preamble` rather than buried in the source.
+/** Emit a {@link ModuleDecl} as a WGSL fragment for a host that assembles the final module
+ *  itself: the declarations and helper functions without the `enable` directive header and,
+ *  unless `opts.entryPoints` is `true`, without the stage entry points. Where GLSL would use
+ *  `#include`, a WGSL host composes by concatenating fragments, so the directives it must
+ *  place at the top of the module come back in the result's `preamble` field, and what the
+ *  fragment declares and requires comes back alongside (see {@link EmitFragment}).
  *
- *  Prefer this over `emitFuncs` / `emitConst` string concatenation: those run NONE of the
- *  pre-emit pipeline (see their own docs), so they can spell a module `validate` or
- *  `assertCaps` would have rejected. */
+ *  Prefer this over concatenating {@link emitFuncs} and {@link emitConst} output. This
+ *  function runs the same validation and capability check as {@link emitModule}, so it never
+ *  writes a module that {@link validate} or the capability check would have rejected. */
 export const emitFragment = (
   m: ModuleDecl,
   opts?: EmitOptions & { entryPoints?: boolean },
 ): EmitFragment => emitFragmentDriver(m, wgslBackend, opts)
 
-/** Emit WGSL at an explicit optimization level (O0/O1/O2). `emitModuleAt(m, 'O2')` is
- *  byte-identical to `emitModule(m)`; O0 is the naive (un-optimized) emit. Drives the
- *  emit-size measurement (core/measure.ts) and debug builds. */
+/** Emit a {@link ModuleDecl} as WGSL at an explicit optimization level. `emitModuleAt(m, 'O2')`
+ *  produces the same string as `emitModule(m)`; `'O0'` skips the optimizer and writes the
+ *  lowered module as authored; `'O1'` runs only the passes that cannot change a computed
+ *  value. Useful for debug builds and for comparing emitted size across levels. See
+ *  {@link OptLevel}. */
 export const emitModuleAt = (m: ModuleDecl, level: OptLevel): string =>
   emitModuleAtDriver(m, wgslBackend, level)
 
-/** The lowered+optimized WGSL ModuleDecl at a level — the SAME pre-emit pipeline `emitModule`
- *  runs (validate → assertCaps → autoVars → lowerModule → optimizeAt), returned as IR rather
- *  than a string. Single source of the lowering recipe so an IR consumer (core/measure.ts's
- *  op-count) and the string emit cannot describe different modules. */
+/** Run the passes {@link emitModule} runs before writing text (validation, the capability
+ *  check, {@link autoVars}, {@link lowerModule} and the optimizer at `level`) and return the
+ *  resulting {@link ModuleDecl}. The string emit and this function share one recipe, so a tool
+ *  that inspects the lowered module (an instruction count, for example) sees exactly the
+ *  module {@link emitModuleAt} would write at the same level. */
 export const lowerWgsl = (m: ModuleDecl, level: OptLevel): ModuleDecl =>
   lowerForBackend(m, wgslBackend, level)
