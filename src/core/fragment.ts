@@ -23,14 +23,14 @@ import { collectFnRefs, emptyRefSet } from './ir/collect-refs.js'
 import { isKnownIntrinsic } from './intrinsics.js'
 import type { FuncDecl, ModuleDecl } from './ir/nodes.js'
 
-/** What a fragment brings to the program it is composed into — the manifest a composer
- *  checks its host prelude against. Names are the EMITTED spellings, so they are the ones
+/** What a fragment declares in the program it is composed into: the manifest a composer
+ *  checks its host prelude against. Names are the emitted spellings, so they are the ones
  *  a host actually collides with. */
 export interface FragmentDeclares {
   /** Helper functions defined in the fragment (entry points are listed separately). */
   readonly functions: readonly string[]
-  /** Plain struct types. A struct consumed as a uniform/storage binding is NOT here — it
-   *  is a block, and its name appears under `bindings`' declaration instead. */
+  /** Plain struct types. A struct consumed as a uniform or storage binding is emitted as
+   *  a block, so its name appears under `bindings` instead. */
   readonly structs: readonly string[]
   /** Resource bindings the fragment declares, by binding name. */
   readonly bindings: readonly string[]
@@ -38,27 +38,27 @@ export interface FragmentDeclares {
   readonly consts: readonly string[]
   /** Pipeline specialization constants (`overrideConst`). */
   readonly overrides: readonly string[]
-  /** Stage entry points. Present whether or not they were EMITTED — a composer that asked
-   *  for declarations only still needs to know what it excluded, and a silent drop is the
-   *  failure mode the consumer's hand-rolled version guarded against with a throw. */
+  /** Stage entry points. Listed whether or not they were emitted, so a composer that asked
+   *  for declarations only still knows what it excluded. */
   readonly entryPoints: readonly string[]
 }
 
-/** A module emitted WITHOUT its stage wrapper, plus everything the host must supply or
- *  ensure for the result to compile. */
+/** A module emitted without its stage wrapper, plus everything the host must supply or
+ *  ensure for the result to compile. Produced by {@link emitFragment} (WGSL) and
+ *  {@link emitGlslFragment} (GLSL). */
 export interface EmitFragment {
   /** The header-less source: declarations, helpers, and (unless excluded) entry points. */
   readonly source: string
-  /** Directive / precision lines the host must ensure exist ahead of `source`, in order.
-   *  Returned rather than emitted so a composer can merge and de-duplicate them across
-   *  fragments instead of losing or repeating them. */
+  /** Directive and precision lines the host must place ahead of `source`, in order. They
+   *  are returned as data so a composer can merge and de-duplicate them across fragments. */
   readonly preamble: readonly string[]
   /** The manifest of what `source` declares. */
   readonly declares: FragmentDeclares
-  /** Symbols the fragment REFERENCES but does not define — host-provided functions
-   *  (`externFn`) and anything else the prelude is expected to supply. A composer can
-   *  check this against what the host actually provides; today it is derived from call
-   *  sites that resolve to neither a module function nor a known intrinsic. */
+  /** Symbols the fragment references but does not define: functions declared with
+   *  {@link externFn}, and variables declared with {@link externVar}, spelled for the
+   *  target. A composer can check this list against what the host actually provides.
+   *  Function names come from call sites that resolve to neither a module function nor a
+   *  known intrinsic. Sorted and de-duplicated. */
   readonly requires: readonly string[]
 }
 

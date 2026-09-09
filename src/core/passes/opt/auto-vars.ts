@@ -168,7 +168,20 @@ function autoVarsFn(f: FuncDecl): FuncDecl {
   return { ...f, body: processBlock(f.body) }
 }
 
-/** Materialise assigned plain-value bindings as WGSL vars (module → module). Pure. */
+/** Turns every value that is later assigned to into a WGSL `var`.
+ *
+ *  A shader author writes a mutable value as a plain `const x = expr` and then calls
+ *  `x.assign(...)` or a compound assignment such as `+=` on it; nothing marks `x` as a
+ *  variable up front. This pass finds each such value in every function of `m`, declares a
+ *  `var` for it just before the first statement that uses it, and rewrites every reference
+ *  to that value, including the assignment targets themselves, to read and write the new
+ *  `var`. An assignment through a member or index access (`c.a`, `m[i]`) declares the `var`
+ *  for the base value `c` or `m`. Values that already have a name (function parameters,
+ *  constants, override constants and existing `var` or `let` bindings) are left alone.
+ *
+ *  @param m The module to process.
+ *  @returns A new module with the rewritten functions; `m` itself is unchanged.
+ */
 export function autoVars(m: ModuleDecl): ModuleDecl {
   return { ...m, funcs: m.funcs.map(autoVarsFn) }
 }

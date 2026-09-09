@@ -365,23 +365,21 @@ const GLSL_CAP_PROFILE: CapProfile = {
   multiview: { directive: 'GL_OVR_multiview2', hostFeature: 'OVR_multiview2' },
 }
 
-/** The GLSL ES 3.00 (WebGL2) `Backend` — the second writer that proves the IR is
- *  target-neutral: it plugs GLSL spelling (types, literals, intrinsics, declaration
- *  forms) into the SAME neutral control-flow walk (`core/emit.ts`) the WGSL backend
- *  drives, rather than duplicating it. Reached through `emitGlslModule`/
- *  `emitGlslStages`, not called directly. Fails closed — relative to WGSL — on
- *  everything GLSL ES 3.00 structurally cannot express: a `@compute` entry and a
- *  multisampled (`2d-ms`) texture load (neither has a row in this backend's
- *  `GLSL_CAP_PROFILE`, so `assertCaps` rejects the module before this writer ever
- *  runs), `f16`/subgroups (WGSL `enable` features with no GLSL ES 3.00 counterpart,
- *  same no-row rejection), a standalone `sampler` type (GLSL only has the fused
- *  `sampler2D`), and a bare non-struct vertex-output entry (GLSL links inter-stage
- *  varyings by field NAME, not by `@location` the way WGSL does, so a WGSL-valid
- *  unnamed output has nothing to link against on this target). A `storage` binding
- *  is the one exception that does NOT fail: WebGL2 having no SSBO is a platform
- *  fact, so `emitGlslModule` rewrites it to a data-texture emulation before the caps
- *  gate ever sees it — though that emulation itself still fails closed on shapes it
- *  cannot cover (a `read_write` storage binding, an unsupported element type).
+/** The GLSL ES 3.00 (WebGL2) {@link Backend}. It supplies the GLSL spelling of types,
+ *  literals, intrinsics and declarations to the shared emitter, which walks a module's
+ *  control flow the same way for every target. {@link emitGlslModule},
+ *  {@link emitGlslStages} and {@link emitGlslFragment} drive it; pass it to a function
+ *  that takes a `Backend` when you need GLSL spelling for a single construct.
+ *
+ *  Everything GLSL ES 3.00 cannot express throws {@link UnsupportedFeatureError}
+ *  (`SD0030`) before any source is produced: a `@compute` entry that is not declared
+ *  `portable`, a multisampled (`2d-ms`) texture load, `f16`, subgroups, a standalone
+ *  `sampler` binding (GLSL has only the combined `sampler2D`), and a vertex entry that
+ *  returns a bare non-struct output (GLSL links inter-stage varyings by field name, so
+ *  the output must be a struct whose field the fragment input shares). A `storage`
+ *  binding does not throw: {@link emitGlslModule} rewrites it to a data-texture read
+ *  first, and only the shapes that rewrite cannot cover throw, such as a `read_write`
+ *  storage binding or an unsupported element type.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -1334,24 +1332,36 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
 // so assertCaps passes with the normal empty-caps backend — no caps loosening, WGSL
 // untouched. FAIL-CLOSED (operationalizes the gather-only invariant, not trusted): a
 // scatter (write index != gid), >1 output write, or a gid use other than `.x` throws.
-/** Rewrite a gather-only `@compute` module into a fragment-GPGPU one, per the mapping
- *  documented in the comment block above.
+/** Rewrite a gather-only `@compute` module into a `@fragment` one that WebGL2 runs as a
+ *  fullscreen draw into an `R32UI` target, one texel per invocation.
  *
- *  @internal Reachable from the package entry only through `index.ts`'s star re-export of
- *  this backend module, and called by nothing outside it. The supported way to ask for this
- *  lowering is the {@link GlslEmitOptions.emulateCompute} emit option, which runs it as part
- *  of a complete emit; invoking the pass directly hands back a half-lowered module whose
- *  storage bindings still need `lowerStorageToDataTexture`. Un-export is tracked by #1697.
+ *  The rewrite:
+ *  - turns the `@compute` entry into a `@fragment` entry and drops its workgroup size;
+ *  - removes the `@builtin(global_invocation_id)` parameter and adds a `@builtin(position)`
+ *    one, so `gid.x` becomes `u32(floor(position.x)) + u32(floor(position.y)) * width`,
+ *    where `width` is the `.y` component of the module's first `uniform` binding;
+ *  - turns the single `out[gid.x] = e` write to the `read_write` storage binding into
+ *    `return e`, typed `u32` at `@location(0)`, and removes that binding;
+ *  - turns an expression-less `return;` (the bounds guard) into `discard;`.
  *
- *  @throws {UnsupportedFeatureError} on anything outside the gather-only shape — a scatter
- *  write, more than one output write, or a `global_invocation_id` use other than `.x`. That
- *  is deliberate: the invariant is operationalized, never trusted.
+ *  Read-only storage bindings are left in place; a full emit goes on to rewrite them as
+ *  data textures, so a module this function returns is not yet ready to emit on its own.
  *
- *  @throws {ShaderDslError} `SD0111` instead of the above when the entry is
- *  `portable`-declared (#1812): the tier's shape has ONE authority
- *  (`passes/portable-kernel.ts`), so a declared kernel is checked there and reports EVERY
- *  violation with its remedy, rather than the first ad-hoc throw this pass happens to reach.
- *  The undeclared / `emulateCompute` path keeps the throws below verbatim. */
+ *  @internal Exported, but not part of the supported surface. This pass runs inside
+ *  {@link emitGlslModule}, {@link emitGlslStages} and {@link emitGlslFragment} whenever the
+ *  compute entry is declared `portable: true` (or under the deprecated
+ *  {@link GlslEmitOptions.emulateCompute} option); use that path.
+ *
+ *  @param m - a module with one `@compute` entry.
+ *  @returns the rewritten module, with a `@fragment` entry and no `read_write` binding.
+ *  @throws {@link UnsupportedFeatureError} (`SD0030`) when the module has no `@compute`
+ *    entry, no `global_invocation_id` parameter, no `read_write` storage binding or no
+ *    `uniform` binding, and when the kernel is not gather-only: a write at an index other
+ *    than `gid.x`, more than one write to the output, or a use of `global_invocation_id`
+ *    other than `.x`.
+ *  @throws {@link ShaderDslError} `SD0111` instead of the above when the entry is declared
+ *    `portable`: the portable-kernel check then reports every violation with its remedy at
+ *    once, the same report both backends give. */
 export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
   const entry = m.funcs.find(
     (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
@@ -1538,69 +1548,59 @@ function stageScope(
   return { fns, bindings, structs }
 }
 
-/** The `opts` bag accepted by this backend's emit entry points, extending the neutral
- *  {@link EmitOptions} with the three knobs that exist only for GLSL ES 3.00.
- *
- *  Each one is here because the target lacks something WGSL has: no compute stage
- *  (`emulateCompute`), no driver-side specialization constants (`overrideValues`), and no
- *  implicit precision (`floatPrecision`). All three are BUILD-TIME — an emit option, never a
- *  runtime device probe — so emitted source stays cacheable under a key derived from the
- *  options, and every default is byte-neutral: omitting the bag entirely reproduces the
- *  bytes emitted before any of these options existed. */
+/** The options accepted by {@link emitGlslModule}, {@link emitGlslStages} and
+ *  {@link emitGlslFragment}: the shared {@link EmitOptions} plus three that exist only for
+ *  GLSL ES 3.00, one for each thing the target lacks. WebGL2 has no compute stage
+ *  (`emulateCompute`), no pipeline-time specialization constants (`overrideValues`) and no
+ *  implicit float precision (`floatPrecision`). All three are decided when the source is
+ *  emitted, never probed from the device, so emitted source can be cached under a key
+ *  derived from the options. Omitting them all leaves the emitted bytes unchanged. */
 export interface GlslEmitOptions extends EmitOptions {
-  /** Lower a GATHER-ONLY @compute kernel to a fragment-GPGPU pass (see
-   *  lowerComputeToFragment). OPT-IN, unlike the storage lowering: it rewrites the
-   *  compute entry into a fragment entry, so the host must dispatch a fullscreen DRAW
-   *  into an R32UI target instead of a compute dispatch — a host contract, not a
-   *  platform fact. Implies the storage lowering for the surviving read bindings.
+  /** Lower a gather-only `@compute` kernel to a fragment pass, as
+   *  {@link lowerComputeToFragment} describes. The host then runs the kernel as a fullscreen
+   *  draw into an `R32UI` target instead of a compute dispatch, which is why this is opt-in
+   *  where the storage lowering is automatic: it changes what the host has to do. Implies
+   *  the data-texture lowering for the read-only storage bindings that remain.
    *
-   *  @deprecated SUPERSEDED by the PORTABLE KERNEL TIER (#1812) — declare the kernel
-   *  `fn(…, { stage: 'compute', portable: true })` and this lowering runs with no emit option
-   *  at all. The paragraph above is the recorded reason auto-lowering was rejected, and it is
-   *  kept because it is still correct: the rewrite changes the HOST contract, so it must never
-   *  be a silent platform default. The declaration ANSWERS that objection rather than ignoring
-   *  it — the choice moves from the emit call site (a flag a caller can flip without the
-   *  kernel author's knowledge) to the AUTHORING site, where the kernel's shape is decided and
-   *  where the tier's gather-only contract can be validated at every emit on both writers
-   *  (SD0111); and the RHI layer that owns the host contract already speaks it
-   *  (`rhi-webgl2/src/compute-webgl2.ts` dispatches compute as a fullscreen draw into an R32UI
-   *  target). This flag remains as the synonym for UNDECLARED kernels — same code path, same
-   *  bytes — so nothing that passes it has to change. */
+   *  @deprecated Declare the kernel `fn(…, { stage: 'compute', portable: true })` instead.
+   *  The same lowering then runs with no emit option, and the declaration lets both backends
+   *  check the kernel's gather-only shape (`SD0111`) at every emit, at the place where the
+   *  kernel is written. This option remains as the equivalent for an undeclared kernel, on
+   *  the same code path with the same output. */
   emulateCompute?: boolean
-  /** #923 host specialization — pin `override` values for THIS emit. GLSL ES 3.00
-   *  has no driver-side spec constants, so a specialized variant is a re-emit: each
-   *  named override becomes a hard `#define NAME <value>` (spelled via the backend
-   *  `literal()`, so a u32 gets its `u` suffix and an f32 its `.0`) emitted AFTER the
-   *  `#version`/precision preamble — never PREPENDED, which GLSL rejects (`#version`
-   *  must lead the source). Un-named overrides keep their `#ifndef` default. The
-   *  values derive from `reflect().overrides` (name→chosen value); the WGSL twin is
-   *  `createRenderPipeline({ constants })`. */
+  /** Pin `override` values for this emit. GLSL ES 3.00 has no pipeline-time specialization
+   *  constants, so each specialization is its own emit: every override named here becomes a
+   *  hard `#define NAME <value>` after the `#version` and precision lines, spelled as a GLSL
+   *  literal (a `u` suffix for `u32`, a `.0` for `f32`). An override not named here keeps
+   *  its `#ifndef` default. {@link reflect} lists the module's overrides under `overrides`;
+   *  the WGSL equivalent is `createRenderPipeline({ constants })`. */
   overrideValues?: Readonly<Record<string, number | boolean>>
-  /** The default float precision qualifier for this emit. `'highp'` is the default and is
-   *  byte-neutral: an emit that omits this option is byte-identical to one that could not
-   *  pass it.
+  /** The default float precision qualifier for the emitted stage, the
+   *  `precision <p> float;` line. `'highp'` is the default and leaves the emitted bytes
+   *  unchanged.
    *
    *  A mobile GPU pays real bandwidth and power for highp arithmetic and highp varyings
    *  where mediump suffices, and the precision qualifier is the only lever GLSL ES gives for
-   *  it. It is a build-time option and never a runtime device probe, so a cache holding
-   *  emitted source must include the precision in its key; a key without one will serve a
-   *  mediump program to a highp request.
+   *  it. The option is decided at emit time, never probed from the device, so a cache of
+   *  emitted source must include it in its key; a key without it serves a mediump program
+   *  to a highp request.
    *
-   *  SCOPE — this spells the `precision <p> float;` line and NOTHING else:
-   *  - `precision highp int;` is load-bearing, for the storage-emulation index math and the
-   *    bitcast lanes, and is never qualified by this option.
-   *  - The `precision highp <sampler type>;` lines are likewise untouched.
-   *  - It is a WHOLE-STAGE default, so it covers positions and coordinates too. mediump
-   *    is roughly fp16: about 3 decimal digits over a range of plus or minus 65504, far
-   *    short of what a projected map coordinate needs. f32 already collapses at deep zoom,
-   *    which is the whole reason the df64 emulation exists. Use this for fragment-colour
-   *    shaders whose output is a bounded, low-dynamic-range colour, and keep it away from any
-   *    stage computing a position, a tile or world coordinate, or a df64 lane.
+   *  It spells the float line and nothing else. `precision highp int;` stays highp, because
+   *  the index math of the storage-to-data-texture lowering and the integer bit patterns it
+   *  reads back need the full integer range, and the `precision highp <sampler type>;` lines
+   *  stay highp as well.
    *
-   *  Not verifiable in CI beyond compile validity and header shape: the CI rasterizer
-   *  advertises mediump as 10-bit yet behaves as f32, either computing it at f32 or
-   *  reassociating the probe, which are indistinguishable from outside. No pixel gate can
-   *  tell the two emits apart. */
+   *  It is a whole-stage default, so it covers positions and coordinates too. mediump is
+   *  roughly fp16: about three decimal digits over a range of plus or minus 65504, far short
+   *  of what a world-space position needs. f32 already runs out of precision once a value
+   *  needs more than its seven digits, which is why the double-float emulation behind
+   *  {@link f64T} exists. Use `'mediump'` for fragment shaders whose output is a bounded,
+   *  low-dynamic-range colour, and keep it away from any stage that computes a position, a
+   *  value in world units or an `f64` value.
+   *
+   *  Whether a device actually computes mediump at reduced precision is up to its driver; a
+   *  software rasterizer that advertises 10-bit mediump commonly computes it at f32, so the
+   *  numeric effect shows only on real mobile hardware. */
   floatPrecision?: 'highp' | 'mediump'
 }
 
@@ -1608,10 +1608,10 @@ export interface GlslEmitOptions extends EmitOptions {
  *  (validate → autoVars → lowerModule → fp64Lower → the optimizer FIXPOINT) and the
  *  IR plugins. Everything here is stage-INDEPENDENT, which is why it is split from the
  *  spelling half: a host compiling both stages of one module used to pay this twice,
- *  and the fixpoint over a big fragment fn dominates it (hillshade multidirectional:
- *  ~770 ms per emit, so the `vs_tile` re-emit alone cost as much as the fragment even
- *  though the vertex fn is shared with raster's 36 ms module). `emitGlslStages` pays
- *  it once. Pure: takes an authored module, returns a lowered one. */
+ *  and the fixpoint over a big fragment fn dominates it (a large fragment function:
+ *  ~770 ms per emit, so re-emitting the vertex fn alone cost as much as the fragment even
+ *  though that vertex fn is shared with a sibling module that emits in 36 ms).
+ *  `emitGlslStages` pays it once. Pure: takes an authored module, returns a lowered one. */
 function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // autoVars BEFORE lowerModule (inside lowerForBackend), same order as the WGSL backend /
   // CPU oracle — materialising assigned plain-value bindings into real vars is BACKEND-NEUTRAL.
@@ -2031,59 +2031,45 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
   return { ...opts, emulateCompute: true } as T
 }
 
-/** Emit a module as GLSL ES 3.00. Pass `'vertex'` or `'fragment'` for one stage, or omit the
- *  stage for the whole module. The returned string is what goes to `gl.shaderSource`.
+/** Emit a module as GLSL ES 3.00 source. Pass `'vertex'` or `'fragment'` to get one
+ *  compilable stage, the string `gl.shaderSource` takes: that stage's entry becomes
+ *  `void main()`, and only the structs, bindings and helper functions the entry reaches are
+ *  declared. Omit the stage for a whole-module string; a module with entries for both
+ *  stages then contains two `main()` functions, which no GLSL compiler accepts, so the
+ *  whole-module form is for modules without entries and for inspecting output.
  *
- *  `opts.floatPrecision` sets the default float precision qualifier for the emitted stage.
- *  `'highp'` is the default and is byte-neutral: omit the option and you get the bytes the
- *  backend has always emitted. `'mediump'` exists because a mobile GPU pays real bandwidth and
- *  power for highp arithmetic and highp varyings where mediump would do, and the precision
- *  qualifier is the only lever GLSL ES gives for it.
+ *  The source is assembled in this order: `#version 300 es`, any `#extension` directive a
+ *  declared capability needs, the precision lines, a `#define` per override, consts, plain
+ *  structs, `layout(std140) uniform` blocks and sampler uniforms, helper functions, then the
+ *  entry: its `in`/`out` varyings, a `<name>_impl` function where the body cannot be
+ *  inlined into `main()`, and `main()` itself. A `uniform` struct binding becomes a std140
+ *  block whose byte offsets are the ones {@link wgslLayout} reports, so a host packs one
+ *  buffer for both backends. A `storage` binding, which WebGL2 cannot express, is read from
+ *  a data texture instead: `array<f32>`, `array<u32>`, `array<i32>`, `array<vecN<f32>>` and
+ *  arrays of structs with `f32`, `u32` and `vecN<f32>` fields are supported, and `data[i]`
+ *  becomes a `texelFetch` at `(i % width, i / width)` in a `sampler2D` (`R32F`),
+ *  `usampler2D` (`R32UI`) or `isampler2D` (`R32I`) of the same name. A compute entry
+ *  declared `portable: true` is emitted as a fragment pass; see
+ *  {@link lowerComputeToFragment}.
  *
- *  Four things to know before reaching for `'mediump'`:
- *
- *  - It is a whole-stage default, so it covers positions and coordinates too. mediump is
- *    roughly fp16: about three decimal digits over a range of plus or minus 65504. A projected
- *    map coordinate does not survive that; f32 already collapses at deep zoom, which is why
- *    the df64 emulation behind {@link f64T} exists. Use it for fragment-colour shaders whose
- *    output is a bounded, low-dynamic-range colour, and keep it away from any stage computing
- *    a position, a tile or world coordinate, or a df64 lane.
- *  - It spells the float line only. `precision highp int;` stays highp, because the
- *    storage-to-data-texture index math and the bitcast lanes need the full integer range, and
- *    the sampler precision lines the backend derives from the module's texture types stay
- *    highp as well.
- *  - It is decided at build time and never probed from the device, so the shader cache key
- *    has to carry it. Emitted GLSL is usually cached under a key derived from the module and the
- *    options; a key with no precision component will serve a mediump program to a highp
- *    request.
- *  - CI cannot judge the numeric effect. The census in the compile gate measured a rasterizer
- *    that advertises MEDIUM_FLOAT as 10 bits of precision against HIGH_FLOAT's 23, yet a
- *    shader compiled under `precision mediump float;` there behaves as f32: the probe
- *    `((1.0 + 2^-12) - 1.0) * 4096.0` reads the same on both arms. A precision format is a
- *    declared minimum, and either the stack computes mediump at f32 or its compiler
- *    reassociates the probe, which are indistinguishable from outside. So no pixel gate can
- *    tell the two emits apart; the gates here cover the header shape and compile-and-link
- *    validity, and real-device mediump behaviour is verifiable only on real mobile hardware.
- *
- *  `opts.overrideValues` pins specialization constants for this emit, since GLSL ES 3.00 has
- *  no driver-side equivalent. `opts.emulateCompute` is superseded: declare the kernel
- *  `portable: true` at the authoring site, and the compute-to-fragment lowering runs with no
- *  emit option at all. The flag remains as the synonym for an undeclared kernel, on the same
- *  code path and with the same bytes, so nothing that passes it has to change. Declaring it at
- *  the authoring site is what lets both writers validate the kernel's gather-only shape at
- *  every emit.
- *
- *  The neutral options apply too: `parens` and the production `plugins`.
+ *  `opts.floatPrecision` sets the `precision <p> float;` line; see
+ *  {@link GlslEmitOptions.floatPrecision} for when `'mediump'` is safe.
+ *  `opts.overrideValues` pins specialization constants as `#define`s, since GLSL ES 3.00
+ *  has no pipeline-time equivalent. The shared {@link EmitOptions} apply too: `parens`,
+ *  `plugins` and `fp64Flavor`.
  *
  *  Exported from `@xgis/shader-dsl`.
  *
  *  @param m - the module to emit.
  *  @param stage - which stage to emit, or omitted for the whole module.
- *  @param opts - the GLSL-only knobs above, plus the neutral emit options.
+ *  @param opts - the GLSL options and the shared emit options.
  *  @returns the GLSL ES 3.00 source, `#version 300 es` first.
  *  @throws {@link ValidationError} when the module fails a core rule, and
- *    `UnsupportedFeatureError` (`SD0030`) when this target cannot spell a capability the
- *    module needs, including a raw statement with no `glsl` payload.
+ *    {@link UnsupportedFeatureError} (`SD0030`) when this target cannot spell something the
+ *    module needs: a `@compute` entry that is not declared `portable`, a multisampled
+ *    texture load, `f16`, subgroups, a `read_write` storage binding, a storage element type
+ *    outside the list above, a vertex entry returning a bare non-struct output, or a raw
+ *    statement with no `glsl` text.
  *
  *  @example
  *  ```ts
@@ -2094,7 +2080,8 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
  *  ```
  *
  *  @see {@link GlslEmitOptions} for the full option shape.
- *  @see {@link emitModule} for the WGSL twin.
+ *  @see {@link emitGlslStages} to emit both stages with one lowering.
+ *  @see {@link emitModule} for the WGSL equivalent.
  */
 export function emitGlslModule(
   m: ModuleDecl,
@@ -2111,23 +2098,37 @@ export function emitGlslModule(
   )
 }
 
-/** Emit a module as a header-less GLSL ES 3.00 FRAGMENT (#1711) — the declarations and
- *  helpers, without `#version`, without the precision preamble, and (by default) without
- *  the stage entry point — for a host that owns the program and composes this into it.
+/** Emit a module as a GLSL ES 3.00 fragment for a host that owns the program: the
+ *  declarations and helper functions, without `#version`, without the precision lines and,
+ *  by default, without the stage entry point. The host splices the returned `source` into
+ *  a program it assembles itself.
  *
- *  What the preamble would have carried comes back as {@link EmitFragment.preamble}: the
- *  `#version` line, any `#extension … : require` a declared capability directs, and the
- *  precision lines — including the integer-sampler ones the backend derives from the
- *  module's own texture types (#1703). A host merges and de-duplicates those across the
- *  fragments it assembles; nothing is dropped, so no consumer has to regex them back.
+ *  What the header would have carried comes back as data in {@link EmitFragment.preamble}:
+ *  the `#version` line, any `#extension … : require` a declared capability needs, and the
+ *  precision lines, including the ones for the integer and array sampler types derived from
+ *  the module's texture bindings. A host merges and de-duplicates those across the
+ *  fragments it assembles.
  *
- *  Entry points are excluded unless `entryPoints: true`. They are still listed in
- *  `declares.entryPoints` either way, and they still decide the stage scope, so which
- *  helpers, structs and bindings the fragment carries is exactly what that stage needs.
+ *  Entry points are omitted unless `opts.entryPoints` is `true`. They are listed in
+ *  `declares.entryPoints` either way, and they still decide the stage scope, so the
+ *  fragment carries exactly the helpers, structs and bindings the stage's entry reaches.
+ *
+ *  Exported from `@xgis/shader-dsl`.
  *
  *  @param m - the module to emit.
  *  @param stage - which stage's scope to emit; omit for the whole module.
- *  @param opts - the usual GLSL emit options, plus `entryPoints` to keep the entries.
+ *  @param opts - the {@link GlslEmitOptions}, plus `entryPoints` to keep the entries.
+ *  @returns the fragment: its `source`, `preamble`, `declares` and `requires`.
+ *  @throws the same errors as {@link emitGlslModule}.
+ *
+ *  @example
+ *  ```ts
+ *  import { emitGlslFragment } from '@xgis/shader-dsl'
+ *
+ *  const frag = emitGlslFragment(MODULE, 'fragment')
+ *  // frag.preamble: ['#version 300 es', 'precision highp float;', 'precision highp int;']
+ *  // frag.source: the declarations and helpers, ready to splice into a host program
+ *  ```
  */
 export function emitGlslFragment(
   m: ModuleDecl,
@@ -2152,20 +2153,32 @@ export function emitGlslFragment(
   }
 }
 
-/** Both stages of one module, lowered + OPTIMIZED ONCE. Byte-identical to calling
- *  `emitGlslModule(m,'vertex')` and `emitGlslModule(m,'fragment')` — the lowering is
- *  deterministic and the spelling half does not mutate it, which
- *  `glsl-stages-parity.test.ts` pins — but it pays the optimizer fixpoint once instead
- *  of twice. Use this from any host that creates a pipeline (it always needs both).
+/** Emit both stages of one module, lowering and optimizing it once. The result is
+ *  identical to calling `emitGlslModule(m, 'vertex')` and `emitGlslModule(m, 'fragment')`,
+ *  at about half the cost, since the optimizer runs once for both stages. Use it from a
+ *  host that creates a pipeline, which always needs both.
  *
- *  `vertexEntry` / `fragmentEntry` name the single entry to spell per stage, for the
- *  common case of a module carrying several (fs_fill / fs_fill_pattern, fs_line /
- *  fs_line_max / fs_line_pattern). Consumers expressed that by pruning the module's
- *  funcs before each emit, which is precisely what made the two stages need two
- *  lowerings; naming them here keeps one. Byte-identical to the prune-first form
- *  because every optimizer pass is per-function, so a func's spelled body does not
- *  depend on which OTHER funcs were present — pinned per family by
- *  `map/src/render/material/glsl-stage-entry-parity.test.ts`. */
+ *  `opts.vertexEntry` and `opts.fragmentEntry` name the entry to emit for each stage, for
+ *  a module that declares several entries of one stage. GLSL allows one `main()` per
+ *  stage, so a module with two fragment entries needs `fragmentEntry` to say which one
+ *  becomes `main()`; the other entries are left out of that stage's source. The output
+ *  does not depend on which other entries the module carries, because every optimizer
+ *  pass works on one function at a time.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param m - the module to emit.
+ *  @param opts - the {@link GlslEmitOptions}, plus `vertexEntry` and `fragmentEntry`.
+ *  @returns the vertex and fragment sources, each `#version 300 es` first.
+ *  @throws the same errors as {@link emitGlslModule}.
+ *
+ *  @example
+ *  ```ts
+ *  import { emitGlslStages } from '@xgis/shader-dsl'
+ *
+ *  const { vertex, fragment } = emitGlslStages(MODULE, { fragmentEntry: 'fs_pattern' })
+ *  ```
+ */
 export function emitGlslStages(
   m: ModuleDecl,
   opts?: GlslEmitOptions & { vertexEntry?: string; fragmentEntry?: string },

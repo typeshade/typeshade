@@ -269,7 +269,8 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
 
 GLSL ES 3.00 compiles one stage at a time, each source with its own `main`, so GLSL comes
 back one string per stage. `emitGlslStages(gradient)` returns `{ vertex, fragment }` from
-a single lowering of the module:
+a single lowering of the module, the pass that rewrites the IR into the shapes the target
+can spell:
 
 ```glsl
 #version 300 es
@@ -391,9 +392,8 @@ with `Let` outside the branch that reads it.
 ### Mutation with assign
 
 JavaScript cannot overload `=`, so mutation is a method on the value being written.
-`.assign(v)` is the only one. There is no free `assign(x, v)` function, and a node carries
-no compound method: `add` is the pure expression, so `x += v` is written
-`x.assign(x.add(v))`.
+`.assign(v)` is the only one, and a node carries no compound method: `add` is the pure
+expression, so `x += v` is written `x.assign(x.add(v))`.
 
 ```ts
 const min_dist = f32(1e10) // a plain const…
@@ -1233,10 +1233,10 @@ reach.bindings // Set { 'U' }, the binding names that stage reads
 reach.fns // the call-graph closure from those entries, the entries included
 ```
 
-`owner` says who owns the resource. It is `'module'` when we declare the binding and the
-host allocates it from this reflection, and `'host'` when the surrounding renderer owns it
-and its layout is the authority. The list stays complete under both, because a host still
-has to know about a binding it owns. `resourceKind` says what to create, and a texture entry
+`owner` says who owns the resource. It is `'module'` when the module declares the binding
+and the host allocates it from this reflection, and `'host'` when the host that owns the
+pipeline declares it and its layout is the authority. The list stays complete under both,
+because a host still has to know about a binding it owns. `resourceKind` says what to create, and a texture entry
 also carries `textureDim` and `textureElem`, the two axes a view and a sample type need,
 which [Layouts and resources](/guide/authoring/layouts-and-resources/) covers from the
 authoring side. `stages` says which stages reach the binding, which is the visibility mask a
@@ -1244,9 +1244,9 @@ WebGPU bind group layout entry requires and the per-stage assignment a WebGL2 ho
 uniform block points and texture units.
 
 The bind groups include a binding a lowering injects as well as the ones you declared. The
-[fp64](/guide/authoring/fp64/) lowering adds a guard texture named `_fp64` to a module whose
-emulated helpers read it, and a host that binds from this reflection binds it without
-knowing that. Pass `reflect` the same `fp64Flavor` the emit will get, so the reflection
+[fp64](/guide/authoring/fp64/) lowering adds a texture binding named `_fp64`, the guard
+texture that page describes, to a module whose emulated helpers read it, and a host that
+binds from this reflection binds it without knowing that. Pass `reflect` the same `fp64Flavor` the emit will get, so the reflection
 describes the program that will run.
 
 ## The CPU oracle
@@ -1295,8 +1295,9 @@ sampler. The oracle has no GPU memory behind those, so you supply each value wit
 which is the `as` name for a uniform struct and the declared name for a storage buffer or a
 `resource`. `reflect(m).bindGroups` lists every binding a host must fill, including the ones a
 lowering injects. The oracle asks only for the ones a function it runs actually reads, so a
-module with f64 arithmetic needs no value for the injected guard texture. A binding a function
-reads and nothing set throws `shader-dsl/cpu: unbound <name>`.
+module with f64 arithmetic needs no value for the injected `_fp64` guard texture that
+[fp64](/guide/authoring/fp64/) describes. A binding a function reads and nothing set throws
+`shader-dsl/cpu: unbound <name>`.
 
 ```ts
 import { module, fn, uniformStruct, storageBuffer, f32T, u32T, compileModule } from '@xgis/shader-dsl'
@@ -1315,9 +1316,9 @@ cpu.fns.scale_at(2) // → 6
 
 Arrays and structs are held by reference, so a `read_write` storage buffer is written in place:
 bind an array, run the calls, then read that same array back for the results. An `f64` value is
-one JavaScript number on this side. The GPU carries it as a hi and lo pair of f32 lanes, and
-`splitF64(x)` returns that pair for the host to pack into the buffer, so the two sides describe
-the same number in the shape each one needs.
+one JavaScript number on this side. The GPU carries it as a pair of f32 values, a high part
+and a low part, and `splitF64(x)` returns that pair for the host to pack into the buffer, so
+the two sides describe the same number in the shape each one needs.
 
 ### The f64 and f32 precision modes
 
@@ -1343,7 +1344,7 @@ compileModule(m, { precision: 'f32' }).fns.acc(1, 2 ** -30) // → 1
 ```
 
 The mode is separate from the emulated `f64` type, which [fp64](/guide/authoring/fp64/)
-covers. It stays a full double here while the GPU runs it as a pair of f32 lanes carrying
+covers. It stays a full double here while the GPU runs it as a pair of f32 values carrying
 about 48 significand bits. The WGSL, GLSL and CPU results for such a module agree within
 that width.
 
@@ -1547,9 +1548,8 @@ setSourceTracing(true)
 Setting `XGIS_SHADER_DSL_TRACE=1` in the environment turns it on for the whole process,
 which is the way to get locations out of a test run without editing the test. Locations
 never reach the emitted shader: WGSL and GLSL come out byte-identical with tracing on and
-with it off, and a test in this repository pins the WGSL side of that. Because capture is
-optional, `loc` on an error and on a diagnostic is optional too, so read it as a field that
-may be absent.
+with it off. Because capture is optional, `loc` on an error and on a diagnostic is optional
+too, so read it as a field that may be absent.
 
 ## Conditional programs
 
@@ -1915,8 +1915,8 @@ it supports, and bind the guard texture the emulation needs.
 A GPU has no 64-bit float type. In this package `f64` is emulated: one value is a pair of
 `f32` numbers, a high part and a low part, and the number is their unevaluated sum. That
 gives about 48 bits of significand, the fraction bits that decide how many digits a value
-keeps, over the ordinary f32 exponent range. A world coordinate near 1e8, where one f32
-step is already 8 units, still resolves detail far below one unit. The authoring surface is
+keeps, over the ordinary f32 exponent range. A value near 1e8, a position in world units
+for one, where one f32 step is already 8 units, still resolves detail far below one unit. The authoring surface is
 the same as f32, and only the declared type differs. Before emit, the `fp64Lower` pass
 rewrites every f64 into a `vec2<f32>` and injects the emulation functions the shader now
 calls. WGSL, GLSL and the CPU oracle agree on the results.
@@ -2041,7 +2041,7 @@ its siblings. Components, swizzles, componentwise arithmetic with f64, f32 and n
 broadcast, the componentwise builtins `abs`, `min`, `max`, `mix`, `floor`, `fract`, `sin`,
 `cos` and `normalize`, and the reductions `dot`, `length` and `distance`, which give back an
 f64, all read the same as their f32 counterparts. Anything outside that list is `SD0041`
-again, so narrow one lane at a time with `toF32(v.x)`. A vector lowers to a struct holding a
+again, so narrow one component at a time with `toF32(v.x)`. A vector lowers to a struct holding a
 hi plane and a lo plane, so componentwise work runs once for the whole vector.
 
 ```ts
@@ -2074,8 +2074,9 @@ const shade = fn('shade', { world: f64T, camera: f64T }, (p) =>
 )
 ```
 
-`examples/fp64-deep-zoom.ts` runs one formula on both types side by side, and shows the f32
-half collapsing to a flat field while the f64 half keeps its stripes.
+One example in the gallery, `examples/fp64-deep-zoom.ts`, runs one formula on both types
+side by side, and shows the f32 half collapsing to a flat field while the f64 half keeps
+its stripes.
 
 ## GLSL float precision
 
@@ -2111,14 +2112,15 @@ asked for highp.
 ### What a whole-stage default covers
 
 mediump is roughly fp16: about three decimal digits of significand over a range of about
-±65504. The default applies to the whole stage, so it covers positions, tile and world
-coordinates, varyings and every intermediate value in the stage, including the ones you were
-not thinking about when you reached for it. A projected map coordinate does not survive
-three digits. f32 already collapses at deep zoom, which is why the
+±65504. The default applies to the whole stage, so it covers positions, values in world
+units, varyings and every intermediate value in the stage, including the ones you were not
+thinking about when you reached for it. A value that needs more than three significant
+digits, a position in world units for one, does not survive. f32 itself already collapses
+once a value grows past its seven digits, which is why the
 [fp64](/guide/authoring/fp64/) emulation exists at all.
 
 Use mediump for a stage whose output is a bounded, low dynamic range colour. Keep highp
-on a stage that computes a position, a tile or world coordinate, or an f64 lane. Since
+on a stage that computes a position, a value in world units, or an f64 value. Since
 the option is per emit call, a program can take one qualifier in its vertex stage and
 another in its fragment stage:
 
@@ -2139,9 +2141,9 @@ The option spells the float line and nothing else. Two other precision lines in 
 header are load-bearing and stay at highp under either setting.
 
 `precision highp int;` is one of them. A GLSL ES 3.00 fragment shader has no default int
-precision at all, so the line has to be there, and the index math the storage emulation
-generates and the bitcast lanes both need the full int range. Lowering it would turn a
-bandwidth choice into a wrong result.
+precision at all, so the line has to be there, and both the index math that reads a storage
+buffer through a data texture and the integer half of a bitcast need the full int range.
+Lowering it would turn a bandwidth choice into a wrong result.
 
 The sampler lines are the other. GLSL ES 3.00 predeclares a default precision for
 `sampler2D` and `samplerCube` only, so a module that declares a `sampler2DArray`, a
@@ -2615,7 +2617,7 @@ WGSL's, typed as the closed union `WgslBuiltinName`, so a `gl_*` spelling or a t
 | `gl_FrontFacing` | `builtin('front_facing', boolT)` | |
 | `gl_FragDepth` | `builtin('frag_depth', f32T)` as the return attribute | |
 | `gl_PointSize` and `gl_PointCoord` | unsupported on both writers | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `@location(n)` corner uv |
-| float `mod(x, y)` | the free function `mod()` | that is floor-mod. `.mod()` and `%` are trunc-mod, which is WGSL's semantics and now spells portably on GLSL too. Pick by the semantics you mean on negative operands |
+| float `mod(x, y)` | the free function `mod()` | that is floor-mod. `.mod()` and `%` are trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands |
 
 A fragment stage reads the framebuffer coordinate through the same `position` builtin the
 vertex stage writes:
@@ -2669,8 +2671,7 @@ caught when the GLSL writer runs, with SD0030 naming both blocks.
 
 Nothing on this page narrows what the GLSL writer can express. The neutral names are
 spellings, and several of the rules behind them exist to make WebGL2 output more defined:
-`round` emits `roundEven`, and float `%` emits a trunc-mod that GLSL ES 3.00 actually
-compiles.
+`round` emits `roundEven`, and float `%` emits a trunc-mod that GLSL ES 3.00 compiles.
 
 For a GLSL construct the neutral surface does not model,
 [`rawStmt`](/guide/authoring/raw-statements/) accepts a payload for one target only, and

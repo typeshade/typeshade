@@ -21,27 +21,37 @@ import { getLoc } from '../../diagnostics/loc.js'
  */
 export type Severity = 'error' | 'warning' | 'off'
 
-/** One reported problem. `ruleId` and `message` are always present; everything else depends on
- *  how much the reporting rule knew.
+/** One problem reported by a lint rule or by validation. `ruleId`, `severity` and `message`
+ *  are always present; the other fields are filled in when the reporting rule had the
+ *  information.
  *
- *  `loc` resolves back to the AUTHORED TypeScript, and only when source tracing was on at the
- *  time the offending node was built — so it is absent by default, not merely sometimes. `code`
- *  is an `SD####` from the same catalogue thrown errors use ({@link CODES}), present on rules
- *  that map onto one; branch on it rather than on `message`.
+ *  `loc` points at the TypeScript that built the offending node. It is present only when source
+ *  tracing ({@link setSourceTracing}) was on while the module was authored, so by default it is
+ *  absent. `code` is an `SD####` code from the same catalogue thrown errors use ({@link CODES}),
+ *  present on rules that map onto one. Tooling should branch on `code` or `ruleId`, since
+ *  `message` is free text.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  */
 export interface Diagnostic {
+  /** Id of the rule that reported the problem, for example `'param-count'`. */
   readonly ruleId: string
+  /** `'error'` or `'warning'`. A rule configured `'off'` reports nothing, so no diagnostic
+   *  carries that value. */
   readonly severity: 'error' | 'warning'
+  /** Human-readable description of the problem. Free text; branch on `code` or `ruleId`
+   *  instead. */
   readonly message: string
+  /** Name of the function the problem was found in, when the rule reported one. Module-level
+   *  problems leave it unset. */
   readonly fn?: string
-  /** Optional stable diagnostic code (SD####), for tooling / doc links. */
+  /** Stable diagnostic code (`SD####`) from {@link CODES}, for tooling and documentation
+   *  links. */
   readonly code?: string
-  /** Optional authored-source location, resolved from the reported node when
-   *  source tracing was on at author time (see core/diagnostics/loc.ts). */
+  /** Where in the authored TypeScript the offending node was built. Present only when source
+   *  tracing ({@link setSourceTracing}) was on at the time. */
   readonly loc?: SourceLoc
-  /** Optional one-line "how to fix it". */
+  /** One-line suggestion for how to fix the problem. */
   readonly hint?: string
 }
 

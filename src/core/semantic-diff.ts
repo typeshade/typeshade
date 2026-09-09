@@ -48,15 +48,15 @@ import { eachStmtExpr } from './ir/visit.js'
 import { reflect } from './reflect.js'
 import type { EmitPlugin } from './emit.js'
 
-/** An axis of difference `semanticDiff` can be told to disregard.
+/** An axis of difference {@link semanticDiff} can be told to disregard.
  *
- *  - `'names'` — the spelling of every INTERNAL identifier: helper function names,
- *    non-binding struct names, module const names, and function-scoped params/locals.
- *    Deliberately the same partition `mangleModule` is free to rewrite; ABI names
- *    (entry points and their params, binding names, binding struct names, struct
- *    FIELD names, override names, intrinsic call ids) are compared either way,
- *    because a host binds by them.
- *  - `'declOrder'` — the position of a declaration or statement within its list. */
+ *  - `'names'`: the spelling of every internal identifier, meaning helper function names,
+ *    struct names that are not bound as resources, module const names, and function-scoped
+ *    parameters and locals. These are the same identifiers a renaming pass such as
+ *    `mangleModule` may rewrite. Names a host binds by are compared either way: entry
+ *    points and their parameters, binding names, binding struct names, struct field
+ *    names, override names, and intrinsic call ids.
+ *  - `'declOrder'`: the position of a declaration or statement within its list. */
 export type SemanticAspect = 'names' | 'declOrder'
 
 /** Options for {@link semanticDiff}. */
@@ -64,29 +64,29 @@ export interface SemanticDiffOptions {
   /** Axes to disregard. Defaults to `['names', 'declOrder']`. Pass `[]` to compare
    *  identifier spelling and declaration order too. */
   readonly ignore?: readonly SemanticAspect[]
-  /** Transforms DECLARED as intentionally applied to `b` (#1806) — pass the same
-   *  plugin array your production emit call uses, e.g. `[inline(), ...obfuscate()]`.
-   *  Each plugin's `transformIR` is applied to `a` in order, and every diff line the
-   *  applied transform accounts for moves out of the four buckets into
+  /** Plugins declared as intentionally applied to `b`. Pass the same plugin array your
+   *  production emit call uses, for example `[inline(), ...obfuscate()]`. Each plugin's
+   *  `transformIR` is applied to `a` in order, and every diff line the applied transform
+   *  accounts for moves out of the four buckets into
    *  {@link ClassifiedSemanticDiff.explained}, attributed to that plugin. Differences
    *  no declared transform explains stay in the buckets, so a regression cannot hide
    *  behind a declaration. Text-stage plugins (`minify`, `aliasTypes`, `prune`)
-   *  contribute nothing here — this comparator never sees emitted text. */
+   *  contribute nothing here, because the comparison never sees emitted text. */
   readonly transforms?: readonly EmitPlugin[]
 }
 
 /** The four buckets of difference. Each entry is a fact line prefixed `-` (present in
- *  `a`, absent from `b`) or `+` (the reverse). All four empty ⇒ the modules agree on
- *  everything this comparator inspects — see {@link isSemanticallyEqual}. */
+ *  `a`, absent from `b`) or `+` (the reverse). When all four are empty the modules agree
+ *  on everything this comparison inspects; {@link isSemanticallyEqual} performs that test. */
 export interface SemanticDiff {
   /** Entry-point signatures and the vertex attribute layout. */
   readonly interface: readonly string[]
   /** Bind groups, std140/std430 struct layouts, and required capabilities. */
   readonly resources: readonly string[]
   /** Module consts, pipeline overrides, and the multiset of numeric literals in
-   *  function bodies. A literal's VALUE is reported here and nowhere else — the
-   *  control-flow skeleton elides it — so changing a constant and changing the shape
-   *  of the code around it are distinguishable. */
+   *  function bodies. A literal's value is reported here and nowhere else, because the
+   *  control-flow skeleton leaves it out, so changing a constant and changing the shape
+   *  of the code around it land in different buckets. */
   readonly constants: readonly string[]
   /** Per-statement control-flow skeleton, one line per statement, addressed by path. */
   readonly controlFlow: readonly string[]
@@ -95,11 +95,11 @@ export interface SemanticDiff {
 /** One of the four fact buckets of a {@link SemanticDiff}. */
 export type SemanticDiffBucket = keyof SemanticDiff
 
-/** One diff line reclassified as EXPLAINED by a declared transform (#1806): applying
- *  `transform` to the reference side made `line` disappear from `bucket`. The line
- *  keeps its `-`/`+` prefix — `-` is a fact of `a` the transform rewrote away, `+` a
- *  fact of `b` the transformed reference now also has. `transform` is the plugin's
- *  `identity ?? name`, the same spelling `emitIdentity` stamps. */
+/** One diff line that a declared transform explains: applying `transform` to the
+ *  reference side made `line` disappear from `bucket`. The line keeps its `-` or `+`
+ *  prefix. A `-` line is a fact of `a` the transform rewrote away; a `+` line is a fact
+ *  of `b` the transformed reference now also has. `transform` is the plugin's
+ *  `identity ?? name`, the same spelling {@link emitIdentity} reports. */
 export interface ExplainedDiffEntry {
   readonly transform: string
   readonly bucket: SemanticDiffBucket
@@ -108,9 +108,9 @@ export interface ExplainedDiffEntry {
 
 /** A {@link SemanticDiff} whose differences were classified against a declared
  *  transform pipeline ({@link SemanticDiffOptions.transforms}). The four buckets hold
- *  ONLY what no declared transform accounts for — the fail-able residue a parity gate
- *  budgets — and `explained` holds everything a declared transform proved
- *  intentional, with enough provenance to review the classification. */
+ *  only what no declared transform accounts for, which is the part a parity check
+ *  should fail on. `explained` holds every difference a declared transform proved
+ *  intentional, with enough detail to review the classification. */
 export interface ClassifiedSemanticDiff extends SemanticDiff {
   readonly explained: readonly ExplainedDiffEntry[]
 }
@@ -500,8 +500,9 @@ function resolvedLines(prev: readonly string[], next: readonly string[]): string
   return out
 }
 
-/** Compare two modules at the IR and reflection layer, above the noise that makes a textual
- *  diff of emitted source unreadable once the optimizer and the production plugins have run.
+/** Compare two modules at the IR and reflection layer. A textual diff of emitted source is
+ *  hard to read once the optimizer and the production plugins have run; this comparison
+ *  works above that noise.
  *
  *  It reports four buckets: the entry and vertex `interface`, the bind-group and layout
  *  `resources`, the `constants` (module consts, overrides, and the multiset of body literals),
@@ -514,21 +515,20 @@ function resolvedLines(prev: readonly string[], next: readonly string[]): string
  *  rewrites call sites and duplicates literals, which is exactly what the buckets report.
  *  Declare such a pass in `transforms`, the same plugin array the production emit takes, and
  *  every difference the declared pipeline provably causes moves into `explained`, one entry
- *  naming the plugin, the bucket and the line, instead of spending the regression budget.
+ *  naming the plugin, the bucket and the line.
  *
- *  Classification is by construction and not by resemblance. A line moves to `explained` only
- *  when applying that plugin's own `transformIR` to the reference side actually removes the
- *  line from the diff. A regression that merely looks like an optimizer rewrite stays in its
- *  bucket, which is what a resemblance test could never promise, so a dev-to-prod parity gate
- *  budgets only the unexplained residue.
+ *  A line moves to `explained` only when applying that plugin's own `transformIR` to the
+ *  reference side actually removes the line from the diff. A regression that merely looks like
+ *  an optimizer rewrite stays in its bucket, so a check that compares a development build
+ *  against a production build fails only on the unexplained differences.
  *
- *  Text-stage plugins explain nothing, because the comparator never sees emitted text. That is
- *  why declaring the full production array is safe: {@link minify} and {@link aliasTypes}
+ *  Text-stage plugins explain nothing, because the comparison never sees emitted text. Declaring
+ *  the full production array is therefore safe: {@link minify} and {@link aliasTypes}
  *  contribute no `explained` entries and remove no coverage, so you can pass the array you
- *  actually ship without deciding which half to omit.
+ *  actually ship.
  *
- *  The load-bearing invariant is that mangling is a no-op here, since `'names'` canonicalizes
- *  exactly the identifiers {@link mangle} is free to rewrite.
+ *  Renaming with {@link mangle} produces no differences under the default options, because
+ *  `'names'` canonicalizes exactly the identifiers that pass is free to rewrite.
  *
  *  Exported from `@xgis/shader-dsl`.
  *

@@ -11,20 +11,21 @@
 
 import type { ModuleDecl, Stmt, FuncDecl } from '../ir/index.js'
 
-/** Options for `composeModule`. The default — strict — is the one you want: an un-swapped
- *  placeholder and a typo'd swap key are both errors at compose time.
+/** Options for {@link composeModule}. The default is strict: a placeholder that receives no
+ *  swap and a swap key that matches no placeholder are both errors at compose time.
  *
- *  That strictness is the whole DX win over a hand-rolled placeholder walk, because both
- *  mistakes are otherwise SILENT in the direction that matters: an un-swapped placeholder emits
- *  a bare `// __placeholder` comment on the WGSL side and renders nothing wrong-looking, while
- *  throwing only on the CPU oracle. Turn `allowUnswapped` on only when leaving a seam open is
- *  deliberate.
+ *  Strictness matters because a placeholder left in place is easy to miss. The WGSL emitter
+ *  writes it as a bare `// __placeholder: <tag>` comment and the shader still compiles and
+ *  renders, while the GLSL emitter and {@link compileModule} (the same module evaluated on the
+ *  CPU in double precision) throw only when they reach it. Set `allowUnswapped` only when
+ *  leaving a placeholder open is deliberate.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  */
 export interface ComposeOptions {
-  /** Allow a placeholder with no matching swap to survive (emits `// __placeholder: <tag>` on the
-   *  WGSL side; throws on the CPU oracle). Off by default — an un-swapped placeholder is an error. */
+  /** Let a placeholder with no matching swap stay in the module. The WGSL emitter writes it as
+   *  the comment `// __placeholder: <tag>`; the GLSL emitter and {@link compileModule} throw when
+   *  they reach it. Off by default, where an un-swapped placeholder is a compose-time error. */
   readonly allowUnswapped?: boolean
 }
 
@@ -79,40 +80,45 @@ function swapInBody(
   return out
 }
 
-/** Compose a module by filling its placeholder statements. A base module marks its variation
- *  seams with `b.placeholder('tag')`, and this replaces each one with the statement list the
- *  swap record holds for that tag, returning a new module. Function bodies are rewritten;
- *  consts, structs and bindings are untouched.
+/** Compose a module by filling its placeholder statements. A base module marks each place where
+ *  its builds differ with `b.placeholder('tag')`, and `composeModule` replaces each one with the
+ *  statement list `swaps` holds under that tag, returning a new module. Function bodies are
+ *  rewritten; consts, structs and bindings are copied unchanged.
  *
- *  It descends into `if`, `for` and `switch` bodies, so a seam may sit in a nested scope.
+ *  It descends into `if`, `for` and `switch` bodies, so a placeholder may sit in a nested scope.
  *
- *  It is strict by default, which is the reason to use it over a hand-rolled walk. Both
- *  mistakes it catches are otherwise silent in the direction that matters. A placeholder left
- *  un-swapped emits a bare comment on the WGSL side and renders something that looks fine,
- *  while throwing only on the CPU oracle. A swap key that matches no placeholder, a typo, does
- *  nothing at all. Here each throws at compose time, naming the tags involved.
+ *  It is strict by default. A placeholder that receives no swap is otherwise easy to miss: the
+ *  WGSL emitter writes it as a bare `// __placeholder: <tag>` comment and the shader still
+ *  compiles, while the GLSL emitter and {@link compileModule} (the same module evaluated on the
+ *  CPU in double precision) throw only when they reach it. A swap key that matches no
+ *  placeholder, such as a typo, would do nothing at all. Here each case throws at compose time
+ *  and names the tags involved.
  *
- *  `allowUnswapped` is for the deliberate case: a seam that is meant to survive empty in this
- *  variant. It turns off the first check only; an unmatched swap key is still an error.
+ *  `allowUnswapped` is for the deliberate case: a placeholder that is meant to stay empty in
+ *  this build. It turns off the first check only; a swap key that matches no placeholder is
+ *  still an error.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  *
  *  @param m - the base module carrying the placeholders.
- *  @param swaps - tag to statement list, one entry per seam to fill.
- *  @param opts - `allowUnswapped` to let a seam survive unfilled.
- *  @returns a new module with the funcs' bodies rewritten.
+ *  @param swaps - tag to statement list, one entry per placeholder to fill.
+ *  @param opts - `allowUnswapped` to let a placeholder stay unfilled.
+ *  @returns a new module with the function bodies rewritten; `m` is not modified.
  *  @throws `Error` when a swap key matches no placeholder, or when a placeholder is left
  *    un-swapped and `allowUnswapped` is not set.
  *
  *  @example
  *  ```ts
- *  import { composeModule, module } from '@xgis/shader-dsl/dev'
+ *  import { composeModule, fn, module, f32, f32T, type Stmt } from '@xgis/shader-dsl'
  *
- *  const base = module({ funcs: [fn('fs_fill', {}, vec4fT, (_p, b) => b.placeholder('fill-return'))] })
- *  const composed = composeModule(base, { 'fill-return': variantFillReturnStmts })
+ *  const base = module({
+ *    funcs: [fn('shade', {}, f32T, (_p, b) => b.placeholder('result'))],
+ *  })
+ *  const returnConstant = (v: number): Stmt => ({ s: 'return', expr: f32(v).expr })
+ *  const composed = composeModule(base, { result: [returnConstant(1)] })
  *  ```
  *
- *  @see {@link variantFamily} for variants that differ by more than one statement list.
+ *  @see {@link variantFamily} for a family of modules that differ by more than one statement list.
  */
 export function composeModule(
   m: ModuleDecl,

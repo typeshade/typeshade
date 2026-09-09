@@ -37,8 +37,37 @@
 import type { Expr, FuncDecl, Stmt } from '../ir/nodes.js'
 import { mapChildren } from './opt/expr-utils.js'
 
-/** Map `rewrite` over every expression in `f`'s body. Returns `f` itself
- *  when nothing changed (referential no-op for memo friendliness). */
+/**
+ * Applies `rewrite` to every expression in the body of `f` and returns the
+ * rewritten function.
+ *
+ * The walk visits every statement and expression shape in the body. Each
+ * expression is passed to `rewrite` after its children have been rewritten,
+ * and whatever `rewrite` returns is taken as finished output: it is not
+ * walked again.
+ *
+ * Object identity is preserved wherever possible. A subtree that `rewrite`
+ * leaves alone comes back as the original object, and `f` itself is returned
+ * when nothing in the body changed. An expression object that appears at
+ * several places in the body is rewritten once, and the same new object is
+ * used at every occurrence, so passes that correlate a variable's
+ * declaration, assignments and reads by object identity keep working on the
+ * result.
+ *
+ * @param f The function whose body is rewritten.
+ * @param rewrite Called once per expression. Return the expression unchanged
+ *   to keep it, or a new expression to replace it.
+ * @returns A copy of `f` with the rewritten body, or `f` itself when no
+ *   expression changed.
+ *
+ * @example
+ * ```ts
+ * // Replace every literal `0` with `1`.
+ * const g = rewriteExprsInFunc(f, (e) =>
+ *   e.op === 'lit' && e.value === 0 ? { ...e, value: 1 } : e,
+ * )
+ * ```
+ */
 export function rewriteExprsInFunc(f: FuncDecl, rewrite: (e: Expr) => Expr): FuncDecl {
   let changed = false
   /** source object → rewritten object; shared subtrees stay shared. */
@@ -139,7 +168,29 @@ export function rewriteExprsInFunc(f: FuncDecl, rewrite: (e: Expr) => Expr): Fun
   return changed ? { ...f, body: body as Stmt[] } : f
 }
 
-/** Rename every `varref` in `f`'s body via `rename` (undefined = keep). */
+/**
+ * Renames variable references in the body of `f`.
+ *
+ * Every variable reference (an expression with `op: 'varref'`) is passed to
+ * `rename` by name. When `rename` returns a string, the reference is
+ * re-pointed at that name; when it returns `undefined`, the reference is
+ * kept as is. Unchanged references keep their original objects, and `f`
+ * itself is returned when no name changed (see {@link rewriteExprsInFunc}).
+ *
+ * @param f The function whose body is rewritten.
+ * @param rename Maps a current variable name to its new name, or returns
+ *   `undefined` to keep the current name.
+ * @returns A copy of `f` with the renamed body, or `f` itself when no
+ *   reference was renamed.
+ *
+ * @example
+ * ```ts
+ * // Point reads of the `u` uniform block at `u_split`.
+ * const g = renameVarrefsInFunc(f, (name) =>
+ *   name === 'u' ? 'u_split' : undefined,
+ * )
+ * ```
+ */
 export function renameVarrefsInFunc(
   f: FuncDecl,
   rename: (name: string) => string | undefined,

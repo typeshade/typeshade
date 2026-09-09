@@ -34,19 +34,21 @@ import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
 
-/** Which host-shareable byte-layout RULE a struct's fields round to — WGSL's own two rules,
- *  reused here for GLSL ES 3.00's std140 UBO block and for std430-style vertex-attribute /
- *  storage offsets. `'std140'` is the WGSL `uniform`-address-space rule (also real GLSL
- *  std140): array elements and struct/array base alignment round UP to 16 bytes, so a `vec3`
- *  costs 16 and an array of `f32` wastes 12 of every 16. `'std430'` is WGSL's
- *  `storage`-address-space rule (natural alignment, no 16-byte round-up) — GLSL ES 3.00 has no
- *  SSBO to hold it, so a `storage` binding is rewritten to a data texture before GLSL emit, but
- *  `reflect()` of the AUTHORED module still reports its fields under std430 (`Reflection.storage`).
- *  A caller computing offsets by hand picks the rule from the binding's `space`, not from the
- *  target backend: `uniform` is always std140, `storage` is always std430, on both backends.
- *  One case this file does not support yet: a `mat2` field under std140 throws (reflect.ts:125)
- *  — WGSL's own std140-uniform column stride (8) disagrees with real GLSL std140's (16), and no
- *  producer needs the dual-rule fix yet.
+/** The byte-layout rule a struct's fields are placed under. `'std140'` is the rule WGSL
+ *  applies to the `uniform` address space, and the rule of a GLSL ES 3.00
+ *  `layout(std140) uniform` block: a struct or array base alignment rounds up to 16 bytes, so
+ *  a `vec3` field costs 16 and an array of `f32` uses 16 bytes per element. `'std430'` is the
+ *  rule WGSL applies to the `storage` address space: natural alignment with no 16-byte
+ *  round-up. Vertex-attribute offsets use the same rule.
+ *
+ *  Pick the rule from the binding's address space, on either backend: `uniform` is std140 and
+ *  `storage` is std430. GLSL ES 3.00 has no storage buffer, so a `storage` binding is emitted
+ *  as a data texture there, but {@link reflect} describes the module as authored and reports
+ *  its fields under std430 in `Reflection.storage`.
+ *
+ *  A `mat2` field under `'std140'` throws: WGSL's uniform rule gives a `mat2` a column stride
+ *  of 8 bytes while GLSL std140 gives it 16, and this engine reports one number for both
+ *  backends. Declare the two columns as `vec2` fields instead.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -167,14 +169,11 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
   return s
 }
 
-/** One struct field's recovered byte layout — name, DSL type key, and its `offset`/`align`/
- *  `size` under whichever `LayoutKind` the enclosing `StructLayout` was computed with, in
- *  BYTES. A CPU packer that writes `Float32Array` slots divides by 4 itself and asserts the
- *  remainder is zero first — `uniformFieldSlots` (rhi-webgpu/reflection-to-webgpu.ts:99-112)
- *  throws on a non-f32-aligned offset rather than silently truncating it. `UniformBlock`
- *  (engine/src/render/uniform-block.ts) is the canonical consumer: it turns an array of these
- *  into typed, per-field pack/write functions so a struct's byte offsets never get hand-copied
- *  into a renderer again.
+/** One struct field's byte layout: its `name`, its DSL type key (the string {@link typeKey}
+ *  returns), and its `offset`, `align` and `size` in bytes under the {@link LayoutKind} the
+ *  enclosing {@link StructLayout} was computed with. A packer that writes `Float32Array`
+ *  slots divides `offset` by 4; every type this engine lays out is at least 4-byte aligned,
+ *  so the division is exact.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -185,12 +184,12 @@ export interface FieldLayout {
   readonly align: number
   readonly size: number
 }
-/** A struct's complete recovered byte layout: total `size`/`align` plus one `FieldLayout` per
- *  field, in declaration order. Produced by `wgslLayout(struct, kind)` for a standalone struct
- *  handle, and by `reflect(module).uniforms` / `.storage` for every struct actually bound in a
- *  module (std140 for `uniform`, std430 for `storage` — see `LayoutKind`). `size` is already
- *  rounded up to `align` (the struct's own base alignment, itself rounded to 16 under std140),
- *  so it is the correct stride for an ARRAY of this struct, not just one instance's byte count.
+/** A struct's complete byte layout: its total `size` and `align` plus one {@link FieldLayout}
+ *  per field, in declaration order. {@link wgslLayout} produces one for a standalone struct;
+ *  {@link reflect} produces one for every struct bound in a module, under std140 for a
+ *  `uniform` binding and std430 for a `storage` binding (see {@link LayoutKind}). `size` is
+ *  already rounded up to `align`, which under std140 is itself rounded to 16, so it is also
+ *  the element stride of an array of this struct.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -201,9 +200,33 @@ export interface StructLayout {
   readonly fields: readonly FieldLayout[]
 }
 
-/** Compute the std140 (uniform) / std430 (storage) byte layout of a struct: per-field
- *  offset/align/size + the struct's total size + alignment. Std140 rounds the STRUCT
- *  and ARRAY base alignment up to 16 (uniform rule); std430 uses natural alignment. */
+/** Compute the byte layout of one struct under a {@link LayoutKind}: each field's offset,
+ *  alignment and size, plus the struct's total size and alignment. Under `'std140'` the
+ *  struct's and every nested array's base alignment rounds up to 16; under `'std430'` natural
+ *  alignment applies.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @param struct - the struct to lay out.
+ *  @param layout - `'std140'` for a uniform buffer, `'std430'` for a storage buffer.
+ *  @param structs - the structs a nested struct-typed field may refer to, by name. Defaults
+ *    to a map holding only `struct` itself.
+ *  @returns the {@link StructLayout}.
+ *  @throws if a field's type has no byte layout (a texture or a sampler), if a nested struct
+ *    is not in `structs`, or if a `mat2` field is laid out under `'std140'` (see
+ *    {@link LayoutKind}).
+ *
+ *  @example
+ *  ```ts
+ *  import { wgslLayout, vec3fT, f32T } from '@xgis/shader-dsl'
+ *
+ *  const light = { name: 'Light', fields: [{ name: 'pos', type: vec3fT }, { name: 'radius', type: f32T }] }
+ *  wgslLayout(light, 'std140')
+ *  // { name: 'Light', size: 16, align: 16, fields: [
+ *  //   { name: 'pos', type: 'vec3<f32>', offset: 0, align: 16, size: 12 },
+ *  //   { name: 'radius', type: 'f32', offset: 12, align: 4, size: 4 } ] }
+ *  ```
+ */
 export function wgslLayout(
   struct: StructDecl,
   layout: LayoutKind,
@@ -231,43 +254,34 @@ function structLayout(
   return { name: struct.name, size: roundUp(cursor, structAlign), align: structAlign, fields }
 }
 
-/** What a bind entry actually IS at the host API, independent of which WGSL address space
- *  (`uniform`/`storage`) or DSL type (`texture`/`sampler`) declared it — the field a host
- *  switches on to pick its GPU resource type rather than re-deriving it from `space` plus the
- *  binding's raw type. `'uniform-buffer'` and `'storage-buffer'` both back a `GPUBuffer`; the
- *  entry's `access` (present only on the latter) further splits it into read-only vs
- *  read-write storage (`bufferTypeFor`, rhi-webgpu/reflection-to-webgpu.ts:34-38).
- *  `'texture'`/`'sampler'` are the two kinds a buffer-only adapter must reject rather than
- *  silently mis-bind — `reflectionGroupToBindGroupLayoutEntries` throws on either
- *  (rhi-webgpu/reflection-to-webgpu.ts:61-65). On the GLSL ES 3.00 backend a `'sampler'` entry
- *  FUSES into its paired `'texture'` entry's combined `sampler2D` uniform and gets no emitted
- *  declaration of its own (glsl.ts:1461) — it still appears in `bindGroups` (reflection reports
- *  structure, not what GLSL chose to elide), just with nothing separate for a host to bind.
+/** What a bind entry is at the host API, independent of the WGSL address space (`uniform`,
+ *  `storage`) or type (`texture`, `sampler`) that declared it. A host switches on this field
+ *  to pick its GPU resource type. `'uniform-buffer'` and `'storage-buffer'` are both backed by
+ *  a buffer; the entry's `access`, present only on a storage buffer, further splits it into
+ *  read-only and read-write. `'texture'` and `'sampler'` are the two kinds a buffer-only host
+ *  must reject. On the GLSL ES 3.00 backend a `'sampler'` entry is folded into its paired
+ *  `'texture'` entry's combined `sampler2D` uniform and gets no declaration of its own; it
+ *  still appears in `bindGroups`, since reflection reports the module's structure, with
+ *  nothing separate for a host to bind.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
 export type ResourceKind = 'uniform-buffer' | 'storage-buffer' | 'texture' | 'sampler'
-/** One resource slot in a reflected bind group — the recovered shape of a single WGSL
- *  `@group(G) @binding(B) var<space> name: T` declaration (or, on the GLSL ES 3.00 backend, its
- *  emitted sampler uniform or std140 UBO block). `name` is the DECLARATION's own identifier —
- *  what shader code addresses through (`field_view.foo`) — which is NOT what a GLSL host binds
- *  by for a struct binding: GLSL's block syntax is `layout(std140) uniform <StructName> { … }
- *  <name>;`, so `getUniformBlockIndex` needs `structName` (the struct's own type name, e.g.
- *  `'FieldView'` for a binding named `field_view` — map/src/shaders/dsl/field-lattice.ts:111-113),
- *  not `name`. Get this wrong and the block does not fail to link — it silently lands at GL's
- *  default binding point 0, aliasing whatever else is there (the real incident:
- *  arrow-retained-advected-material.ts:48-53).
+/** One resource slot in a reflected bind group: the shape of a single WGSL
+ *  `@group(G) @binding(B) var<space> name: T` declaration, or of the sampler uniform or std140
+ *  block the GLSL ES 3.00 backend emits for it. `name` is the declaration's own identifier,
+ *  the one shader code reads through (`field_view.foo`). A GLSL host binding a struct binding
+ *  needs `structName` instead: GLSL's block syntax is
+ *  `layout(std140) uniform <StructName> { … } <name>;`, so `getUniformBlockIndex` takes the
+ *  struct's type name (`'FieldView'` for a binding named `field_view`). Passing `name` there
+ *  does not fail to link; the block silently lands at GL's default binding point 0 and aliases
+ *  whatever else is bound there.
  *
- *  `group`/`binding` are metadata ONLY on the GLSL backend: the emitted GLSL source carries no
- *  binding qualifier at all (GLSL ES 3.00 has none to write — glsl.ts never emits
- *  `layout(binding=…)`), so a GLSL host resolves every entry by NAME at link time and then
- *  assigns the binding point / texture unit itself from these numbers. WGSL's `group` has no
- *  GLSL counterpart to carry it forward — a host that wants two groups' binding-0 entries not to
- *  collide in GLSL's one flat namespace has to fold `group` into the point itself
- *  (rhi-webgl2.ts:1277-1283 does `group * 8 + binding` for UBOs, but a raw `binding` for sampler
- *  texture units at rhi-webgl2.ts:1316 — the two kinds are NOT namespaced the same way). This
- *  stays latent in practice: every shader module in this repo declares only group 0
- *  (rhi-webgpu/reflection-to-webgpu.ts:74-76).
+ *  `group` and `binding` are metadata only on the GLSL backend. The emitted GLSL carries no
+ *  binding qualifier, so a GLSL host resolves every entry by name at link time and assigns the
+ *  binding point or texture unit itself from these numbers. GLSL has one flat namespace and
+ *  no group, so a host whose modules declare more than one group folds `group` into the point
+ *  it assigns (`group * 8 + binding`, say) so that two groups' binding 0 do not collide.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -278,74 +292,63 @@ export interface BindEntry {
   readonly space: AddressSpace
   readonly access?: 'read' | 'read_write'
   readonly resourceKind: ResourceKind
-  /** WHO owns the resource (#1710) — `'module'` when we declare it and the host builds its
-   *  bind group from this reflection, `'host'` when the surrounding renderer owns it and
-   *  ITS layout is the authority. ALWAYS set, same contract as `resourceKind`: an
-   *  only-when-interesting field would make `undefined` mean both "module-owned" and "an
-   *  older reflection that predates the distinction". `bindGroups` stays the COMPLETE set
-   *  either way — a host still has to know about a binding it owns, it just must not
-   *  allocate for it. */
+  /** Who owns the resource. `'module'` when the module declares it and the host builds its
+   *  bind group from this reflection; `'host'` when the surrounding host owns it and the
+   *  host's own layout is the authority. Always set. `bindGroups` lists host-owned bindings
+   *  too: a host still has to know about a binding it owns, it just must not allocate for
+   *  it. */
   readonly owner: 'module' | 'host'
-  /** For a HOST-owned STRUCT binding ONLY (#1710): how GLSL ES 3.00 spells it. Absent
-   *  everywhere else, because everywhere else there is no choice to report — a module-owned
-   *  block is always std140, and WGSL has one spelling regardless.
-   *
-   *  A consumer needs this to know how to BIND: `'std140-block'` means bind a UBO to the
-   *  block index, `'loose'` means the members were flattened into the default block and are
-   *  set individually with `glUniform*` under their FIELD names (the layout in `uniforms`
-   *  still lists them, in declaration order). */
+  /** How GLSL ES 3.00 spells a host-owned struct binding. Present only when `owner` is
+   *  `'host'` and the binding's type is a struct: a module-owned block is always a std140
+   *  block, and WGSL has one spelling regardless. `'std140-block'` means bind a uniform
+   *  buffer to the block index; `'loose'` means the members were flattened into the default
+   *  uniform block and are set individually with `glUniform*` under their field names (the
+   *  layout in `uniforms` still lists them, in declaration order). */
   readonly glslSpelling?: 'std140-block' | 'loose'
+  /** The struct's type name, for a binding whose type is a struct; absent on every other
+   *  kind. It is the name a GLSL host passes to `getUniformBlockIndex`. */
   readonly structName?: string
-  /** For a `texture` entry ONLY (#1651): which texture dim the shader declared, so a
-   *  host can create/validate the matching view (`2d-array` needs an array view and
-   *  a layer-aware bind, `2d-ms` a multisampled one). ALWAYS set on a texture entry —
-   *  `resourceKind: 'texture'` alone under-describes the binding, and an
-   *  only-when-interesting field would make `undefined` mean two different things. */
+  /** The texture dimension the shader declared, so a host can create or validate the
+   *  matching view: `'2d-array'` needs an array view and a layer-aware bind, `'2d-ms'` a
+   *  multisampled one. Always set on a `texture` entry, absent on every other kind. */
   readonly textureDim?: '2d' | '2d-ms' | '2d-array'
-  /** For a `texture` entry ONLY (#1703): the texel ELEMENT the shader declared. Same
-   *  contract as `textureDim` — ALWAYS set on a texture entry, never elsewhere.
+  /** The texel element the shader declared. Always set on a `texture` entry, absent on
+   *  every other kind.
    *
-   *  A host needs BOTH axes to build a valid binding: dim alone does not say whether
-   *  the view is float or integer, and the two are not interchangeable — WebGPU's
-   *  `GPUTextureBindingLayout.sampleType` must be `'uint'` / `'sint'` for `u32` / `i32`
-   *  (`'float'` for f32), and WebGL2 must back it with an INTEGER internal format
-   *  (R32UI / R32I). Reported as the DSL's own element rather than pre-translated to
-   *  either target's vocabulary, because reflection takes a module and never a backend.
+   *  A host needs both `textureDim` and `textureElem` to build a valid binding, since the
+   *  dimension alone does not say whether the view is float or integer. WebGPU's
+   *  `GPUTextureBindingLayout.sampleType` must be `'uint'` or `'sint'` for a `u32` or `i32`
+   *  texture and `'float'` for `f32`; WebGL2 must back an integer texture with an integer
+   *  internal format (`R32UI`, `R32I`). The value is the DSL's own element, untranslated,
+   *  because reflection takes a module and never a backend.
    *
-   *  An integer texture is also UNFILTERABLE, so a host must not pair one with a
-   *  filtering sampler — there is no `sampler` binding to pair it with in a
-   *  correctly-authored module, since `textureSample` rejects those keys at tsc. */
+   *  An integer texture is unfilterable, so a host must not pair one with a filtering
+   *  sampler. A module that type-checks never asks it to: {@link textureSample} rejects an
+   *  integer texture at compile time. */
   readonly textureElem?: TextureElem
-  /** WHICH STAGES reference this binding (#1906) — from the same reachability walk the
-   *  per-stage GLSL emit uses to decide which unit declares which uniform
-   *  (`passes/stage-bindings.ts`, shared with `stageScope`), so a host's stage mask can
-   *  never describe a narrower program than the emit produces. Ordered
-   *  vertex → fragment → compute.
+  /** The stages that reference this binding, in the order vertex, fragment, compute. It
+   *  comes from the same reachability walk the per-stage GLSL emit uses to decide which
+   *  shader declares which uniform, so a host's stage mask can never describe a narrower
+   *  program than the emit produces. It is `GPUBindGroupLayoutEntry.visibility` before it
+   *  becomes a bitmask, and the same fact a WebGL2 host uses to assign uniform-block binding
+   *  points and texture units per stage. It is a list so that compute is expressible
+   *  alongside vertex and fragment.
    *
-   *  This is `GPUBindGroupLayoutEntry.visibility` before it is a bitmask, and the same
-   *  fact a WebGL2 host needs to assign UBO binding points / texture units per stage.
-   *  Reported as a LIST rather than a `'vertex' | 'fragment' | 'both'` union because
-   *  `both` does not extend to compute and a mask is what both target APIs want.
+   *  Always set, and it can be empty. `bindGroups` lists every declared binding, so a binding
+   *  no entry point reaches (declared and never read, or in a module with no entry point at
+   *  all) reports `[]`. A host must not invent a visibility for it.
    *
-   *  ALWAYS set, same contract as `resourceKind` — but it CAN BE EMPTY, and empty is a
-   *  fact rather than a gap: `bindGroups` stays the complete set of DECLARED bindings, so
-   *  a binding no entry reaches (declared and never read, or a module with no entry at
-   *  all) reports `[]`. A host must not synthesize a visibility for one — there is no
-   *  stage that reads it.
-   *
-   *  For a HOST-owned binding (`owner: 'host'`) this is the MODULE'S VIEW and therefore a
-   *  LOWER BOUND, not the authority: the surrounding renderer's real layout may expose the
-   *  resource to stages this module's entries never reach. Merge it into the host layout;
-   *  do not narrow the host layout to it. */
+   *  For a host-owned binding (`owner: 'host'`) this is the module's view and therefore a
+   *  lower bound: the host's real layout may expose the resource to stages this module's
+   *  entries never reach. Merge it into the host layout; do not narrow the host layout to
+   *  it. */
   readonly stages: readonly ('vertex' | 'fragment' | 'compute')[]
 }
-/** One WGSL `@group(N)`'s worth of bind entries, sorted by `binding`. `Reflection.bindGroups`
- *  is the complete list across every group the module declares, sorted by `group` — but every
- *  shader module in this repo declares only group 0 today
- *  (`reflectionToBindGroupLayoutEntries`'s group-0 convenience,
- *  rhi-webgpu/reflection-to-webgpu.ts:74-76), so a consumer reaching for `bindGroups[1]` is
- *  reaching for something nothing here yet produces. GLSL ES 3.00 has no notion of a group at
- *  all — see `BindEntry` for how a GLSL host has to fold it back in.
+/** The bind entries of one WGSL `@group(N)`, sorted by `binding`. `Reflection.bindGroups`
+ *  holds one of these per group the module declares, sorted by `group`; a module that
+ *  declares only `@group(0)` yields a single-element list. GLSL ES 3.00 has no notion of a
+ *  group; see {@link BindEntry} for how a GLSL host folds `group` into the binding point it
+ *  assigns.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -353,12 +356,12 @@ export interface BindGroup {
   readonly group: number
   readonly entries: readonly BindEntry[]
 }
-/** One `@location`-attributed parameter of the module's `@vertex` entry point, in the order the
- *  entry function declares its params. `offset` comes from walking those params in declaration
- *  order and rounding each one up to its OWN type's std430 alignment (reflect.ts:516-527) — a
- *  tightly-packed-per-alignment layout, not a hand-chosen one, so reordering the entry's params
- *  changes every later attribute's `offset`. `type` is the DSL type key (`typeKey`), the same
- *  spelling `StructLayout.fields[].type` uses.
+/** One `@location`-attributed parameter of the module's `@vertex` entry point. Attributes
+ *  are listed in the order the entry function declares its parameters, and `offset` comes
+ *  from walking them in that order and rounding each one up to its own type's std430
+ *  alignment. The layout follows the parameter order, so reordering the entry's parameters
+ *  changes every later attribute's `offset`. `type` is the DSL type key (the string
+ *  {@link typeKey} returns), the same spelling `StructLayout.fields[].type` uses.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -368,12 +371,11 @@ export interface VertexAttr {
   readonly type: string
   readonly offset: number
 }
-/** The reflected vertex-buffer layout for a module's `@vertex` entry: every `@location`
- *  parameter plus the total interleaved `arrayStride` those parameters pack into. `reflect()`
- *  captures only the FIRST `@vertex` entry it finds walking `module.funcs` (reflect.ts:513's
- *  `!vertex` guard) — a module authoring more than one vertex entry point gets a `VertexLayout`
- *  for whichever is declared first, and nothing for the rest. `Reflection.vertex` is
- *  `undefined`, not an empty object, when the module has no `@location` vertex params at all.
+/** The vertex-buffer layout for a module's `@vertex` entry: every `@location` parameter and
+ *  the interleaved `arrayStride` those parameters pack into. {@link reflect} describes the
+ *  first `@vertex` entry it finds in `module.funcs`; a module with more than one vertex entry
+ *  point gets a `VertexLayout` for the one declared first. `Reflection.vertex` is `undefined`
+ *  when the module has no `@location` vertex parameters.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -381,44 +383,43 @@ export interface VertexLayout {
   readonly attributes: readonly VertexAttr[]
   readonly arrayStride: number
 }
-/** One field of an entry point's stage INTERFACE (#1905) — a `@location(n)` varying /
- *  vertex attribute / fragment draw buffer, or a `@builtin(name)` slot. Flattened out of a
- *  struct param or struct return where the entry spelled it that way; see {@link EntryIo}.
+/** One field of an entry point's stage interface: a `@location(n)` varying, vertex attribute
+ *  or fragment draw buffer, or a `@builtin(name)` slot. Where the entry spelled it as a member
+ *  of a struct parameter or struct return, the field is reported flattened out of that struct;
+ *  see {@link EntryIo}.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
 export interface EntryIoField {
-  /** The field's own identifier — a param's name, a flattened struct field's name, or
-   *  `_ret` for a bare non-struct return (the name the GLSL backend gives that output). */
+  /** The field's own identifier: a parameter's name, a flattened struct field's name, or
+   *  `_ret` for a bare non-struct return value (the name the GLSL backend gives that
+   *  output). */
   readonly name: string
-  /** The DSL type key (`typeKey`), the same spelling `StructLayout.fields[].type` and
-   *  `VertexAttr.type` use. */
+  /** The DSL type key (the string {@link typeKey} returns), the same spelling
+   *  `StructLayout.fields[].type` and `VertexAttr.type` use. */
   readonly type: string
-  /** The declared `@location(n)`. Absent on a `@builtin` field and on an unattributed
-   *  one — the two are distinguished by whether `builtin` is set. */
+  /** The declared `@location(n)`. Absent on a `@builtin` field and on an unattributed one;
+   *  the two are told apart by whether `builtin` is set. */
   readonly location?: number
-  /** The declared `@builtin(name)`, in WGSL's own vocabulary (`position`,
-   *  `vertex_index`, …). Builtins are REPORTED, not filtered: a consumer excluding them
-   *  (varying parity does — they are not varyings) needs to see that `position` exists to
-   *  say WHY it was excluded, rather than have the field silently not exist. */
+  /** The declared `@builtin(name)`, in WGSL's own vocabulary (`position`, `vertex_index`,
+   *  …). Builtins are reported alongside locations. A consumer that compares varyings and
+   *  leaves builtins out (they are not varyings) filters on this field, and can then report
+   *  that `position` was excluded because it is a builtin. */
   readonly builtin?: string
 }
-/** One entry point's `@location`/`@builtin` INTERFACE (#1905) — the shape a host validates
- *  a vertex/fragment pair against, builds a `GPUVertexState` from, or diffs as a pipeline
- *  contract. Both sides are FLATTENED: a struct param or a struct return contributes its
- *  fields, not itself, because WGSL lets an entry spell the same varyings either way and a
- *  consumer comparing two stages must not care which form each side used (every fragment
- *  entry in this repo takes its varyings as one `ioStruct` param — un-flattened, `inputs`
- *  would be a single struct-typed row with no location, and a varying-parity check over it
- *  would pass by having nothing to check). A `void` return contributes nothing.
+/** One entry point's `@location` and `@builtin` interface: the shape a host validates a
+ *  vertex/fragment pair against, builds a `GPUVertexState` from, or diffs as a pipeline
+ *  contract. Both sides are flattened. A struct parameter or struct return contributes its
+ *  fields, one row each with its own location, because WGSL lets an entry spell the same
+ *  varyings either as loose parameters or as one struct, and a consumer comparing two stages
+ *  must not care which form each side used. A `void` return contributes nothing.
  *
- *  `outputs` being a LIST is also what makes multi-attachment fragment output expressible
- *  (`@location(0)` colour + `@location(1)` entity id), which `EntryInfo.output`'s single
- *  type key cannot represent.
+ *  `outputs` is a list, so a fragment entry that writes several attachments (`@location(0)`
+ *  a colour and `@location(1)` an entity id) is expressible here, where `EntryInfo.output`'s
+ *  single type key cannot represent it.
  *
- *  Read through the same `ioAttrOf`/`retIoAttrOf` the GLSL backend reads its `in`/`out`
- *  declarations through (`ir/entry-io.ts`), so the published interface and the emitted
- *  one cannot disagree.
+ *  The fields are read through the same attribute readers the GLSL backend uses for its `in`
+ *  and `out` declarations, so the published interface and the emitted one cannot disagree.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -426,13 +427,12 @@ export interface EntryIo {
   readonly inputs: readonly EntryIoField[]
   readonly outputs: readonly EntryIoField[]
 }
-/** One `@vertex`/`@fragment`/`@compute` entry point: its stage, parameter/return types as DSL
- *  type keys (not full `ShaderType`s), and — for `@compute` only — its workgroup size, defaulted
- *  to 64 when the entry declares none (reflect.ts:509's `workgroupSizeOf(f) ?? 64`, matching the
- *  WGSL backend's own default). This is the shape `semanticDiff` fingerprints a module's public
- *  interface with (`entry <name> stage=<s> wg=<n> in=[…] out=<t>`, core/semantic-diff.ts:181-186)
- *  — two modules whose entries differ here have a different pipeline contract even if every
- *  other byte of emitted source matches.
+/** One `@vertex`, `@fragment` or `@compute` entry point: its stage, its parameter and return
+ *  types as DSL type keys (the strings {@link typeKey} returns), and, for a `@compute` entry
+ *  only, its workgroup size, which defaults to 64 when the entry declares none, matching the
+ *  WGSL backend's own default. {@link semanticDiff} fingerprints a module's public interface
+ *  with this shape: two modules whose entries differ here have a different pipeline contract
+ *  even if every other byte of emitted source matches.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -442,43 +442,40 @@ export interface EntryInfo {
   readonly workgroupSize?: number
   readonly inputs: readonly string[]
   readonly output: string
-  /** The PORTABLE KERNEL TIER declaration (#1812), present only when the entry declares it —
-   *  never `false`. This is the HOST-CONTRACT signal: on a backend with no compute stage the
-   *  module emits as fragment-GPGPU and must be dispatched as a fullscreen DRAW into an R32UI
-   *  target rather than as a compute dispatch (`rhi-webgl2/src/compute-webgl2.ts` absorbs
-   *  exactly that). Read it to decide which dispatch shape a kernel needs; its absence means
-   *  the kernel is WebGPU-only. */
+  /** Present, as `true`, when the entry is declared a portable kernel; absent otherwise,
+   *  never `false`. It tells a host which dispatch shape the kernel needs: on a backend with
+   *  no compute stage a portable kernel emits as fragment-shader GPGPU and is dispatched as
+   *  a fullscreen draw into an `R32UI` target instead of a compute dispatch. An entry
+   *  without it runs on WebGPU only. */
   readonly portable?: true
-  /** The entry's location/builtin INTERFACE (#1905). `inputs`/`output` above stay exactly
-   *  as they were — type keys, which is what `semanticDiff` fingerprints with — and this
-   *  is the structured view beside them: a host validating a stage pair needs the
-   *  `@location` numbers, and re-deriving them from `ModuleDecl` meant regex-parsing WGSL
-   *  attribute syntax on top of a package whose premise is structured IR. Always present.
-   *  See {@link EntryIo} for how struct params/returns flatten. */
+  /** The entry's location and builtin interface, in structured form. `inputs` and `output`
+   *  are type keys, which is what {@link semanticDiff} fingerprints with; `io` is the view
+   *  beside them that a host validating a stage pair reads for the `@location` numbers.
+   *  Always present. See {@link EntryIo} for how struct parameters and returns flatten. */
   readonly io: EntryIo
 }
-/** A pipeline SPECIALIZATION CONSTANT (#923) the host must supply per pipeline
- *  variant. Both backends' host shapes derive from this: the WGSL `constants: {}`
- *  dict is `{ [name]: value }` (default when the host injects nothing), and the GLSL
- *  `#define` header is one `#define <name> <value>` line per entry — both keyed by
- *  `name`, defaulting to `default`. */
+/** A pipeline specialization constant (a WGSL `override`) the host supplies when it creates
+ *  a pipeline. Both backends' host-side shapes derive from it: the WGSL `constants`
+ *  dictionary is `{ [name]: value }`, and the GLSL `#define` header is one
+ *  `#define <name> <value>` line per entry. Both are keyed by `name` and fall back to
+ *  `default` when the host supplies nothing.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export interface OverrideInfo {
   readonly name: string
   readonly type: string
   readonly default: number | boolean
 }
-/** The complete target-neutral pipeline metadata `reflect(module)` recovers from a module's IR:
- *  bind-group layout (`bindGroups`), every bound struct's byte layout (`uniforms`/`storage`),
- *  the vertex-attribute layout if any (`vertex`), every entry point's signature (`entries`),
- *  specialization constants (`overrides`), the capabilities a host must activate before pipeline
- *  creation (`requiredFeatures`), and host-provided externs the module expects (`requires`) —
- *  see each field's own doc for its shape. This is the object that replaced hand-derived
- *  bind-group layouts and hand-copied byte offsets across the renderer: every
- *  `map/src/render/*-uniform-slots.ts` file, `BindGroupRegistry`, and `point-renderer.ts`'s
- *  bind-group-layout builder source their numbers from a `reflect()` call on the SAME module the
- *  shader text is emitted from, instead of a second hand-maintained table that can drift from it
- *  (the motivating bug: a `viewport` field at byte 20 in the shader and byte 24 in the hand
- *  packer — point-renderer.ts:52-54).
+/** The target-neutral pipeline metadata {@link reflect} recovers from a module: bind-group
+ *  layout (`bindGroups`), every bound struct's byte layout (`uniforms`, `storage`), the
+ *  vertex-attribute layout if any (`vertex`), every entry point's signature (`entries`),
+ *  specialization constants (`overrides`), the capabilities a host must activate before
+ *  pipeline creation (`requiredFeatures`), and the host-provided globals the module expects
+ *  (`requires`). Each field's own doc gives its shape. A host that takes its bind-group
+ *  layouts and byte offsets from a `reflect()` call on the same module it emits shader text
+ *  from keeps one table, so a struct field cannot sit at byte 20 in the shader and at byte 24
+ *  in the CPU packer.
  *
  *  Exported from `@xgis/shader-dsl`.
  */
@@ -488,54 +485,59 @@ export interface Reflection {
   readonly uniforms: readonly StructLayout[]
   /** std430 storage-buffer struct layouts. */
   readonly storage: readonly StructLayout[]
-  /** Vertex attributes from the @vertex entry's @location params. Offsets are
-   *  std430-ALIGNED (each field rounded up to its type's alignment — see the
-   *  roundUp in the vertex branch), not tightly packed (#763 H3); consumers take
-   *  offset+stride from here, verified against 4 renderers. */
+  /** Vertex attributes from the `@vertex` entry's `@location` parameters. Offsets are
+   *  std430-aligned, each field rounded up to its type's alignment, so a host reads `offset`
+   *  and `arrayStride` from here instead of assuming a tightly packed buffer. */
   readonly vertex?: VertexLayout
   readonly entries: readonly EntryInfo[]
-  /** Pipeline specialization constants (#923) — names + types + defaults the host
-   *  passes at pipeline creation (WGSL `constants` / GLSL `#define` header). Always
-   *  present; empty for a module that declares no overrides. */
+  /** Pipeline specialization constants: the names, types and defaults the host passes at
+   *  pipeline creation (WGSL `constants`, or the GLSL `#define` header). Always present;
+   *  empty for a module that declares no overrides. */
   readonly overrides: readonly OverrideInfo[]
-  /** Every capability this module's emit requires (#1670) — the DERIVED resource caps
-   *  (a storage binding ⇒ `storageBuffer`, a `@compute` entry ⇒ `compute`, an MSAA
-   *  texture load ⇒ `msaaTextureLoad`) plus everything the module declared in
-   *  `enables`. Sorted, deduped. Always present; empty for a module that needs nothing.
+  /** Every capability this module's emit requires: the ones derived from the module's shape
+   *  (a storage binding needs `storageBuffer`, a `@compute` entry needs `compute`, a
+   *  multisampled texture load needs `msaaTextureLoad`) plus everything the module declared
+   *  in `enables`. Sorted and deduplicated. Always present; empty for a module that needs
+   *  nothing.
    *
-   *  This is what a host must have ACTIVE before it creates a pipeline for this module.
-   *  The ids are NEUTRAL (#1650) because reflection is target-neutral — it takes a
-   *  module, never a backend — so translate each through the target backend's
-   *  `capProfile` with `hostFeaturesFor`, THE host-activation lookup (core/backend.ts):
+   *  This is what a host must have active before it creates a pipeline for the module. The
+   *  ids are neutral, because reflection takes a module and never a backend, so translate
+   *  them for one target with {@link hostFeaturesFor}:
    *
    *  ```ts
    *  for (const ext of hostFeaturesFor(glslEs300Backend, reflect(m).requiredFeatures)) {
    *    if (!gl.getExtension(ext)) throw new Error(`WebGL2 lacks ${ext}`)
    *  }
-   *  // WebGPU, at BOOT (requiredFeatures are fixed at requestDevice — pipeline time is
-   *  // too late): requestDevice({
+   *  // WebGPU fixes its features at requestDevice, so do this at boot, before any pipeline:
+   *  // requestDevice({
    *  //   requiredFeatures: hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures) })
    *  ```
    *
-   *  Almost every cap the target has NO row for is unreachable here in a usable pipeline —
-   *  emit already failed closed at assertCaps naming it (SD0030). The exception is
-   *  `storageBuffer` on GLSL: a storage module is REWRITTEN to a data texture before the
-   *  gate, so it emits fine while reflection of the AUTHORED module still reports the cap.
-   *  A host loop is unharmed either way — `hostFeaturesFor` skips every cap whose row (or
-   *  whose row's `hostFeature`) is absent. A row's `directive` is likewise not the host's
-   *  business: it is already in the emitted source. */
+   *  A capability the target backend cannot provide at all normally never reaches this loop
+   *  in a usable pipeline, because emit for that backend already throws
+   *  {@link UnsupportedFeatureError} (`SD0030`) naming it. The exception is `storageBuffer`
+   *  on GLSL ES 3.00: a `storage` binding is emitted as a data texture there, so the module
+   *  emits fine while reflection of the module as authored still reports the capability.
+   *  `hostFeaturesFor` skips every capability the backend has no host feature for, so the
+   *  loop above is correct either way. */
   readonly requiredFeatures: readonly Capability[]
-  /** HOST-PROVIDED symbols this module references but does not declare (#1713) — the
-   *  `externVar` declarators, reported so a composer can check them against what the
+  /** The host-provided globals this module references but does not declare: one entry per
+   *  {@link externVar} declarator, reported so a composer can check them against what the
    *  host's prelude actually supplies. Always present; empty for a module that expects
-   *  nothing from its host. Its function twin, `externFn`, has no declaration to report;
-   *  a fragment's `requires` (#1711) covers those by walking call sites. */
+   *  nothing from its host. Host-provided functions ({@link externFn}) have no declaration to
+   *  report here; the `requires` list of an emitted fragment ({@link emitFragment}) covers
+   *  those by walking call sites. */
   readonly requires: readonly ExternRequirement[]
 }
 
-/** One host-provided global a module expects (#1713). `type` is the DSL type key, and
- *  `wgsl`/`glsl` are the per-target spellings the emit actually writes — the host binds by
- *  those, not by the logical `name`. */
+/** One host-provided global a module expects, declared with {@link externVar}. `type` is the
+ *  DSL type key (the string {@link typeKey} returns). `wgsl` and `glsl` are the per-target
+ *  spellings the emit writes, and the host provides the global under those; `name` is the
+ *  logical name the module uses. `stage`, when present, is the advisory stage the declaration
+ *  named.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export interface ExternRequirement {
   readonly name: string
   readonly type: string
@@ -571,11 +573,13 @@ const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
 
 /** Options for {@link reflect}. */
 export interface ReflectOptions {
-  /** Which df64 EFT registry the emit will use (#1724). It decides whether the `_fp64`
-   *  anti-fast-math guard binding exists at all: the `'float'` bodies (the default) read it,
-   *  the `'integer'` ones do not. Pass the same value the emit will get, or a host building
-   *  a bind group from this reflection is describing a different program than the one it
-   *  will run. */
+  /** The f64 emulation flavour the emit will use, the same {@link Fp64Flavor} the backend is
+   *  given. It decides whether the module binds the `_fp64` guard, a 1x1 texture the
+   *  emulated-double helpers read so that a fast-math compiler cannot reassociate their
+   *  arithmetic: the `'float'` helpers (the default) read it and the `'integer'` helpers do
+   *  not. Pass the same value the emit will get; a host that builds a bind group from a
+   *  reflection computed with a different flavour is describing a different program than the
+   *  one it runs. */
   readonly fp64Flavor?: Fp64Flavor
 }
 
@@ -627,10 +631,10 @@ function bindingsIncludingInjected(
  *  The result carries:
  *
  *  - `bindGroups`: every declared binding, sorted by group then binding, each with its name,
- *    address space, access mode, resource kind, owner, and the stages that reference it. This
- *    includes the bindings a lowering injects as well as the ones the author declared, the
- *    fp64 guard texture among them, because a host builds its bind group from this list and a
- *    binding missing here is a binding never bound.
+ *    address space, access mode, resource kind, owner, and the stages that reference it. It
+ *    also includes the bindings the f64 emulation adds on the author's behalf, the `_fp64`
+ *    guard texture among them (see {@link ReflectOptions}), because a host builds its bind
+ *    group from this list and a binding missing here is a binding never bound.
  *  - `uniforms` and `storage`: std140 and std430 struct layouts, per field offset, align and
  *    size plus the struct's own size and alignment. This is where a byte offset comes from,
  *    so nothing counts them by hand.
@@ -640,9 +644,9 @@ function bindingsIncludingInjected(
  *    compute entry, its input and output types, its structured location and builtin interface,
  *    and `portable` when the kernel declares that tier.
  *  - `requiredFeatures`: every capability the emit needs, sorted and deduplicated. It covers
- *    the caps derived from the module's shape (a storage binding, a compute entry, a
- *    multisampled texture load), the caps the module declared in `enables`, and the closure
- *    over implication, so a module declaring `float32Blend` also reports `floatRenderTarget`,
+ *    the capabilities derived from the module's shape (a storage binding, a compute entry, a
+ *    multisampled texture load), the capabilities the module declared in `enables`, and the
+ *    closure over implication, so a module declaring `float32Blend` also reports `floatRenderTarget`,
  *    since blending into a float target needs that target to be colour-renderable first. The
  *    ids are neutral, so translate them through {@link hostFeaturesFor} for one target.
  *  - `overrides`: each specialization constant's name, type and default, the values a host

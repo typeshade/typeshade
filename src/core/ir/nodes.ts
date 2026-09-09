@@ -9,51 +9,45 @@ import type { ShaderType } from './types.js'
 
 // ── Expression nodes ──
 
-/** The operator tag on `Expr.binop` — arithmetic (`+ - * /`), remainder (`%`), and
- *  bitwise (`& | ^ << >>`), spelled identically on WGSL/GLSL and interpreted
- *  identically by the CPU oracle (`scalarBin` in cpu-runtime.ts). `%` is TRUNC-mod on
- *  floats — native on WGSL, and spelled `a - b * trunc(a / b)` by the GLSL writer because
- *  GLSL ES 3.00's own `%` is integer-only — so it is NOT the portable floor modulo. Reach
- *  for {@link mod} whenever a negative operand is possible; it lowers to floor-mod on
- *  both targets and is what the `.mod()` Node method should not be confused for (that
- *  method emits this same trunc-mod `%`). Integer operands follow WGSL on the CPU tier —
- *  two's-complement wrap, truncating `/` with `x / 0 = x`, `x % 0 = 0` — and `<<`/`>>`
- *  are u32 logical shift unless the operand is `i32`, in which case `>>` is
- *  sign-preserving arithmetic shift — see `scalarBin`'s `NumKind` dispatch.
+/** The operator tag on `Expr.binop`: arithmetic (`+ - * /`), remainder (`%`) and
+ *  bitwise (`& | ^ << >>`). Each is spelled the same way in WGSL and GLSL and evaluated
+ *  the same way by the CPU backend. On floats `%` is a truncating remainder, so its sign
+ *  follows the dividend: WGSL's native `%` behaves this way, and the GLSL backend writes
+ *  `a - b * trunc(a / b)` because GLSL ES 3.00's own `%` is integer-only. When a negative
+ *  operand is possible and a floor modulo is wanted, use {@link mod}, which is floor-mod on
+ *  every target; the `.mod()` method on `Node` emits this truncating `%`. For integer
+ *  operands the CPU backend follows WGSL: two's-complement wrap, truncating `/` with
+ *  `x / 0 = x` and `x % 0 = 0`, and `<<`/`>>` as logical shifts on `u32`, with `>>` on
+ *  `i32` an arithmetic (sign-preserving) shift.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export type BinOp = '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>'
-/** The operator tag on `Expr.compare` — the six relational operators, always
- *  producing a `bool` (or `vecN<bool>` for a vector comparison; scalar-only
- *  comparisons on `Node` are enforced at authoring by `Node.cmp`, not by this
- *  type). Shared by `unroll.ts`'s static loop-bound analysis (`flipCmp`,
- *  `cmpHolds`) to reason about compile-time-provable loop trip counts, and by the
- *  WGSL/GLSL/CPU backends to spell or evaluate the comparison identically.
+/** The operator tag on `Expr.compare`: the six relational operators. A comparison
+ *  produces a `bool`, or a `vecN<bool>` when the operands are vectors. The WGSL, GLSL
+ *  and CPU backends spell or evaluate it identically.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
-/** The operator tag on `Expr.logical` — short-circuiting boolean `&&`/`||`, always
- *  `bool`-typed on both operands and the result. Kept as its own `Expr.op` rather
- *  than folded into `binop`/`compare` because WGSL and GLSL both give `&&`/`||`
- *  short-circuit evaluation semantics that a plain binary operator does not carry.
+/** The operator tag on `Expr.logical`: the short-circuiting boolean operators `&&` and
+ *  `||`. Both operands and the result are `bool`. It is a separate `Expr.op` from
+ *  `binop` because WGSL and GLSL give `&&` and `||` short-circuit evaluation, which a
+ *  plain binary operator does not have.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export type LogOp = '&&' | '||'
 
-/** Every expression shape the IR can hold — the closed set `Node`/`ReadonlyNode`
- *  (node.ts) build fluently and the three backends (WGSL, GLSL, the CPU oracle)
- *  walk to emit or evaluate. A discriminated union on `op`, never a class: no
- *  method lives on an `Expr`, so a pass can pattern-match exhaustively (tsc flags
- *  a missing `case` on every backend's switch) and structurally-share subtrees
- *  without an identity concern. Every variant carries its own `type: ShaderType` —
- *  the IR is fully typed at construction, so a backend never re-infers a type
- *  while emitting. Authors do not build these object literals by hand; go through
- *  `Node`'s fluent methods (`.add()`, `.mul()`, …) or the free functions in
- *  node.ts (`vec4()`, `mod()`, …), which fill in `type` correctly and validate
- *  the operands before this shape is ever constructed.
+/** Every expression shape the IR can hold: the closed set that {@link Node} and
+ *  {@link ReadonlyNode} build and that the WGSL, GLSL and CPU backends walk to emit or
+ *  evaluate. It is a discriminated union on `op` with no methods, so a pass can
+ *  pattern-match it exhaustively (tsc reports a missing `case` in a backend's switch) and
+ *  share subtrees freely. Every variant carries its own `type: ShaderType`: the IR is
+ *  fully typed when it is built, and a backend never re-infers a type while emitting. You
+ *  do not build these object literals by hand; the fluent methods on `Node` (`.add()`,
+ *  `.mul()`, …) and the free functions such as {@link vec4} and {@link mod} fill in
+ *  `type` and validate the operands before the shape is constructed.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -148,14 +142,13 @@ export type Expr =
 
 // ── Statement nodes ──
 
-/** Every statement shape the IR can hold — the ordered `readonly Stmt[]` that
- *  makes up a `FuncDecl.body`. A discriminated union on `s`, mirroring {@link Expr}'s
- *  design: no class, so a backend's emit switch is tsc-checked exhaustive, and a
- *  pass (e.g. match-lower.ts, unroll.ts) can rebuild a body by mapping over plain
- *  data. Authors do not build these object literals directly; `Builder`
- *  (builder.ts) — reached inside an `fn()` body as its second callback argument —
- *  pushes them one at a time (`b.let(...)`, `b.var(...)`, `b.if(...)`, `b.ret(...)`,
- *  …), so the body array is always assembled in source order.
+/** Every statement shape the IR can hold: the ordered `readonly Stmt[]` that makes up a
+ *  `FuncDecl.body`. Like {@link Expr}, it is a discriminated union (on `s`) with no class
+ *  behind it, so tsc checks a backend's emit switch for exhaustiveness and a pass can
+ *  rebuild a body by mapping over plain data. You do not build these object literals
+ *  directly; the {@link Builder} handed to an {@link fn} body as its second callback
+ *  argument pushes them one at a time (`b.let(...)`, `b.var(...)`, `b.if(...)`,
+ *  `b.ret(...)`, …), so a body is always assembled in source order.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -222,28 +215,30 @@ export type Stmt =
   | { readonly s: 'raw'; readonly wgsl: string; readonly glsl?: string }
   | { readonly s: 'raw'; readonly wgsl?: string; readonly glsl: string }
 
-/** The `raw` statement node (#1671) — the per-target verbatim-splice escape
- *  hatch. Named so the Backend contract can take the NODE (`rawStmt(s: RawStmt)`)
- *  and pick its own payload, keeping the shared emit walk target-blind.
- *  `Extract` unions BOTH raw members, so this is the whole at-least-one shape. */
+/** The `raw` statement node: a fragment of target source spliced verbatim into a
+ *  function body, spelled per target. It carries a `wgsl` side, a `glsl` side, or both,
+ *  and at least one is required. A {@link Backend} receives the whole node in its
+ *  `rawStmt` method and emits its own side; when that side is absent it throws `SD0030`,
+ *  so a one-sided raw statement means "this module does not build for that target" and
+ *  never emits the wrong text. The CPU backend throws on every raw statement, since raw
+ *  text has no CPU evaluation. Build one with {@link rawStmt}. */
 export type RawStmt = Extract<Stmt, { s: 'raw' }>
 
-/** The at-least-one authoring payload behind `rawStmt(payload)` — a raw with NO
- *  payload is unrepresentable (`rawStmt({})` does not compile). */
+/** The argument to {@link rawStmt}: the `wgsl` and `glsl` source text of a raw
+ *  statement. At least one side is required, so `rawStmt({})` does not compile. */
 export type RawPayload =
   | { readonly wgsl: string; readonly glsl?: string }
   | { readonly wgsl?: string; readonly glsl: string }
 
 // ── Module-level declarations ──
 
-/** A `ModuleDecl.consts` entry — a module-scope constant. Authored either as a
- *  plain object literal for the common dual-precision scalar case —
- *  `{ name: 'PI', type: f32T, wgslValue: 3.14159265, cpuValue: Math.PI }`
- *  (projections.ts) truncates on the GPU targets while the CPU oracle keeps full
- *  `Math.PI` precision, so the two stay within the codebase's documented f32/f64
- *  tolerance — or via {@link constExpr} for a vector/array/struct literal, which
- *  routes through `valueExpr` instead. See that field's doc for which form wins
- *  when both are present.
+/** A `ModuleDecl.consts` entry: a module-scope constant. For a scalar, write a plain
+ *  object literal with one value per precision, for example
+ *  `{ name: 'PI', type: f32T, wgslValue: 3.14159265, cpuValue: Math.PI }`: the WGSL and
+ *  GLSL backends emit `wgslValue`, and the CPU backend, which runs the module in double
+ *  precision, uses `cpuValue`. For a vector, array or struct constant use
+ *  {@link constExpr}, which fills `valueExpr` instead. When both forms are present,
+ *  `valueExpr` wins.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -253,48 +248,44 @@ export interface ConstDecl {
   /** Scalar value emitted by the WGSL/GLSL backends (the truncated shader
    *  constant). Used when `valueExpr` is absent; ignored otherwise. */
   readonly wgslValue: number
-  /** Scalar value used by the CPU backend (full-precision, matching the
-   *  mirror). Used when `valueExpr` is absent; ignored otherwise. */
+  /** Scalar value used by the CPU backend, at full double precision. Used when
+   *  `valueExpr` is absent; ignored otherwise. */
   readonly cpuValue: number
-  /** OPTIONAL general constant value as an IR literal expression — e.g.
-   *  `vec4<f32>(…)` colour, `array<vec4<f32>, N>(…)` palette, or a struct
-   *  literal. When present it SUPERSEDES `wgslValue`/`cpuValue` on every backend
-   *  (WGSL + GLSL emit it, the CPU oracle evaluates it), making vector / array /
-   *  struct module constants first-class rather than scalar-only. Must be a
-   *  constant-foldable literal expression (`lit` / `construct` / `unop` /
-   *  `binop` over those, or `constref` to an earlier const) — it may not read a
-   *  binding, parameter, or runtime input. The scalar dual-precision path stays
-   *  the default for ordinary `f32` consts (e.g. truncated `PI` vs `Math.PI`). */
+  /** Optional constant value as an IR literal expression, for example a `vec4<f32>(…)`
+   *  colour, an `array<vec4<f32>, N>(…)` palette, or a struct literal. When present it
+   *  replaces `wgslValue` and `cpuValue` on every backend: WGSL and GLSL emit it and the
+   *  CPU backend evaluates it. It must be a constant-foldable literal expression (`lit`,
+   *  `construct`, `unop` or `binop` over those, or a `constref` to an earlier constant);
+   *  it may not read a binding, a parameter, or a runtime input. Ordinary `f32` scalars
+   *  keep using the `wgslValue`/`cpuValue` pair. */
   readonly valueExpr?: Expr
 }
 
-/** A pipeline SPECIALIZATION CONSTANT (#923) — the authored declarator behind
- *  `overrideConst(name, type, default)`. Lowers to a WGSL module-scope `override
- *  name: type = default;` (the host specializes it via `createRenderPipeline({
- *  constants: { name } })`) and to a GLSL `#define name default` permutation seam
- *  (the host specializes by re-emitting with `emitGlslModule(m, stage, { overrideValues })`
- *  — a prepended `#define` is invalid GLSL, so the emitter places it after `#version`).
- *  The value is chosen at
- *  PIPELINE CREATION, not module build — so a single authored module yields N
- *  driver-specialized variants whose dead branches the DRIVER eliminates.
- *  WGSL scalars ONLY (`bool`/`i32`/`u32`/`f32`; `f16` once it joins the Scalar
- *  union, gated by the #957 f16 enable) — vec/matrix/array/struct are rejected at
- *  authoring (SD0014). */
+/** A pipeline specialization constant, the declaration behind {@link overrideConst}.
+ *  On WGSL it emits a module-scope `override name: type = default;`, which the host
+ *  specializes through `createRenderPipeline({ constants: { name } })`. On GLSL ES 3.00 it
+ *  emits `#define name default` after the `#version` line, and the host specializes it by
+ *  emitting again with `emitGlslModule(m, stage, { overrideValues })`. The value is chosen
+ *  when the pipeline is created, so a single authored module yields as many
+ *  driver-specialized variants as the host needs, and the driver eliminates the branches
+ *  a constant turns dead. Only WGSL scalar types are allowed (`bool`, `i32`, `u32`,
+ *  `f32`); a vector, matrix, array or struct type is rejected at authoring with
+ *  `SD0014`. */
 export interface OverrideDecl {
   readonly name: string
   readonly type: ShaderType
-  /** The default value emitted into the `override` declaration / `#define` — the
-   *  value a pipeline gets when the host injects nothing for this constant. */
+  /** The default value emitted into the `override` declaration or `#define`: the
+   *  value a pipeline gets when the host supplies nothing for this constant. */
   readonly default: number | boolean
 }
 
-/** One field of a {@link StructDecl} — a plain data member (uniform/storage struct)
- *  or, for a vertex/fragment I/O struct, a member carrying an `@builtin`/`@location`
- *  attribute. Authors build these via `sot.ts`'s {@link builtin}/{@link location}
- *  helpers (which fill both `attr` and its structured twin) rather than by hand;
- *  the GLSL backend ignores `attr` entirely and reads `location`/`builtin` directly
- *  — GLSL ES 3.00 has no struct-field attribute syntax, so I/O structs are
- *  flattened to individual `in`/`out` globals keyed off those structured fields.
+/** One field of a {@link StructDecl}: a plain data member of a uniform or storage struct,
+ *  or, in a vertex/fragment I/O struct, a member carrying a `@builtin` or `@location`
+ *  attribute. Build these with {@link builtin} and {@link location}, which fill both
+ *  `attr` and the structured `builtin`/`location` fields. The GLSL backend ignores `attr`
+ *  and reads `location`/`builtin` directly: GLSL ES 3.00 has no struct-field attribute
+ *  syntax, so an I/O struct is flattened into individual `in`/`out` globals keyed off
+ *  those fields.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -303,22 +294,22 @@ export interface StructField {
   readonly type: ShaderType
   /** Optional WGSL field attribute(s) for I/O structs, e.g.
    *  `@builtin(position)`, `@location(0)`, `@location(0) @interpolate(flat)`.
-   *  This is the EMIT SPELLING; the structured fields below are the semantic
-   *  source (#740 R3) — backends read those, never re-parse this string. */
+   *  This is the emitted spelling; the structured fields below (`location`,
+   *  `builtin`, `interpolate`) are what the backends read. They never re-parse
+   *  this string. */
   readonly attr?: string
-  /** Structured IO attribute (#740 R3): `@location(n)`. Set by sot's location(). */
+  /** Structured `@location(n)`. Set by {@link location}. */
   readonly location?: number
-  /** Structured IO attribute (#740 R3): `@builtin(name)`. Set by sot's builtin(). */
+  /** Structured `@builtin(name)`. Set by {@link builtin}. */
   readonly builtin?: string
   /** Structured `@interpolate(mode)` (set alongside `location`). */
   readonly interpolate?: string
 }
-/** A `ModuleDecl.structs` entry — a WGSL `struct` declaration, doubling as a
- *  GLSL plain struct or a flattened I/O `in`/`out` block depending on how its
- *  fields' `location`/`builtin` are read (see {@link StructField}). Authors
- *  reach for the `sot.ts` helpers ({@link uniformStruct}, {@link ioStruct}) to
- *  derive one alongside its binding and typed field access rather than writing
- *  this shape by hand.
+/** A `ModuleDecl.structs` entry: a WGSL `struct` declaration. On GLSL it becomes a
+ *  plain struct, or a flattened set of `in`/`out` globals when its fields carry
+ *  `location`/`builtin` (see {@link StructField}). Use {@link uniformStruct} or
+ *  {@link ioStruct} to derive one together with its binding and typed field access
+ *  instead of writing this shape by hand.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -327,25 +318,23 @@ export interface StructDecl {
   readonly fields: readonly StructField[]
 }
 
-/** The `BindingDecl.space` a resource binding lives in — WGSL's `var<uniform>` vs
- *  `var<storage, ...>`. Drives the WGSL backend's declaration spelling directly
- *  (`emitBinding` in wgsl.ts) and the GLSL backend's choice between a `uniform`
- *  block and an emulated storage-buffer path (WebGL2 GLSL ES 3.00 has no native
- *  SSBO) — see {@link BindingDecl.access}, which only applies when this is
- *  `'storage'`.
+/** The `BindingDecl.space` a resource binding lives in: WGSL's `var<uniform>` or
+ *  `var<storage, ...>`. It selects the WGSL declaration spelling and, on GLSL, the choice
+ *  between a `uniform` block and an emulated storage-buffer path (WebGL2 GLSL ES 3.00 has
+ *  no native storage buffer). See {@link BindingDecl.access}, which applies only when
+ *  this is `'storage'`.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export type AddressSpace = 'uniform' | 'storage'
-/** A `ModuleDecl.bindings` entry — a resource bound at a `(group, binding)` slot:
- *  a uniform buffer, a storage buffer, a texture, or a sampler, keyed by `type`
- *  (a `structT`/scalar/array type means a buffer; a `texture`/`sampler`
- *  `ShaderType.kind` means a handle resource with no address space). WGSL emits
- *  both `group` and `binding`; GLSL ES 3.00 has a single binding namespace, so
- *  its backend reads `binding` only and `group` is WGSL-only bookkeeping (still
- *  used by `reflect()` to group resources per WGSL bind-group-layout convention).
- *  Authors derive this via `sot.ts`'s {@link uniformStruct} / {@link resource} /
- *  {@link storageBuffer} rather than constructing it directly.
+/** A `ModuleDecl.bindings` entry: a resource bound at a `(group, binding)` slot. It is a
+ *  uniform buffer, a storage buffer, a texture, or a sampler, keyed by `type` (a struct,
+ *  scalar or array type means a buffer; a `texture` or `sampler` `ShaderType.kind` means
+ *  a handle resource with no address space). WGSL emits both `group` and `binding`.
+ *  GLSL ES 3.00 has a single binding namespace, so its backend reads `binding` only;
+ *  `group` is still used by {@link reflect}, which groups resources per WGSL bind group.
+ *  Use {@link uniformStruct}, {@link resource} or {@link storageBuffer} to derive one
+ *  instead of constructing it directly.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -354,76 +343,69 @@ export interface BindingDecl {
   readonly binding: number
   readonly name: string
   readonly space: AddressSpace
-  /** storage access — read | read_write (ignored for uniform). */
+  /** Storage access, `read` or `read_write`. Ignored for `uniform`. */
   readonly access?: 'read' | 'read_write'
   readonly type: ShaderType
-  /** WHO OWNS this resource (#1710). `'module'` (the default) is ours: we declare it, we
-   *  describe its layout, and a host builds its bind group from `reflect()`. `'host'` says
-   *  the resource belongs to the surrounding renderer — MapLibre's injected globals, or a
-   *  bind group a host-integrated WebGPU renderer hands us — so the HOST's layout is the
-   *  authority and `reflect()` reports it under `hostResources` rather than as ours to
-   *  create. Ownership is orthogonal to spelling: a host-owned binding is still DECLARED
-   *  in our source (that is what makes it type-checkable), it is just not ours to
-   *  allocate. A symbol the host's prelude ALREADY declares is a different thing —
-   *  `externVar` (#1713), which emits nothing at all. */
+  /** Who owns this resource. `'module'` (the default) means the module declares it and
+   *  describes its layout, and a host builds its bind group from {@link reflect}.
+   *  `'host'` means the resource belongs to the surrounding host, such as a bind group a
+   *  host-integrated WebGPU renderer hands the module, so the host's layout is the
+   *  authority and {@link reflect} reports it under `hostResources`. Ownership does not
+   *  change the spelling: a host-owned binding is still declared in the emitted source,
+   *  which is what makes it type-checkable; it is just not the module's to allocate. For
+   *  a symbol the host's prelude already declares, use {@link externVar}, which emits
+   *  nothing. */
   readonly owner?: 'module' | 'host'
-  /** GLSL ES 3.00 precision qualifier for this declaration (#1710). GLSL-only; WGSL has no
-   *  such concept and ignores it. Without it the declaration takes the stage default from
-   *  the precision preamble, which is right for a module that owns its own header and
-   *  wrong for a FRAGMENT composed into a host program whose preamble we do not control —
-   *  the case that made a consumer re-add precision with a second post-process. */
+  /** GLSL ES 3.00 precision qualifier for this declaration. GLSL only; WGSL has no such
+   *  concept and ignores it. Without it the declaration takes the stage default from the
+   *  precision preamble, which is right for a module that owns its own header and wrong
+   *  for a fragment composed into a host program whose preamble the module does not
+   *  control. */
   readonly precision?: 'highp' | 'mediump' | 'lowp'
-  /** How a STRUCT-typed uniform binding is spelled on GLSL ES 3.00 (#1710). Ignored on WGSL,
-   *  which has exactly one spelling, and ignored for non-struct types.
+  /** How a struct-typed uniform binding is spelled on GLSL ES 3.00. Ignored on WGSL, which
+   *  has exactly one spelling, and ignored for non-struct types.
    *
-   *  `'std140-block'` (the default, and every module-owned block) emits
+   *  `'std140-block'` (the default, and the only choice for a module-owned block) emits
    *  `layout(std140) uniform Name { … } var;`. `'loose'` emits one default-block
-   *  `uniform <type> <field>;` per member and rewrites every `var.field` read to bare
-   *  `field` — because that is what a GLSL host prelude actually provides, and no amount
-   *  of correctness in the block form makes a shader link against a host that never
-   *  declared one. Only a HOST-owned block may choose `'loose'`: for a module-owned block
-   *  the two spellings are not interchangeable (std140 is the only one with a defined
-   *  layout for a host to write into), so the choice would be a silent ABI change. */
+   *  `uniform <type> <field>;` per member and rewrites every `var.field` read to the bare
+   *  `field`, which is the form a GLSL host prelude provides. Only a host-owned block may
+   *  choose `'loose'`: for a module-owned block the two spellings are not interchangeable
+   *  (std140 is the only one with a defined layout for a host to write into), so the
+   *  choice would be a silent ABI change. */
   readonly glsl?: 'std140-block' | 'loose'
 }
 
-/** A HOST-PROVIDED global (#1713) — the authored declarator behind `externVar(name, type)`,
- *  and the variable twin of `externFn`.
+/** A host-provided global, the declaration behind {@link externVar}. It is the variable
+ *  counterpart of {@link externFn}.
  *
- *  Emits NOTHING on either backend: the host's prelude declares it, and this exists so the
- *  reference type-checks, survives `mangle`, and appears in `reflect().requires` where a
- *  composer can check it against what the prelude actually provides. `externFn` cannot
- *  serve as the template here — it carries no declaration at all, only a call factory, so
- *  there is nothing for reflection or mangling to see. `OverrideDecl` is the shape this
- *  follows instead: a named module-scope symbol with its own leaf op.
+ *  It emits nothing on either backend: the host's prelude declares the symbol. The
+ *  declaration exists so that reads of it type-check, survive renaming, and appear in
+ *  `reflect().requires`, where a host can check them against what its prelude provides.
  *
- *  `spelling` maps the logical name onto what each target actually writes, so a migration
- *  to a host that exposes the same value differently (a WGSL struct member or bound
- *  uniform instead of a GLSL prelude global) is a spelling-map change and not a source
- *  rewrite — the whole reason to declare these abstractly now. */
+ *  `spelling` maps the logical name onto what each target writes, so moving to a host
+ *  that exposes the same value differently (a WGSL struct member or a bound uniform in
+ *  place of a GLSL prelude global) is a change to the spelling map and leaves the shader
+ *  source alone. */
 export interface ExternVarDecl {
   readonly name: string
   readonly type: ShaderType
   /** Per-target spelling. A missing side falls back to `name`. */
   readonly spelling?: { readonly wgsl?: string; readonly glsl?: string }
   /** Restrict the symbol to one stage, for a host global only that stage's prelude
-   *  provides. Advisory metadata for `reflect().requires`; nothing gates on it yet. */
+   *  provides. Advisory metadata for `reflect().requires`; nothing gates on it. */
   readonly stage?: 'vertex' | 'fragment' | 'compute'
 }
 
-/** Non-enumerable marker: the name a decl was LAST assembled under (#763 D4).
- *  Symbol.for — survives dual-instance loads like the node brand. Declared here
- *  (not builder.ts) so FuncDecl can name it as a computed key with no
- *  builder→nodes import cycle. */
+/** Non-enumerable marker key on a {@link FuncDecl}: the name the declaration was last
+ *  assembled under by {@link module}. It is a `Symbol.for` symbol, so it survives two
+ *  copies of the package loaded side by side. */
 export const ASSEMBLED_AS = Symbol.for('xgis.shader-dsl.assembledAs')
 
-/** A `ModuleDecl.funcs` entry — a WGSL/GLSL function, ordinary or a pipeline
- *  entry point (`stage` set). This is the object the fluent authoring layer
- *  ({@link fn}) BUILDS: a `FnHandle` returned by `fn()` mixes this shape's
- *  fields onto itself so it is simultaneously a typed callable in other
- *  functions' bodies AND, unwrapped, the plain `FuncDecl` a `module({ funcs })`
- *  collects. Every backend (WGSL, GLSL, the CPU codegen/oracle) walks `body`
- *  directly — there is no separate typed-AST layer between authoring and emit.
+/** A `ModuleDecl.funcs` entry: a WGSL/GLSL function, either an ordinary helper or a
+ *  pipeline entry point (`stage` set). This is the object {@link fn} builds: the
+ *  {@link FnHandle} it returns mixes these fields onto itself, so it is at once a typed
+ *  callable in other function bodies and, unwrapped, the plain `FuncDecl` that
+ *  `module({ funcs })` collects. Every backend (WGSL, GLSL, CPU) walks `body` directly.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
@@ -439,109 +421,98 @@ export interface FuncDecl {
   }[]
   readonly ret: ShaderType
   readonly body: readonly Stmt[]
-  /** Stage / pipeline attributes emitted before `fn` (e.g. `@compute`,
-   *  `@workgroup_size(64)`). Empty for ordinary helper functions. This is the
-   *  EMIT SPELLING; `stage`/`workgroupSize` below are the semantic source
-   *  (#740 R3) — reflect/backends read those first (string fallback only for
-   *  hand-built FuncDecl literals). */
+  /** Stage and pipeline attributes emitted before `fn`, such as `@compute` or
+   *  `@workgroup_size(64)`. Empty for ordinary helper functions. This is the emitted
+   *  spelling; `stage` and `workgroupSize` below are what {@link reflect} and the
+   *  backends read first, with these strings as the fallback for a hand-built
+   *  `FuncDecl` literal. */
   readonly attrs?: readonly string[]
-  /** Structured pipeline stage (#740 R3). Set by fn()'s opts.stage. */
+  /** Structured pipeline stage. Set by `fn()`'s `opts.stage`. */
   readonly stage?: 'vertex' | 'fragment' | 'compute'
-  /** Structured workgroup size for a compute stage (#740 R3). */
+  /** Structured workgroup size for a compute stage. */
   readonly workgroupSize?: number
-  /** The PORTABLE KERNEL TIER declaration (#1812) — compute-only. Set by fn()'s
-   *  `opts.portable`, which rejects it on any other stage (SD0110). It promises the entry
-   *  emits on BOTH backends: native `@compute` on WGSL, and the `lowerComputeToFragment`
-   *  fragment-GPGPU rewrite on GLSL ES 3.00 (run there with no emit option), with every
-   *  construct outside the gather-only shape failing validation at EVERY emit on both
-   *  writers (SD0111 — passes/portable-kernel.ts is the shape's single authority).
+  /** Marks a compute entry as a portable kernel. Set by `fn()`'s `opts.portable`, which
+   *  rejects it on any other stage with `SD0110`. A portable kernel emits on both
+   *  backends: as a native `@compute` entry on WGSL, and through the
+   *  {@link lowerComputeToFragment} rewrite on GLSL ES 3.00, which runs it as a fragment
+   *  shader. The kernel must keep to the gather-only shape, where each invocation reads
+   *  freely and stores exactly once to its own index of the output; any construct outside
+   *  that shape fails validation with `SD0111` on every emit, on both backends.
    *
-   *  Structured ONLY, with deliberately NO `attrs` spelling (#740 R3): `portable` is not a
-   *  WGSL attribute, so there is nothing for the WGSL writer to emit and declaring it
-   *  cannot change a single emitted byte. */
+   *  Structured only, with no `attrs` spelling: `portable` is not a WGSL attribute, so
+   *  declaring it changes nothing in the emitted source. */
   readonly portable?: boolean
   /** Return-value attribute for a bare (non-struct) stage output, e.g. a
    *  fragment `-> @location(0) vec4<f32>`. */
   readonly retAttr?: string
-  /** Structured builtin id when `retAttr` came from a `builtin(name, type)` FieldSpec
-   *  (#740 R3 twin of `retAttr` — the spelling stays in retAttr, the SEMANTIC id lives
-   *  here so target-vocabulary gates like assertBuiltins (#1672) can read it without
-   *  re-parsing the attr string). */
+  /** Structured builtin id when `retAttr` came from a `builtin(name, type)`
+   *  {@link FieldSpec}. The spelling stays in `retAttr`; the id lives here so a backend
+   *  can check it against its builtin vocabulary without re-parsing the attribute
+   *  string. */
   readonly retBuiltin?: string
-  /** This fn's BODY must never be exposed at its call sites — the emit optimizer
-   *  keeps the call opaque (#1926). Set by `fp64Lower` on every df64 EFT helper it
-   *  injects: those bodies are error-free transformations that are algebraically
-   *  trivial (`e = b - (s - a)` is 0 in real arithmetic), so flattening them hands
-   *  the terms to passes and drivers that may legally cancel them — see
-   *  core/fp64/df64-lib.ts for the full hazard.
+  /** Keep this function's body out of its call sites: the emit optimizer never inlines a
+   *  call to it. {@link fp64Lower} sets it on every double-float helper it injects,
+   *  because those bodies are error-free transformations that are algebraically trivial
+   *  (`e = b - (s - a)` is 0 in real arithmetic), and flattening them hands the terms to
+   *  passes and drivers that may legally cancel them.
    *
-   *  A FLAG rather than the `df64_` name prefix this used to be, because `mangle`
-   *  renames that library on purpose: the name test held or not depending on plugin
-   *  ARRAY ORDER, so `[mangle(), inline()]` flattened the whole EFT library while
-   *  `[inline(), mangle()]` did not, with no error either way. A property of the
-   *  decl survives every rename; a property of its spelling does not.
+   *  It is a property of the declaration, so it survives every rename a production emit
+   *  applies to the function's name.
    *
-   *  Structured ONLY, with deliberately NO `attrs` spelling (as `portable` above):
-   *  it is not a WGSL attribute and cannot change a single emitted byte. */
+   *  Structured only, with no `attrs` spelling (like `portable` above): it is not a WGSL
+   *  attribute and changes nothing in the emitted source. */
   readonly opaque?: boolean
-  /** Documented MISRA single-exit DEVIATION — when true the single-exit static
-   *  rule skips this fn (it has an intentional early return, e.g. a guard that
-   *  skips an expensive loop). Use sparingly, with a comment stating why. */
+  /** Documented deviation from the single-exit lint rule: when true, the rule skips this
+   *  function because it has an intentional early return, such as a guard that skips an
+   *  expensive loop. Use sparingly, with a comment stating why. */
   readonly allowEarlyReturn?: boolean
-  /** Documented lint DEVIATIONS — rule ids whose diagnostics are suppressed for this
-   *  fn (the general form of allowEarlyReturn; the engine drops matching diagnostics).
-   *  Use sparingly, with a comment stating why. */
+  /** Documented lint deviations: rule ids whose diagnostics are suppressed for this
+   *  function (the general form of `allowEarlyReturn`). Use sparingly, with a comment
+   *  stating why. */
   readonly lintDisable?: readonly string[]
-  /** The name this decl was LAST assembled under (#763 D4) — a non-enumerable
-   *  Symbol marker installed at assembly via Object.defineProperty (normalizeFuncs
-   *  in builder.ts). Declared type-level ONLY so the read typechecks without a cast;
-   *  never part of an authored FuncDecl literal. */
+  /** The name this declaration was last assembled under by {@link module}, installed at
+   *  assembly as a non-enumerable property. Declared at the type level only, so a read
+   *  typechecks without a cast; it is never part of an authored `FuncDecl` literal. */
   readonly [ASSEMBLED_AS]?: string
 }
 
-/** A GPU / language feature a target backend may or may not support (#9, #628, #1670).
- *  Emit of an unsupported feature is a typed error (UnsupportedFeatureError), never a
- *  silent mis-emit: a cap absent from the target's `capProfile` (core/backend.ts) fails
- *  closed at assertCaps, naming it.
+/** A GPU or language feature a target backend may or may not support. Emitting a module
+ *  that needs an unsupported feature throws {@link UnsupportedFeatureError}: a capability
+ *  absent from the target's `capProfile` fails closed, naming the capability.
  *
- *  Ids are NEUTRAL (#1650 convention) — never a raw `EXT_*` / `OVR_*` string in a
- *  module. Each backend's `capProfile` row translates the id into that target's
- *  `hostFeature` (what the host activates: `gl.getExtension(...)` on WebGL2, a
- *  `requiredFeatures` entry on WebGPU) and its `directive` (what the emitted source
- *  says), so the same module ports across targets whose extension names do not.
+ *  Ids are neutral; a module never names a raw `EXT_*` or `OVR_*` string. Each backend's
+ *  `capProfile` row translates the id into that target's `hostFeature` (what the host
+ *  activates: `gl.getExtension(...)` on WebGL2, a `requiredFeatures` entry on WebGPU) and
+ *  its `directive` (what the emitted source says), so the same module ports across
+ *  targets whose extension names differ.
  *
- *  THREE provenance classes:
- *  - DERIVED resource caps — `storageBuffer`, `compute`, `msaaTextureLoad`: inferred
- *    from a module's SHAPE (a storage binding, a `@compute` entry, an MSAA texture
- *    load), never declared.
- *  - OPT-IN LANGUAGE caps — `f16`, `subgroups`: declared via `ModuleDecl.enables`; each
- *    is a WGSL `enable`-directive extension and has no GLSL ES 3.00 counterpart, so
- *    both stay OUT of the GLSL profile and a module using them fails closed there.
- *  - OPT-IN DEVICE/EXTENSION caps (#1670) — declared via `ModuleDecl.enables`, and NOT
- *    language features: they change what the DEVICE can do, not what the source may
- *    spell. `floatRenderTarget` (WebGL2 EXT_color_buffer_float / WebGPU core),
- *    `float32Blend` (EXT_float_blend / WebGPU 'float32-blendable') and
- *    `float32Filterable` (OES_texture_float_linear / WebGPU 'float32-filterable') are
- *    the HOST-side trio: on WebGL2 they are activated by `gl.getExtension` before
- *    pipeline creation and there is NO shader-source token for them, so declaring one
- *    must not move a single emitted byte on either target. `multiview` is the one
- *    SOURCE-DIRECTIVE cap — GLSL ES 3.00 needs `#extension GL_OVR_multiview2 : require`
- *    in the shader itself — which is what proves the `#extension` emission path end to
- *    end; WebGPU has no OVR_multiview2, so it is absent from the WGSL profile and a
- *    multiview module fails closed there. CAVEAT: `multiview` buys the DIRECTIVE only.
- *    The DSL cannot yet spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`, so a
- *    module declaring it emits the `#extension` line and still renders SINGLE-VIEW; the
- *    cap exists to prove the `#extension` mechanism, and real multiview authoring is a
- *    follow-up.
+ *  There are three classes:
+ *  - Derived resource capabilities, `storageBuffer`, `compute` and `msaaTextureLoad`, are
+ *    inferred from a module's shape (a storage binding, a `@compute` entry, a
+ *    multisampled texture load) and never declared.
+ *  - Opt-in language capabilities, `f16` and `subgroups`, are declared in
+ *    `ModuleDecl.enables`. Each is a WGSL `enable` directive with no GLSL ES 3.00
+ *    counterpart, so a module using one fails closed on the GLSL backend.
+ *  - Opt-in device capabilities are also declared in `ModuleDecl.enables`. They change
+ *    what the device can do and leave what the source may spell unchanged.
+ *    `floatRenderTarget` (WebGL2 `EXT_color_buffer_float`, WebGPU core), `float32Blend`
+ *    (`EXT_float_blend`, WebGPU `'float32-blendable'`) and `float32Filterable`
+ *    (`OES_texture_float_linear`, WebGPU `'float32-filterable'`) are host-side: on WebGL2
+ *    the host activates them with `gl.getExtension` before creating the pipeline, and
+ *    they have no shader-source token, so declaring one leaves the emitted source
+ *    unchanged on both targets. `multiview` is the one source-directive capability:
+ *    GLSL ES 3.00 needs `#extension GL_OVR_multiview2 : require` in the shader itself. It
+ *    is absent from the WGSL profile, since WebGPU has no equivalent, so a multiview
+ *    module fails closed there. Note that `multiview` buys the directive only: a module
+ *    declaring it emits the `#extension` line and still renders single-view, because the
+ *    DSL cannot spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`.
  *
- *  BITWIDTH IN THE NAME, only where the feature is bitwidth-specific: `float32Blend` and
- *  `float32Filterable` carry the `32` because both underlying features are 32F-only
- *  (EXT_float_blend, WebGPU 'float32-blendable' / 'float32-filterable').
- *  `floatRenderTarget` deliberately carries none — EXT_color_buffer_float makes 16F AND
- *  32F attachments renderable, so a bitwidth in that id would be a lie.
+ *  A bit width appears in an id only where the feature is bit-width specific:
+ *  `float32Blend` and `float32Filterable` carry the `32` because both underlying features
+ *  are 32-bit-float only. `floatRenderTarget` carries none, because
+ *  `EXT_color_buffer_float` makes both 16-bit and 32-bit float attachments renderable.
  *
- *  Motivating consumers: #1661 (rgba16float sampling / float render targets in the
- *  WebGL2 RHI). The host reads what to activate off `reflect().requiredFeatures`. */
+ *  A host reads what to activate from `reflect().requiredFeatures`. */
 export type Capability =
   | 'storageBuffer'
   | 'compute'
@@ -553,13 +524,9 @@ export type Capability =
   | 'float32Filterable'
   | 'multiview'
 
-/** Every {@link Capability}, as a runtime value (#1717) — the enumeration a
- *  capability-matrix renderer, a doc generator or a coverage gate iterates.
- *
- *  Hand-listed because a union type has no runtime form, and kept honest by the
- *  `satisfies` below plus `capability-matrix.test.ts`'s round trip: a new union member that
- *  is not added here fails the exhaustiveness check rather than quietly shrinking every
- *  consumer's view of the vocabulary. */
+/** Every {@link Capability}, as a runtime value: the list a capability matrix, a doc
+ *  generator or a coverage check iterates. A union type has no runtime form, so the list
+ *  is written out, and the `satisfies` clause keeps it in step with the union. */
 export const ALL_CAPABILITIES = [
   'storageBuffer',
   'compute',
@@ -572,17 +539,16 @@ export const ALL_CAPABILITIES = [
   'multiview',
 ] as const satisfies readonly Capability[]
 
-/** The caps an AUTHOR may name in `ModuleDecl.enables` (#1681 A2) — `Capability` minus
- *  the three DERIVED resource caps. Those three are inferred from the module's SHAPE by
- *  `requiredCaps` (a storage binding ⇒ `storageBuffer`, a `@compute` entry ⇒ `compute`,
- *  an MSAA texture ⇒ `msaaTextureLoad`), so declaring one is at best a no-op restatement
- *  of the shape and at worst a LIE the emit then gates on — the doc above always said
- *  "never declared here", and this is that sentence made unrepresentable rather than
- *  merely written down.
+/** The capabilities a module may name in `ModuleDecl.enables`: {@link Capability} minus
+ *  the three derived resource capabilities. Those three are inferred from the module's
+ *  shape by `requiredCaps` (a storage binding means `storageBuffer`, a `@compute` entry
+ *  means `compute`, a multisampled texture means `msaaTextureLoad`), so declaring one
+ *  would at best restate the shape and at worst assert a feature the module does not
+ *  use. This type makes that a compile error.
  *
- *  Only the AUTHORING surface narrows: `requiredCaps` / `Capabilities` / `CapProfile`
- *  keep reading the full `Capability`, because the derived caps are exactly what they
- *  must be able to express. */
+ *  Only the authoring surface narrows: `requiredCaps`, {@link Capabilities} and
+ *  {@link CapProfile} keep reading the full `Capability`, because the derived ids are
+ *  exactly what they must express. */
 export type DeclarableCapability = Exclude<
   Capability,
   'storageBuffer' | 'compute' | 'msaaTextureLoad'
@@ -627,16 +593,17 @@ export interface ModuleDecl {
   readonly structs: readonly StructDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly funcs: readonly FuncDecl[]
-  /** HOST-PROVIDED globals (#1713) — `externVar(...)` declarators. Each emits NOTHING and
-   *  appears in `reflect().requires`, so a composer can check the module's expectations
-   *  against what the host prelude supplies. Absent/empty ⇒ byte-identical emit. */
+  /** Host-provided globals, the declarations {@link externVar} returns. Each emits
+   *  nothing and appears in `reflect().requires`, so a host can check the module's
+   *  expectations against what its prelude supplies. Absent or empty leaves the emitted
+   *  source unchanged. */
   readonly externs?: readonly ExternVarDecl[]
-  /** Pipeline SPECIALIZATION CONSTANTS (#923) — `overrideConst(...)` declarators.
-   *  Each emits a WGSL module-scope `override` + a GLSL `#define` permutation seam,
-   *  is reported by `reflect()` (so the host knows the WGSL `constants` dict / GLSL
-   *  define header), and reads OPAQUELY in bodies (`overrideref`) so the optimizer
-   *  preserves the branches they guard for the driver to eliminate. Absent/empty ⇒
-   *  no override declaration, byte-identical emit. */
+  /** Pipeline specialization constants, the declarations {@link overrideConst} returns.
+   *  Each emits a WGSL module-scope `override` and a GLSL `#define`, is reported by
+   *  {@link reflect} so the host knows the WGSL `constants` dictionary and the GLSL
+   *  define header, and reads as an opaque value in function bodies so the optimizer
+   *  preserves the branches it guards for the driver to eliminate. Absent or empty means
+   *  no override declaration and unchanged emitted source. */
   readonly overrides?: readonly OverrideDecl[]
   /** The opt-in capabilities this module turns on, by neutral id, such as
    *  `['floatRenderTarget']` or `['f16']`. Each folds into the module's required caps, so a
@@ -644,7 +611,7 @@ export interface ModuleDecl {
    *  backend whose row carries a `directive` emits it: `enable f16;` on WGSL, an
    *  `#extension` line on GLSL ES 3.00. A row with no directive is host-side only, the host
    *  activates it from `reflect(m).requiredFeatures` and the emitted bytes do not move.
-   *  Absent or empty means no directive and a byte-identical emit.
+   *  Absent or empty means no directive and unchanged emitted source.
    *
    *  The type is `DeclarableCapability`, which excludes the three caps derived from the
    *  module's shape (`storageBuffer`, `compute`, `msaaTextureLoad`); naming one here is a
@@ -652,10 +619,12 @@ export interface ModuleDecl {
   readonly enables?: readonly DeclarableCapability[]
 }
 
-/** THE stage predicate (#763 S1) — structured `stage` first, attr-string fallback
- *  only for hand-built FuncDecl literals (#740 R3 contract). Every stage/entry
- *  decision (reflect, capability gate, GLSL entry classification, fn-DCE roots)
- *  goes through this one helper so the predicates cannot drift apart again. */
+/** The stage of a function declaration: `'vertex'`, `'fragment'` or `'compute'` for an
+ *  entry point, `undefined` for a helper. It reads the structured `stage` field first and
+ *  falls back to the `attrs` strings for a hand-built `FuncDecl` literal. Every stage
+ *  decision in the package ({@link reflect}, the capability gate, GLSL entry
+ *  classification, the roots of dead-function elimination) goes through this one
+ *  function. */
 export const stageOf = (
   f: Pick<FuncDecl, 'stage' | 'attrs'>,
 ): 'vertex' | 'fragment' | 'compute' | undefined =>
@@ -668,7 +637,8 @@ export const stageOf = (
         ? 'compute'
         : undefined)
 
-/** Workgroup size of a compute entry — structured field first, attr fallback (#763 S1). */
+/** The workgroup size of a compute entry: the structured `workgroupSize` field first,
+ *  then the `@workgroup_size(n)` attribute string; `undefined` when neither is present. */
 export const workgroupSizeOf = (
   f: Pick<FuncDecl, 'workgroupSize' | 'attrs'>,
 ): number | undefined => {
@@ -677,7 +647,7 @@ export const workgroupSizeOf = (
   return m ? Number(m[1]) : undefined
 }
 
-/** An entry-point parameter — carries a `@builtin(...)` or a `@location(n)`. */
+/** An entry-point parameter: it carries a `@builtin(...)` or a `@location(n)`. */
 export interface EntryParam {
   readonly name: string
   readonly type: ShaderType

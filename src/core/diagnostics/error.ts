@@ -24,22 +24,21 @@ export interface SourceLoc {
  *  aggregated validation message and by formatReport). */
 export const formatLoc = (loc: SourceLoc): string => `${loc.file}:${loc.line}:${loc.col}`
 
-/** The one error class this package throws. Every coded failure — an authoring-time type
- *  mismatch from `core/ir/node.ts`, a validation failure, an unsupported-feature bail on a
- *  backend — arrives as this or a subclass of it, so `catch (e) { if (e instanceof
- *  ShaderDslError) … }` is the complete handler.
+/** The error class this package throws. Every coded failure, whether an authoring-time type
+ *  mismatch, a validation failure, or a feature a backend cannot emit, arrives as this class or
+ *  a subclass of it, so `catch (e) { if (e instanceof ShaderDslError) … }` handles all of them.
  *
- *  Branch on {@link ShaderDslError.code}, never on the message. The code is an `SD####` string
- *  from a frozen, append-only catalogue ({@link CODES}) that is never renumbered, which makes
- *  it the stable half of the error; `.message` composes the catalogue summary with the dynamic
- *  detail of this particular failure and is free to be reworded.
+ *  Branch on {@link ShaderDslError.code}. The code is an `SD####` string from the append-only
+ *  catalogue {@link CODES}; codes are never renumbered, so the code is the stable part of the
+ *  error. `.message` combines the catalogue summary with the detail of this particular failure
+ *  and may be reworded between releases.
  *
- *  `hint` is the catalogue's one-line "how to fix it" where the code has one. `loc` points back
- *  into the AUTHORED TypeScript rather than into emitted shader text, and is present only when
- *  source tracing was on when the node was built — see `enableSourceTracing()` in `./dev`.
- *  Neither is guaranteed, so treat both as optional at the use site.
+ *  `hint` is the catalogue's one-line fix for the code, where it has one. `loc` points into the
+ *  TypeScript that built the node (the file, line and column of the author's own call), and is
+ *  present only when source tracing was on at the time the node was built; turn it on with
+ *  `setSourceTracing(true)` from `@xgis/shader-dsl/dev`. Treat both fields as optional.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  *
  *  @example
  *  ```ts
@@ -49,20 +48,20 @@ export const formatLoc = (loc: SourceLoc): string => `${loc.file}:${loc.line}:${
  *    buildModule()
  *  } catch (e) {
  *    if (e instanceof ShaderDslError && e.code === 'SD0002') {
- *      // binary op on mismatched vectors — report it against the author's own source
+ *      // binary op on mismatched vectors: report it against the author's own source
  *      console.error(e.message, e.loc)
  *    } else throw e
  *  }
  *  ```
  */
 export class ShaderDslError extends Error {
-  /** The stable `SD####` catalogue code — the half of the error to branch on. */
+  /** The stable `SD####` catalogue code. Branch on this field. */
   readonly code: string
-  /** The catalogue's one-line remedy, where the code carries one. Absent otherwise. */
+  /** The catalogue's one-line fix, where the code has one. Absent otherwise. */
   readonly hint?: string
-  /** Where in the AUTHORED TypeScript this originated. Present only when source tracing was
-   *  on at the time the offending node was built (`enableSourceTracing()`), so a consumer must
-   *  treat it as optional rather than as a guaranteed field. */
+  /** Where in the author's TypeScript the offending node was built. Present only when source
+   *  tracing was on at that time (`setSourceTracing(true)` from `@xgis/shader-dsl/dev`), so
+   *  treat it as optional. */
   readonly loc?: SourceLoc
   constructor(opts: { code: string; message: string; hint?: string; loc?: SourceLoc }) {
     super(opts.message)

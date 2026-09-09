@@ -31,9 +31,9 @@ import type { VariantFamily } from './variant-family.js'
 
 /** The slice of WebGL2 that compiling and linking a program needs.
  *
- *  A real `WebGL2RenderingContext` satisfies this as-is — pass it straight in. The handles
- *  are generic so a caller gets `WebGLShader`/`WebGLProgram` back rather than `unknown`, and
- *  a test can substitute its own. */
+ *  A real `WebGL2RenderingContext` satisfies this as-is: pass it straight in. The handle
+ *  types are generic, so a caller that passes a real context gets `WebGLShader` and
+ *  `WebGLProgram` back, and a test can substitute a recorder with its own handle types. */
 export interface GlLinker<Shader = unknown, Program = unknown> {
   readonly VERTEX_SHADER: number
   readonly FRAGMENT_SHADER: number
@@ -55,7 +55,7 @@ export interface GlLinker<Shader = unknown, Program = unknown> {
 
 /** What happened to one variant. */
 export interface VariantLinkResult {
-  /** The family key — the same id a pipeline cache or baked artifact uses. */
+  /** The variant's key in `family.keys`, the same id a pipeline cache would use for it. */
   readonly key: string
   readonly ok: boolean
   /** Which step failed. Absent when `ok`. `'emit'` means the DSL threw before any GL call,
@@ -68,7 +68,12 @@ export interface VariantLinkResult {
 const MAX_LOG = 400
 
 /**
- * Emit, compile and link EVERY variant of a family on a real WebGL2 context (#1715).
+ * Emit, compile and link every variant of a family on a real WebGL2 context.
+ *
+ * A module type-checks as a whole, but the combination of axis values a host actually selects
+ * is only proven when a driver compiles and links it. This function enumerates the family,
+ * emits GLSL ES 3.00 for each variant, compiles the vertex and fragment shaders and links them
+ * into a program, and reports the outcome per key.
  *
  * ```ts
  * const gl = canvas.getContext('webgl2')!
@@ -76,16 +81,18 @@ const MAX_LOG = 400
  * expect(failed, failed.map((r) => `${r.key}: ${r.failedAt} ${r.log}`).join('\n')).toEqual([])
  * ```
  *
- * Every variant is attempted even after one fails, because the useful output of a gate like
- * this is "these three combinations are broken", not "the first one is".
+ * Every variant is attempted even after one fails, so the result lists every broken
+ * combination in one run.
  *
  * GL objects are deleted as it goes: a family is a cartesian product, and a matrix with a few
- * axes leaks hundreds of programs on a context that is usually shared with a live page.
+ * axes would otherwise leak hundreds of programs on a context that is usually shared with a
+ * live page.
  *
  * @param gl - a WebGL2 context, or anything satisfying {@link GlLinker}.
  * @param family - the family to enumerate; every key in `family.keys` is attempted.
- * @param opts - emit options, applied to every variant equally (so a prod-mode gate is
- *   `{ plugins: obfuscate() }` and needs no second entry point).
+ * @param opts - emit options, applied to every variant equally. To check the production
+ *   output, pass the same plugins the production emit uses, for example
+ *   `{ plugins: obfuscate() }`.
  * @returns one result per key, in `family.keys` order.
  */
 export function linkVariants<A extends Record<string, readonly unknown[]>>(
@@ -167,10 +174,10 @@ function linkOne(gl: GlLinker, key: string, vsSrc: string, fsSrc: string): Varia
 
 /** The slice of `GPUDevice` that validating a WGSL module needs.
  *
- *  A real `GPUDevice` satisfies this as-is — pass it straight in. Structural for the same
- *  two reasons as {@link GlLinker}: the package needs no WebGPU types to build (#1681
- *  rejected `@webgpu/types` on exactly that ground), and a test can drive the aggregation
- *  with a recorder while the real run goes through real Tint. */
+ *  A real `GPUDevice` satisfies this as-is: pass it straight in. The interface is structural
+ *  for the same two reasons as {@link GlLinker}: the package builds without WebGPU type
+ *  definitions, and a test can drive the result aggregation with a recorder while the real
+ *  run goes through the browser's WGSL compiler. */
 export interface WgslValidator<Module = unknown> {
   createShaderModule(descriptor: { code: string }): Module
 }
@@ -183,8 +190,9 @@ export interface WgslMessage {
   readonly lineNum?: number
 }
 
-/** A module that can report what its compilation produced — `GPUShaderModule`. Separate from
- *  {@link WgslValidator} because the module, not the device, owns this call. */
+/** A module that can report what its compilation produced; a `GPUShaderModule` satisfies it.
+ *  It is a separate interface from {@link WgslValidator} because `getCompilationInfo()` is a
+ *  method of the module the device returns. */
 export interface WgslCompiled {
   getCompilationInfo(): Promise<{ readonly messages: readonly WgslMessage[] }>
 }
@@ -193,22 +201,24 @@ export interface WgslCompiled {
 export interface VariantWgslResult {
   readonly key: string
   readonly ok: boolean
-  /** `'emit'` — the DSL threw before any device call. `'validate'` — Tint reported errors,
-   *  or the device call itself threw. Absent when `ok`. */
+  /** Which step failed. Absent when `ok`. `'emit'` means the DSL threw before any device
+   *  call. `'validate'` means the WGSL compiler reported errors, or the device call itself
+   *  threw. */
   readonly failedAt?: 'emit' | 'validate'
-  /** Every message of type `'error'`, formatted. Absent when `ok`. Warnings and info are
-   *  deliberately NOT failures: Tint emits them for valid shaders, and a gate that reddens
-   *  on them trains people to ignore it. */
+  /** Every compilation message of type `'error'`, formatted as `L<line>: <message>`. Absent
+   *  when `ok`. Warnings and info messages are never counted as failures: the compiler emits
+   *  them for valid shaders, and a check that fails on them is soon ignored. */
   readonly errors?: readonly string[]
 }
 
 /**
- * Validate EVERY variant of a family through a real WGSL compiler (#1715 Problem A).
+ * Validate every variant of a family through a real WGSL compiler.
  *
- * The WGSL twin of {@link linkVariants}: same enumeration, same "attempt every variant even
- * after one fails" rule, same per-key result shape. WGSL has no separate link step — one
- * module carries both entry points — so `createShaderModule` + `getCompilationInfo()` is the
- * whole check, and it is async where the GL one is not.
+ * The WGSL counterpart of {@link linkVariants}: the same enumeration, the same rule that every
+ * variant is attempted even after one fails, and the same per-key result shape. One WGSL
+ * module carries both entry points, so `createShaderModule()` followed by
+ * `getCompilationInfo()` is the whole check. `getCompilationInfo()` is asynchronous, which is
+ * why this function returns a promise while {@link linkVariants} does not.
  *
  * ```ts
  * const device = await (await navigator.gpu.requestAdapter())!.requestDevice()
@@ -216,10 +226,9 @@ export interface VariantWgslResult {
  * expect(failed, failed.map((r) => `${r.key}: ${r.errors?.join('; ')}`).join('\n')).toEqual([])
  * ```
  *
- * NOTE `createShaderModule` does not throw on invalid WGSL — the errors arrive through
- * `getCompilationInfo()`. A gate that only wraps the call in try/catch passes on every
- * broken shader, which is why this reads the messages rather than trusting the absence of a
- * throw.
+ * `createShaderModule()` does not throw on invalid WGSL; the errors arrive through
+ * `getCompilationInfo()`. This function reads those messages, so a shader that compiles
+ * without throwing but reports errors is still a failure.
  *
  * @param device - a `GPUDevice`, or anything satisfying {@link WgslValidator}.
  * @param family - the family to enumerate; every key in `family.keys` is attempted.

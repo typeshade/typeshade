@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 366 exports
+## `.` — 365 exports
 
 ```
 abs
@@ -46,7 +46,6 @@ buildRegistry
 BuildRegistryOptions
 builtin
 BuiltRegistry
-callFn
 Capabilities
 Capability
 capabilityMatrix
@@ -447,7 +446,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 223 exports
+## `./core/ir` — 222 exports
 
 ```
 abs
@@ -473,7 +472,6 @@ bool
 boolT
 Break
 Builder
-callFn
 Capability
 ceil
 clamp
@@ -675,7 +673,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 420 definitions
+## Shapes — 419 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -818,7 +816,6 @@ src/core/ir/node.ts#bindingRef  function  <T extends ShaderType>(name: string, t
 src/core/ir/node.ts#bitcastF32  const  (v: ReadonlyNode<"u32">) => Node<"f32">
 src/core/ir/node.ts#bitcastU32  const  (v: ReadonlyNode<"f32">) => Node<"u32">
 src/core/ir/node.ts#bool  const  (v: boolean) => Node<"bool">
-src/core/ir/node.ts#callFn  function  <T extends ShaderType>(name: string, ret: T, ...args: NodeLike[]) => Node<KeyOf<T>>
 src/core/ir/node.ts#ceil  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#clamp  const  <K extends FloatKey | IntKey>(x: ReadonlyNode<K>, lo: NoInfer<ArithArg<K>>, hi: NoInfer<ArithArg<K>>) => Node<K>
 src/core/ir/node.ts#constRef  function  <T extends ShaderType = { readonly kind: "scalar"; readonly scalar: "f32"; }>(name: string, type?: T) => ReadonlyNode<KeyOf<T>>

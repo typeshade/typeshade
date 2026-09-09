@@ -249,21 +249,26 @@ export function fixpoint(
 // tiers expose the intermediate points so a consumer can emit a debug build (O0,
 // naive — every author-written subexpr verbatim) or a bit-exact build (O1) and, in
 // particular, so the measurement util can A/B the optimizer's effect (O0 vs O2).
-/** A named optimization tier, in the C-compiler spelling. The line that matters to a caller is
- *  between O1 and O2, and it is not about how hard the optimizer tries:
+/** A named optimization level, spelled like a C compiler's `-O` flag. The distinction that
+ *  matters to a caller is between `'O1'` and `'O2'`, and it concerns whether computed values can
+ *  change:
  *
- *  - `'O0'` — nothing. Naive lowered emit; the size baseline the optimizer is measured against.
- *  - `'O1'` — the bit-exact value-MOVERS only. None of them changes WHICH float ops execute, so
- *    an O1 build's runtime values are bit-identical to O0's on every target.
- *  - `'O2'` — the full pipeline, and the emit default. Adds const-folding on floats, algebraic
- *    identities and LICM — passes that CAN move float semantics, which is why they sit behind
- *    the real-GPU f32 differential gate rather than being on at O1.
+ *  - `'O0'`: no pass runs. The module is emitted as authored, which makes it the size baseline
+ *    to compare the other levels against.
+ *  - `'O1'`: only the passes that move or remove values without changing which floating-point
+ *    operations execute (constant and copy propagation, dead-branch removal,
+ *    common-subexpression elimination, dead-code elimination). Every value an O1 build computes
+ *    at runtime is bit-identical to the O0 build's, on every target.
+ *  - `'O2'`: the full pipeline, and the default for every emit function. Adds constant folding on
+ *    floats, algebraic simplification and loop-invariant code motion. These passes can reorder
+ *    or replace floating-point operations, so a computed value is not guaranteed to be
+ *    bit-identical to the O0 build's.
  *
- *  So O0→O1 is free of numerical risk and O1→O2 is not. Pick O1 when a build must be provably
- *  value-identical to the unoptimized one; O2 otherwise. See `LEVEL_PASSES` for the exact list
- *  each tier runs and `optimizeAt` to apply one.
+ *  Choose `'O1'` when a build must be provably value-identical to the unoptimized one, and
+ *  `'O2'` otherwise. Pass a level to {@link emitModuleAt} to emit WGSL at it, or to
+ *  {@link lowerWgsl} to get the optimized module without emitting text.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `@xgis/shader-dsl`.
  */
 export type OptLevel = 'O0' | 'O1' | 'O2'
 

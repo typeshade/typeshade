@@ -35,51 +35,49 @@ function fnv1a(s: string): string {
 /** The emit target an identity is computed for. Spelled as the backends spell themselves. */
 export type EmitTarget = 'wgsl' | 'glsl-es300'
 
-/** Options that change emitted bytes and are not plugins. Kept as an explicit list rather
- *  than `keyof EmitOptions` so that adding an option is a REVIEWED decision about whether it
- *  belongs in the identity — a new byte-changing option silently absent from the stamp is
- *  the exact failure this file exists to prevent. */
+/** The emit options that change the emitted text, other than plugins. The list is explicit:
+ *  every option here is one axis of the identity that {@link emitIdentity} computes, and an
+ *  option that changes the emitted text belongs here so that the stamp describes it. */
 export interface EmitIdentityInput extends EmitOptions {
-  /** GLSL only — `emitGlslModule({ emulateCompute })` rewrites the entry, so it is a mode.
+  /** GLSL only. `emitGlslModule({ emulateCompute })` rewrites a compute entry into a fragment
+   *  shader, so it is an emit mode.
    *
-   *  The marker means THE COMPUTE→FRAGMENT LOWERING RAN, not "this flag was passed": since
-   *  #1812 a `portable`-declared compute entry runs the same lowering with no option at all,
-   *  so pass the module as {@link emitIdentity}'s third argument and the marker is derived
-   *  from either source. */
+   *  In the identity, the marker records that this compute-to-fragment rewrite ran, whether
+   *  because this option was passed or because the module declares a `portable` compute entry,
+   *  which takes the same path with no option. Pass the module as {@link emitIdentity}'s third
+   *  argument and the marker is derived from either source. */
   readonly emulateCompute?: boolean
-  /** GLSL only — pinned `override` values become hard `#define`s, so they change the bytes. */
+  /** GLSL only. Pinned `override` values become `#define`s, which changes the emitted text. */
   readonly overrideValues?: Readonly<Record<string, number | boolean>>
 }
 
 /**
- * A stable, human-readable identity for ONE emit configuration (#1715).
+ * A stable, human-readable identity for one emit configuration.
  *
  * ```ts
- * emitIdentity('glsl-es300')                                  // 'glsl-es300;parens=full;plugins=-#…'
+ * emitIdentity('glsl-es300')                       // 'glsl-es300;parens=full;fp64=float;plugins=-#…'
  * emitIdentity('glsl-es300', { plugins: obfuscate() })
  * //   '…;plugins=mangle+prune-prototypes+alias-types+minify#…'
  * ```
  *
- * Write it beside a committed artifact and compare it after a build. Equal stamps mean the
- * same emit configuration produced both; different stamps name which axis moved, because the
- * readable half is not hashed away.
+ * Write it beside a committed artifact (a registry banner, a manifest line, a file name) and
+ * compare it after a build. Equal stamps mean the same emit configuration produced both.
+ * Different stamps name which axis moved, because the readable half is not hashed away.
  *
- * WHAT IT COVERS: the target, `parens`, `fp64Flavor`, `emulateCompute`, whether override
- * values were pinned (and to what), and the plugin chain IN ORDER.
+ * The identity covers the target, `parens`, `fp64Flavor`, `emulateCompute`, whether override
+ * values were pinned (and to what), and the plugin chain in order.
  *
- * WHAT IT DOES NOT COVER, stated because a stamp that quietly under-describes is worse than
- * none: a plugin's own OPTIONS. `minify({ …a })` and `minify({ …b })` are both `minify` here.
- * A plugin that wants finer granularity sets {@link EmitPlugin.identity}, which is used in
- * place of its name — the prod plugins do not, today, because dev-vs-prod is the distinction
- * that was actually reported and plugin names separate those completely.
+ * It does not cover a plugin's own options: `minify({ …a })` and `minify({ …b })` are both
+ * `minify` here. A plugin that needs finer granularity sets {@link EmitPlugin.identity}, which
+ * is used in place of its name.
  *
- * @param target - which backend emitted the artifact.
+ * @param target - the backend that emitted the artifact.
  * @param opts - the same options object handed to the emit call.
- * @param m - OPTIONAL, and only meaningful when the identity describes ONE module's emit: the
- * module that was emitted. The `emulateCompute` marker means the compute→fragment lowering
- * RAN, and since #1812 a `portable`-declared compute entry runs it on GLSL with no emit option
- * — so without the module a portable module's GLSL stamp would claim a plain emit. A stamp
- * that covers MANY modules (a registry banner) omits this and keeps its option-only meaning.
+ * @param m - the module that was emitted. Optional, and only meaningful when the identity
+ * describes one module's emit. The `emulateCompute` marker records that the compute-to-fragment
+ * rewrite ran, and on GLSL a `portable`-declared compute entry runs it with no emit option, so
+ * without the module a portable module's GLSL stamp would describe a plain emit. A stamp that
+ * covers many modules (a registry banner) omits this argument and keeps its option-only meaning.
  * @returns a one-line identity: a readable summary, then `#` and a 32-bit digest of it.
  */
 export function emitIdentity(target: EmitTarget, opts?: EmitIdentityInput, m?: ModuleDecl): string {
