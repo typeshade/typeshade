@@ -3,7 +3,7 @@
 import type { ShaderType } from '../../core/ir/types.js'
 import type { FuncDecl } from '../../core/ir/nodes.js'
 
-export type BindingKind = 'param' | 'local'
+export type BindingKind = 'param' | 'local' | 'module'
 
 export interface Binding {
   readonly kind: BindingKind
