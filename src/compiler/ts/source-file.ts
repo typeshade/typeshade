@@ -1,7 +1,7 @@
 // === TypeShade source compiler entry point ===
 
 import ts from 'typescript'
-import type { ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
+import type { BindingDecl, ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
 import { emitFuncs, emitModule } from '../../core/backends/wgsl.js'
 import {
   findUseTypeshadeDirective,
@@ -11,6 +11,8 @@ import {
 import { lowerSourceFunctions } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
+import { collectBindings } from './bindings.js'
+import { collectStructs, type CollectedStruct } from './structs.js'
 import { TS_CODES } from './codes.js'
 
 export interface CompileTsSourceOptions {
@@ -33,6 +35,8 @@ export interface CompileTsSourceResult {
   readonly diagnostics: readonly TsCompilerDiagnostic[]
   readonly sourceFile: ts.SourceFile
   readonly consts: readonly ConstDecl[]
+  readonly bindings: readonly BindingDecl[]
+  readonly structs: readonly CollectedStruct[]
   readonly wgsl?: string
 }
 
@@ -51,6 +55,7 @@ export function compileTsSource(
   const diagnostics: TsCompilerDiagnostic[] = []
   const directive = findUseTypeshadeDirective(sourceFile)
   const hasDirective = directive !== undefined
+  const empty = { hasDirective: false, funcs: [], diagnostics, sourceFile, consts: [], bindings: [], structs: [] as CollectedStruct[] }
 
   if (!hasDirective) {
     if (options.requireDirective) {
@@ -63,32 +68,40 @@ export function compileTsSource(
         code: TS_CODES.MISSING_DIRECTIVE,
       })
     }
-    return { hasDirective: false, funcs: [], diagnostics, sourceFile, consts: [] }
+    return empty
   }
 
   analyzeSemantics(sourceFile, diagnostics)
+  const structs = collectStructs(sourceFile, diagnostics)
+  const bindings = collectBindings(sourceFile, diagnostics)
   const consts = collectModuleConsts(sourceFile, diagnostics)
   const funcs = lowerSourceFunctions(sourceFile, diagnostics, consts)
   let wgsl: string | undefined
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {
-      wgsl =
-        consts.length > 0
-          ? emitModule({ consts, structs: [], bindings: [], funcs: [...funcs] })
-          : emitFuncs(funcs)
-    } catch (e) {
-      diagnostics.push({
-        message: `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
-        fileName,
-        line: 1,
-        character: 1,
-        category: 'error',
-        code: TS_CODES.BACKEND,
+      wgsl = emitModule({
+        consts: [...consts],
+        structs: structs.map((s) => s.decl),
+        bindings: [...bindings],
+        funcs: [...funcs],
       })
+    } catch {
+      try {
+        wgsl = emitFuncs(funcs)
+      } catch (e) {
+        diagnostics.push({
+          message: `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
+          fileName,
+          line: 1,
+          character: 1,
+          category: 'error',
+          code: TS_CODES.BACKEND,
+        })
+      }
     }
   }
 
-  return { hasDirective: true, funcs, diagnostics, sourceFile, consts, wgsl }
+  return { hasDirective: true, funcs, diagnostics, sourceFile, consts, bindings, structs, wgsl }
 }
 
 export function isTypeshadeSource(source: string, fileName = 'check.ts'): boolean {
