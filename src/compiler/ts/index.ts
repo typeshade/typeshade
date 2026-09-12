@@ -1,11 +1,4 @@
 // === TypeShade TypeScript source compiler (public surface) ===
-//
-// Phase 1: directive detection
-// Phase 2: type mapping
-// Phase 3: expression lowering
-// Phase 4: statement lowering (const/let, return, if, assign)
-// Phase 5: function lowering + compileTsSource fills funcs
-// Phase 7 slice: Math.* aliases + math intrinsic calls
 
 export {
   compileTsSource,
@@ -31,6 +24,12 @@ export { lowerExpression, exprType } from './lower/expression.js'
 export { lowerStatements, lowerStatement } from './lower/statement.js'
 
 export { lowerSourceFunctions, lowerFunctionDeclaration } from './lower/function.js'
+
+export {
+  compileTsSources,
+  type CompileTsSourcesResult,
+  type TsSourceFileInput,
+} from './module.js'
 
 export {
   MATH_FN_ALIAS,
