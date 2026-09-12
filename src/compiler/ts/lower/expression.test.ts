@@ -5,7 +5,7 @@ import ts from 'typescript'
 import { lowerExpression } from './expression.js'
 import { LoweringScope } from '../context.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
+import { f32T, i32T, boolT, typeKey } from '../../../core/ir/types.js'
 import type { Expr } from '../../../core/ir/nodes.js'
 
 function parseExpr(source: string): { expr: ts.Expression; sourceFile: ts.SourceFile } {
@@ -39,6 +39,9 @@ function withParams(scope: LoweringScope): void {
   scope.define({ kind: 'param', name: 'a', type: f32T })
   scope.define({ kind: 'param', name: 'b', type: f32T })
   scope.define({ kind: 'param', name: 'flag', type: boolT })
+  scope.define({ kind: 'param', name: 'i', type: i32T })
+  scope.define({ kind: 'param', name: 'j', type: i32T })
+  scope.define({ kind: 'param', name: 'c', type: boolT })
 }
 
 describe('Phase 3 - expression lowering', () => {
@@ -162,6 +165,58 @@ describe('Phase 3 - expression lowering', () => {
       expect(expr.a.op).toBe('binop')
       expect(expr.b).toEqual({ op: 'lit', type: f32T, value: 2 })
     }
+  })
+
+  it('lowers a % b to binop %', () => {
+    const { expr, diagnostics } = lower('a % b', withParams)
+    expect(diagnostics).toEqual([])
+    expect(expr!.op).toBe('binop')
+    if (expr!.op === 'binop') {
+      expect(expr.bop).toBe('%')
+      expect(typeKey(expr.type)).toBe('f32')
+    }
+  })
+
+  it('lowers bitwise & | ^ << >>', () => {
+    for (const [src, bop] of [
+      ['i & j', '&'],
+      ['i | j', '|'],
+      ['i ^ j', '^'],
+      ['i << j', '<<'],
+      ['i >> j', '>>'],
+    ] as const) {
+      const { expr, diagnostics } = lower(src, withParams)
+      expect(diagnostics).toEqual([])
+      expect(expr!.op).toBe('binop')
+      if (expr!.op === 'binop') expect(expr.bop).toBe(bop)
+    }
+  })
+
+  it('rejects unsigned >>> shift', () => {
+    const { expr, diagnostics } = lower('i >>> j', withParams)
+    expect(expr).toBeUndefined()
+    expect(diagnostics[0]!.message).toMatch(/>>>/)
+  })
+
+  it('lowers logical && and ||', () => {
+    for (const [src, lop] of [
+      ['flag && c', '&&'],
+      ['flag || c', '||'],
+    ] as const) {
+      const { expr, diagnostics } = lower(src, withParams)
+      expect(diagnostics).toEqual([])
+      expect(expr!.op).toBe('logical')
+      if (expr!.op === 'logical') {
+        expect(expr.lop).toBe(lop)
+        expect(typeKey(expr.type)).toBe('bool')
+      }
+    }
+  })
+
+  it('rejects logical ops on non-bool', () => {
+    const { expr, diagnostics } = lower('a && b', withParams)
+    expect(expr).toBeUndefined()
+    expect(diagnostics[0]!.message).toMatch(/bool operands/)
   })
 
   it('rejects type-mismatched arithmetic', () => {
