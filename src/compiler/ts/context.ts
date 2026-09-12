@@ -13,22 +13,57 @@ export interface Binding {
 }
 
 /**
- * Mutable scope for lowering a function body.
- * Phase 3 only needs resolve(); later phases push locals on const/let.
+ * Nested lexical scope for lowering a function body.
+ *
+ * - `define` writes to the current frame only
+ * - `resolve` walks parent frames (params live in the outermost frame)
+ * - `push` / `pop` open and close block scopes (if/else bodies)
  */
 export class LoweringScope {
-  private readonly map = new Map<string, Binding>()
+  private readonly frames: Map<string, Binding>[] = [new Map()]
 
+  /** Define a binding in the current frame. Throws if the name already exists here. */
   define(binding: Binding): void {
-    this.map.set(binding.name, binding)
+    const top = this.frames[this.frames.length - 1]!
+    if (top.has(binding.name)) {
+      throw new Error(`Duplicate binding "${binding.name}" in current scope frame`)
+    }
+    top.set(binding.name, binding)
   }
 
+  /** Resolve a name by walking frames from innermost to outermost. */
   resolve(name: string): Binding | undefined {
-    return this.map.get(name)
+    for (let i = this.frames.length - 1; i >= 0; i--) {
+      const hit = this.frames[i]!.get(name)
+      if (hit) return hit
+    }
+    return undefined
   }
 
-  /** Snapshot of all bindings (for tests / debugging). */
+  /** Whether the name is already defined in the *current* frame (not parents). */
+  hasInCurrent(name: string): boolean {
+    return this.frames[this.frames.length - 1]!.has(name)
+  }
+
+  /** Open a nested block scope. */
+  push(): void {
+    this.frames.push(new Map())
+  }
+
+  /** Close the innermost block scope. */
+  pop(): void {
+    if (this.frames.length <= 1) {
+      throw new Error('Cannot pop the root scope frame')
+    }
+    this.frames.pop()
+  }
+
+  /** Snapshot of all visible bindings (innermost wins). */
   entries(): readonly Binding[] {
-    return [...this.map.values()]
+    const merged = new Map<string, Binding>()
+    for (const frame of this.frames) {
+      for (const [k, v] of frame) merged.set(k, v)
+    }
+    return [...merged.values()]
   }
 }
