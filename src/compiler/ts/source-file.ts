@@ -1,8 +1,8 @@
 // === TypeShade source compiler entry point ===
 
 import ts from 'typescript'
-import type { FuncDecl } from '../../core/ir/nodes.js'
-import { emitFuncs } from '../../core/backends/wgsl.js'
+import type { ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
+import { emitFuncs, emitModule } from '../../core/backends/wgsl.js'
 import {
   findUseTypeshadeDirective,
   hasUseTypeshadeDirective,
@@ -10,6 +10,7 @@ import {
 } from './directive.js'
 import { lowerSourceFunctions } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
+import { collectModuleConsts } from './module-const.js'
 import { TS_CODES } from './codes.js'
 
 export interface CompileTsSourceOptions {
@@ -31,6 +32,7 @@ export interface CompileTsSourceResult {
   readonly funcs: readonly FuncDecl[]
   readonly diagnostics: readonly TsCompilerDiagnostic[]
   readonly sourceFile: ts.SourceFile
+  readonly consts: readonly ConstDecl[]
   readonly wgsl?: string
 }
 
@@ -61,15 +63,19 @@ export function compileTsSource(
         code: TS_CODES.MISSING_DIRECTIVE,
       })
     }
-    return { hasDirective: false, funcs: [], diagnostics, sourceFile }
+    return { hasDirective: false, funcs: [], diagnostics, sourceFile, consts: [] }
   }
 
   analyzeSemantics(sourceFile, diagnostics)
-  const funcs = lowerSourceFunctions(sourceFile, diagnostics)
+  const consts = collectModuleConsts(sourceFile, diagnostics)
+  const funcs = lowerSourceFunctions(sourceFile, diagnostics, consts)
   let wgsl: string | undefined
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {
-      wgsl = emitFuncs(funcs)
+      wgsl =
+        consts.length > 0
+          ? emitModule({ consts, structs: [], bindings: [], funcs: [...funcs] })
+          : emitFuncs(funcs)
     } catch (e) {
       diagnostics.push({
         message: `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -82,7 +88,7 @@ export function compileTsSource(
     }
   }
 
-  return { hasDirective: true, funcs, diagnostics, sourceFile, wgsl }
+  return { hasDirective: true, funcs, diagnostics, sourceFile, consts, wgsl }
 }
 
 export function isTypeshadeSource(source: string, fileName = 'check.ts'): boolean {
