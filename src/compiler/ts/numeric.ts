@@ -18,22 +18,22 @@ export function isNumericScalarType(t: ShaderType): boolean {
 export function numericMismatch(op: string, left: ShaderType, right: ShaderType): string {
   const lk = typeKey(left)
   const rk = typeKey(right)
-  if (lk === rk) return `${op}: unexpected same-type mismatch.`
+  if (lk === rk) return `Type mismatch in ${op}: unexpected same-type mismatch.`
   const pair = `${lk} and ${rk}`
   const ints = (lk === 'i32' && rk === 'u32') || (lk === 'u32' && rk === 'i32')
   if (ints) {
     return (
-      `Cannot ${op} ${pair} — WGSL has no implicit integer conversion. ` +
+      `Type mismatch: cannot ${op} ${pair} — WGSL has no implicit integer conversion. ` +
       `Cast one side: ${lk}(…) or ${rk}(…), e.g. a + ${lk === 'i32' ? 'i32' : 'u32'}(b).`
     )
   }
   if ((lk === 'f32' && (rk === 'i32' || rk === 'u32')) || (rk === 'f32' && (lk === 'i32' || lk === 'u32'))) {
     return (
-      `Cannot ${op} ${pair} — no implicit int/float conversion. ` +
+      `Type mismatch: cannot ${op} ${pair} — no implicit int/float conversion. ` +
       `Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).`
     )
   }
-  return `Cannot ${op} ${pair}. Types must match, or cast with f32()/i32()/u32().`
+  return `Type mismatch: cannot ${op} ${pair}. Types must match, or cast with f32()/i32()/u32().`
 }
 
 export function lowerScalarCast(name: string, arg: Expr): Expr | string {
