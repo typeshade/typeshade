@@ -50,6 +50,8 @@ export function collectStructs(
       const builtin = stringDecorator(member, 'builtin')
       if (loc !== undefined) (field as { location?: number }).location = loc
       if (builtin) (field as { builtin?: string }).builtin = builtin
+      if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
+      else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
       fields.push(field)
     }
     out.push({ decl: { name: stmt.name.text, fields }, packing: 'wgsl' })

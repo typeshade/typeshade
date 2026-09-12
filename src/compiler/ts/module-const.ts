@@ -8,6 +8,7 @@ import { LoweringScope } from './context.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { foldConstValue } from './loop-bound.js'
 import { lowerExpression } from './lower/expression.js'
+import { isResourceCall } from './bindings.js'
 import { TS_CODES } from './codes.js'
 
 function isTopLevelConst(stmt: ts.Statement): stmt is ts.VariableStatement {
@@ -22,6 +23,7 @@ export function collectModuleConsts(
   const out: ConstDecl[] = []
   for (const stmt of sourceFile.statements) {
     if (!isTopLevelConst(stmt)) continue
+    if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue
     for (const decl of stmt.declarationList.declarations) {
       const c = lowerOne(decl, sourceFile, scope, diagnostics)
       if (c) out.push(c)
@@ -59,6 +61,7 @@ function lowerOne(
     })
     return undefined
   }
+  if (decl.initializer && isResourceCall(decl.initializer)) return undefined
   if (!decl.initializer) {
     diagnostics.push({
       message: `Module const "${name}" needs an initializer.`,
