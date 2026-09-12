@@ -7,8 +7,8 @@
 //   x = expr             assign
 //   x += expr  (and -= *= /= %=)  assignOp
 //
+// const is immutable (assign rejected). let / param are mutable.
 // Numeric literals default to f32. Annotations retarget numeric lits.
-// C-style suffixes (0.0f) are NOT supported.
 
 import ts from 'typescript'
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
@@ -185,7 +185,7 @@ function lowerVariableDeclaration(
   const bindingType = annotated ?? init.type
 
   try {
-    scope.define({ kind: 'local', name, type: bindingType })
+    scope.define({ kind: 'local', name, type: bindingType, mutable: !isConst })
   } catch (e) {
     pushDiag(diagnostics, sourceFile, decl.name, e instanceof Error ? e.message : String(e))
     return undefined
@@ -288,6 +288,15 @@ function lowerLValue(
   const binding = scope.resolve(node.text)
   if (!binding) {
     pushDiag(diagnostics, sourceFile, node, `Cannot assign to unknown name "${node.text}".`)
+    return undefined
+  }
+  if (!binding.mutable) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${node.text}" \u2014 it is declared with const (immutable).`,
+    )
     return undefined
   }
   if (binding.kind === 'param') {
