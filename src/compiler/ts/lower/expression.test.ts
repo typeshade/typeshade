@@ -167,14 +167,27 @@ describe('Phase 3 - expression lowering', () => {
     }
   })
 
-  it('lowers a % b to binop %', () => {
+  it('lowers a % b to truncated binop %, never call(mod)', () => {
+    // TS/WGSL/JS `%` is truncated mod (sign of dividend).
+    // Free-function mod(x,y) is floor mod and must stay a call (Phase 6).
     const { expr, diagnostics } = lower('a % b', withParams)
     expect(diagnostics).toEqual([])
     expect(expr!.op).toBe('binop')
+    expect(expr!.op).not.toBe('call')
     if (expr!.op === 'binop') {
       expect(expr.bop).toBe('%')
       expect(typeKey(expr.type)).toBe('f32')
+      expect(expr.a).toEqual({ op: 'param', type: f32T, name: 'a' })
+      expect(expr.b).toEqual({ op: 'param', type: f32T, name: 'b' })
     }
+  })
+
+  it('diagnoses mod(a, b) as Phase 6 floor-mod, not %', () => {
+    const { expr, diagnostics } = lower('mod(a, b)', withParams)
+    expect(expr).toBeUndefined()
+    expect(diagnostics.length).toBeGreaterThanOrEqual(1)
+    expect(diagnostics[0]!.message).toMatch(/floor-modulo|Phase 6/)
+    expect(diagnostics[0]!.message).toMatch(/%/)
   })
 
   it('lowers bitwise & | ^ << >>', () => {
