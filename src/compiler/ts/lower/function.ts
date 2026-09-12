@@ -12,6 +12,7 @@ import { lowerStatements } from './statement.js'
 export function lowerSourceFunctions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  consts: readonly { name: string; type: ShaderType }[] = [],
 ): FuncDecl[] {
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
   const callees = new Map<string, FuncDecl>()
@@ -29,7 +30,7 @@ export function lowerSourceFunctions(
   const funcs: FuncDecl[] = []
   for (const stmt of ready) {
     const stub = callees.get(stmt.name!.text)!
-    fillFunctionBody(stmt, stub, sourceFile, diagnostics, callees)
+    fillFunctionBody(stmt, stub, sourceFile, diagnostics, callees, consts)
     funcs.push(stub)
   }
   return funcs
@@ -63,7 +64,7 @@ export function parseSignature(
     return undefined
   }
   const name = node.name.text
-  const params: FuncDecl['params'] = []
+  const params: { name: string; type: ShaderType }[] = []
   for (const p of node.parameters) {
     if (!ts.isIdentifier(p.name)) {
       pushDiag(diagnostics, sourceFile, p, 'Parameter must be a simple identifier.')
@@ -113,8 +114,12 @@ export function fillFunctionBody(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   callees: Map<string, FuncDecl>,
+  consts: readonly { name: string; type: ShaderType }[] = [],
 ): void {
   const scope = new LoweringScope(callees)
+  for (const c of consts) {
+    scope.define({ kind: 'module', name: c.name, type: c.type, mutable: false })
+  }
   for (const p of stub.params) {
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })
   }
