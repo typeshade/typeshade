@@ -1,4 +1,4 @@
-// Phase 12 slice: ban host/JS surface inside "use typeshade" files.
+// Ban host/JS surface inside "use typeshade" files.
 
 import ts from 'typescript'
 import type { TsCompilerDiagnostic } from './source-file.js'
@@ -72,8 +72,8 @@ function visit(node: ts.Node, sourceFile: ts.SourceFile, diagnostics: TsCompiler
   if (ts.isTryStatement(node) || ts.isThrowStatement(node)) {
     push(diagnostics, sourceFile, node, 'try/catch/throw are JS exceptions. TypeShade has no exception path.', TS_CODES.HOST_STMT)
   }
-  if (ts.isClassDeclaration(node) || ts.isNewExpression(node)) {
-    push(diagnostics, sourceFile, node, '`class` / `new` allocate JS objects. Use struct types and vec constructors.', TS_CODES.HOST_STMT)
+  if (ts.isNewExpression(node)) {
+    push(diagnostics, sourceFile, node, '`new` allocates a JS object. Use struct types and vec constructors.', TS_CODES.HOST_STMT)
   }
   if (ts.isTaggedTemplateExpression(node) || ts.isTemplateExpression(node)) {
     push(diagnostics, sourceFile, node, 'Template strings are JS. TypeShade has no string type.', TS_CODES.HOST_STMT)
@@ -104,6 +104,7 @@ const ALLOWED_TOP = new Set([
   ts.SyntaxKind.ExportAssignment,
   ts.SyntaxKind.TypeAliasDeclaration,
   ts.SyntaxKind.InterfaceDeclaration,
+  ts.SyntaxKind.ClassDeclaration,
   ts.SyntaxKind.ExpressionStatement,
 ])
 
@@ -121,21 +122,34 @@ export function analyzeSemantics(sourceFile: ts.SourceFile, diagnostics: TsCompi
       )
       continue
     }
-    if (!ALLOWED_TOP.has(stmt.kind) && !ts.isVariableStatement(stmt)) {
+    if (ts.isVariableStatement(stmt)) {
+      const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
+      const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0
+      if (isLet) {
+        push(
+          diagnostics,
+          sourceFile,
+          stmt,
+          'Top-level let is not a shader global. Use `const` or put the value inside a function.',
+          TS_CODES.TOP_LEVEL,
+        )
+      } else if (!isConst) {
+        push(
+          diagnostics,
+          sourceFile,
+          stmt,
+          'Top-level var is not allowed. Use `const` for a module constant.',
+          TS_CODES.TOP_LEVEL,
+        )
+      }
+      continue
+    }
+    if (!ALLOWED_TOP.has(stmt.kind)) {
       push(
         diagnostics,
         sourceFile,
         stmt,
         `Unsupported top-level "${ts.SyntaxKind[stmt.kind]}". A TypeShade file is directive + types + functions + imports.`,
-        TS_CODES.TOP_LEVEL,
-      )
-    }
-    if (ts.isVariableStatement(stmt)) {
-      push(
-        diagnostics,
-        sourceFile,
-        stmt,
-        'Top-level let/const is not a shader global yet. Put values inside a function or use a function-local const.',
         TS_CODES.TOP_LEVEL,
       )
     }
