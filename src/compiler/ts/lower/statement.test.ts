@@ -83,7 +83,7 @@ describe('Phase 4 - statement lowering', () => {
 
   it('lowers return with expression', () => {
     const { stmts, diagnostics } = lower('return 1.;', (s) => {
-      s.define({ kind: 'param', name: 'a', type: f32T })
+      s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
     })
     expect(diagnostics).toEqual([])
     expect(stmts[0]).toEqual({ s: 'return', expr: { op: 'lit', type: f32T, value: 1 } })
@@ -93,7 +93,7 @@ describe('Phase 4 - statement lowering', () => {
     const { stmts, diagnostics } = lower(
       'if (flag) { return 1.; } else { return 0.; }',
       (s) => {
-        s.define({ kind: 'param', name: 'flag', type: boolT })
+        s.define({ kind: 'param', name: 'flag', type: boolT, mutable: true })
       },
     )
     expect(diagnostics).toEqual([])
@@ -109,8 +109,8 @@ describe('Phase 4 - statement lowering', () => {
     const { stmts, diagnostics } = lower(
       `if (a) { return 1.; } else if (b) { return 2.; } else { return 0.; }`,
       (s) => {
-        s.define({ kind: 'param', name: 'a', type: boolT })
-        s.define({ kind: 'param', name: 'b', type: boolT })
+        s.define({ kind: 'param', name: 'a', type: boolT, mutable: true })
+        s.define({ kind: 'param', name: 'b', type: boolT, mutable: true })
       },
     )
     expect(diagnostics).toEqual([])
@@ -133,20 +133,72 @@ describe('Phase 4 - statement lowering', () => {
 
   it('rejects non-bool if condition', () => {
     const { diagnostics } = lower('if (a) { return 1.; }', (s) => {
-      s.define({ kind: 'param', name: 'a', type: f32T })
+      s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
     })
     expect(diagnostics[0]!.message).toMatch(/bool/)
   })
 
   it('const x = a + b uses expression lowering', () => {
     const { stmts, diagnostics } = lower('const x = a + b;\nreturn x;', (s) => {
-      s.define({ kind: 'param', name: 'a', type: f32T })
-      s.define({ kind: 'param', name: 'b', type: f32T })
+      s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
+      s.define({ kind: 'param', name: 'b', type: f32T, mutable: true })
     })
     expect(diagnostics).toEqual([])
     expect(stmts[0]!.s).toBe('let')
     if (stmts[0]!.s === 'let') {
       expect(stmts[0].expr.op).toBe('binop')
     }
+  })
+
+  it('lowers x = expr to assign', () => {
+    const { stmts, diagnostics } = lower('let y = a;\ny = b;', (s) => {
+      s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
+      s.define({ kind: 'param', name: 'b', type: f32T, mutable: true })
+    })
+    expect(diagnostics).toEqual([])
+    expect(stmts.some((st) => st.s === 'assign')).toBe(true)
+  })
+
+  it('lowers y += 1 to assignOp', () => {
+    const { stmts, diagnostics } = lower('let y = a;\ny += 1;', (s) => {
+      s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
+    })
+    expect(diagnostics).toEqual([])
+    const op = stmts.find((st) => st.s === 'assignOp')
+    expect(op).toBeDefined()
+    if (op && op.s === 'assignOp') expect(op.bop).toBe('+')
+  })
+
+  it('rejects assign to const', () => {
+    const { diagnostics } = lower('const x = 1.;\nx = 2.;')
+    expect(diagnostics.some((d) => /const|immutable/i.test(d.message))).toBe(true)
+  })
+
+  it('block scope does not leak const from if body', () => {
+    const { stmts, diagnostics, scope } = lower(
+      'if (flag) { const inner = 1.; }\nreturn a;',
+      (s) => {
+        s.define({ kind: 'param', name: 'flag', type: boolT, mutable: true })
+        s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
+      },
+    )
+    expect(diagnostics).toEqual([])
+    expect(scope.resolve('inner')).toBeUndefined()
+  })
+
+  it('rejects duplicate const in same scope', () => {
+    const { diagnostics } = lower('const x = 1.;\nconst x = 2.;')
+    expect(diagnostics.some((d) => /Duplicate/i.test(d.message))).toBe(true)
+  })
+
+  it('lowers bare return', () => {
+    const { stmts, diagnostics } = lower('return;')
+    expect(diagnostics).toEqual([])
+    expect(stmts[0]).toEqual({ s: 'return' })
+  })
+
+  it('rejects JS var keyword message mentions const/let', () => {
+    const { diagnostics } = lower('var z = 1;')
+    expect(diagnostics[0]!.message).toMatch(/const|let/)
   })
 })
