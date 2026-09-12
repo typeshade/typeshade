@@ -16,8 +16,10 @@ function at(xs: Expr, i: number, elem: ShaderType): Expr {
   return { op: 'index', type: elem, base: xs, idx: { op: 'lit', type: i32T, value: i } }
 }
 
-function sized(t: ShaderType): t is Extract<ShaderType, { kind: 'array' }> & { size: number } {
-  return t.kind === 'array' && typeof t.size === 'number'
+type SizedArray = { readonly kind: 'array'; readonly elem: ShaderType; readonly size: number }
+
+function asSized(t: ShaderType): SizedArray | undefined {
+  return t.kind === 'array' && typeof t.size === 'number' ? { kind: 'array', elem: t.elem, size: t.size } : undefined
 }
 
 function tooBig(n: number, node: ts.Node, sourceFile: ts.SourceFile, diagnostics: TsCompilerDiagnostic[]): boolean {
@@ -65,40 +67,41 @@ function pairArrays(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): { n: number; elem: ShaderType; aAt: (i: number) => Expr; bAt: (i: number) => Expr } | undefined {
-  const la = sized(left.type)
-  const ra = sized(right.type)
+  const la = asSized(left.type)
+  const ra = asSized(right.type)
   if (!la && !ra) return undefined
   if (la && ra) {
-    if (left.type.size !== right.type.size) {
-      diagnostics.push(err(sourceFile, node, `Broadcast length mismatch: ${left.type.size} vs ${right.type.size}.`))
+    if (la.size !== ra.size) {
+      diagnostics.push(err(sourceFile, node, `Broadcast length mismatch: ${la.size} vs ${ra.size}.`))
       return undefined
     }
-    if (typeKey(left.type.elem) !== typeKey(right.type.elem)) {
+    if (typeKey(la.elem) !== typeKey(ra.elem)) {
       diagnostics.push(err(sourceFile, node, `Broadcast element mismatch.`))
       return undefined
     }
-    if (tooBig(left.type.size, node, sourceFile, diagnostics)) return undefined
-    const n = left.type.size
-    const elem = left.type.elem
+    if (tooBig(la.size, node, sourceFile, diagnostics)) return undefined
+    const n = la.size
+    const elem = la.elem
     return { n, elem, aAt: (i) => at(left, i, elem), bAt: (i) => at(right, i, elem) }
   }
   if (la) {
-    if (typeKey(left.type.elem) !== typeKey(right.type)) {
-      diagnostics.push(err(sourceFile, node, `Broadcast scalar must be ${typeKey(left.type.elem)}.`))
+    if (typeKey(la.elem) !== typeKey(right.type)) {
+      diagnostics.push(err(sourceFile, node, `Broadcast scalar must be ${typeKey(la.elem)}.`))
       return undefined
     }
-    if (tooBig(left.type.size, node, sourceFile, diagnostics)) return undefined
-    const n = left.type.size
-    const elem = left.type.elem
+    if (tooBig(la.size, node, sourceFile, diagnostics)) return undefined
+    const n = la.size
+    const elem = la.elem
     return { n, elem, aAt: (i) => at(left, i, elem), bAt: () => right }
   }
-  if (typeKey(right.type.elem) !== typeKey(left.type)) {
-    diagnostics.push(err(sourceFile, node, `Broadcast scalar must be ${typeKey(right.type.elem)}.`))
+  if (!ra) return undefined
+  if (typeKey(ra.elem) !== typeKey(left.type)) {
+    diagnostics.push(err(sourceFile, node, `Broadcast scalar must be ${typeKey(ra.elem)}.`))
     return undefined
   }
-  if (tooBig(right.type.size, node, sourceFile, diagnostics)) return undefined
-  const n = right.type.size
-  const elem = right.type.elem
+  if (tooBig(ra.size, node, sourceFile, diagnostics)) return undefined
+  const n = ra.size
+  const elem = ra.elem
   return { n, elem, aAt: () => left, bAt: (i) => at(right, i, elem) }
 }
 
@@ -110,7 +113,7 @@ export function lowerArrayNumpy(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | 'fallback' | undefined {
   if (name === 'dot') {
-    if (args.length !== 2 || !sized(args[0]!.type) || !sized(args[1]!.type)) return 'fallback'
+    if (args.length !== 2 || !asSized(args[0]!.type) || !asSized(args[1]!.type)) return 'fallback'
     return lowerDot(args[0]!, args[1]!, node, sourceFile, diagnostics)
   }
   if (name === 'clip') return lowerClip(args, node, sourceFile, diagnostics)
@@ -122,16 +125,18 @@ export function lowerArrayNumpy(
 function lowerDot(
   xs: Expr, ys: Expr, node: ts.Node, sourceFile: ts.SourceFile, diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  if (xs.type.size !== ys.type.size) {
-    diagnostics.push(err(sourceFile, node, `dot length mismatch: ${xs.type.size} vs ${ys.type.size}.`))
+  const xa = asSized(xs.type)!
+  const ya = asSized(ys.type)!
+  if (xa.size !== ya.size) {
+    diagnostics.push(err(sourceFile, node, `dot length mismatch: ${xa.size} vs ${ya.size}.`))
     return undefined
   }
-  if (typeKey(xs.type.elem) !== typeKey(ys.type.elem)) {
+  if (typeKey(xa.elem) !== typeKey(ya.elem)) {
     diagnostics.push(err(sourceFile, node, 'dot element types must match.'))
     return undefined
   }
-  const n = xs.type.size
-  const elem = xs.type.elem
+  const n = xa.size
+  const elem = xa.elem
   if (n < 1 || tooBig(n, node, sourceFile, diagnostics)) return undefined
   let acc: Expr = { op: 'binop', type: elem, bop: '*', a: at(xs, 0, elem), b: at(ys, 0, elem) }
   for (let i = 1; i < n; i++) {
@@ -149,12 +154,13 @@ function lowerClip(
     return undefined
   }
   const xs = args[0]!, lo = args[1]!, hi = args[2]!
-  if (!sized(xs.type)) {
+  if (!asSized(xs.type)) {
     diagnostics.push(err(sourceFile, node, 'clip(xs, lo, hi) needs array<T, N> as xs.'))
     return undefined
   }
-  const n = xs.type.size
-  const elem = xs.type.elem
+  const xa = asSized(xs.type)!
+  const n = xa.size
+  const elem = xa.elem
   if (tooBig(n, node, sourceFile, diagnostics)) return undefined
   const loAt = lane(lo, n, elem, 'lo', node, sourceFile, diagnostics)
   const hiAt = lane(hi, n, elem, 'hi', node, sourceFile, diagnostics)
@@ -175,13 +181,15 @@ function lowerWhere(
     return undefined
   }
   const mask = args[0]!, a = args[1]!, b = args[2]!
-  if (!sized(mask.type) || typeKey(mask.type.elem) !== 'bool') {
+  const ma = asSized(mask.type)
+  if (!ma || typeKey(ma.elem) !== 'bool') {
     diagnostics.push(err(sourceFile, node, 'where mask must be array<bool, N>.'))
     return undefined
   }
-  const n = mask.type.size
+  const n = ma.size
   if (tooBig(n, node, sourceFile, diagnostics)) return undefined
-  const elem = sized(a.type) ? a.type.elem : a.type
+  const ae = asSized(a.type)
+  const elem = ae ? ae.elem : a.type
   const aAt = lane(a, n, elem, 'a', node, sourceFile, diagnostics)
   const bAt = lane(b, n, elem, 'b', node, sourceFile, diagnostics)
   if (!aAt || !bAt) return undefined
@@ -195,13 +203,14 @@ function lowerWhere(
 function lowerScan(
   args: readonly Expr[], node: ts.Node, sourceFile: ts.SourceFile, diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  if (args.length !== 1 || !sized(args[0]!.type)) {
+  if (args.length !== 1 || !asSized(args[0]!.type)) {
     diagnostics.push(err(sourceFile, node, 'scan(xs) needs array<T, N>.'))
     return undefined
   }
   const xs = args[0]!
-  const n = xs.type.size
-  const elem = xs.type.elem
+  const xa = asSized(xs.type)!
+  const n = xa.size
+  const elem = xa.elem
   const k = typeKey(elem)
   if (k !== 'f32' && k !== 'i32' && k !== 'u32') {
     diagnostics.push(err(sourceFile, node, 'scan needs a numeric array.'))
@@ -221,12 +230,13 @@ function lane(
   expr: Expr, n: number, elem: ShaderType, label: string,
   node: ts.Node, sourceFile: ts.SourceFile, diagnostics: TsCompilerDiagnostic[],
 ): ((i: number) => Expr) | undefined {
-  if (sized(expr.type)) {
-    if (expr.type.size !== n) {
-      diagnostics.push(err(sourceFile, node, `${label} length mismatch: ${expr.type.size} vs ${n}.`))
+  const ea = asSized(expr.type)
+  if (ea) {
+    if (ea.size !== n) {
+      diagnostics.push(err(sourceFile, node, `${label} length mismatch: ${ea.size} vs ${n}.`))
       return undefined
     }
-    if (typeKey(expr.type.elem) !== typeKey(elem)) {
+    if (typeKey(ea.elem) !== typeKey(elem)) {
       diagnostics.push(err(sourceFile, node, `${label} element type mismatch.`))
       return undefined
     }
