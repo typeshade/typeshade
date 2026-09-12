@@ -36,12 +36,12 @@ function lower(
 }
 
 function withParams(scope: LoweringScope): void {
-  scope.define({ kind: 'param', name: 'a', type: f32T })
-  scope.define({ kind: 'param', name: 'b', type: f32T })
-  scope.define({ kind: 'param', name: 'flag', type: boolT })
-  scope.define({ kind: 'param', name: 'i', type: i32T })
-  scope.define({ kind: 'param', name: 'j', type: i32T })
-  scope.define({ kind: 'param', name: 'c', type: boolT })
+  scope.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
+  scope.define({ kind: 'param', name: 'b', type: f32T, mutable: true })
+  scope.define({ kind: 'param', name: 'flag', type: boolT, mutable: true })
+  scope.define({ kind: 'param', name: 'i', type: i32T, mutable: true })
+  scope.define({ kind: 'param', name: 'j', type: i32T, mutable: true })
+  scope.define({ kind: 'param', name: 'c', type: boolT, mutable: true })
 }
 
 describe('Phase 3 - expression lowering', () => {
@@ -64,7 +64,7 @@ describe('Phase 3 - expression lowering', () => {
 
   it('lowers a local identifier to varref', () => {
     const { expr, diagnostics } = lower('x', (s) => {
-      s.define({ kind: 'local', name: 'x', type: f32T })
+      s.define({ kind: 'local', name: 'x', type: f32T, mutable: true })
     })
     expect(diagnostics).toEqual([])
     expect(expr).toEqual({ op: 'varref', type: f32T, name: 'x' })
@@ -168,8 +168,6 @@ describe('Phase 3 - expression lowering', () => {
   })
 
   it('lowers a % b to truncated binop %, never call(mod)', () => {
-    // TS/WGSL/JS `%` is truncated mod (sign of dividend).
-    // Free-function mod(x,y) is floor mod and must stay a call (Phase 6).
     const { expr, diagnostics } = lower('a % b', withParams)
     expect(diagnostics).toEqual([])
     expect(expr!.op).toBe('binop')
@@ -236,5 +234,48 @@ describe('Phase 3 - expression lowering', () => {
     const { expr, diagnostics } = lower('a + flag', withParams)
     expect(expr).toBeUndefined()
     expect(diagnostics[0]!.message).toMatch(/type mismatch/)
+  })
+
+  it('lowers chained arithmetic with left-assoc shape', () => {
+    const { expr, diagnostics } = lower('a + b * 2', withParams)
+    expect(diagnostics).toEqual([])
+    expect(expr!.op).toBe('binop')
+    if (expr!.op === 'binop') {
+      expect(expr.bop).toBe('+')
+      expect(expr.b.op).toBe('binop')
+      if (expr.b.op === 'binop') expect(expr.b.bop).toBe('*')
+    }
+  })
+
+  it('lowers nested parentheses', () => {
+    const { expr, diagnostics } = lower('((a))', withParams)
+    expect(diagnostics).toEqual([])
+    expect(expr).toEqual({ op: 'param', type: f32T, name: 'a' })
+  })
+
+  it('lowers float literal 1.5', () => {
+    const { expr, diagnostics } = lower('1.5')
+    expect(diagnostics).toEqual([])
+    expect(expr).toEqual({ op: 'lit', type: f32T, value: 1.5 })
+  })
+
+  it('lowers a % b after % policy', () => {
+    const { expr, diagnostics } = lower('a % b', withParams)
+    expect(diagnostics).toEqual([])
+    expect(expr!.op).toBe('binop')
+    if (expr!.op === 'binop') expect(expr.bop).toBe('%')
+  })
+
+  it('rejects call to unknown free function foo()', () => {
+    const { expr, diagnostics } = lower('foo(a)', withParams)
+    expect(expr).toBeUndefined()
+    expect(diagnostics[0]!.message).toMatch(/Phase 3|Function calls|Phase 6/)
+  })
+
+  it('diagnostic includes line and character', () => {
+    const { diagnostics } = lower('missing')
+    expect(diagnostics[0]!.line).toBeGreaterThanOrEqual(1)
+    expect(diagnostics[0]!.character).toBeGreaterThanOrEqual(1)
+    expect(diagnostics[0]!.category).toBe('error')
   })
 })
