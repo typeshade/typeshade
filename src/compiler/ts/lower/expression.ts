@@ -17,6 +17,7 @@ import { expandMath } from '../math-expand.js'
 import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
 import { SCALAR_CAST, lowerScalarCast, numericMismatch } from '../numeric.js'
+import { retargetIntLit } from '../lit-coerce.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 
 const ARITH: Readonly<Record<number, BinOp>> = {
@@ -89,6 +90,7 @@ function lowerIdentifier(
     return undefined
   }
   if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
+  if (binding.kind === 'module') return { op: 'constref', type: binding.type, name: binding.name }
   return { op: 'varref', type: binding.type, name: binding.name }
 }
 
@@ -112,15 +114,20 @@ function lowerPrefixUnary(
   return undefined
 }
 
+function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expression): [Expr, Expr] {
+  return [retargetIntLit(left, lNode, right.type), retargetIntLit(right, rNode, left.type)]
+}
+
 function lowerBinary(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const left = lowerExpression(node.left, sourceFile, scope, diagnostics)
-  const right = lowerExpression(node.right, sourceFile, scope, diagnostics)
+  let left = lowerExpression(node.left, sourceFile, scope, diagnostics)
+  let right = lowerExpression(node.right, sourceFile, scope, diagnostics)
   if (!left || !right) return undefined
+  ;[left, right] = pair(left, right, node.left, node.right)
   const arith = ARITH[node.operatorToken.kind]
   if (arith !== undefined) {
     if (arith === '*') {
@@ -265,7 +272,7 @@ function lowerCall(
   }
 
   if (!intrinsicId) {
-    pushDiag(diagnostics, sourceFile, node, `Unknown function "${node.getText(sourceFile)}".`)
+    pushDiag(diagnostics, sourceFile, node, `Unknown function "${node.getText(sourceFile)}". Function calls (Phase 6) need a visible callee.`)
     return undefined
   }
   const arity = expectedArity(intrinsicId) ?? (intrinsicId === 'mod' ? 2 : undefined)
