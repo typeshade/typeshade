@@ -1,7 +1,7 @@
 // === Function lowering: two-pass signatures then bodies ===
 
 import ts from 'typescript'
-import type { FuncDecl, Stmt, Expr } from '../../../core/ir/nodes.js'
+import type { BindingDecl, FuncDecl, Stmt, Expr, StructDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
@@ -13,6 +13,8 @@ export function lowerSourceFunctions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   consts: readonly { name: string; type: ShaderType }[] = [],
+  bindings: readonly BindingDecl[] = [],
+  structs: readonly StructDecl[] = [],
 ): FuncDecl[] {
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
   const callees = new Map<string, FuncDecl>()
@@ -30,7 +32,7 @@ export function lowerSourceFunctions(
   const funcs: FuncDecl[] = []
   for (const stmt of ready) {
     const stub = callees.get(stmt.name!.text)!
-    fillFunctionBody(stmt, stub, sourceFile, diagnostics, callees, consts)
+    fillFunctionBody(stmt, stub, sourceFile, diagnostics, callees, consts, bindings, structs)
     funcs.push(stub)
   }
   return funcs
@@ -118,6 +120,11 @@ export function parseSignature(
   if (stageInfo.workgroupSize !== undefined) {
     ;(decl as { workgroupSize?: number }).workgroupSize = stageInfo.workgroupSize
   }
+  const attrs: string[] = []
+  if (stageInfo.stage === 'vertex') attrs.push('@vertex')
+  if (stageInfo.stage === 'fragment') attrs.push('@fragment')
+  if (stageInfo.stage === 'compute') attrs.push(`@compute @workgroup_size(${stageInfo.workgroupSize ?? 64})`)
+  if (attrs.length) (decl as { attrs?: string[] }).attrs = attrs
   if (stageInfo.stage === 'vertex' && typeKey(ret).startsWith('vec4')) {
     ;(decl as { retAttr?: string }).retAttr = '@builtin(position)'
     ;(decl as { retBuiltin?: string }).retBuiltin = 'position'
@@ -135,10 +142,22 @@ export function fillFunctionBody(
   diagnostics: TsCompilerDiagnostic[],
   callees: Map<string, FuncDecl>,
   consts: readonly { name: string; type: ShaderType }[] = [],
+  bindings: readonly BindingDecl[] = [],
+  structs: readonly StructDecl[] = [],
 ): void {
   const scope = new LoweringScope(callees)
+  scope.setStructs(structs)
   for (const c of consts) {
-    scope.define({ kind: 'module', name: c.name, type: c.type, mutable: false })
+    scope.define({
+      kind: 'module',
+      name: c.name,
+      type: c.type,
+      mutable: false,
+      constValue: 'cpuValue' in c ? (c as { cpuValue?: number | boolean }).cpuValue : undefined,
+    })
+  }
+  for (const b of bindings) {
+    scope.define({ kind: 'module', name: b.name, type: b.type, mutable: b.access === 'read_write' })
   }
   for (const p of stub.params) {
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })
@@ -152,6 +171,10 @@ export function fillFunctionBody(
       continue
     }
     if (typeKey(r.expr.type) !== typeKey(stub.ret)) {
+      if (r.expr.op === 'construct' && stub.ret.kind === 'struct' && r.expr.type.kind === 'struct') {
+        ;(r.expr as { type: ShaderType }).type = stub.ret
+        continue
+      }
       pushDiag(diagnostics, sourceFile, node.name!, `Function "${stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`)
     }
   }
