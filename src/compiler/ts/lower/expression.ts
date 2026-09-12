@@ -1,23 +1,18 @@
-// === Expression lowering: TS AST -> TypeShade Expr ===
-//
-// Arithmetic / compare / logical / unary / lit / ident
-// Phase 7: Math.sin(x) === sin(x) === call('sin')
-//          Math.PI === lit f32
-//          mod(a,b) === call('mod')  floor-mod
-//          a % b === binop '%'       truncated-mod
-
+// === Expression lowering ===
 import ts from 'typescript'
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
+import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import {
   expectedArity,
   isCanonicalMathFn,
+  resolveLangConst,
   resolveMathConst,
   resolveMathFn,
 } from '../math-alias.js'
+import type { FuncDecl } from '../../../core/ir/nodes.js'
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -26,7 +21,6 @@ const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.SlashToken]: '/',
   [ts.SyntaxKind.PercentToken]: '%',
 }
-
 const BITWISE: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.AmpersandToken]: '&',
   [ts.SyntaxKind.BarToken]: '|',
@@ -34,12 +28,10 @@ const BITWISE: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.LessThanLessThanToken]: '<<',
   [ts.SyntaxKind.GreaterThanGreaterThanToken]: '>>',
 }
-
 const LOGICAL: Readonly<Record<number, LogOp>> = {
   [ts.SyntaxKind.AmpersandAmpersandToken]: '&&',
   [ts.SyntaxKind.BarBarToken]: '||',
 }
-
 const COMPARE: Readonly<Record<number, CmpOp>> = {
   [ts.SyntaxKind.LessThanToken]: '<',
   [ts.SyntaxKind.GreaterThanToken]: '>',
@@ -48,6 +40,14 @@ const COMPARE: Readonly<Record<number, CmpOp>> = {
   [ts.SyntaxKind.EqualsEqualsEqualsToken]: '==',
   [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '!=',
 }
+const VEC_CTOR: Readonly<Record<string, { n: number; type: ShaderType }>> = {
+  vec2: { n: 2, type: vec2fT },
+  vec2f: { n: 2, type: vec2fT },
+  vec3: { n: 3, type: vec3fT },
+  vec3f: { n: 3, type: vec3fT },
+  vec4: { n: 4, type: vec4fT },
+  vec4f: { n: 4, type: vec4fT },
+}
 
 export function lowerExpression(
   node: ts.Expression,
@@ -55,39 +55,16 @@ export function lowerExpression(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  if (ts.isParenthesizedExpression(node)) {
-    return lowerExpression(node.expression, sourceFile, scope, diagnostics)
-  }
-  if (ts.isIdentifier(node)) {
-    return lowerIdentifier(node, sourceFile, scope, diagnostics)
-  }
-  if (ts.isNumericLiteral(node)) {
-    return { op: 'lit', type: f32T, value: Number(node.text) }
-  }
-  if (node.kind === ts.SyntaxKind.TrueKeyword) {
-    return { op: 'lit', type: boolT, value: true }
-  }
-  if (node.kind === ts.SyntaxKind.FalseKeyword) {
-    return { op: 'lit', type: boolT, value: false }
-  }
-  if (ts.isPrefixUnaryExpression(node)) {
-    return lowerPrefixUnary(node, sourceFile, scope, diagnostics)
-  }
-  if (ts.isBinaryExpression(node)) {
-    return lowerBinary(node, sourceFile, scope, diagnostics)
-  }
-  if (ts.isCallExpression(node)) {
-    return lowerCall(node, sourceFile, scope, diagnostics)
-  }
-  if (ts.isPropertyAccessExpression(node)) {
-    return lowerPropertyAccess(node, sourceFile, diagnostics)
-  }
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    node,
-    `Unsupported expression "${node.getText(sourceFile)}". Supported: literals, identifiers, arithmetic, bitwise, logical, unary, comparisons, Math.* aliases, and math intrinsics.`,
-  )
+  if (ts.isParenthesizedExpression(node)) return lowerExpression(node.expression, sourceFile, scope, diagnostics)
+  if (ts.isIdentifier(node)) return lowerIdentifier(node, sourceFile, scope, diagnostics)
+  if (ts.isNumericLiteral(node)) return { op: 'lit', type: f32T, value: Number(node.text) }
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return { op: 'lit', type: boolT, value: true }
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return { op: 'lit', type: boolT, value: false }
+  if (ts.isPrefixUnaryExpression(node)) return lowerPrefixUnary(node, sourceFile, scope, diagnostics)
+  if (ts.isBinaryExpression(node)) return lowerBinary(node, sourceFile, scope, diagnostics)
+  if (ts.isCallExpression(node)) return lowerCall(node, sourceFile, scope, diagnostics)
+  if (ts.isPropertyAccessExpression(node)) return lowerPropertyAccess(node, sourceFile, scope, diagnostics)
+  pushDiag(diagnostics, sourceFile, node, `Unsupported expression "${node.getText(sourceFile)}".`)
   return undefined
 }
 
@@ -99,17 +76,12 @@ function lowerIdentifier(
 ): Expr | undefined {
   const binding = scope.resolve(node.text)
   if (!binding) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Unknown identifier "${node.text}". It is not a parameter or local in scope.`,
-    )
+    const c = resolveLangConst(node.text)
+    if (c !== undefined) return { op: 'lit', type: f32T, value: c }
+    pushDiag(diagnostics, sourceFile, node, `Unknown identifier "${node.text}".`)
     return undefined
   }
-  if (binding.kind === 'param') {
-    return { op: 'param', type: binding.type, name: binding.name }
-  }
+  if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
   return { op: 'varref', type: binding.type, name: binding.name }
 }
 
@@ -121,28 +93,15 @@ function lowerPrefixUnary(
 ): Expr | undefined {
   const operand = lowerExpression(node.operand, sourceFile, scope, diagnostics)
   if (!operand) return undefined
-  if (node.operator === ts.SyntaxKind.MinusToken) {
-    return { op: 'unop', type: operand.type, a: operand }
-  }
+  if (node.operator === ts.SyntaxKind.MinusToken) return { op: 'unop', type: operand.type, a: operand }
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
     if (typeKey(operand.type) !== 'bool') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Unary "!" requires a bool operand, got ${typeKey(operand.type)}.`,
-      )
+      pushDiag(diagnostics, sourceFile, node, `Unary "!" requires a bool operand, got ${typeKey(operand.type)}.`)
       return undefined
     }
-    const falseLit: Expr = { op: 'lit', type: boolT, value: false }
-    return { op: 'compare', type: boolT, cop: '==', a: operand, b: falseLit }
+    return { op: 'compare', type: boolT, cop: '==', a: operand, b: { op: 'lit', type: boolT, value: false } }
   }
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    node,
-    `Unsupported unary operator in "${node.getText(sourceFile)}". Phase 3 supports "-" and "!".`,
-  )
+  pushDiag(diagnostics, sourceFile, node, 'Unsupported unary operator.')
   return undefined
 }
 
@@ -158,12 +117,7 @@ function lowerBinary(
   const arith = ARITH[node.operatorToken.kind]
   if (arith !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Arithmetic operand type mismatch: ${typeKey(left.type)} vs ${typeKey(right.type)}.`,
-      )
+      pushDiag(diagnostics, sourceFile, node, `Arithmetic operand type mismatch: ${typeKey(left.type)} vs ${typeKey(right.type)}.`)
       return undefined
     }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
@@ -171,12 +125,7 @@ function lowerBinary(
   const bit = BITWISE[node.operatorToken.kind]
   if (bit !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Bitwise operand type mismatch: ${typeKey(left.type)} vs ${typeKey(right.type)}.`,
-      )
+      pushDiag(diagnostics, sourceFile, node, `Bitwise operand type mismatch.`)
       return undefined
     }
     return { op: 'binop', type: left.type, bop: bit, a: left, b: right }
@@ -184,12 +133,7 @@ function lowerBinary(
   const log = LOGICAL[node.operatorToken.kind]
   if (log !== undefined) {
     if (typeKey(left.type) !== 'bool' || typeKey(right.type) !== 'bool') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Logical "${log}" requires bool operands, got ${typeKey(left.type)} and ${typeKey(right.type)}.`,
-      )
+      pushDiag(diagnostics, sourceFile, node, `Logical "${log}" requires bool operands.`)
       return undefined
     }
     return { op: 'logical', type: boolT, lop: log, a: left, b: right }
@@ -197,82 +141,49 @@ function lowerBinary(
   const cmp = COMPARE[node.operatorToken.kind]
   if (cmp !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Comparison operand type mismatch: ${typeKey(left.type)} vs ${typeKey(right.type)}.`,
-      )
+      pushDiag(diagnostics, sourceFile, node, `Comparison operand type mismatch.`)
       return undefined
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right }
   }
-  if (
-    node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken ||
-    node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken
-  ) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Use strict equality "=== / !==" in "use typeshade" sources (got "${node.operatorToken.getText(sourceFile)}").`,
-    )
+  if (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken || node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken) {
+    pushDiag(diagnostics, sourceFile, node, 'Use strict equality === / !==.')
     return undefined
   }
   if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'Unsigned right shift ">>>" is not supported. Use ">>" (WGSL/GLSL have no >>>).',
-    )
+    pushDiag(diagnostics, sourceFile, node, 'Unsigned right shift >>> is not supported.')
     return undefined
   }
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    node,
-    `Unsupported binary operator "${node.operatorToken.getText(sourceFile)}". Phase 3 supports + - * / %, bitwise, logical, and comparisons.`,
-  )
+  pushDiag(diagnostics, sourceFile, node, 'Unsupported binary operator.')
   return undefined
 }
 
 function lowerPropertyAccess(
   node: ts.PropertyAccessExpression,
   sourceFile: ts.SourceFile,
+  scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const obj = node.expression
   const prop = node.name.text
-  if (!ts.isIdentifier(obj) || obj.text !== 'Math') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Member access "${node.getText(sourceFile)}" is not lowered yet (Phase 8). Math.* constants are supported.`,
-    )
+  if (ts.isIdentifier(obj) && obj.text === 'Math') {
+    const value = resolveMathConst(prop)
+    if (value !== undefined) return { op: 'lit', type: f32T, value }
+    if (resolveMathFn(prop)) {
+      pushDiag(diagnostics, sourceFile, node, `"Math.${prop}" is a function alias. Call it.`)
+      return undefined
+    }
+    pushDiag(diagnostics, sourceFile, node, `"Math.${prop}" is not a TypeShade alias.`)
     return undefined
   }
-  const value = resolveMathConst(prop)
-  if (value !== undefined) {
-    return { op: 'lit', type: f32T, value }
-  }
-  if (resolveMathFn(prop)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `"Math.${prop}" is a function alias. Call it: Math.${prop}(...) or ${resolveMathFn(prop)}(...).`,
-    )
+  const base = lowerExpression(obj, sourceFile, scope, diagnostics)
+  if (!base) return undefined
+  const memberType = memberResultType(base.type, prop)
+  if (!memberType) {
+    pushDiag(diagnostics, sourceFile, node, `Cannot read ".${prop}" on ${typeKey(base.type)}.`)
     return undefined
   }
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    node,
-    `"Math.${prop}" is not a TypeShade alias. Use a listed Math function/constant or the free intrinsic (sin, PI, …). Host APIs like Math.random are not available.`,
-  )
-  return undefined
+  return { op: 'member', type: memberType, base, field: prop }
 }
 
 function lowerCall(
@@ -284,6 +195,7 @@ function lowerCall(
   const callee = node.expression
   let intrinsicId: string | undefined
   let viaMath = false
+  let ctor: { n: number; type: ShaderType } | undefined
 
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression
@@ -291,56 +203,56 @@ function lowerCall(
       viaMath = true
       const jsName = callee.name.text
       if (resolveMathConst(jsName) !== undefined) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          node,
-          `"Math.${jsName}" is a constant, not a function. Write Math.${jsName} without ().`,
-        )
+        pushDiag(diagnostics, sourceFile, node, `"Math.${jsName}" is a constant, not a function.`)
         return undefined
       }
       intrinsicId = resolveMathFn(jsName)
       if (!intrinsicId) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          node,
-          `"Math.${jsName}(...)" is not a TypeShade Math alias. Host APIs (random, imul, clz32, hypot, …) are rejected.`,
-        )
+        pushDiag(diagnostics, sourceFile, node, `"Math.${jsName}(...)" is not a TypeShade Math alias.`)
         return undefined
       }
+    } else {
+      pushDiag(diagnostics, sourceFile, node, 'Method calls are not supported. Use free functions.')
+      return undefined
     }
   } else if (ts.isIdentifier(callee)) {
     const name = callee.text
-    if (name === 'mod' || isCanonicalMathFn(name)) {
-      intrinsicId = name
+    ctor = VEC_CTOR[name]
+    if (!ctor) {
+      if (name === 'mod' || isCanonicalMathFn(name)) intrinsicId = name
+      else {
+        const decl = scope.resolveCallee(name)
+        if (decl) return lowerUserCall(node, decl, sourceFile, scope, diagnostics)
+      }
     }
   }
 
-  if (!intrinsicId) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Function calls to user callees are not lowered yet (got "${node.getText(sourceFile)}"). See Phase 6. Math.* and math intrinsics (sin, mod, …) are supported.`,
-    )
-    return undefined
-  }
-
-  const arity = expectedArity(intrinsicId) ?? (intrinsicId === 'mod' ? 2 : undefined)
   const args: Expr[] = []
   for (const arg of node.arguments) {
     const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
     if (!lowered) return undefined
     args.push(lowered)
   }
+
+  if (ctor) {
+    if (args.length === 1 && isNumericScalar(args[0]!.type)) {
+      const splat = args[0]!
+      return { op: 'construct', type: ctor.type, args: Array.from({ length: ctor.n }, () => splat) }
+    }
+    if (args.length !== ctor.n) {
+      pushDiag(diagnostics, sourceFile, node, `Vector constructor arity mismatch.`)
+      return undefined
+    }
+    return { op: 'construct', type: ctor.type, args }
+  }
+
+  if (!intrinsicId) {
+    pushDiag(diagnostics, sourceFile, node, `Unknown function "${node.getText(sourceFile)}".`)
+    return undefined
+  }
+  const arity = expectedArity(intrinsicId) ?? (intrinsicId === 'mod' ? 2 : undefined)
   if (arity !== undefined && args.length !== arity) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `${viaMath ? 'Math.' : ''}${intrinsicId} expects ${arity} argument(s), got ${args.length}.`,
-    )
+    pushDiag(diagnostics, sourceFile, node, `${viaMath ? 'Math.' : ''}${intrinsicId} expects ${arity} argument(s), got ${args.length}.`)
     return undefined
   }
   if (args.length === 0) {
@@ -350,6 +262,49 @@ function lowerCall(
   return { op: 'call', type: args[0]!.type, fn: intrinsicId, args }
 }
 
+function lowerUserCall(
+  node: ts.CallExpression,
+  decl: FuncDecl,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const args: Expr[] = []
+  for (const arg of node.arguments) {
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!lowered) return undefined
+    args.push(lowered)
+  }
+  if (args.length !== decl.params.length) {
+    pushDiag(diagnostics, sourceFile, node, `"${decl.name}" expects ${decl.params.length} argument(s), got ${args.length}.`)
+    return undefined
+  }
+  for (let i = 0; i < args.length; i++) {
+    if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
+      pushDiag(diagnostics, sourceFile, node, `Argument ${i + 1} of "${decl.name}" type mismatch.`)
+      return undefined
+    }
+  }
+  return { op: 'call', type: decl.ret, fn: decl.name, args, declRef: decl }
+}
+
+function memberResultType(base: ShaderType, field: string): ShaderType | undefined {
+  if (base.kind !== 'vec') return undefined
+  const xyzw = 'xyzw'.slice(0, base.n)
+  const rgba = 'rgba'.slice(0, base.n)
+  const set = xyzw.includes(field[0]!) ? xyzw : rgba.includes(field[0]!) ? rgba : ''
+  if (!set || field.length < 1 || field.length > 4) return undefined
+  for (const ch of field) if (!set.includes(ch)) return undefined
+  const elem: ShaderType = base.elem === 'i32' ? i32T : base.elem === 'u32' ? u32T : f32T
+  if (field.length === 1) return elem
+  return { kind: 'vec', n: field.length as 2 | 3 | 4, elem: base.elem }
+}
+
+function isNumericScalar(t: ShaderType): boolean {
+  const k = typeKey(t)
+  return k === 'f32' || k === 'i32' || k === 'u32'
+}
+
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -357,13 +312,7 @@ function pushDiag(
   message: string,
 ): void {
   const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({
-    message,
-    fileName: sourceFile.fileName,
-    line: line + 1,
-    character: character + 1,
-    category: 'error',
-  })
+  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
 }
 
 export function exprType(expr: Expr): ShaderType {
