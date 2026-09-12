@@ -64,7 +64,7 @@ export function parseSignature(
     return undefined
   }
   const name = node.name.text
-  const params: { name: string; type: ShaderType }[] = []
+  const params: FuncDecl['params'][number][] = []
   for (const p of node.parameters) {
     if (!ts.isIdentifier(p.name)) {
       pushDiag(diagnostics, sourceFile, p, 'Parameter must be a simple identifier.')
@@ -83,7 +83,14 @@ export function parseSignature(
       pushDiag(diagnostics, sourceFile, p, `Parameter "${p.name.text}" requires a TypeShade type annotation.`)
       return undefined
     }
-    params.push({ name: p.name.text, type: pType })
+    const builtin = stringDecorator(p, sourceFile, 'builtin')
+    const location = numberDecorator(p, sourceFile, 'location')
+    params.push({
+      name: p.name.text,
+      type: pType,
+      ...(builtin ? { builtin } : {}),
+      ...(location !== undefined ? { location } : {}),
+    })
   }
   let ret: ShaderType = voidT
   if (node.type) {
@@ -105,7 +112,20 @@ export function parseSignature(
       category: 'warning',
     })
   }
-  return { name, params, ret, body: [] }
+  const stageInfo = parseStage(node, sourceFile)
+  const decl: FuncDecl = { name, params, ret, body: [] }
+  if (stageInfo.stage) (decl as { stage?: FuncDecl['stage'] }).stage = stageInfo.stage
+  if (stageInfo.workgroupSize !== undefined) {
+    ;(decl as { workgroupSize?: number }).workgroupSize = stageInfo.workgroupSize
+  }
+  if (stageInfo.stage === 'vertex' && typeKey(ret).startsWith('vec4')) {
+    ;(decl as { retAttr?: string }).retAttr = '@builtin(position)'
+    ;(decl as { retBuiltin?: string }).retBuiltin = 'position'
+  }
+  if (stageInfo.stage === 'fragment' && typeKey(ret).startsWith('vec4')) {
+    ;(decl as { retAttr?: string }).retAttr = '@location(0)'
+  }
+  return decl
 }
 
 export function fillFunctionBody(
@@ -135,6 +155,52 @@ export function fillFunctionBody(
       pushDiag(diagnostics, sourceFile, node.name!, `Function "${stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`)
     }
   }
+}
+
+function parseStage(
+  node: ts.FunctionDeclaration,
+  sourceFile: ts.SourceFile,
+): { stage?: FuncDecl['stage']; workgroupSize?: number } {
+  const decos = decoratorsOf(node)
+  let stage: FuncDecl['stage'] | undefined
+  let workgroupSize: number | undefined
+  for (const d of decos) {
+    const text = d.getText(sourceFile)
+    if (/^@vertex\b/.test(text)) stage = 'vertex'
+    else if (/^@fragment\b/.test(text)) stage = 'fragment'
+    else if (/^@compute\b/.test(text)) {
+      stage = 'compute'
+      const m = text.match(/@compute\(\s*\[\s*(\d+)/)
+      workgroupSize = m ? Number(m[1]) : 64
+    }
+  }
+  return { stage, workgroupSize }
+}
+
+function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
+  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? []
+  const mods = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? []
+  return mods.filter(ts.isDecorator)
+}
+
+function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): number | undefined {
+  for (const d of decoratorsOf(node)) {
+    if (!ts.isCallExpression(d.expression)) continue
+    if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name) continue
+    const a = d.expression.arguments[0]
+    if (a && ts.isNumericLiteral(a)) return Number(a.text)
+  }
+  return undefined
+}
+
+function stringDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): string | undefined {
+  for (const d of decoratorsOf(node)) {
+    if (!ts.isCallExpression(d.expression)) continue
+    if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name) continue
+    const a = d.expression.arguments[0]
+    if (a && (ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a))) return a.text
+  }
+  return undefined
 }
 
 function collectReturns(stmts: readonly Stmt[]): { expr?: Expr }[] {
