@@ -1,8 +1,8 @@
 // === Expression lowering ===
 import ts from 'typescript'
-import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
+import type { Expr, BinOp, CmpOp, LogOp, FuncDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, typeKey } from '../../../core/ir/types.js'
+import { f32T, boolT, vec2fT, vec3fT, vec4fT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import {
@@ -12,7 +12,8 @@ import {
   resolveMathConst,
   resolveMathFn,
 } from '../math-alias.js'
-import type { FuncDecl } from '../../../core/ir/nodes.js'
+import { parseSwizzle } from '../swizzle.js'
+import { lowerRandomHash } from '../random-hash.js'
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -117,7 +118,7 @@ function lowerBinary(
   const arith = ARITH[node.operatorToken.kind]
   if (arith !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, `Arithmetic operand type mismatch: ${typeKey(left.type)} vs ${typeKey(right.type)}.`)
+      pushDiag(diagnostics, sourceFile, node, `Arithmetic operand type mismatch.`)
       return undefined
     }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
@@ -125,7 +126,7 @@ function lowerBinary(
   const bit = BITWISE[node.operatorToken.kind]
   if (bit !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, `Bitwise operand type mismatch.`)
+      pushDiag(diagnostics, sourceFile, node, 'Bitwise operand type mismatch.')
       return undefined
     }
     return { op: 'binop', type: left.type, bop: bit, a: left, b: right }
@@ -141,7 +142,7 @@ function lowerBinary(
   const cmp = COMPARE[node.operatorToken.kind]
   if (cmp !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, `Comparison operand type mismatch.`)
+      pushDiag(diagnostics, sourceFile, node, 'Comparison operand type mismatch.')
       return undefined
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right }
@@ -178,12 +179,12 @@ function lowerPropertyAccess(
   }
   const base = lowerExpression(obj, sourceFile, scope, diagnostics)
   if (!base) return undefined
-  const memberType = memberResultType(base.type, prop)
-  if (!memberType) {
-    pushDiag(diagnostics, sourceFile, node, `Cannot read ".${prop}" on ${typeKey(base.type)}.`)
+  const sw = parseSwizzle(base.type, prop)
+  if (!sw.ok) {
+    pushDiag(diagnostics, sourceFile, node, sw.message)
     return undefined
   }
-  return { op: 'member', type: memberType, base, field: prop }
+  return { op: 'member', type: sw.type, base, field: sw.field }
 }
 
 function lowerCall(
@@ -206,11 +207,14 @@ function lowerCall(
         pushDiag(diagnostics, sourceFile, node, `"Math.${jsName}" is a constant, not a function.`)
         return undefined
       }
+      if (jsName === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
       intrinsicId = resolveMathFn(jsName)
       if (!intrinsicId) {
         pushDiag(diagnostics, sourceFile, node, `"Math.${jsName}(...)" is not a TypeShade Math alias.`)
         return undefined
       }
+    } else if (callee.name.text === 'swizzle') {
+      return lowerSwizzleCall(node, callee.expression, sourceFile, scope, diagnostics)
     } else {
       pushDiag(diagnostics, sourceFile, node, 'Method calls are not supported. Use free functions.')
       return undefined
@@ -219,6 +223,7 @@ function lowerCall(
     const name = callee.text
     ctor = VEC_CTOR[name]
     if (!ctor) {
+      if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
       if (name === 'mod' || isCanonicalMathFn(name)) intrinsicId = name
       else {
         const decl = scope.resolveCallee(name)
@@ -240,7 +245,7 @@ function lowerCall(
       return { op: 'construct', type: ctor.type, args: Array.from({ length: ctor.n }, () => splat) }
     }
     if (args.length !== ctor.n) {
-      pushDiag(diagnostics, sourceFile, node, `Vector constructor arity mismatch.`)
+      pushDiag(diagnostics, sourceFile, node, 'Vector constructor arity mismatch.')
       return undefined
     }
     return { op: 'construct', type: ctor.type, args }
@@ -260,6 +265,57 @@ function lowerCall(
     return undefined
   }
   return { op: 'call', type: args[0]!.type, fn: intrinsicId, args }
+}
+
+function lowerSwizzleCall(
+  node: ts.CallExpression,
+  receiver: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (node.arguments.length !== 1) {
+    pushDiag(diagnostics, sourceFile, node, 'swizzle takes one string argument, e.g. v.swizzle("yxz").')
+    return undefined
+  }
+  const arg = node.arguments[0]!
+  if (!ts.isStringLiteral(arg) && !ts.isNoSubstitutionTemplateLiteral(arg)) {
+    pushDiag(diagnostics, sourceFile, node, 'swizzle components must be a string literal.')
+    return undefined
+  }
+  const base = lowerExpression(receiver, sourceFile, scope, diagnostics)
+  if (!base) return undefined
+  const sw = parseSwizzle(base.type, arg.text)
+  if (!sw.ok) {
+    pushDiag(diagnostics, sourceFile, node, sw.message)
+    return undefined
+  }
+  return { op: 'member', type: sw.type, base, field: sw.field }
+}
+
+function lowerRandomCall(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (node.arguments.length !== 1) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'random(seed) needs one seed (f32 | vec2 | vec3). No argument-less GPU Math.random.',
+    )
+    return undefined
+  }
+  const seed = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
+  if (!seed) return undefined
+  const hashed = lowerRandomHash(seed)
+  if (!hashed) {
+    pushDiag(diagnostics, sourceFile, node, `random(seed) seed must be f32, vec2, or vec3; got ${typeKey(seed.type)}.`)
+    return undefined
+  }
+  return hashed
 }
 
 function lowerUserCall(
@@ -286,18 +342,6 @@ function lowerUserCall(
     }
   }
   return { op: 'call', type: decl.ret, fn: decl.name, args, declRef: decl }
-}
-
-function memberResultType(base: ShaderType, field: string): ShaderType | undefined {
-  if (base.kind !== 'vec') return undefined
-  const xyzw = 'xyzw'.slice(0, base.n)
-  const rgba = 'rgba'.slice(0, base.n)
-  const set = xyzw.includes(field[0]!) ? xyzw : rgba.includes(field[0]!) ? rgba : ''
-  if (!set || field.length < 1 || field.length > 4) return undefined
-  for (const ch of field) if (!set.includes(ch)) return undefined
-  const elem: ShaderType = base.elem === 'i32' ? i32T : base.elem === 'u32' ? u32T : f32T
-  if (field.length === 1) return elem
-  return { kind: 'vec', n: field.length as 2 | 3 | 4, elem: base.elem }
 }
 
 function isNumericScalar(t: ShaderType): boolean {
