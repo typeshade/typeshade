@@ -11,6 +11,23 @@
 //
 // Produces plain Expr data shapes from core/ir/nodes — the same shapes
 // the existing fn() authoring path builds.
+//
+// --- Modulo: two different TypeShade meanings (do not conflate) ---
+//
+//   TS / WGSL operator  a % b
+//     → IR { op: 'binop', bop: '%' }   (TRUNCATED mod, sign of dividend)
+//     Same as Node.prototype.mod / WGSL `%` / JS `%`.
+//     Example: (-1) % 4  →  -1
+//
+//   Free function  mod(x, y)  in the EDSL (core/ir/node.ts)
+//     → IR { op: 'call', name: 'mod', ... }  (FLOOR mod, sign of divisor)
+//     Portable wrap used for angles / domain repetition.
+//     Example: mod(-1, 4)  →  3
+//
+// "use typeshade" source uses the TS operator `%` for the first meaning.
+// The free-function form is a CallExpression and is handled in Phase 6;
+// until then we emit a targeted diagnostic so authors do not assume
+// `mod(a, b)` already lowers to floor-mod.
 
 import ts from 'typescript'
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
@@ -19,11 +36,13 @@ import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 
+/** Arithmetic binops. `%` is TRUNCATED modulo (see file header). */
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
   [ts.SyntaxKind.MinusToken]: '-',
   [ts.SyntaxKind.AsteriskToken]: '*',
   [ts.SyntaxKind.SlashToken]: '/',
+  // Truncated mod → binop '%'. NOT the free-function floor-mod `mod(x,y)`.
   [ts.SyntaxKind.PercentToken]: '%',
 }
 
@@ -85,6 +104,12 @@ export function lowerExpression(
 
   if (ts.isBinaryExpression(node)) {
     return lowerBinary(node, sourceFile, scope, diagnostics)
+  }
+
+  // CallExpression: not lowered in Phase 3. Special-case `mod(...)` so authors
+  // do not confuse the free-function floor-mod with the `%` operator.
+  if (ts.isCallExpression(node)) {
+    return lowerCallStub(node, sourceFile, diagnostics)
   }
 
   pushDiag(
@@ -254,6 +279,36 @@ function lowerBinary(
     sourceFile,
     node,
     `Unsupported binary operator "${node.operatorToken.getText(sourceFile)}". Phase 3 supports + - * / %, bitwise, logical, and comparisons.`,
+  )
+  return undefined
+}
+
+/**
+ * Phase 3 does not lower calls. `mod(a, b)` gets an explicit diagnostic pointing
+ * authors at `%` (truncated) vs Phase 6 free-function floor-mod.
+ */
+function lowerCallStub(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): undefined {
+  const callee = node.expression
+  const name = ts.isIdentifier(callee) ? callee.text : undefined
+  if (name === 'mod') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'mod(x, y) is TypeShade floor-modulo (sign of divisor) and is not lowered until Phase 6 (function call). ' +
+        'For truncated modulo matching WGSL/JS "%", write "a % b" instead (IR binop "%").',
+    )
+    return undefined
+  }
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Function calls are not lowered in Phase 3 (got "${node.getText(sourceFile)}"). See Phase 6.`,
   )
   return undefined
 }
