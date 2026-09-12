@@ -1,10 +1,4 @@
-// === Function lowering: TS FunctionDeclaration -> FuncDecl (Phase 5) ===
-//
-// Lowers:
-//   export function name(a: f32, b: f32): f32 { ... }
-// into the same FuncDecl shape produced by fn().
-//
-// Policy: all top-level functions are collected (export is optional).
+// === Function lowering: two-pass signatures then bodies ===
 
 import ts from 'typescript'
 import type { FuncDecl, Stmt, Expr } from '../../../core/ir/nodes.js'
@@ -19,17 +13,45 @@ export function lowerSourceFunctions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): FuncDecl[] {
-  const funcs: FuncDecl[] = []
-  for (const stmt of sourceFile.statements) {
-    if (ts.isFunctionDeclaration(stmt)) {
-      const fn = lowerFunctionDeclaration(stmt, sourceFile, diagnostics)
-      if (fn) funcs.push(fn)
+  const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
+  const callees = new Map<string, FuncDecl>()
+  const ready: ts.FunctionDeclaration[] = []
+
+  for (const stmt of decls) {
+    const stub = parseSignature(stmt, sourceFile, diagnostics)
+    if (!stub) continue
+    if (callees.has(stub.name)) {
+      pushDiag(diagnostics, sourceFile, stmt, `Duplicate function "${stub.name}".`)
+      continue
     }
+    callees.set(stub.name, stub)
+    ready.push(stmt)
+  }
+
+  const funcs: FuncDecl[] = []
+  for (const stmt of ready) {
+    const stub = callees.get(stmt.name!.text)!
+    fillFunctionBody(stmt, stub, sourceFile, diagnostics, callees)
+    funcs.push(stub)
   }
   return funcs
 }
 
 export function lowerFunctionDeclaration(
+  node: ts.FunctionDeclaration,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  callees?: Map<string, FuncDecl>,
+): FuncDecl | undefined {
+  const stub = parseSignature(node, sourceFile, diagnostics)
+  if (!stub) return undefined
+  const table = callees ?? new Map<string, FuncDecl>()
+  if (!table.has(stub.name)) table.set(stub.name, stub)
+  fillFunctionBody(node, stub, sourceFile, diagnostics, table)
+  return stub
+}
+
+function parseSignature(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -47,10 +69,7 @@ export function lowerFunctionDeclaration(
     )
     return undefined
   }
-
   const name = node.name.text
-  const scope = new LoweringScope()
-
   const params: FuncDecl['params'] = []
   for (const p of node.parameters) {
     if (!ts.isIdentifier(p.name)) {
@@ -75,16 +94,12 @@ export function lowerFunctionDeclaration(
       )
       return undefined
     }
-    const pname = p.name.text
-    params.push({ name: pname, type: pType })
-    scope.define({ kind: 'param', name: pname, type: pType, mutable: true })
+    params.push({ name: p.name.text, type: pType })
   }
-
   let ret: ShaderType = voidT
   if (node.type) {
-    if (node.type.kind === ts.SyntaxKind.VoidKeyword) {
-      ret = voidT
-    } else {
+    if (node.type.kind === ts.SyntaxKind.VoidKeyword) ret = voidT
+    else {
       const mapped = mapTsTypeToShaderType(node.type, sourceFile, diagnostics)
       if (!mapped) {
         pushDiag(diagnostics, sourceFile, node.type, `Unsupported return type for "${name}".`)
@@ -101,37 +116,41 @@ export function lowerFunctionDeclaration(
       category: 'warning',
     })
   }
+  return { name, params, ret, body: [] }
+}
 
-  const body = lowerStatements(node.body.statements, sourceFile, scope, diagnostics)
-
-  if (typeKey(ret) !== 'void') {
-    const returns = collectReturns(body)
-    for (const r of returns) {
-      if (!r.expr) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          node.name,
-          `Function "${name}" returns ${typeKey(ret)} but has a bare "return".`,
-        )
-        continue
-      }
-      if (typeKey(r.expr.type) !== typeKey(ret)) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          node.name,
-          `Function "${name}" return type mismatch: declared ${typeKey(ret)}, got ${typeKey(r.expr.type)}.`,
-        )
-      }
-    }
+function fillFunctionBody(
+  node: ts.FunctionDeclaration,
+  stub: FuncDecl,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  callees: Map<string, FuncDecl>,
+): void {
+  const scope = new LoweringScope(callees)
+  for (const p of stub.params) {
+    scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })
   }
-
-  return {
-    name,
-    params,
-    ret,
-    body,
+  const body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
+  ;(stub as { body: readonly Stmt[] }).body = body
+  if (typeKey(stub.ret) === 'void') return
+  for (const r of collectReturns(body)) {
+    if (!r.expr) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.name!,
+        `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`,
+      )
+      continue
+    }
+    if (typeKey(r.expr.type) !== typeKey(stub.ret)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.name!,
+        `Function "${stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
+      )
+    }
   }
 }
 
