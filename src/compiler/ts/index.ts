@@ -1,7 +1,7 @@
-// ═══ TypeShade TypeScript source compiler (public surface) ═══
+// === TypeShade TypeScript source compiler (public surface) ===
 //
-// Phase 1 entry points. Later phases add type mapping, expression /
-// statement / function lowering and re-export from this barrel.
+// Phase 1: "use typeshade" directive detection + compileTsSource entry.
+// Phase 2: TypeScript type node -> TypeShade ShaderType mapping.
 
 export {
   compileTsSource,
@@ -17,3 +17,9 @@ export {
   findUseTypeshadeDirective,
   hasUseTypeshadeDirective,
 } from './directive.js'
+
+export {
+  mapTsTypeToShaderType,
+  lookupTypeName,
+  SUPPORTED_TYPE_NAMES,
+} from './type-map.js'
