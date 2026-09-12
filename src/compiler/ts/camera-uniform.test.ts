@@ -20,7 +20,7 @@ describe('uniform<Camera>', () => {
     expect(r.structs[0]!.decl.name).toBe('Camera')
     expect(r.bindings[0]).toMatchObject({ name: 'camera', space: 'uniform', group: 0, binding: 0 })
     expect(typeKey(r.bindings[0]!.type)).toBe('struct:Camera')
-    const layout = wgslLayout(r.structs[0]!.decl, 'wgsl')
+    const layout = wgslLayout(r.structs[0]!.decl, 'std140')
     expect(layout.size).toBe(80)
     expect(layout.fields.map((f) => f.name)).toEqual(['view', 'pos'])
     expect(r.wgsl).toMatch(/struct Camera/)
