@@ -9,6 +9,7 @@ import { LoweringScope } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { numericMismatch } from '../numeric.js'
 import { lowerExpression } from './expression.js'
+import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusEqualsToken]: '+',
@@ -48,6 +49,23 @@ export function lowerStatement(
     return { s: 'return', expr }
   }
   if (ts.isIfStatement(node)) return lowerIf(node, sourceFile, scope, diagnostics)
+  if (ts.isForStatement(node)) return lowerFor(node, sourceFile, scope, diagnostics)
+  if (ts.isWhileStatement(node)) return lowerWhile(node, sourceFile, scope, diagnostics)
+  if (ts.isSwitchStatement(node)) return lowerSwitch(node, sourceFile, scope, diagnostics)
+  if (ts.isBreakStatement(node)) {
+    if (!scope.inLoop()) {
+      pushDiag(diagnostics, sourceFile, node, 'break is only valid inside a loop or switch.')
+      return undefined
+    }
+    return { s: 'break' }
+  }
+  if (ts.isContinueStatement(node)) {
+    if (!scope.inLoop()) {
+      pushDiag(diagnostics, sourceFile, node, 'continue is only valid inside a loop.')
+      return undefined
+    }
+    return { s: 'continue' }
+  }
   if (ts.isVariableStatement(node)) return lowerVariableStatement(node, sourceFile, scope, diagnostics)
   if (ts.isExpressionStatement(node)) return lowerExpressionStatement(node, sourceFile, scope, diagnostics)
   pushDiag(diagnostics, sourceFile, node, `Unsupported statement "${truncate(node.getText(sourceFile))}".`)
@@ -129,8 +147,9 @@ function lowerVariableDeclaration(
     return undefined
   }
   const bindingType = annotated ?? init.type
+  const constValue = isConst && init.op === 'lit' ? init.value : undefined
   try {
-    scope.define({ kind: 'local', name, type: bindingType, mutable: !isConst })
+    scope.define({ kind: 'local', name, type: bindingType, mutable: !isConst, constValue })
   } catch (e) {
     pushDiag(diagnostics, sourceFile, decl.name, e instanceof Error ? e.message : String(e))
     return undefined
@@ -146,6 +165,9 @@ function lowerExpressionStatement(
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
   const expr = node.expression
+  if (ts.isPrefixUnaryExpression(expr) || ts.isPostfixUnaryExpression(expr)) {
+    return lowerUpdate(expr, sourceFile, scope, diagnostics)
+  }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     return lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics)
   }
