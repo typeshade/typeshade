@@ -1,4 +1,4 @@
-// === TypeScript type node -> TypeShade ShaderType (Phase 2) ===
+// === TypeScript type node -> TypeShade ShaderType (Phase 2+) ===
 
 import ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
@@ -10,11 +10,18 @@ import {
   vec2fT,
   vec3fT,
   vec4fT,
+  vec2uT,
+  vec3uT,
+  vec4uT,
+  vec2iT,
+  vec4iT,
   mat4x4fT,
   structT,
   arrayT,
 } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
+
+const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType
 
 const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -24,6 +31,15 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   vec2: vec2fT,
   vec3: vec3fT,
   vec4: vec4fT,
+  vec2f: vec2fT,
+  vec3f: vec3fT,
+  vec4f: vec4fT,
+  vec2u: vec2uT,
+  vec3u: vec3uT,
+  vec4u: vec4uT,
+  vec2i: vec2iT,
+  vec3i: vec3iT,
+  vec4i: vec4iT,
   mat4: mat4x4fT,
   mat4x4: mat4x4fT,
 }
@@ -46,32 +62,14 @@ export function mapTsTypeToShaderType(
   }
 
   if (ts.isTypeReferenceNode(typeNode)) {
-    if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
-      const name = typeNameOf(typeNode)
-      if (name === 'array') {
-        const elem = mapTsTypeToShaderType(typeNode.typeArguments[0], sourceFile, diagnostics)
-        const nNode = typeNode.typeArguments[1]
-        const n =
-          nNode && ts.isLiteralTypeNode(nNode) && ts.isNumericLiteral(nNode.literal)
-            ? Number(nNode.literal.text)
-            : undefined
-        if (elem) return arrayT(elem, n)
-      }
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        typeNode,
-        `Type arguments are not supported yet (got "${name}<...>").`,
-      )
-      return undefined
-    }
-
     const name = typeNameOf(typeNode)
+    if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
+      return mapGeneric(name, typeNode, sourceFile, diagnostics)
+    }
     if (name === undefined) {
       pushDiag(diagnostics, sourceFile, typeNode, `Unsupported type reference.`)
       return undefined
     }
-
     const mapped = SCALAR_AND_VEC_MAP[name]
     if (mapped !== undefined) return mapped
     if (/^[A-Z]/.test(name)) return structT(name)
@@ -103,9 +101,63 @@ export function mapTsTypeToShaderType(
   return undefined
 }
 
+function mapGeneric(
+  name: string | undefined,
+  typeNode: ts.TypeReferenceNode,
+  sourceFile: ts.SourceFile,
+  diagnostics?: TsCompilerDiagnostic[],
+): ShaderType | undefined {
+  const args = typeNode.typeArguments ?? []
+  if (name === 'array') {
+    const elem = mapTsTypeToShaderType(args[0], sourceFile, diagnostics)
+    const nNode = args[1]
+    const n =
+      nNode && ts.isLiteralTypeNode(nNode) && ts.isNumericLiteral(nNode.literal)
+        ? Number(nNode.literal.text)
+        : undefined
+    if (elem) return arrayT(elem, n)
+    return undefined
+  }
+  if (name === 'uniform' || name === 'storage') {
+    return mapTsTypeToShaderType(args[0], sourceFile, diagnostics)
+  }
+  if (name === 'vec2' || name === 'vec3' || name === 'vec4') {
+    const n = Number(name.slice(3)) as 2 | 3 | 4
+    const elemName = typeNameOfArg(args[0])
+    if (elemName === 'f32' || elemName === 'i32' || elemName === 'u32') {
+      return { kind: 'vec', n, elem: elemName }
+    }
+    pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32, i32, or u32.`)
+    return undefined
+  }
+  if (name === 'mat2' || name === 'mat3' || name === 'mat4' || name === 'mat4x4') {
+    const elemName = typeNameOfArg(args[0])
+    if (elemName === 'u32' || elemName === 'i32' || elemName === 'bool') {
+      pushDiag(diagnostics, sourceFile, typeNode, `mat4 is floating-point only (mat4<f32>).`)
+      return undefined
+    }
+    if (elemName === 'f32' || elemName === undefined) return mat4x4fT
+    pushDiag(diagnostics, sourceFile, typeNode, `mat4<T> T must be f32.`)
+    return undefined
+  }
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    typeNode,
+    `Type arguments are not supported yet (got "${name}<...>").`,
+  )
+  return undefined
+}
+
 function typeNameOf(node: ts.TypeReferenceNode): string | undefined {
   const name = node.typeName
   if (ts.isIdentifier(name)) return name.text
+  return undefined
+}
+
+function typeNameOfArg(node: ts.TypeNode | undefined): string | undefined {
+  if (!node) return undefined
+  if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) return node.typeName.text
   return undefined
 }
 
