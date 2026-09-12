@@ -9,6 +9,8 @@ import {
   USE_TYPESHADE,
 } from './directive.js'
 import { lowerSourceFunctions } from './lower/function.js'
+import { analyzeSemantics } from './semantic.js'
+import { TS_CODES } from './codes.js'
 
 export interface CompileTsSourceOptions {
   readonly fileName?: string
@@ -21,6 +23,7 @@ export interface TsCompilerDiagnostic {
   readonly line: number
   readonly character: number
   readonly category: 'error' | 'warning' | 'message'
+  readonly code?: string
 }
 
 export interface CompileTsSourceResult {
@@ -55,11 +58,13 @@ export function compileTsSource(
         line: 1,
         character: 1,
         category: 'error',
+        code: TS_CODES.MISSING_DIRECTIVE,
       })
     }
     return { hasDirective: false, funcs: [], diagnostics, sourceFile }
   }
 
+  analyzeSemantics(sourceFile, diagnostics)
   const funcs = lowerSourceFunctions(sourceFile, diagnostics)
   let wgsl: string | undefined
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
@@ -72,6 +77,7 @@ export function compileTsSource(
         line: 1,
         character: 1,
         category: 'error',
+        code: TS_CODES.BACKEND,
       })
     }
   }
