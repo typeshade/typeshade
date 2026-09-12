@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'
-import { lowerStatements, lowerStatement } from './statement.js'
+import { lowerStatements } from './statement.js'
 import { LoweringScope } from '../context.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { f32T, i32T, boolT, typeKey } from '../../../core/ir/types.js'
@@ -175,7 +175,7 @@ describe('Phase 4 - statement lowering', () => {
   })
 
   it('block scope does not leak const from if body', () => {
-    const { stmts, diagnostics, scope } = lower(
+    const { diagnostics, scope } = lower(
       'if (flag) { const inner = 1.; }\nreturn a;',
       (s) => {
         s.define({ kind: 'param', name: 'flag', type: boolT, mutable: true })
