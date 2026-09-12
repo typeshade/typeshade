@@ -147,7 +147,7 @@ function lowerVariableDeclaration(
     return undefined
   }
   const bindingType = annotated ?? init.type
-  const constValue = isConst && init.op === 'lit' ? init.value : undefined
+  const constValue = init.op === 'lit' ? init.value : undefined
   try {
     scope.define({ kind: 'local', name, type: bindingType, mutable: !isConst, constValue })
   } catch (e) {
@@ -207,8 +207,11 @@ function lowerAssignOp(
 ): Stmt | undefined {
   const target = lowerLValue(left, sourceFile, scope, diagnostics)
   if (!target) return undefined
-  const value = lowerExpression(right, sourceFile, scope, diagnostics)
+  let value = lowerExpression(right, sourceFile, scope, diagnostics)
   if (!value) return undefined
+  if (value.op === 'lit' && typeof value.value === 'number' && isNumericScalar(target.type)) {
+    value = { op: 'lit', type: target.type, value: value.value }
+  }
   if (typeKey(target.type) !== typeKey(value.type)) {
     pushDiag(diagnostics, sourceFile, right, numericMismatch(`${bop}=`, target.type, value.type))
     return undefined
@@ -222,6 +225,21 @@ function lowerLValue(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  if (ts.isElementAccessExpression(node)) {
+    const baseName = ts.isIdentifier(node.expression) ? node.expression.text : undefined
+    const binding = baseName ? scope.resolve(baseName) : undefined
+    if (binding?.kind === 'param') {
+      pushDiag(diagnostics, sourceFile, node, `Cannot write through parameter "${baseName}" — parameters are not writable. Use a local or storage.`)
+      return undefined
+    }
+    if (binding && !binding.mutable) {
+      pushDiag(diagnostics, sourceFile, node, `Cannot assign to "${baseName}" — it is declared with const.`)
+      return undefined
+    }
+    const idx = lowerExpression(node, sourceFile, scope, diagnostics)
+    if (!idx || idx.op !== 'index') return undefined
+    return idx
+  }
   if (!ts.isIdentifier(node)) {
     pushDiag(diagnostics, sourceFile, node, 'Assignment target must be a simple identifier.')
     return undefined
@@ -232,7 +250,8 @@ function lowerLValue(
     return undefined
   }
   if (!binding.mutable) {
-    pushDiag(diagnostics, sourceFile, node, `Cannot assign to "${node.text}" — it is declared with const.`)
+    const ro = binding.kind === 'module' ? 'read-only resource or const' : 'declared with const'
+    pushDiag(diagnostics, sourceFile, node, `Cannot assign to "${node.text}" — it is ${ro}.`)
     return undefined
   }
   if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
