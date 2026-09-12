@@ -1,0 +1,6 @@
+dist
+node_modules
+coverage
+**/__emit-goldens__
+*.tsbuildinfo
+package-lock.json

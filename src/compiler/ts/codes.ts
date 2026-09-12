@@ -1,0 +1,22 @@
+// Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
+
+export const TS_CODES = {
+  MISSING_DIRECTIVE: 'TS8001',
+  UNKNOWN_TYPE: 'TS8002',
+  TYPE_MISMATCH: 'TS8003',
+  UNKNOWN_FN: 'TS8004',
+  CONST_ASSIGN: 'TS8005',
+  LOOP_BOUND: 'TS8006',
+  LOOP_INFINITE: 'TS8007',
+  LOOP_INDUCTION: 'TS8008',
+  BREAK_OUTSIDE: 'TS8009',
+  STRUCT_FIELD: 'TS8010',
+  HOST_API: 'TS8012',
+  HOST_STMT: 'TS8013',
+  TOP_LEVEL: 'TS8014',
+  BACKEND: 'TS8015',
+  INDEX_OOB: 'TS8016',
+  UNSUPPORTED: 'TS8099',
+} as const
+
+export type TsCode = (typeof TS_CODES)[keyof typeof TS_CODES]
