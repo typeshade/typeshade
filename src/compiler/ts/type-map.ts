@@ -4,12 +4,16 @@ import ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
 import {
   f32T,
+  f64T,
   i32T,
   u32T,
   boolT,
   vec2fT,
   vec3fT,
   vec4fT,
+  vec2f64T,
+  vec3f64T,
+  vec4f64T,
   vec2uT,
   vec3uT,
   vec4uT,
@@ -25,6 +29,7 @@ const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType
 
 const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
+  f64: f64T,
   i32: i32T,
   u32: u32T,
   bool: boolT,
@@ -42,6 +47,9 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   vec4i: vec4iT,
   mat4: mat4x4fT,
   mat4x4: mat4x4fT,
+  vec2d: vec2f64T,
+  vec3d: vec3f64T,
+  vec4d: vec4f64T,
 }
 
 export const SUPPORTED_TYPE_NAMES: readonly string[] = Object.keys(SCALAR_AND_VEC_MAP)
@@ -58,6 +66,11 @@ export function mapTsTypeToShaderType(
       typeNode,
       'Missing type annotation. "use typeshade" parameters and returns require an explicit type.',
     )
+    return undefined
+  }
+
+  if (ts.isArrayTypeNode(typeNode)) {
+    pushDiag(diagnostics, sourceFile, typeNode, `T[] is a JS array type. Use array<T, N>.`)
     return undefined
   }
 
@@ -108,6 +121,10 @@ function mapGeneric(
   diagnostics?: TsCompilerDiagnostic[],
 ): ShaderType | undefined {
   const args = typeNode.typeArguments ?? []
+  if (name === 'Array') {
+    pushDiag(diagnostics, sourceFile, typeNode, 'JS Array<T> is not a shader type. Use array<T, N>.')
+    return undefined
+  }
   if (name === 'array') {
     const elem = mapTsTypeToShaderType(args[0], sourceFile, diagnostics)
     const nNode = args[1]
@@ -124,10 +141,11 @@ function mapGeneric(
   if (name === 'vec2' || name === 'vec3' || name === 'vec4') {
     const n = Number(name.slice(3)) as 2 | 3 | 4
     const elemName = typeNameOfArg(args[0])
+    if (elemName === 'f64') return { kind: 'vec64', n }
     if (elemName === 'f32' || elemName === 'i32' || elemName === 'u32') {
       return { kind: 'vec', n, elem: elemName }
     }
-    pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32, i32, or u32.`)
+    pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32, i32, u32, or f64.`)
     return undefined
   }
   if (name === 'mat2' || name === 'mat3' || name === 'mat4' || name === 'mat4x4') {
@@ -136,8 +154,9 @@ function mapGeneric(
       pushDiag(diagnostics, sourceFile, typeNode, `mat4 is floating-point only (mat4<f32>).`)
       return undefined
     }
+    if (elemName === 'f64') return { kind: 'mat', n: 4, elem: 'f64' }
     if (elemName === 'f32' || elemName === undefined) return mat4x4fT
-    pushDiag(diagnostics, sourceFile, typeNode, `mat4<T> T must be f32.`)
+    pushDiag(diagnostics, sourceFile, typeNode, `mat4<T> T must be f32 or f64.`)
     return undefined
   }
   pushDiag(
