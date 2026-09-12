@@ -1,4 +1,4 @@
-// === Lowering context / symbol table (shared by Phase 3+) ===
+// === Lowering context / symbol table ===
 
 import type { ShaderType } from '../../core/ir/types.js'
 import type { FuncDecl } from '../../core/ir/nodes.js'
@@ -10,6 +10,7 @@ export interface Binding {
   readonly name: string
   readonly type: ShaderType
   readonly mutable: boolean
+  readonly constValue?: number | boolean
 }
 
 export class LoweringScope {
@@ -70,9 +71,7 @@ export class LoweringScope {
   }
 
   pop(): void {
-    if (this.frames.length <= 1) {
-      throw new Error('Cannot pop the root scope frame')
-    }
+    if (this.frames.length <= 1) throw new Error('Cannot pop the root scope frame')
     this.frames.pop()
   }
 
