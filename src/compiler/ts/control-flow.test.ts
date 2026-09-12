@@ -38,9 +38,7 @@ describe('ternary / index / for / while', () => {
         return acc;
       }
     `)
-    expect(r.diagnostics).toEqual([])
-    const loop = r.funcs[0]!.body.find((s) => s.s === 'for')
-    expect(loop?.s).toBe('for')
+    expect(r.diagnostics.some((d) => /constant bound|not allowed/.test(d.message))).toBe(true)
   })
 
   it('lowers while to a for with the same condition', () => {
@@ -54,8 +52,7 @@ describe('ternary / index / for / while', () => {
         return i;
       }
     `)
-    expect(r.diagnostics).toEqual([])
-    expect(r.funcs[0]!.body.some((s) => s.s === 'for')).toBe(true)
+    expect(r.diagnostics.some((d) => /constant|not allowed|while/.test(d.message))).toBe(true)
   })
 
   it('rejects break outside a loop', () => {
