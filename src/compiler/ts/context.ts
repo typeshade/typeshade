@@ -15,9 +15,22 @@ export interface Binding {
 export class LoweringScope {
   private readonly frames: Map<string, Binding>[] = [new Map()]
   private readonly callees: Map<string, FuncDecl>
+  private loopDepth = 0
 
   constructor(callees?: Map<string, FuncDecl>) {
     this.callees = callees ?? new Map()
+  }
+
+  enterLoop(): void {
+    this.loopDepth++
+  }
+
+  exitLoop(): void {
+    this.loopDepth = Math.max(0, this.loopDepth - 1)
+  }
+
+  inLoop(): boolean {
+    return this.loopDepth > 0
   }
 
   defineCallee(fn: FuncDecl): void {
