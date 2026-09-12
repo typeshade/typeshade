@@ -67,4 +67,39 @@ describe('Phase 5 - function lowering', () => {
     const funcs = lowerSourceFunctions(sourceFile, diagnostics)
     expect(funcs.map((f) => f.name).sort()).toEqual(['helper', 'main'])
   })
+
+  it('flags return type mismatch', () => {
+    const { node, sourceFile } = parseFn(
+      'function bad(a: f32): bool { return a; }',
+    )
+    const diagnostics: TsCompilerDiagnostic[] = []
+    const f = lowerFunctionDeclaration(node, sourceFile, diagnostics)
+    expect(f).toBeDefined()
+    expect(diagnostics.some((d) => /return type mismatch/i.test(d.message))).toBe(true)
+  })
+
+  it('rejects optional parameters', () => {
+    const { node, sourceFile } = parseFn(
+      'function bad(a?: f32): f32 { return 0; }',
+    )
+    const diagnostics: TsCompilerDiagnostic[] = []
+    const f = lowerFunctionDeclaration(node, sourceFile, diagnostics)
+    expect(f).toBeUndefined()
+    expect(diagnostics.some((d) => /Optional/i.test(d.message))).toBe(true)
+  })
+
+  it('body with const and return uses varref', () => {
+    const { node, sourceFile } = parseFn(
+      'function add(a: f32, b: f32): f32 { const x = a + b; return x; }',
+    )
+    const diagnostics: TsCompilerDiagnostic[] = []
+    const f = lowerFunctionDeclaration(node, sourceFile, diagnostics)
+    expect(diagnostics).toEqual([])
+    expect(f!.body).toHaveLength(2)
+    expect(f!.body[0]!.s).toBe('let')
+    expect(f!.body[1]!.s).toBe('return')
+    if (f!.body[1]!.s === 'return' && f!.body[1].expr) {
+      expect(f!.body[1].expr.op).toBe('varref')
+    }
+  })
 })
