@@ -48,6 +48,21 @@ export function collectBindings(
       }
     }
   }
+  const seen = new Map<string, string>()
+  for (const b of out) {
+    const key = `${b.group}:${b.binding}`
+    const prev = seen.get(key)
+    if (prev) {
+      diagnostics.push({
+        message: `@binding(${b.binding}) in group ${b.group} is used by "${prev}" and "${b.name}".`,
+        fileName: sourceFile.fileName,
+        line: 1,
+        character: 1,
+        category: 'error',
+        code: TS_CODES.UNSUPPORTED,
+      })
+    } else seen.set(key, b.name)
+  }
   return out
 }
 

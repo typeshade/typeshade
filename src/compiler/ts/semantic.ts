@@ -126,13 +126,16 @@ export function analyzeSemantics(sourceFile: ts.SourceFile, diagnostics: TsCompi
       const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
       const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0
       if (isLet) {
-        push(
-          diagnostics,
-          sourceFile,
-          stmt,
-          'Top-level let is not a shader global. Use `const` or put the value inside a function.',
-          TS_CODES.TOP_LEVEL,
-        )
+        const declared = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)
+        if (!declared) {
+          push(
+            diagnostics,
+            sourceFile,
+            stmt,
+            'Top-level let is not a shader global. Use `const` or put the value inside a function.',
+            TS_CODES.TOP_LEVEL,
+          )
+        }
       } else if (!isConst) {
         push(
           diagnostics,
