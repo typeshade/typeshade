@@ -95,7 +95,7 @@ export function compileTsSources(
   const names = Object.keys(files)
   const emptySf = parseFile('empty.ts', '')
   if (names.length === 0) {
-    return { hasDirective: false, funcs: [], diagnostics: [], sourceFile: emptySf, consts: [] }
+    return { hasDirective: false, funcs: [], diagnostics: [], sourceFile: emptySf, consts: [], bindings: [], structs: [] }
   }
   const diagnostics: TsCompilerDiagnostic[] = []
   const parsed = new Map<string, ts.SourceFile>()
@@ -131,7 +131,7 @@ export function compileTsSources(
   const entrySf = parsed.get(entry)
   if (!entrySf) {
     diagnostics.push(err(entry, `Entry "${entry}" is not in the source set.`))
-    return { hasDirective: false, funcs: [], diagnostics, sourceFile: emptySf, consts: [] }
+    return { hasDirective: false, funcs: [], diagnostics, sourceFile: emptySf, consts: [], bindings: [], structs: [] }
   }
 
   for (const [name, sf] of parsed) {
@@ -178,5 +178,5 @@ export function compileTsSources(
     }
   }
 
-  return { hasDirective: true, funcs, diagnostics, sourceFile: entrySf, consts, wgsl }
+  return { hasDirective: true, funcs, diagnostics, sourceFile: entrySf, consts, bindings: [], structs: [], wgsl }
 }
