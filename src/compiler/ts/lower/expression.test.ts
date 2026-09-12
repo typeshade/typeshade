@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { lowerExpression } from './expression.js'
 import { LoweringScope } from '../context.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { f32T, i32T, boolT, typeKey } from '../../../core/ir/types.js'
+import { f32T, i32T, boolT } from '../../../core/ir/types.js'
 import type { Expr } from '../../../core/ir/nodes.js'
 import ts from 'typescript'
 
