@@ -46,8 +46,8 @@ export function collectStructs(
         : undefined
       if (!type) continue
       const field: StructField = { name: member.name.text, type }
-      const loc = numberDecorator(member, sourceFile, 'location')
-      const builtin = stringDecorator(member, sourceFile, 'builtin')
+      const loc = numberDecorator(member, 'location')
+      const builtin = stringDecorator(member, 'builtin')
       if (loc !== undefined) (field as { location?: number }).location = loc
       if (builtin) (field as { builtin?: string }).builtin = builtin
       fields.push(field)
@@ -57,7 +57,7 @@ export function collectStructs(
   return out
 }
 
-function numberDecorator(node: ts.Node, sf: ts.SourceFile, name: string): number | undefined {
+function numberDecorator(node: ts.Node, name: string): number | undefined {
   for (const d of ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : []) {
     if (!ts.isCallExpression(d.expression)) continue
     if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name) continue
@@ -67,8 +67,7 @@ function numberDecorator(node: ts.Node, sf: ts.SourceFile, name: string): number
   return undefined
 }
 
-function stringDecorator(node: ts.Node, sf: ts.SourceFile, name: string): string | undefined {
-  void sf
+function stringDecorator(node: ts.Node, name: string): string | undefined {
   for (const d of ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : []) {
     if (!ts.isCallExpression(d.expression)) continue
     if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name) continue
