@@ -16,7 +16,6 @@ export function lowerSourceFunctions(
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
   const callees = new Map<string, FuncDecl>()
   const ready: ts.FunctionDeclaration[] = []
-
   for (const stmt of decls) {
     const stub = parseSignature(stmt, sourceFile, diagnostics)
     if (!stub) continue
@@ -27,7 +26,6 @@ export function lowerSourceFunctions(
     callees.set(stub.name, stub)
     ready.push(stmt)
   }
-
   const funcs: FuncDecl[] = []
   for (const stmt of ready) {
     const stub = callees.get(stmt.name!.text)!
@@ -51,7 +49,7 @@ export function lowerFunctionDeclaration(
   return stub
 }
 
-function parseSignature(
+export function parseSignature(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -61,12 +59,7 @@ function parseSignature(
     return undefined
   }
   if (!node.body) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Function "${node.name.text}" needs a body (no ambient declarations).`,
-    )
+    pushDiag(diagnostics, sourceFile, node, `Function "${node.name.text}" needs a body (no ambient declarations).`)
     return undefined
   }
   const name = node.name.text
@@ -86,12 +79,7 @@ function parseSignature(
     }
     const pType = mapTsTypeToShaderType(p.type, sourceFile, diagnostics)
     if (!pType) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        p,
-        `Parameter "${p.name.text}" requires a TypeShade type annotation (f32, i32, u32, bool, vec2, vec3, vec4).`,
-      )
+      pushDiag(diagnostics, sourceFile, p, `Parameter "${p.name.text}" requires a TypeShade type annotation.`)
       return undefined
     }
     params.push({ name: p.name.text, type: pType })
@@ -119,7 +107,7 @@ function parseSignature(
   return { name, params, ret, body: [] }
 }
 
-function fillFunctionBody(
+export function fillFunctionBody(
   node: ts.FunctionDeclaration,
   stub: FuncDecl,
   sourceFile: ts.SourceFile,
@@ -135,21 +123,11 @@ function fillFunctionBody(
   if (typeKey(stub.ret) === 'void') return
   for (const r of collectReturns(body)) {
     if (!r.expr) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.name!,
-        `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`,
-      )
+      pushDiag(diagnostics, sourceFile, node.name!, `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`)
       continue
     }
     if (typeKey(r.expr.type) !== typeKey(stub.ret)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.name!,
-        `Function "${stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
-      )
+      pushDiag(diagnostics, sourceFile, node.name!, `Function "${stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`)
     }
   }
 }
@@ -162,6 +140,10 @@ function collectReturns(stmts: readonly Stmt[]): { expr?: Expr }[] {
       else if (s.s === 'if') {
         for (const arm of s.arms) walk(arm.body)
         if (s.elseBody) walk(s.elseBody)
+      } else if (s.s === 'for') walk(s.body)
+      else if (s.s === 'switch') {
+        for (const c of s.cases) walk(c.body)
+        if (s.defaultBody) walk(s.defaultBody)
       }
     }
   }
@@ -176,11 +158,5 @@ function pushDiag(
   message: string,
 ): void {
   const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({
-    message,
-    fileName: sourceFile.fileName,
-    line: line + 1,
-    character: character + 1,
-    category: 'error',
-  })
+  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
 }
