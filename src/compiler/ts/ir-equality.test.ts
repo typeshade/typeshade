@@ -7,7 +7,6 @@ import { f32 } from '../../core/ir/node.js'
 import { f32T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
-/** Compare structural IR ignoring only non-semantic noise. */
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
   expect(a.name).toBe(b.name)
   expect(a.params.map((p) => ({ name: p.name, type: typeKey(p.type) }))).toEqual(
@@ -113,6 +112,30 @@ describe('IR equality: use typeshade vs fn()', () => {
       return x.mul(f32(2))
     })
 
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('add matches EDSL fn()', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function add(a: f32, b: f32): f32 {
+        return a + b;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('add', { a: f32T, b: f32T }, f32T, ({ a, b }) => a.add(b))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('identity return matches EDSL fn()', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function id(x: f32): f32 {
+        return x;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('id', { x: f32T }, f32T, ({ x }) => x)
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 })

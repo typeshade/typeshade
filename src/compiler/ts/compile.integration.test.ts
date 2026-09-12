@@ -72,4 +72,58 @@ describe('compileTsSource integration', () => {
     expect(result.hasDirective).toBe(false)
     expect(result.funcs).toEqual([])
   })
+
+  it('collects multiple top-level functions', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      function helper(x: f32): f32 { return x; }
+      export function main(x: f32): f32 { return x; }
+    `)
+    expect(result.funcs.map((f) => f.name).sort()).toEqual(['helper', 'main'])
+  })
+
+  it('const reassignment produces diagnostic', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      export function f(): f32 {
+        const x = 1.;
+        x = 2.;
+        return x;
+      }
+    `)
+    expect(result.diagnostics.some((d) => /const|immutable/i.test(d.message))).toBe(true)
+  })
+
+  it('mod() produces Phase 6/7 guidance diagnostic', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32, b: f32): f32 {
+        return mod(a, b);
+      }
+    `)
+    expect(result.diagnostics.some((d) => /floor-modulo|Phase 6|%/i.test(d.message))).toBe(true)
+  })
+
+  it('unknown identifier is diagnosed with location', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      export function f(): f32 {
+        return missing;
+      }
+    `)
+    const d = result.diagnostics.find((x) => /Unknown identifier/i.test(x.message))
+    expect(d).toBeDefined()
+    expect(d!.line).toBeGreaterThanOrEqual(1)
+    expect(d!.category).toBe('error')
+  })
+
+  it('non-strict equality is rejected', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32, b: f32): bool {
+        return a == b;
+      }
+    `)
+    expect(result.diagnostics.some((d) => /strict equality/i.test(d.message))).toBe(true)
+  })
 })
