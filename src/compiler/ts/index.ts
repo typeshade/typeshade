@@ -18,8 +18,4 @@ export {
   hasUseTypeshadeDirective,
 } from './directive.js'
 
-export {
-  mapTsTypeToShaderType,
-  lookupTypeName,
-  SUPPORTED_TYPE_NAMES,
-} from './type-map.js'
+export { mapTsTypeToShaderType, lookupTypeName, SUPPORTED_TYPE_NAMES } from './type-map.js'
