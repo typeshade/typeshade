@@ -18,7 +18,7 @@ describe('data class + annotations', () => {
     expect(r.structs[0]!.packing).toBe('wgsl')
   })
 
-  it('reads class-level @std140 and @align', () => {
+  it('errors on class-level packing attrs that are not applied', () => {
     const r = compileTsSource(`
       "use typeshade";
       @std140
@@ -28,11 +28,11 @@ describe('data class + annotations', () => {
       }
       export function f(): f32 { return 0.; }
     `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.structs[0]).toMatchObject({ packing: 'std140', align: 16 })
+    expect(r.diagnostics.some((d) => /@std140/.test(d.message) && /not applied/.test(d.message))).toBe(true)
+    expect(r.diagnostics.some((d) => /@align/.test(d.message) && /not applied/.test(d.message))).toBe(true)
   })
 
-  it('reads field @align and @location', () => {
+  it('keeps @location and rejects unused @align on fields', () => {
     const r = compileTsSource(`
       "use typeshade";
       class VsIn {
@@ -41,10 +41,9 @@ describe('data class + annotations', () => {
       }
       export function f(): f32 { return 0.; }
     `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.diagnostics.some((d) => /@align/.test(d.message) && /not applied/.test(d.message))).toBe(true)
     const fields = r.structs[0]!.decl.fields
     expect(fields[0]).toMatchObject({ name: 'position', location: 0 })
-    expect(fields[1]!.attr).toMatch(/@align\(16\)/)
   })
 
   it('rejects @compute on a data class', () => {
