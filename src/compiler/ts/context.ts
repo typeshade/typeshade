@@ -44,6 +44,18 @@ export class LoweringScope {
     return this.structs.get(structName)?.fields.find((f) => f.name === field)?.type
   }
 
+  matchStruct(fieldNames: readonly string[]): StructDecl | undefined {
+    const set = new Set(fieldNames)
+    let hit: StructDecl | undefined
+    for (const s of this.structs.values()) {
+      if (s.fields.length !== set.size) continue
+      if (!s.fields.every((f) => set.has(f.name))) continue
+      if (hit) return undefined
+      hit = s
+    }
+    return hit
+  }
+
   defineCallee(fn: FuncDecl): void {
     this.callees.set(fn.name, fn)
   }
