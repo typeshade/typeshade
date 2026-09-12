@@ -16,6 +16,7 @@ import {
 import { expandMath } from '../math-expand.js'
 import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
+import { SCALAR_CAST, lowerScalarCast, numericMismatch } from '../numeric.js'
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -120,7 +121,7 @@ function lowerBinary(
   const arith = ARITH[node.operatorToken.kind]
   if (arith !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, 'Arithmetic operand type mismatch.')
+      pushDiag(diagnostics, sourceFile, node, numericMismatch('add/sub/mul/div/%', left.type, right.type))
       return undefined
     }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
@@ -128,7 +129,7 @@ function lowerBinary(
   const bit = BITWISE[node.operatorToken.kind]
   if (bit !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, 'Bitwise operand type mismatch.')
+      pushDiag(diagnostics, sourceFile, node, numericMismatch('bitwise', left.type, right.type))
       return undefined
     }
     return { op: 'binop', type: left.type, bop: bit, a: left, b: right }
@@ -144,7 +145,7 @@ function lowerBinary(
   const cmp = COMPARE[node.operatorToken.kind]
   if (cmp !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, 'Comparison operand type mismatch.')
+      pushDiag(diagnostics, sourceFile, node, numericMismatch('compare', left.type, right.type))
       return undefined
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right }
@@ -224,6 +225,7 @@ function lowerCall(
     }
   } else if (ts.isIdentifier(callee)) {
     const name = callee.text
+    if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     ctor = VEC_CTOR[name]
     if (!ctor) {
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
@@ -274,6 +276,27 @@ function lowerCall(
 function mathResultType(fn: string, args: readonly Expr[]): ShaderType {
   if (fn === 'length' || fn === 'distance' || fn === 'dot') return f32T
   return args[0]!.type
+}
+
+function lowerScalarCastCall(
+  name: string,
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (node.arguments.length !== 1) {
+    pushDiag(diagnostics, sourceFile, node, `${name}() expects 1 argument.`)
+    return undefined
+  }
+  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
+  if (!arg) return undefined
+  const out = lowerScalarCast(name, arg)
+  if (typeof out === 'string') {
+    pushDiag(diagnostics, sourceFile, node, out)
+    return undefined
+  }
+  return out
 }
 
 function lowerExpandCall(
@@ -332,7 +355,7 @@ function lowerRandomCall(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   if (node.arguments.length !== 1) {
-    pushDiag(diagnostics, sourceFile, node, 'random(seed) needs one seed (f32 | vec2 | vec3). No argument-less GPU Math.random.')
+    pushDiag(diagnostics, sourceFile, node, 'random(seed) needs one seed (f32 | vec2 | vec3).')
     return undefined
   }
   const seed = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
