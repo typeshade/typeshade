@@ -15,6 +15,7 @@ export const TS_CODES = {
   HOST_STMT: 'TS8013',
   TOP_LEVEL: 'TS8014',
   BACKEND: 'TS8015',
+  INDEX_OOB: 'TS8016',
   UNSUPPORTED: 'TS8099',
 } as const
 
