@@ -1,18 +1,17 @@
-// === Statement lowering: TS AST -> TypeShade Stmt (Phase 4) ===
+// === Statement lowering: TS AST -> TypeShade Stmt (Phase 4+) ===
 //
-// Minimum set:
-//   const x = ...        ->  { s: 'let', name, expr }
-//   let x = ...          ->  { s: 'var', name, type, init }
-//   return x             ->  { s: 'return', expr }
-//   if (cond) { ... }    ->  { s: 'if', arms, elseBody? }
+// Supported:
+//   const x = ... / let x = ... / let x: T = ...
+//   return expr?
+//   if / else if / else  (nested block scopes)
+//   x = expr             assign
+//   x += expr  (and -= *= /= %=)  assignOp
 //
-// Numeric literals without annotation default to f32 (recommended DX).
-// Explicit types use annotations: `let a: i32 = 0`.
-// C-style suffixes (0.0f / 0u / 0i) are NOT supported - not valid TypeScript.
+// Numeric literals default to f32. Annotations retarget numeric lits.
+// C-style suffixes (0.0f) are NOT supported.
 
 import ts from 'typescript'
-import type { Expr } from '../../../core/ir/nodes.js'
-import type { Stmt } from '../../../core/ir/nodes.js'
+import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
@@ -20,10 +19,14 @@ import { LoweringScope } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerExpression } from './expression.js'
 
-/**
- * Lower a block of TypeScript statements into TypeShade Stmt[].
- * Mutates `scope` when const/let bindings are introduced.
- */
+const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
+  [ts.SyntaxKind.PlusEqualsToken]: '+',
+  [ts.SyntaxKind.MinusEqualsToken]: '-',
+  [ts.SyntaxKind.AsteriskEqualsToken]: '*',
+  [ts.SyntaxKind.SlashEqualsToken]: '/',
+  [ts.SyntaxKind.PercentEqualsToken]: '%',
+}
+
 export function lowerStatements(
   statements: readonly ts.Statement[],
   sourceFile: ts.SourceFile,
@@ -40,9 +43,6 @@ export function lowerStatements(
   return out
 }
 
-/**
- * Lower a single statement. Returns one Stmt, a list (for multi-decl), or undefined.
- */
 export function lowerStatement(
   node: ts.Statement,
   sourceFile: ts.SourceFile,
@@ -50,13 +50,11 @@ export function lowerStatement(
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | Stmt[] | undefined {
   if (ts.isBlock(node)) {
-    return lowerStatements(node.statements, sourceFile, scope, diagnostics)
+    return lowerBlock(node, sourceFile, scope, diagnostics)
   }
 
   if (ts.isReturnStatement(node)) {
-    if (!node.expression) {
-      return { s: 'return' }
-    }
+    if (!node.expression) return { s: 'return' }
     const expr = lowerExpression(node.expression, sourceFile, scope, diagnostics)
     if (!expr) return undefined
     return { s: 'return', expr }
@@ -70,13 +68,31 @@ export function lowerStatement(
     return lowerVariableStatement(node, sourceFile, scope, diagnostics)
   }
 
+  if (ts.isExpressionStatement(node)) {
+    return lowerExpressionStatement(node, sourceFile, scope, diagnostics)
+  }
+
   pushDiag(
     diagnostics,
     sourceFile,
     node,
-    `Unsupported statement "${truncate(node.getText(sourceFile))}". Phase 4 supports const/let, return, and if.`,
+    `Unsupported statement "${truncate(node.getText(sourceFile))}". Supported: const/let, return, if, assignment.`,
   )
   return undefined
+}
+
+function lowerBlock(
+  node: ts.Block,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
+  scope.push()
+  try {
+    return lowerStatements(node.statements, sourceFile, scope, diagnostics)
+  } finally {
+    scope.pop()
+  }
 }
 
 function lowerVariableStatement(
@@ -104,8 +120,7 @@ function lowerVariableStatement(
     if (one) results.push(one)
   }
   if (results.length === 0) return undefined
-  if (results.length === 1) return results[0]
-  return results
+  return results.length === 1 ? results[0] : results
 }
 
 function lowerVariableDeclaration(
@@ -120,19 +135,14 @@ function lowerVariableDeclaration(
       diagnostics,
       sourceFile,
       decl.name,
-      'Destructuring is not supported in Phase 4. Use a simple identifier.',
+      'Destructuring is not supported. Use a simple identifier.',
     )
     return undefined
   }
   const name = decl.name.text
 
-  if (scope.resolve(name)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl.name,
-      `Duplicate binding "${name}" in this scope.`,
-    )
+  if (scope.hasInCurrent(name)) {
+    pushDiag(diagnostics, sourceFile, decl.name, `Duplicate binding "${name}" in this scope.`)
     return undefined
   }
 
@@ -147,7 +157,7 @@ function lowerVariableDeclaration(
       diagnostics,
       sourceFile,
       decl,
-      `"${isConst ? 'const' : 'let'} ${name}" requires an initializer in Phase 4.`,
+      `"${isConst ? 'const' : 'let'} ${name}" requires an initializer.`,
     )
     return undefined
   }
@@ -155,10 +165,10 @@ function lowerVariableDeclaration(
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
 
-  // If annotated and init is a numeric lit, retarget lit type to the annotation
-  // (so `let a: i32 = 0` yields i32 lit, not f32).
-  if (annotated && init.op === 'lit' && typeof init.value === 'number') {
-    if (isIntegerType(annotated) || typeKey(annotated) === 'f32') {
+  if (annotated && init.op === 'lit') {
+    if (typeof init.value === 'number' && isNumericScalar(annotated)) {
+      init = { op: 'lit', type: annotated, value: init.value }
+    } else if (typeof init.value === 'boolean' && typeKey(annotated) === 'bool') {
       init = { op: 'lit', type: annotated, value: init.value }
     }
   }
@@ -174,12 +184,116 @@ function lowerVariableDeclaration(
   }
   const bindingType = annotated ?? init.type
 
-  scope.define({ kind: 'local', name, type: bindingType })
-
-  if (isConst) {
-    return { s: 'let', name, expr: init }
+  try {
+    scope.define({ kind: 'local', name, type: bindingType })
+  } catch (e) {
+    pushDiag(diagnostics, sourceFile, decl.name, e instanceof Error ? e.message : String(e))
+    return undefined
   }
+
+  if (isConst) return { s: 'let', name, expr: init }
   return { s: 'var', name, type: bindingType, init }
+}
+
+function lowerExpressionStatement(
+  node: ts.ExpressionStatement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const expr = node.expression
+
+  if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics)
+  }
+
+  if (ts.isBinaryExpression(expr)) {
+    const bop = ASSIGN_OP[expr.operatorToken.kind]
+    if (bop !== undefined) {
+      return lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics)
+    }
+  }
+
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Unsupported expression statement "${truncate(node.getText(sourceFile))}". Use assignment (x = ...) or a declaration.`,
+  )
+  return undefined
+}
+
+function lowerAssign(
+  left: ts.Expression,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  const value = lowerExpression(right, sourceFile, scope, diagnostics)
+  if (!value) return undefined
+  if (typeKey(target.type) !== typeKey(value.type)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `Assignment type mismatch: ${typeKey(target.type)} = ${typeKey(value.type)}.`,
+    )
+    return undefined
+  }
+  return { s: 'assign', target, expr: value }
+}
+
+function lowerAssignOp(
+  left: ts.Expression,
+  bop: BinOp,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  const value = lowerExpression(right, sourceFile, scope, diagnostics)
+  if (!value) return undefined
+  if (typeKey(target.type) !== typeKey(value.type)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `Compound assignment type mismatch: ${typeKey(target.type)} ${bop}= ${typeKey(value.type)}.`,
+    )
+    return undefined
+  }
+  return { s: 'assignOp', target, bop, expr: value }
+}
+
+function lowerLValue(
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (!ts.isIdentifier(node)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Assignment target must be a simple identifier in this phase (no swizzle/index yet).',
+    )
+    return undefined
+  }
+  const binding = scope.resolve(node.text)
+  if (!binding) {
+    pushDiag(diagnostics, sourceFile, node, `Cannot assign to unknown name "${node.text}".`)
+    return undefined
+  }
+  if (binding.kind === 'param') {
+    return { op: 'param', type: binding.type, name: binding.name }
+  }
+  return { op: 'varref', type: binding.type, name: binding.name }
 }
 
 function lowerIf(
@@ -202,7 +316,6 @@ function lowerIf(
 
   const thenBody = lowerBranch(node.thenStatement, sourceFile, scope, diagnostics)
   const ifArms: { cond: Expr; body: readonly Stmt[] }[] = [{ cond, body: thenBody }]
-
   let elseBody: readonly Stmt[] | undefined
 
   if (node.elseStatement) {
@@ -227,16 +340,21 @@ function lowerBranch(
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
   if (ts.isBlock(node)) {
-    return lowerStatements(node.statements, sourceFile, scope, diagnostics)
+    return lowerBlock(node, sourceFile, scope, diagnostics)
   }
-  const one = lowerStatement(node, sourceFile, scope, diagnostics)
-  if (!one) return []
-  return Array.isArray(one) ? one : [one]
+  scope.push()
+  try {
+    const one = lowerStatement(node, sourceFile, scope, diagnostics)
+    if (!one) return []
+    return Array.isArray(one) ? one : [one]
+  } finally {
+    scope.pop()
+  }
 }
 
-function isIntegerType(t: ShaderType): boolean {
+function isNumericScalar(t: ShaderType): boolean {
   const k = typeKey(t)
-  return k === 'i32' || k === 'u32'
+  return k === 'f32' || k === 'i32' || k === 'u32'
 }
 
 function pushDiag(
