@@ -1,12 +1,7 @@
 // === Phase 7 Math.* alias → TypeShade intrinsic / f32 const ===
-//
-// Canonical form in "use typeshade" sources is the free function / PI.
-// Math.sin / Math.PI are sugar that lower to the SAME IR.
-// Host JS Math is never executed at shader runtime.
 
 import { isKnownIntrinsic } from '../../core/intrinsics.js'
 
-/** JS Math function name → TypeShade intrinsic id (must be isKnownIntrinsic). */
 export const MATH_FN_ALIAS: Readonly<Record<string, string>> = {
   abs: 'abs',
   acos: 'acos',
@@ -37,38 +32,13 @@ export const MATH_FN_ALIAS: Readonly<Record<string, string>> = {
   trunc: 'trunc',
 }
 
-/** Expected arity for a mapped Math / canonical math function. */
 export const MATH_FN_ARITY: Readonly<Record<string, number>> = {
-  abs: 1,
-  acos: 1,
-  acosh: 1,
-  asin: 1,
-  asinh: 1,
-  atan: 1,
-  atanh: 1,
-  atan2: 2,
-  ceil: 1,
-  cos: 1,
-  cosh: 1,
-  exp: 1,
-  floor: 1,
-  f32: 1,
-  log: 1,
-  log2: 1,
-  max: 2,
-  min: 2,
-  pow: 2,
-  round: 1,
-  sign: 1,
-  sin: 1,
-  sinh: 1,
-  sqrt: 1,
-  tan: 1,
-  tanh: 1,
-  trunc: 1,
+  abs: 1, acos: 1, acosh: 1, asin: 1, asinh: 1, atan: 1, atanh: 1,
+  atan2: 2, ceil: 1, cos: 1, cosh: 1, exp: 1, floor: 1, f32: 1,
+  log: 1, log2: 1, max: 2, min: 2, pow: 2, round: 1, sign: 1,
+  sin: 1, sinh: 1, sqrt: 1, tan: 1, tanh: 1, trunc: 1,
 }
 
-/** JS Math constants baked as f32 literals (compiler-time JS number). */
 export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   E: Math.E,
   LN10: Math.LN10,
@@ -95,7 +65,6 @@ export function resolveMathConst(jsName: string): number | undefined {
     : undefined
 }
 
-/** Canonical free-function names that Math.* aliases onto (sin, cos, …). */
 export function isCanonicalMathFn(name: string): boolean {
   if (name === 'mod') return true
   for (const id of Object.values(MATH_FN_ALIAS)) {
@@ -106,4 +75,14 @@ export function isCanonicalMathFn(name: string): boolean {
 
 export function expectedArity(intrinsicId: string): number | undefined {
   return MATH_FN_ARITY[intrinsicId]
+}
+
+export const LANG_CONST: Readonly<Record<string, number>> = {
+  PI: Math.PI,
+  TAU: Math.PI * 2,
+  E: Math.E,
+}
+
+export function resolveLangConst(name: string): number | undefined {
+  return Object.prototype.hasOwnProperty.call(LANG_CONST, name) ? LANG_CONST[name] : undefined
 }
