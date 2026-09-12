@@ -3,6 +3,8 @@
 // Lowers:
 //   export function name(a: f32, b: f32): f32 { ... }
 // into the same FuncDecl shape produced by fn().
+//
+// Policy: all top-level functions are collected (export is optional).
 
 import ts from 'typescript'
 import type { FuncDecl, Stmt, Expr } from '../../../core/ir/nodes.js'
@@ -13,10 +15,6 @@ import { LoweringScope } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
 
-/**
- * Lower every eligible top-level function in a SourceFile.
- * Skips the "use typeshade" directive and non-function statements.
- */
 export function lowerSourceFunctions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -79,10 +77,9 @@ export function lowerFunctionDeclaration(
     }
     const pname = p.name.text
     params.push({ name: pname, type: pType })
-    scope.define({ kind: 'param', name: pname, type: pType })
+    scope.define({ kind: 'param', name: pname, type: pType, mutable: true })
   }
 
-  // Return type — void is a keyword TypeNode, not a TypeShade short name.
   let ret: ShaderType = voidT
   if (node.type) {
     if (node.type.kind === ts.SyntaxKind.VoidKeyword) {
