@@ -1,9 +1,11 @@
 import ts from 'typescript'
 import type { Expr, Stmt } from '../../../core/ir/nodes.js'
+import type { ShaderType } from '../../../core/ir/types.js'
 import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { LoweringScope } from '../context.js'
+import type { LoweringScope } from '../context.js'
 import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
+import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerExpression } from './expression.js'
 import { lowerStatement, lowerStatements } from './statement.js'
 
@@ -21,52 +23,19 @@ export function lowerFor(
     pushDiag(diagnostics, sourceFile, node, 'for-init must be `let i: i32 = <const>`.')
     return undefined
   }
-  scope.push()
-  try {
-    const initStmts = lowerStatements(
-      [ts.factory.createVariableStatement(undefined, node.initializer)] as unknown as ts.Statement[],
-      sourceFile,
-      scope,
-      diagnostics,
-    )
-    // factory node has no real positions; lower the original list via a synthetic walk.
-    void initStmts
-  } finally {
-    scope.pop()
+  if (!node.incrementor) {
+    pushDiag(diagnostics, sourceFile, node, 'for-update is required (e.g. i++).')
+    return undefined
   }
-  return lowerForFromParts(node, sourceFile, scope, diagnostics)
-}
-
-function lowerForFromParts(
-  node: ts.ForStatement,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Stmt | undefined {
-  const list = node.initializer as ts.VariableDeclarationList
   scope.push()
   scope.enterLoop()
   try {
-    const initNode = list.declarations[0]
-    if (!initNode || !ts.isIdentifier(initNode.name)) {
-      pushDiag(diagnostics, sourceFile, node, 'for-init must declare one identifier.')
-      return undefined
-    }
-    const fakeVar = ts.factory.createVariableStatement(
-      undefined,
-      ts.factory.createVariableDeclarationList(list.declarations, ts.NodeFlags.Let),
-    )
-    // Reuse statement lowering on the original VariableDeclarationList by wrapping.
-    const initStmt = lowerInitList(list, sourceFile, scope, diagnostics)
+    const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics)
     if (!initStmt) return undefined
-    const cond = lowerExpression(node.condition!, sourceFile, scope, diagnostics)
+    const cond = lowerExpression(node.condition, sourceFile, scope, diagnostics)
     if (!cond) return undefined
     if (typeKey(cond.type) !== 'bool') {
-      pushDiag(diagnostics, sourceFile, node.condition!, `for condition must be bool, got ${typeKey(cond.type)}.`)
-      return undefined
-    }
-    if (!node.incrementor) {
-      pushDiag(diagnostics, sourceFile, node, 'for-update is required (e.g. i++).')
+      pushDiag(diagnostics, sourceFile, node.condition, `for condition must be bool, got ${typeKey(cond.type)}.`)
       return undefined
     }
     const update = lowerUpdate(node.incrementor, sourceFile, scope, diagnostics)
@@ -76,40 +45,47 @@ function lowerForFromParts(
       pushDiag(diagnostics, sourceFile, node, counted.message)
       return undefined
     }
-    const body = lowerBody(node.statement, sourceFile, scope, diagnostics)
-    return { s: 'for', init: initStmt, cond, update, body }
+    return { s: 'for', init: initStmt, cond, update, body: lowerBody(node.statement, sourceFile, scope, diagnostics) }
   } finally {
     scope.exitLoop()
     scope.pop()
   }
 }
 
-function lowerInitList(
+function lowerForInit(
   list: ts.VariableDeclarationList,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const wrapped: ts.VariableStatement = {
-    ...((list.parent && ts.isVariableStatement(list.parent) ? list.parent : undefined) as ts.VariableStatement),
-    kind: ts.SyntaxKind.VariableStatement,
-    declarationList: list,
-    modifiers: undefined,
-    parent: list.parent,
-    flags: list.flags,
-  } as ts.VariableStatement
-  if (list.parent && ts.isVariableStatement(list.parent)) {
-    const out = lowerStatement(list.parent, sourceFile, scope, diagnostics)
-    if (!out) return undefined
-    return Array.isArray(out) ? out[0] : out
+  const decl = list.declarations[0]
+  if (!decl || list.declarations.length !== 1 || !ts.isIdentifier(decl.name)) {
+    pushDiag(diagnostics, sourceFile, list, 'for-init must declare exactly one identifier.')
+    return undefined
   }
-  // ForStatement initializer is a VariableDeclarationList, not a VariableStatement.
-  const asStmt = ts.factory.createVariableStatement(undefined, list)
-  Object.assign(asStmt.declarationList, { parent: asStmt })
-  const out = lowerStatement(asStmt, sourceFile, scope, diagnostics)
-  if (!out) return undefined
-  return Array.isArray(out) ? out[0] : out
-  void wrapped
+  if ((list.flags & ts.NodeFlags.Let) === 0) {
+    pushDiag(diagnostics, sourceFile, list, 'for-init must be `let` (mutable induction).')
+    return undefined
+  }
+  const name = decl.name.text
+  if (!decl.initializer) {
+    pushDiag(diagnostics, sourceFile, decl, `for-init "${name}" requires an initializer.`)
+    return undefined
+  }
+  const annotated = decl.type ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics) : undefined
+  let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+  if (!init) return undefined
+  if (annotated && init.op === 'lit' && typeof init.value === 'number') {
+    init = { op: 'lit', type: annotated, value: init.value }
+  }
+  const type: ShaderType = annotated ?? init.type
+  const k = typeKey(type)
+  if (k !== 'i32' && k !== 'u32') {
+    pushDiag(diagnostics, sourceFile, decl, `for induction must be i32 or u32, got ${k}.`)
+    return undefined
+  }
+  scope.define({ kind: 'local', name, type, mutable: true, constValue: init.op === 'lit' ? init.value : undefined })
+  return { s: 'var', name, type, init }
 }
 
 export function lowerWhile(
@@ -191,8 +167,12 @@ export function lowerUpdate(
       binding.kind === 'param'
         ? { op: 'param', type: binding.type, name: binding.name }
         : { op: 'varref', type: binding.type, name: binding.name }
-    const one: Expr = { op: 'lit', type: binding.type, value: 1 }
-    return { s: 'assignOp', target, bop: op === ts.SyntaxKind.PlusPlusToken ? '+' : '-', expr: one }
+    return {
+      s: 'assignOp',
+      target,
+      bop: op === ts.SyntaxKind.PlusPlusToken ? '+' : '-',
+      expr: { op: 'lit', type: binding.type, value: 1 },
+    }
   }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
     const left = expr.left
