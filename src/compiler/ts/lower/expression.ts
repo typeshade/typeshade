@@ -17,6 +17,7 @@ import { expandMath } from '../math-expand.js'
 import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
 import { SCALAR_CAST, lowerScalarCast, numericMismatch } from '../numeric.js'
+import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -68,6 +69,8 @@ export function lowerExpression(
   if (ts.isBinaryExpression(node)) return lowerBinary(node, sourceFile, scope, diagnostics)
   if (ts.isCallExpression(node)) return lowerCall(node, sourceFile, scope, diagnostics)
   if (ts.isPropertyAccessExpression(node)) return lowerPropertyAccess(node, sourceFile, scope, diagnostics)
+  if (ts.isElementAccessExpression(node)) return lowerIndex(node, sourceFile, scope, diagnostics)
+  if (ts.isConditionalExpression(node)) return lowerSelect(node, sourceFile, scope, diagnostics)
   pushDiag(diagnostics, sourceFile, node, `Unsupported expression "${node.getText(sourceFile)}".`)
   return undefined
 }
@@ -120,6 +123,10 @@ function lowerBinary(
   if (!left || !right) return undefined
   const arith = ARITH[node.operatorToken.kind]
   if (arith !== undefined) {
+    if (arith === '*') {
+      const mixed = matVecMul(left, right)
+      if (mixed) return mixed
+    }
     if (typeKey(left.type) !== typeKey(right.type)) {
       pushDiag(diagnostics, sourceFile, node, numericMismatch('add/sub/mul/div/%', left.type, right.type))
       return undefined
