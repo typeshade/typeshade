@@ -1,33 +1,10 @@
-// === Expression lowering: TS AST -> TypeShade Expr (Phase 3) ===
+// === Expression lowering: TS AST -> TypeShade Expr ===
 //
-// Supported forms:
-//   identifiers (param / local via LoweringScope)
-//   numeric / boolean literals
-//   a + b | a - b | a * b | a / b | a % b
-//   bitwise: a & b | a | b | a ^ b | a << b | a >> b
-//   logical: a && b | a || b
-//   -a | !a
-//   a < b | a > b | a <= b | a >= b | a === b | a !== b
-//
-// Produces plain Expr data shapes from core/ir/nodes — the same shapes
-// the existing fn() authoring path builds.
-//
-// --- Modulo: two different TypeShade meanings (do not conflate) ---
-//
-//   TS / WGSL operator  a % b
-//     → IR { op: 'binop', bop: '%' }   (TRUNCATED mod, sign of dividend)
-//     Same as Node.prototype.mod / WGSL `%` / JS `%`.
-//     Example: (-1) % 4  →  -1
-//
-//   Free function  mod(x, y)  in the EDSL (core/ir/node.ts)
-//     → IR { op: 'call', name: 'mod', ... }  (FLOOR mod, sign of divisor)
-//     Portable wrap used for angles / domain repetition.
-//     Example: mod(-1, 4)  →  3
-//
-// "use typeshade" source uses the TS operator `%` for the first meaning.
-// The free-function form is a CallExpression and is handled in Phase 6;
-// until then we emit a targeted diagnostic so authors do not assume
-// `mod(a, b)` already lowers to floor-mod.
+// Arithmetic / compare / logical / unary / lit / ident
+// Phase 7: Math.sin(x) === sin(x) === call('sin')
+//          Math.PI === lit f32
+//          mod(a,b) === call('mod')  floor-mod
+//          a % b === binop '%'       truncated-mod
 
 import ts from 'typescript'
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
@@ -35,14 +12,18 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
+import {
+  expectedArity,
+  isCanonicalMathFn,
+  resolveMathConst,
+  resolveMathFn,
+} from '../math-alias.js'
 
-/** Arithmetic binops. `%` is TRUNCATED modulo (see file header). */
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
   [ts.SyntaxKind.MinusToken]: '-',
   [ts.SyntaxKind.AsteriskToken]: '*',
   [ts.SyntaxKind.SlashToken]: '/',
-  // Truncated mod → binop '%'. NOT the free-function floor-mod `mod(x,y)`.
   [ts.SyntaxKind.PercentToken]: '%',
 }
 
@@ -68,10 +49,6 @@ const COMPARE: Readonly<Record<number, CmpOp>> = {
   [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '!=',
 }
 
-/**
- * Lower a TypeScript expression node to a TypeShade {@link Expr}.
- * Returns undefined and pushes a diagnostic on unsupported forms.
- */
 export function lowerExpression(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
@@ -81,42 +58,35 @@ export function lowerExpression(
   if (ts.isParenthesizedExpression(node)) {
     return lowerExpression(node.expression, sourceFile, scope, diagnostics)
   }
-
   if (ts.isIdentifier(node)) {
     return lowerIdentifier(node, sourceFile, scope, diagnostics)
   }
-
   if (ts.isNumericLiteral(node)) {
-    const value = Number(node.text)
-    return { op: 'lit', type: f32T, value }
+    return { op: 'lit', type: f32T, value: Number(node.text) }
   }
-
   if (node.kind === ts.SyntaxKind.TrueKeyword) {
     return { op: 'lit', type: boolT, value: true }
   }
   if (node.kind === ts.SyntaxKind.FalseKeyword) {
     return { op: 'lit', type: boolT, value: false }
   }
-
   if (ts.isPrefixUnaryExpression(node)) {
     return lowerPrefixUnary(node, sourceFile, scope, diagnostics)
   }
-
   if (ts.isBinaryExpression(node)) {
     return lowerBinary(node, sourceFile, scope, diagnostics)
   }
-
-  // CallExpression: not lowered in Phase 3. Special-case `mod(...)` so authors
-  // do not confuse the free-function floor-mod with the `%` operator.
   if (ts.isCallExpression(node)) {
-    return lowerCallStub(node, sourceFile, diagnostics)
+    return lowerCall(node, sourceFile, scope, diagnostics)
   }
-
+  if (ts.isPropertyAccessExpression(node)) {
+    return lowerPropertyAccess(node, sourceFile, diagnostics)
+  }
   pushDiag(
     diagnostics,
     sourceFile,
     node,
-    `Unsupported expression "${node.getText(sourceFile)}". Phase 3 supports literals, identifiers, arithmetic (+ - * / %), bitwise, logical, unary - !, and comparisons.`,
+    `Unsupported expression "${node.getText(sourceFile)}". Supported: literals, identifiers, arithmetic, bitwise, logical, unary, comparisons, Math.* aliases, and math intrinsics.`,
   )
   return undefined
 }
@@ -151,11 +121,9 @@ function lowerPrefixUnary(
 ): Expr | undefined {
   const operand = lowerExpression(node.operand, sourceFile, scope, diagnostics)
   if (!operand) return undefined
-
   if (node.operator === ts.SyntaxKind.MinusToken) {
     return { op: 'unop', type: operand.type, a: operand }
   }
-
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
     if (typeKey(operand.type) !== 'bool') {
       pushDiag(
@@ -167,15 +135,8 @@ function lowerPrefixUnary(
       return undefined
     }
     const falseLit: Expr = { op: 'lit', type: boolT, value: false }
-    return {
-      op: 'compare',
-      type: boolT,
-      cop: '==',
-      a: operand,
-      b: falseLit,
-    }
+    return { op: 'compare', type: boolT, cop: '==', a: operand, b: falseLit }
   }
-
   pushDiag(
     diagnostics,
     sourceFile,
@@ -194,7 +155,6 @@ function lowerBinary(
   const left = lowerExpression(node.left, sourceFile, scope, diagnostics)
   const right = lowerExpression(node.right, sourceFile, scope, diagnostics)
   if (!left || !right) return undefined
-
   const arith = ARITH[node.operatorToken.kind]
   if (arith !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
@@ -208,7 +168,6 @@ function lowerBinary(
     }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
   }
-
   const bit = BITWISE[node.operatorToken.kind]
   if (bit !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
@@ -222,7 +181,6 @@ function lowerBinary(
     }
     return { op: 'binop', type: left.type, bop: bit, a: left, b: right }
   }
-
   const log = LOGICAL[node.operatorToken.kind]
   if (log !== undefined) {
     if (typeKey(left.type) !== 'bool' || typeKey(right.type) !== 'bool') {
@@ -236,7 +194,6 @@ function lowerBinary(
     }
     return { op: 'logical', type: boolT, lop: log, a: left, b: right }
   }
-
   const cmp = COMPARE[node.operatorToken.kind]
   if (cmp !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
@@ -250,7 +207,6 @@ function lowerBinary(
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right }
   }
-
   if (
     node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken ||
     node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken
@@ -263,7 +219,6 @@ function lowerBinary(
     )
     return undefined
   }
-
   if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
     pushDiag(
       diagnostics,
@@ -273,7 +228,6 @@ function lowerBinary(
     )
     return undefined
   }
-
   pushDiag(
     diagnostics,
     sourceFile,
@@ -283,24 +237,32 @@ function lowerBinary(
   return undefined
 }
 
-/**
- * Phase 3 does not lower calls. `mod(a, b)` gets an explicit diagnostic pointing
- * authors at `%` (truncated) vs Phase 6 free-function floor-mod.
- */
-function lowerCallStub(
-  node: ts.CallExpression,
+function lowerPropertyAccess(
+  node: ts.PropertyAccessExpression,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): undefined {
-  const callee = node.expression
-  const name = ts.isIdentifier(callee) ? callee.text : undefined
-  if (name === 'mod') {
+): Expr | undefined {
+  const obj = node.expression
+  const prop = node.name.text
+  if (!ts.isIdentifier(obj) || obj.text !== 'Math') {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      'mod(x, y) is TypeShade floor-modulo (sign of divisor) and is not lowered until Phase 6 (function call). ' +
-        'For truncated modulo matching WGSL/JS "%", write "a % b" instead (IR binop "%").',
+      `Member access "${node.getText(sourceFile)}" is not lowered yet (Phase 8). Math.* constants are supported.`,
+    )
+    return undefined
+  }
+  const value = resolveMathConst(prop)
+  if (value !== undefined) {
+    return { op: 'lit', type: f32T, value }
+  }
+  if (resolveMathFn(prop)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"Math.${prop}" is a function alias. Call it: Math.${prop}(...) or ${resolveMathFn(prop)}(...).`,
     )
     return undefined
   }
@@ -308,9 +270,84 @@ function lowerCallStub(
     diagnostics,
     sourceFile,
     node,
-    `Function calls are not lowered in Phase 3 (got "${node.getText(sourceFile)}"). See Phase 6.`,
+    `"Math.${prop}" is not a TypeShade alias. Use a listed Math function/constant or the free intrinsic (sin, PI, …). Host APIs like Math.random are not available.`,
   )
   return undefined
+}
+
+function lowerCall(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const callee = node.expression
+  let intrinsicId: string | undefined
+  let viaMath = false
+
+  if (ts.isPropertyAccessExpression(callee)) {
+    const obj = callee.expression
+    if (ts.isIdentifier(obj) && obj.text === 'Math') {
+      viaMath = true
+      const jsName = callee.name.text
+      if (resolveMathConst(jsName) !== undefined) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `"Math.${jsName}" is a constant, not a function. Write Math.${jsName} without ().`,
+        )
+        return undefined
+      }
+      intrinsicId = resolveMathFn(jsName)
+      if (!intrinsicId) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `"Math.${jsName}(...)" is not a TypeShade Math alias. Host APIs (random, imul, clz32, hypot, …) are rejected.`,
+        )
+        return undefined
+      }
+    }
+  } else if (ts.isIdentifier(callee)) {
+    const name = callee.text
+    if (name === 'mod' || isCanonicalMathFn(name)) {
+      intrinsicId = name
+    }
+  }
+
+  if (!intrinsicId) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Function calls to user callees are not lowered yet (got "${node.getText(sourceFile)}"). See Phase 6. Math.* and math intrinsics (sin, mod, …) are supported.`,
+    )
+    return undefined
+  }
+
+  const arity = expectedArity(intrinsicId) ?? (intrinsicId === 'mod' ? 2 : undefined)
+  const args: Expr[] = []
+  for (const arg of node.arguments) {
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!lowered) return undefined
+    args.push(lowered)
+  }
+  if (arity !== undefined && args.length !== arity) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${viaMath ? 'Math.' : ''}${intrinsicId} expects ${arity} argument(s), got ${args.length}.`,
+    )
+    return undefined
+  }
+  if (args.length === 0) {
+    pushDiag(diagnostics, sourceFile, node, `Call "${intrinsicId}" needs at least one argument.`)
+    return undefined
+  }
+  return { op: 'call', type: args[0]!.type, fn: intrinsicId, args }
 }
 
 function pushDiag(
@@ -329,7 +366,6 @@ function pushDiag(
   })
 }
 
-/** Exported for tests: result type of a successfully lowered expression. */
 export function exprType(expr: Expr): ShaderType {
   return expr.type
 }
