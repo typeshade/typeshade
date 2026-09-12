@@ -1,10 +1,10 @@
 // Top-level resource declarations.
 //   const scale = uniform<f32>()
-//   let xs = storage<array<f32, 4>>()
-// Binding index is source order unless a number is passed.
+//   declare const camera: uniform<Camera>
 
 import ts from 'typescript'
 import type { BindingDecl } from '../../core/ir/nodes.js'
+import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { TS_CODES } from './codes.js'
@@ -28,17 +28,65 @@ export function collectBindings(
     const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
     const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0
     if (!isConst && !isLet) continue
+    const declared = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false
     for (const decl of stmt.declarationList.declarations) {
-      if (!decl.initializer || !isResourceCall(decl.initializer)) continue
       if (!ts.isIdentifier(decl.name)) continue
-      const b = fromCall(decl.name.text, decl.initializer, isConst, sourceFile, diagnostics, next)
-      if (b) {
-        out.push(b)
-        next = Math.max(next, b.binding + 1)
+      if (decl.initializer && isResourceCall(decl.initializer)) {
+        const b = fromCall(decl.name.text, decl.initializer, isConst, sourceFile, diagnostics, next)
+        if (b) {
+          out.push(b)
+          next = Math.max(next, b.binding + 1)
+        }
+        continue
+      }
+      if (declared && decl.type) {
+        const b = fromType(decl.name.text, decl.type, isConst, sourceFile, diagnostics, next)
+        if (b) {
+          out.push(b)
+          next = Math.max(next, b.binding + 1)
+        }
       }
     }
   }
   return out
+}
+
+function fromType(
+  name: string,
+  type: ts.TypeNode,
+  isConst: boolean,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  autoBinding: number,
+): BindingDecl | undefined {
+  if (!ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) {
+    diagnostics.push(diag(sourceFile, type, `declare "${name}" must be uniform<T> or storage<T>.`))
+    return undefined
+  }
+  const kind = type.typeName.text
+  if (kind !== 'uniform' && kind !== 'storage') {
+    diagnostics.push(diag(sourceFile, type, `declare "${name}" must be uniform<T> or storage<T>.`))
+    return undefined
+  }
+  const inner = type.typeArguments?.[0]
+  if (!inner) {
+    diagnostics.push(diag(sourceFile, type, `${kind}<T> needs a type argument.`))
+    return undefined
+  }
+  const mapped =
+    mapTsTypeToShaderType(inner, sourceFile, diagnostics) ??
+    (ts.isTypeReferenceNode(inner) && ts.isIdentifier(inner.typeName)
+      ? structT(inner.typeName.text)
+      : undefined)
+  if (!mapped) return undefined
+  return {
+    group: 0,
+    binding: autoBinding,
+    name,
+    space: kind === 'storage' ? 'storage' : 'uniform',
+    access: kind === 'storage' ? (isConst ? 'read' : 'read_write') : undefined,
+    type: mapped,
+  }
 }
 
 function fromCall(
@@ -55,7 +103,11 @@ function fromCall(
     diagnostics.push(diag(sourceFile, call, `${kind}<T>() needs a type argument.`))
     return undefined
   }
-  const type = mapTsTypeToShaderType(typeArg, sourceFile, diagnostics)
+  const type =
+    mapTsTypeToShaderType(typeArg, sourceFile, diagnostics) ??
+    (ts.isTypeReferenceNode(typeArg) && ts.isIdentifier(typeArg.typeName)
+      ? structT(typeArg.typeName.text)
+      : undefined)
   if (!type) return undefined
   if (kind === 'uniform' && !isConst) {
     diagnostics.push(diag(sourceFile, call, `uniform "${name}" must be const. Use const ${name} = uniform<T>().`))
