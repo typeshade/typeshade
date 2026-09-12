@@ -101,8 +101,25 @@ export function lowerWhile(
     pushDiag(diagnostics, sourceFile, node, err)
     return undefined
   }
-  pushDiag(diagnostics, sourceFile, node, 'while is only accepted with a constant-false condition; use a counted for.')
-  return undefined
+  scope.enterLoop()
+  try {
+    const body = lowerBody(node.statement, sourceFile, scope, diagnostics)
+    const i32 = cond.op === 'compare' ? cond.a.type : cond.type
+    const w = { op: 'varref' as const, type: i32, name: '_w' }
+    return {
+      s: 'for',
+      init: { s: 'var', name: '_w', type: i32, init: { op: 'lit', type: i32, value: 0 } },
+      cond,
+      update: {
+        s: 'assign',
+        target: w,
+        expr: { op: 'binop', type: i32, bop: '+', a: w, b: { op: 'lit', type: i32, value: 1 } },
+      },
+      body,
+    }
+  } finally {
+    scope.exitLoop()
+  }
 }
 
 export function lowerSwitch(
@@ -168,10 +185,15 @@ export function lowerUpdate(
         ? { op: 'param', type: binding.type, name: binding.name }
         : { op: 'varref', type: binding.type, name: binding.name }
     return {
-      s: 'assignOp',
+      s: 'assign',
       target,
-      bop: op === ts.SyntaxKind.PlusPlusToken ? '+' : '-',
-      expr: { op: 'lit', type: binding.type, value: 1 },
+      expr: {
+        op: 'binop',
+        type: binding.type,
+        bop: op === ts.SyntaxKind.PlusPlusToken ? '+' : '-',
+        a: target,
+        b: { op: 'lit', type: binding.type, value: 1 },
+      },
     }
   }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
@@ -179,8 +201,11 @@ export function lowerUpdate(
     if (!ts.isIdentifier(left)) return undefined
     const binding = scope.resolve(left.text)
     if (!binding) return undefined
-    const rhs = lowerExpression(expr.right, sourceFile, scope, diagnostics)
+    let rhs = lowerExpression(expr.right, sourceFile, scope, diagnostics)
     if (!rhs) return undefined
+    if (rhs.op === 'lit' && typeof rhs.value === 'number') {
+      rhs = { op: 'lit', type: binding.type, value: rhs.value }
+    }
     const target: Expr =
       binding.kind === 'param'
         ? { op: 'param', type: binding.type, name: binding.name }

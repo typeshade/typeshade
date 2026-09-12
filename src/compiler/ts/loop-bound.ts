@@ -12,6 +12,11 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
     const x = foldConstNumber(expr.a, scope)
     return x === undefined ? undefined : -x
   }
+  if (expr.op === 'constref') {
+    const b = scope.resolve(expr.name)
+    if (b && typeof b.constValue === 'number') return b.constValue
+    return undefined
+  }
   if (expr.op === 'varref') {
     const b = scope.resolve(expr.name)
     if (b && !b.mutable && typeof b.constValue === 'number') return b.constValue
