@@ -3,7 +3,9 @@
 // Supported forms:
 //   identifiers (param / local via LoweringScope)
 //   numeric / boolean literals
-//   a + b | a - b | a * b | a / b
+//   a + b | a - b | a * b | a / b | a % b
+//   bitwise: a & b | a | b | a ^ b | a << b | a >> b
+//   logical: a && b | a || b
 //   -a | !a
 //   a < b | a > b | a <= b | a >= b | a === b | a !== b
 //
@@ -11,7 +13,7 @@
 // the existing fn() authoring path builds.
 
 import ts from 'typescript'
-import type { Expr, BinOp, CmpOp } from '../../../core/ir/nodes.js'
+import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
@@ -22,6 +24,20 @@ const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.MinusToken]: '-',
   [ts.SyntaxKind.AsteriskToken]: '*',
   [ts.SyntaxKind.SlashToken]: '/',
+  [ts.SyntaxKind.PercentToken]: '%',
+}
+
+const BITWISE: Readonly<Record<number, BinOp>> = {
+  [ts.SyntaxKind.AmpersandToken]: '&',
+  [ts.SyntaxKind.BarToken]: '|',
+  [ts.SyntaxKind.CaretToken]: '^',
+  [ts.SyntaxKind.LessThanLessThanToken]: '<<',
+  [ts.SyntaxKind.GreaterThanGreaterThanToken]: '>>',
+}
+
+const LOGICAL: Readonly<Record<number, LogOp>> = {
+  [ts.SyntaxKind.AmpersandAmpersandToken]: '&&',
+  [ts.SyntaxKind.BarBarToken]: '||',
 }
 
 const COMPARE: Readonly<Record<number, CmpOp>> = {
@@ -75,7 +91,7 @@ export function lowerExpression(
     diagnostics,
     sourceFile,
     node,
-    `Unsupported expression "${node.getText(sourceFile)}". Phase 3 supports literals, identifiers, + - * /, unary - !, and comparisons.`,
+    `Unsupported expression "${node.getText(sourceFile)}". Phase 3 supports literals, identifiers, arithmetic (+ - * / %), bitwise, logical, unary - !, and comparisons.`,
   )
   return undefined
 }
@@ -168,6 +184,34 @@ function lowerBinary(
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
   }
 
+  const bit = BITWISE[node.operatorToken.kind]
+  if (bit !== undefined) {
+    if (typeKey(left.type) !== typeKey(right.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Bitwise operand type mismatch: ${typeKey(left.type)} vs ${typeKey(right.type)}.`,
+      )
+      return undefined
+    }
+    return { op: 'binop', type: left.type, bop: bit, a: left, b: right }
+  }
+
+  const log = LOGICAL[node.operatorToken.kind]
+  if (log !== undefined) {
+    if (typeKey(left.type) !== 'bool' || typeKey(right.type) !== 'bool') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Logical "${log}" requires bool operands, got ${typeKey(left.type)} and ${typeKey(right.type)}.`,
+      )
+      return undefined
+    }
+    return { op: 'logical', type: boolT, lop: log, a: left, b: right }
+  }
+
   const cmp = COMPARE[node.operatorToken.kind]
   if (cmp !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
@@ -195,11 +239,21 @@ function lowerBinary(
     return undefined
   }
 
+  if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Unsigned right shift ">>>" is not supported. Use ">>" (WGSL/GLSL have no >>>).',
+    )
+    return undefined
+  }
+
   pushDiag(
     diagnostics,
     sourceFile,
     node,
-    `Unsupported binary operator "${node.operatorToken.getText(sourceFile)}". Phase 3 supports + - * / and comparisons.`,
+    `Unsupported binary operator "${node.operatorToken.getText(sourceFile)}". Phase 3 supports + - * / %, bitwise, logical, and comparisons.`,
   )
   return undefined
 }
