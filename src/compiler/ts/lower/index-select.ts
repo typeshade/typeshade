@@ -77,7 +77,10 @@ export function lowerSelect(
 export function matVecMul(left: Expr, right: Expr): Expr | undefined {
   const lt = left.type
   const rt = right.type
-  if (lt.kind === 'mat' && rt.kind === 'vec' && lt.n === rt.n && lt.elem === 'f32' && rt.elem === 'f32') {
+  if (lt.kind === 'mat' && rt.kind === 'vec' && lt.n === rt.n && lt.elem === rt.elem) {
+    return { op: 'binop', type: right.type, bop: '*', a: left, b: right }
+  }
+  if (lt.kind === 'mat' && rt.kind === 'vec64' && lt.n === rt.n && lt.elem === 'f64') {
     return { op: 'binop', type: right.type, bop: '*', a: left, b: right }
   }
   if (lt.kind === 'mat' && rt.kind === 'mat' && lt.n === rt.n && lt.elem === rt.elem) {
