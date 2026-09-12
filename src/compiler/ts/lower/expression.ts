@@ -10,8 +10,10 @@ import {
   isCanonicalMathFn,
   resolveLangConst,
   resolveMathConst,
+  resolveMathExpand,
   resolveMathFn,
 } from '../math-alias.js'
+import { expandMath } from '../math-expand.js'
 import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
 
@@ -118,7 +120,7 @@ function lowerBinary(
   const arith = ARITH[node.operatorToken.kind]
   if (arith !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, `Arithmetic operand type mismatch.`)
+      pushDiag(diagnostics, sourceFile, node, 'Arithmetic operand type mismatch.')
       return undefined
     }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
@@ -170,7 +172,7 @@ function lowerPropertyAccess(
   if (ts.isIdentifier(obj) && obj.text === 'Math') {
     const value = resolveMathConst(prop)
     if (value !== undefined) return { op: 'lit', type: f32T, value }
-    if (resolveMathFn(prop)) {
+    if (resolveMathFn(prop) || resolveMathExpand(prop)) {
       pushDiag(diagnostics, sourceFile, node, `"Math.${prop}" is a function alias. Call it.`)
       return undefined
     }
@@ -208,6 +210,7 @@ function lowerCall(
         return undefined
       }
       if (jsName === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
+      if (resolveMathExpand(jsName)) return lowerExpandCall(jsName, node, sourceFile, scope, diagnostics)
       intrinsicId = resolveMathFn(jsName)
       if (!intrinsicId) {
         pushDiag(diagnostics, sourceFile, node, `"Math.${jsName}(...)" is not a TypeShade Math alias.`)
@@ -224,6 +227,7 @@ function lowerCall(
     ctor = VEC_CTOR[name]
     if (!ctor) {
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
+      if (resolveMathExpand(name)) return lowerExpandCall(name, node, sourceFile, scope, diagnostics)
       if (name === 'mod' || isCanonicalMathFn(name)) intrinsicId = name
       else {
         const decl = scope.resolveCallee(name)
@@ -264,7 +268,35 @@ function lowerCall(
     pushDiag(diagnostics, sourceFile, node, `Call "${intrinsicId}" needs at least one argument.`)
     return undefined
   }
-  return { op: 'call', type: args[0]!.type, fn: intrinsicId, args }
+  return { op: 'call', type: mathResultType(intrinsicId, args), fn: intrinsicId, args }
+}
+
+function mathResultType(fn: string, args: readonly Expr[]): ShaderType {
+  if (fn === 'length' || fn === 'distance' || fn === 'dot') return f32T
+  return args[0]!.type
+}
+
+function lowerExpandCall(
+  name: string,
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const id = resolveMathExpand(name)
+  if (!id) return undefined
+  const args: Expr[] = []
+  for (const arg of node.arguments) {
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!lowered) return undefined
+    args.push(lowered)
+  }
+  const out = expandMath(id, args)
+  if (typeof out === 'string') {
+    pushDiag(diagnostics, sourceFile, node, out)
+    return undefined
+  }
+  return out
 }
 
 function lowerSwizzleCall(
@@ -300,12 +332,7 @@ function lowerRandomCall(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   if (node.arguments.length !== 1) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'random(seed) needs one seed (f32 | vec2 | vec3). No argument-less GPU Math.random.',
-    )
+    pushDiag(diagnostics, sourceFile, node, 'random(seed) needs one seed (f32 | vec2 | vec3). No argument-less GPU Math.random.')
     return undefined
   }
   const seed = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
