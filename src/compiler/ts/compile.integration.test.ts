@@ -94,14 +94,17 @@ describe('compileTsSource integration', () => {
     expect(result.diagnostics.some((d) => /const|immutable/i.test(d.message))).toBe(true)
   })
 
-  it('mod() produces Phase 6/7 guidance diagnostic', () => {
+  it('mod() lowers to a floor-mod call', () => {
     const result = compileTsSource(`
       "use typeshade";
       export function f(a: f32, b: f32): f32 {
         return mod(a, b);
       }
     `)
-    expect(result.diagnostics.some((d) => /floor-modulo|Phase 6|%/i.test(d.message))).toBe(true)
+    expect(result.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const ret = result.funcs[0]!.body[0]
+    expect(ret!.s).toBe('return')
+    if (ret!.s === 'return' && ret.expr?.op === 'call') expect(ret.expr.fn).toBe('mod')
   })
 
   it('unknown identifier is diagnosed with location', () => {
