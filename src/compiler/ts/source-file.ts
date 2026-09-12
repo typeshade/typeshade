@@ -1,17 +1,14 @@
-// ═══ TypeShade source compiler entry point (Phase 1) ═══
+// === TypeShade source compiler entry point ===
 //
 // TypeScript Source
-//       ↓
+//       |
 // TS SourceFile
-//       ↓
-// "use typeshade" 확인
-//       ↓
-// TypeShade compilation unit (later phases produce FuncDecl[])
+//       |
+// "use typeshade" check
+//       |
+// lowerSourceFunctions -> FuncDecl[]
 //
-// Files that lack the directive are treated as ordinary TypeScript and
-// produce an empty result. This module is the only public entry for the
-// source-compiler path; later phases (type mapping, expression/statement/
-// function lowering) plug in behind compileTsSource.
+// Files that lack the directive are ordinary TypeScript and produce an empty result.
 
 import ts from 'typescript'
 import type { FuncDecl } from '../../core/ir/nodes.js'
@@ -20,19 +17,20 @@ import {
   hasUseTypeshadeDirective,
   USE_TYPESHADE,
 } from './directive.js'
+import { lowerSourceFunctions } from './lower/function.js'
 
 /** Options accepted by {@link compileTsSource}. */
 export interface CompileTsSourceOptions {
   /** Virtual file name used for diagnostics and SourceFile identity. */
   readonly fileName?: string
   /**
-   * When true, throw if the source does not contain `"use typeshade";`.
+   * When true, emit an error if the source does not contain `"use typeshade";`.
    * Default: false (silent empty result).
    */
   readonly requireDirective?: boolean
 }
 
-/** Diagnostic produced by the source compiler (Phase 1 surface). */
+/** Diagnostic produced by the source compiler. */
 export interface TsCompilerDiagnostic {
   readonly message: string
   readonly fileName: string
@@ -45,39 +43,29 @@ export interface TsCompilerDiagnostic {
 export interface CompileTsSourceResult {
   /** Whether the source contained a `"use typeshade";` directive. */
   readonly hasDirective: boolean
-  /**
-   * Functions lowered from the source.
-   * Phase 1 always returns an empty array; later phases fill this.
-   */
+  /** Functions lowered from the source into existing TypeShade IR. */
   readonly funcs: readonly FuncDecl[]
   /** Diagnostics collected while processing the source. */
   readonly diagnostics: readonly TsCompilerDiagnostic[]
-  /** The parsed TypeScript SourceFile (useful for later phases / tooling). */
+  /** The parsed TypeScript SourceFile (useful for tooling). */
   readonly sourceFile: ts.SourceFile
 }
 
 /**
  * Parse a TypeScript source string and, when it contains `"use typeshade";`,
- * prepare it as a TypeShade compilation unit.
- *
- * Phase 1 responsibilities only:
- *   1. Create a SourceFile from the text.
- *   2. Detect the `"use typeshade";` directive.
- *   3. Return a structured result (empty funcs for now).
- *
- * Later phases will walk the AST after the directive and lower eligible
- * function declarations into the existing TypeShade IR (`FuncDecl`).
+ * lower top-level functions into TypeShade {@link FuncDecl} IR.
  *
  * @example
  * ```ts
  * const result = compileTsSource(`
  *   "use typeshade";
- *   export function add(a: f32, b: f32): f32 {
- *     return a + b;
+ *   export function transform(a: f32, b: f32): f32 {
+ *     const x = a + b;
+ *     return x * 2;
  *   }
  * `)
  * // result.hasDirective === true
- * // result.funcs === []          // filled in Phase 5+
+ * // result.funcs[0].name === 'transform'
  * ```
  */
 export function compileTsSource(
@@ -116,11 +104,11 @@ export function compileTsSource(
     }
   }
 
-  // Phase 1 stops here. The directive is present; later phases will lower
-  // the remaining top-level FunctionDeclarations into FuncDecl[].
+  const funcs = lowerSourceFunctions(sourceFile, diagnostics)
+
   return {
     hasDirective: true,
-    funcs: [],
+    funcs,
     diagnostics,
     sourceFile,
   }
