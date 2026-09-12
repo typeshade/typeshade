@@ -75,7 +75,13 @@ export function compileTsSource(
   const structs = collectStructs(sourceFile, diagnostics)
   const bindings = collectBindings(sourceFile, diagnostics)
   const consts = collectModuleConsts(sourceFile, diagnostics)
-  const funcs = lowerSourceFunctions(sourceFile, diagnostics, consts)
+  const funcs = lowerSourceFunctions(
+    sourceFile,
+    diagnostics,
+    consts,
+    bindings,
+    structs.map((s) => s.decl),
+  )
   let wgsl: string | undefined
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {

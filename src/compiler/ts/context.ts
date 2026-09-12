@@ -1,7 +1,7 @@
 // === Lowering context / symbol table ===
 
 import type { ShaderType } from '../../core/ir/types.js'
-import type { FuncDecl } from '../../core/ir/nodes.js'
+import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
 
 export type BindingKind = 'param' | 'local' | 'module'
 
@@ -16,6 +16,7 @@ export interface Binding {
 export class LoweringScope {
   private readonly frames: Map<string, Binding>[] = [new Map()]
   private readonly callees: Map<string, FuncDecl>
+  private readonly structs = new Map<string, StructDecl>()
   private loopDepth = 0
 
   constructor(callees?: Map<string, FuncDecl>) {
@@ -32,6 +33,15 @@ export class LoweringScope {
 
   inLoop(): boolean {
     return this.loopDepth > 0
+  }
+
+  setStructs(list: readonly StructDecl[]): void {
+    this.structs.clear()
+    for (const s of list) this.structs.set(s.name, s)
+  }
+
+  fieldType(structName: string, field: string): ShaderType | undefined {
+    return this.structs.get(structName)?.fields.find((f) => f.name === field)?.type
   }
 
   defineCallee(fn: FuncDecl): void {
