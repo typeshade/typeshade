@@ -19,15 +19,10 @@ export function typeshadeVite(options: TypeshadeViteOptions = {}) {
       if (errors.length) {
         throw new Error(errors.map((d) => `${d.fileName}:${d.line}:${d.character} ${d.message}`).join('\n'))
       }
-      const structs =
-        'structs' in r
-          ? ((r as { structs?: { decl: ModuleDecl['structs'][number] }[] }).structs ?? []).map((s) => s.decl)
-          : []
-      const bindings = 'bindings' in r ? ((r as { bindings?: ModuleDecl['bindings'] }).bindings ?? []) : []
       const m: ModuleDecl = {
         consts: [...r.consts],
-        structs,
-        bindings: [...bindings],
+        structs: r.structs.map((s) => s.decl),
+        bindings: [...r.bindings],
         funcs: [...r.funcs],
       }
       return {
