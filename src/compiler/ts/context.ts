@@ -10,6 +10,13 @@ export interface Binding {
   readonly kind: BindingKind
   readonly name: string
   readonly type: ShaderType
+  /**
+   * Writable target for assign / assignOp.
+   * - param: true (shader-style in-place update of params)
+   * - const local: false
+   * - let local: true
+   */
+  readonly mutable: boolean
 }
 
 /**

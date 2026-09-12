@@ -35,7 +35,17 @@
 
 - Execution graph, `@kernel`, tensor, optimizer
 - New function-call systems (reuse `declRef` / call graph)
-- C-style numeric suffixes (`0.0f`) — not valid TypeScript; use annotations or (later) constructors
+- C-style numeric suffixes (`0.0f`) — not valid TypeScript
+
+**Policies (locked after audit)**
+
+| Topic | Rule |
+|-------|------|
+| Export | **All** top-level `function` decls are lowered (`export` optional) |
+| Errors | Collect `diagnostics[]`; no throw; **partial emit** allowed |
+| Numeric lit | Default **f32**; annotations retarget (`let a: i32 = 0`) |
+| Modulo | `a % b` → truncated `binop '%'`; `mod(a,b)` → floor `call` (Phase 6b) |
+| const assign | **Rejected** (immutable) |
 
 **First completion criterion**
 
@@ -47,164 +57,110 @@ export function transform(a: f32, b: f32): f32 {
 }
 ```
 
--> same IR shape as `fn()`, then backend emit.
+→ same core IR as `fn()`, then backend emit.
 
 ---
 
 ## Phase 1 — Source entry + directive ✅
 
-**Files**
-
 - `src/compiler/ts/source-file.ts` — `compileTsSource()`
-- `src/compiler/ts/directive.ts` — `"use typeshade"` detection
-
-**Rules**
-
-- Top-level string literal only; exact text `use typeshade`
-- No directive -> ordinary TS (empty `funcs` unless `requireDirective`)
-
-**Status:** done (tests green)
+- `src/compiler/ts/directive.ts`
 
 ---
 
-## Phase 2 — TS type -> TypeShade type ✅
+## Phase 2 — TS type → TypeShade type ✅
 
-**Files**
-
-- `src/compiler/ts/type-map.ts`
-
-**Minimum types**
-
-`f32` `i32` `u32` `bool` `vec2` `vec3` `vec4`  
-(+ void return keyword handled in function lowering)
-
-**Status:** done
+Minimum: `f32` `i32` `u32` `bool` `vec2` `vec3` `vec4` (f32 vectors only)  
+Not yet: `vec2<f32>`, `vec2i`/`vec2u`, mat, array, texture
 
 ---
 
 ## Phase 3 — Expression lowering ✅
 
-**Files**
-
-- `src/compiler/ts/lower/expression.ts`
-- `src/compiler/ts/context.ts` (scope)
-
-**Supported**
-
-- identifiers (param / local)
-- numeric / boolean literals (numeric default **f32**)
-- arithmetic `+ - * / %`
-- bitwise `& | ^ << >>` (no `>>>`)
-- logical `&& ||`
-- unary `-` `!`
-- comparisons `< > <= >= === !==` (reject non-strict `==` `!=`)
-
-**Modulo policy (do not conflate)**
-
-| Source | IR | Meaning |
-|--------|-----|---------|
-| `a % b` | `binop '%'` | truncated (WGSL / JS) |
-| `mod(a, b)` | `call 'mod'` (Phase 6) | floor mod |
-
-**Status:** done
+Arithmetic, bitwise, logical, unary, comparisons.  
+No member / index / construct / ternary / call (later phases).
 
 ---
 
 ## Phase 4 — Statement lowering ✅
 
-**Files**
-
-- `src/compiler/ts/lower/statement.ts`
-
-**Supported**
-
-- `const` -> IR `let`
-- `let` -> IR `var`
-- type annotations retarget numeric lits (`let a: i32 = 0`)
-- `return`
-- `if` / `else if` / `else` with nested block scopes
-- `x = …` assign, `+= -= *= /= %=` assignOp
-
-**Status:** done
+`const`/`let`, `return`, `if`/`else if`/`else`, assign, assignOp  
+Nested block scopes via `LoweringScope.push/pop`
 
 ---
 
-## Phase 5 — Function lowering ✅ (core milestone)
+## Phase 5 — Function lowering ✅
 
-**Files**
-
-- `src/compiler/ts/lower/function.ts`
-- `compileTsSource` fills `result.funcs`
-
-**Shape**
-
-```
-FuncDecl { name, params, ret, body }
-```
-
-Same structure as `fn()`.
-
-**Status:** done (integration tests for `transform`)
+`FuncDecl { name, params, ret, body }`  
+`compileTsSource` fills `funcs`
 
 ---
 
-## Phase 6 — Function call ⬜ next
+## Phase 5.1 — Close the milestone (gap fill) ✅
 
-**Target**
+| Item | Status |
+|------|--------|
+| `fn()` vs `compileTsSource` IR equality (`ir-equality.test.ts`) | ✅ |
+| `function.test.ts` unit tests | ✅ |
+| assign / assignOp / **const reassignment reject** | ✅ |
+| Export policy + partial emit documented | ✅ |
+| `Binding.mutable` for write checks | ✅ |
+
+---
+
+## Phase 6a — construct + member (vec DX) ⬜ **next**
+
+Without this, `vec3` types exist but cannot be built or swizzled in source.
+
+```ts
+const v = vec3(1, 2, 3);  // construct
+const x = v.x;            // member
+```
+
+IR: `construct`, `member` (swizzle later if needed)
+
+---
+
+## Phase 6b — Function call + declRef ⬜
 
 ```ts
 function square(x: f32): f32 { return x * x; }
 function foo(x: f32): f32 { return square(x) + 1; }
 ```
 
--> `call(square, x)` + existing declRef / call graph — **no new call system**.
-
-Also: intrinsic free functions (`mod`, `max`, …) as `call` nodes.
+→ `{ op: 'call', fn, args, declRef? }`  
+Intrinsics: `mod`, `max`, … as `call` (no new call system)  
+Collect callees for module assembly.
 
 ---
 
 ## Phase 7 — Existing backend connection ⬜
 
 ```
-TS -> "use typeshade" -> TS AST -> TypeShade IR -> lowerForBackend() -> WGSL / GLSL / CPU
+TS → IR → existing lower/emit → WGSL / GLSL / CPU
 ```
 
 Minimize backend diffs; prefer IR identity with EDSL path.
 
 ---
 
-## Phase 8 — Test matrix ⬜ (expand)
+## Phase 8 — Test matrix ⬜
 
-1. **IR tests** — same shapes as `fn()` for equivalent bodies  
-2. **Codegen snapshots** — TS source -> WGSL/GLSL  
-3. **CPU semantic tests** — e.g. `foo(2, 3) === 11`
-
----
-
-## Implementation order (compressed)
-
-1. ~~Directive detection~~  
-2. ~~TS type -> ShaderType~~  
-3. ~~Expression~~  
-4. ~~Statement~~  
-5. ~~Function + compileTsSource.funcs~~  
-6. **Function call** <- current next  
-7. Backend wire-up  
-8. Full IR / codegen / CPU matrix  
-
-Only after Phase 8 is solid should `@kernel` / graph work start on a separate track.
+1. IR equality (started in 5.1) — expand coverage  
+2. Codegen snapshots — TS → WGSL/GLSL  
+3. CPU semantic tests — e.g. `foo(2, 3) === 11`
 
 ---
 
-## DX conventions (locked)
+## Deferred (post–Phase 8 or separate track)
 
-```ts
-let a = 0.;        // f32
-let a: i32 = 0;    // explicit
-// NOT: 0.0f / 0u / 0i  (invalid TypeScript)
-```
-
-Errors -> `diagnostics[]` (no throw); partial success allowed.
+- `for` / `break` / `continue`
+- ternary → `select`
+- `index` / full swizzle assign
+- stage / `@compute` attrs on source functions
+- diagnostic codes (`TS-SH001`…) + `noEmitOnError`
+- package.json export path for `compiler/ts`
+- `@kernel` / execution graph
 
 ---
 
@@ -218,8 +174,10 @@ Errors -> `diagnostics[]` (no throw); partial success allowed.
 | 3 Expr | ✅ |
 | 4 Stmt | ✅ |
 | 5 Func | ✅ |
-| 6 Call | ⬜ |
+| **5.1 Gap fill** | ✅ |
+| **6a construct/member** | ⬜ next |
+| 6b Call + declRef | ⬜ |
 | 7 Backend | ⬜ |
 | 8 Tests | ⬜ partial |
 
-Last updated: 2026-09-12
+Last updated: 2026-09-12 (post-audit)
