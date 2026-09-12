@@ -1,8 +1,8 @@
 # `"use typeshade"` language surface
 
-Branch: `feat/use-typeshade`  
-Status: design freeze for layout / entry / data types. Implementation follows this file.  
+Status: **on `main`** as of `2605a27` (PR #5 squash). Design freeze for layout / entry / data types.
 Does not replace `docs/use-typeshade-plan.md` (IR phases 0–22). This document is the **author-facing grammar**.
+`fn()` remains the IR equality oracle. Product code uses `"use typeshade"`.
 
 North star: TypeScript syntax only where the TS parser already accepts it. No preprocessor. No second IR.
 
@@ -169,7 +169,7 @@ Same Expr / Stmt / FuncDecl / BindingDecl / StructDecl as the EDSL.
 
 ## 6. Implementation order
 
-1. **Done-ish:** `declare` + `uniform<T>` / `storage<T>` → BindingDecl, varref, WGSL, duplicate-slot errors.
+1. **Landed on main:** `declare` + `uniform<T>` / `storage<T>` → BindingDecl, varref, WGSL, duplicate-slot errors.
 2. **`@compute([x,y,z])` + `gid`** in that function only.
 3. **`class` as StructDecl.** Fields without decorators first (`uniform<Camera>`).
 4. **Field decorators** `@align` `@location` `@size` `@offset` `@ignore`.
