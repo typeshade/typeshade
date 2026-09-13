@@ -30,7 +30,7 @@ describe('compileTsSource integration', () => {
     if (fn.body[0]!.s === 'let') {
       expect(fn.body[0].expr.op).toBe('binop')
     }
-    if (fn.body[1]!.s === 'return' && fn.body[1].expr) {
+    if (fn.body[1]!.s === 'return' && fn.body[1]!.expr) {
       expect(fn.body[1].expr.op).toBe('binop')
     }
   })
@@ -142,7 +142,7 @@ describe('compileTsSource integration', () => {
     expect(result.diagnostics).toEqual([])
     const ret = result.funcs[0]!.body[2]
     expect(ret!.s).toBe('return')
-    if (ret!.s === 'return') {
+    if (ret!.s === 'return' && ret.expr) {
       expect(typeKey(ret.expr.type)).toBe('vec4<f32>')
       expect(ret.expr.op).toBe('construct')
     }
@@ -171,7 +171,7 @@ describe('compileTsSource integration', () => {
     expect(result.diagnostics).toEqual([])
     const ret = result.funcs[0]!.body[2]
     expect(ret!.s).toBe('return')
-    if (ret!.s === 'return') {
+    if (ret!.s === 'return' && ret.expr) {
       expect(typeKey(ret.expr.type)).toBe('vec4<f64>')
       expect(ret.expr.op).toBe('construct')
     }
