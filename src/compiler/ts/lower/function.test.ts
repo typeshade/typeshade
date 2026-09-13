@@ -36,6 +36,34 @@ describe('Phase 5 - function lowering', () => {
     expect(fn!.body[0]!.s).toBe('return')
   })
 
+  it('lowers explicit builtin parameters as entry IO metadata', () => {
+    const { node, sourceFile } = parseFn(`
+      @compute([64, 1, 1])
+      export function main(@builtin("global_invocation_id") gid: vec3u): void {}
+    `)
+    const diagnostics: TsCompilerDiagnostic[] = []
+    const fn = lowerFunctionDeclaration(node, sourceFile, diagnostics)
+    expect(diagnostics).toEqual([])
+    expect(fn).toBeDefined()
+    expect(fn!.stage).toBe('compute')
+    expect(fn!.workgroupSize).toBe(64)
+    expect(fn!.params).toHaveLength(1)
+    expect(fn!.params[0]!.name).toBe('gid')
+    expect(fn!.params[0]!.builtin).toBe('global_invocation_id')
+    expect(typeKey(fn!.params[0]!.type)).toBe('vec3u')
+  })
+
+  it('does not inject implicit gid into a compute entry', () => {
+    const { node, sourceFile } = parseFn(`
+      @compute([64, 1, 1])
+      export function main(): void { const x = gid.x; }
+    `)
+    const diagnostics: TsCompilerDiagnostic[] = []
+    const fn = lowerFunctionDeclaration(node, sourceFile, diagnostics)
+    expect(fn).toBeDefined()
+    expect(diagnostics.some((d) => /Unknown identifier/i.test(d.message))).toBe(true)
+  })
+
   it('lowers void return', () => {
     const { node, sourceFile } = parseFn('function noop(): void { return; }')
     const diagnostics: TsCompilerDiagnostic[] = []
