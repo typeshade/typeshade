@@ -18,10 +18,10 @@ import {
   mathResultType,
 } from './expression-misc.js'
 
-const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' }>> = {
-  vec2: { n: 2, elem: 'f32' }, vec2f: { n: 2, elem: 'f32' }, vec2i: { n: 2, elem: 'i32' }, vec2u: { n: 2, elem: 'u32' },
-  vec3: { n: 3, elem: 'f32' }, vec3f: { n: 3, elem: 'f32' }, vec3i: { n: 3, elem: 'i32' }, vec3u: { n: 3, elem: 'u32' },
-  vec4: { n: 4, elem: 'f32' }, vec4f: { n: 4, elem: 'f32' }, vec4i: { n: 4, elem: 'i32' }, vec4u: { n: 4, elem: 'u32' },
+const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' | 'f64' }>> = {
+  vec2: { n: 2, elem: 'f32' }, vec2f: { n: 2, elem: 'f32' }, vec2i: { n: 2, elem: 'i32' }, vec2u: { n: 2, elem: 'u32' }, vec2f64: { n: 2, elem: 'f64' },
+  vec3: { n: 3, elem: 'f32' }, vec3f: { n: 3, elem: 'f32' }, vec3i: { n: 3, elem: 'i32' }, vec3u: { n: 3, elem: 'u32' }, vec3f64: { n: 3, elem: 'f64' },
+  vec4: { n: 4, elem: 'f32' }, vec4f: { n: 4, elem: 'f32' }, vec4i: { n: 4, elem: 'i32' }, vec4u: { n: 4, elem: 'u32' }, vec4f64: { n: 4, elem: 'f64' },
 }
 
 export function lowerCall(
@@ -33,7 +33,7 @@ export function lowerCall(
   const callee = node.expression
   let intrinsicId: string | undefined
   let viaMath = false
-  let ctor: { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' } | undefined
+  let ctor: { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' | 'f64' } | undefined
 
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression
@@ -91,7 +91,7 @@ export function lowerCall(
   if (ctor) {
     if (args.length === 1 && isVectorCtorScalar(args[0]!.type, ctor.elem)) {
       const splat = args[0]!
-      return { op: 'construct', type: { kind: 'vec', n: ctor.n, elem: ctor.elem }, args: Array.from({ length: ctor.n }, () => splat) }
+      return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args: Array.from({ length: ctor.n }, () => splat) }
     }
     if (vectorComponentCount(args) !== ctor.n) {
       pushDiag(diagnostics, sourceFile, node, 'Vector constructor component count mismatch.')
@@ -102,7 +102,7 @@ export function lowerCall(
       pushDiag(diagnostics, sourceFile, node, `Vector constructor element type mismatch: expected ${ctor.elem}.`)
       return undefined
     }
-    return { op: 'construct', type: { kind: 'vec', n: ctor.n, elem: ctor.elem }, args }
+    return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args }
   }
 
   if (!intrinsicId) {
@@ -121,17 +121,24 @@ export function lowerCall(
   return { op: 'call', type: mathResultType(intrinsicId, args), fn: intrinsicId, args }
 }
 
-function isVectorCtorScalar(t: ShaderType, elem: 'f32' | 'i32' | 'u32'): boolean {
+function vectorCtorType(n: 2 | 3 | 4, elem: 'f32' | 'i32' | 'u32' | 'f64'): ShaderType {
+  if (elem === 'f64') return { kind: 'vec64', n }
+  return { kind: 'vec', n, elem }
+}
+
+function isVectorCtorScalar(t: ShaderType, elem: 'f32' | 'i32' | 'u32' | 'f64'): boolean {
+  if (elem === 'f64') return t.kind === 'f64'
   return t.kind === 'scalar' && t.scalar === elem
 }
 
-function isVectorCtorArg(t: ShaderType, elem: 'f32' | 'i32' | 'u32'): boolean {
+function isVectorCtorArg(t: ShaderType, elem: 'f32' | 'i32' | 'u32' | 'f64'): boolean {
+  if (elem === 'f64') return t.kind === 'f64' || t.kind === 'vec64'
   return isVectorCtorScalar(t, elem) || (t.kind === 'vec' && t.elem === elem)
 }
 
 function vectorComponentCount(args: readonly Expr[]): number {
   return args.reduce((count, arg) => {
-    if (arg.type.kind === 'vec') return count + arg.type.n
+    if (arg.type.kind === 'vec' || arg.type.kind === 'vec64') return count + arg.type.n
     return count + 1
   }, 0)
 }
