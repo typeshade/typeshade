@@ -50,7 +50,7 @@ describe('Phase 5 - function lowering', () => {
     expect(fn!.params).toHaveLength(1)
     expect(fn!.params[0]!.name).toBe('gid')
     expect(fn!.params[0]!.builtin).toBe('global_invocation_id')
-    expect(typeKey(fn!.params[0]!.type)).toBe('vec3u')
+    expect(typeKey(fn!.params[0]!.type)).toBe('vec3<u32>')
   })
 
   it('does not inject implicit gid into a compute entry', () => {
