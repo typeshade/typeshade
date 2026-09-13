@@ -57,7 +57,7 @@ The package ships TypeScript source. The consuming build needs a toolchain that 
 
 ## Language example
 
-A minimal file-level shader starts with `"use typeshade"`. Resources are declared with `declare`, metadata lives on class fields, and shader stages are top-level exported functions.
+A minimal file-level shader starts with `"use typeshade"`. Resources are declared with `declare`, metadata lives on class fields, and shader stages are top-level exported functions. GPU builtins are explicit function parameters, so a shader never depends on an implicit `gid`, `vid`, or `pid` global.
 
 ```ts
 "use typeshade"
@@ -72,7 +72,7 @@ declare const camera: uniform<Camera>
 declare let pixels: storage<array<f32>>
 
 @compute([64, 1, 1])
-export function paint() {
+export function paint(@builtin("global_invocation_id") gid: vec3u) {
   const i = gid.x
   pixels[i] = pixels[i] + camera.pos.x
 }
@@ -90,7 +90,7 @@ The documentation is at [typeshade.dev](https://typeshade.dev/), in English and 
 - [Examples](https://typeshade.dev/guide/examples/), complete programs and generated targets
 - [API reference](https://typeshade.dev/api/), public compiler APIs
 - [Verification](https://typeshade.dev/guide/checks/), compiler and output checks
-- [Compiler authoring guide](https://typeshade.dev/guide/authoring/), implementation-facing compiler documentation
+- [Compiler internals](https://typeshade.dev/guide/internals/), implementation-facing compiler documentation
 
 The site is [typeshade/typeshade.github.io](https://github.com/typeshade/typeshade.github.io). It is the primary place to learn the language; this repository is the source of the compiler and authoring surface.
 
