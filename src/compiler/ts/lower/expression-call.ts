@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { vec2fT, vec3fT, vec4fT, typeKey } from '../../../core/ir/types.js'
+import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { expectedArity, isCanonicalMathFn, resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js'
@@ -18,13 +18,10 @@ import {
   mathResultType,
 } from './expression-misc.js'
 
-const VEC_CTOR: Readonly<Record<string, { n: number; type: ShaderType }>> = {
-  vec2: { n: 2, type: vec2fT },
-  vec2f: { n: 2, type: vec2fT },
-  vec3: { n: 3, type: vec3fT },
-  vec3f: { n: 3, type: vec3fT },
-  vec4: { n: 4, type: vec4fT },
-  vec4f: { n: 4, type: vec4fT },
+const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' }>> = {
+  vec2: { n: 2, elem: 'f32' }, vec2f: { n: 2, elem: 'f32' }, vec2i: { n: 2, elem: 'i32' }, vec2u: { n: 2, elem: 'u32' },
+  vec3: { n: 3, elem: 'f32' }, vec3f: { n: 3, elem: 'f32' }, vec3i: { n: 3, elem: 'i32' }, vec3u: { n: 3, elem: 'u32' },
+  vec4: { n: 4, elem: 'f32' }, vec4f: { n: 4, elem: 'f32' }, vec4i: { n: 4, elem: 'i32' }, vec4u: { n: 4, elem: 'u32' },
 }
 
 export function lowerCall(
@@ -36,7 +33,7 @@ export function lowerCall(
   const callee = node.expression
   let intrinsicId: string | undefined
   let viaMath = false
-  let ctor: { n: number; type: ShaderType } | undefined
+  let ctor: { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' } | undefined
 
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression
@@ -92,15 +89,20 @@ export function lowerCall(
   }
 
   if (ctor) {
-    if (args.length === 1 && isNumericScalar(args[0]!.type)) {
+    if (args.length === 1 && isVectorCtorScalar(args[0]!.type, ctor.elem)) {
       const splat = args[0]!
-      return { op: 'construct', type: ctor.type, args: Array.from({ length: ctor.n }, () => splat) }
+      return { op: 'construct', type: { kind: 'vec', n: ctor.n, elem: ctor.elem }, args: Array.from({ length: ctor.n }, () => splat) }
     }
     if (vectorComponentCount(args) !== ctor.n) {
       pushDiag(diagnostics, sourceFile, node, 'Vector constructor component count mismatch.')
       return undefined
     }
-    return { op: 'construct', type: ctor.type, args }
+    const badArg = args.find((arg) => !isVectorCtorArg(arg.type, ctor.elem))
+    if (badArg) {
+      pushDiag(diagnostics, sourceFile, node, `Vector constructor element type mismatch: expected ${ctor.elem}.`)
+      return undefined
+    }
+    return { op: 'construct', type: { kind: 'vec', n: ctor.n, elem: ctor.elem }, args }
   }
 
   if (!intrinsicId) {
@@ -119,9 +121,12 @@ export function lowerCall(
   return { op: 'call', type: mathResultType(intrinsicId, args), fn: intrinsicId, args }
 }
 
-function isNumericScalar(t: ShaderType): boolean {
-  const k = typeKey(t)
-  return k === 'f32' || k === 'i32' || k === 'u32'
+function isVectorCtorScalar(t: ShaderType, elem: 'f32' | 'i32' | 'u32'): boolean {
+  return t.kind === 'scalar' && t.scalar === elem
+}
+
+function isVectorCtorArg(t: ShaderType, elem: 'f32' | 'i32' | 'u32'): boolean {
+  return isVectorCtorScalar(t, elem) || (t.kind === 'vec' && t.elem === elem)
 }
 
 function vectorComponentCount(args: readonly Expr[]): number {
