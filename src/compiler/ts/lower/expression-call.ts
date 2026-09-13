@@ -92,16 +92,22 @@ export function lowerCall(
       const splat = args[0]!
       return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args: Array.from({ length: ctor.n }, () => splat) }
     }
-    if (vectorComponentCount(args) !== ctor.n) {
+    // fp64 lowering represents vecN<f64> as DF64VecN, while the constructor
+    // contract is component-based. Flatten vec64 arguments here so the fp64 pass
+    // only has to lower scalar f64 constructor components; it can then reassemble
+    // the target DF64VecN from those scalar pairs without treating a whole vec64 as
+    // an f64 operand.
+    const ctorArgs = ctor.elem === 'f64' ? flattenF64VectorArgs(args) : args
+    if (vectorComponentCount(ctorArgs) !== ctor.n) {
       pushDiag(diagnostics, sourceFile, node, 'Vector constructor component count mismatch.')
       return undefined
     }
-    const badArg = args.find((arg) => !isVectorCtorArg(arg.type, ctor.elem))
+    const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, ctor.elem))
     if (badArg) {
       pushDiag(diagnostics, sourceFile, node, `Vector constructor element type mismatch: expected ${ctor.elem}.`)
       return undefined
     }
-    return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args }
+    return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args: ctorArgs }
   }
 
   if (!intrinsicId) {
@@ -133,6 +139,20 @@ function isVectorCtorScalar(t: ShaderType, elem: 'f32' | 'i32' | 'u32' | 'f64'):
 function isVectorCtorArg(t: ShaderType, elem: 'f32' | 'i32' | 'u32' | 'f64'): boolean {
   if (elem === 'f64') return t.kind === 'f64' || t.kind === 'vec64'
   return isVectorCtorScalar(t, elem) || (t.kind === 'vec' && t.elem === elem)
+}
+
+function flattenF64VectorArgs(args: readonly Expr[]): Expr[] {
+  const flattened: Expr[] = []
+  for (const arg of args) {
+    if (arg.type.kind !== 'vec64') {
+      flattened.push(arg)
+      continue
+    }
+    for (const field of 'xyzw'.slice(0, arg.type.n)) {
+      flattened.push({ op: 'member', type: { kind: 'f64' }, base: arg, field })
+    }
+  }
+  return flattened
 }
 
 function vectorComponentCount(args: readonly Expr[]): number {
