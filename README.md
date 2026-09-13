@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://typeshade.dev/guide/quick-start/">Quick start</a> |
-  <a href="https://typeshade.dev/guide/authoring/">Guide</a> |
+  <a href="https://typeshade.dev/guide/language/">Language guide</a> |
   <a href="https://typeshade.dev/api/">API</a> |
   <a href="https://typeshade.dev/guide/examples/">Examples</a> |
   <a href="https://typeshade.dev/guide/checks/">Verification</a> |
@@ -20,183 +20,105 @@
 
 # [TypeShade](https://typeshade.dev/)
 
-Write a shader once in TypeScript, get WGSL for WebGPU and GLSL ES 3.00 for WebGL2, and run
-the same module on the CPU in double precision to check the compiler's output.
+**Write shaders in TypeScript. Start with `"use typeshade"`.**
 
-The official author surface is a TypeScript file that starts with `"use typeshade"`.
-`fn()` stays as the IR equality oracle used by tests and the example gallery.
+TypeShade is a shader language and compiler built around the TypeScript authoring experience. A TypeScript source file opts into TypeShade with the file-level `"use typeshade"` directive, then uses TypeShade's typed resources, value layouts and shader-stage entry points.
 
-- **One source, two targets.** Typed TypeScript lowers onto one intermediate representation
-  and emits WGSL for WebGPU and GLSL ES 3.00 for WebGL2.
-- **Checked against the CPU.** The same module compiles to a double-precision CPU function
-  from the same source. The compile gate hands every example emit to Tint and to a real
-  WebGL2 context.
-- **Typed in the editor.** A misspelt uniform field or a wrong-typed return is a TypeScript
-  error before anything is emitted.
-- **Reflection.** `reflect(module)` returns bind groups, std140 and std430 layouts and entry
-  signatures from the same IR, so the host does not derive them by hand.
+- **TypeScript-shaped authoring.** Keep familiar functions, types, expressions and modules where they fit the GPU execution model.
+- **GPU semantics at the language boundary.** `declare` resources, GPU value types and stage decorators make shader constraints explicit in the source.
+- **One source, multiple targets.** The compiler lowers the TypeShade source to a shared IR and emits WGSL for WebGPU and GLSL ES 3.00 for WebGL2 where the example supports both.
+- **Typed in the editor.** TypeScript catches wrong types and misspelled fields before shader code is emitted.
+- **Reflection.** `reflect(module)` exposes bind groups, layouts and entry signatures from the same IR used for emission.
 
-TypeShade ships the authoring and emit surface only, with no runtime dependencies. Creating
-pipelines, binding resources and issuing draws stay with the host. SPIR-V, MSL and HLSL are
-reached through naga or Tint from the WGSL output.
+TypeShade ships the authoring and emit surface only, with no runtime dependency. Creating pipelines, binding resources and issuing draws stay with the host application.
 
-The language surface is frozen in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md).
+The author-facing grammar is frozen in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md). The compiler internals and `fn()` / `module()` APIs remain useful for tests, IR equality and the example gallery, but product code should start with `"use typeshade"`.
 
 ## Getting started
 
-The repository root is the package, so add it as a git submodule and compile it in place:
+Start with the [Quick start](https://typeshade.dev/guide/quick-start/) and then follow the [Language guide](https://typeshade.dev/guide/language/). The recommended order is:
+
+1. `"use typeshade"` and the file boundary
+2. Types and value layouts
+3. Functions and control flow
+4. GPU types and resources
+5. Shader stages
+6. Complete examples
+7. API reference when you need compiler details
+
+For repository development, add TypeShade as a git submodule and compile it in place:
 
 ```bash
 git submodule add https://github.com/typeshade/typeshade vendor/typeshade
 tsc -p vendor/typeshade
 ```
 
-The package ships TypeScript source: `main` and `exports` point at `./src/*.ts`. The consuming
-build needs a toolchain that compiles TypeScript (Vite, `tsc`, esbuild). Every relative
-specifier carries an explicit `.js`.
+The package ships TypeScript source. The consuming build needs a toolchain that compiles TypeScript (Vite, `tsc`, esbuild). Every relative specifier carries an explicit `.js`.
+
+## Language example
+
+A minimal file-level shader starts with `"use typeshade"`. Resources are declared with `declare`, metadata lives on class fields, and shader stages are top-level exported functions.
 
 ```ts
-import { compileTsSource, emitModule, reflect } from './vendor/typeshade/src/index.js'
-```
-
-The [Example](#example) below is the official file-level surface. The gallery under
-`examples/` still authors with `fn()` so emit goldens stay stable. The manifest is `0.0.1`
-as `@xgis/shader-dsl` until the `0.1.0` rename to `typeshade`.
-
-## Documentation
-
-The documentation is at [typeshade.dev](https://typeshade.dev/), in English and
-[Korean](https://typeshade.dev/ko/):
-
-- [Introduction](https://typeshade.dev/guide/introduction/), why one shader source for both targets
-- [Quick start](https://typeshade.dev/guide/quick-start/), the install and a first shader
-- [Authoring guide](https://typeshade.dev/guide/authoring/), rendered from [`AUTHORING.md`](./AUTHORING.md)
-- [API reference](https://typeshade.dev/api/), one page per public export
-- [Examples](https://typeshade.dev/guide/examples/), every example in the registry
-- [Verification](https://typeshade.dev/guide/checks/), CPU oracle, compile gate, goldens
-
-The site is [typeshade/typeshade.github.io](https://github.com/typeshade/typeshade.github.io).
-It pins a commit of this repository. Pin target after the `"use typeshade"` land:
-`f2ed88be618a8c5d22b9bcc0d7493681227e6240`.
-
-## Example
-
-A file-level vertex and fragment pass. Language builtins are global. The host compiles the
-source string and keeps the raw WGSL.
-
-```ts
-import { compileTsSource, emitModule, reflect } from './vendor/typeshade/src/index.js'
-
-const src = `
-"use typeshade";
-
-class Clip {
-  @builtin("position") pos: vec4;
-}
-
-class Color {
-  @location(0) color: vec4;
-}
-
-@vertex
-export function vs(@builtin("vertex_index") i: u32): Clip {
-  const x = i === 1u ? 3. : i === 2u ? -1. : -1.;
-  const y = i === 1u ? -1. : i === 2u ? 3. : -1.;
-  return { pos: vec4(x, y, 0., 1.) };
-}
-
-@fragment
-export function fs(): Color {
-  return { color: vec4(1., 0., 0., 1.) };
-}
-`
-
-const m = compileTsSource(src).module
-console.log(emitModule(m))
-console.log(reflect(m))
-```
-
-The emitted WGSL has the same IR shape as a `fn()` module:
-
-```wgsl
-struct Clip {
-  @builtin(position) pos: vec4<f32>,
-}
-struct Color {
-  @location(0) color: vec4<f32>,
-}
-@vertex
-fn vs(@builtin(vertex_index) i: u32) -> Clip { … }
-@fragment
-fn fs() -> Color { … }
-```
-
-Resources use `declare` plus a space wrapper. Field metadata lives on class fields only.
-
-```ts
-"use typeshade";
+"use typeshade"
 
 class Camera {
-  @align(16) view: mat4;
-  pos: vec3;
+  @align(16)
+  view: mat4
+  pos: vec3
 }
 
-declare const camera: uniform<Camera>;
-declare let pixels: storage<array<f32>>;
+declare const camera: uniform<Camera>
+declare let pixels: storage<array<f32>>
 
 @compute([64, 1, 1])
 export function paint() {
-  const i = gid.x;
-  pixels[i] = pixels[i] + camera.pos.x;
+  const i = gid.x
+  pixels[i] = pixels[i] + camera.pos.x
 }
 ```
 
-`fn()` / `module()` remain public. Tests treat them as the IR equality oracle. Product code
-should use `"use typeshade"`.
+The same authoring model is used by the documentation and the compiler's official surface reference. The host consumes the generated shader source; TypeShade does not own the rendering or compute runtime.
 
-The std140 / std430 offset engine is also available as `wgslLayout(struct, 'std140' | 'std430')`.
+## Documentation
+
+The documentation is at [typeshade.dev](https://typeshade.dev/), in English and [Korean](https://typeshade.dev/ko/):
+
+- [Introduction](https://typeshade.dev/guide/introduction/), the language boundary and TypeScript relationship
+- [Quick start](https://typeshade.dev/guide/quick-start/), your first `"use typeshade"` shader
+- [Language guide](https://typeshade.dev/guide/language/), types, functions, control flow, GPU types, resources and shader stages
+- [Examples](https://typeshade.dev/guide/examples/), complete programs and generated targets
+- [API reference](https://typeshade.dev/api/), public compiler APIs
+- [Verification](https://typeshade.dev/guide/checks/), compiler and output checks
+- [Compiler authoring guide](https://typeshade.dev/guide/authoring/), implementation-facing compiler documentation
+
+The site is [typeshade/typeshade.github.io](https://github.com/typeshade/typeshade.github.io). It is the primary place to learn the language; this repository is the source of the compiler and authoring surface.
 
 ## Examples
 
-[`examples/`](./examples) holds 36 runnable shaders with no runtime dependency: effects,
-fractals, emulated-double demonstrations and a compute kernel. 35 of them emit WGSL, GLSL ES
-3.00 and reflection from one source; the compute kernel emits WGSL and reflection only.
+[`examples/`](./examples) holds runnable shaders and compiler output tests. The gallery may retain `fn()` / `module()` authoring where those APIs are useful as IR equality or golden-test machinery. Product-facing examples should migrate toward `"use typeshade"` as the language surface supports them.
 
 ```bash
 npx tsx examples/print.ts            # print WGSL, GLSL and reflection for every example
 npx tsx examples/print.ts metaballs  # one, by id
 ```
 
-The renderable ones are exported from [`examples/index.ts`](./examples/index.ts). The
-fullscreen head they share is in [`examples/_fullscreen.ts`](./examples/_fullscreen.ts).
-
 ## Develop
 
 ```bash
 bun install
-bun run build          # tsc --build to dist/ with .d.ts, then a noEmit check
-bun run test           # vitest
-bun run gate:compile   # every registered example, compiled by the real compilers
+bun run build
+bun run test
+bun run gate:compile
 ```
 
 `dist/` is gitignored.
 
-The compile gate hands every emit to Tint inside Chromium's headless WebGPU, and both GLSL ES
-3.00 stages to a real WebGL2 context:
-
-```bash
-./node_modules/.bin/playwright install --only-shell chromium
-```
-
-[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the build, the tests and the
-compile gate on every push and pull request.
+The compile gate hands emitted shader code to the real target compilers and browser contexts used by the project. [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the build, tests and compile gate on pushes and pull requests.
 
 ## Contributing
 
-Development happens in this repository. Run the commands under Develop before opening a pull
-request. A change to an example's emit must update its golden file under
-[`examples/__emit-goldens__/`](./examples/__emit-goldens__):
-`UPDATE_EMIT_GOLDENS=1 bun run test` rewrites the goldens.
+Development happens in this repository. Run the commands under Develop before opening a pull request. Changes to compiler output may require updating the corresponding example golden files.
 
 ## License
 
