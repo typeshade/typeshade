@@ -129,4 +129,33 @@ describe('compileTsSource integration', () => {
     `)
     expect(result.diagnostics.some((d) => /strict equality/i.test(d.message))).toBe(true)
   })
+
+  it('allows vector constructors to compose scalar and vector arguments', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      export function f(): vec4 {
+        const xy = vec2(1., 2.);
+        const zw = vec2(3., 4.);
+        return vec4(xy, zw);
+      }
+    `)
+    expect(result.diagnostics).toEqual([])
+    const ret = result.funcs[0]!.body[2]
+    expect(ret!.s).toBe('return')
+    if (ret!.s === 'return') {
+      expect(typeKey(ret.expr.type)).toBe('vec4<f32>')
+      expect(ret.expr.op).toBe('construct')
+    }
+  })
+
+  it('rejects vector constructors whose component count does not match', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      export function f(): vec3 {
+        const xy = vec2(1., 2.);
+        return vec3(xy, 3., 4.);
+      }
+    `)
+    expect(result.diagnostics.some((d) => /component count mismatch/i.test(d.message))).toBe(true)
+  })
 })

@@ -96,8 +96,8 @@ export function lowerCall(
       const splat = args[0]!
       return { op: 'construct', type: ctor.type, args: Array.from({ length: ctor.n }, () => splat) }
     }
-    if (args.length !== ctor.n) {
-      pushDiag(diagnostics, sourceFile, node, 'Vector constructor arity mismatch.')
+    if (vectorComponentCount(args) !== ctor.n) {
+      pushDiag(diagnostics, sourceFile, node, 'Vector constructor component count mismatch.')
       return undefined
     }
     return { op: 'construct', type: ctor.type, args }
@@ -122,6 +122,13 @@ export function lowerCall(
 function isNumericScalar(t: ShaderType): boolean {
   const k = typeKey(t)
   return k === 'f32' || k === 'i32' || k === 'u32'
+}
+
+function vectorComponentCount(args: readonly Expr[]): number {
+  return args.reduce((count, arg) => {
+    if (arg.type.kind === 'vec') return count + arg.type.n
+    return count + 1
+  }, 0)
 }
 
 function pushDiag(
