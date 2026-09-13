@@ -1,7 +1,6 @@
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { expectedArity, isCanonicalMathFn, resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js'
