@@ -15,11 +15,13 @@ import { collectBindings } from './bindings.js'
 import { collectStructs, type CollectedStruct } from './structs.js'
 import { TS_CODES } from './codes.js'
 
+/** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
   readonly fileName?: string
   readonly requireDirective?: boolean
 }
 
+/** A source diagnostic produced while TypeShade analyzes or compiles TypeScript shader code. */
 export interface TsCompilerDiagnostic {
   readonly message: string
   readonly fileName: string
@@ -29,6 +31,7 @@ export interface TsCompilerDiagnostic {
   readonly code?: string
 }
 
+/** The result of compiling a TypeShade TypeScript source string, including IR and optional WGSL. */
 export interface CompileTsSourceResult {
   readonly hasDirective: boolean
   readonly funcs: readonly FuncDecl[]
@@ -40,6 +43,7 @@ export interface CompileTsSourceResult {
   readonly wgsl?: string
 }
 
+/** Compile a TypeScript source string through the TypeShade authoring pipeline. */
 export function compileTsSource(
   source: string,
   options: CompileTsSourceOptions = {},
@@ -110,6 +114,7 @@ export function compileTsSource(
   return { hasDirective: true, funcs, diagnostics, sourceFile, consts, bindings, structs, wgsl }
 }
 
+/** Return whether a TypeScript source string opts into TypeShade with the "use typeshade" directive. */
 export function isTypeshadeSource(source: string, fileName = 'check.ts'): boolean {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
   return hasUseTypeshadeDirective(sf)
