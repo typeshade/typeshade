@@ -106,27 +106,38 @@ Pure methods that only read `this` fields may land later as free functions. Not 
 
 ---
 
-## 3. Entries — function decorators
+## 3. Entries — function decorators and explicit builtins
+
+Shader-stage inputs are **explicit function parameters**. TypeShade does not inject `gid`, `vid`, or `pid` as implicit globals.
 
 ```ts
 @compute([64, 1, 1])
-export function paint() {
+export function paint(
+  @builtin("global_invocation_id") gid: vec3u
+) {
   pixels[gid.x] += camera.pos.x
 }
 
 @vertex
-export function vs(vin: VsIn): vec4 {
+export function vs(
+  @builtin("vertex_index") vid: u32,
+  vin: VsIn
+): vec4 {
   return camera.view * vec4(vin.position, 1)
 }
 
 @fragment
-export function fs(): vec4 {
-  return vec4(1, 0, 0, 1)
+export function fs(
+  @builtin("position") pid: vec4
+): vec4 {
+  return vec4(pid.x, 0, 0, 1)
 }
 ```
 
-- No decorator → helper, not an entry.
-- `gid` / `vid` / `pid` resolve only in the matching stage body.
+- No stage decorator → helper, not an entry.
+- Builtins are ordinary entry parameters with `@builtin(...)` metadata.
+- A builtin is not a hidden global; its dependency is visible in the function signature.
+- The builtin name must match the target backend's supported builtin set.
 - Workgroup size is the only payload on `@compute`. Default `[1, 1, 1]` if omitted as `@compute`.
 - `@compute({ workgroup: [64, 1, 1] })` is accepted as an alias.
 
@@ -141,6 +152,7 @@ export function fs(): vec4 {
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
 | JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
+| Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
 
 ---
 
@@ -159,6 +171,9 @@ camera / pixels in a function
 class Camera { view, pos }
         → StructDecl + field attrs
 
+@builtin("global_invocation_id") gid: vec3u
+        → entry parameter + builtin metadata
+
 @compute([64]) export function paint
         → FuncDecl + workgroup metadata
 ```
@@ -170,10 +185,10 @@ Same Expr / Stmt / FuncDecl / BindingDecl / StructDecl as the EDSL.
 ## 6. Implementation order
 
 1. **Landed on main:** `declare` + `uniform<T>` / `storage<T>` → BindingDecl, varref, WGSL, duplicate-slot errors.
-2. **`@compute([x,y,z])` + `gid`** in that function only.
+2. **`@compute([x,y,z])` + explicit builtin parameters** in that function only.
 3. **`class` as StructDecl.** Fields without decorators first (`uniform<Camera>`).
 4. **Field decorators** `@align` `@location` `@size` `@offset` `@ignore`.
-5. **`@vertex` / `@fragment`** + `VsIn` locations.
+5. **`@vertex` / `@fragment`** + explicit builtin and `VsIn` locations.
 6. Reflect JSON + optional `.d.ts` for `declare` names.
 
 Do not start Execution Graph or class methods before 2–4 are green.
@@ -183,12 +198,12 @@ Do not start Execution Graph or class methods before 2–4 are green.
 ## 7. Diagnostics (required)
 
 | Situation | Error |
-|-----------|--------|
+|-----------|-------|
 | `declare const x: f32` | need `uniform<T>` or `storage<T>` |
 | `declare let x: uniform<T>` | uniform must be `declare const` |
 | assign to `declare const` resource | read-only |
 | two resources share `@binding` | name both |
-| `gid` outside `@compute` | stage mismatch |
+| builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
 
 ---
@@ -208,7 +223,9 @@ declare const camera: uniform<Camera>
 declare let pixels: storage<array<f32>>
 
 @compute([64, 1, 1])
-export function paint() {
+export function paint(
+  @builtin("global_invocation_id") gid: vec3u
+) {
   const i = gid.x
   pixels[i] = pixels[i] + camera.pos.x
 }
