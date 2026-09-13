@@ -4,6 +4,7 @@ import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js'
 import { packModule } from './pack.js'
 import { evalEntry } from './eval-entry.js'
 
+/** Compile TypeShade TypeScript source into the module and generated shader outputs. */
 export function compile(source: string): {
   readonly diagnostics: readonly TsCompilerDiagnostic[]
   readonly module: ModuleDecl
