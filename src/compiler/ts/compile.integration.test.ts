@@ -158,4 +158,32 @@ describe('compileTsSource integration', () => {
     `)
     expect(result.diagnostics.some((d) => /component count mismatch/i.test(d.message))).toBe(true)
   })
+
+  it('lowers f64 vector constructors and composes vec64 arguments', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      export function f(a: f64, b: f64, c: f64, d: f64): vec4f64 {
+        const xy = vec2f64(a, b);
+        const zw = vec2f64(c, d);
+        return vec4f64(xy, zw);
+      }
+    `)
+    expect(result.diagnostics).toEqual([])
+    const ret = result.funcs[0]!.body[2]
+    expect(ret!.s).toBe('return')
+    if (ret!.s === 'return') {
+      expect(typeKey(ret.expr.type)).toBe('vec4<f64>')
+      expect(ret.expr.op).toBe('construct')
+    }
+  })
+
+  it('rejects mixed element types in f64 vector constructors', () => {
+    const result = compileTsSource(`
+      "use typeshade";
+      export function f(a: f64, b: f32): vec2f64 {
+        return vec2f64(a, b);
+      }
+    `)
+    expect(result.diagnostics.some((d) => /element type mismatch/i.test(d.message))).toBe(true)
+  })
 })
