@@ -50,6 +50,9 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   vec2d: vec2f64T,
   vec3d: vec3f64T,
   vec4d: vec4f64T,
+  vec2f64: vec2f64T,
+  vec3f64: vec3f64T,
+  vec4f64: vec4f64T,
 }
 
 export const SUPPORTED_TYPE_NAMES: readonly string[] = Object.keys(SCALAR_AND_VEC_MAP)
