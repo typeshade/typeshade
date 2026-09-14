@@ -153,6 +153,16 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
     return [...this.docs.keys()]
   }
 
+  /** The uri a `specifier` written in `fromUri` resolves to through `resolveImport`, or
+   * `undefined` for a bare (non-relative) specifier or one the host cannot resolve. The same
+   * rule `resolveModuleNameLiterals` applies to TypeScript's own module resolution, exposed so
+   * `service.ts` can key its per-document caches on the versions of the documents a file
+   * imports (design doc §8), without a second resolution rule that could drift from this one. */
+  resolveImportUri(fromUri: string, specifier: string): string | undefined {
+    if (!specifier.startsWith('.')) return undefined
+    return this.resolveImport(fromUri, specifier)
+  }
+
   // ── ts.LanguageServiceHost ───────────────────────────────────────────────────────────────
 
   getScriptFileNames(): string[] {
@@ -214,9 +224,7 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
     containingFile: string,
   ): readonly ts.ResolvedModuleWithFailedLookupLocations[] {
     return moduleLiterals.map((literal) => {
-      const specifier = literal.text
-      if (!specifier.startsWith('.')) return { resolvedModule: undefined }
-      const resolvedUri = this.resolveImport(containingFile, specifier)
+      const resolvedUri = this.resolveImportUri(containingFile, literal.text)
       if (resolvedUri === undefined) return { resolvedModule: undefined }
       if (!this.docs.has(resolvedUri) && !this.imported.has(resolvedUri)) {
         const text = this.readDocument(resolvedUri)

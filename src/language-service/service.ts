@@ -96,8 +96,23 @@ export interface TypeshadeLanguageService {
 }
 
 interface DiagnosticsCacheEntry {
-  readonly version: string
+  /** The `dependencyKey` the entry was computed under. */
+  readonly key: string
   readonly diagnostics: readonly TypeshadeDiagnostic[]
+}
+
+/** The module specifier of every static `import ... from '...'` and `export ... from '...'`
+ * at the top level of `sourceFile`: the edges the TypeScript program follows through
+ * `resolveModuleNameLiterals`, read back off the tree so a cache key can follow the same
+ * edges. */
+function importSpecifiersOf(sourceFile: ts.SourceFile): string[] {
+  const out: string[] = []
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) && !ts.isExportDeclaration(stmt)) continue
+    const specifier = stmt.moduleSpecifier
+    if (specifier !== undefined && ts.isStringLiteral(specifier)) out.push(specifier.text)
+  }
+  return out
 }
 
 /**
@@ -122,6 +137,36 @@ export function createTypeshadeLanguageService(
     return program().getSourceFile(uri)
   }
 
+  /**
+   * The cache key for everything computed about `uri` (design doc §8): its own script version
+   * followed by the version of every document it imports, transitively, each resolved through
+   * the host's `resolveImportUri` over the file's static import and export declarations. A
+   * key made of `uri`'s version alone went stale whenever an imported document changed or was
+   * closed, since neither touches the importing document's version; here a changed import
+   * bumps its own version and a closed one drops to `getScriptVersion`'s `'0'`, so both
+   * produce a different key and a fresh computation. An unresolvable specifier contributes
+   * nothing: TypeScript reports it as unresolved from the importing file itself, whose
+   * version the key already carries.
+   */
+  function dependencyKey(uri: string): string {
+    const current = program()
+    const parts: string[] = []
+    const seen = new Set<string>()
+    const visit = (u: string): void => {
+      if (seen.has(u)) return
+      seen.add(u)
+      parts.push(`${u}@${tsHost.getScriptVersion(u)}`)
+      const sf = current.getSourceFile(u)
+      if (!sf) return
+      for (const specifier of importSpecifiersOf(sf)) {
+        const dep = tsHost.resolveImportUri(u, specifier)
+        if (dep !== undefined) visit(dep)
+      }
+    }
+    visit(uri)
+    return parts.join('|')
+  }
+
   return {
     openDocument(uri, text, version) {
       tsHost.openDocument(uri, text, version)
@@ -140,16 +185,16 @@ export function createTypeshadeLanguageService(
 
     getDiagnostics(uri) {
       if (!tsHost.hasDocument(uri)) return []
-      const version = tsHost.getScriptVersion(uri)
+      const key = dependencyKey(uri)
       const cached = diagnosticsCache.get(uri)
-      if (cached && cached.version === version) return cached.diagnostics
+      if (cached && cached.key === key) return cached.diagnostics
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return []
       const diagnostics = [
         ...getTypeScriptDiagnostics(languageService, sourceFile, uri),
         ...getTypeshadeDiagnostics(sourceFile, uri),
       ]
-      diagnosticsCache.set(uri, { version, diagnostics })
+      diagnosticsCache.set(uri, { key, diagnostics })
       return diagnostics
     },
 

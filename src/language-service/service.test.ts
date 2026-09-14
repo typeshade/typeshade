@@ -262,3 +262,60 @@ describe('getDiagnostics: a syntax error', () => {
     expect(service.getCompiledOutput('syntax.ts', 'wgsl')?.text ?? '').not.toMatch(/fn f/)
   })
 })
+
+describe('getDiagnostics: cache invalidation across imports (design doc §8)', () => {
+  const B_OK = '"use typeshade";\nexport function k(): f32 {\n  return 1.\n}\n'
+  const B_BROKEN = '"use typeshade";\nexport function k(): bool {\n  return true\n}\n'
+  const A =
+    '"use typeshade";\nimport { k } from "./b.js"\nexport function f(): f32 {\n  return k()\n}\n'
+  const tsErrors = (service: ReturnType<typeof createTypeshadeLanguageService>) =>
+    service
+      .getDiagnostics('/a.ts')
+      .filter((d) => d.source === 'typescript')
+      .map((d) => d.code)
+
+  // Regression: the cache was keyed by A's own (uri, version) alone, so once A's diagnostics
+  // had been computed, changing or closing B never refreshed them until A itself was edited.
+  it('refreshes A when the document it imports changes, without A being touched', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('/b.ts', B_OK, 1)
+    service.openDocument('/a.ts', A, 1)
+    expect(tsErrors(service)).toEqual([])
+    service.updateDocument('/b.ts', B_BROKEN, 2)
+    // k() is now bool, returned where f32 is annotated: TS2322 in A.
+    expect(tsErrors(service)).toContain(2322)
+    service.updateDocument('/b.ts', B_OK, 3)
+    expect(tsErrors(service)).toEqual([])
+  })
+
+  it('reflects a closed import as a missing module, then its reopening as resolved again', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('/b.ts', B_OK, 1)
+    service.openDocument('/a.ts', A, 1)
+    expect(tsErrors(service)).toEqual([])
+    service.closeDocument('/b.ts')
+    // TS2307: Cannot find module './b.js'.
+    expect(tsErrors(service)).toContain(2307)
+    service.openDocument('/b.ts', B_OK, 1)
+    expect(tsErrors(service)).toEqual([])
+  })
+
+  it('follows the import chain transitively: a change two hops away refreshes the root', () => {
+    const service = createTypeshadeLanguageService()
+    const C_OK = '"use typeshade";\nexport function c(): f32 {\n  return 1.\n}\n'
+    const C_BROKEN = '"use typeshade";\nexport function c(): bool {\n  return true\n}\n'
+    // B re-exports c's result under an inferred type, so A's own type error appears or
+    // disappears with C's declared return type while B's text never changes.
+    const B = '"use typeshade";\nimport { c } from "./c.js"\nexport const K = c()\n'
+    const A2 =
+      '"use typeshade";\nimport { K } from "./b.js"\nexport function f(): f32 {\n  return K\n}\n'
+    service.openDocument('/c.ts', C_OK, 1)
+    service.openDocument('/b.ts', B, 1)
+    service.openDocument('/a.ts', A2, 1)
+    expect(tsErrors(service)).toEqual([])
+    service.updateDocument('/c.ts', C_BROKEN, 2)
+    expect(tsErrors(service)).toContain(2322)
+    service.updateDocument('/c.ts', C_OK, 3)
+    expect(tsErrors(service)).toEqual([])
+  })
+})
