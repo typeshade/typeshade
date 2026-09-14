@@ -44,12 +44,22 @@ export interface Manifest {
   readonly [key: string]: unknown
 }
 
+/** True for a subpath whose target is ALREADY a built declaration file — `./shade`, the
+ *  ambient authoring lib `scripts/emit-shade-dts.ts` writes out of `SHADE_DTS`. There is no
+ *  source module behind it to rewrite and no runtime module to import: the consumer names it
+ *  in their `types` array, never in an `import`. It is the one shape that is not a `./x.ts`
+ *  source path, and it is recognised BY that shape rather than by name, so a second generated
+ *  .d.ts subpath needs no edit here either. */
+export function isTypesOnly(target: string): boolean {
+  return target.startsWith('./dist/') && target.endsWith('.d.ts')
+}
+
 /** The one rule. `./src/core/ir/index.ts` → `./dist/src/core/ir/index` — the caller appends
  *  `.js` or `.d.ts`. Mirrors tsconfig.json's `rootDir: "."` + `outDir: "./dist"`: the emit
  *  reproduces the source tree one level down, so the transform is a prefix and a suffix and
  *  nothing else. Throws rather than guessing on a target shape the rule does not cover. */
 export function distStem(target: string): string {
-  if (!target.startsWith('./') || !target.endsWith('.ts'))
+  if (!target.startsWith('./') || !target.endsWith('.ts') || isTypesOnly(target))
     throw new Error(
       `exports target ${JSON.stringify(target)} is not a "./<path>.ts" source path. The ` +
         'published manifest is derived from the source map by one rule; a target of another ' +
@@ -64,6 +74,10 @@ export function distStem(target: string): string {
  *  `module: nodenext`), so there is no second build to point a `require` condition at, and
  *  `default` is what a bundler falls back to when it matches neither name. */
 function subpathExport(target: string): Record<string, string> {
+  // Types-only: `types` and nothing else, deliberately. Giving it an `import`/`default` would
+  // advertise `import 'typeshade/shade'` as a thing a consumer can write, and it is not — the
+  // file is a `.d.ts` with no runtime half. Resolution failing there is the correct answer.
+  if (isTypesOnly(target)) return { types: target }
   const stem = distStem(target)
   return { types: `${stem}.d.ts`, import: `${stem}.js`, default: `${stem}.js` }
 }

@@ -89,6 +89,47 @@ The same authoring model is used by the documentation and the compiler's officia
 
 Every `"use typeshade"` block in this README and in `docs/` compiles with the current compiler; `src/compiler/ts/doc-snippets.test.ts` extracts them and fails the build on any error diagnostic. Grammar that the compiler does not accept yet stays in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md), marked as a target, and is not copied here.
 
+## Type-checking `.shade.ts` with tsc
+
+The editor experience TypeShade supports is the language service (`typeshade/language-service`), which builds its own TypeScript program and knows which diagnostics to drop. For a project that wants plain `tsc` over its `.shade.ts` files as well — a Vite plugin build, a CI type-check — the package also ships the ambient declarations as a file:
+
+```jsonc
+// tsconfig.shade.json — a SEPARATE project, covering only the shader sources
+{
+  "compilerOptions": {
+    "lib": [],
+    "types": ["typeshade/shade"],
+    "experimentalDecorators": true,
+    "strictPropertyInitialization": false,
+    "strict": true,
+    "noEmit": true,
+  },
+  "include": ["src/**/*.shade.ts"],
+}
+```
+
+`lib: []` is required, not a preference. `typeshade/shade` declares its own `Array`, `Function`, `Object`, `Math` and `Pick` stand-ins because a `"use typeshade"` file is not a JavaScript program and must not see the JavaScript standard library. Loading both puts the two sets of declarations in the same program: measured on `hello.shade.ts` with the default lib, that is 19 errors, most of them reported _inside_ `lib.es5.d.ts` and `lib.dom.d.ts` (`Duplicate identifier 'Pick'`, `Cannot redeclare block-scoped variable 'Math'`, `Duplicate index signature for type 'number'`). Keep the shader sources in their own project and they do not meet.
+
+### What it covers, and what it does not
+
+Configured as above, the five `.shade.ts` examples in this repository type-check with **one** class of error left:
+
+```
+hello.shade.ts(11,1):  error TS1206: Decorators are not valid here.
+hello.shade.ts(12,20): error TS1206: Decorators are not valid here.
+hello.shade.ts(25,1):  error TS1206: Decorators are not valid here.
+```
+
+— 11 of those across the five files, plus one TS2542 in `compute-reduction-twin.shade.ts`, covered below.
+
+TS1206 fires on `@vertex` / `@fragment` / `@compute` and on `@builtin(...)` parameters, because TypeScript does not allow decorators on function declarations or their parameters at all. No `.d.ts` can turn that off — it is a grammar rule, not a resolution failure. The language service drops it for exactly those positions, since the TypeShade grammar defines them; `tsc` on its own cannot. So the practical shape of this subpath is:
+
+- **Covered.** Every type, resource and builtin name resolves: `f32`, `vec4`, `mat4`, `array<T>`, `uniform<T>`, `storage<T>`, the `Math` aliases, `@builtin(...)` ids. Wrong types, misspelled fields and wrong arities are caught.
+- **Not covered.** TS1206 on stage and `@builtin` decorators — expect it on every entry point, and filter it in your build if the noise matters. Writing through a storage array (`out[i] = x`) reports TS2542, because the ambient `array<T>` declares a readonly index signature; the compiler accepts the write, so this one is a false positive and is tracked as a fix to the declarations. Swizzles outside the `x`/`y`/`z`/`w`, `r`/`g`/`b`/`a` and `xy`/`xyz`/`xyzw`/`rg`/`rgb`/`rgba` set are not type-checked (they compile correctly; the editor just does not see them).
+- **The authority is still the compiler.** `compile()` reports what TypeShade actually accepts, and the compile gate gives the emitted WGSL and GLSL to real drivers. `typeshade/shade` is an editor and CI convenience layered on top, never a second definition of the language.
+
+The file is generated from `SHADE_DTS` in `src/language-service/ambient.ts` at build time, so the declarations the service loads and the ones `tsc` reads are the same bytes.
+
 ## Documentation
 
 The documentation is at [typeshade.dev](https://typeshade.dev/), in English and [Korean](https://typeshade.dev/ko/):

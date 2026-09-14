@@ -93,10 +93,14 @@ const API_SUBPATHS = [
 ] as const
 /** Subpaths deliberately outside the doc contract, with the reason.
  *  `./examples` is a curated gallery whose 36 objects already carry required `title` and
- *  `blurb` fields — a TSDoc on each would be a second authority for the same prose. Kept in
- *  its own list rather than as an allowlist entry so "wholesale" is never available as an
- *  escape hatch for real debt. */
-const NOT_API_SUBPATHS = ['./examples'] as const
+ *  `blurb` fields — a TSDoc on each would be a second authority for the same prose.
+ *  `./shade` is not a TypeScript module at all: it resolves to `dist/shade.d.ts`, the ambient
+ *  authoring lib written out of `SHADE_DTS` by `scripts/emit-shade-dts.ts` for a consumer to
+ *  put in their `types` array. It exports no symbol a reader could import, so there is nothing
+ *  here to document; the declarations carry their own prose, and `ambient.ts` carries the
+ *  reasoning. Both are kept in their own list rather than as allowlist entries so "wholesale"
+ *  is never available as an escape hatch for real debt. */
+const NOT_API_SUBPATHS = ['./examples', './shade'] as const
 
 /** Why each undocumented symbol is still undocumented. Reasons live here, once, and every
  *  row below indirects through this table — 175 copies of a sentence would rot.

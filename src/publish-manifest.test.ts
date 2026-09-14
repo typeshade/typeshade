@@ -31,9 +31,12 @@ import ts from 'typescript'
 import {
   derivePublishManifest,
   distStem,
+  isTypesOnly,
   verifyTargets,
   type Manifest,
 } from '../scripts/publish-manifest.js'
+import { SHADE_DTS_PATH } from '../scripts/emit-shade-dts.js'
+import { SHADE_DTS } from './language-service/ambient.js'
 
 const PKG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PKG = JSON.parse(readFileSync(join(PKG_DIR, 'package.json'), 'utf8')) as Manifest
@@ -57,12 +60,17 @@ describe('the manifest npm publishes', () => {
     ).toEqual(subpaths.sort())
 
     for (const [subpath, conditions] of Object.entries(exports)) {
+      // A types-only subpath (`./shade`) carries `types` alone. Handing it an `import` would
+      // advertise `import 'typeshade/shade'` as writable, and there is no runtime half to
+      // import — the consumer names it in `types`, never in a specifier.
+      const typesOnly = isTypesOnly(PKG.exports[subpath]!)
       expect(
         Object.keys(conditions),
         `${subpath}: condition ORDER is load-bearing — TypeScript and Node both take the first ` +
           'match, so `types` after `import` is never read and the consumer silently gets `any`',
-      ).toEqual(['types', 'import', 'default'])
+      ).toEqual(typesOnly ? ['types'] : ['types', 'import', 'default'])
       expect(conditions['types']).toMatch(/^\.\/dist\/.*\.d\.ts$/)
+      if (typesOnly) continue
       expect(conditions['import']).toMatch(/^\.\/dist\/.*\.js$/)
       expect(conditions['default']).toBe(conditions['import'])
     }
@@ -91,12 +99,22 @@ describe('the manifest npm publishes', () => {
   it('D2 — a target the one rewrite rule does not cover throws instead of being guessed', () => {
     expect(() => distStem('./dist/src/index.js')).toThrow(/not a "\.\/<path>\.ts" source path/)
     expect(() => distStem('src/index.ts')).toThrow(/not a "\.\/<path>\.ts" source path/)
+    // A generated .d.ts is a shape of its own, not a source path the stem rule may chew on:
+    // `./dist/shade.d.ts` would otherwise come out as `./dist/dist/shade.d.js`.
+    expect(() => distStem('./dist/shade.d.ts')).toThrow(/not a "\.\/<path>\.ts" source path/)
+    expect(isTypesOnly('./dist/shade.d.ts')).toBe(true)
+    expect(isTypesOnly('./src/index.ts')).toBe(false)
   })
 
   it.runIf(BUILT)('D3 — the build produces every file the published map promises', () => {
     const checked = verifyTargets(derivePublishManifest(PKG), PKG_DIR)
-    expect(checked.length, 'verified 0 paths — the check is vacuous').toBeGreaterThanOrEqual(
-      2 * Object.keys(PKG.exports).length,
+    // Exact, not a floor: two files per ordinary subpath (.js and .d.ts) and one per
+    // types-only subpath, with `main`/`types` deduplicating against "."'s pair. A count that
+    // does not add up means the reader dropped a subpath, and an arm reporting on a set it
+    // silently shrank is the vacuous-pass failure this repository keeps writing arms against.
+    const expected = Object.values(PKG.exports).reduce((n, t) => n + (isTypesOnly(t) ? 1 : 2), 0)
+    expect(checked.length, 'verified the wrong number of paths — the check is not complete').toBe(
+      expected,
     )
     expect(
       checked.filter((c) => !c.ok).map((c) => c.path),
@@ -109,6 +127,29 @@ describe('the manifest npm publishes', () => {
   })
 
   it.skipIf(BUILT)('D3 — SKIPPED: no dist/ in this tree; run `bun run build` first', () => {})
+
+  // D5 — the ambient lib on disk is what `SHADE_DTS` says, byte for byte. `ambient.ts` derives
+  // its vocabulary from the compiler's own tables so the editor's view and the compiler's
+  // cannot drift; a dist/shade.d.ts that has fallen behind that string — hand-edited, or left
+  // over from an older build — reintroduces the same drift one level further out, and does it
+  // silently, because nothing a consumer runs compares the two.
+  it.runIf(BUILT)('D5 — dist/shade.d.ts is exactly SHADE_DTS', () => {
+    const onDisk = join(PKG_DIR, SHADE_DTS_PATH)
+    expect(
+      existsSync(onDisk),
+      `${SHADE_DTS_PATH} is missing after a build. \`bun run build\` chains ` +
+        '`bun scripts/emit-shade-dts.ts`; if that step was dropped, the `./shade` subpath ' +
+        "resolves to nothing and a consumer's `types` array silently contributes no " +
+        'declarations at all — every TypeShade name becomes an unresolved identifier.',
+    ).toBe(true)
+    expect(
+      readFileSync(onDisk, 'utf8'),
+      `${SHADE_DTS_PATH} and SHADE_DTS disagree. The string in ` +
+        'src/language-service/ambient.ts is the only authority — re-run `bun run build` ' +
+        'rather than editing the generated file.',
+    ).toBe(SHADE_DTS)
+    expect(SHADE_DTS.length, 'SHADE_DTS is empty — the import is broken').toBeGreaterThan(1000)
+  })
 
   // D4 — tsconfig.json's examples exclusions are "everything unreachable from the entry",
   // recomputed rather than trusted. Without this the list is a hand-curated allowlist: adding
