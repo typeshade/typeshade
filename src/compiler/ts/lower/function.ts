@@ -259,6 +259,8 @@ export function fillFunctionBody(
 ): void {
   const scope = new LoweringScope(callees)
   scope.setStructs(structs)
+  // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3).
+  scope.setReturnType(stub.ret)
   for (const c of consts) {
     scope.define({
       kind: 'module',

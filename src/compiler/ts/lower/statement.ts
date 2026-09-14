@@ -8,6 +8,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
+import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -48,7 +49,9 @@ export function lowerStatement(
     if (!node.expression) return { s: 'return' }
     const expr = lowerExpression(node.expression, sourceFile, scope, diagnostics)
     if (!expr) return undefined
-    return { s: 'return', expr }
+    // `return 0` takes the declared return type when that type is i32 or u32 (#8 A3).
+    const ret = scope.returnType()
+    return { s: 'return', expr: ret ? retargetIntLitCtx(expr, node.expression, ret) : expr }
   }
   if (ts.isIfStatement(node)) return lowerIf(node, sourceFile, scope, diagnostics)
   if (ts.isForStatement(node)) return lowerFor(node, sourceFile, scope, diagnostics)
@@ -253,8 +256,11 @@ function lowerAssign(
 ): Stmt | undefined {
   const target = lowerLValue(left, sourceFile, scope, diagnostics)
   if (!target) return undefined
-  const value = lowerExpression(right, sourceFile, scope, diagnostics)
+  let value = lowerExpression(right, sourceFile, scope, diagnostics)
   if (!value) return undefined
+  // `x = 2` takes the target's type when it is i32 or u32 (#8 A3); the compound form already
+  // did through lowerAssignOp.
+  value = retargetIntLitCtx(value, right, target.type)
   if (typeKey(target.type) !== typeKey(value.type)) {
     pushDiag(
       diagnostics,

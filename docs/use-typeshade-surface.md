@@ -242,4 +242,34 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+---
+
+## 9. Integer literals
+
+A number written without a decimal point takes the type the position around it **declares**.
+It is WGSL's abstract-integer rule, narrowed to the places where a type is actually stated:
+
+```ts
+export function f(): u32 { return 0 }            // the declared return type
+x = 2                                            // the assignment target's type
+g(1)                                             // the parameter's type
+{ id: 0 }                                        // the struct field's type
+vec3u(1, 2, 3)                                   // the constructor's element type
+c ? 1 : 2                                        // through both arms, from the position around it
+for (let i = 0; i < 4; i++)                      // i32, the type an induction variable must have
+xs[0]                                            // i32
+min(i, 4)                                        // the kind of the call's other arguments
+const N: u32 = 16                                // the declared type
+```
+
+Only a declared **integer** type changes anything. In every float position the literal stays
+an `f32` exactly as before — `g(2)` where `g` takes an `f32` is `g(2.0)`, `mix(a, b, 1)` is
+`mix(a, b, 1.0)`, and a call whose arguments are all written numbers (`min(1, 2)`) is
+untouched.
+
+A literal that is not an integer stays what it is and is diagnosed against the declared type:
+`return 1.5` in a `u32` function is still a type mismatch, and so is passing an `i32` value
+where a `u32` is declared. There is no implicit conversion between types — only a literal,
+which has no type of its own until something states one.
+
 Last updated: 2026-09-14

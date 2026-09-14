@@ -18,6 +18,7 @@ export class LoweringScope {
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
   private loopDepth = 0
+  private retType: ShaderType | undefined
 
   constructor(callees?: Map<string, FuncDecl>) {
     this.callees = callees ?? new Map()
@@ -33,6 +34,17 @@ export class LoweringScope {
 
   inLoop(): boolean {
     return this.loopDepth > 0
+  }
+
+  /** The declared return type of the function whose body is being lowered, so `return 0` can
+   *  take it (#8 A3). Undefined outside a function body — at module-constant collection, for
+   *  instance — and for a function with no annotation. */
+  setReturnType(t: ShaderType | undefined): void {
+    this.retType = t
+  }
+
+  returnType(): ShaderType | undefined {
+    return this.retType
   }
 
   setStructs(list: readonly StructDecl[]): void {

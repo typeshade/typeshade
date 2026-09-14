@@ -1,13 +1,14 @@
 import ts from 'typescript'
 import type { Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { typeKey } from '../../../core/ir/types.js'
+import { i32T, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerStatement, lowerStatements } from './statement.js'
 
@@ -129,6 +130,11 @@ function lowerForInit(
   if (!init) return undefined
   if (annotated && init.op === 'lit' && typeof init.value === 'number') {
     init = { op: 'lit', type: annotated, value: init.value }
+  } else if (!annotated) {
+    // `for (let i = 0; …)` with no annotation: the induction variable must be i32 or u32, so
+    // that is the declared type a bare integer literal takes here (#8 A3). A non-integer
+    // initializer is left as it was and rejected below.
+    init = retargetIntLitCtx(init, decl.initializer, i32T)
   }
   const type: ShaderType = annotated ?? init.type
   const k = typeKey(type)

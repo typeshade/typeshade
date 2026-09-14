@@ -6,6 +6,7 @@ import type { LoweringScope } from '../context.js'
 import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js'
 import { parseSwizzle } from '../swizzle.js'
 import { numericMismatch } from '../numeric.js'
+import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -109,7 +110,7 @@ export function lowerObjectLiteral(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  const given: { name: string; expr: Expr }[] = []
+  const given: { name: string; expr: Expr; node: ts.Expression }[] = []
   for (const prop of node.properties) {
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) {
       pushDiag(
@@ -123,7 +124,7 @@ export function lowerObjectLiteral(
     }
     const expr = lowerExpression(prop.initializer, sourceFile, scope, diagnostics)
     if (!expr) return undefined
-    given.push({ name: prop.name.text, expr })
+    given.push({ name: prop.name.text, expr, node: prop.initializer })
   }
   const names = given.map((g) => g.name)
   const match = scope.matchStruct(names)
@@ -138,9 +139,13 @@ export function lowerObjectLiteral(
     return undefined
   }
   const byName = new Map(given.map((g) => [g.name, g.expr]))
+  const nodeByName = new Map(given.map((g) => [g.name, g.node]))
   const args: Expr[] = []
   for (const field of match.fields) {
-    const expr = byName.get(field.name)
+    // `{ id: 0 }` takes the field's type when it is i32 or u32 (#8 A3).
+    const named = byName.get(field.name)
+    const namedNode = nodeByName.get(field.name)
+    const expr = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named
     if (!expr) {
       pushDiag(
         diagnostics,
