@@ -137,7 +137,7 @@ const NORMAL: Signal = { kind: 'normal' }
  *  different program. */
 const noValueFor = (name: string): Error =>
   new Error(
-    `shader-dsl/debug: no value supplied for binding '${name}'; pass it in the session's bindings`,
+    `typeshade/debug: no value supplied for binding '${name}'; pass it in the session's bindings`,
   )
 
 export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): Step<CpuValue> {
@@ -146,7 +146,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       return e.value
     case 'constref': {
       const v = ctx.consts.get(e.name)
-      if (v === undefined) throw new Error(`shader-dsl/debug: unknown const ${e.name}`)
+      if (v === undefined) throw new Error(`typeshade/debug: unknown const ${e.name}`)
       return v
       // This arm once also resolved a BINDING named by a constref, because the front end
       // spelled a read of `declare const camera: uniform<Camera>` that way and the oracle
@@ -159,17 +159,17 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
     }
     case 'overrideref': {
       const v = ctx.overrides.get(e.name)
-      if (v === undefined) throw new Error(`shader-dsl/debug: unknown override ${e.name}`)
+      if (v === undefined) throw new Error(`typeshade/debug: unknown override ${e.name}`)
       return v
     }
     case 'externref':
-      throw new Error(`shader-dsl/debug: host-provided global '${e.name}' has no CPU value`)
+      throw new Error(`typeshade/debug: host-provided global '${e.name}' has no CPU value`)
     case 'param':
     case 'varref': {
       if (env.has(e.name)) return env.get(e.name) as CpuValue
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
       if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name)
-      throw new Error(`shader-dsl/debug: unbound ${e.name}`)
+      throw new Error(`typeshade/debug: unbound ${e.name}`)
     }
     case 'binop': {
       const av = yield* evalExpr(e.a, env, ctx)
@@ -186,7 +186,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       }
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
         throw new Error(
-          'shader-dsl/debug: vec*mat (row-vector form) is not implemented; use mat*vec',
+          'typeshade/debug: vec*mat (row-vector form) is not implemented; use mat*vec',
         )
       }
       return applyBin(e.bop, av, bv, numKindOf(e.type))
@@ -234,7 +234,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       if (stub) {
         if (!ctx.gpuStubs) {
           throw new Error(
-            `shader-dsl/debug: '${e.fn}' is GPU-only and not computable here; start the session with gpuStubs: true to accept placeholder values`,
+            `typeshade/debug: '${e.fn}' is GPU-only and not computable here; start the session with gpuStubs: true to accept placeholder values`,
           )
         }
         ctx.stubbed.add(e.fn)
@@ -242,7 +242,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       }
       const decl = ctx.decls.get(e.fn)
       if (decl) return yield* callFunction(decl, args, e.span, ctx)
-      throw new Error(`shader-dsl/debug: unknown fn ${e.fn}`)
+      throw new Error(`typeshade/debug: unknown fn ${e.fn}`)
     }
     case 'member': {
       const base = yield* evalExpr(e.base, env, ctx)
@@ -261,7 +261,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       if (e.type.kind === 'struct') {
         const decl = ctx.structs.get(e.type.name)
         if (decl === undefined)
-          throw new Error(`shader-dsl/debug: struct '${e.type.name}' not declared`)
+          throw new Error(`typeshade/debug: struct '${e.type.name}' not declared`)
         const obj: Record<string, CpuValue> = {}
         for (let i = 0; i < decl.fields.length; i++) {
           obj[decl.fields[i]!.name] = yield* evalExpr(e.args[i]!, env, ctx)
@@ -378,7 +378,7 @@ function* setLValue(
     base[idx] = value
     return
   }
-  throw new Error(`shader-dsl/debug: bad assignment target ${target.op}`)
+  throw new Error(`typeshade/debug: bad assignment target ${target.op}`)
 }
 
 export function* execBody(
@@ -453,11 +453,11 @@ export function* execBody(
       }
       case 'placeholder':
         throw new Error(
-          `shader-dsl/debug: placeholder Stmt reached the stepping backend; composer forgot to splice tag=${s.tag}`,
+          `typeshade/debug: placeholder Stmt reached the stepping backend; composer forgot to splice tag=${s.tag}`,
         )
       case 'raw':
         throw new Error(
-          'shader-dsl/debug: raw Stmt reached the stepping backend; raw passthrough is GPU-only',
+          'typeshade/debug: raw Stmt reached the stepping backend; raw passthrough is GPU-only',
         )
     }
   }

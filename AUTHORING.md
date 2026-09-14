@@ -78,7 +78,7 @@ you never write costs nothing in your bundle:
   obfuscate the emitted source.
 - `typeshade/compute` has the runner that dispatches a portable compute kernel on
   whichever backend the host has.
-- `@xgis/shader-dsl/debug` steps one invocation of a `"use typeshade"` shader on the CPU
+- `typeshade/debug` steps one invocation of a `"use typeshade"` shader on the CPU
   oracle: it stops at each statement the author wrote, reports the source span and the
   frame's locals, and resolves breakpoints by line. It is what an editor's debug adapter and
   the Playground's step panel are both built on. See `docs/debugging.md`.

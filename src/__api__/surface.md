@@ -781,7 +781,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 492 definitions
+## Shapes — 498 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileResult  interface  { diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
