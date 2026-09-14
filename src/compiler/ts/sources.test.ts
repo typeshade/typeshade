@@ -57,3 +57,31 @@ describe('compileTsSources syntax errors', () => {
     expect(r.wgsl).toBeUndefined()
   })
 })
+
+describe('compileTsSources symbols', () => {
+  // The same promise as `module.ts`'s overload, and here the result names the file the spans
+  // index (`sourceFile`), so the test can check them against it directly.
+  const files = {
+    'a.ts':
+      '"use typeshade";\nexport function helper(ha: f32): f32 {\n  const inA = ha;\n  return inA;\n}\n',
+    'b.ts':
+      '"use typeshade";\nimport { helper } from "./a";\nconst KB: f32 = 2.;\nexport function main(mb: f32): f32 {\n  const inB = helper(mb);\n  return inB;\n}\n',
+  }
+
+  for (const entry of ['b.ts', './b.ts', 'b.js']) {
+    it(`records the entry file's declarations for entry "${entry}"`, () => {
+      const r = compileTsSources(files, { entry })
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+      expect(r.sourceFile.fileName).toBe('b.ts')
+      expect(r.symbols.map((s) => `${s.kind}:${s.name}`).sort()).toEqual([
+        'const:KB',
+        'function:main',
+        'local:inB',
+        'param:mb',
+      ])
+      for (const s of r.symbols) {
+        expect(r.sourceFile.text.slice(s.start, s.start + s.length)).toBe(s.name)
+      }
+    })
+  }
+})

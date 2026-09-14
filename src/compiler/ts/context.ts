@@ -1,9 +1,45 @@
 // === Lowering context / symbol table ===
 
+import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
 import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
+import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
 
-export type BindingKind = 'param' | 'local' | 'module'
+/** What a name in scope refers to.
+ *
+ *  `module` and `binding` were one kind until #14, and conflating them is what broke stage
+ *  reachability: a resource binding lowered to `Expr.constref`, the shape the IR reserves for
+ *  a module-scope CONSTANT, and every consumer that asks "which bindings does this stage
+ *  reach" looks for `Expr.varref`. So no stage reached any binding in a source-compiled
+ *  module — the GLSL writer dropped the uniform block while keeping the uses, and
+ *  `reflect()` reported no stages for anything. A binding is a module-scope `var`, not a
+ *  const, and it now says so. */
+export type BindingKind = 'param' | 'local' | 'module' | 'binding'
+
+/** How a "cannot assign" diagnostic names what the target is. One helper because the three
+ *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
+ *  is not what a `declare const input: storage<…>` is.
+ *
+ *  The parameter is a `BindingKind`, not `BindingKind | undefined`. An absent binding is not a
+ *  read-only one — it is an unknown name, a different diagnostic — and while this accepted
+ *  `undefined` it answered "declared with const" for a name that was never declared at all.
+ *  Every caller now resolves that case first. The switch is exhaustive so that a NEW kind is a
+ *  type error here rather than silently taking a default phrase that may not describe it. */
+export function readOnlyPhrase(kind: BindingKind): string {
+  switch (kind) {
+    case 'binding':
+      return 'a read-only resource'
+    case 'module':
+      return 'a module const'
+    case 'param':
+    case 'local':
+      return 'declared with const'
+    default: {
+      const never: never = kind
+      throw new Error(`unhandled binding kind ${String(never)}`)
+    }
+  }
+}
 
 export interface Binding {
   readonly kind: BindingKind
@@ -17,11 +53,25 @@ export class LoweringScope {
   private readonly frames: Map<string, Binding>[] = [new Map()]
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
+  private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
   private retType: ShaderType | undefined
 
-  constructor(callees?: Map<string, FuncDecl>) {
+  constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
     this.callees = callees ?? new Map()
+    this.symbols = symbols
+  }
+
+  /** Record one declaration this scope just defined into the caller's symbol table, spanning
+   *  `nameNode` (see `symbols.ts`). A no-op when the caller asked for no symbols. Deliberately
+   *  separate from `define`: a function's scope also defines the module consts and the bindings
+   *  it can see, and those are recorded once where they are collected, not once per function. */
+  recordDeclaration(
+    sourceFile: ts.SourceFile,
+    nameNode: ts.Node,
+    symbol: Omit<DeclaredSymbol, 'start' | 'length'>,
+  ): void {
+    recordDeclaration(this.symbols, sourceFile, nameNode, symbol)
   }
 
   enterLoop(): void {
