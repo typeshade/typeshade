@@ -3,6 +3,7 @@
 import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js'
 import { typeKey } from '../../core/ir/types.js'
 import type { LoweringScope } from './context.js'
+import { TS_CODES, type TsCode } from './codes.js'
 
 export const MAX_LOOP_TRIPS = 256
 
@@ -41,7 +42,11 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
         return undefined
     }
   }
-  if (expr.op === 'call' && (expr.fn === 'i32' || expr.fn === 'u32' || expr.fn === 'f32') && expr.args[0]) {
+  if (
+    expr.op === 'call' &&
+    (expr.fn === 'i32' || expr.fn === 'u32' || expr.fn === 'f32') &&
+    expr.args[0]
+  ) {
     const x = foldConstNumber(expr.args[0], scope)
     if (x === undefined) return undefined
     return expr.fn === 'f32' ? x : Math.trunc(x)
@@ -92,7 +97,11 @@ function flipCmp(cop: CmpOp): CmpOp {
 const isInduct = (e: Expr, name: string): boolean =>
   (e.op === 'varref' || e.op === 'param') && e.name === name
 
-function readCond(cond: Expr, name: string, scope: LoweringScope): { cop: CmpOp; bound: number } | undefined {
+function readCond(
+  cond: Expr,
+  name: string,
+  scope: LoweringScope,
+): { cop: CmpOp; bound: number } | undefined {
   if (cond.op !== 'compare') return undefined
   if (isInduct(cond.a, name)) {
     const bound = foldConstNumber(cond.b, scope)
@@ -141,46 +150,78 @@ export function analyzeCountedFor(
   cond: Expr,
   update: Stmt,
   scope: LoweringScope,
-): { ok: true; loop: CountedLoop } | { ok: false; message: string } {
+): { ok: true; loop: CountedLoop } | { ok: false; message: string; code: TsCode } {
   if (init.s !== 'var' || !init.init) {
-    return { ok: false, message: 'for-init must be `let i: i32 = <const>` (or u32).' }
+    return {
+      ok: false,
+      message: 'for-init must be `let i: i32 = <const>` (or u32).',
+      code: TS_CODES.LOOP_INDUCTION,
+    }
   }
   const k = typeKey(init.type)
   if (k !== 'i32' && k !== 'u32') {
-    return { ok: false, message: `for induction must be i32 or u32, got ${k}.` }
+    return {
+      ok: false,
+      message: `for induction must be i32 or u32, got ${k}.`,
+      code: TS_CODES.LOOP_INDUCTION,
+    }
   }
   const start = foldConstNumber(init.init, scope)
   if (start === undefined) {
-    return { ok: false, message: `for-init "${init.name}" must start at a compile-time constant.` }
+    return {
+      ok: false,
+      message: `for-init "${init.name}" must start at a compile-time constant.`,
+      code: TS_CODES.LOOP_BOUND,
+    }
   }
   const condInfo = readCond(cond, init.name, scope)
   if (!condInfo) {
     return {
       ok: false,
       message: `for exit must compare "${init.name}" to a constant bound (e.g. ${init.name} < 16).`,
+      code: TS_CODES.LOOP_BOUND,
     }
   }
   const step = readStep(update, init.name, scope)
   if (step === undefined) {
-    return { ok: false, message: `for-update must be ${init.name}++ / ${init.name} += <const>.` }
+    return {
+      ok: false,
+      message: `for-update must be ${init.name}++ / ${init.name} += <const>.`,
+      code: TS_CODES.LOOP_INDUCTION,
+    }
   }
   if (step === 0) {
-    return { ok: false, message: `for step of "${init.name}" is 0 — the loop never advances.` }
+    return {
+      ok: false,
+      message: `for step of "${init.name}" is 0 — the loop never advances.`,
+      code: TS_CODES.LOOP_INFINITE,
+    }
   }
   const trips = countTrips(start, condInfo.cop, condInfo.bound, step, k)
   if (trips === undefined) {
     return {
       ok: false,
       message: `for (${init.name} = ${start}; ${init.name} ${condInfo.cop} ${condInfo.bound}; step ${step}) does not exit.`,
+      code: TS_CODES.LOOP_INFINITE,
     }
   }
   if (trips > MAX_LOOP_TRIPS) {
-    return { ok: false, message: `for trip count ${trips} exceeds ${MAX_LOOP_TRIPS}.` }
+    return {
+      ok: false,
+      message: `for trip count ${trips} exceeds ${MAX_LOOP_TRIPS}.`,
+      code: TS_CODES.LOOP_BOUND,
+    }
   }
   return { ok: true, loop: { name: init.name, start, bound: condInfo.bound, step, trips } }
 }
 
-function countTrips(start: number, cop: CmpOp, bound: number, step: number, kind: string): number | undefined {
+function countTrips(
+  start: number,
+  cop: CmpOp,
+  bound: number,
+  step: number,
+  kind: string,
+): number | undefined {
   const lo = kind === 'u32' ? 0 : -0x80000000
   const hi = kind === 'u32' ? 0xffffffff : 0x7fffffff
   const seq: number[] = []
@@ -194,15 +235,32 @@ function countTrips(start: number, cop: CmpOp, bound: number, step: number, kind
   return undefined
 }
 
-export function loopConditionError(cond: Expr, scope: LoweringScope): string | undefined {
+export function loopConditionError(
+  cond: Expr,
+  scope: LoweringScope,
+): { message: string; code: TsCode } | undefined {
   const b = foldConstBool(cond, scope)
   if (b === false) return undefined
   if (b === true) {
-    return 'Infinite loop: condition is constantly true. Use a constant exit bound (e.g. i < 16).'
+    return {
+      message:
+        'Infinite loop: condition is constantly true. Use a constant exit bound (e.g. i < 16).',
+      code: TS_CODES.LOOP_INFINITE,
+    }
   }
   if (cond.op === 'compare') {
-    if (foldConstNumber(cond.a, scope) !== undefined || foldConstNumber(cond.b, scope) !== undefined) return undefined
-    return 'while/for exit bound must be a compile-time constant. `i < n` is not allowed.'
+    if (
+      foldConstNumber(cond.a, scope) !== undefined ||
+      foldConstNumber(cond.b, scope) !== undefined
+    )
+      return undefined
+    return {
+      message: 'while/for exit bound must be a compile-time constant. `i < n` is not allowed.',
+      code: TS_CODES.LOOP_BOUND,
+    }
   }
-  return 'Loop condition must compare against a compile-time constant bound (e.g. i < 16).'
+  return {
+    message: 'Loop condition must compare against a compile-time constant bound (e.g. i < 16).',
+    code: TS_CODES.LOOP_BOUND,
+  }
 }

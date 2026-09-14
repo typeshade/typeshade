@@ -4,6 +4,7 @@ import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { TS_CODES } from './codes.js'
+import { makeDiagnostic } from './diagnostic.js'
 
 export type CollectedStruct = {
   readonly decl: StructDecl
@@ -30,7 +31,9 @@ export function collectStructs(
     const fields: StructField[] = []
     for (const member of stmt.members) {
       if (ts.isMethodDeclaration(member) || ts.isConstructorDeclaration(member)) {
-        diagnostics.push(diag(sourceFile, member, `Data class "${stmt.name.text}" cannot have methods.`))
+        diagnostics.push(
+          diag(sourceFile, member, `Data class "${stmt.name.text}" cannot have methods.`),
+        )
         continue
       }
       if (!ts.isPropertyDeclaration(member) || !ts.isIdentifier(member.name)) continue
@@ -42,7 +45,8 @@ export function collectStructs(
         }
       }
       const type = member.type
-        ? mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ?? structT(member.type.getText(sourceFile))
+        ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
+          structT(member.type.getText(sourceFile)))
         : undefined
       if (!type) continue
       const field: StructField = { name: member.name.text, type }
@@ -80,6 +84,5 @@ function stringDecorator(node: ts.Node, name: string): string | undefined {
 }
 
 function diag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
-  const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
-  return { message, fileName: sf.fileName, line: line + 1, character: character + 1, category: 'error', code: TS_CODES.STRUCT_FIELD }
+  return makeDiagnostic(sf, node, message, TS_CODES.STRUCT_FIELD)
 }

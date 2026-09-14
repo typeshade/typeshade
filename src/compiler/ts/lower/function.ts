@@ -8,6 +8,8 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
+import { makeDiagnostic } from '../diagnostic.js'
+import { TS_CODES, type TsCode } from '../codes.js'
 
 export function lowerSourceFunctions(
   sourceFile: ts.SourceFile,
@@ -23,7 +25,13 @@ export function lowerSourceFunctions(
     const stub = parseSignature(stmt, sourceFile, diagnostics)
     if (!stub) continue
     if (callees.has(stub.name)) {
-      pushDiag(diagnostics, sourceFile, stmt, `Duplicate function "${stub.name}".`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        stmt,
+        `Duplicate function "${stub.name}".`,
+        TS_CODES.DUPLICATE_SYMBOL,
+      )
       continue
     }
     callees.set(stub.name, stub)
@@ -58,31 +66,67 @@ export function parseSignature(
   diagnostics: TsCompilerDiagnostic[],
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
-    pushDiag(diagnostics, sourceFile, node, 'Function declaration must have a name.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Function declaration must have a name.',
+      TS_CODES.FUNCTION_SHAPE,
+    )
     return undefined
   }
   if (!node.body) {
-    pushDiag(diagnostics, sourceFile, node, `Function "${node.name.text}" needs a body (no ambient declarations).`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Function "${node.name.text}" needs a body (no ambient declarations).`,
+      TS_CODES.FUNCTION_SHAPE,
+    )
     return undefined
   }
   const name = node.name.text
   const params: FuncDecl['params'][number][] = []
   for (const p of node.parameters) {
     if (!ts.isIdentifier(p.name)) {
-      pushDiag(diagnostics, sourceFile, p, 'Parameter must be a simple identifier.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        p,
+        'Parameter must be a simple identifier.',
+        TS_CODES.FUNCTION_SHAPE,
+      )
       return undefined
     }
     if (p.questionToken) {
-      pushDiag(diagnostics, sourceFile, p, `Optional parameter "${p.name.text}" is not supported.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        p,
+        `Optional parameter "${p.name.text}" is not supported.`,
+        TS_CODES.FUNCTION_SHAPE,
+      )
       return undefined
     }
     if (p.dotDotDotToken) {
-      pushDiag(diagnostics, sourceFile, p, `Rest parameter "${p.name.text}" is not supported.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        p,
+        `Rest parameter "${p.name.text}" is not supported.`,
+        TS_CODES.FUNCTION_SHAPE,
+      )
       return undefined
     }
     const pType = mapTsTypeToShaderType(p.type, sourceFile, diagnostics)
     if (!pType) {
-      pushDiag(diagnostics, sourceFile, p, `Parameter "${p.name.text}" requires a TypeShade type annotation.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        p,
+        `Parameter "${p.name.text}" requires a TypeShade type annotation.`,
+        TS_CODES.UNKNOWN_TYPE,
+      )
       return undefined
     }
     const builtin = stringDecorator(p, sourceFile, 'builtin')
@@ -100,19 +144,27 @@ export function parseSignature(
     else {
       const mapped = mapTsTypeToShaderType(node.type, sourceFile, diagnostics)
       if (!mapped) {
-        pushDiag(diagnostics, sourceFile, node.type, `Unsupported return type for "${name}".`)
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.type,
+          `Unsupported return type for "${name}".`,
+          TS_CODES.UNKNOWN_TYPE,
+        )
         return undefined
       }
       ret = mapped
     }
   } else {
-    diagnostics.push({
-      message: `Function "${name}" has no return type annotation; defaulting to void.`,
-      fileName: sourceFile.fileName,
-      line: 1,
-      character: 1,
-      category: 'warning',
-    })
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        node,
+        `Function "${name}" has no return type annotation; defaulting to void.`,
+        TS_CODES.RETURN_SHAPE,
+        'warning',
+      ),
+    )
   }
   const stageInfo = parseStage(node, sourceFile)
   const decl: FuncDecl = { name, params, ret, body: [] }
@@ -123,7 +175,8 @@ export function parseSignature(
   const attrs: string[] = []
   if (stageInfo.stage === 'vertex') attrs.push('@vertex')
   if (stageInfo.stage === 'fragment') attrs.push('@fragment')
-  if (stageInfo.stage === 'compute') attrs.push(`@compute @workgroup_size(${stageInfo.workgroupSize ?? 64})`)
+  if (stageInfo.stage === 'compute')
+    attrs.push(`@compute @workgroup_size(${stageInfo.workgroupSize ?? 64})`)
   if (attrs.length) (decl as { attrs?: string[] }).attrs = attrs
   if (stageInfo.stage === 'vertex' && typeKey(ret).startsWith('vec4')) {
     ;(decl as { retAttr?: string }).retAttr = '@builtin(position)'
@@ -167,15 +220,31 @@ export function fillFunctionBody(
   if (typeKey(stub.ret) === 'void') return
   for (const r of collectReturns(body)) {
     if (!r.expr) {
-      pushDiag(diagnostics, sourceFile, node.name!, `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.name!,
+        `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`,
+        TS_CODES.RETURN_SHAPE,
+      )
       continue
     }
     if (typeKey(r.expr.type) !== typeKey(stub.ret)) {
-      if (r.expr.op === 'construct' && stub.ret.kind === 'struct' && r.expr.type.kind === 'struct') {
+      if (
+        r.expr.op === 'construct' &&
+        stub.ret.kind === 'struct' &&
+        r.expr.type.kind === 'struct'
+      ) {
         ;(r.expr as { type: ShaderType }).type = stub.ret
         continue
       }
-      pushDiag(diagnostics, sourceFile, node.name!, `Function "${stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.name!,
+        `Function "${stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
     }
   }
 }
@@ -250,7 +319,7 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   message: string,
+  code: TsCode,
 ): void {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }

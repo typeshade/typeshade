@@ -5,6 +5,8 @@ import type { Expr, FuncDecl } from '../../core/ir/nodes.js'
 import { arrayT, i32T, typeKey } from '../../core/ir/types.js'
 import type { LoweringScope } from './context.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
+import { makeDiagnostic } from './diagnostic.js'
+import { TS_CODES, type TsCode } from './codes.js'
 
 const MAX_UNROLL = 64
 
@@ -28,45 +30,77 @@ export function lowerArrayHof(
   const args = node.arguments
   const fnArg = name === 'map' ? args[1] : args[2]
   if (!fnArg) {
-    diagnostics.push(err(sourceFile, node, name === 'map' ? 'map(xs, fn)' : 'reduce(xs, init, fn)'))
+    diagnostics.push(
+      err(
+        sourceFile,
+        node,
+        name === 'map' ? 'map(xs, fn)' : 'reduce(xs, init, fn)',
+        TS_CODES.ARITY_MISMATCH,
+      ),
+    )
     return undefined
   }
   if (ts.isArrowFunction(fnArg) || ts.isFunctionExpression(fnArg)) {
     diagnostics.push(
-      err(sourceFile, fnArg, `${name} does not take a lambda. Pass a function name: ${name}(xs, scale).`),
+      err(
+        sourceFile,
+        fnArg,
+        `${name} does not take a lambda. Pass a function name: ${name}(xs, scale).`,
+        TS_CODES.UNSUPPORTED,
+      ),
     )
     return undefined
   }
   if (!ts.isIdentifier(fnArg)) {
-    diagnostics.push(err(sourceFile, fnArg, `${name} callback must be a function name.`))
+    diagnostics.push(
+      err(sourceFile, fnArg, `${name} callback must be a function name.`, TS_CODES.UNSUPPORTED),
+    )
     return undefined
   }
   const decl = scope.resolveCallee(fnArg.text)
   if (!decl) {
-    diagnostics.push(err(sourceFile, fnArg, `Unknown function "${fnArg.text}".`))
+    diagnostics.push(
+      err(sourceFile, fnArg, `Unknown function "${fnArg.text}".`, TS_CODES.UNKNOWN_FN),
+    )
     return undefined
   }
   const xsNode = args[0]
   if (!xsNode) {
-    diagnostics.push(err(sourceFile, node, `${name} needs an array as the first argument.`))
+    diagnostics.push(
+      err(
+        sourceFile,
+        node,
+        `${name} needs an array as the first argument.`,
+        TS_CODES.ARITY_MISMATCH,
+      ),
+    )
     return undefined
   }
   const xs = lowerExpression(xsNode, sourceFile, scope, diagnostics)
   if (!xs) return undefined
   if (xs.type.kind !== 'array' || typeof xs.type.size !== 'number') {
-    diagnostics.push(err(sourceFile, xsNode, `${name} requires array<T, N> with a known N.`))
+    diagnostics.push(
+      err(
+        sourceFile,
+        xsNode,
+        `${name} requires array<T, N> with a known N.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
     return undefined
   }
   const n = xs.type.size
   const elem = xs.type.elem
   if (n > MAX_UNROLL) {
-    diagnostics.push(err(sourceFile, node, `${name} unrolls N=${n}; max is ${MAX_UNROLL}.`))
+    diagnostics.push(
+      err(sourceFile, node, `${name} unrolls N=${n}; max is ${MAX_UNROLL}.`, TS_CODES.UNSUPPORTED),
+    )
     return undefined
   }
   if (name === 'map') return lowerMap(xs, n, elem, decl, node, sourceFile, diagnostics)
   const initNode = args[1]
   if (!initNode) {
-    diagnostics.push(err(sourceFile, node, 'reduce(xs, init, fn)'))
+    diagnostics.push(err(sourceFile, node, 'reduce(xs, init, fn)', TS_CODES.ARITY_MISMATCH))
     return undefined
   }
   const init = lowerExpression(initNode, sourceFile, scope, diagnostics)
@@ -88,11 +122,25 @@ function lowerMap(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   if (decl.params.length !== 1) {
-    diagnostics.push(err(sourceFile, node, `map fn "${decl.name}" must take one argument.`))
+    diagnostics.push(
+      err(
+        sourceFile,
+        node,
+        `map fn "${decl.name}" must take one argument.`,
+        TS_CODES.ARITY_MISMATCH,
+      ),
+    )
     return undefined
   }
   if (typeKey(decl.params[0]!.type) !== typeKey(elem)) {
-    diagnostics.push(err(sourceFile, node, `map fn "${decl.name}" param must be ${typeKey(elem)}.`))
+    diagnostics.push(
+      err(
+        sourceFile,
+        node,
+        `map fn "${decl.name}" param must be ${typeKey(elem)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
     return undefined
   }
   const args: Expr[] = []
@@ -113,15 +161,34 @@ function lowerReduce(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   if (decl.params.length !== 2) {
-    diagnostics.push(err(sourceFile, node, `reduce fn "${decl.name}" must take (acc, elem).`))
+    diagnostics.push(
+      err(
+        sourceFile,
+        node,
+        `reduce fn "${decl.name}" must take (acc, elem).`,
+        TS_CODES.ARITY_MISMATCH,
+      ),
+    )
     return undefined
   }
   if (typeKey(decl.params[1]!.type) !== typeKey(elem)) {
-    diagnostics.push(err(sourceFile, node, `reduce fn "${decl.name}" elem param must be ${typeKey(elem)}.`))
+    diagnostics.push(
+      err(
+        sourceFile,
+        node,
+        `reduce fn "${decl.name}" elem param must be ${typeKey(elem)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
     return undefined
   }
-  if (typeKey(decl.params[0]!.type) !== typeKey(init.type) || typeKey(decl.ret) !== typeKey(init.type)) {
-    diagnostics.push(err(sourceFile, node, `reduce acc/init/return must share a type.`))
+  if (
+    typeKey(decl.params[0]!.type) !== typeKey(init.type) ||
+    typeKey(decl.ret) !== typeKey(init.type)
+  ) {
+    diagnostics.push(
+      err(sourceFile, node, `reduce acc/init/return must share a type.`, TS_CODES.TYPE_MISMATCH),
+    )
     return undefined
   }
   let acc: Expr = init
@@ -131,7 +198,11 @@ function lowerReduce(
   return acc
 }
 
-function err(sourceFile: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  return { message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' }
+function err(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  message: string,
+  code: TsCode,
+): TsCompilerDiagnostic {
+  return makeDiagnostic(sourceFile, node, message, code)
 }

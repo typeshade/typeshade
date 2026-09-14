@@ -6,6 +6,8 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { makeDiagnostic } from '../diagnostic.js'
+import { TS_CODES, type TsCode } from '../codes.js'
 import { lowerExpression } from './expression.js'
 import { lowerStatement, lowerStatements } from './statement.js'
 
@@ -16,15 +18,33 @@ export function lowerFor(
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
   if (!node.condition) {
-    pushDiag(diagnostics, sourceFile, node, 'for is missing an exit condition; infinite loops are not allowed.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'for is missing an exit condition; infinite loops are not allowed.',
+      TS_CODES.LOOP_INFINITE,
+    )
     return undefined
   }
   if (!node.initializer || !ts.isVariableDeclarationList(node.initializer)) {
-    pushDiag(diagnostics, sourceFile, node, 'for-init must be `let i: i32 = <const>`.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'for-init must be `let i: i32 = <const>`.',
+      TS_CODES.LOOP_INDUCTION,
+    )
     return undefined
   }
   if (!node.incrementor) {
-    pushDiag(diagnostics, sourceFile, node, 'for-update is required (e.g. i++).')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'for-update is required (e.g. i++).',
+      TS_CODES.LOOP_INDUCTION,
+    )
     return undefined
   }
   scope.push()
@@ -35,17 +55,29 @@ export function lowerFor(
     const cond = lowerExpression(node.condition, sourceFile, scope, diagnostics)
     if (!cond) return undefined
     if (typeKey(cond.type) !== 'bool') {
-      pushDiag(diagnostics, sourceFile, node.condition, `for condition must be bool, got ${typeKey(cond.type)}.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.condition,
+        `for condition must be bool, got ${typeKey(cond.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
     }
     const update = lowerUpdate(node.incrementor, sourceFile, scope, diagnostics)
     if (!update) return undefined
     const counted = analyzeCountedFor(initStmt, cond, update, scope)
     if (!counted.ok) {
-      pushDiag(diagnostics, sourceFile, node, counted.message)
+      pushDiag(diagnostics, sourceFile, node, counted.message, counted.code)
       return undefined
     }
-    return { s: 'for', init: initStmt, cond, update, body: lowerBody(node.statement, sourceFile, scope, diagnostics) }
+    return {
+      s: 'for',
+      init: initStmt,
+      cond,
+      update,
+      body: lowerBody(node.statement, sourceFile, scope, diagnostics),
+    }
   } finally {
     scope.exitLoop()
     scope.pop()
@@ -60,19 +92,39 @@ function lowerForInit(
 ): Stmt | undefined {
   const decl = list.declarations[0]
   if (!decl || list.declarations.length !== 1 || !ts.isIdentifier(decl.name)) {
-    pushDiag(diagnostics, sourceFile, list, 'for-init must declare exactly one identifier.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      list,
+      'for-init must declare exactly one identifier.',
+      TS_CODES.LOOP_INDUCTION,
+    )
     return undefined
   }
   if ((list.flags & ts.NodeFlags.Let) === 0) {
-    pushDiag(diagnostics, sourceFile, list, 'for-init must be `let` (mutable induction).')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      list,
+      'for-init must be `let` (mutable induction).',
+      TS_CODES.LOOP_INDUCTION,
+    )
     return undefined
   }
   const name = decl.name.text
   if (!decl.initializer) {
-    pushDiag(diagnostics, sourceFile, decl, `for-init "${name}" requires an initializer.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      `for-init "${name}" requires an initializer.`,
+      TS_CODES.LOOP_INDUCTION,
+    )
     return undefined
   }
-  const annotated = decl.type ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics) : undefined
+  const annotated = decl.type
+    ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
+    : undefined
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
   if (annotated && init.op === 'lit' && typeof init.value === 'number') {
@@ -81,10 +133,22 @@ function lowerForInit(
   const type: ShaderType = annotated ?? init.type
   const k = typeKey(type)
   if (k !== 'i32' && k !== 'u32') {
-    pushDiag(diagnostics, sourceFile, decl, `for induction must be i32 or u32, got ${k}.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      `for induction must be i32 or u32, got ${k}.`,
+      TS_CODES.LOOP_INDUCTION,
+    )
     return undefined
   }
-  scope.define({ kind: 'local', name, type, mutable: true, constValue: init.op === 'lit' ? init.value : undefined })
+  scope.define({
+    kind: 'local',
+    name,
+    type,
+    mutable: true,
+    constValue: init.op === 'lit' ? init.value : undefined,
+  })
   return { s: 'var', name, type, init }
 }
 
@@ -98,7 +162,7 @@ export function lowerWhile(
   if (!cond) return undefined
   const err = loopConditionError(cond, scope)
   if (err) {
-    pushDiag(diagnostics, sourceFile, node, err)
+    pushDiag(diagnostics, sourceFile, node, err.message, err.code)
     return undefined
   }
   scope.enterLoop()
@@ -132,7 +196,13 @@ export function lowerSwitch(
   if (!scrut) return undefined
   const k = typeKey(scrut.type)
   if (k !== 'i32' && k !== 'u32') {
-    pushDiag(diagnostics, sourceFile, node.expression, `switch scrutinee must be i32 or u32, got ${k}.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      `switch scrutinee must be i32 or u32, got ${k}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
     return undefined
   }
   const cases: { value: number; body: readonly Stmt[] }[] = []
@@ -143,11 +213,23 @@ export function lowerSwitch(
       continue
     }
     if (!clause.expression || !ts.isNumericLiteral(clause.expression)) {
-      pushDiag(diagnostics, sourceFile, clause, 'switch case must be a numeric literal.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        clause,
+        'switch case must be a numeric literal.',
+        TS_CODES.SWITCH_CASE,
+      )
       continue
     }
     if (clause.statements.length === 0) {
-      pushDiag(diagnostics, sourceFile, clause, 'switch case fall-through is not allowed.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        clause,
+        'switch case fall-through is not allowed.',
+        TS_CODES.SWITCH_CASE,
+      )
       continue
     }
     cases.push({
@@ -167,17 +249,29 @@ export function lowerUpdate(
   if (ts.isPrefixUnaryExpression(expr) || ts.isPostfixUnaryExpression(expr)) {
     const op = expr.operator
     if (op !== ts.SyntaxKind.PlusPlusToken && op !== ts.SyntaxKind.MinusMinusToken) {
-      pushDiag(diagnostics, sourceFile, expr, 'Unsupported update operator.')
+      pushDiag(diagnostics, sourceFile, expr, 'Unsupported update operator.', TS_CODES.UNSUPPORTED)
       return undefined
     }
     const targetExpr = expr.operand
     if (!ts.isIdentifier(targetExpr)) {
-      pushDiag(diagnostics, sourceFile, expr, '++/-- target must be an identifier.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        expr,
+        '++/-- target must be an identifier.',
+        TS_CODES.ASSIGN_TARGET,
+      )
       return undefined
     }
     const binding = scope.resolve(targetExpr.text)
     if (!binding || !binding.mutable) {
-      pushDiag(diagnostics, sourceFile, expr, `Cannot assign to "${targetExpr.text}" — it is declared with const.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        expr,
+        `Cannot assign to "${targetExpr.text}" — it is declared with const.`,
+        TS_CODES.CONST_ASSIGN,
+      )
       return undefined
     }
     const target: Expr =
@@ -212,7 +306,7 @@ export function lowerUpdate(
         : { op: 'varref', type: binding.type, name: binding.name }
     return { s: 'assignOp', target, bop: '+', expr: rhs }
   }
-  pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.')
+  pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)
   return undefined
 }
 
@@ -233,7 +327,7 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   message: string,
+  code: TsCode,
 ): void {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }

@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
+import { TS_CODES } from './codes.js'
 
 function diag(source: string) {
   const r = compileTsSource(source)
@@ -41,6 +42,32 @@ describe('diagnostics (use typeshade)', () => {
     const r = compileTsSource('export function f(): void {}', { requireDirective: true })
     expect(r.hasDirective).toBe(false)
     expect(r.diagnostics.some((d) => d.category === 'error')).toBe(true)
+  })
+
+  it('gives a type-mismatch diagnostic a span over the offending expression', () => {
+    const r = diag(`"use typeshade";\nexport function f(a: f32, b: i32): f32 { return a + b; }`)
+    const d = r.diagnostics.find((d) => d.code === TS_CODES.TYPE_MISMATCH)
+    expect(d).toBeDefined()
+    expect(r.sourceFile.text.slice(d!.start, d!.start + d!.length)).toBe('a + b')
+  })
+
+  it("keeps a diagnostic's endLine/endCharacter consistent with start + length", () => {
+    const r = diag(`"use typeshade";\nexport function f(a: f32, b: i32): f32 { return a + b; }`)
+    const d = r.diagnostics.find((d) => d.code === TS_CODES.TYPE_MISMATCH)!
+    const end = r.sourceFile.getLineAndCharacterOfPosition(d.start + d.length)
+    expect(d.endLine).toBe(end.line + 1)
+    expect(d.endCharacter).toBe(end.character + 1)
+    // The span is non-empty and starts strictly before it ends, one-based line/character.
+    expect(d.line).toBeLessThanOrEqual(d.endLine)
+    expect(d.length).toBeGreaterThan(0)
+  })
+
+  it('gives a missing-directive diagnostic (no offending node) a zero start', () => {
+    const r = compileTsSource('export function f(): void {}', { requireDirective: true })
+    const d = r.diagnostics[0]!
+    expect(d.start).toBe(0)
+    expect(d.length).toBeGreaterThanOrEqual(0)
+    expect(d.endLine).toBeGreaterThanOrEqual(d.line)
   })
 
   it('valid transform has zero error diagnostics', () => {

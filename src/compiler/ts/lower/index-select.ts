@@ -4,7 +4,8 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { i32T, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
-import { TS_CODES } from '../codes.js'
+import { TS_CODES, type TsCode } from '../codes.js'
+import { makeDiagnostic } from '../diagnostic.js'
 import { retargetIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 
@@ -21,12 +22,18 @@ export function lowerIndex(
   idx = retargetIntLit(idx, node.argumentExpression, i32T)
   const ik = typeKey(idx.type)
   if (ik !== 'i32' && ik !== 'u32') {
-    pushDiag(diagnostics, sourceFile, node, 'Index must be i32 or u32.')
+    pushDiag(diagnostics, sourceFile, node, 'Index must be i32 or u32.', TS_CODES.TYPE_MISMATCH)
     return undefined
   }
   const elem = indexElem(base.type)
   if (!elem) {
-    pushDiag(diagnostics, sourceFile, node, `Cannot index ${typeKey(base.type)}.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot index ${typeKey(base.type)}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
     return undefined
   }
   const bound = indexBound(base.type)
@@ -57,7 +64,13 @@ export function lowerSelect(
   let ifFalse = lowerExpression(node.whenFalse, sourceFile, scope, diagnostics)
   if (!cond || !ifTrue || !ifFalse) return undefined
   if (typeKey(cond.type) !== 'bool') {
-    pushDiag(diagnostics, sourceFile, node.condition, 'Ternary condition must be bool.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.condition,
+      'Ternary condition must be bool.',
+      TS_CODES.TYPE_MISMATCH,
+    )
     return undefined
   }
   ifTrue = retargetIntLit(ifTrue, node.whenTrue, ifFalse.type)
@@ -68,6 +81,7 @@ export function lowerSelect(
       sourceFile,
       node,
       `Ternary arm type mismatch: ${typeKey(ifTrue.type)} vs ${typeKey(ifFalse.type)}.`,
+      TS_CODES.TYPE_MISMATCH,
     )
     return undefined
   }
@@ -108,15 +122,7 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   message: string,
-  code?: string,
+  code: TsCode,
 ): void {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({
-    message,
-    fileName: sourceFile.fileName,
-    line: line + 1,
-    character: character + 1,
-    category: 'error',
-    code,
-  })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }

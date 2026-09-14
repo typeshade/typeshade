@@ -1,4 +1,9 @@
 // Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
+//
+// Numbering: `TS8` + a zero-padded sequential number, assigned in the order a code was added.
+// A gap (8011 is retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
+// exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
+// deserve its own code, so it stays parked past the sequential range instead of at its head.
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
@@ -16,6 +21,20 @@ export const TS_CODES = {
   TOP_LEVEL: 'TS8014',
   BACKEND: 'TS8015',
   INDEX_OOB: 'TS8016',
+  /** Invalid `switch` case: not a numeric literal, or a fall-through case body. */
+  SWITCH_CASE: 'TS8017',
+  /** An assignment or `++`/`--` target that is not a writable name (not an identifier, unknown, or a non-writable parameter). Assigning to a known immutable binding is `CONST_ASSIGN` instead. */
+  ASSIGN_TARGET: 'TS8018',
+  /** Wrong number of arguments, elements, or fields at a call or constructor site. */
+  ARITY_MISMATCH: 'TS8019',
+  /** A function declaration or parameter shape TypeShade does not support (missing name or body, optional/rest/destructured parameter). */
+  FUNCTION_SHAPE: 'TS8020',
+  /** A `return` shape problem: bare `return` where a value is required, or a function with no return type annotation. */
+  RETURN_SHAPE: 'TS8021',
+  /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`). */
+  UNKNOWN_NAME: 'TS8022',
+  /** The same function or binding name declared twice in one scope. */
+  DUPLICATE_SYMBOL: 'TS8023',
   UNSUPPORTED: 'TS8099',
 } as const
 

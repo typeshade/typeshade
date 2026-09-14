@@ -32,13 +32,11 @@ export interface TypeshadeTextSpan {
 /**
  * Compiler diagnostic enriched with the source range and span that produced it.
  *
- * The compiler (`pushDiag` in `src/compiler/ts/type-map.ts`) reports its own `line`/`character`
- * as one-based values, built as `getLineAndCharacterOfPosition(...) + 1`. `range.start` is
- * derived from those one-based fields with
- * `ts.getPositionOfLineAndCharacter(sourceFile, line - 1, character - 1)`, clamped to the
- * file's line starts because that TypeScript helper throws on an out-of-range line or
- * character. The compiler does not yet report an end position for a diagnostic, so `span.length`
- * — and therefore the width of `range` — stays 1 for now.
+ * `span`/`range` come directly from the compiler's own `start`/`length` (see
+ * `TsCompilerDiagnostic` in `src/compiler/ts/source-file.ts`), which already cover the
+ * offending node — `node.getStart(sourceFile)` through `node.getEnd()` — or the file's first
+ * statement when the diagnostic has no single node behind it. Nothing here recomputes a
+ * one-character span from `line`/`character` any more.
  */
 export interface TypeshadeDiagnostic {
   /** Human-readable diagnostic message. */
@@ -109,8 +107,18 @@ const BUILTINS: readonly TypeshadeCompletionItem[] = [
 
 const FUNCTIONS: readonly TypeshadeCompletionItem[] = [
   { label: 'vec2', kind: 'function', detail: 'Construct a vec2 value', insertText: 'vec2($1, $2)' },
-  { label: 'vec3', kind: 'function', detail: 'Construct a vec3 value', insertText: 'vec3($1, $2, $3)' },
-  { label: 'vec4', kind: 'function', detail: 'Construct a vec4 value', insertText: 'vec4($1, $2, $3, $4)' },
+  {
+    label: 'vec3',
+    kind: 'function',
+    detail: 'Construct a vec3 value',
+    insertText: 'vec3($1, $2, $3)',
+  },
+  {
+    label: 'vec4',
+    kind: 'function',
+    detail: 'Construct a vec4 value',
+    insertText: 'vec4($1, $2, $3, $4)',
+  },
 ]
 
 function isLineBreak(code: number): boolean {
@@ -125,12 +133,17 @@ function isLineBreak(code: number): boolean {
  * one-based compiler diagnostic — never reaches `ts.getPositionOfLineAndCharacter` out of range,
  * since that helper throws on a bad line or character.
  */
-function clampPosition(sourceFile: ts.SourceFile, line: number, character: number): { line: number; character: number } {
+function clampPosition(
+  sourceFile: ts.SourceFile,
+  line: number,
+  character: number,
+): { line: number; character: number } {
   const lineStarts = sourceFile.getLineStarts()
   const lineCount = lineStarts.length
   const clampedLine = Math.max(0, Math.min(line, lineCount - 1))
   const lineStart = lineStarts[clampedLine]!
-  const lineEndWithBreak = clampedLine + 1 < lineCount ? lineStarts[clampedLine + 1]! : sourceFile.text.length
+  const lineEndWithBreak =
+    clampedLine + 1 < lineCount ? lineStarts[clampedLine + 1]! : sourceFile.text.length
   let lineEnd = lineEndWithBreak
   while (lineEnd > lineStart && isLineBreak(sourceFile.text.charCodeAt(lineEnd - 1))) lineEnd--
   const lineLength = lineEnd - lineStart
@@ -152,20 +165,27 @@ function positionAt(sourceFile: ts.SourceFile, offset: number): TypeshadePositio
 }
 
 /**
- * Builds the UTF-16 offset span for a compiler diagnostic. `diagnostic.line`/`character` are
- * one-based (see `pushDiag` in `src/compiler/ts/type-map.ts`), so they are converted to the
- * zero-based line/character `ts.getPositionOfLineAndCharacter` expects, then clamped into the
- * file's bounds before that call, since the raw compiler values can be out of range.
+ * Builds the UTF-16 offset span for a compiler diagnostic directly from its own `start`/
+ * `length` (real node bounds, or the file's first statement when the diagnostic has no node —
+ * see `TsCompilerDiagnostic`), clamped into the file's bounds in case the source the diagnostic
+ * was computed against differs from `sourceFile`.
  */
-function spanForDiagnostic(sourceFile: ts.SourceFile, diagnostic: TsCompilerDiagnostic): TypeshadeTextSpan {
-  const clamped = clampPosition(sourceFile, diagnostic.line - 1, diagnostic.character - 1)
-  const start = ts.getPositionOfLineAndCharacter(sourceFile, clamped.line, clamped.character)
-  return { start, length: 1 }
+function spanForDiagnostic(
+  sourceFile: ts.SourceFile,
+  diagnostic: TsCompilerDiagnostic,
+): TypeshadeTextSpan {
+  const max = sourceFile.text.length
+  const start = Math.max(0, Math.min(diagnostic.start, max))
+  const end = Math.max(start, Math.min(diagnostic.start + diagnostic.length, max))
+  return { start, length: end - start }
 }
 
 /** Converts a UTF-16 offset span into the equivalent zero-based half-open range. */
 function rangeForSpan(sourceFile: ts.SourceFile, span: TypeshadeTextSpan): TypeshadeRange {
-  return { start: positionAt(sourceFile, span.start), end: positionAt(sourceFile, span.start + span.length) }
+  return {
+    start: positionAt(sourceFile, span.start),
+    end: positionAt(sourceFile, span.start + span.length),
+  }
 }
 
 function wordSpan(source: string, offset: number): TypeshadeTextSpan {
@@ -203,20 +223,33 @@ export class TypeshadeLanguageService {
 
   /** Returns context-aware Typeshade completion items at a zero-based editor position. */
   getCompletions(source: string, position: TypeshadePosition): readonly TypeshadeCompletionItem[] {
-    const sourceFile = ts.createSourceFile(this.fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const sourceFile = ts.createSourceFile(
+      this.fileName,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    )
     const offset = offsetAt(sourceFile, position)
     const before = source.slice(0, offset)
     const attributeMatch = before.match(/@builtin\(\s*["']([^"']*)$/)
     if (attributeMatch) return BUILTINS.filter((item) => item.label.startsWith(attributeMatch[1]!))
 
     if (/@[A-Za-z]*$/.test(before)) return ATTRIBUTES
-    if (/(?:^|[\s:(,])(?:v|ve|vec|u|i|f)[A-Za-z0-9_]*$/.test(before)) return [...TYPES, ...FUNCTIONS]
+    if (/(?:^|[\s:(,])(?:v|ve|vec|u|i|f)[A-Za-z0-9_]*$/.test(before))
+      return [...TYPES, ...FUNCTIONS]
     return [...TYPES, ...ATTRIBUTES]
   }
 
   /** Returns hover documentation for known Typeshade types and attributes at a zero-based editor position. */
   getHover(source: string, position: TypeshadePosition): TypeshadeHover | undefined {
-    const sourceFile = ts.createSourceFile(this.fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const sourceFile = ts.createSourceFile(
+      this.fileName,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    )
     const offset = offsetAt(sourceFile, position)
     const span = wordSpan(source, offset)
     const word = source.slice(span.start, span.start + span.length)
@@ -233,18 +266,32 @@ export class TypeshadeLanguageService {
       '@fragment': '`@fragment` — marks a function as a fragment entry point.',
     }
     const description = descriptions[word]
-    return description ? { contents: [description], span, range: rangeForSpan(sourceFile, span) } : undefined
+    return description
+      ? { contents: [description], span, range: rangeForSpan(sourceFile, span) }
+      : undefined
   }
 
   /** Converts a UTF-16 source offset into the zero-based position used by adapters; an offset past the end of the source clamps to the end. */
   getPosition(source: string, offset: number): TypeshadePosition {
-    const sourceFile = ts.createSourceFile(this.fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const sourceFile = ts.createSourceFile(
+      this.fileName,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    )
     return positionAt(sourceFile, offset)
   }
 
   /** Converts a zero-based editor position into a UTF-16 source offset; a position past the end of the source clamps to the end. */
   getOffset(source: string, position: TypeshadePosition): number {
-    const sourceFile = ts.createSourceFile(this.fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const sourceFile = ts.createSourceFile(
+      this.fileName,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    )
     return offsetAt(sourceFile, position)
   }
 }

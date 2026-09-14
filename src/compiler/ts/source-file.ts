@@ -3,17 +3,14 @@
 import ts from 'typescript'
 import type { BindingDecl, ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
 import { emitFuncs, emitModule } from '../../core/backends/wgsl.js'
-import {
-  findUseTypeshadeDirective,
-  hasUseTypeshadeDirective,
-  USE_TYPESHADE,
-} from './directive.js'
+import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js'
 import { lowerSourceFunctions } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { collectBindings } from './bindings.js'
 import { collectStructs, type CollectedStruct } from './structs.js'
 import { TS_CODES } from './codes.js'
+import { makeDiagnostic } from './diagnostic.js'
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
@@ -21,7 +18,18 @@ export interface CompileTsSourceOptions {
   readonly requireDirective?: boolean
 }
 
-/** A source diagnostic produced while TypeShade analyzes or compiles TypeScript shader code. */
+/**
+ * A source diagnostic produced while TypeShade analyzes or compiles TypeScript shader code.
+ *
+ * `line`/`character` are one-based (external consumers, including `language-service.ts`, read
+ * these) and mark the start of the offending node. `start`/`length` are UTF-16 offsets into the
+ * file — `node.getStart(sourceFile)` and `node.getEnd() - node.getStart(sourceFile)` — so an
+ * editor can underline the whole node rather than a single character; `endLine`/`endCharacter`
+ * are the one-based position of `start + length`, in the same convention as `line`/`character`.
+ * A diagnostic with no node behind it (a missing directive, a whole-module backend failure) uses
+ * the file's first statement as its span, or `start: 0, length: 0` when the file has none — see
+ * `makeDiagnostic` in `diagnostic.ts`.
+ */
 export interface TsCompilerDiagnostic {
   readonly message: string
   readonly fileName: string
@@ -29,6 +37,14 @@ export interface TsCompilerDiagnostic {
   readonly character: number
   readonly category: 'error' | 'warning' | 'message'
   readonly code?: string
+  /** UTF-16 offset where the diagnostic's span begins. */
+  readonly start: number
+  /** Length of the diagnostic's span, in UTF-16 code units. */
+  readonly length: number
+  /** One-based line of the position `start + length`. */
+  readonly endLine: number
+  /** One-based character of the position `start + length`. */
+  readonly endCharacter: number
 }
 
 /** The result of compiling a TypeShade TypeScript source string, including IR and optional WGSL. */
@@ -59,18 +75,26 @@ export function compileTsSource(
   const diagnostics: TsCompilerDiagnostic[] = []
   const directive = findUseTypeshadeDirective(sourceFile)
   const hasDirective = directive !== undefined
-  const empty = { hasDirective: false, funcs: [], diagnostics, sourceFile, consts: [], bindings: [], structs: [] as CollectedStruct[] }
+  const empty = {
+    hasDirective: false,
+    funcs: [],
+    diagnostics,
+    sourceFile,
+    consts: [],
+    bindings: [],
+    structs: [] as CollectedStruct[],
+  }
 
   if (!hasDirective) {
     if (options.requireDirective) {
-      diagnostics.push({
-        message: `Missing "${USE_TYPESHADE}" directive. Add "${USE_TYPESHADE}"; at the top level to mark this file for TypeShade compilation.`,
-        fileName,
-        line: 1,
-        character: 1,
-        category: 'error',
-        code: TS_CODES.MISSING_DIRECTIVE,
-      })
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          undefined,
+          `Missing "${USE_TYPESHADE}" directive. Add "${USE_TYPESHADE}"; at the top level to mark this file for TypeShade compilation.`,
+          TS_CODES.MISSING_DIRECTIVE,
+        ),
+      )
     }
     return empty
   }
@@ -99,14 +123,14 @@ export function compileTsSource(
       try {
         wgsl = emitFuncs(funcs)
       } catch (e) {
-        diagnostics.push({
-          message: `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
-          fileName,
-          line: 1,
-          character: 1,
-          category: 'error',
-          code: TS_CODES.BACKEND,
-        })
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            undefined,
+            `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
+            TS_CODES.BACKEND,
+          ),
+        )
       }
     }
   }

@@ -10,6 +10,7 @@ import { foldConstValue } from './loop-bound.js'
 import { lowerExpression } from './lower/expression.js'
 import { isResourceCall } from './bindings.js'
 import { TS_CODES } from './codes.js'
+import { makeDiagnostic } from './diagnostic.js'
 
 function isTopLevelConst(stmt: ts.Statement): stmt is ts.VariableStatement {
   return ts.isVariableStatement(stmt) && (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
@@ -39,66 +40,68 @@ function lowerOne(
   diagnostics: TsCompilerDiagnostic[],
 ): ConstDecl | undefined {
   if (!ts.isIdentifier(decl.name)) {
-    diagnostics.push({
-      message: 'Module const must be a simple name.',
-      fileName: sourceFile.fileName,
-      line: 1,
-      character: 1,
-      category: 'error',
-      code: TS_CODES.TOP_LEVEL,
-    })
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl.name,
+        'Module const must be a simple name.',
+        TS_CODES.TOP_LEVEL,
+      ),
+    )
     return undefined
   }
   const name = decl.name.text
   if (scope.hasInCurrent(name)) {
-    diagnostics.push({
-      message: `Duplicate module const "${name}".`,
-      fileName: sourceFile.fileName,
-      line: 1,
-      character: 1,
-      category: 'error',
-      code: TS_CODES.TOP_LEVEL,
-    })
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl.name,
+        `Duplicate module const "${name}".`,
+        TS_CODES.DUPLICATE_SYMBOL,
+      ),
+    )
     return undefined
   }
   if (decl.initializer && isResourceCall(decl.initializer)) return undefined
   if (!decl.initializer) {
-    diagnostics.push({
-      message: `Module const "${name}" needs an initializer.`,
-      fileName: sourceFile.fileName,
-      line: 1,
-      character: 1,
-      category: 'error',
-      code: TS_CODES.TOP_LEVEL,
-    })
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" needs an initializer.`,
+        TS_CODES.TOP_LEVEL,
+      ),
+    )
     return undefined
   }
-  const annotated = decl.type ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics) : undefined
+  const annotated = decl.type
+    ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
+    : undefined
   const init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
   const folded = foldConstValue(init, scope)
   if (typeof folded !== 'number' && typeof folded !== 'boolean') {
-    diagnostics.push({
-      message: `Module const "${name}" must be a foldable scalar (literal or const expression).`,
-      fileName: sourceFile.fileName,
-      line: 1,
-      character: 1,
-      category: 'error',
-      code: TS_CODES.TOP_LEVEL,
-    })
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" must be a foldable scalar (literal or const expression).`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
     return undefined
   }
   const type = annotated ?? init.type
   const k = typeKey(type)
   if (k !== 'f32' && k !== 'i32' && k !== 'u32' && k !== 'bool') {
-    diagnostics.push({
-      message: `Module const "${name}" must be f32, i32, u32, or bool for now.`,
-      fileName: sourceFile.fileName,
-      line: 1,
-      character: 1,
-      category: 'error',
-      code: TS_CODES.TOP_LEVEL,
-    })
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" must be f32, i32, u32, or bool for now.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
     return undefined
   }
   const numeric = typeof folded === 'boolean' ? (folded ? 1 : 0) : folded

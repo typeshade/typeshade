@@ -7,6 +7,7 @@ import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
+import { makeDiagnostic } from './diagnostic.js'
 
 export interface CompileTsSourcesOptions {
   readonly entry?: string
@@ -28,8 +29,8 @@ function parseFile(fileName: string, source: string): ts.SourceFile {
   return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
 }
 
-function err(fileName: string, message: string): TsCompilerDiagnostic {
-  return { message, fileName, line: 1, character: 1, category: 'error', code: TS_CODES.UNSUPPORTED }
+function err(sourceFile: ts.SourceFile, message: string): TsCompilerDiagnostic {
+  return makeDiagnostic(sourceFile, undefined, message, TS_CODES.UNSUPPORTED)
 }
 
 function fileStubs(
@@ -48,7 +49,6 @@ function fileStubs(
 
 function importsOf(
   sf: ts.SourceFile,
-  fileName: string,
   exports: ReadonlyMap<string, Map<string, FuncDecl>>,
   diagnostics: TsCompilerDiagnostic[],
 ): Map<string, FuncDecl> {
@@ -56,30 +56,65 @@ function importsOf(
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt)) continue
     if (!stmt.importClause || !ts.isStringLiteral(stmt.moduleSpecifier)) {
-      diagnostics.push(err(fileName, 'Imports must be named bindings from a string path.'))
+      diagnostics.push(
+        makeDiagnostic(
+          sf,
+          stmt,
+          'Imports must be named bindings from a string path.',
+          TS_CODES.UNSUPPORTED,
+        ),
+      )
       continue
     }
     const spec = stmt.moduleSpecifier.text
     if (!spec.startsWith('.')) {
-      diagnostics.push(err(fileName, `Only relative imports are supported (got "${spec}").`))
+      diagnostics.push(
+        makeDiagnostic(
+          sf,
+          stmt,
+          `Only relative imports are supported (got "${spec}").`,
+          TS_CODES.UNSUPPORTED,
+        ),
+      )
       continue
     }
     const target = normalizeFile(spec)
     const bag = exports.get(target)
     if (!bag) {
-      diagnostics.push(err(fileName, `Cannot resolve "${spec}" to a "use typeshade" file.`))
+      diagnostics.push(
+        makeDiagnostic(
+          sf,
+          stmt,
+          `Cannot resolve "${spec}" to a "use typeshade" file.`,
+          TS_CODES.UNSUPPORTED,
+        ),
+      )
       continue
     }
     const named = stmt.importClause.namedBindings
     if (!named || !ts.isNamedImports(named)) {
-      diagnostics.push(err(fileName, 'Only named imports are supported: import { name } from "./file".'))
+      diagnostics.push(
+        makeDiagnostic(
+          sf,
+          stmt,
+          'Only named imports are supported: import { name } from "./file".',
+          TS_CODES.UNSUPPORTED,
+        ),
+      )
       continue
     }
     for (const el of named.elements) {
       const remote = el.propertyName?.text ?? el.name.text
       const hit = bag.get(remote)
       if (!hit) {
-        diagnostics.push(err(fileName, `"${remote}" is not an exported function in ${target}.`))
+        diagnostics.push(
+          makeDiagnostic(
+            sf,
+            el,
+            `"${remote}" is not an exported function in ${target}.`,
+            TS_CODES.UNSUPPORTED,
+          ),
+        )
         continue
       }
       imported.set(el.name.text, hit)
@@ -95,24 +130,33 @@ export function compileTsSources(
   const names = Object.keys(files)
   const emptySf = parseFile('empty.ts', '')
   if (names.length === 0) {
-    return { hasDirective: false, funcs: [], diagnostics: [], sourceFile: emptySf, consts: [], bindings: [], structs: [] }
+    return {
+      hasDirective: false,
+      funcs: [],
+      diagnostics: [],
+      sourceFile: emptySf,
+      consts: [],
+      bindings: [],
+      structs: [],
+    }
   }
   const diagnostics: TsCompilerDiagnostic[] = []
   const parsed = new Map<string, ts.SourceFile>()
-  for (const raw of names) parsed.set(normalizeFile(raw), parseFile(normalizeFile(raw), files[raw]!))
+  for (const raw of names)
+    parsed.set(normalizeFile(raw), parseFile(normalizeFile(raw), files[raw]!))
   const entry = options.entry ? normalizeFile(options.entry) : [...parsed.keys()][0]!
 
   const stubs = new Map<string, Map<string, { stub: FuncDecl; node: ts.FunctionDeclaration }>>()
   for (const [name, sf] of parsed) {
     if (!findUseTypeshadeDirective(sf)) {
-      diagnostics.push({
-        message: `Missing "${USE_TYPESHADE}" in ${name}.`,
-        fileName: name,
-        line: 1,
-        character: 1,
-        category: 'error',
-        code: TS_CODES.MISSING_DIRECTIVE,
-      })
+      diagnostics.push(
+        makeDiagnostic(
+          sf,
+          undefined,
+          `Missing "${USE_TYPESHADE}" in ${name}.`,
+          TS_CODES.MISSING_DIRECTIVE,
+        ),
+      )
       continue
     }
     analyzeSemantics(sf, diagnostics)
@@ -130,14 +174,22 @@ export function compileTsSources(
 
   const entrySf = parsed.get(entry)
   if (!entrySf) {
-    diagnostics.push(err(entry, `Entry "${entry}" is not in the source set.`))
-    return { hasDirective: false, funcs: [], diagnostics, sourceFile: emptySf, consts: [], bindings: [], structs: [] }
+    diagnostics.push(err(parseFile(entry, ''), `Entry "${entry}" is not in the source set.`))
+    return {
+      hasDirective: false,
+      funcs: [],
+      diagnostics,
+      sourceFile: emptySf,
+      consts: [],
+      bindings: [],
+      structs: [],
+    }
   }
 
   for (const [name, sf] of parsed) {
     const bag = stubs.get(name)
     if (!bag) continue
-    const imported = importsOf(sf, name, exported, diagnostics)
+    const imported = importsOf(sf, exported, diagnostics)
     const callees = new Map<string, FuncDecl>(imported)
     for (const [fnName, rec] of bag) callees.set(fnName, rec.stub)
     for (const rec of bag.values()) fillFunctionBody(rec.node, rec.stub, sf, diagnostics, callees)
@@ -145,7 +197,7 @@ export function compileTsSources(
 
   const consts = collectModuleConsts(entrySf, diagnostics)
   const entryBag = stubs.get(entry) ?? new Map()
-  const imported = importsOf(entrySf, entry, exported, diagnostics)
+  const imported = importsOf(entrySf, exported, diagnostics)
   const funcs: FuncDecl[] = []
   const seen = new Set<string>()
   for (const stub of imported.values()) {
@@ -167,16 +219,25 @@ export function compileTsSources(
           ? emitModule({ consts, structs: [], bindings: [], funcs })
           : emitFuncs(funcs)
     } catch (e) {
-      diagnostics.push({
-        message: `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
-        fileName: entry,
-        line: 1,
-        character: 1,
-        category: 'error',
-        code: TS_CODES.BACKEND,
-      })
+      diagnostics.push(
+        makeDiagnostic(
+          entrySf,
+          undefined,
+          `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
+          TS_CODES.BACKEND,
+        ),
+      )
     }
   }
 
-  return { hasDirective: true, funcs, diagnostics, sourceFile: entrySf, consts, bindings: [], structs: [], wgsl }
+  return {
+    hasDirective: true,
+    funcs,
+    diagnostics,
+    sourceFile: entrySf,
+    consts,
+    bindings: [],
+    structs: [],
+    wgsl,
+  }
 }

@@ -24,6 +24,8 @@ import {
   arrayT,
 } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
+import { makeDiagnostic } from './diagnostic.js'
+import { TS_CODES, type TsCode } from './codes.js'
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType
 
@@ -125,7 +127,12 @@ function mapGeneric(
 ): ShaderType | undefined {
   const args = typeNode.typeArguments ?? []
   if (name === 'Array') {
-    pushDiag(diagnostics, sourceFile, typeNode, 'JS Array<T> is not a shader type. Use array<T, N>.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      'JS Array<T> is not a shader type. Use array<T, N>.',
+    )
     return undefined
   }
   if (name === 'array') {
@@ -208,18 +215,10 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node | undefined,
   message: string,
+  code: TsCode = TS_CODES.UNKNOWN_TYPE,
 ): void {
   if (!diagnostics) return
-  const { line, character } = node
-    ? sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-    : { line: 0, character: 0 }
-  diagnostics.push({
-    message,
-    fileName: sourceFile.fileName,
-    line: line + 1,
-    character: character + 1,
-    category: 'error',
-  })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }
 
 export function lookupTypeName(name: string): ShaderType | undefined {

@@ -8,14 +8,16 @@ describe('TypeshadeLanguageService', () => {
     const diagnostics = service.getDiagnostics('const x = 1;')
     expect(diagnostics).toHaveLength(1)
     expect(diagnostics[0]?.message).toContain('use typeshade')
+    // No node backs a missing-directive diagnostic, so its span falls back to the file's
+    // first statement — here the whole `const x = 1;` (13 UTF-16 code units).
     expect(diagnostics[0]?.span.start).toBe(0)
-    expect(diagnostics[0]?.span.length).toBe(1)
+    expect(diagnostics[0]?.span.length).toBe('const x = 1;'.length)
   })
 
   it('reports the missing-directive diagnostic as a zero-based, half-open range', () => {
     const diagnostics = service.getDiagnostics('const x = 1;')
     expect(diagnostics[0]?.range.start).toEqual({ line: 0, character: 0 })
-    expect(diagnostics[0]?.range.end.character).toBe(1)
+    expect(diagnostics[0]?.range.end.character).toBe('const x = 1;'.length)
   })
 
   it('completes builtin names inside @builtin strings', () => {
