@@ -293,14 +293,25 @@ function lowerAssignOp(
     // broadcast rule as `v + s`; the result must still be the target's own type.
     const broadcast = broadcastResultType(target.type, value.type, bop)
     if (!broadcast || typeKey(broadcast) !== typeKey(target.type)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        right,
-        numericMismatch(`${bop}=`, target.type, value.type),
-        TS_CODES.TYPE_MISMATCH,
-      )
+      const message =
+        broadcast !== undefined
+          ? `Type mismatch: cannot ${bop}= ${typeKey(target.type)} and ${typeKey(value.type)}. ` +
+            `The result would be ${typeKey(broadcast)}, which does not fit the ${typeKey(target.type)} ` +
+            `target; assign it to a vector, or reduce the vector to a scalar first.`
+          : numericMismatch(`${bop}=`, target.type, value.type)
+      pushDiag(diagnostics, sourceFile, right, message, TS_CODES.TYPE_MISMATCH)
       return undefined
+    }
+    if (isVec64(target.type)) {
+      // The fp64 pass only lowers an assignOp on a vec64 target when the value is a vec64
+      // too (it throws SD0041 for a scalar), while its binop arm widens a scalar operand. So
+      // `w *= s` on a vec64 target is spelled as `w = w * s`, which emits and evaluates as
+      // the binary form does.
+      return {
+        s: 'assign',
+        target,
+        expr: { op: 'binop', type: target.type, bop, a: target, b: value },
+      }
     }
   }
   return { s: 'assignOp', target, bop, expr: value }

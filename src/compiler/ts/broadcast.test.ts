@@ -218,16 +218,20 @@ describe('compound assignment with a vector target', () => {
     expect(r.diagnostics.some((d) => /vec3<u32> and f32/.test(d.message))).toBe(true)
   })
 
-  it('rejects a vector value on a scalar target', () => {
+  it('rejects a vector value on a scalar target and says why', () => {
     const r = compileTsSource(`
       "use typeshade";
       export function f(v: vec3, s: f32): f32 {
         let t = s; t += v; return t;
       }
     `)
-    expect(
-      r.diagnostics.some((d) => /Type mismatch: cannot \+= f32 and vec3<f32>/.test(d.message)),
-    ).toBe(true)
+    expect(r.diagnostics.length).toBe(1)
+    const m = r.diagnostics[0]!.message
+    expect(m).toMatch(/Type mismatch: cannot \+= f32 and vec3<f32>/)
+    // The op is one of + - * / %, so the message must not claim it is the operator that is
+    // wrong; it is the vector result that the scalar target cannot hold.
+    expect(m).toMatch(/result would be vec3<f32>/)
+    expect(m).not.toMatch(/only through/)
   })
 
   it('leaves plain assignment strict', () => {
@@ -238,6 +242,63 @@ describe('compound assignment with a vector target', () => {
       }
     `)
     expect(r.diagnostics.some((d) => /assign to vec3<f32>/.test(d.message))).toBe(true)
+  })
+})
+
+describe('compound assignment with a vec64 target', () => {
+  // The fp64 pass lowers an assignOp on a vec64 target only when the value is a vec64 too
+  // and throws SD0041 for a scalar, so the frontend spells `w *= s` as `w = w * s`, which
+  // takes the binop arm that widens the scalar.
+  function lower(body: string, params: string): readonly Stmt[] {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(${params}): vec3f64 {
+        ${body}
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    return r.funcs[0]!.body
+  }
+
+  it('w *= s with an f32 scalar becomes w = w * s', () => {
+    const body = lower('let w = v; w *= s; return w;', 'v: vec3f64, s: f32')
+    const s = body[1]!
+    expect(s.s).toBe('assign')
+    if (s.s !== 'assign') return
+    expect(typeKey(s.target.type)).toBe('vec3<f64>')
+    expectBinop(s.expr, '*', 'vec3<f64>', (a) => expect(a).toEqual(s.target), param('s', 'f32'))
+  })
+
+  it('w += 1. types the literal as f64', () => {
+    const body = lower('let w = v; w += 1.; return w;', 'v: vec3d')
+    const s = body[1]!
+    expect(s.s).toBe('assign')
+    if (s.s !== 'assign') return
+    expectBinop(s.expr, '+', 'vec3<f64>', () => undefined, lit(1, 'f64'))
+  })
+
+  it('compiles and evaluates instead of failing in the fp64 pass', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(v: vec3f64, s: f32): vec3f64 {
+        let w = v; w *= s; w += 1.; return w;
+      }
+    `)
+    expect(c.diagnostics).toEqual([])
+    expect(c.wgsl).toMatch(/w = df64_v3_mul\(w, /)
+    expect(c.wgsl).toMatch(/w = df64_v3_add\(w, /)
+    expect(c.eval('f', [[1, 2, 3], 2])).toEqual([3, 5, 7])
+  })
+
+  it('still rejects %= on a vec64 target', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(v: vec3f64, s: f32): vec3f64 {
+        let w = v; w %= s; return w;
+      }
+    `)
+    expect(r.diagnostics.length).toBe(1)
+    expect(r.diagnostics[0]!.message).toMatch(/cannot %= vec3<f64> and f32/)
   })
 })
 
