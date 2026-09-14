@@ -7,6 +7,7 @@ import { LoweringScope } from '../context.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { f32T, i32T, boolT, typeKey } from '../../../core/ir/types.js'
 import type { Stmt } from '../../../core/ir/nodes.js'
+import { stripSpans } from '../../../core/testing/strip-spans.js'
 
 function parseStmts(body: string): {
   statements: ts.NodeArray<ts.Statement>
@@ -24,7 +25,10 @@ function parseStmts(body: string): {
   return { statements: fn.body!.statements, sourceFile }
 }
 
-function lower(body: string, scopeInit?: (s: LoweringScope) => void): {
+function lower(
+  body: string,
+  scopeInit?: (s: LoweringScope) => void,
+): {
   stmts: Stmt[]
   diagnostics: TsCompilerDiagnostic[]
   scope: LoweringScope
@@ -42,7 +46,10 @@ describe('Phase 4 - statement lowering', () => {
     const { stmts, diagnostics } = lower('const x = 0.;')
     expect(diagnostics).toEqual([])
     expect(stmts).toHaveLength(1)
-    expect(stmts[0]).toEqual({
+    // `stripSpans` throughout this file: every lowered statement now carries its authored
+    // span, which `span.test.ts` asserts on. These tests pin the lowered SHAPE, so they
+    // compare without it and keep the exact-equality they had.
+    expect(stripSpans(stmts[0])).toEqual({
       s: 'let',
       name: 'x',
       expr: { op: 'lit', type: f32T, value: 0 },
@@ -74,7 +81,7 @@ describe('Phase 4 - statement lowering', () => {
     const { stmts, diagnostics, scope } = lower('const x = 1.;\nreturn x;')
     expect(diagnostics).toEqual([])
     expect(stmts).toHaveLength(2)
-    expect(stmts[1]).toEqual({
+    expect(stripSpans(stmts[1])).toEqual({
       s: 'return',
       expr: { op: 'varref', type: f32T, name: 'x' },
     })
@@ -86,16 +93,13 @@ describe('Phase 4 - statement lowering', () => {
       s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
     })
     expect(diagnostics).toEqual([])
-    expect(stmts[0]).toEqual({ s: 'return', expr: { op: 'lit', type: f32T, value: 1 } })
+    expect(stripSpans(stmts[0])).toEqual({ s: 'return', expr: { op: 'lit', type: f32T, value: 1 } })
   })
 
   it('lowers if / else', () => {
-    const { stmts, diagnostics } = lower(
-      'if (flag) { return 1.; } else { return 0.; }',
-      (s) => {
-        s.define({ kind: 'param', name: 'flag', type: boolT, mutable: true })
-      },
-    )
+    const { stmts, diagnostics } = lower('if (flag) { return 1.; } else { return 0.; }', (s) => {
+      s.define({ kind: 'param', name: 'flag', type: boolT, mutable: true })
+    })
     expect(diagnostics).toEqual([])
     expect(stmts[0]!.s).toBe('if')
     if (stmts[0]!.s === 'if') {
@@ -175,13 +179,10 @@ describe('Phase 4 - statement lowering', () => {
   })
 
   it('block scope does not leak const from if body', () => {
-    const { diagnostics, scope } = lower(
-      'if (flag) { const inner = 1.; }\nreturn a;',
-      (s) => {
-        s.define({ kind: 'param', name: 'flag', type: boolT, mutable: true })
-        s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
-      },
-    )
+    const { diagnostics, scope } = lower('if (flag) { const inner = 1.; }\nreturn a;', (s) => {
+      s.define({ kind: 'param', name: 'flag', type: boolT, mutable: true })
+      s.define({ kind: 'param', name: 'a', type: f32T, mutable: true })
+    })
     expect(diagnostics).toEqual([])
     expect(scope.resolve('inner')).toBeUndefined()
   })
@@ -194,7 +195,7 @@ describe('Phase 4 - statement lowering', () => {
   it('lowers bare return', () => {
     const { stmts, diagnostics } = lower('return;')
     expect(diagnostics).toEqual([])
-    expect(stmts[0]).toEqual({ s: 'return' })
+    expect(stripSpans(stmts[0])).toEqual({ s: 'return' })
   })
 
   it('rejects JS var keyword message mentions const/let', () => {

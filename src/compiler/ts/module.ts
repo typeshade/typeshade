@@ -9,6 +9,7 @@ import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { TS_CODES } from './codes.js'
+import { checkRecursion, type RecursionNode } from './recursion.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 import type { DeclaredSymbol } from './symbols.js'
 
@@ -242,6 +243,7 @@ export function compileTsSources(
   const consts = entrySf ? collectModuleConsts(entrySf, diagnostics) : []
 
   const funcs: FuncDecl[] = []
+  const graph: RecursionNode[] = []
   // Only the entry file feeds the symbol table, since a span alone cannot say which file it
   // indexes. `entryName` above is that file: already normalized, so the caller's `'./main.ts'`
   // and `'main.ts'` name one file and neither can be handed the other's offsets.
@@ -263,8 +265,20 @@ export function compileTsSources(
         sink,
       )
       funcs.push(rec.stub)
+      // The graph key is the EMITTED name, not the local one: across files the same function
+      // reaches its callers under whatever name each `import` bound it to, and a cycle is a
+      // cycle in the emitted WGSL. `callees` is already that mapping, per file.
+      graph.push({
+        name: rec.stub.name,
+        decl: rec.node,
+        sourceFile: rec.sf,
+        resolve: (callee: string) => callees.get(callee)?.name,
+      })
     }
   }
+  // A call cycle emits WGSL Tint refuses (#48). Across files it can be spelled through an
+  // import, which is exactly why the resolver above goes through `callees`.
+  checkRecursion(graph, diagnostics)
 
   let wgsl: string | undefined
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
