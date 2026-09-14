@@ -1,11 +1,13 @@
 // Multi-file "use typeshade" program: relative import { name } from "./file"
 
 import ts from 'typescript'
-import type { FuncDecl } from '../../core/ir/nodes.js'
-import { emitFuncs } from '../../core/backends/wgsl.js'
+import type { ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
+import { emitFuncs, emitModule } from '../../core/backends/wgsl.js'
 import { hasUseTypeshadeDirective } from './directive.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
+import { analyzeSemantics } from './semantic.js'
+import { collectModuleConsts } from './module-const.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
@@ -17,6 +19,10 @@ export interface TsSourceFileInput {
 export interface CompileTsSourcesResult {
   readonly funcs: readonly FuncDecl[]
   readonly diagnostics: readonly TsCompilerDiagnostic[]
+  /** Module constants declared in the ENTRY file. Collected per-entry, not per-file, because
+   *  a `const` is module scope and the entry is the module: two files declaring `PI` are two
+   *  modules that each have one, not one module with a duplicate. */
+  readonly consts: readonly ConstDecl[]
   readonly wgsl?: string
 }
 
@@ -37,6 +43,13 @@ function resolveSpecifier(fromFile: string, spec: string): string {
   return normalizePath(target)
 }
 
+/** Compile a set of `"use typeshade"` files into one WGSL module, resolving
+ *  `import { name } from "./file"` between them.
+ *
+ *  `entry` names the file whose module constants are collected and whose position anchors a
+ *  whole-module emit failure; it defaults to the first file given. Every function in every
+ *  file is lowered and emitted regardless — a multi-file program is one module, and the entry
+ *  selects module scope, not a reachability root. */
 export function compileTsSources(
   files: readonly TsSourceFileInput[],
   entry?: string,
@@ -70,10 +83,16 @@ export function compileTsSources(
   const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
   if (syntax.length > 0) {
     diagnostics.push(...syntax)
-    return { funcs: [], diagnostics }
+    return { funcs: [], diagnostics, consts: [] }
   }
 
   for (const [name, sf] of parsed) {
+    // The statement-level check `compileTsSource` runs on a single file (a top-level `let`,
+    // an expression statement that is not the directive, and the rest). It was missing from
+    // the multi-file path, so a construct rejected in a one-file program was accepted in a
+    // two-file one — including in the documentation gate, which compiles every multi-file
+    // fence in README.md and docs/ through this function.
+    analyzeSemantics(sf, diagnostics)
     const table = new Map<
       string,
       { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }
@@ -194,34 +213,50 @@ export function compileTsSources(
     }
   }
 
+  const entryName = entry === undefined ? [...parsed.keys()][0] : normalizePath(entry)
+  const entrySf = entryName === undefined ? undefined : parsed.get(entryName)
+  if (entry !== undefined && entrySf === undefined) {
+    diagnostics.push(
+      makeDiagnostic(
+        [...parsed.values()][0] ?? emptySourceFile(files),
+        undefined,
+        `Entry "${entry}" is not in the source set.`,
+        TS_CODES.UNSUPPORTED,
+      ),
+    )
+  }
+
+  // BEFORE the bodies are filled, not after. `fillFunctionBody` takes the module constants as
+  // a parameter and defines each one in the lowering scope; collect them afterwards and every
+  // reference to one inside a function is TS8022 "Unknown identifier". Both pre-merge
+  // implementations had this order wrong — `sources.ts` collected them last too — so a
+  // multi-file program simply could not use a module constant. The single-file path in
+  // `source-file.ts` has always collected first, which is why it works there.
+  const consts = entrySf ? collectModuleConsts(entrySf, diagnostics) : []
+
   const funcs: FuncDecl[] = []
   for (const [name, table] of exports) {
     const callees = fileCallees.get(name)!
     for (const rec of table.values()) {
-      fillFunctionBody(rec.node, rec.stub, rec.sf, diagnostics, callees)
+      fillFunctionBody(rec.node, rec.stub, rec.sf, diagnostics, callees, consts)
       funcs.push(rec.stub)
     }
   }
-  void entry
 
   let wgsl: string | undefined
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {
-      wgsl = emitFuncs(funcs)
+      // `emitModule` only when there is something for its other slots to hold. `emitFuncs` is
+      // the bare-functions form the single-file path uses too, and switching unconditionally
+      // would change the emitted text of every multi-file program that has no constants.
+      wgsl =
+        consts.length > 0
+          ? emitModule({ consts, structs: [], bindings: [], funcs })
+          : emitFuncs(funcs)
     } catch (e) {
-      const anchor =
-        (entry ? parsed.get(entry) : undefined) ??
-        [...parsed.values()][0] ??
-        ts.createSourceFile(
-          files[0]?.fileName ?? 'typeshade',
-          '',
-          ts.ScriptTarget.Latest,
-          true,
-          ts.ScriptKind.TS,
-        )
       diagnostics.push(
         makeDiagnostic(
-          anchor,
+          entrySf ?? [...parsed.values()][0] ?? emptySourceFile(files),
           undefined,
           `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
           TS_CODES.BACKEND,
@@ -229,5 +264,17 @@ export function compileTsSources(
       )
     }
   }
-  return { funcs, diagnostics, wgsl }
+  return { funcs, diagnostics, consts, wgsl }
+}
+
+/** A diagnostic needs a source file to carry a position. With no parsable file left to point
+ *  at — an empty `files` array — an empty one is the honest anchor. */
+function emptySourceFile(files: readonly TsSourceFileInput[]): ts.SourceFile {
+  return ts.createSourceFile(
+    files[0]?.fileName ?? 'typeshade',
+    '',
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
 }

@@ -19,6 +19,13 @@ export {
   isUseTypeshadeDirective,
   findUseTypeshadeDirective,
 } from './compiler/ts/directive.js'
+export {
+  packModule,
+  packJson,
+  type Pack,
+  type PackBinding,
+  type PackEntry,
+} from './compiler/ts/pack.js'
 
 // Editor intelligence shared by the Playground, VS Code adapter, and future LSP.
 export {
@@ -92,4 +99,8 @@ export { autoVars } from './core/passes/opt/auto-vars.js'
 export { reachFrom, type EntryReach } from './core/passes/stage-bindings.js'
 export { splitF64, fp64Guard, FP64_GUARD_NAME, type Fp64GuardHandle } from './core/fp64/df64-lib.js'
 export { fp64Lower, type Fp64Flavor, type Fp64LowerOptions } from './core/passes/fp64-lower.js'
-export { recommendFp64Flavor, isAppleGpu, type Fp64FlavorSignals } from './core/fp64/flavor-select.js'
+export {
+  recommendFp64Flavor,
+  isAppleGpu,
+  type Fp64FlavorSignals,
+} from './core/fp64/flavor-select.js'

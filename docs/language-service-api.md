@@ -508,7 +508,14 @@ LSP (VS Code):
 - Whether `.shade.ts` should be recognised by extension in editors before the file is parsed,
   or only by the `"use typeshade"` directive (the compiler uses the directive; the Vite plugin
   uses the extension).
-- Multi-file: `compileTsSources` exists in two incompatible forms (`module.ts`, `sources.ts`);
-  the document store needs the record form with structs and bindings collected across files.
+- ~~Multi-file: `compileTsSources` exists in two incompatible forms~~ — resolved: one form, in
+  `module.ts`, taking a list of `{ fileName, source }` with an optional `entry`. `sources.ts` is
+  deleted; the statement-level semantic check and the entry's module constants, which only it
+  ran, are folded in (and the constants are now collected BEFORE the function bodies are
+  lowered, which neither form did — a module constant referenced inside a function was
+  `TS8022 Unknown identifier` in every multi-file program). Still open, and the part of this
+  question the document store actually needs: structs and bindings are collected per-file by
+  `compileTsSource` but not yet across a source set, so a struct declared in one file and used
+  in another does not resolve.
 - Bundle strategy for the browser: worker only, or also a lexical tier without `typescript`
   for the first paint.

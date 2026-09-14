@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 398 exports
+## `.` — 403 exports
 
 ```
 abs
@@ -249,10 +249,15 @@ OverrideDecl
 OverrideHandle
 OverrideInfo
 overrideRef
+Pack
 pack2x16float
 pack2x16snorm
 pack2x16unorm
 pack4x8unorm
+PackBinding
+PackEntry
+packJson
+packModule
 param
 ParamSpec
 PlainStruct
@@ -754,7 +759,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 483 definitions
+## Shapes — 488 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -762,6 +767,11 @@ src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
 src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: SourceFile) => ExpressionStatement
 src/compiler/ts/directive.ts#hasUseTypeshadeDirective  function  (sourceFile: SourceFile) => boolean
 src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => boolean
+src/compiler/ts/pack.ts#Pack  interface  { bindings: readonly PackBinding[]; entries: readonly PackEntry[]; glsl?: { readonly vertex: string; readonly fragment: string; }; structs: readonly { readonly name: string; readonly fields: readonly { name: string; type: string; }[]; }[]; vertexLayout?: GpuVertexLayout; wgsl: string }
+src/compiler/ts/pack.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; group: number; name: string; space: string; type: string }
+src/compiler/ts/pack.ts#PackEntry  interface  { name: string; stage: string }
+src/compiler/ts/pack.ts#packJson  function  (m: ModuleDecl) => string
+src/compiler/ts/pack.ts#packModule  function  (m: ModuleDecl) => Pack
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
 src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; sourceFile: SourceFile; structs: readonly CollectedStruct[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
