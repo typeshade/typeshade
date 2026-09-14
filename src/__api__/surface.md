@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 379 exports
+## `.` — 381 exports
 
 ```
 abs
@@ -141,6 +141,7 @@ f64T
 FieldLayout
 FieldSpec
 findUseTypeshadeDirective
+FixedTypeBuiltinName
 Float64Key
 FloatKey
 floor
@@ -383,6 +384,7 @@ vec4uT
 VertexAttr
 VertexLayout
 voidT
+WGSL_BUILTIN_TYPES
 wgslBackend
 WgslBuiltinName
 WgslCompiled
@@ -691,7 +693,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 433 definitions
+## Shapes — 435 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -1087,6 +1089,7 @@ src/core/semantic-diff.ts#isSemanticallyEqual  const  (d: SemanticDiff) => boole
 src/core/semantic-diff.ts#semanticDiff  function  { (a: ModuleDecl, b: ModuleDecl, opts: SemanticDiffOptions & { readonly transforms: readonly EmitPlugin[]; }): ClassifiedSemanticDiff; (a: ModuleDecl, b: ModuleDecl, opts?: SemanticDiffOptions): SemanticDiff; }
 src/core/sot.ts#ConstHandle  interface  { decl: ConstDecl; node: ReadonlyNode<KeyOf<T>> }
 src/core/sot.ts#FieldSpec  interface  { attr: string; builtin?: string; interpolate?: string; location?: number; type: T }
+src/core/sot.ts#FixedTypeBuiltinName  type  "vertex_index" | "instance_index" | "position" | "front_facing" | "frag_depth" | "sample_index" | "sample_mask" | "local_invocation_id" | "local_invocation_index" | "global_invocation_id" | "workgroup_id" | "num_workgroups" | "subgroup_invocation_id" | "subgroup_size"
 src/core/sot.ts#HandleArray  interface  { count: number; element: H }
 src/core/sot.ts#IoStruct  interface  { construct: (values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>["type"]>>; }) => Node<`struct:${N}`>; decl: StructDecl; of: { (node: Node<string>): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; (node: ReadonlyNode<string>): { readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; }; type: { readonly kind: "struct"; readonly name: N; }; var: (name?: string) => { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; } }
 src/core/sot.ts#PlainStruct  interface  { construct: (values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>>; }) => Node<`struct:${N}`>; decl: StructDecl; get: <K extends keyof F & string>(node: ReadonlyNode<string>, field: K) => ReadonlyNode<KeyOf<F[K]>>; of: { (node: Node<string>): { readonly [K in keyof F]: Node<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; (node: ReadonlyNode<string>): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; }; type: { readonly kind: "struct"; readonly name: N; }; var: (name?: string) => { readonly [K in keyof F]: Node<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; } }
@@ -1094,9 +1097,10 @@ src/core/sot.ts#Resource  interface  { binding: BindingDecl; node: Node<KeyOf<T>
 src/core/sot.ts#StorageBuffer  interface  { at: (i: number | ReadonlyNode<ScalarKey>) => A; binding: BindingDecl; elementDecl?: StructDecl; node: Node<string> }
 src/core/sot.ts#TypeArray  interface  { count: number; elemType: T }
 src/core/sot.ts#UniformStruct  interface  { binding: BindingDecl; decl: StructDecl; field: { readonly [K in keyof F]: UniformFieldNode<F[K]>; }; node: Node<string>; struct: StructDecl; type: ShaderType }
+src/core/sot.ts#WGSL_BUILTIN_TYPES  const  { readonly vertex_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly instance_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly position: { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }; readonly front_facing: { readonly kind: "scalar"; readonly scalar: "bool"; }; readonly frag_depth: { readonly kind: "scalar"; readonly scalar: "f32"; }; readonly sample_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly sample_mask: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly local_invocation_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly local_invocation_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly global_invocation_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly workgroup_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly num_workgroups: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly subgroup_invocation_id: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly subgroup_size: { readonly kind: "scalar"; readonly scalar: "u32"; }; }
 src/core/sot.ts#WgslBuiltinName  type  "vertex_index" | "instance_index" | "position" | "front_facing" | "frag_depth" | "sample_index" | "sample_mask" | "local_invocation_id" | "local_invocation_index" | "global_invocation_id" | "workgroup_id" | "num_workgroups" | "subgroup_invocation_id" | "subgroup_size" | "clip_distances"
 src/core/sot.ts#arrayOf  function  { <H extends StructHandle>(element: H, count: number): HandleArray<H>; <T extends ShaderType>(element: T, count: number): TypeArray<T>; }
-src/core/sot.ts#builtin  const  <T extends ShaderType>(name: WgslBuiltinName, type: T) => FieldSpec<T>
+src/core/sot.ts#builtin  function  { <N extends FixedTypeBuiltinName>(name: N): FieldSpec<{ readonly vertex_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly instance_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly position: { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }; readonly front_facing: { readonly kind: "scalar"; readonly scalar: "bool"; }; readonly frag_depth: { readonly kind: "scalar"; readonly scalar: "f32"; }; readonly sample_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly sample_mask: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly local_invocation_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly local_invocation_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly global_invocation_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly workgroup_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly num_workgroups: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly subgroup_invocation_id: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly subgroup_size: { readonly kind: "scalar"; readonly scalar: "u32"; }; }[N]>; <T extends ShaderType>(name: WgslBuiltinName, type: T): FieldSpec<T>; }
 src/core/sot.ts#constDecl  function  <T extends ShaderType>(name: string, type: T, values: { readonly wgsl: number; readonly cpu: number; }) => ConstHandle<T>
 src/core/sot.ts#hostBlock  function  <F extends Record<string, UniformFieldSpec>>(typeName: string, at: { group: number; binding: number; as: string; }, fields: F, opts?: { glsl?: "std140-block" | "loose"; precision?: "highp" | "mediump" | "lowp"; }) => UniformStruct<F>
 src/core/sot.ts#hostUniform  function  <T extends ShaderType>(name: string, type: T, at: { group: number; binding: number; }, opts?: { precision?: "highp" | "mediump" | "lowp"; }) => Resource<T>
