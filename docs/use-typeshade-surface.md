@@ -266,8 +266,11 @@ carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoot
 | `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
 | `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
 
-A name declared in the file wins over a builtin of the same name, for `select` as for any
-other.
+A function the file declares wins over any name in the table above, and over `bool` and
+`f64`: those names meant the author's function before they were builtins, and an addition
+does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
+`clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way —
+a program that resolves to one today must keep resolving to it.
 
 `discard` kills the fragment:
 

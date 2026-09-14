@@ -40,6 +40,29 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   LOG2E: Math.LOG2E, PI: Math.PI, SQRT1_2: Math.SQRT1_2, SQRT2: Math.SQRT2,
 }
 
+/** The builtin names #8 A6 added to this surface, plus the two scalar casts it added.
+ *
+ *  A name in this set must NOT shadow a function the file declares. Before A6 each of these
+ *  was an ordinary unknown name, so `export function saturate(x: f32) { … }` followed by
+ *  `saturate(x)` called the author's function; the builtin is only an addition if it still
+ *  does. The names that were already builtins (`min`, `max`, `mix`, `clamp`, `f32`, …) keep
+ *  their precedence, since changing that would move the meaning of a program that compiles
+ *  today — the same additivity argument, pointing the other way.
+ *
+ *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
+ *  a cast or the select Expr. */
+export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
+  'exp2',
+  'saturate',
+  'fwidth',
+  'dpdx',
+  'dpdy',
+  'fma',
+  'select',
+  'bool',
+  'f64',
+])
+
 export function resolveMathFn(jsName: string): string | undefined {
   const id = MATH_FN_ALIAS[jsName]
   if (!id) return undefined

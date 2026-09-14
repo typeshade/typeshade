@@ -6,6 +6,7 @@ import { retargetIntLit } from '../lit-coerce.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import {
+  USER_FIRST_BUILTINS,
   expectedArity,
   isCanonicalMathFn,
   resolveMathConst,
@@ -122,9 +123,11 @@ export function lowerCall(
       const folded = lowerArrayFold(name, node, sourceFile, scope, diagnostics)
       if (folded !== 'fallback') return folded
     }
-    if (name === 'select' && !scope.resolveCallee(name)) {
-      return lowerSelectCall(node, sourceFile, scope, diagnostics)
-    }
+    // A name #8 A6 added does not shadow a function the file declares: before it, the call
+    // resolved to that function, and an addition may not change what a program means.
+    const shadowed = USER_FIRST_BUILTINS.has(name) ? scope.resolveCallee(name) : undefined
+    if (shadowed) return lowerUserCall(node, shadowed, sourceFile, scope, diagnostics)
+    if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics)
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     ctor = VEC_CTOR[name]
     if (!ctor) {

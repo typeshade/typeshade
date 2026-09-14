@@ -480,3 +480,60 @@ describe('discard', () => {
     expect(r.funcs[0]!.body.some((s) => s.s === 'discard')).toBe(false)
   })
 })
+
+describe('a name this item adds does not shadow a function the file declares', () => {
+  // Every one of these was an ordinary unknown name before #8 A6, so `export function
+  // saturate(…)` followed by `saturate(x)` called the author's function. An addition may not
+  // change what a program means, so it still does — on the GPU and in the CPU oracle alike.
+  const ARITY: Readonly<Record<string, number>> = {
+    exp2: 1,
+    saturate: 1,
+    fwidth: 1,
+    dpdx: 1,
+    dpdy: 1,
+    bool: 1,
+    f64: 1,
+    fma: 3,
+    select: 3,
+  }
+
+  it.each(Object.keys(ARITY))('calls the declared %s, not the builtin', (name) => {
+    const arity = ARITY[name]!
+    const params = Array.from({ length: arity }, (_, i) => `a${i}: f32`).join(', ')
+    const args = Array.from({ length: arity }, () => '2.').join(', ')
+    const c = compile(`
+      "use typeshade";
+      export function ${name}(${params}): f32 {
+        return 99.;
+      }
+      export function g(): f32 {
+        return ${name}(${args});
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // The emitted shader declares the function and calls it; WGSL lets a declared name
+    // shadow a builtin of the same name, and Tint accepts it.
+    expect(c.wgsl).toContain(`fn ${name}(`)
+    expect(c.wgsl).toContain(`return ${name}(`)
+    // …and the oracle evaluates the same function, through the call's declRef.
+    expect(c.eval('g', [])).toBe(99)
+  })
+
+  it('leaves a name that was already a builtin exactly as it was', () => {
+    // `pow` predates this item: the intrinsic wins, on both targets and on the CPU. Changing
+    // THAT would move the meaning of a program that compiles today — the same additivity
+    // argument pointing the other way.
+    const c = compile(`
+      "use typeshade";
+      export function pow(a: f32, b: f32): f32 {
+        return 99.;
+      }
+      export function g(): f32 {
+        return pow(2., 2.);
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toContain('return pow(2.0, 2.0);')
+    expect(c.eval('g', [])).toBe(4)
+  })
+})

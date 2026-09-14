@@ -102,6 +102,9 @@ interface ModCtx {
   constId: Map<string, string>
   /** override name → its JS local id in the factory (`$O_<i>`). */
   overrideId: Map<string, string>
+  /** The names the module actually declares as functions, so a call the front end resolved
+   *  to one (`declRef`) can be routed to it rather than to a builtin of the same name. */
+  fnNames: Set<string>
 }
 
 /** Per-fn codegen state: the flat env → JS locals mapping + the hoist list. */
@@ -201,6 +204,12 @@ function emitExpr(e: Expr, S: FnCtx): string {
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
           return `$.${e.fn === 'u32' ? 'u32Sat' : 'i32Sat'}(${args[0]})`
         }
+      }
+      // A call the front end resolved to a declared function (`declRef`) goes to that
+      // function, which is what the emitted shader calls; the interpreter makes the same
+      // choice, so the two stay bit-identical. An intrinsic call has no declRef.
+      if (e.declRef !== undefined && S.mod.fnNames.has(e.fn)) {
+        return `$.F[${q(e.fn)}](${args.join(', ')})`
       }
       if (BUILTINS[e.fn]) return `$.B[${q(e.fn)}](${args.join(', ')})`
       if (GPU_STUBS[e.fn]) return `$.gpuStub(${[q(e.fn), ...args].join(', ')})`
@@ -506,6 +515,7 @@ export function compileModuleJs(
     structs: new Map(mv.structs.map((s) => [s.name, s])),
     constId: new Map(),
     overrideId: new Map(),
+    fnNames: new Set(mv.funcs.map((f) => f.name)),
   }
 
   // ── Module-scope decls (consts + overrides) as factory-local `const`s ──
