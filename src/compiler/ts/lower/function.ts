@@ -272,6 +272,8 @@ export function fillFunctionBody(
 ): void {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs)
+  // The declared return type, so a `return { … }` knows which struct it builds (#8 A11).
+  scope.setReturnType(stub.ret)
   for (const c of consts) {
     scope.define({
       kind: 'module',

@@ -40,14 +40,25 @@ const COMPARE: Readonly<Record<number, CmpOp>> = {
   [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '!=',
 }
 
+/**
+ * Lower one TypeScript expression.
+ *
+ * `contextual` is the type the POSITION declares, when it declares one: a function's return
+ * type, a `let`/`const` annotation, or a parameter type. Exactly one expression shape reads
+ * it — an object literal, whose struct cannot be inferred from the literal itself (#8 A11) —
+ * and every other shape ignores it, which is why it is an optional trailing argument rather
+ * than a parameter threaded through the whole walk. A caller that has no type to offer passes
+ * nothing and gets the behaviour it always had.
+ */
 export function lowerExpression(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  contextual?: ShaderType,
 ): Expr | undefined {
   if (ts.isParenthesizedExpression(node))
-    return lowerExpression(node.expression, sourceFile, scope, diagnostics)
+    return lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual)
   if (ts.isIdentifier(node)) return lowerIdentifier(node, sourceFile, scope, diagnostics)
   if (ts.isNumericLiteral(node)) return { op: 'lit', type: f32T, value: Number(node.text) }
   if (node.kind === ts.SyntaxKind.TrueKeyword) return { op: 'lit', type: boolT, value: true }
@@ -70,7 +81,7 @@ export function lowerExpression(
       return lowerPrefixUnary(node, sourceFile, scope, diagnostics)
   }
   if (ts.isObjectLiteralExpression(node))
-    return lowerObjectLiteral(node, sourceFile, scope, diagnostics)
+    return lowerObjectLiteral(node, sourceFile, scope, diagnostics, contextual)
   if (ts.isBinaryExpression(node)) return lowerBinary(node, sourceFile, scope, diagnostics)
   if (ts.isCallExpression(node)) return lowerCall(node, sourceFile, scope, diagnostics)
   if (ts.isPropertyAccessExpression(node))

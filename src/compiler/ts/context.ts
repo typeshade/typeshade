@@ -55,6 +55,7 @@ export class LoweringScope {
   private readonly structs = new Map<string, StructDecl>()
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
+  private retType: ShaderType | undefined
 
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
     this.callees = callees ?? new Map()
@@ -85,6 +86,18 @@ export class LoweringScope {
     return this.loopDepth > 0
   }
 
+  /** The declared return type of the function whose body is being lowered, so a `return`
+   *  can be checked and typed against it (#8 A3 for an integer literal, A11 for an object
+   *  literal). Undefined outside a function body — at module-constant collection, for
+   *  instance — and for a function with no annotation. */
+  setReturnType(t: ShaderType | undefined): void {
+    this.retType = t
+  }
+
+  returnType(): ShaderType | undefined {
+    return this.retType
+  }
+
   setStructs(list: readonly StructDecl[]): void {
     this.structs.clear()
     for (const s of list) this.structs.set(s.name, s)
@@ -92,6 +105,14 @@ export class LoweringScope {
 
   fieldType(structName: string, field: string): ShaderType | undefined {
     return this.structs.get(structName)?.fields.find((f) => f.name === field)?.type
+  }
+
+  /** The collected struct with this name, or undefined. The lookup a CONTEXTUAL type needs:
+   *  a declared `vec4`-shaped `VsOut` names its struct outright, where {@link matchStruct} can
+   *  only guess from the field names and cannot answer at all when two structs share a shape
+   *  (#8 A11). */
+  structByName(name: string): StructDecl | undefined {
+    return this.structs.get(name)
   }
 
   matchStruct(fieldNames: readonly string[]): StructDecl | undefined {

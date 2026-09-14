@@ -119,6 +119,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: false,
   },
   {
+    id: 'twin-structs',
+    title: 'Twin IO structs',
+    blurb:
+      'Two IO structs with identical fields — a vertex output and a fragment input — and object literals in all three positions that declare which one they build: a return type, an annotation and a parameter type. The case matching field names alone cannot decide.',
+    renderable: true,
+  },
+  {
     id: 'compute-reduction-twin',
     title: 'Compute reduction (source twin)',
     blurb:

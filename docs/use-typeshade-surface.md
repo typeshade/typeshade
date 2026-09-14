@@ -242,4 +242,59 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+## 16. Object literals take the declared struct
+
+**Numbering:** §§9 to §15 are reserved for issue #8's A2, A6, A8, A9, A3, A10 and A7, in
+flight on their own branches and appending here in issue order. This section is §16 so the
+A-item branches do not collide on merge.
+
+Which struct `{ … }` builds comes from the type the position **declares** — a function's
+return type, a `let`/`const` annotation, or a parameter type:
+
+```ts
+"use typeshade"
+
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+class FsIn {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+export function shade(o: FsIn): f32 {
+  return o.uv.x
+}
+
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  const p = vec2(0., 0.)
+  return { pos: vec4(p, 0., 1.), uv: p } // the return type says VsOut
+}
+
+export function pick(): f32 {
+  const a: FsIn = { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } // the annotation says FsIn
+  return shade(a) + shade({ pos: a.pos, uv: a.uv }) // the parameter says FsIn
+}
+```
+
+Matching the field **names** against the struct table is the fallback, for a position that
+declares nothing (`const o = { … }` with no annotation). It stays because it is often enough,
+but it could never answer the case above: `VsOut` and `FsIn` have the same fields, so the name
+set does not distinguish them and the literal was rejected inside a function that states
+exactly which one it returns.
+
+A declared struct also improves the diagnostics, because there is something to name:
+
+| | before | after |
+| --- | --- | --- |
+| `return { a: 1. }` for a two-field `P` | `Object literal { a } does not match a known struct.` | `Missing field "b" for struct P.` |
+| `return { a: 1., c: 2. }` | the same sentence | `Struct P has no field "c".` |
+
+A contextual type that is not a struct is ignored here rather than reported: `const o: f32 =
+{ a: 1. }` is a mistake about the declaration, and the declaration's own type check is what
+says so.
+
 Last updated: 2026-09-14
