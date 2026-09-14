@@ -1,10 +1,10 @@
-// ═══ typeshade example — discard cutout (#1840 GLSL-legalize coverage) ═══
+// ═══ typeshade example — discard cutout (X-GIS #1840 GLSL-legalize coverage) ═══
 //
 // A fragment helper discards outside a centred circle and returns the fill colour;
 // the fragment stage calls it ONCE, as the sole argument of the fragment IO-struct's
 // `.construct({...})` — the exact shape ANGLE's D3D11 backend miscompiles when the
 // discarding call is left inline in a GLSL struct constructor (glsl-legalize.ts,
-// #1840). This example's GLSL golden pins the `_dh0` local the legalize pass
+// X-GIS #1840). This example's GLSL golden pins the `_dh0` local the legalize pass
 // hoists it into; the WGSL golden stays the untouched inline call (WGSL has no
 // such backend bug, so it is byte-untouched by design).
 
@@ -60,7 +60,7 @@ export const discardCutout: ShaderExample = {
   id: 'discard-cutout',
   title: 'Discard cutout',
   blurb:
-    "A fragment helper discards outside a centred circle and returns the fill colour, called once as the fragment IO-struct's constructor argument — the exact shape ANGLE's D3D11 backend miscompiles when left inline (#1840). Renders a clean circular cutout with a radial centre-to-rim gradient.",
+    "A fragment helper discards outside a centred circle and returns the fill colour, called once as the fragment IO-struct's constructor argument — the exact shape ANGLE's D3D11 backend miscompiles when left inline (X-GIS #1840). Renders a clean circular cutout with a radial centre-to-rim gradient.",
   category: 'generic',
   file: 'discard-cutout.ts',
   module: discardCutoutModule,

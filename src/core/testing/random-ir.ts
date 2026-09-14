@@ -1,4 +1,4 @@
-// ═══ Shader DSL — seeded, typed random-IR generator (#2406, direction record D6.1) ═══
+// ═══ Shader DSL — seeded, typed random-IR generator (X-GIS #2406, direction record D6.1) ═══
 //
 // Every other "property" test in this package randomises INPUTS over a fixed kernel. This
 // generates the KERNEL: whole `ModuleDecl`s, deterministic from a seed, type-correct by
@@ -118,7 +118,7 @@ class Gen {
   private chance(p: number): boolean {
     return this.rnd() < p
   }
-  /** Function-unique binding name — `no-shadowed-local` (#2341) is a CORE gate, so a
+  /** Function-unique binding name — `no-shadowed-local` (X-GIS #2341) is a CORE gate, so a
    *  generator that reused a name would be emitting INVALID modules, not finding bugs. */
   private fresh(): string {
     return `g${this.n++}`

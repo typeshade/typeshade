@@ -168,7 +168,7 @@ export function aliasShaderTypes(src: string, renames?: Map<string, string>): st
 
   // A `#define` is module-wide and TEXTUAL, so a name that already occurs
   // anywhere — an identifier, a keyword, a type — is not available. Seeded with
-  // the reserved vocabulary (#1861): a word the language OWNS but that this
+  // the reserved vocabulary (X-GIS #1861): a word the language OWNS but that this
   // particular shader never spells is absent from the text scan below, so it
   // would otherwise look free — `alias as=vec2<f32>;` is what Tint rejected.
   const occupied = new Set<string>(RESERVED_WORDS)

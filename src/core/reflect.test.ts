@@ -158,7 +158,7 @@ describe('reflect — module metadata walker', () => {
             resourceKind: 'uniform-buffer',
             owner: 'module',
             structName: 'Uniforms',
-            // #1906 — the entries here have empty bodies, so nothing reaches `u`.
+            // X-GIS #1906 — the entries here have empty bodies, so nothing reaches `u`.
             // `bindGroups` still lists it: empty is a fact, not a gap.
             stages: [],
           },
@@ -179,7 +179,7 @@ describe('reflect — module metadata walker', () => {
 // host must ALSO know whether the view is float or integer — WebGPU's sampleType must
 // be 'uint'/'sint' and WebGL2 must back it with R32UI/R32I. textureElem carries the
 // same always-set contract as textureDim, for the same reason.
-describe('reflect — texture bind entries carry their dim (#1651) and element (#1703)', () => {
+describe('reflect — texture bind entries carry their dim (X-GIS #1651) and element (X-GIS #1703)', () => {
   it('sets textureDim + textureElem on every texture entry and on no other kind', () => {
     const m: ModuleDecl = {
       consts: [],
@@ -196,7 +196,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
       funcs: [],
     }
     // `stages: []` on every row: the fixture declares no entry point, so no stage
-    // reaches any of these bindings (#1906).
+    // reaches any of these bindings (X-GIS #1906).
     expect(reflect(m).bindGroups[0]?.entries).toEqual([
       {
         group: 0,
@@ -241,7 +241,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         owner: 'module',
         stages: [],
       },
-      // #1703 — the two axes are INDEPENDENT: same dim, different element, and the
+      // X-GIS #1703 — the two axes are INDEPENDENT: same dim, different element, and the
       // array/integer combination reports both.
       {
         group: 0,
@@ -280,7 +280,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
   })
 })
 
-describe('reflect() reports the bindings a LOWERING injects, not just the declared ones (#1724)', () => {
+describe('reflect() reports the bindings a LOWERING injects, not just the declared ones (X-GIS #1724)', () => {
   // The `_fp64` anti-fast-math guard is auto-injected by fp64Lower, inside emit. Before this,
   // the emitted source declared a binding reflect() did not report, so a host building its
   // bind group from the reflection never bound the guard the shader samples. On WebGPU that

@@ -1,4 +1,4 @@
-// ═══ Does the emitted SOURCE agree with the reflection describing it? (#1714) ═══
+// ═══ Does the emitted SOURCE agree with the reflection describing it? (X-GIS #1714) ═══
 //
 // #1714 asked for a cross-backend parity gate: "for every example module, assert that GLSL
 // and WGSL emits agree on interface/resources/constants". As landed in #1719, that arm was
@@ -70,7 +70,7 @@ const expectedFor = (r: ReturnType<typeof reflect>, target: 'wgsl' | 'glsl') =>
       .map((e) => (target === 'wgsl' ? `${e.group}:${e.binding}:${e.name}` : e.name)),
   )
 
-describe('emit ↔ reflection conformance (#1714)', () => {
+describe('emit ↔ reflection conformance (X-GIS #1714)', () => {
   it(`the corpus is populated (>= ${MIN_EXAMPLES} examples)`, () => {
     // Every arm below is a set comparison, and two empty sets are equal.
     expect(examples.length).toBeGreaterThanOrEqual(MIN_EXAMPLES)

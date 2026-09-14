@@ -59,7 +59,7 @@ const vsCalling = (callee: typeof mid) =>
 
 const run = (m: ReturnType<typeof module>) => lint(m, [fragmentOnlyBuiltin])
 
-describe('fragment-only-builtin (#1650)', () => {
+describe('fragment-only-builtin (X-GIS #1650)', () => {
   it('flags textureSample reached TRANSITIVELY from a vertex entry', () => {
     const ds = run(
       module({ bindings: [tex.binding, smp.binding], funcs: [vsCalling(mid), mid, leaf] }),
@@ -148,7 +148,7 @@ describe('fragment-only-builtin (#1650)', () => {
     const fs = fn('fob_fs_dual', {}, vec4fT, () => mid({ uv: vec2(0, 0) }), { stage: 'fragment' })
     // The fragment→mid edge is REAL, not assumed: without this cross-check the test
     // would still pass on the vertex chain alone if the fragment entry silently
-    // failed to produce its call edge (verification-review nit on #1654).
+    // failed to produce its call edge (verification-review nit on X-GIS #1654).
     const fsRefs = emptyRefSet()
     collectFnRefs(fs.decl, fsRefs)
     expect([...fsRefs.calls]).toContain('fob_mid')
@@ -204,7 +204,7 @@ const vsCallingF32 = (callee: typeof midDpdx) =>
     retAttr: builtin('position', vec4fT),
   })
 
-describe('fragment-only-builtin — derivatives (#1654)', () => {
+describe('fragment-only-builtin — derivatives (X-GIS #1654)', () => {
   it('flags dpdx reached TRANSITIVELY from a vertex entry, naming the derivative fix', () => {
     const ds = run(module({ funcs: [vsCallingF32(midDpdx), midDpdx, leafDpdx] }))
     expect(ds.map((d) => d.ruleId)).toEqual(['fragment-only-builtin'])

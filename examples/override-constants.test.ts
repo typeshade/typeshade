@@ -1,4 +1,4 @@
-// ═══ shader-dsl — specialization constants (#923) ═══
+// ═══ shader-dsl — specialization constants (X-GIS #923) ═══
 //
 // The pinned contract for `overrideConst`: one authored declarator lowers to a WGSL
 // module-scope `override` AND a GLSL `#define`/`#ifndef` permutation seam; its read is

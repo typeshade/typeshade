@@ -102,7 +102,7 @@ export type NonComposite<K extends string> = K extends `vec${string}` | `mat${st
 // (SD0004 below, the bitwise SD0005 precedent), which still fails long before a
 // GPU compiler would.
 
-// Returns ReadonlyNode<string>, not <any> (#763 X12): `<any>` was assignable to
+// Returns ReadonlyNode<string>, not <any> (X-GIS #763 X12): `<any>` was assignable to
 // EVERY ReadonlyNode<K>, so `const b: ReadonlyNode<'bool'> = lift(3)` type-checked.
 /** Normalizes a {@link NodeLike} operand to a {@link ReadonlyNode}: a JS number becomes an f32
  *  literal, and an existing node passes through unchanged. Every free-function builtin (`sin`,
@@ -277,7 +277,7 @@ const VEC_FIELD_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 }
 // Colour-alias components map onto the same lanes (WGSL allows either set).
 const SWIZZLE_ALIAS: Record<string, string> = { r: 'x', g: 'y', b: 'z', a: 'w' }
 
-// ── Swizzle result-key inference (#740 R9) ──
+// ── Swizzle result-key inference (X-GIS #740 R9) ──
 type StrLen<S extends string, A extends readonly unknown[] = []> = S extends `${string}${infer R}`
   ? StrLen<R, [...A, 1]>
   : A['length']
@@ -331,13 +331,13 @@ export class ReadonlyNode<K extends string = string> {
       b: b.expr,
     })
   }
-  // Scalar-node × vec-node BROADCASTS (#740 R9): `t.add(phases)` where t is f32
+  // Scalar-node × vec-node BROADCASTS (X-GIS #740 R9): `t.add(phases)` where t is f32
   // and phases vec3<f32> types as vec3<f32> — the runtime (binResultType) always
   // supported it; only the signature forced authors to unroll per component.
   // The `vec${number}<${K}>` constraint self-limits these overloads to a SCALAR
   // LHS (for K = 'vec3<f32>' no vec key can contain it), so vec LHS keeps its
   // exact-K arithmetic unchanged.
-  // The `this:` bound (#763 X8) removes these overloads from a VECTOR LHS's
+  // The `this:` bound (X-GIS #763 X8) removes these overloads from a VECTOR LHS's
   // candidate set entirely — a vec2+vec3 mismatch now rejects with the readable
   // ArithArg diagnostic instead of leaking a self-nested `vec${n}<vec3<f32>>`
   // template-literal key from a dead broadcast candidate. NonComposite keeps
@@ -394,7 +394,7 @@ export class ReadonlyNode<K extends string = string> {
   div(o: NodeLike): Node {
     return this.bin('/', o)
   }
-  // mod joins the broadcast family (#763 X5) — the runtime (binResultType)
+  // mod joins the broadcast family (X-GIS #763 X5) — the runtime (binResultType)
   // always supported scalar%vec; only the signature forced an unroll.
   mod<K2 extends `vec${number}<${K}>`>(
     this: ReadonlyNode<NonComposite<K>>,
@@ -409,7 +409,7 @@ export class ReadonlyNode<K extends string = string> {
   }
 
   private cmp(cop: CmpOp, o: NodeLike): Node<'bool'> {
-    // Runtime backstop (#763 X8): these comparisons return Node<'bool'> — a
+    // Runtime backstop (X-GIS #763 X8): these comparisons return Node<'bool'> — a
     // VECTOR comparison in WGSL yields vecN<bool>, so a vec LHS here would emit
     // invalid-typed WGSL with no earlier check (mixed-scalar lint reads binops
     // only). The `this:` bounds below reject it at tsc; hand-built calls land here.
@@ -567,7 +567,7 @@ export class ReadonlyNode<K extends string = string> {
     for (const c of comps) {
       const fam: 'xyzw' | 'rgba' = SWIZZLE_ALIAS[c] !== undefined ? 'rgba' : 'xyzw'
       // WGSL forbids mixing the xyzw and rgba component sets in one swizzle
-      // ('xg' is invalid) — reject at author time (#763 X15).
+      // ('xg' is invalid) — reject at author time (X-GIS #763 X15).
       if (family !== undefined && fam !== family)
         throw dslError('SD0008', `.${comps} — mixes xyzw and rgba component sets (WGSL forbids)`)
       family = fam
@@ -604,7 +604,7 @@ export class ReadonlyNode<K extends string = string> {
 
   // Common multi-component swizzle getters — `w.zxy` instead of vec3(w.z, w.x, w.y).
   // For any other component order (u32/i32 vectors included) use the inferred
-  // `.swizzle('...')` — the result key derives from the components string (#740 R9).
+  // `.swizzle('...')` — the result key derives from the components string (X-GIS #740 R9).
   get xy(): Node<SwizzleKey<K, 'xy'>> {
     return this.swizzle('xy')
   }
@@ -764,7 +764,7 @@ export class ReadonlyNode<K extends string = string> {
  *  This is a TYPE-LEVEL distinction only — the runtime is one class, so emitted WGSL/GLSL is
  *  byte-identical. (Mirrors RxJS `Observable` (read) vs `Subject` (read+write).) */
 // One prototype slot — every ReadonlyNode/Node instance (any package copy)
-// answers the cross-instance brand probe (#763 D1).
+// answers the cross-instance brand probe (X-GIS #763 D1).
 Object.defineProperty(ReadonlyNode.prototype, NODE_BRAND, { value: true })
 
 /** The write-capable node. Every value-producing method and builtin, and `Var()`, return this
@@ -1227,7 +1227,7 @@ export function div(a: NodeLike, b: NodeLike): Node {
 // Every builtin's key parameter is bounded to the keys its WGSL/GLSL spec
 // domain (and, for f64, the df64 whitelist) actually admits — `K extends
 // string` used to admit bool/texture/struct keys, so `sinh(someBool)`
-// type-checked and died at naga (#763 X6/X7's key-class discipline, applied
+// type-checked and died at naga (X-GIS #763 X6/X7's key-class discipline, applied
 // to the free-function builtins).
 
 /** The f32-family keys, `'f32'` and the f32 vectors: the argument domain of the float-only
@@ -1729,7 +1729,7 @@ export function smoothstep(
  *  WGSL requires `edge` and `x` to have the same type. */
 export const step = <K extends FloatKey>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNode<K>): Node<K> =>
   call('step', x.type, edge, x) as Node<K>
-// K-constrained like `cross` (#763 X7) — dot(v2, v3) used to COMPILE and die at
+// K-constrained like `cross` (X-GIS #763 X7) — dot(v2, v3) used to COMPILE and die at
 // naga; the shared K pins both operands to one float-vector key.
 /** `length(v)`: Euclidean vector magnitude, `|v|`. The return precision follows the operand: an
  *  f32 vector (vec2, vec3 or vec4) returns f32, and an emulated-double `vec${N}<f64>` returns
@@ -1896,7 +1896,7 @@ export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
  */
 export const optBarrier = (v: ReadonlyNode<'f32'> | number): Node<'f32'> =>
   bitcastF32(bitcastU32(typeof v === 'number' ? f32(v) : v))
-/** An array-layer argument (#1651). A `number` becomes an i32 LITERAL, not the f32
+/** An array-layer argument (X-GIS #1651). A `number` becomes an i32 LITERAL, not the f32
  *  one `lift()` defaults to: WGSL's array_index takes i32/u32, and `0.0` there is a
  *  type error (GLSL wraps the value in float() either way). A FRACTIONAL number is
  *  rejected here (SD0015): `i32(1.5)` would emit `1.5` as an i32 literal — a naga
@@ -1910,7 +1910,7 @@ const layerArg = (l: ReadonlyNode<'i32' | 'u32'> | number): NodeLike => {
   return l
 }
 /** A textureLoad MIP-LEVEL (or MSAA sample-index) argument — layerArg's twin, and for
- *  the same reason (#1703). WGSL's `textureLoad` takes an INTEGER level, but `lift()`
+ *  the same reason (X-GIS #1703). WGSL's `textureLoad` takes an INTEGER level, but `lift()`
  *  defaults a bare number to f32, so the `textureLoad(t, c, 0)` this function's own doc
  *  recommends emitted `textureLoad(t, c, 0.0)` — which naga REJECTS. It went unnoticed
  *  because every in-repo caller writes `u32(0)` by hand and because GLSL's spelling
@@ -2231,7 +2231,7 @@ export function select<R extends string>(
  */
 export function matchExpr<S extends ScalarKey, R extends string>(
   scrutinee: ReadonlyNode<S>,
-  // Thunk-or-node arms (#763 X17): when/matchEnum arms are thunks while
+  // Thunk-or-node arms (X-GIS #763 X17): when/matchEnum arms are thunks while
   // matchExpr's were eager nodes — migrating between the dispatch forms
   // silently moved value construction (and any inner Let) in or out of the
   // arm. Accepting both normalises the family; eager nodes stay supported.

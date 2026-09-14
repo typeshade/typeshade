@@ -1,4 +1,4 @@
-// ═══ The unified compute runner — tier resolution + CPU-tier value parity (#1903) ═══
+// ═══ The unified compute runner — tier resolution + CPU-tier value parity (X-GIS #1903) ═══
 //
 // What this file can and cannot prove, stated up front so the coverage is not mistaken for
 // more than it is. Node has no WebGL2 context and no WebGPU device, so the GPU tiers are
@@ -204,7 +204,7 @@ describe('createComputeRunner — tier resolution', () => {
 describe('createComputeRunner — the tier gate is not re-decided here', () => {
   it('rejects a module with no portable-declared compute entry, naming the remedy', async () => {
     await expect(createComputeRunner(makeKernel({ portable: false }))).rejects.toThrow(
-      /no `portable: true` compute entry[\s\S]*#1812/,
+      /no `portable: true` compute entry[\s\S]*X-GIS #1812/,
     )
   })
 
@@ -370,7 +370,7 @@ function glStub(): { gl: WebGL2RenderingContext; calls: string[] } {
   return { gl, calls }
 }
 
-describe('createComputeRunner — an empty dispatch is a steady state on every tier (#2362)', () => {
+describe('createComputeRunner — an empty dispatch is a steady state on every tier (X-GIS #2362)', () => {
   it('webgl2 resolves to an empty Uint32Array, the same as cpu', async () => {
     const { gl } = glStub()
     const webgl2 = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl })
@@ -511,7 +511,7 @@ function statefulGlStub(init: {
   }
 }
 
-describe('createComputeRunner — the WebGL2 tier restores the host context (#2355)', () => {
+describe('createComputeRunner — the WebGL2 tier restores the host context (X-GIS #2355)', () => {
   const INPUT = new Float32Array([1, 2, 3])
 
   it('leaves BLEND enabled when the host had it enabled', async () => {

@@ -23,7 +23,7 @@ import { splitF64, DF64_TRIG_CONSTANTS } from './df64-lib.js'
 // ── The f32-rounding oracle (identical mechanism to df64-known-answer.test.ts) ──
 
 /** The f32 oracle: `fp64Lower`'s output evaluated as a correctly-rounding f32 machine, which
- *  is what the GPU is. `precision: 'f32'` (#2426) replaced a copy of this wrapper in each of
+ *  is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper in each of
  *  these six files; it additionally rounds literals and parameters, which the copies did not. */
 const f32Oracle = (m: ModuleDecl, opts?: Parameters<typeof fp64Lower>[1]) =>
   compileModule(fp64Lower(m, opts), { precision: 'f32' })
@@ -136,7 +136,7 @@ describe('df64 sin/cos known answers under f32 rounding', () => {
     expect(Math.abs(Math.cos(Math.fround(X)) - Math.cos(X))).toBeGreaterThan(0.1)
   })
 
-  it('NEGATIVE large argument — the mod-2π turn-count nint tie convention (#922 regression)', () => {
+  it('NEGATIVE large argument — the mod-2π turn-count nint tie convention (X-GIS #922 regression)', () => {
     // When |x|/2π lands on a representable f32 half-integer (|q| ∈ [2²², 2²³), where
     // the f32 grid spacing is exactly 0.5) the mod-2π reduction's nint hits its tie.
     // luma.gl's nint rounds ties toward +∞ and df64_nint's lo-word correction is

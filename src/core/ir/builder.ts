@@ -63,14 +63,14 @@ export type ParamSpec = Record<string, ShaderType>
 type ParamAttr = {
   readonly type: ShaderType
   readonly attr: string
-  // Structured IO fields (#740 R3 / #763 S5) — sot's builtin()/location() set these;
+  // Structured IO fields (X-GIS #740 R3 / X-GIS #763 S5) — sot's builtin()/location() set these;
   // fn() threads them into FuncDecl.params so reflect() sees vertex attributes
   // WITHOUT re-parsing the attr string.
   readonly location?: number
   readonly builtin?: string
   readonly interpolate?: string
 }
-/** A structDecl / ioStruct HANDLE used directly as a param spec value (#740 R6):
+/** A structDecl / ioStruct HANDLE used directly as a param spec value (X-GIS #740 R6):
  *  `fn({ in: PointOut }, ({ in }) => in.uv…)` — the body receives the TYPED field
  *  proxy, retiring the `PointOut.of(p.in)` re-assertion at every consumer. */
 type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object }
@@ -105,7 +105,7 @@ type ParamTypeOf<E> = E extends ParamAttr
       ? E
       : never
 /** Body-side param values. Params are READ-ONLY in WGSL — the node type is
- *  `ReadonlyNode`, so `p.a.assign(…)` is a tsc error (#763 G3; the runtime
+ *  `ReadonlyNode`, so `p.a.assign(…)` is a tsc error (X-GIS #763 G3; the runtime
  *  never guarded this: auto-vars skips param roots and the emitted assign
  *  died in the driver). Struct-handle params receive the handle's READ view. */
 type ParamNodes<P extends FnParamSpec> = {
@@ -401,7 +401,7 @@ export class IfChain {
 // line.ts:721-726 shadowing bug). push/pop is exception-safe (try/finally) — a
 // throw mid-body must not leak the stack into the next shader. This is a pure
 // authoring-surface change: it emits the same Stmt[] as the passed-builder API.
-// globalThis-backed (#763 D2): a dual-loaded package copy used to get its OWN
+// globalThis-backed (X-GIS #763 D2): a dual-loaded package copy used to get its OWN
 // empty stack — `Let` imported from copy B inside a body authored by copy A's
 // `fn` threw SD0013 at module load. Sharing the ambient state across copies
 // makes the duplication harmless (same pattern as map's __XGIS_PROJECTIONS__).
@@ -573,9 +573,9 @@ function makeCallFactory<R extends ShaderType>(
     return n
   }
   // A struct FIELD PROXY (a handle param / a `.of()` view) forwards as its raw
-  // struct-value Node via its `$` accessor (#740 R6) — so `helper(p.input)` just
+  // struct-value Node via its `$` accessor (X-GIS #740 R6) — so `helper(p.input)` just
   // works when p.input arrived as a typed handle param.
-  // isNodeValue, NOT instanceof (#763 D1): a dual-loaded package splits the
+  // isNodeValue, NOT instanceof (X-GIS #763 D1): a dual-loaded package splits the
   // prototype identity, and a cross-instance node falling through instanceof
   // was misrouted into the named-args parse (TypeError at load, or a silent
   // mis-swizzle when a param name collides with a component getter).
@@ -645,7 +645,7 @@ type FnOpts = {
    *  is used. A bare non-struct fragment return defaults to `@location(0)`. */
   retAttr?: string | { readonly attr: string; readonly builtin?: string }
 }
-// A body may return the raw node OR a struct field proxy (`return o` — #763 X14):
+// A body may return the raw node OR a struct field proxy (`return o` — X-GIS #763 X14):
 // the proxy forwards `.expr`/`.type` to its base var, so `bld.ret` reads it like
 // a node. StructArg is the `{ $: ReadonlyNode }` shape every sot proxy carries.
 type FnBody<P extends FnParamSpec, R extends string> = (
@@ -725,11 +725,11 @@ function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): S
 // ⚠️ The caveat is about a BARE `_fn{n}` reaching emitted WGSL: the byte-identical snapshots
 // are baked in one process and checked in another, and a fn referenced by a STRING name
 // (externFn('project', …) / a callFn('…') / a placeholder-swap funcs[] lookup) must keep a
-// stable explicit name. Two ways to have one (#763 H9): pass the name to fn(), OR list the
+// stable explicit name. Two ways to have one (X-GIS #763 H9): pass the name to fn(), OR list the
 // anonymous handle in a `funcs:` KEY-RECORD — the record key deterministically RENAMES the
 // decl (and every handle-made call site, via declRef + the assembly rewrite), so fnAutoId
 // never reaches the output. Only an anonymous fn used in an ARRAY-form module emits `_fn{n}`.
-// globalThis-backed counter (#763 D2) — two copies each starting at `_fn0`
+// globalThis-backed counter (X-GIS #763 D2) — two copies each starting at `_fn0`
 // would collide in the name-keyed module dedup and silently mis-link
 // DIFFERENT anonymous fns as one.
 const fnAutoState = ((globalThis as Record<symbol, unknown>)[
@@ -892,7 +892,7 @@ export function fn(
   const inferred = explicitRet === undefined
   const body = (inferred ? retOrBody : named ? d : c) as FnBody<FnParamSpec, string>
   const opts = (named ? (inferred ? d : e) : inferred ? c : d) as FnOpts | undefined
-  // The portable kernel tier is a COMPUTE declaration (#1812) — the two-layer pattern's
+  // The portable kernel tier is a COMPUTE declaration (X-GIS #1812) — the two-layer pattern's
   // runtime half, checked here (before the body runs) because `FnOpts` is one flat bag and
   // TS cannot make the pairing unrepresentable without splitting the overload set.
   if (opts?.portable === true && opts.stage !== 'compute')
@@ -902,7 +902,7 @@ export function fn(
     )
   // A param value is a plain ShaderType, a FieldSpec `{ type, attr }` (builtin/location)
   // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/
-  // `@location(…)` — or a structDecl/ioStruct HANDLE (#740 R6), whose param arrives in
+  // `@location(…)` — or a structDecl/ioStruct HANDLE (X-GIS #740 R6), whose param arrives in
   // the body as the TYPED field proxy (no `X.of(p.in)` re-assertion).
   const entries = Object.entries(params).map(([n, spec]) => {
     const isHandle = 'of' in spec && typeof (spec as StructParamHandle).of === 'function'
@@ -950,7 +950,7 @@ export function fn(
       throw e
     }
   })
-  // A struct field proxy returned directly (`return o` — #763 X14) forwards
+  // A struct field proxy returned directly (`return o` — X-GIS #763 X14) forwards
   // `.expr`/`.type` to its base var, so it reads like a node from here on.
   const result = rawResult as ReadonlyNode | void
   if (result !== undefined) bld.ret(result)
@@ -966,14 +966,14 @@ export function fn(
       : opts?.stage
         ? [`@${opts.stage}`]
         : undefined
-  // retAttr: string | FieldSpec, with the fragment default (#763 X3).
+  // retAttr: string | FieldSpec, with the fragment default (X-GIS #763 X3).
   const retAttrRaw = opts?.retAttr
   const retAttr =
     (typeof retAttrRaw === 'string' ? retAttrRaw : retAttrRaw?.attr) ??
     (opts?.stage === 'fragment' && ret.kind !== 'struct' && ret.kind !== 'void'
       ? '@location(0)'
       : undefined)
-  // The FieldSpec form carries the STRUCTURED builtin id — preserve it (#1672): dropping
+  // The FieldSpec form carries the STRUCTURED builtin id — preserve it (X-GIS #1672): dropping
   // it here made `retAttr: builtin('point_size', …)` invisible to assertBuiltins, the
   // one authoring path where an absent builtin could still reach WGSL text silently.
   const retBuiltin = typeof retAttrRaw === 'string' ? undefined : retAttrRaw?.builtin
@@ -983,10 +983,10 @@ export function fn(
     ret,
     body: bld.stmts,
     attrs,
-    // Structured stage (#740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
+    // Structured stage (X-GIS #740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
     stage: opts?.stage,
     workgroupSize: opts?.stage === 'compute' ? (opts.workgroupSize ?? 64) : undefined,
-    // Structured-only, no attrs spelling (#740 R3 / #1812) — see FuncDecl.portable.
+    // Structured-only, no attrs spelling (X-GIS #740 R3 / X-GIS #1812) — see FuncDecl.portable.
     portable: opts?.portable,
     retAttr,
     retBuiltin,
@@ -1069,7 +1069,7 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(
   return makeCallFactory(name, ret, paramList) as ExternFn<P, R>
 }
 
-// ── module assembly: transitive fn collection + key-naming (#740 R1) ──
+// ── module assembly: transitive fn collection + key-naming (X-GIS #740 R1) ──
 
 /** A declarator handle accepted by `module({ uses })`: anything that carries its own
  *  declaration or binding. {@link uniformStruct} returns `{ struct, binding }`;
@@ -1143,7 +1143,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
         const prev = d[ASSEMBLED_AS]
         if (prev !== undefined && prev !== key) {
           throw new Error(
-            `shader-dsl: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (#763 D4). Author a separate fn (or reuse the key '${prev}').`,
+            `shader-dsl: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (X-GIS #763 D4). Author a separate fn (or reuse the key '${prev}').`,
           )
         }
         if (d.name !== key) {
@@ -1656,12 +1656,12 @@ export function Var<T extends ShaderType>(
   maybeInit?: ReadonlyNode<KeyOf<T>>,
 ): Node<KeyOf<T>> {
   // Var(init) — a mutable var seeded from a value infers its WGSL type from that value.
-  // Brand probe, not instanceof (#763 D1) — a cross-instance init node must not
+  // Brand probe, not instanceof (X-GIS #763 D1) — a cross-instance init node must not
   // fall through to the ShaderType arm and declare a garbage-typed var.
   if (isNodeValue(nameOrTypeOrInit))
     return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
   if (typeof nameOrTypeOrInit === 'string') {
-    // Var(name, init) — the second slot is a NODE, not a ShaderType (#763 X9).
+    // Var(name, init) — the second slot is a NODE, not a ShaderType (X-GIS #763 X9).
     if (isNodeValue(typeOrInit))
       return currentBuilder().var(nameOrTypeOrInit, typeOrInit.type, typeOrInit) as Node<KeyOf<T>>
     return currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)

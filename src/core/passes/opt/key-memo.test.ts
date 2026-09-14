@@ -8,7 +8,7 @@ import type { Expr } from '../../ir/index.js'
 // The memo exists because keyOf is called per EXPRESSION NODE by four passes and re-run every
 // fixpoint iteration: 254,232 calls in one `line` emit, against 776 collectLocals and 8,256
 // collectMutatedRoots calls in the SAME emit. (That measurement is also what refuted the
-// premise this work started from — see #2465.)
+// premise this work started from — see X-GIS #2465.)
 //
 // The memo can break in exactly one way that no existing test would catch, and it is the way
 // an "optimisation" would naturally introduce: making the key IDENTITY-based. Every CSE

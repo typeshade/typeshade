@@ -64,14 +64,14 @@ export { ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './cpu-runtime.js'
 
 interface Ctx {
   consts: Map<string, CpuValue>
-  /** Specialization constants (#923) → their DEFAULT value. The CPU oracle is the
+  /** Specialization constants (X-GIS #923) → their DEFAULT value. The CPU oracle is the
    *  un-specialized mirror: an override reads as its declared default (pipeline
    *  specialization is a GPU-driver concept with no CPU analogue). */
   overrides: Map<string, CpuValue>
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
   bindings: Record<string, CpuValue>
   structs: Map<string, StructDecl>
-  /** Opt-in GPU stubs (#763 O3): textureSample/fwidth return placeholder values
+  /** Opt-in GPU stubs (X-GIS #763 O3): textureSample/fwidth return placeholder values
    *  instead of throwing. OFF by default — plausible-wrong is the worst failure
    *  mode for a reference backend. */
   gpuStubs: boolean
@@ -144,7 +144,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         )
       }
       // The RESULT type's numeric kind drives WGSL integer semantics (wrap, truncating
-      // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (#2274).
+      // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (X-GIS #2274).
       return applyBin(e.bop, av, bv, numKindOf(e.type))
     }
     case 'unop': {
@@ -156,7 +156,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         b = evalExpr(e.b, env, ctx) as number
       // == / != reflect f32 rounding when comparing f32 operands — the GPU
       // computes f32, so exact f64 equality silently disagrees with it on
-      // equality branches (#13). Ordering ops keep f64 (rounding rarely flips an
+      // equality branches (X-GIS #13). Ordering ops keep f64 (rounding rarely flips an
       // inequality, and f64 is the stricter mirror for thresholds).
       const f32cmp = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
       switch (e.cop) {
@@ -198,7 +198,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (stub) {
         if (!ctx.gpuStubs) {
           throw new Error(
-            `shader-dsl/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (#763 O3)`,
+            `shader-dsl/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
           )
         }
         return stub(...args)
@@ -359,7 +359,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
           const r = execBody(chosen, env, ctx)
           // A `break` in a case body exits the SWITCH only (WGSL and GLSL alike), so it
           // is consumed here. Everything else propagates to the statement that owns it —
-          // `return`, `discard`, and a `continue` aimed at an enclosing loop (#2275: it
+          // `return`, `discard`, and a `continue` aimed at an enclosing loop (X-GIS #2275: it
           // used to be dropped, so the loop body ran to completion on that iteration).
           if (r.kind !== 'normal' && r.kind !== 'break') return r
         }

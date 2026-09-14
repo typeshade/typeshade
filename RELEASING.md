@@ -12,15 +12,27 @@ and why the dry run below is worth the four minutes.
 
 ---
 
-## 0. One-time setup
+## 0. Authentication — already set up
 
-Do this once, before the first release. Both paths are supported; **trusted publishing is the
-recommended one** because it stores no credential anywhere.
+**Nothing to do here for the first release.** The repository secret `NPM_ACCESS_TOKEN` exists
+and the workflow reads it; §1 is where the work starts. This section is for changing that
+later.
 
-### Trusted publishing (recommended)
+### What is configured today
+
+|          |                                                                                                                                               |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secret   | `NPM_ACCESS_TOKEN`, **already set** in Settings → Secrets and variables → Actions                                                             |
+| Used by  | `.github/workflows/publish.yml`, written to `.npmrc` immediately before `npm publish`                                                         |
+| Rotation | On expiry, generate a new granular token scoped to the `typeshade` package with **Read and write**, and update the secret under the same name |
+
+The workflow's log says which path it took, so a run that silently fell back is visible.
+
+### Moving to trusted publishing (optional, and better)
 
 npm exchanges the workflow's OIDC identity for a short-lived publish credential, so there is no
-token to store, leak, or rotate.
+token to store, leak, or rotate. Worth doing once the first release has proved the pipeline —
+not before, because a misconfiguration here fails **after** the tag is pushed.
 
 1. Sign in to npmjs.com as the package maintainer (`su.noh`).
 2. Go to <https://www.npmjs.com/package/typeshade> → **Settings** → **Trusted publisher**.
@@ -29,28 +41,23 @@ token to store, leak, or rotate.
    - Repository: `typeshade`
    - Workflow filename: `publish.yml`
    - Environment: leave empty
-4. Save. Leave the repository's `NPM_TOKEN` secret **unset** — if it exists, the workflow uses
-   it instead and trusted publishing is never attempted.
+4. Save, then **delete the `NPM_ACCESS_TOKEN` secret**. While it exists the workflow uses it and
+   trusted publishing is never attempted, so leaving it in place means the OIDC path is
+   configured but untested — the worst of both.
 
 Two things will break this silently, so they are worth knowing now: **renaming
 `publish.yml`** invalidates the registered publisher until you re-register it, and trusted
 publishing needs **npm ≥ 11.5.1**, which is why the workflow upgrades npm before publishing
 rather than using the runner's bundled 10.x.
 
-### `NPM_TOKEN` (fallback)
+### Going back to a token
 
-Use this if trusted publishing is unavailable or a release fails on the OIDC exchange.
-
-1. npmjs.com → your avatar → **Access Tokens** → **Generate New Token** → **Granular Access
-   Token**.
-2. Scope it to the `typeshade` package only, permission **Read and write**, with the shortest
-   expiry you are willing to renew. Do not create a classic "Automation" token scoped to every
-   package you own.
-3. In GitHub: **Settings → Secrets and variables → Actions → New repository secret**, named
-   `NPM_TOKEN`.
-
-The workflow writes it to `.npmrc` only when the secret is non-empty, and says in its log which
-path it took. Remember to delete the secret if you later move to trusted publishing.
+Re-create the secret and the workflow uses it again on the next run; nothing else changes.
+npmjs.com → your avatar → **Access Tokens** → **Generate New Token** → **Granular Access
+Token**, scoped to the `typeshade` package only, permission **Read and write**, with the
+shortest expiry you are willing to renew — not a classic "Automation" token scoped to every
+package you own. Add it under **Settings → Secrets and variables → Actions** as
+`NPM_ACCESS_TOKEN`.
 
 ### What the package already is
 
@@ -63,7 +70,7 @@ is a second placeholder held for a possible future split — **nothing is publis
 ## 1. Prepare the release commit
 
 **0.1.0 is the first real release.** The `0.0.1` in `package.json` is placeholder-era and was
-never published.
+never published. Authentication needs nothing from you (§0).
 
 1. Set the version. Edit `package.json` by hand, or:
 
@@ -183,14 +190,14 @@ to <https://www.npmjs.com/package/typeshade>.
 
 ## 6. When something goes wrong
 
-| Symptom                                                                       | What happened, and what to do                                                                                                                                                                                       |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `release tag 'vX' does not match package.json version 'Y'`                    | The tag and the manifest disagree. Nothing was published. Delete the tag and the release, fix whichever is wrong, and cut it again.                                                                                 |
-| `403 Forbidden` / `You cannot publish over the previously published versions` | That version is already on the registry. npm never allows it to be replaced. Bump to the next patch and release that.                                                                                               |
-| `ENEEDAUTH`, or a 401 on publish                                              | Neither auth path was configured. Either register the trusted publisher (§0) or set `NPM_TOKEN`. The workflow log says which path it attempted.                                                                     |
-| Trusted publishing refused the OIDC exchange                                  | Most often the workflow filename registered on npmjs.com no longer matches, or npm is older than 11.5.1. Both are in §0.                                                                                            |
-| A gate failed in `verify`                                                     | Nothing was built or uploaded. Fix it on `main`, delete the tag and the release, and cut it again from the fixed commit.                                                                                            |
-| The tarball check failed                                                      | An entry point does not resolve from the packed package. Nothing was uploaded. `src/publish-manifest.test.ts` D3 and D4 cover this case locally — run `bun run build && bun run test` and they should reproduce it. |
+| Symptom                                                                       | What happened, and what to do                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `release tag 'vX' does not match package.json version 'Y'`                    | The tag and the manifest disagree. Nothing was published. Delete the tag and the release, fix whichever is wrong, and cut it again.                                                                                                     |
+| `403 Forbidden` / `You cannot publish over the previously published versions` | That version is already on the registry. npm never allows it to be replaced. Bump to the next patch and release that.                                                                                                                   |
+| `ENEEDAUTH`, or a 401 on publish                                              | Neither auth path worked. If `NPM_ACCESS_TOKEN` is set, it has expired or lost its scope — rotate it (§0). If it was deleted, the trusted publisher is not registered or does not match. The workflow log says which path it attempted. |
+| Trusted publishing refused the OIDC exchange                                  | Most often the workflow filename registered on npmjs.com no longer matches, or npm is older than 11.5.1. Both are in §0.                                                                                                                |
+| A gate failed in `verify`                                                     | Nothing was built or uploaded. Fix it on `main`, delete the tag and the release, and cut it again from the fixed commit.                                                                                                                |
+| The tarball check failed                                                      | An entry point does not resolve from the packed package. Nothing was uploaded. `src/publish-manifest.test.ts` D3 and D4 cover this case locally — run `bun run build && bun run test` and they should reproduce it.                     |
 
 Nothing in this file publishes anything by itself. Every path to the registry goes through a
 release you create.

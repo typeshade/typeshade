@@ -7,7 +7,7 @@
 // imports this module bundles ZERO bytes of it. This is where the
 // production-emit axis grows (a forced-inline plugin is the planned next
 // resident); the main barrel stays runtime-only, the same split
-// `typeshade/dev` made for the lint/measure tooling (#740 R2b).
+// `typeshade/dev` made for the lint/measure tooling (X-GIS #740 R2b).
 //
 // Typical build-time use:
 //

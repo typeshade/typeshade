@@ -82,7 +82,7 @@ describe('#1905 — EntryInfo.io', () => {
     ])
   })
 
-  it("reports a bare return's @builtin from the STRUCTURED field (#1672)", () => {
+  it("reports a bare return's @builtin from the STRUCTURED field (X-GIS #1672)", () => {
     // The FieldSpec authoring form: `retBuiltin` carries the semantic id, `retAttr` the
     // spelling. Reading the structured field first is what #1672 preserved it for.
     const depth = fn('fs_depth', {}, () => f32(0.5), {

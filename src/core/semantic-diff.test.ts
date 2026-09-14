@@ -1,4 +1,4 @@
-// ═══ semanticDiff — bucket separation, the mangle invariant, and non-vacuity (#1714) ═══
+// ═══ semanticDiff — bucket separation, the mangle invariant, and non-vacuity (X-GIS #1714) ═══
 //
 // Every "it detects X" arm here CUTS THE SPECIFIC MECHANISM rather than only checking
 // that a fail-before goes red: each variant module changes exactly one axis, and the
@@ -93,7 +93,7 @@ describe('semanticDiff — reflexivity', () => {
   })
 })
 
-describe('semanticDiff — the mangle invariant (#1715B seed)', () => {
+describe('semanticDiff — the mangle invariant (X-GIS #1715B seed)', () => {
   const mangled = mangleModule(base)
 
   it('mangleModule actually renamed something (the invariant below is not vacuous)', () => {
@@ -156,7 +156,7 @@ describe('semanticDiff — one axis per bucket', () => {
   })
 })
 
-describe('semanticDiff — declared transforms (#1806)', () => {
+describe('semanticDiff — declared transforms (X-GIS #1806)', () => {
   const inlined = inlineLinearAll(base)
 
   it('inline() actually rewrites this module (the arms below are not vacuous)', () => {

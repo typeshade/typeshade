@@ -17,15 +17,19 @@ name: publish
 # pack/publish lifecycle scripts, since `prepack` also runs inside `npm pack` and would let a
 # read-only operation mutate a working tree. The checkout this runs in is thrown away.
 #
-# AUTHENTICATION — trusted publishing by default, NPM_TOKEN as a fallback. See RELEASING.md
-# for the one-time setup of either. Trusted publishing (npm's OIDC flow) is the default
-# because it needs no stored credential at all: npm verifies the `id-token` below against a
-# publisher the package owner registers once on npmjs.com, naming this repository and this
-# workflow file. Nothing to leak, nothing to rotate, and no token sitting in repository
-# secrets for every future workflow to read. If an `NPM_TOKEN` secret IS set, the step below
-# writes it to .npmrc and npm uses it instead — kept as a fallback because trusted publishing
-# needs npm >= 11.5.1 and a publisher registered before the first release, and a release that
-# fails on either is a tag already pushed with nothing on the registry.
+# AUTHENTICATION — the NPM_ACCESS_TOKEN secret, which the repository ALREADY HAS, with
+# trusted publishing as the path that needs no secret at all. The step below writes the secret
+# to .npmrc when it is set, and npm uses it; with the secret removed, npm falls back to its
+# OIDC flow and verifies the `id-token` permission below against a publisher the package owner
+# registers once on npmjs.com, naming this repository and this workflow file.
+#
+# Trusted publishing is the better end state — nothing to leak, nothing to rotate, and no
+# publish-capable secret sitting in the repository for every future workflow to read — but it
+# is not the default HERE, because the token already exists and switching is a change the owner
+# makes deliberately: trusted publishing needs npm >= 11.5.1 and a publisher registered BEFORE
+# the first release, and a release that fails on either is a tag already pushed with nothing on
+# the registry. RELEASING.md §0 has both, and says the secret can be deleted once the publisher
+# is registered.
 #
 # RENAMING THIS FILE BREAKS TRUSTED PUBLISHING. The registered publisher names the workflow
 # filename. Rename it and the OIDC exchange is refused until the publisher is re-registered.
@@ -63,7 +67,7 @@ jobs:
       # credential. Without it `--provenance` fails and the OIDC flow is not attempted.
       id-token: write
     env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NPM_ACCESS_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
     steps:
       - uses: actions/checkout@v4
@@ -145,11 +149,11 @@ jobs:
             console.log('ok   compile() emitted WGSL')
           "
 
-      - name: Configure npm auth from NPM_TOKEN
-        if: env.NPM_TOKEN != ''
+      - name: Configure npm auth from NPM_ACCESS_TOKEN
+        if: env.NPM_ACCESS_TOKEN != ''
         run: |
-          echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" >> ~/.npmrc
-          echo "Publishing with the NPM_TOKEN secret (trusted publishing not used)."
+          echo "//registry.npmjs.org/:_authToken=\${NPM_ACCESS_TOKEN}" >> ~/.npmrc
+          echo "Publishing with the NPM_ACCESS_TOKEN secret (trusted publishing not used)."
 
       - name: Publish to npm
         if: env.DRY_RUN != 'true'

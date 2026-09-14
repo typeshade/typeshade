@@ -1,4 +1,4 @@
-// ═══ typeshade examples — shared fullscreen-pass boilerplate (#840) ═══
+// ═══ typeshade examples — shared fullscreen-pass boilerplate (X-GIS #840) ═══
 //
 // Every fullscreen example used to repeat the same ~20 lines: the {time,
 // resolution} uniform head, the VsOut ioStruct, and the fullscreen-triangle
@@ -59,7 +59,7 @@ export const vs = fn(
 /** The standard {time, resolution, …extra} uniform at @group(0) @binding(0),
  *  std140 layout recovered by reflect(). Extra fields keep declaration order
  *  AFTER time/resolution — field order is the byte layout. */
-/** Centred, ISOTROPIC screen coordinates from the fullscreen uv (#842): y spans
+/** Centred, ISOTROPIC screen coordinates from the fullscreen uv (X-GIS #842): y spans
  *  ±1 over the height and x spans ±aspect over the width, so ONE unit covers
  *  the same number of pixels on both axes — distances and shapes computed in
  *  this space render undistorted (a circle stays a circle). Mixing this space

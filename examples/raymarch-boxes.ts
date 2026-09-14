@@ -4,7 +4,7 @@
 // boxes, flown through forever. The step up from raymarch-sphere.ts: a reusable
 // scene-SDF helper fn (called by the march AND six more times for the
 // finite-difference normal), per-cell hashing for colour, and exponential fog.
-// Domain repetition uses `mod` (#839) — the portable FLOOR-mod; WGSL `%` is
+// Domain repetition uses `mod` (X-GIS #839) — the portable FLOOR-mod; WGSL `%` is
 // trunc-mod and GLSL `%` is integer-only, so both would break on negatives.
 // WGSL (WebGPU) + GLSL ES 3.00 (WebGL2).
 

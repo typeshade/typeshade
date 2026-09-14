@@ -1,4 +1,4 @@
-// ═══ GLSL ES 3.00 legalize — discarding-call ctor-arg hoist (#1840) ═══
+// ═══ GLSL ES 3.00 legalize — discarding-call ctor-arg hoist (X-GIS #1840) ═══
 //
 // ANGLE's D3D11 backend miscompiles a GLSL ES 3.00 fragment shader whose STRUCT
 // constructor argument contains a call to a function that (transitively) executes
@@ -18,7 +18,7 @@
 // The assertions are on the EMITTED TEXT because the emitted text is what the driver
 // reads. Two arms guard the two ways this could go wrong: the NEGATIVE suites pin the
 // blast radius (a non-discarding callee, a VECTOR ctor, and a guarded position are all
-// left byte-identical — the #1840 repro table has C/E/F passing on D3D11, so hoisting
+// left byte-identical — the X-GIS #1840 repro table has C/E/F passing on D3D11, so hoisting
 // them would be churn for nothing), and the oracle arm pins that the hoist does not
 // change a single value.
 //
@@ -96,7 +96,7 @@ const fsA = fn(
 )
 const modA = dslModule({ uses: [OutA], funcs: [helperA, fsA] })
 
-describe('glsl-legalize — direct discarding call as a struct ctor arg (#1840 case A)', () => {
+describe('glsl-legalize — direct discarding call as a struct ctor arg (X-GIS #1840 case A)', () => {
   it('hoists the argument into a named local before the return', () => {
     const g = emitGlslModule(modA, 'fragment')
     expect(g).toContain('vec4 _dh0 = helper_a(pos.x);')
@@ -168,7 +168,7 @@ describe('glsl-legalize — discarding call nested inside the ctor argument', ()
   })
 })
 
-// ── nested struct ctor (#1840 case D) — only the INNERMOST offending arg hoists ──
+// ── nested struct ctor (X-GIS #1840 case D) — only the INNERMOST offending arg hoists ──
 describe('glsl-legalize — nested struct constructors', () => {
   const InnerD = structDecl('InnerD', { c: vec4fT })
   const OutD = ioStruct('OutD', { color: location(0, vec4fT) })
@@ -198,7 +198,7 @@ describe('glsl-legalize — nested struct constructors', () => {
   })
 })
 
-// ── multi-field ctor (#1840 case G) — only the offending argument moves ──
+// ── multi-field ctor (X-GIS #1840 case G) — only the offending argument moves ──
 describe('glsl-legalize — multi-field struct ctor', () => {
   const OutG = ioStruct('OutG', { a: location(0, vec4fT), b: location(1, vec4fT) })
   const helperG = discardingHelper('helper_g')
@@ -249,7 +249,7 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
     expect(g).not.toContain('_dh')
   })
 
-  it('a VECTOR ctor around a discarding call is untouched (#1840 cases C/E)', () => {
+  it('a VECTOR ctor around a discarding call is untouched (X-GIS #1840 cases C/E)', () => {
     const helperE = fn('helper_e', { v: f32T }, ({ v }) => {
       If(v.lt(0), () => {
         Discard()

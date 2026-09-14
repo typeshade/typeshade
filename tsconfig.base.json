@@ -1,26 +1,25 @@
 {
-  // #1681 B1 — the PACKAGE-LOCAL compiler baseline.
+  // X-GIS #1681 B1 — the compiler baseline. Every tsconfig in this package extends this
+  // file and nothing outside it.
   //
-  // Every tsconfig in this package used to `extends "../tsconfig.base.json"` — the
-  // MONOREPO root's. That made the package uncompilable anywhere else: a vendored
-  // source copy (the real production consumer pulls this package in with a
-  // source-copying script) or an isolated CI checkout has no `../tsconfig.base.json`,
-  // so `tsc -p .` fails before it reads a single .ts file. Every extends chain in
-  // shader-dsl/ now terminates HERE, inside the package, so the directory compiles
-  // standing alone.
+  // It began as a COPY of the X-GIS monorepo root's baseline, made when the package still
+  // lived there and every tsconfig said `extends "../tsconfig.base.json"`. That made the
+  // directory uncompilable anywhere else: a vendored source copy or an isolated checkout
+  // has no `../tsconfig.base.json`, so `tsc -p .` failed before reading a single .ts file.
   //
-  // This is a deliberate copy of the repo root's tsconfig.base.json and therefore a
-  // second authority (CLAUDE.md §12). It is GATED: `src/tsconfig-drift.test.ts` reads
-  // both files and fails, NAMING the option, if this one is not at least as strict as
-  // the root — and also fails if any tsconfig in this package starts extending
-  // outside it again. Keep the two in sync by editing both; the gate is what tells
-  // you that you did not.
+  // It is no longer a copy of anything. The repository stands alone, so this file is the
+  // single authority for the options below and the drift gate that pinned it to the
+  // monorepo root is gone with the monorepo. `src/tsconfig-drift.test.ts` still fails if
+  // any tsconfig in this package starts extending outside it — that invariant is about the
+  // package and survives the split.
   "compilerOptions": {
     "target": "ES2022",
-    // #1686 — `module`/`moduleResolution` here are the ROOT's values, pinned by the drift
-    // gate, and every leaf config in this package OVERRIDES them with `nodenext`. Nothing
-    // compiles with the two values below; read tsconfig.json for why the override cannot
-    // live in this file.
+    // X-GIS #1686 — the two values below are inherited from that original baseline, and
+    // every leaf config in this package OVERRIDES them with `nodenext`. Nothing compiles
+    // with them as they stand; read tsconfig.json for why the override lives in the leaves
+    // rather than here. Collapsing them into `nodenext` is now possible — nothing pins them
+    // any more — but it is a change to what resolves, not a comment fix, so it is not this
+    // commit's.
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],

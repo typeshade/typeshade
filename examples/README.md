@@ -24,7 +24,7 @@ on the site detail page and need nothing from the example.
 
 ## Coordinate spaces
 
-Three spaces appear in these shaders — name the one you are in (#842):
+Three spaces appear in these shaders — name the one you are in (X-GIS #842):
 
 1. **uv** — `vo.uv`, `[0,1]²`, origin bottom-left. What the vertex stage hands you.
 2. **centred isotropic** — `screenCoords(vo.uv, res)` (from `_fullscreen.ts`): y spans ±1

@@ -25,7 +25,7 @@ type Spelling = {
   readonly glsl: (args: readonly string[]) => string
   /** Set when the spelling RE-EMBEDS an argument in a position that binds TIGHTER than a
    *  plain argument slot — an operand of an inlined operator, or the base of a `.field`
-   *  postfix (#2350). The emit walk renders a normal argument at the loosest precedence
+   *  postfix (X-GIS #2350). The emit walk renders a normal argument at the loosest precedence
    *  (it sits inside `(…)` or after a `,`, so anything parses), which under
    *  `parens: 'minimal'` hands the template a BARE `a + b`; spliced into `a + b / c` or
    *  `vv * s.x` that is a different parse — silently wrong arithmetic, or not even legal
@@ -39,12 +39,12 @@ type Spelling = {
 
 const join = (args: readonly string[]): string => args.join(', ')
 
-// The storage-emulation fetch, shared by the f32/u32/i32 ids below (#1703). The 2D-tiled
+// The storage-emulation fetch, shared by the f32/u32/i32 ids below (X-GIS #1703). The 2D-tiled
 // index math is element-INDEPENDENT — only the sampler type the binding declares and the
 // component type it fetches change. One authority so the three ids cannot drift into
 // three different tilings.
 //
-// Spelled as a CALL to a helper the GLSL writer emits, NOT as an inline expansion (#1878).
+// Spelled as a CALL to a helper the GLSL writer emits, NOT as an inline expansion (X-GIS #1878).
 // A template that substitutes `${a[0]}` three times and `${a[1]}` twice duplicates its
 // arguments AFTER every optimizer pass has run: cse/cseLocal/gvn/licm walk the IR, and
 // this text does not exist until the writer produces it, so the repetition is invisible
@@ -97,15 +97,15 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   },
   // textureSampleLevel(tex, samp, uv, level) — explicit-LOD sample; same tex+samp
   // fusion as textureSample, so the sampler arg (a[1]) is dropped on GLSL.
-  // LOAD-BEARING (#1650 decision): the array / offset / bias variants must each take
-  // a NEW neutral id (#1651 adds textureSampleLevelArray) — NEVER an arity branch on
+  // LOAD-BEARING (X-GIS #1650 decision): the array / offset / bias variants must each take
+  // a NEW neutral id (X-GIS #1651 adds textureSampleLevelArray) — NEVER an arity branch on
   // this entry. A spelling that switches on args.length makes the id's meaning depend
   // on the call site, which is exactly the WGSL leak the registry exists to prevent.
   textureSampleLevel: {
     wgsl: (a) => `textureSampleLevel(${join(a)})`,
     glsl: (a) => `textureLod(${a[0]}, ${a[2]}, ${a[3]})`,
   },
-  // ── 2d-array sampling (#1651) — DISTINCT ids, never an arity branch above ──
+  // ── 2d-array sampling (X-GIS #1651) — DISTINCT ids, never an arity branch above ──
   //
   // textureSampleArray(tex, samp, uv, layer). WGSL keeps the ARRAY as a separate
   // argument (`textureSample(t, s, uv, layer)`); GLSL ES 3.00 has no array-specific
@@ -144,11 +144,11 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // define saturate to be. The scalar 0.0/1.0 bounds broadcast over vector x
   // (GLSL's clamp(genType, float, float) overload).
   saturate: { wgsl: (a) => `saturate(${join(a)})`, glsl: (a) => `clamp(${a[0]}, 0.0, 1.0)` },
-  // Screen-space partial derivatives (#846) — WGSL dpdx/dpdy, GLSL dFdx/dFdy.
+  // Screen-space partial derivatives (X-GIS #846) — WGSL dpdx/dpdy, GLSL dFdx/dFdy.
   // (fwidth is spelled identically on both targets and stays portable.)
   dpdx: { wgsl: (a) => `dpdx(${join(a)})`, glsl: (a) => `dFdx(${join(a)})` },
   dpdy: { wgsl: (a) => `dpdy(${join(a)})`, glsl: (a) => `dFdy(${join(a)})` },
-  // mod(x, y) — FLOOR-mod with identical semantics on both targets (#839).
+  // mod(x, y) — FLOOR-mod with identical semantics on both targets (X-GIS #839).
   // Float `%` is TRUNC-mod on WGSL and integer-only (invalid on floats) in
   // GLSL ES 3.00; GLSL's mod() IS floor-mod. Spelling WGSL inline as
   // x − y·⌊x/y⌋ makes the targets agree on negative operands (domain
@@ -242,7 +242,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // wrap in uvec2() so the GLSL type matches the IR's u32 type. Without this the
   // mismatch is masked while the call is inlined into an int context, but breaks the
   // moment the optimizer's CSE hoists it into a typed `uvec2 _cse = …` local.
-  // 2d-array (#1651) needs NO array-specific id here: WGSL textureDimensions returns
+  // 2d-array (X-GIS #1651) needs NO array-specific id here: WGSL textureDimensions returns
   // vec2<u32> for an array texture too (the layer count is textureNumLayers), and
   // GLSL's textureSize(sampler2DArray, lod) returns an ivec3 whose extra component the
   // uvec2() constructor legally DROPS (GLSL ES 3.00 §5.4.2). Escape hatch if a driver
@@ -254,7 +254,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
         ? `uvec2(textureSize(${a[0]}, int(${a[1]})))`
         : `uvec2(textureSize(${a[0]}, 0))`,
   },
-  // textureNumLayers(t) — the layer COUNT of a 2d-array texture (#1658), i.e. the
+  // textureNumLayers(t) — the layer COUNT of a 2d-array texture (X-GIS #1658), i.e. the
   // ivec3 component the entry above deliberately DROPS. Its own id, not an overload
   // of textureDimensions: WGSL has a dedicated function, GLSL ES 3.00 has none and
   // reads `.z` off textureSize. GLSL's textureSize REQUIRES a lod argument, and the
@@ -289,7 +289,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `storageFetchF32(${join(a)})`,
     glsl: storageFetchGlsl('_sfetch'),
   },
-  // The INTEGER twins (#1703) — the TYPED-texture leg of the same emulation, for a
+  // The INTEGER twins (X-GIS #1703) — the TYPED-texture leg of the same emulation, for a
   // top-level array<u32> / array<i32>. The index math is identical (hence the shared
   // spelling above); what differs is the sampler the binding declares — usampler2D /
   // isampler2D over an R32UI / R32I data texture — and therefore the type of the

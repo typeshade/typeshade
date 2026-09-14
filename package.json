@@ -14,7 +14,7 @@
     "reflection"
   ],
   "license": "MIT",
-  "author": "TypeShade",
+  "author": "Seungup Noh <seungup.noh@gmail.com>",
   "homepage": "https://typeshade.dev",
   "bugs": {
     "url": "https://github.com/typeshade/typeshade/issues"

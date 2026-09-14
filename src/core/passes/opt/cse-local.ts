@@ -103,7 +103,7 @@ function tally(
 // The exprs of a statement that are evaluated UNCONDITIONALLY, i.e. the ones a temp
 // may be hoisted ahead of. NOT the lvalue target.
 //
-// An `if`'s FIRST arm condition is one of them (#1886). It runs whenever the statement
+// An `if`'s FIRST arm condition is one of them (X-GIS #1886). It runs whenever the statement
 // runs, exactly like a `let` initialiser, so a `let` placed before the `if` costs
 // nothing — and `processBody` already splices this pass's temps in ahead of the
 // statement they came from, so the placement needs no new machinery. It used to be
@@ -255,7 +255,7 @@ function cseLocalFn(f: FuncDecl, loadRoots: ReadonlySet<string>): FuncDecl {
 /** Hoist statement-local repeated subexpressions to a `let` before their statement.
  *  Pure (module → module); complements the fn-top `cse`. */
 export function cseLocal(m: ModuleDecl): ModuleDecl {
-  // Indexing one of these is a memory load, not free addressing (#1886).
+  // Indexing one of these is a memory load, not free addressing (X-GIS #1886).
   const loadRoots = new Set(m.bindings.map((b) => b.name))
   return { ...m, funcs: m.funcs.map((f) => cseLocalFn(f, loadRoots)) }
 }

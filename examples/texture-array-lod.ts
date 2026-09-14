@@ -1,4 +1,4 @@
-// ═══ typeshade example — 2d-array texture, sampled per LAYER (#1651) ═══
+// ═══ typeshade example — 2d-array texture, sampled per LAYER (X-GIS #1651) ═══
 //
 // A tile/glyph ATLAS as one `texture_2d_array<f32>` binding: N layers behind a single
 // binding slot, with the layer chosen per SAMPLE instead of per bind group. The three
