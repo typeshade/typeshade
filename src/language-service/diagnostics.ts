@@ -678,6 +678,41 @@ function overloadFitsRestoredShapes(
 }
 
 /**
+ * The call a diagnostic is reported on as a WHOLE, rather than on one of its arguments.
+ *
+ * TypeScript puts an overload failure on an ARGUMENT span only when the first argument is the
+ * one that failed; as soon as a later argument is the mismatch, the span it reports is the
+ * call's own callee instead. `max(base, u.tint.rgb * u.gain)` with two `vec3` therefore arrives
+ * as a TS2769 on `max`, where `argumentAt` finds no argument at all and the rule below would
+ * give up on a call it is exactly meant to drop. Both spellings are recognized here: a span
+ * covering the call's expression (the callee identifier, or the property access of a method
+ * call), and one covering the whole `CallExpression`.
+ *
+ * The span match is exact at both ends for the reason `argumentAt` states: a callee and the
+ * arguments nested under it share a start offset, so start alone attributes a diagnostic to the
+ * wrong node half the time.
+ */
+function calleeCallAt(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): ts.CallExpression | undefined {
+  const pos = diagnostic.start ?? 0
+  const end = pos + (diagnostic.length ?? 0)
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
+  while (node !== undefined) {
+    if (node.getStart() === pos && node.getEnd() === end) {
+      if (ts.isCallExpression(node)) return node
+      const parent: ts.Node | undefined = node.parent
+      if (parent !== undefined && ts.isCallExpression(parent) && parent.expression === node) {
+        return parent
+      }
+    }
+    node = node.parent
+  }
+  return undefined
+}
+
+/**
  * TS2769 ("No overload matches this call"), the shape TS2345 takes when the callee is
  * overloaded and no candidate matched. `mix` is the callee that matters: its four concrete
  * overloads and its generic one all take three arguments, so TypeScript has no single candidate
@@ -691,21 +726,35 @@ function overloadFitsRestoredShapes(
  * required for the same reason it is in the TS2345 rule, and it is what keeps
  * `mix(vec3i, vec3i, i32)` reporting, which is a call the front end lowers and Tint then
  * rejects.
+ *
+ * TWO SPANS, because TypeScript reports this code on two of them. An overload failure caused by
+ * the FIRST argument lands on that argument, which is the `argumentAt` path and keeps the
+ * per-argument guard the TS2345 rule uses: the argument reported on has to be about vectors at
+ * all. One caused by a LATER argument lands on the callee, where there is no argument to guard
+ * with, so the two whole-call tests carry the rule on their own. They are enough because
+ * `overloadFitsRestoredShapes` asks about the whole signature: `max(a, b * 2.)` with two `vec3`
+ * fits the generic overload and goes, while the same call with a `vec2` `b` fits none and stays.
+ * Without this second path 30 valid vector calls reported in the editor, every one of them a
+ * `min`/`max`/`pow`/`step`/`mod`/`atan2`/`clamp`/`smoothstep` whose arithmetic sits anywhere but
+ * the first argument.
  */
-function isGpuArithmeticOverloadArgument(
+function isGpuArithmeticOverloadCall(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): boolean {
   const checker = context.checker
   if (checker === undefined) return false
   const position = argumentAt(context, diagnostic)
-  if (position === undefined) return false
-  if (gpuValueShape(context, position.argument) === undefined) return false
-  if (!position.call.arguments.some((argument) => hasGpuArithmetic(context, argument))) return false
+  if (position !== undefined && gpuValueShape(context, position.argument) === undefined) {
+    return false
+  }
+  const call = position?.call ?? calleeCallAt(context, diagnostic)
+  if (call === undefined) return false
+  if (!call.arguments.some((argument) => hasGpuArithmetic(context, argument))) return false
   return checker
-    .getTypeAtLocation(position.call.expression)
+    .getTypeAtLocation(call.expression)
     .getCallSignatures()
-    .some((overload) => overloadFitsRestoredShapes(context, checker, position.call, overload))
+    .some((overload) => overloadFitsRestoredShapes(context, checker, call, overload))
 }
 
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
@@ -781,9 +830,11 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       'call does vector or matrix arithmetic somewhere and SOME overload accepts every ' +
       "argument once that arithmetic's shape is put back, which is the whole-signature form " +
       'of the TS2345 rule above: `mix(a, b * 0.5, t)` fits `mix(vec3, vec3, number)` and goes, ' +
-      'while `mix(a * 0.5, b, c)` with a vec2 `c` fits no overload and keeps reporting. Issue ' +
-      '#43, and the twins corpus measurement in design doc §6.',
-    when: isGpuArithmeticOverloadArgument,
+      'while `mix(a * 0.5, b, c)` with a vec2 `c` fits no overload and keeps reporting. The ' +
+      'rule reads both spans this code arrives on, the argument one when the FIRST argument ' +
+      'failed and the callee one when a later argument did (`max(a, b * 2.)` reports on ' +
+      '`max`). Issue #43, and the twins corpus measurement in design doc §6.',
+    when: isGpuArithmeticOverloadCall,
   },
 ]
 

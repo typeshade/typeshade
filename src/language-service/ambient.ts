@@ -129,15 +129,35 @@ function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
  * path, so a second `f32` overload here would be dead vocabulary, never a real ambiguity). */
 const FREE_MATH_NAMES = Object.keys(MATH_FN_ARITY).filter((name) => name !== 'f32')
 
-/** The `f32` vector names, smallest first. `mix`'s vector-with-scalar overloads are limited to
- * these three because that is what the GPU compilers accept: measured by emitting one module per
- * shape and handing it to Tint and to ANGLE's GLSL ES 3.00 translator, `mix(vecN<f32>,
- * vecN<f32>, f32)` is the ONLY vector-beside-scalar call in this vocabulary both accept. The
- * `i32`/`u32` vectors get none (WGSL's and GLSL's `mix` are float only), and neither do
+/** The vector arities every native GPU vector type comes in, in order. */
+const VEC_ARITIES: readonly (2 | 3 | 4)[] = [2, 3, 4]
+
+/** The two vector families `mix` declares a vector-with-scalar overload for, and nothing else.
+ *
+ * WHICH SHAPES ARE REAL, measured by emitting one module per shape: `mix(vecN<f32>, vecN<f32>,
+ * f32)` is the only vector-beside-scalar call in this vocabulary that both Tint and ANGLE's GLSL
+ * ES 3.00 translator accept, and `mix(vecNf64, vecNf64, f32)` is the one the fp64 emitter
+ * lowers, which is why the `f64` vectors are here too (`core/passes/fp64-lower.ts` refuses every
+ * other vec64 form itself, with "mix() on vec64 needs a scalar f32 interpolant"). The `i32` and
+ * `u32` vectors get none, since WGSL's and GLSL's `mix` are float only, and neither do
  * `clamp(vecN, s, s)`, `min`/`max(vecN, s)`, `pow(vecN, s)` or `step(vecN, s)`: the front end
  * lowers all of those to a call Tint rejects with "no matching call", so declaring them here
- * would make the editor green on a program that does not reach the GPU. */
-const F32_VEC_TYPE_NAMES: readonly string[] = ['vec2', 'vec3', 'vec4']
+ * would make the editor green on a program that does not reach the GPU.
+ *
+ * WHAT THE DECLARATION ADMITS is wider than the shape it is named for, knowingly. `t: number`
+ * takes any scalar, and narrowing it to `f32` closes nothing, measured: the scalar brands are
+ * OPTIONAL (see `scalarBrands` below), so an `i32`, a `u32` and an `f64` are each assignable to
+ * `f32` as well. `mix(vec3, vec3, i32)`, the `u32` form and the `f64` form are therefore accepted
+ * here while Tint refuses them ("no matching call to 'mix(vec3<f32>, vec3<f32>, i32)'"), and a
+ * blend factor whose vector brand arithmetic already erased, `mix(a, b, c * 2.)` with a `vec2`
+ * `c`, is a fourth: it types as `number` and matches this overload outright, so the TS2769 rule
+ * in `diagnostics.ts` is never consulted about it. Nothing on the declaration side can close any
+ * of the four; the front-end argument check for the math builtins is where they belong (#57).
+ * `ambient.test.ts` pins all four as known silent, so a later fix flips them deliberately. */
+const F32_VEC_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f32', n))
+
+/** The `f64` vector names, the second family {@link mixSignature} declares an overload for. */
+const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f64', n))
 
 /**
  * `mix(a, b, t)`, whose `t` is a BLEND FACTOR rather than a third value of `a`'s type: WGSL
@@ -147,17 +167,26 @@ const F32_VEC_TYPE_NAMES: readonly string[] = ['vec2', 'vec3', 'vec4']
  * before demanded a vector there, so the line every gradient, hillshade and ocean shader is
  * written in drew TS2345 in the editor while it compiled, emitted and ran.
  *
- * Declared as CONCRETE overloads, one per vector arity, ahead of the generic same-shape one.
- * Concrete is the point: a parameter TypeScript does not have to infer cannot collapse `T`, so
- * neither the vector arguments nor `t` are measured against a type another argument settled,
+ * Declared as CONCRETE overloads, one per vector arity in each of the two families
+ * {@link F32_VEC_TYPE_NAMES} and {@link VEC64_TYPE_NAMES} name, ahead of the generic same-shape
+ * one. Concrete is the point: a parameter TypeScript does not have to infer cannot collapse `T`,
+ * so neither the vector arguments nor `t` are measured against a type another argument settled,
  * which is where the second-hand messages inside these calls came from (`'0.55' is not
  * assignable to '0.3'`). The same-shape generic overload stays last and still carries
  * `mix(vecN, vecN, vecN)`, `mix(f32, f32, f32)` and the `i32`/`u32` vectors, so nothing this
  * lib accepted before is rejected now.
+ *
+ * The `f64` arm is the one the generic overload could never have carried: `Numeric` does not
+ * include the `vec64` family at all, so `mix(a, b, t)` on three `vec3f64` reported TS2741
+ * ("Property '[vec64Tag]' is missing in type 'vec2'") beside its TS2769, on a program
+ * `compileTsSource` lowers and the fp64 emitter turns into a `df64_v3_mix` call.
  */
 function mixSignature(): string {
+  const vectorWithScalar = (v: string): string =>
+    `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`
   return [
-    ...F32_VEC_TYPE_NAMES.map((v) => `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`),
+    ...F32_VEC_TYPE_NAMES.map(vectorWithScalar),
+    ...VEC64_TYPE_NAMES.map(vectorWithScalar),
     scalarMathOverload('mix', 3),
     'declare function mix<T extends Numeric>(a: T, b: T, t: T): T',
   ].join('\n')
