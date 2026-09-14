@@ -132,7 +132,7 @@ first. No example in the 36 is waiting on any of them:
 | Issue #8 item                                       | Blocks |
 | --------------------------------------------------- | ------ |
 | **A2** member / component assignment (`v.x = 0.`)   | 0      |
-| ~~**A4** `type` / `interface` structs~~ (landed)     | 0      |
+| ~~**A4** `type` / `interface` structs~~ (landed)    | 0      |
 | **A5** `@align` / `@size` field decorators          | 0      |
 | ~~**A8** element-converting constructors~~ (landed) | 0      |
 | **A9** module-level vector constants                | 0      |
