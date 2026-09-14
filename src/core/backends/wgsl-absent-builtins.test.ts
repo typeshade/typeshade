@@ -156,7 +156,7 @@ describe('wgsl — absent builtins fail closed (X-GIS #1672)', () => {
     expect(emitModule(m)).toContain('@builtin(point_size)')
   })
 
-  // #1672 review finding: `retAttr: builtin(name, T)` is a #740-R3-COMPLIANT authoring
+  // X-GIS #1672 review finding: `retAttr: builtin(name, T)` is a X-GIS #740-R3-COMPLIANT authoring
   // form whose structured id the builder used to DISCARD (only `.attr` survived), so an
   // absent builtin on a bare return was the one structured path still emitting silently.
   // The builder now preserves it as `retBuiltin` and the gate reads it.

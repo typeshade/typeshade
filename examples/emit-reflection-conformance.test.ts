@@ -1,7 +1,7 @@
 // ═══ Does the emitted SOURCE agree with the reflection describing it? (X-GIS #1714) ═══
 //
-// #1714 asked for a cross-backend parity gate: "for every example module, assert that GLSL
-// and WGSL emits agree on interface/resources/constants". As landed in #1719, that arm was
+// X-GIS #1714 asked for a cross-backend parity gate: "for every example module, assert that GLSL
+// and WGSL emits agree on interface/resources/constants". As landed in X-GIS #1719, that arm was
 // left out because it is VACUOUS as written — `reflect(m: ModuleDecl)` never sees a backend
 // (`src/core/reflect.ts`), so comparing "the WGSL reflection" against "the GLSL reflection"
 // of one module compares a value against itself. It would have been green from the first

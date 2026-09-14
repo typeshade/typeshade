@@ -155,7 +155,7 @@ describe('gvn — cross-statement value numbering', () => {
 describe('gvn — control-flow conditions (X-GIS #1886)', () => {
   it('numbers a repeat shared between an `if` condition and a later statement', () => {
     // normalize(v) is evaluated by the `if` condition on every path, then again by
-    // `q` in the same block. Before #1886 gvn saw only ONE occurrence (the `q` one)
+    // `q` in the same block. Before X-GIS #1886 gvn saw only ONE occurrence (the `q` one)
     // and did nothing.
     const m = module({
       funcs: [

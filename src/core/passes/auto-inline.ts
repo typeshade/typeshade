@@ -5,7 +5,7 @@
 // applies inlineFn to each, instead of the caller naming one fn. Addresses the
 // "wire inline as an auto pass — needs a SIZE/cost heuristic (inline small /
 // single-call only; blind inlining bloats, e.g. terrain() inlined 10x)" item
-// of #627. Pure (module -> module); inherits inlineFn's oracle value-equality.
+// of X-GIS #627. Pure (module -> module); inherits inlineFn's oracle value-equality.
 //
 // Heuristic — inline a non-entry, non-recursive, single-return helper iff:
 //   • it is called EXACTLY ONCE (single-call: removing the decl + the one call

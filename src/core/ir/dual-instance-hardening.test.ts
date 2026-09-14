@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { fn, module, f32, f32T, NODE_BRAND, isNodeValue, type ReadonlyNode } from './index.js'
 import { emitModule } from '../backends/wgsl.js'
 
-// ═══ #763 Phase D — dual-instance hardening ═══
+// ═══ X-GIS #763 Phase D — dual-instance hardening ═══
 //
 // A bundler can load TWO copies of this package (the R1 dup-func incident).
 // `instanceof Node` splits per copy; the ambient scope stack used to split
@@ -21,7 +21,7 @@ const foreignNode = (n: ReadonlyNode): ReadonlyNode => {
   return alien as unknown as ReadonlyNode
 }
 
-describe('#763 D — dual-instance hardening', () => {
+describe('X-GIS #763 D — dual-instance hardening', () => {
   it('D1: isNodeValue accepts a cross-instance node; instanceof would not', () => {
     const probe = fn('d1_probe', { x: f32T }, ({ x }) => x.mul(2))
     const local = f32(3)

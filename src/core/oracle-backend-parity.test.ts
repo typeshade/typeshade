@@ -5,7 +5,7 @@ import { compileModule, ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './or
 import { INTRINSICS } from './intrinsics.js'
 import { pow, fract, round, unpack4x8unorm, pack4x8unorm, bitcastU32 } from './ir/index.js'
 
-// ═══ #763 Phase O — the CPU oracle is a backend too ═══
+// ═══ X-GIS #763 Phase O — the CPU oracle is a backend too ═══
 //
 // The parity-gate methodology (GPU vs f64 mirror) rests on the oracle being
 // boring: same intrinsic set, fail-loud on what it cannot compute, never a
@@ -38,7 +38,7 @@ const matBinFn = (name: string, aT: ShaderType, bT: ShaderType, retT: ShaderType
   ],
 })
 
-describe('#763 O — oracle backend parity', () => {
+describe('X-GIS #763 O — oracle backend parity', () => {
   it('O1: pow / fract / unpack4x8unorm / bitcastU32 evaluate on the CPU', () => {
     const f = fn('o1', { x: f32T }, ({ x }) => {
       const p = pow(x, f32(10)) // 2^10 = 1024

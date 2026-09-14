@@ -1,4 +1,4 @@
-// ═══ fixpoint convergence equality (irEqual) — #1186 ═══
+// ═══ fixpoint convergence equality (irEqual) — X-GIS #1186 ═══
 //
 // irEqual replaced `JSON.stringify(a) === JSON.stringify(b)` as fixpoint's
 // convergence test (188 MB of JSON per demo pipeline-compile pass on the merged

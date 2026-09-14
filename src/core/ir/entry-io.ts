@@ -5,7 +5,7 @@
 // GPUVertexState from, or links varyings by. Every one of those facts is already
 // structured in the IR (`FuncDecl.params[].location`, `StructField.location`), with
 // the emitted attribute STRING as a fallback for hand-built FuncDecl literals and
-// bare `retAttr`s — the #740 R3 "structured first, attr second" contract that
+// bare `retAttr`s — the X-GIS #740 R3 "structured first, attr second" contract that
 // `stageOf` / `workgroupSizeOf` follow.
 //
 // This file is that read, once. It used to live inside the GLSL backend (its

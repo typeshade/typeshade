@@ -13,9 +13,9 @@ import {
 import { emitModule } from './backends/wgsl.js'
 import { compileModule } from './oracle.js'
 
-// ═══ #763 Phase X part 2 — the API additions, pinned ═══
+// ═══ X-GIS #763 Phase X part 2 — the API additions, pinned ═══
 
-describe('#763 X — API additions', () => {
+describe('X-GIS #763 X — API additions', () => {
   it('X2: constDecl declares once — decl into the module, typed node at use sites', () => {
     const TAU = constDecl('X_TAU', f32T, { wgsl: 6.2831853, cpu: Math.PI * 2 })
     const g = fn('x2', { t: f32T }, ({ t }) => t.mul(TAU.node))
@@ -53,7 +53,7 @@ describe('#763 X — API additions', () => {
     const w = emitModule(module({ structs: [VsOut.decl], funcs: [vs] }))
     // The claim is that `return o` RESOLVES — the proxy duck-types as the raw struct
     // value rather than dying at load. What it resolves TO is then a write-once aggregate,
-    // which #1867's structCtor collapses into the constructor, so that is what ships.
+    // which X-GIS #1867's structCtor collapses into the constructor, so that is what ships.
     expect(w).toContain('return X14Out(vec4<f32>(0.0, 0.0, 0.0, 1.0), vec2<f32>(0.0, 0.0));')
   })
 

@@ -47,7 +47,7 @@ describe('emitGlslStages — shared lowering is byte-identical to per-stage lowe
     expect(b.fragment).toBe(a.fragment)
   })
 
-  // #1673 — the float-precision emit option reaches BOTH stage strings. emitGlslStages
+  // X-GIS #1673 — the float-precision emit option reaches BOTH stage strings. emitGlslStages
   // spells the shared lowered module twice (assembleGlsl per stage), so an option read
   // in only one of those calls would ship a highp vertex beside a mediump fragment and
   // still look fine in any single-stage test. Asserted over the whole renderable corpus

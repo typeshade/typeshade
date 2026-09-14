@@ -185,7 +185,7 @@ describe('variantFamily.emitGuarded — a GENERATED ladder, provably equal to th
 // The shape this was reported from puts the `#ifdef` ladder inside a helper include that a
 // host program `#include`s — not in a standalone stage. An include cannot carry a second
 // `#version`, so reaching that through `emitGuarded` (which returns a whole stage) means
-// stripping the header again: the regex #1711 exists to delete. `emitGuardedFragment`
+// stripping the header again: the regex X-GIS #1711 exists to delete. `emitGuardedFragment`
 // returns the same ladder with the preamble as DATA instead.
 
 describe('variantFamily.emitGuardedFragment — the ladder, composable (X-GIS #1712 + X-GIS #1711)', () => {

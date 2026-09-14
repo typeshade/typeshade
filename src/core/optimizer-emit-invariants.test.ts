@@ -25,7 +25,7 @@ import { emitModule } from './backends/wgsl.js'
 import { emitGlslModule } from './backends/glsl.js'
 import { wgslLayout } from './reflect.js'
 
-// ═══ #763 Phase P — optimizer/emit invariants ═══
+// ═══ X-GIS #763 Phase P — optimizer/emit invariants ═══
 
 /** fn with a raw WGSL Stmt in the body (the composer's precision-critical class). */
 const rawFn = (name: string): FuncDecl => ({
@@ -47,7 +47,7 @@ const rawFn = (name: string): FuncDecl => ({
   ] as unknown as Stmt[],
 })
 
-describe('#763 P — optimizer/emit invariants', () => {
+describe('X-GIS #763 P — optimizer/emit invariants', () => {
   it('P1: constFold + algebraicSimplify skip raw-Stmt fns (verbatim charter)', () => {
     const m: ModuleDecl = module({ funcs: [rawFn('p1')] })
     for (const pass of [constFold, algebraicSimplify]) {

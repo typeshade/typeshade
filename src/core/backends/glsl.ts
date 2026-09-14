@@ -406,7 +406,7 @@ export const glslEs300Backend: Backend = {
   floatMod: (a, b) => `(${a} - ${b} * trunc(${a} / ${b}))`,
   // C-style GLSL switch falls through — each case must `break` or it leaks into the next.
   caseBreak: 'break;',
-  // #1671 — emit THIS target's payload. A raw carrying only the WGSL spelling
+  // X-GIS #1671 — emit THIS target's payload. A raw carrying only the WGSL spelling
   // still cannot lower (raw text is opaque to the IR, so there is nothing to
   // translate) — it fails closed, but the message now names the fix.
   rawStmt: (s) => {
@@ -766,7 +766,7 @@ function emitGlslEntry(
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
   if (f.ret.kind !== 'struct' && f.ret.kind !== 'void' && stage === 'vertex') {
-    // #763 P8 — GLSL links inter-stage varyings BY NAME (WGSL by location). A bare
+    // X-GIS #763 P8 — GLSL links inter-stage varyings BY NAME (WGSL by location). A bare
     // non-struct vertex output would emit as `out T _ret`, which can never link to a
     // fragment input named anything else. Fail closed instead of emitting a shader
     // pair that compiles and renders nothing.
@@ -884,7 +884,7 @@ function emitGlslEntry(
     // The name the gather DECLARES — `p.name` unless it would shadow a global the
     // merged scope needs (see renameCollisions above); the wrapper form never renames.
     const local = gatherLocal.get(p.name) ?? p.name
-    if (inlinedFields.has(p.name)) continue // #1867 — its fields were substituted in place
+    if (inlinedFields.has(p.name)) continue // X-GIS #1867 — its fields were substituted in place
     if (p.type.kind === 'struct') {
       const s = structByName(structs, p.type.name)
       body.push(`  ${glslType(p.type)} ${local};`)
@@ -1124,7 +1124,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     // read_write output is fine: lowerComputeToFragment strips it before this pass.
     if (b.access === 'read_write')
       throw new UnsupportedFeatureError(
-        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via the compute→fragment path instead (declare the kernel { stage: 'compute', portable: true } — #1812 — or pass the legacy emitGlslModule({ emulateCompute: true }) opt-in), and WebGL2 has no storage-write form`,
+        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via the compute→fragment path instead (declare the kernel { stage: 'compute', portable: true } — X-GIS #1812 — or pass the legacy emitGlslModule({ emulateCompute: true }) opt-in), and WebGL2 has no storage-write form`,
       )
     if (b.type.kind !== 'array')
       throw new UnsupportedFeatureError(
@@ -1135,7 +1135,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
       f32Names.add(b.name)
       continue
     }
-    // #1703 — the residual this pass used to fail closed on. A top-level array<u32> /
+    // X-GIS #1703 — the residual this pass used to fail closed on. A top-level array<u32> /
     // array<i32> becomes a TYPED data texture (R32UI / R32I read through usampler2D /
     // isampler2D), so element i arrives bit-exact.
     //
@@ -1631,7 +1631,7 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // assigned plain-value bindings by Expr OBJECT IDENTITY (see auto-vars.ts),
   // and the storage/compute lowerings clone expression trees — running them
   // first orphans every read of an assigned temp from its assignments (the
-  // emitted GLSL then reads the CSE'd INITIALIZER forever; the #834 M5 line
+  // emitted GLSL then reads the CSE'd INITIALIZER forever; the X-GIS #834 M5 line
   // twin returned position = vec4(0) this way). autoVars is a no-op on an
   // already-materialised module, so lowerForBackend's own autoVars stays.
   const hasStorage = m.bindings.some((b) => b.space === 'storage')
@@ -1704,7 +1704,7 @@ function assembleGlsl(
    *  which forced a separate lowering per stage; selecting here instead lets both stages
    *  share one (see emitGlslStages). */
   keepEntry?: string,
-  /** #1711 — omit the stage entry points, for a DECLARATIONS-ONLY fragment a host
+  /** X-GIS #1711 — omit the stage entry points, for a DECLARATIONS-ONLY fragment a host
    *  composes into a program it owns. The entries are still computed (they decide the
    *  stage scope, so dropping them earlier would change which helpers and bindings
    *  survive) and are reported to the caller; only their spelling is withheld. */
@@ -1774,13 +1774,13 @@ function assembleGlsl(
   ]
     .filter((s) => s !== 'sampler2D')
     .sort()
-  // #1670 — the `#extension … : require` directives this module's declared caps need
+  // X-GIS #1670 — the `#extension … : require` directives this module's declared caps need
   // (computed by the caller from the AUTHORED module), SPLICED between `#version` and the
   // first precision line. That slot is not a style choice: GLSL ES 3.00 §3.4 requires an
   // `#extension` directive to precede any non-preprocessor token, and `#version` must
   // itself lead the source. '' (every module whose caps are host-side, i.e. all of them
   // today except a multiview one) splices NOTHING, so the header keeps its exact bytes —
-  // the byte-neutral-when-unused shape of the #1651 sampler2DArray line above.
+  // the byte-neutral-when-unused shape of the X-GIS #1651 sampler2DArray line above.
   //
   // Split out rather than pushed onto `parts` (X-GIS #1711): these lines are what a host that
   // owns the program supplies itself, so a declarations-only fragment must hand them back
@@ -1798,7 +1798,7 @@ function assembleGlsl(
   ]
   const parts: string[] = []
 
-  // #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
+  // X-GIS #923 — specialization constants. GLSL ES 3.00 has no `override`, so the portable
   // equivalent is the PREPROCESSOR, emitted HERE (after the `#version`/precision
   // preamble — `#version` MUST lead the source, so a host `#define` can NOT be
   // prepended). Each override becomes a `#define` whose default is guarded by `#ifndef`,
@@ -1912,10 +1912,10 @@ function assembleGlsl(
   // so a call that precedes its definition needs a prototype — and a prototype buys
   // nothing else. `lowered.funcs` order is not dependency order (module()'s transitive
   // collection PREPENDS collected callees, which may legitimately land ahead of the
-  // extern-bodied projection fns they call — #740 R1), and the emitter used to pay for
+  // extern-bodied projection fns they call — X-GIS #740 R1), and the emitter used to pay for
   // that with a prototype for EVERY helper: 507 of them on the baked map corpus, 6.2%
   // of its text, of which 20 were load-bearing. Sorting the section is the same fix
-  // structs got in #763 P5, and it leaves prototypes only where the graph forces them.
+  // structs got in X-GIS #763 P5, and it leaves prototypes only where the graph forces them.
   //
   // `null` = the order is not decidable (a `raw` helper body hides its calls from the
   // IR walk) → the historical unconditional block, unchanged.

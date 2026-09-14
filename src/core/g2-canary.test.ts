@@ -3,7 +3,7 @@ import { uniformStruct, ioStruct, structDecl, storageBuffer, builtin, location }
 import { fn, Var, Let, Switch, matchEnum, enumU32, when, f32, vec2 } from './ir/index.js'
 import { f32T, u32T, vec2fT, vec4fT } from './ir/index.js'
 
-// ═══ #763 Phase G — the readonly invariant, pinned ═══
+// ═══ X-GIS #763 Phase G — the readonly invariant, pinned ═══
 //
 // G2: uniform fields / read-storage elements / read-base `.of()` views are
 // ReadonlyNode (assign = tsc error). G3: fn params are ReadonlyNode. G4: the
@@ -14,7 +14,7 @@ const U = uniformStruct('GUni', { group: 0, binding: 0, as: 'gu' }, { opacity: f
 const Slot = structDecl('GSlot', { id: u32T, size: f32T })
 const VsOut = ioStruct('GVsOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
 
-describe('#763 G — readonly invariant', () => {
+describe('X-GIS #763 G — readonly invariant', () => {
   it('G2: uniform fields are read-only; read storage is read-only; read_write is mutable', () => {
     const readBuf = storageBuffer('g_r', Slot, { group: 0, binding: 1, access: 'read' })
     const rwBuf = storageBuffer('g_rw', f32T, { group: 0, binding: 2, access: 'read_write' })

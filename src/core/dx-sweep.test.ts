@@ -64,7 +64,7 @@ import { structDecl, uniformStruct, arrayOf, resource, builtin } from './sot.js'
 import { emitModule } from './backends/wgsl.js'
 import type { FuncDecl } from './ir/index.js'
 
-// ═══ #763 Phase X (part 1) — the small-surface DX sweep, pinned ═══
+// ═══ X-GIS #763 Phase X (part 1) — the small-surface DX sweep, pinned ═══
 
 // FuncDecl, not ReturnType<typeof fn> — a concrete handle's object-call arg map
 // is contravariant against the widened FnParamSpec form (the R9 emitOne lesson).
@@ -75,7 +75,7 @@ const emitF = (f: FuncDecl): string => emitModule(module({ funcs: { f } }))
 // assigned at runtime, and nothing here calls it for its value.
 const keyOfNode = <K extends string>(_n: ReadonlyNode<K>): K => undefined as unknown as K
 
-describe('#763 X — type-surface sweep', () => {
+describe('X-GIS #763 X — type-surface sweep', () => {
   it('X5: scalar-node % vec-node broadcasts like the other four ops', () => {
     const g = fn('x5', { t: f32T, v: vec3fT }, ({ t, v }) => t.mod(v).x)
     expect(emitF(g)).toContain('(t % v)')
@@ -93,7 +93,7 @@ describe('#763 X — type-surface sweep', () => {
     expect(g.decl.name).toBe('x6')
   })
 
-  it('#1650: textureSampleLevel pins the same key constraints, plus the level arg', () => {
+  it('X-GIS #1650: textureSampleLevel pins the same key constraints, plus the level arg', () => {
     const tex = resource('lvl_tex', texture2dfT, { group: 0, binding: 0 })
     const smp = resource('lvl_smp', samplerT, { group: 0, binding: 1 })
     const ms = resource('lvl_ms', texture2dMsfT, { group: 0, binding: 2 })
@@ -115,7 +115,7 @@ describe('#763 X — type-surface sweep', () => {
     expect(g.decl.name).toBe('lvl')
   })
 
-  it('#1651: the 2d-array overloads pin the LAYER argument (arity + key)', () => {
+  it('X-GIS #1651: the 2d-array overloads pin the LAYER argument (arity + key)', () => {
     const arr = resource('arr_tex', texture2dArrayfT, { group: 0, binding: 0 })
     const tex = resource('arr_2d', texture2dfT, { group: 0, binding: 1 })
     const smp = resource('arr_smp', samplerT, { group: 0, binding: 2 })
@@ -142,7 +142,7 @@ describe('#763 X — type-surface sweep', () => {
     expect(g.decl.name).toBe('arr')
   })
 
-  it('#1651: textureLoad pins the layer the same way, and ACCEPTS the union key', () => {
+  it('X-GIS #1651: textureLoad pins the layer the same way, and ACCEPTS the union key', () => {
     const arr = resource('ld_arr', texture2dArrayfT, { group: 0, binding: 0 })
     const tex = resource('ld_2d', texture2dfT, { group: 0, binding: 1 })
     const g = fn('ld', { lvl: f32T }, ({ lvl }) => {
@@ -163,7 +163,7 @@ describe('#763 X — type-surface sweep', () => {
     expect(g.decl.name).toBe('ld')
   })
 
-  it('#1658: textureNumLayers is ARRAY-key only — 2d and sampler args are tsc errors', () => {
+  it('X-GIS #1658: textureNumLayers is ARRAY-key only — 2d and sampler args are tsc errors', () => {
     const arr = resource('nl_arr', texture2dArrayfT, { group: 0, binding: 0 })
     const tex = resource('nl_2d', texture2dfT, { group: 0, binding: 1 })
     const smp = resource('nl_smp', samplerT, { group: 0, binding: 2 })
@@ -182,7 +182,7 @@ describe('#763 X — type-surface sweep', () => {
     expect(g.decl.name).toBe('nl')
   })
 
-  it('#1703: an integer texture carries the INTEGER key, and the load result follows it', () => {
+  it('X-GIS #1703: an integer texture carries the INTEGER key, and the load result follows it', () => {
     const tu = resource('it_u', texture2duT, { group: 0, binding: 0 })
     const ti = resource('it_i', texture2diT, { group: 0, binding: 1 })
     const tf = resource('it_f', texture2dfT, { group: 0, binding: 2 })
@@ -215,7 +215,7 @@ describe('#763 X — type-surface sweep', () => {
     expect(g.decl.name).toBe('it')
   })
 
-  it('#1703: textureSample* REJECT an integer texture — the WGSL/GLSL split is closed at tsc', () => {
+  it('X-GIS #1703: textureSample* REJECT an integer texture — the WGSL/GLSL split is closed at tsc', () => {
     // Filtering integer texels is undefined, so WGSL has no textureSample for
     // texture_2d<u32> at all. GLSL's texture(usampler2D, …) WOULD compile (NEAREST) —
     // allowing it would mint a construct that builds on WebGL2 and cannot be expressed
@@ -243,7 +243,7 @@ describe('#763 X — type-surface sweep', () => {
     expect(g.decl.name).toBe('ns')
   })
 
-  it('#1703: a multisampled INTEGER texture is unrepresentable, not a runtime throw', () => {
+  it('X-GIS #1703: a multisampled INTEGER texture is unrepresentable, not a runtime throw', () => {
     // The texture type is a two-arm union pinned to `elem: 'f32'` on '2d-ms', so this
     // never reaches emit — where it would have been a plausible-looking
     // `texture_multisampled_2d<u32>` that GLSL fails closed on anyway.
@@ -260,7 +260,7 @@ describe('#763 X — type-surface sweep', () => {
     expect(typeKey(texture2dArrayiT)).toBe('texture_2d_array<i32>')
   })
 
-  it('#1651: a FRACTIONAL layer literal throws SD0015 at author time', () => {
+  it('X-GIS #1651: a FRACTIONAL layer literal throws SD0015 at author time', () => {
     // The backends would DIVERGE on it: naga rejects a float array_index, GLSL
     // silently rounds (layer = floor(z + 0.5), so 1.5 reads layer 2). The guard
     // lives in the shared layerArg helper, so one form witnesses all three ids.
@@ -271,7 +271,7 @@ describe('#763 X — type-surface sweep', () => {
     ).toThrow(/SD0015/)
   })
 
-  it('#1651: ShaderType texture dims are exactly the three the emitters spell', () => {
+  it('X-GIS #1651: ShaderType texture dims are exactly the three the emitters spell', () => {
     // The emitters' texture switches are runtime-exhaustive (`satisfies never`),
     // but KeyOf (ir/types.ts) is a conditional TYPE with a `string` fallback tsc
     // cannot flag — a new dim would silently drop resource() nodes to `string`.

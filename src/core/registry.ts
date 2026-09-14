@@ -20,7 +20,7 @@
 //
 // A scan can enumerate modules. It cannot know that cartographic examples lead because the
 // site is a map site. That curation is editorial value a generator does not produce — the
-// same thing #1700 says about the reference page's grouping. So `order` is an INPUT here,
+// same thing X-GIS #1700 says about the reference page's grouping. So `order` is an INPUT here,
 // not an output, and the gate's job is to prove the curated list and the discovered set
 // describe the same programs.
 

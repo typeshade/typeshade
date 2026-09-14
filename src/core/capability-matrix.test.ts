@@ -1,7 +1,7 @@
 // ═══ capabilityMatrix — the capability × backend table, DERIVED (X-GIS #1717) ═══
 //
-// #1717 Ask 2 asked for this as a documentation page. It is a function instead, because
-// #1700 already records three authorities describing this API and a hand-written table
+// X-GIS #1717 Ask 2 asked for this as a documentation page. It is a function instead, because
+// X-GIS #1700 already records three authorities describing this API and a hand-written table
 // would be the fourth — one nothing checks against a `capProfile`. These arms are what
 // make "derived" mean something: the matrix must agree with the profiles row for row, and
 // it must not silently shrink when the vocabulary grows.

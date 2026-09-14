@@ -3,7 +3,7 @@
 // ANGLE's D3D11 backend MISCOMPILES a GLSL ES 3.00 fragment shader whose STRUCT
 // constructor argument contains a call to a function that (transitively) executes
 // `discard`. It is silent: `COMPILE_STATUS` and `LINK_STATUS` both report success and
-// the program dies at the FIRST DRAW. #1840's repro table pins the shape exactly —
+// the program dies at the FIRST DRAW. X-GIS #1840's repro table pins the shape exactly —
 // cases A (`return Out(inner(v));`), D (a nested struct ctor) and G (a multi-field ctor
 // with one offending argument) FAIL, while B (`vec4 c = inner(v); return Out(c);`),
 // C/E (a VECTOR constructor around the same call) and F (the call as a plain statement

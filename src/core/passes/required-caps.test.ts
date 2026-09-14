@@ -78,7 +78,7 @@ describe('capabilities — requiredCaps + assertCaps (X-GIS #9)', () => {
     expect(() => assertCaps(wgslBackend, storageMod())).not.toThrow()
   })
 
-  // #628 — opt-in language-feature caps (enables) fold into requiredCaps and gate
+  // X-GIS #628 — opt-in language-feature caps (enables) fold into requiredCaps and gate
   // exactly like the derived resource caps: WGSL covers them, GLSL fails closed.
   const f16Mod = () =>
     module({
@@ -102,7 +102,7 @@ describe('capabilities — requiredCaps + assertCaps (X-GIS #9)', () => {
     expect(() => assertCaps(wgslBackend, f16Mod())).not.toThrow()
   })
 
-  // #1651 — a sampled 2d-ARRAY texture is CORE in both targets (WGSL
+  // X-GIS #1651 — a sampled 2d-ARRAY texture is CORE in both targets (WGSL
   // texture_2d_array<f32>, GLSL ES 3.00 sampler2DArray), so it introduces NO new
   // Capability. Asserted, not assumed: the sibling '2d-ms' dim DOES require one
   // (msaaTextureLoad), so "a texture dim needs a cap" is a live shape here.
@@ -122,7 +122,7 @@ describe('capabilities — requiredCaps + assertCaps (X-GIS #9)', () => {
     expect(() => assertCaps(glslEs300Backend, arrayTexMod())).not.toThrow()
   })
 
-  // #1658 — the layer-COUNT query is core in both targets too (WGSL textureNumLayers,
+  // X-GIS #1658 — the layer-COUNT query is core in both targets too (WGSL textureNumLayers,
   // GLSL ES 3.00 textureSize(sampler2DArray, lod).z), so CALLING it adds nothing to the
   // binding-only pin above. requiredCaps derives from bindings/stages/enables, never
   // from call ids — this asserts that stays true for the one array intrinsic that is a
@@ -147,7 +147,7 @@ describe('capabilities — requiredCaps + assertCaps (X-GIS #9)', () => {
     expect(() => assertCaps(glslEs300Backend, numLayersMod())).not.toThrow()
   })
 
-  // #1703 — an INTEGER sampled texture is core in both targets too (WGSL
+  // X-GIS #1703 — an INTEGER sampled texture is core in both targets too (WGSL
   // texture_2d<u32>, GLSL ES 3.00 §4.1.9 usampler2D), so the element axis adds no
   // Capability any more than the dim axis did. Asserted rather than assumed for the
   // same reason as the 2d-array pin above: '2d-ms' proves a texture CAN require one,

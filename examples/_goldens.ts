@@ -20,7 +20,7 @@ import { expect } from 'vitest'
  *  would have two suites baking one file. */
 const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), '__emit-goldens__')
 
-/** Re-bake protocol, unchanged from #763 V3: `bun run bake:goldens` from the REPO ROOT sets
+/** Re-bake protocol, unchanged from X-GIS #763 V3: `bun run bake:goldens` from the REPO ROOT sets
  *  this, and the refreshed `__emit-goldens__/` is committed alongside the emitter change. */
 const UPDATE = process.env.UPDATE_EMIT_GOLDENS === '1'
 
