@@ -339,8 +339,9 @@ describe('gvn — cross-block reuse (X-GIS #1886)', () => {
 // (binop / call / construct / …). A bare `buf.at(i).field` calculates nothing, so no
 // pass in the family will ever collapse it however often it repeats — which is right
 // for a local struct and wrong for a storage/uniform buffer, where the index is a
-// LOAD. 142 such repeats sit in X-GIS's own baked corpus, and unlike the peephole
-// candidates this one is corpus-independent: any consumer feeding a shader through a
+// LOAD. 142 such repeats were counted in the shader corpus this pass was written against,
+// and unlike the peephole candidates this one is corpus-independent: any consumer feeding a
+// shader through a
 // storage buffer hits it, and a driver cannot reliably CSE a load through a dynamic
 // index it must assume may alias.
 describe('gvn — indexing a binding (X-GIS #1886)', () => {
