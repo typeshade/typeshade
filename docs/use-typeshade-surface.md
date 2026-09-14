@@ -244,7 +244,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
 ---
 
-## 9. Integer literals
+## 13. Integer literals
 
 A number written without a decimal point takes the type the position around it **declares**.
 It is WGSL's abstract-integer rule, narrowed to the places where a type is actually stated:
