@@ -343,9 +343,76 @@ export function f(x: f32): f32 {
     expect(calls.map((c) => textAt(text, sourceSpanOf(c)!))).toEqual(['sin(x)'])
   })
 
-  it('an expression that is not a call has none — this increment stops at calls', () => {
+  it('an assignment target carries the span of the lvalue it writes', () => {
+    const { module, text } = compiled()
+    const targets = allStatements(byName(module, 'shapes').body)
+      .filter((s) => s.s === 'assign' || s.s === 'assignOp')
+      .map((s) => (s.s === 'assign' || s.s === 'assignOp' ? s.target : undefined)!)
+      .map((t) => {
+        const span = sourceSpanOf(t)
+        return span ? textAt(text, span) : '<synthesised>'
+      })
+    // Every write in SRC, in walk order — including the `i++` the `for` header makes, whose
+    // target is the operand rather than the whole update expression, and the one write nobody
+    // authored: the counter the `while` lowering assigns to.
+    expect(targets).toEqual([
+      'acc', // acc = base
+      'acc', // acc += helper(base)
+      'acc', // inside `if (n > 0)`
+      'acc', // inside its else
+      'i', // the `for` header's own update
+      'acc', // the loop body
+      '<synthesised>', // the `while` counter's update
+      'w', // the `while` body
+      'acc', // the switch case
+      'acc', // its default
+    ])
+  })
+
+  it('an indexed assignment target spans the whole element access', () => {
+    const { module, text } = compiled(`"use typeshade"
+declare let out: storage<array<f32>>
+@compute([1, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  out[gid.x] = 1.
+}
+`)
+    const write = byName(module, 'k').body[0]!
+    expect(write.s).toBe('assign')
+    if (write.s !== 'assign') return
+    expect(textAt(text, sourceSpanOf(write.target)!)).toBe('out[gid.x]')
+  })
+
+  it('a read of the same name carries none — only the write position does', () => {
+    const { module } = compiled(`"use typeshade"
+export function f(a: f32): f32 {
+  let acc = a
+  acc = acc + a
+  return acc
+}
+`)
+    const assign = byName(module, 'f').body[1]!
+    expect(assign.s).toBe('assign')
+    if (assign.s !== 'assign') return
+    expect(sourceSpanOf(assign.target)).toBeDefined()
+    // The `acc` READ inside `acc + a` is a different node in the same statement, and it has no
+    // span: this increment spans the write position, not every name.
+    expect(assign.expr.op).toBe('binop')
+    if (assign.expr.op !== 'binop') return
+    expect(sourceSpanOf(assign.expr.a)).toBeUndefined()
+    expect(sourceSpanOf(assign.expr.b)).toBeUndefined()
+  })
+
+  it('no other expression has one — this increment stops at calls and lvalues', () => {
     const { module } = compiled()
-    const others = allExpressions(byName(module, 'shapes').body).filter((e) => e.op !== 'call')
+    const targets = new Set(
+      allStatements(byName(module, 'shapes').body)
+        .filter((s) => s.s === 'assign' || s.s === 'assignOp')
+        .map((s) => (s.s === 'assign' || s.s === 'assignOp' ? s.target : undefined)!),
+    )
+    const others = allExpressions(byName(module, 'shapes').body).filter(
+      (e) => e.op !== 'call' && !targets.has(e),
+    )
     expect(others.length).toBeGreaterThan(0)
     expect(others.every((e) => sourceSpanOf(e) === undefined)).toBe(true)
   })

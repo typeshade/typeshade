@@ -373,7 +373,9 @@ function lowerLValue(
     }
     const idx = lowerExpression(node, sourceFile, scope, diagnostics)
     if (!idx || idx.op !== 'index') return undefined
-    return idx
+    // The lvalue carries its own span (docs/debugging.md §5 decision 3): a debugger stopped on
+    // this statement can highlight what is about to change, not just the line it is on.
+    return withSpan(idx, sourceFile, node)
   }
   if (!ts.isIdentifier(node)) {
     pushDiag(
@@ -407,8 +409,17 @@ function lowerLValue(
     )
     return undefined
   }
-  if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
-  return { op: 'varref', type: binding.type, name: binding.name }
+  if (binding.kind === 'param')
+    return withSpan(
+      { op: 'param', type: binding.type, name: binding.name } as Expr,
+      sourceFile,
+      node,
+    )
+  return withSpan(
+    { op: 'varref', type: binding.type, name: binding.name } as Expr,
+    sourceFile,
+    node,
+  )
 }
 
 function lowerIf(
