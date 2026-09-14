@@ -56,6 +56,16 @@ const BACKEND_THROW = `
 export const K: f32 = 1e400;
 `
 
+// The same unspellable const, read by a function. `compileTsSource` lowers `f` with no
+// front-end error and runs the emitter itself; emitModule throws SD0017 on the const. It used
+// to fall back to emitFuncs(funcs), which emits the functions alone, so compile() handed back
+// `fn f() -> f32 { return (K * 2.0); }` with `K` undeclared and zero diagnostics.
+const BACKEND_THROW_READ = `
+"use typeshade";
+export const K: f32 = 1e400;
+export function f(): f32 { return K * 2.; }
+`
+
 const errorsOf = (s: ReturnType<typeof compile>) =>
   s.diagnostics.filter((d) => d.category === 'error')
 
@@ -116,6 +126,15 @@ describe('compile() contract', () => {
     expect(s!.wgsl).toBeUndefined()
     expect(s!.glsl).toBeUndefined()
     expect(() => s!.eval('K')).toThrow(/Backend emit failed/)
+  })
+
+  it('reports an emitModule throw on a const a function reads, instead of emitting the functions alone', () => {
+    const s = compile(BACKEND_THROW_READ)
+    expect(s.diagnostics.map((d) => [d.code, d.category])).toEqual([[TS_CODES.BACKEND, 'error']])
+    expect(s.diagnostics[0]!.message).toMatch(/SD0017/)
+    expect(s.wgsl).toBeUndefined()
+    expect(s.glsl).toBeUndefined()
+    expect(() => s.eval('f')).toThrow(/Backend emit failed/)
   })
 
   it('reports a backend throw the front end already caught as that same diagnostic, once', () => {

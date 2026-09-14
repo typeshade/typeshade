@@ -201,6 +201,20 @@ describe('Phase 1 — "use typeshade" directive', () => {
     expect(without.diagnostics.map((d) => d.code)).toEqual([TS_CODES.MISSING_DIRECTIVE])
   })
 
+  it('reports an emitModule throw as one BACKEND error and no wgsl, never the functions alone', () => {
+    // emitModule throws SD0017 on the const `1e400`; the functions alone would emit as
+    // `fn f() -> f32 { return K; }` with `K` undeclared, which is not this module's WGSL.
+    const result = compileTsSource(
+      `"use typeshade";\nexport const K: f32 = 1e400;\nexport function f(): f32 { return K; }`,
+    )
+    expect(result.diagnostics.map((d) => [d.code, d.category])).toEqual([
+      [TS_CODES.BACKEND, 'error'],
+    ])
+    expect(result.diagnostics[0]!.message).toMatch(/SD0017/)
+    expect(result.wgsl).toBeUndefined()
+    expect(result.funcs.map((f) => f.name)).toEqual(['f'])
+  })
+
   it('exposes the exact directive string constant', () => {
     expect(USE_TYPESHADE).toBe('use typeshade')
   })

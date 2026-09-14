@@ -2,7 +2,7 @@
 
 import ts from 'typescript'
 import type { BindingDecl, ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
-import { emitFuncs, emitModule } from '../../core/backends/wgsl.js'
+import { emitModule } from '../../core/backends/wgsl.js'
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js'
 import { lowerSourceFunctions } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
@@ -156,12 +156,10 @@ export function compileTsSource(
         bindings: [...bindings],
         funcs: [...funcs],
       })
-    } catch {
-      try {
-        wgsl = emitFuncs(funcs)
-      } catch (e) {
-        diagnostics.push(backendDiagnostic(sourceFile, e))
-      }
+    } catch (e) {
+      // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
+      // and bindings they reference, which is not this module's WGSL. The throw is the answer.
+      diagnostics.push(backendDiagnostic(sourceFile, e))
     }
   }
 
