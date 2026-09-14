@@ -44,7 +44,7 @@ export function fs(vo: VsOut): vec4 {
   const t = U.time
   const az = radians(U.sun_az)
   const ex = U.exaggeration
-  const p = uv * 6.
+  const p: vec2 = uv * 6.
   const eps = 0.015
 
   // Height + two neighbours → a finite-difference surface normal.
@@ -62,6 +62,6 @@ export function fs(vo: VsOut): vec4 {
   const mid = vec3(0.55, 0.49, 0.3)
   const high = vec3(0.93, 0.93, 0.96)
   const base = mix(mix(low, mid, smoothstep(0.3, 0.55, h)), high, smoothstep(0.62, 0.85, h))
-  const lit = base * (shade * 0.8 + 0.3)
+  const lit: vec3 = base * (shade * 0.8 + 0.3)
   return vec4(lit, 1.)
 }

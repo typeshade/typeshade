@@ -40,7 +40,7 @@ function hash(p: vec2): f32 {
 function noise(p: vec2): f32 {
   const i = floor(p)
   const f = fract(p)
-  const u = f * f * (vec2(3.) - f * 2.)
+  const u: vec2 = f * f * (vec2(3.) - f * 2.)
   return mix(
     mix(hash(i), hash(i + vec2(1., 0.)), u.x),
     mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), u.x),

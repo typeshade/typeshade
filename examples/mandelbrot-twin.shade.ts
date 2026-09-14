@@ -48,7 +48,7 @@ export function fs(vo: VsOut): vec4 {
   // p and offsets the centre, scaled by the current zoom. mu.w = 0 (never
   // touched) keeps the canonical seahorse-valley framing.
   const mu = U.mouse
-  const pan = screenCoords(vec2(mu.x / res.x, mu.y / res.y), res) * s * mu.w
+  const pan: vec2 = screenCoords(vec2(mu.x / res.x, mu.y / res.y), res) * s * mu.w
   const c = vec2(p.x * s - 0.7453 + pan.x, p.y * s + 0.1127 + pan.y)
   let z = vec2(0., 0.)
   let it = 0.
@@ -64,6 +64,6 @@ export function fs(vo: VsOut): vec4 {
   const sn = it - log2(max(log2(max(m, 1.0001)), 0.0001)) + 1.
   // interior (never escaped) stays black
   const inside = step(119.5, it)
-  const col = palette(sn * 0.035 + U.time * 0.02) * (1. - inside)
+  const col: vec3 = palette(sn * 0.035 + U.time * 0.02) * (1. - inside)
   return vec4(col, 1.)
 }

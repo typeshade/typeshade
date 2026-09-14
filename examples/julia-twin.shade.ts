@@ -34,7 +34,7 @@ function palette(t: f32): vec3 {
 export function fs(vo: VsOut): vec4 {
   const uv = vo.uv
   // centre the plane, scale by the zoom uniform
-  let z = vec2(uv.x * 2. - 1., uv.y * 2. - 1.) * U.zoom
+  let z: vec2 = vec2(uv.x * 2. - 1., uv.y * 2. - 1.) * U.zoom
   // the Julia constant: orbits on autopilot; once the pointer has entered (m.w = 1) it maps
   // to the pointer instead. The pointer is normalised to c-space ≈ [−0.8, 0.8]².
   const m = U.mouse

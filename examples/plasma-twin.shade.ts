@@ -33,6 +33,6 @@ export function fs(vo: VsOut): vec4 {
   // three interfering sine waves — the classic plasma
   const v = sin(uv.x * 10. + t) + sin(uv.y * 10. + t) + sin((uv.x + uv.y) * 10. + t * 0.7)
   // the same wave at three phase offsets becomes the three colour channels
-  const col = vec3(sin(v), sin(v + 2.094), sin(v + 4.188)) * 0.5 + 0.5
+  const col: vec3 = vec3(sin(v), sin(v + 2.094), sin(v + 4.188)) * 0.5 + 0.5
   return vec4(col, 1.)
 }

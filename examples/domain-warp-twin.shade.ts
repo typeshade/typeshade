@@ -40,7 +40,7 @@ function hash(p: vec2): f32 {
 function noise(p: vec2): f32 {
   const i = floor(p)
   const f = fract(p)
-  const u = f * f * (vec2(3.) - f * 2.)
+  const u: vec2 = f * f * (vec2(3.) - f * 2.)
   return mix(
     mix(hash(i), hash(i + vec2(1., 0.)), u.x),
     mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), u.x),
@@ -58,7 +58,7 @@ function fbm(p: vec2): f32 {
 export function fs(vo: VsOut): vec4 {
   const t = U.time
   const res = U.resolution
-  const p = screenCoords(vo.uv, res) * 1.8
+  const p: vec2 = screenCoords(vo.uv, res) * 1.8
   const w = U.warp
   // first warp: q = (fbm(p), fbm(p + k₁))
   const q = vec2(fbm(p), fbm(p + vec2(5.2, 1.3)))

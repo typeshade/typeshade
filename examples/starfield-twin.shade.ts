@@ -47,14 +47,14 @@ export function fs(vo: VsOut): vec4 {
     const fi = f32(i)
     const scale = fi * 14. + 18.
     const drift = fi * 0.014 + 0.01
-    const q = vec2(p.x + t * drift, p.y) * scale + fi * 37.7
+    const q: vec2 = vec2(p.x + t * drift, p.y) * scale + fi * 37.7
     const cell = floor(q)
     const f = fract(q)
     const h = hash(cell)
     // does this cell hold a star? density raises the hash gate
     const gate = step(0.92 - U.density * 0.25, h)
     // star position inside the cell (kept off the cell edges)
-    const sp = vec2(hash(cell + vec2(12.3, 45.6)), hash(cell + vec2(78.9, 1.2))) * 0.7 + 0.15
+    const sp: vec2 = vec2(hash(cell + vec2(12.3, 45.6)), hash(cell + vec2(78.9, 1.2))) * 0.7 + 0.15
     const d = distance(f, sp)
     const rad = 0.06 - fi * 0.012 // far layers are smaller
     const core = 1. - smoothstep(0., rad, d)
