@@ -140,6 +140,39 @@ describe('prepareRename / rename', () => {
     expect(service.rename('a.ts', position, 'nope')).toEqual({})
   })
 
+  // Regression: `prepareRename` refused the directive string (ts.getRenameInfo says a plain
+  // string literal cannot be renamed), but `rename` went straight to ts.findRenameLocations,
+  // which treats a string literal as renamable and rewrote `"use typeshade"` itself.
+  it('refuses to rename the "use typeshade" directive string, at every offset inside it', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', SOURCE)
+    const start = SOURCE.indexOf('"use typeshade"')
+    const end = start + '"use typeshade"'.length
+    for (let offset = start; offset < end; offset++) {
+      const position = service.positionAt('a.ts', offset)
+      expect(service.prepareRename('a.ts', position)).toBeUndefined()
+      expect(service.rename('a.ts', position, 'nope')).toEqual({})
+    }
+  })
+
+  it('never returns edits from rename where prepareRename refused, at any offset in the file', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', SOURCE)
+    for (let offset = 0; offset <= SOURCE.length; offset++) {
+      const position = service.positionAt('a.ts', offset)
+      const prepared = service.prepareRename('a.ts', position)
+      const edits = service.rename('a.ts', position, 'renamed')
+      if (prepared === undefined) {
+        expect(
+          edits,
+          `offset ${offset} (${JSON.stringify(SOURCE.slice(offset, offset + 8))})`,
+        ).toEqual({})
+      } else {
+        expect(Object.keys(edits).length, `offset ${offset}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
   // Regression: TypeScript's own decorator-resolution machinery (the code path
   // getDefinitionAtPosition/getRenameInfo/findRenameLocations all go through) `Debug.fail()`s
   // when the decorated node is a FunctionDeclaration — exactly the shape `@vertex`/`@fragment`
