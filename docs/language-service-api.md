@@ -374,6 +374,36 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   code, and the compiler's own type checks still catch the scalar mixing that TypeScript's
   structural check lets through.
 
+### Vector and matrix arithmetic (issue #21)
+
+`v * s`, `a + b`, `c.rgb * 0.5`, `m * v` and `v *= 2.` are the arithmetic a shader is written in,
+and TypeScript rejects all of it. The ambient lib brands `vec2`/`vec3`/`vec4`, the `f64` vectors
+and the matrices with a required unique-symbol property, and that brand is exactly what keeps a
+`vec3` from satisfying a `vec2`; a branded object type is also not a `number`, which is what the
+arithmetic check demands. Un-branding the vector types would take every real vector check with
+them, so the service filters these diagnostics instead, deciding from the type checker rather
+than from the syntax: each rule resolves the operand's TypeScript type and drops the diagnostic
+only when that type carries one of `GPU_BRAND_TAGS` (`vecTag`, `vec64Tag`, `matTag`), matched
+structurally as the `__@<tag>@<id>` property the checker reports, never by type name.
+
+| Code     | Why it fires                                                                                                                                                                  | Dropped when                                                                                                                                                                                                                                                                                                                                       |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TS2362` | The left operand of an arithmetic operation is not `number` (`v * s`, `c.rgb * 0.5`, `v *= 2.`).                                                                              | The left operand's own type carries a vector or matrix brand. Per operand, not "either operand", so the string in `v * "x"` still reports through TS2363.                                                                                                                                                                                          |
+| `TS2363` | The right operand is not `number` (`m * v`, `2. * v`).                                                                                                                        | The right operand's own type carries a vector or matrix brand.                                                                                                                                                                                                                                                                                     |
+| `TS2365` | The operator cannot be applied to the two types (`a + b` on two `vec3`).                                                                                                      | The operator is `+ - * / %` or a compound form of one, and either operand carries a brand. A TS2365 from any other operator is left alone.                                                                                                                                                                                                         |
+| `TS2322` | Arithmetic on a branded type is typed `number`, so the vector position it flows into (a return annotation, a local, a struct field, an assignment target) looks unassignable. | The target type carries a vector or matrix brand AND the value either carries one too or does vector or matrix arithmetic anywhere inside it (`normalize(a * 2.)` is already a `number` by the time the call is typed). `let n: f32 = v` keeps its TS2322: a scalar target is a `number` to TypeScript, so that mismatch is not the brand's doing. |
+
+A dropped diagnostic is not an unreported mistake. The compiler front end's own `TYPE_MISMATCH`
+(`TS8003`) is the authority on which shapes combine, so `vec3(1.) + vec2(1.)` is reported once,
+by the compiler, where leaving TypeScript's TS2365 in place would underline it twice.
+`diagnostics.test.ts` pins both halves: every arithmetic shape above produces no
+TypeScript-sourced diagnostic, and `v * "x"`, `1 * "x"` and `let n: f32 = v` still do.
+
+One case of the same cause is deliberately not filtered: an argument position, where the
+`number` an operation produced reaches a call (`dot(a * 2., b)` infers `number` for the whole
+call and reports TS2345 on the other argument). Filtering that needs the parameter's type rather
+than an operand's, and no rule claims TS2345 today.
+
 Two more gaps the ambient lib cannot close by itself, because both are about names the lib was
 never going to declare: a misspelled attribute (`@vertx`) has no ambient declaration to resolve
 against, so TypeScript says nothing about it at all, and the compiler's own `checkAttributeName`

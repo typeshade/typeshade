@@ -177,6 +177,19 @@ const expandFns = EXPAND_NAMES.map(
 const langConsts = LANG_CONST_NAMES.map((name) => `declare const ${name}: number`).join('\n')
 
 /**
+ * The unique-symbol tags `SHADE_DTS` brands the vector and matrix types with: `vecTag` on the
+ * `vec2`/`vec3`/`vec4` family, `vec64Tag` on the `f64` vectors, `matTag` on the matrices.
+ * The scalar tags (`f32Tag` and friends) and `arrayTag` are deliberately not listed. This is
+ * the set of types whose arithmetic TypeScript's checker rejects, because a branded object
+ * type is not a `number` (so `v * s` draws TS2362), and which `diagnostics.ts` therefore has
+ * to recognize structurally to drop that false positive (design doc §6). A scalar is already
+ * a `number` to TypeScript and indexing an `array` is not arithmetic, so neither needs the
+ * same treatment. `diagnostics.test.ts` asserts this list against the tags `SHADE_DTS`
+ * actually declares, so a new brand cannot appear without a decision about its arithmetic.
+ */
+export const GPU_BRAND_TAGS: readonly string[] = ['vecTag', 'vec64Tag', 'matTag']
+
+/**
  * The ambient declarations for every TypeShade global: the GPU scalar and vector/matrix types,
  * `array`/`uniform`/`storage`, the attribute decorators, the vector constructors, the scalar
  * casts, and the GLSL-style free math functions plus `Math.*`. Loaded by `host.ts` as a virtual
