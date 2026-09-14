@@ -7,7 +7,7 @@ import { hasUseTypeshadeDirective } from './directive.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
-import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 export interface TsSourceFileInput {
   readonly fileName: string
@@ -219,14 +219,7 @@ export function compileTsSources(
           true,
           ts.ScriptKind.TS,
         )
-      diagnostics.push(
-        makeDiagnostic(
-          anchor,
-          undefined,
-          `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
-          TS_CODES.BACKEND,
-        ),
-      )
+      diagnostics.push(backendDiagnostic(anchor, e))
     }
   }
   return { funcs, diagnostics, wgsl }

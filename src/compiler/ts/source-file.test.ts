@@ -9,6 +9,7 @@ import {
   findUseTypeshadeDirective,
   isUseTypeshadeDirective,
 } from './index.js'
+import { TS_CODES } from './codes.js'
 import ts from 'typescript'
 
 describe('Phase 1 — "use typeshade" directive', () => {
@@ -65,20 +66,24 @@ describe('Phase 1 — "use typeshade" directive', () => {
     expect(compileTsSource(source).hasDirective).toBe(true)
   })
 
-  it('returns hasDirective=false when the directive is absent', () => {
+  it('returns hasDirective=false and one MISSING_DIRECTIVE error when the directive is absent', () => {
     const source = `export function add(a: number, b: number): number {\n  return a + b;\n}`
     expect(isTypeshadeSource(source)).toBe(false)
     const result = compileTsSource(source)
     expect(result.hasDirective).toBe(false)
     expect(result.funcs).toEqual([])
-    expect(result.diagnostics).toEqual([])
+    expect(result.wgsl).toBeUndefined()
+    expect(result.diagnostics.map((d) => [d.code, d.category])).toEqual([
+      [TS_CODES.MISSING_DIRECTIVE, 'error'],
+    ])
   })
 
-  it('returns hasDirective=false for an empty source', () => {
+  it('returns hasDirective=false and a MISSING_DIRECTIVE error for an empty source', () => {
     expect(isTypeshadeSource('')).toBe(false)
     const result = compileTsSource('')
     expect(result.hasDirective).toBe(false)
     expect(result.funcs).toEqual([])
+    expect(result.diagnostics.map((d) => d.code)).toEqual([TS_CODES.MISSING_DIRECTIVE])
   })
 
   it('emits an error diagnostic when requireDirective is true and directive is missing', () => {
@@ -89,8 +94,16 @@ describe('Phase 1 — "use typeshade" directive', () => {
     expect(result.diagnostics[0]!.message).toContain(USE_TYPESHADE)
   })
 
+  it('emits the same diagnostic by default as with requireDirective: true', () => {
+    const byDefault = compileTsSource('const x = 1;')
+    const explicit = compileTsSource('const x = 1;', { requireDirective: true })
+    expect(byDefault.diagnostics).toEqual(explicit.diagnostics)
+  })
+
   it('does not emit diagnostics when requireDirective is false and directive is missing', () => {
     const result = compileTsSource('const x = 1;', { requireDirective: false })
+    expect(result.hasDirective).toBe(false)
+    expect(result.funcs).toEqual([])
     expect(result.diagnostics).toEqual([])
   })
 
@@ -183,7 +196,23 @@ describe('Phase 1 — "use typeshade" directive', () => {
     `)
     expect(withDir.funcs.map((f) => f.name)).toEqual(['transform'])
     expect(withDir.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(compileTsSource('export function f() {}').funcs).toEqual([])
+    const without = compileTsSource('export function f() {}')
+    expect(without.funcs).toEqual([])
+    expect(without.diagnostics.map((d) => d.code)).toEqual([TS_CODES.MISSING_DIRECTIVE])
+  })
+
+  it('reports an emitModule throw as one BACKEND error and no wgsl, never the functions alone', () => {
+    // emitModule throws SD0017 on the const `1e400`; the functions alone would emit as
+    // `fn f() -> f32 { return K; }` with `K` undeclared, which is not this module's WGSL.
+    const result = compileTsSource(
+      `"use typeshade";\nexport const K: f32 = 1e400;\nexport function f(): f32 { return K; }`,
+    )
+    expect(result.diagnostics.map((d) => [d.code, d.category])).toEqual([
+      [TS_CODES.BACKEND, 'error'],
+    ])
+    expect(result.diagnostics[0]!.message).toMatch(/SD0017/)
+    expect(result.wgsl).toBeUndefined()
+    expect(result.funcs.map((f) => f.name)).toEqual(['f'])
   })
 
   it('exposes the exact directive string constant', () => {
