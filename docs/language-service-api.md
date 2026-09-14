@@ -431,6 +431,18 @@ LSP (VS Code):
   way).
 - The server holds no TypeShade knowledge. Its size is a measure of drift.
 
+Document versions, for either adapter:
+
+- `openDocument` and `updateDocument` take the adapter's version, and the service does not
+  rely on it: the script version TypeScript compares (`TypeshadeHost.getScriptVersion`) is
+  that version plus a store-wide revision that changes whenever the stored text changes, so a
+  text change under a repeated version, or under no version at all, is seen as a change by
+  TypeScript and by the caches of §8 alike. An unchanged text under a new version keeps its
+  revision.
+- A file pulled in through `readDocument` gets a version of its own, `imported.<revision>`,
+  which cannot collide with an adapter's version; opening that uri in the editor replaces the
+  read copy, closing it drops the copy so the next request re-reads the file.
+
 ## 8. Incrementality and performance
 
 - One `ts.LanguageService` per service instance; documents are snapshots with versions.
@@ -452,8 +464,9 @@ LSP (VS Code):
   resolves. A request whose key differs from the stored one recomputes; `openDocument`,
   `updateDocument` and `closeDocument` also drop the document's own entry directly. So editing
   or closing an imported document refreshes the importing document's diagnostics on its next
-  request without that document being touched: an edited import carries a new version, a
-  closed one drops to `getScriptVersion`'s `'0'`, and either changes the key. A bare or
+  request without that document being touched: an edited import carries a new revision (§7);
+  a closed one is re-read through `readDocument` when the host has one, under a new revision
+  again, and otherwise drops to `getScriptVersion`'s `'0'`; each changes the key. A bare or
   unresolvable specifier contributes nothing to the key; TypeScript reports it from the
   importing file, whose version the key already carries.
 - The front-end analysis is separable from emit: `compileTsSource` takes an `emit: false`
