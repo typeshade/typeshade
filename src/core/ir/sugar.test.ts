@@ -12,7 +12,7 @@ const hi = param('hi', f32T)
 const m = param('m', f32T)
 const a = param('a', f32T)
 
-describe('ir — composite arithmetic sugar (#2)', () => {
+describe('ir — composite arithmetic sugar (X-GIS #2)', () => {
   it('madd(a, b, c) emits identically to a.mul(b).add(c)', () => {
     expect(emitExpr(madd(x, m, a).expr)).toBe(emitExpr(x.mul(m).add(a).expr))
   })

@@ -1,4 +1,4 @@
-// ═══ Paired per-target raw statements — fail-before suite (#1671) ═══
+// ═══ Paired per-target raw statements — fail-before suite (X-GIS #1671) ═══
 //
 // Today a `raw` Stmt is WGSL-ONLY by construction: `{ s: 'raw'; wgsl: string }`
 // (ir/nodes.ts:143), the Backend contract spells it `rawStmt(wgsl: string)`
@@ -7,7 +7,7 @@
 // offers is a hatch that shuts the WebGL2 backend off entirely: a module that
 // needs a hand-written fragment on WGSL cannot ship a GLSL twin of it at all.
 //
-// #1671 pairs them: the node becomes an AT-LEAST-ONE union of
+// X-GIS #1671 pairs them: the node becomes an AT-LEAST-ONE union of
 // `{ wgsl; glsl? }` | `{ wgsl?; glsl }`, each side emitted VERBATIM by its own
 // backend, each backend still failing closed when ITS payload is missing.
 //
@@ -22,7 +22,7 @@
 // them via `bun run build` — vitest does not typecheck.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// FAIL-BEFORE TRANSCRIPT (#1671)
+// FAIL-BEFORE TRANSCRIPT (X-GIS #1671)
 // Recorded on unmodified main @ 4d6a7b2a (no source file touched; this test file
 // is the only addition). Per test: status + the EXACT reason it lands there.
 //
@@ -50,7 +50,7 @@
 //     still throws. deadFnElim (passes/opt/dce-fns.ts) does not save it either: it
 //     bails out of whole-module tree-shaking on any raw for the same reason (a raw
 //     may call a helper textually). Pinned because it is the documented consequence
-//     of 987 and because #1671 must not silently "fix" it by dropping the helper.
+//     of 987 and because X-GIS #1671 must not silently "fix" it by dropping the helper.
 //
 //  5. glsl-only raw must fail closed on WGSL (the symmetric arm)
 //     RED. Today NOTHING throws. wgsl.ts:159 is `rawStmt: (wgsl) => wgsl`, so an
@@ -58,7 +58,7 @@
 //     it into the module body. Pre-implementation emit, verbatim:
 //       "@fragment\nfn fs_glsl_only() -> @location(0) vec4<f32> {\n  undefined\n}\n"
 //     That is not WGSL; it fails at naga with no line back to the authoring site —
-//     the exact failure mode #1672 closed on the builtin surface. The assertion
+//     the exact failure mode X-GIS #1672 closed on the builtin surface. The assertion
 //     below is the FUTURE contract (throw, message naming the missing wgsl side).
 //
 //  6. multi-line paired raw → indent prefix on the FIRST line only
@@ -72,16 +72,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, emitModule, rawStmt, UnsupportedFeatureError } from '@xgis/shader-dsl'
-import { fn, module, voidT } from '@xgis/shader-dsl'
-import {
-  vec4fT,
-  f32T,
-  structT,
-  type Expr,
-  type ModuleDecl,
-  type StructDecl,
-} from '@xgis/shader-dsl'
+import { emitGlslModule, emitModule, rawStmt, UnsupportedFeatureError } from 'typeshade'
+import { fn, module, voidT } from 'typeshade'
+import { vec4fT, f32T, structT, type Expr, type ModuleDecl, type StructDecl } from 'typeshade'
 import type { Stmt } from '../ir/index.js'
 
 // ── the two payloads: the SAME statement, spelled for each target ──
@@ -111,7 +104,7 @@ const fragEntry = (name: string, body: readonly Stmt[]): ModuleDecl => ({
   ],
 })
 
-// ── #1671's shape: both payloads on one Stmt ──
+// ── X-GIS #1671's shape: both payloads on one Stmt ──
 const pairedMod = (): ModuleDecl =>
   fragEntry('fs_paired', [{ s: 'raw', wgsl: WGSL_PAYLOAD, glsl: GLSL_PAYLOAD }])
 
@@ -204,7 +197,7 @@ const expectSd0030 = (f: () => unknown): string => {
   return (caught as Error).message
 }
 
-describe('raw Stmt — paired per-target payloads (#1671)', () => {
+describe('raw Stmt — paired per-target payloads (X-GIS #1671)', () => {
   // ── (1) RED ──
   it('a paired raw emits the GLSL payload verbatim on the GLSL backend', () => {
     const glsl = emitGlslModule(pairedMod(), 'fragment')
@@ -340,10 +333,10 @@ describe('raw Stmt — paired per-target payloads (#1671)', () => {
   })
 
   // ── (9) type-level contract — exercised by tsc (`bun run build`), not vitest ──
-  it('a raw with NO payload is unrepresentable (#1671 at-least-one)', () => {
-    // @ts-expect-error — a raw with no payload is unrepresentable (#1671 at-least-one)
+  it('a raw with NO payload is unrepresentable (X-GIS #1671 at-least-one)', () => {
+    // @ts-expect-error — a raw with no payload is unrepresentable (X-GIS #1671 at-least-one)
     const _bare: Stmt = { s: 'raw' }
-    // @ts-expect-error — a raw with no payload is unrepresentable (#1671 at-least-one)
+    // @ts-expect-error — a raw with no payload is unrepresentable (X-GIS #1671 at-least-one)
     const _empty = rawStmt({})
     void _bare
     void _empty

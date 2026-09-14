@@ -71,7 +71,7 @@ export function invertRenames(
  *  Nothing here runs at emit time. Keep the map and this decoder out of the shipped bundle;
  *  both live on the production-emit subpath.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  *
  *  @param log - the driver message to decode.
  *  @param renames - the authored-to-emitted map the emit plugins filled.
@@ -79,7 +79,7 @@ export function invertRenames(
  *
  *  @example
  *  ```ts
- *  import { obfuscate, decodeShaderLog } from '@xgis/shader-dsl/emit-prod'
+ *  import { obfuscate, decodeShaderLog } from 'typeshade/emit-prod'
  *
  *  const renames = new Map<string, string>()
  *  const wgsl = emitModule(MODULE, { plugins: obfuscate({ renames }) })

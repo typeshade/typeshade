@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 hyperbolic navigation (LORAN) ═══
+// ═══ typeshade example — fp64 hyperbolic navigation (LORAN) ═══
 //
 // Hyperbolic radio navigation, the pre-GPS chart grid: two stations, and your
 // position line is "d₁ − d₂ = const" — a hyperbola. The catch for GPU floats:

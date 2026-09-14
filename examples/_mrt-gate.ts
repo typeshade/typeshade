@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl — MRT gate module (#847) ═══
+// ═══ typeshade — MRT gate module (X-GIS #847) ═══
 //
 // NOT a gallery example (underscore prefix, not in index.ts): a minimal
 // multi-render-target module that exists to PROVE the multi-@location

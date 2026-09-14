@@ -19,7 +19,7 @@ import { splitF64 } from './df64-lib.js'
 // ── The f32-rounding oracle (same mechanism as df64-known-answer.test.ts) ──
 
 /** The f32 oracle: `fp64Lower`'s output evaluated as a correctly-rounding f32 machine,
- *  which is what the GPU is. `precision: 'f32'` (#2426) replaced a copy of this wrapper in
+ *  which is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper in
  *  each of six files; it additionally rounds literals and parameters, which they did not. */
 const f32Oracle = (m: ModuleDecl) => compileModule(fp64Lower(m), { precision: 'f32' })
 

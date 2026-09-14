@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — domain warping (fbm of fbm of fbm) ═══
+// ═══ typeshade example — domain warping (fbm of fbm of fbm) ═══
 //
 // Inigo Quilez's domain-warping construction: instead of colouring by
 // fbm(p) directly, feed noise its own output — f(p) = fbm(p + w·fbm(p + fbm(p)))

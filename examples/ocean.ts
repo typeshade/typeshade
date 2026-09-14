@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — ocean horizon (fBm water + sun glitter) ═══
+// ═══ typeshade example — ocean horizon (fBm water + sun glitter) ═══
 //
 // A Seascape-style seascape from first principles: a perspective-divided water
 // plane below the horizon sampled with octaves of value noise, a warm sky

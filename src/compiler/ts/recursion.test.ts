@@ -17,7 +17,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { compileTsSources } from './module.js'
-import { compileTsSources as compileSources } from './sources.js'
 
 const fs = (body: string): string =>
   `"use typeshade"\n${body}\n@fragment\nexport function main_fs(): vec4 { return vec4(0., 0., 0., 1.) }\n`
@@ -223,46 +222,60 @@ export function helper(n: i32): i32 { if (n <= 0) { return i32(1) } return top(n
     expect(r.wgsl).toBeUndefined()
   })
 
-  it('the OTHER multi-file compiler checks too — sources.ts, which doc-snippets uses', () => {
-    // There are two `compileTsSources`. `doc-snippets.test.ts` certifies every multi-file
-    // example in the README and docs through this one, and it had no recursion check at all:
-    // measured before the fix, both of these emitted their bodies with zero diagnostics.
-    const self = compileSources({
-      'a.ts': `"use typeshade"
+  it('the path doc-snippets certifies the docs through checks too', () => {
+    // This arm was written against `sources.ts`, the second `compileTsSources`, because that
+    // was the one `doc-snippets.test.ts` used and it had no recursion check at all: measured
+    // before #49, both of these emitted their bodies with zero diagnostics. There is one
+    // compiler now, so the arm points at it — which is the stronger statement, since the docs
+    // gate and every other caller are certified by the same code path rather than by two.
+    const self = compileTsSources([
+      file(
+        'a.ts',
+        `"use typeshade"
 export function fact(n: i32): i32 { if (n <= 1) { return i32(1) } return n * fact(n - 1) }
 @fragment
 export function fs(): vec4 { return vec4(f32(fact(i32(5))), 0., 0., 1.) }
 `,
-    })
+      ),
+    ])
     const selfErrors = self.diagnostics.filter((d) => d.category === 'error')
     expect(selfErrors).toHaveLength(1)
     expect(selfErrors[0]?.code).toBe('TS8031')
     expect(self.wgsl).toBeUndefined()
 
-    const cross = compileSources({
-      'a.ts': `"use typeshade"
+    const cross = compileTsSources([
+      file(
+        'a.ts',
+        `"use typeshade"
 import { helper as h } from "./b"
 export function top(n: i32): i32 { if (n <= 0) { return i32(0) } return h(n - 1) }
 `,
-      'b.ts': `"use typeshade"
+      ),
+      file(
+        'b.ts',
+        `"use typeshade"
 import { top } from "./a"
 export function helper(n: i32): i32 { if (n <= 0) { return i32(1) } return top(n - 1) }
 `,
-    })
+      ),
+    ])
     const crossErrors = cross.diagnostics.filter((d) => d.category === 'error')
     expect(crossErrors).toHaveLength(1)
     expect(crossErrors[0]?.message).toContain('"top" -> "helper" -> "top"')
     expect(cross.wgsl).toBeUndefined()
   })
 
-  it('sources.ts still emits an acyclic multi-file program', () => {
-    const r = compileSources({
-      'a.ts': `"use typeshade"
+  it('an acyclic multi-file program still emits through that same path', () => {
+    const r = compileTsSources([
+      file(
+        'a.ts',
+        `"use typeshade"
 import { helper as h } from "./b"
 export function top(n: i32): i32 { return h(n) }
 `,
-      'b.ts': `"use typeshade"\nexport function helper(n: i32): i32 { return n * i32(2) }\n`,
-    })
+      ),
+      file('b.ts', `"use typeshade"\nexport function helper(n: i32): i32 { return n * i32(2) }\n`),
+    ])
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.wgsl).toContain('fn top')
   })
@@ -270,8 +283,8 @@ export function top(n: i32): i32 { return h(n) }
   it('a same-named node in another file contributes its edges rather than vanishing', () => {
     // Two files each declare `helper`, the second recursive. Keeping only the first node meant
     // the second's calls left the graph and nothing was reported. The emit is separately
-    // invalid here (Tint: `redeclaration of 'helper'`) because neither multi-file compiler
-    // checks duplicates ACROSS files — that is the real defect underneath, and not this
+    // invalid here (Tint: `redeclaration of 'helper'`) because the multi-file compiler does
+    // not check duplicates ACROSS files — that is the real defect underneath, and not this
     // change's to fix — but the graph must not lose a node silently.
     const errors = compileTsSources([
       {

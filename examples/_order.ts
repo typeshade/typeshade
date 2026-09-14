@@ -1,11 +1,11 @@
-// ═══ The curated example ORDER — the one hand-written half of the registry (#1716) ═══
+// ═══ The curated example ORDER — the one hand-written half of the registry (X-GIS #1716) ═══
 //
 // A directory scan enumerates the example modules. It cannot know that cartographic
 // examples lead because the site is a map site, or that the compute example belongs last.
-// That grouping is editorial, and it is the same thing #1700 says about the reference
+// That grouping is editorial, and it is the same thing X-GIS #1700 says about the reference
 // page's grouping: real value a generator does not produce.
 //
-// So this is the input, and `index.ts` is the output. Before #1716 the ordering lived in
+// So this is the input, and `index.ts` is the output. Before X-GIS #1716 the ordering lived in
 // `index.ts` TWICE (the re-export block and the `examples` array) alongside 35 imports, and
 // adding an example meant editing three places — the issue's literal complaint. Now it is
 // one list of ids, and `scripts/gen-example-registry.ts` derives the rest.
@@ -15,7 +15,7 @@
 // as the authority rather than drifting into a stale second copy of the directory.
 //
 // No filesystem access and no imports: this is data the browser build can carry, and it is
-// read by a root-level script, so it must stay `shader-dsl/`-self-contained.
+// read by a generator script, so it must stay self-contained.
 
 /** Every example id, in the order the site and the CLI printer present them:
  *  cartographic first, then generic, then compute. */

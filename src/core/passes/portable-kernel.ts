@@ -1,4 +1,4 @@
-// ═══ Shader DSL — the portable kernel tier analyzer (#1812) ═══
+// ═══ Shader DSL — the portable kernel tier analyzer (X-GIS #1812) ═══
 //
 // The SINGLE AUTHORITY for what "portable" means on a `@compute` entry. A kernel declared
 // `fn(…, { stage: 'compute', portable: true })` promises to emit on BOTH backends — native
@@ -46,7 +46,7 @@ type ParamDecl = FuncDecl['params'][number]
 const BUILTIN_ATTR_RE = /@builtin\((\w+)\)/
 
 /** The builtin a param carries, structured field first and the `attr` string only as the
- *  hand-built-literal fallback — the #740 R3 contract `stageOf` codifies for stages. */
+ *  hand-built-literal fallback — the X-GIS #740 R3 contract `stageOf` codifies for stages. */
 const builtinOf = (p: ParamDecl): string | undefined =>
   p.builtin ?? p.attr?.match(BUILTIN_ATTR_RE)?.[1]
 
@@ -58,7 +58,7 @@ const isGidX = (e: Expr, gid: string): boolean =>
  *  GLSL auto-path, `emitIdentity` and the lint rule all branch on, so "what counts as a
  *  portable kernel" cannot drift between them.
  *
- *  The stage goes through `stageOf` (#740 R3), never through `f.stage`: `module()` puts the
+ *  The stage goes through `stageOf` (X-GIS #740 R3), never through `f.stage`: `module()` puts the
  *  fn HANDLE — not its decl — into `funcs[]`, and the handle mirrors `attrs` but not the
  *  structured `stage`, so a `f.stage === 'compute'` test is false for every fn()-authored
  *  kernel and would leave the tier dead on its only authoring path. */
@@ -223,7 +223,7 @@ function reachableFns(m: ModuleDecl, entry: FuncDecl): FuncDecl[] {
 
 /**
  * Decide whether `entry` — a `portable`-declared `@compute` entry of `m` — is inside the
- * gather-only portable kernel tier (#1812), and hand back either the declarations the GLSL
+ * gather-only portable kernel tier (X-GIS #1812), and hand back either the declarations the GLSL
  * lowering needs or every reason it is out.
  *
  * This is the tier's single authority. `backends/glsl.ts`'s `lowerComputeToFragment` calls it

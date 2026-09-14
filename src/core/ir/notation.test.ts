@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { fn, module, f32T, vec2fT, vec3fT, vec4fT, vec4uT, type FuncDecl } from './index.js'
 import { emitModule } from '../backends/wgsl.js'
 
-// ═══ #740 R9 — notation: scalar×vec broadcast + inferred swizzles ═══
+// ═══ X-GIS #740 R9 — notation: scalar×vec broadcast + inferred swizzles ═══
 
 const emitOne = (f: FuncDecl): string => emitModule(module({ funcs: [f] }))
 

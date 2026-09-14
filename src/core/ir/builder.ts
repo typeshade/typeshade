@@ -45,11 +45,11 @@ import { captureLoc, recordLoc } from '../diagnostics/loc.js'
  *  used as a pipeline entry point, so its record carries no stage attribute and no struct
  *  handle. {@link FnParamSpec} is the richer record `fn()` accepts.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { externFn, f32T, vec2fT, type ParamSpec } from '@xgis/shader-dsl'
+ *  import { externFn, f32T, vec2fT, type ParamSpec } from 'typeshade'
  *
  *  const WARP_PARAMS = { x: f32T, y: f32T, scale: f32T } satisfies ParamSpec
  *  export const warp = externFn('warp', WARP_PARAMS, vec2fT)
@@ -63,14 +63,14 @@ export type ParamSpec = Record<string, ShaderType>
 type ParamAttr = {
   readonly type: ShaderType
   readonly attr: string
-  // Structured IO fields (#740 R3 / #763 S5) — sot's builtin()/location() set these;
+  // Structured IO fields (X-GIS #740 R3 / X-GIS #763 S5) — sot's builtin()/location() set these;
   // fn() threads them into FuncDecl.params so reflect() sees vertex attributes
   // WITHOUT re-parsing the attr string.
   readonly location?: number
   readonly builtin?: string
   readonly interpolate?: string
 }
-/** A structDecl / ioStruct HANDLE used directly as a param spec value (#740 R6):
+/** A structDecl / ioStruct HANDLE used directly as a param spec value (X-GIS #740 R6):
  *  `fn({ in: PointOut }, ({ in }) => in.uv…)` — the body receives the TYPED field
  *  proxy, retiring the `PointOut.of(p.in)` re-assertion at every consumer. */
 type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object }
@@ -82,11 +82,11 @@ type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): ob
  *  `@fragment` and `@compute` entries alike. See {@link FnHandle} for the call surface a
  *  record produces.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, builtin, toF32, vec4, u32T, vec4fT, type FnParamSpec } from '@xgis/shader-dsl'
+ *  import { fn, builtin, toF32, vec4, u32T, vec4fT, type FnParamSpec } from 'typeshade'
  *
  *  const vs = fn(
  *    'vs_main',
@@ -105,7 +105,7 @@ type ParamTypeOf<E> = E extends ParamAttr
       ? E
       : never
 /** Body-side param values. Params are READ-ONLY in WGSL — the node type is
- *  `ReadonlyNode`, so `p.a.assign(…)` is a tsc error (#763 G3; the runtime
+ *  `ReadonlyNode`, so `p.a.assign(…)` is a tsc error (X-GIS #763 G3; the runtime
  *  never guarded this: auto-vars skips param roots and the emitted assign
  *  died in the driver). Struct-handle params receive the handle's READ view. */
 type ParamNodes<P extends FnParamSpec> = {
@@ -124,7 +124,7 @@ type ParamNodes<P extends FnParamSpec> = {
  *  example when assembling a `Stmt[]` fragment by hand to splice into a body later; there
  *  the ambient functions throw `SD0013` (no active scope).
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -364,7 +364,7 @@ export class Builder {
  *  the first arm, so a chain without a trailing `.else` still emits a valid `if` / `else if`
  *  with no `else` block.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -401,12 +401,12 @@ export class IfChain {
 // line.ts:721-726 shadowing bug). push/pop is exception-safe (try/finally) — a
 // throw mid-body must not leak the stack into the next shader. This is a pure
 // authoring-surface change: it emits the same Stmt[] as the passed-builder API.
-// globalThis-backed (#763 D2): a dual-loaded package copy used to get its OWN
+// globalThis-backed (X-GIS #763 D2): a dual-loaded package copy used to get its OWN
 // empty stack — `Let` imported from copy B inside a body authored by copy A's
 // `fn` threw SD0013 at module load. Sharing the ambient state across copies
-// makes the duplication harmless (same pattern as map's __XGIS_PROJECTIONS__).
+// makes the duplication harmless.
 const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[
-  Symbol.for('xgis.shader-dsl.scopeStack')
+  Symbol.for('typeshade.scopeStack')
 ] ??= []) as Builder[]
 
 // Loud (once) when a second copy loads — the state above makes it SAFE, but a
@@ -414,10 +414,10 @@ const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[
 // dedupe/config problem worth seeing.
 {
   const g = globalThis as Record<symbol, unknown>
-  const key = Symbol.for('xgis.shader-dsl.instanceLoaded')
+  const key = Symbol.for('typeshade.instanceLoaded')
   if (g[key])
     console.warn(
-      '[shader-dsl] a second copy of @xgis/shader-dsl was loaded (dual-instance). Ambient state is globalThis-backed so this is safe, but check the bundler/dedupe config — see #763 D2.',
+      '[shader-dsl] a second copy of typeshade was loaded (dual-instance). Ambient state is globalThis-backed so this is safe, but check the bundler/dedupe config — see X-GIS #763 D2.',
     )
   else g[key] = true
 }
@@ -446,7 +446,7 @@ installStmtSink({
   assignOp: (target, bop, value) => currentBuilder().assignOp(target, bop, value),
 })
 
-// ═══ #843 — authoring-error context ═══
+// ═══ X-GIS #843 — authoring-error context ═══
 // When an author's callback throws (a JS ReferenceError, a sot field typo, …) the
 // stack leads with builder internals and the failing fn / statement is invisible.
 // Each callback boundary prefixes the SAME error object's message once — symbol-
@@ -512,7 +512,7 @@ function subBody(
 // no return type. The args mapped-type's own K is the PARAM key (unrelated).
 /** A forwardable struct field proxy (a handle param / `.of()` view) — accepted
  *  anywhere a struct-typed argument is, via its raw-node `$` accessor. */
-// #2456 — keyed: a sot field proxy's `$` now carries `struct:${Name}`, so a body that
+// X-GIS #2456 — keyed: a sot field proxy's `$` now carries `struct:${Name}`, so a body that
 // returns the proxy (`return o`) infers the fn's return key instead of collapsing to
 // `string`. Defaulted, so the loose ARGUMENT positions below stay unchanged.
 type StructArg<R extends string = string> = { readonly $: ReadonlyNode<R> }
@@ -524,7 +524,7 @@ type StructArg<R extends string = string> = { readonly $: ReadonlyNode<R> }
  *  params and return key are pinned in the type, so the caller gets the same object-param
  *  checking `fn()`'s own return value gives.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -573,9 +573,9 @@ function makeCallFactory<R extends ShaderType>(
     return n
   }
   // A struct FIELD PROXY (a handle param / a `.of()` view) forwards as its raw
-  // struct-value Node via its `$` accessor (#740 R6) — so `helper(p.input)` just
+  // struct-value Node via its `$` accessor (X-GIS #740 R6) — so `helper(p.input)` just
   // works when p.input arrived as a typed handle param.
-  // isNodeValue, NOT instanceof (#763 D1): a dual-loaded package splits the
+  // isNodeValue, NOT instanceof (X-GIS #763 D1): a dual-loaded package splits the
   // prototype identity, and a cross-instance node falling through instanceof
   // was misrouted into the named-args parse (TypeError at load, or a silent
   // mis-swizzle when a param name collides with a component getter).
@@ -645,14 +645,14 @@ type FnOpts = {
    *  is used. A bare non-struct fragment return defaults to `@location(0)`. */
   retAttr?: string | { readonly attr: string; readonly builtin?: string }
 }
-// A body may return the raw node OR a struct field proxy (`return o` — #763 X14):
+// A body may return the raw node OR a struct field proxy (`return o` — X-GIS #763 X14):
 // the proxy forwards `.expr`/`.type` to its base var, so `bld.ret` reads it like
 // a node. StructArg is the `{ $: ReadonlyNode }` shape every sot proxy carries.
 type FnBody<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R> | void
-// #2458 — the body shape the RET-INFERRING overloads accept. A body that returns nothing at
+// X-GIS #2458 — the body shape the RET-INFERRING overloads accept. A body that returns nothing at
 // the TS level cannot tell tsc what it returns: `inferReturnType` walks the recorded
 // statements and finds `f32` for a guard-style body, but TS sees `void` and falls back to
 // `R = string`, which puts every call site outside the phantom-key checker. Such a body must
@@ -662,14 +662,14 @@ type FnBodyValue<P extends FnParamSpec, R extends string> = (
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R>
 // #8 B1 — the body shape the VOID-INFERRING overloads accept. It is the same `void` TS sees
-// for the guard-style body #2458 turned away, so the separation cannot be made at the type
+// for the guard-style body X-GIS #2458 turned away, so the separation cannot be made at the type
 // level; it is made at run time instead, by `assertInferredVoid` below. The declared
 // parameter type is `undefined` rather than `void` so a body that DOES return a node keeps
 // matching the value overloads first — `void` as a return type accepts any value.
 type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undefined | void
 
 // #8 B1 — the runtime half of the void-inferring overloads. Those overloads pin the handle's
-// key to `'void'` without a `voidT` token, and #2458 is right that a key which LIES is worse
+// key to `'void'` without a `voidT` token, and X-GIS #2458 is right that a key which LIES is worse
 // than `string`: TypeScript reads `(p) => { If(c, () => Return(x)); Return(f32(0)) }` as
 // returning nothing too, and that body returns f32. So the claim is checked where the answer
 // exists — after the body has run, against what `inferReturnType` actually found. A body that
@@ -725,16 +725,16 @@ function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): S
 // ⚠️ The caveat is about a BARE `_fn{n}` reaching emitted WGSL: the byte-identical snapshots
 // are baked in one process and checked in another, and a fn referenced by a STRING name
 // (externFn('project', …) / a callFn('…') / a placeholder-swap funcs[] lookup) must keep a
-// stable explicit name. Two ways to have one (#763 H9): pass the name to fn(), OR list the
+// stable explicit name. Two ways to have one (X-GIS #763 H9): pass the name to fn(), OR list the
 // anonymous handle in a `funcs:` KEY-RECORD — the record key deterministically RENAMES the
 // decl (and every handle-made call site, via declRef + the assembly rewrite), so fnAutoId
 // never reaches the output. Only an anonymous fn used in an ARRAY-form module emits `_fn{n}`.
-// globalThis-backed counter (#763 D2) — two copies each starting at `_fn0`
+// globalThis-backed counter (X-GIS #763 D2) — two copies each starting at `_fn0`
 // would collide in the name-keyed module dedup and silently mis-link
 // DIFFERENT anonymous fns as one.
-const fnAutoState = ((globalThis as Record<symbol, unknown>)[
-  Symbol.for('xgis.shader-dsl.fnAutoId')
-] ??= { n: 0 }) as { n: number }
+const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('typeshade.fnAutoId')] ??= {
+  n: 0,
+}) as { n: number }
 
 /** Author a function. One call covers a plain helper and a `@vertex`, `@fragment` or
  *  `@compute` entry point. The returned {@link FnHandle} is both the callable and the
@@ -803,7 +803,7 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[
  *  statements anywhere the entry can reach. Anything outside that shape fails validation on
  *  both writers with `SD0111` and a per-violation remedy.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param name - the emitted function name. Omit it to let a `funcs` key record name the
  *    function at module assembly.
@@ -820,7 +820,7 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[
  *
  *  @example
  *  ```ts
- *  import { fn, location, vec4, length, vec2fT } from '@xgis/shader-dsl'
+ *  import { fn, location, vec4, length, vec2fT } from 'typeshade'
  *
  *  const dist = fn('dist', { p: vec2fT, q: vec2fT }, ({ p, q }) => length(p.sub(q)))
  *
@@ -892,7 +892,7 @@ export function fn(
   const inferred = explicitRet === undefined
   const body = (inferred ? retOrBody : named ? d : c) as FnBody<FnParamSpec, string>
   const opts = (named ? (inferred ? d : e) : inferred ? c : d) as FnOpts | undefined
-  // The portable kernel tier is a COMPUTE declaration (#1812) — the two-layer pattern's
+  // The portable kernel tier is a COMPUTE declaration (X-GIS #1812) — the two-layer pattern's
   // runtime half, checked here (before the body runs) because `FnOpts` is one flat bag and
   // TS cannot make the pairing unrepresentable without splitting the overload set.
   if (opts?.portable === true && opts.stage !== 'compute')
@@ -902,7 +902,7 @@ export function fn(
     )
   // A param value is a plain ShaderType, a FieldSpec `{ type, attr }` (builtin/location)
   // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/
-  // `@location(…)` — or a structDecl/ioStruct HANDLE (#740 R6), whose param arrives in
+  // `@location(…)` — or a structDecl/ioStruct HANDLE (X-GIS #740 R6), whose param arrives in
   // the body as the TYPED field proxy (no `X.of(p.in)` re-assertion).
   const entries = Object.entries(params).map(([n, spec]) => {
     const isHandle = 'of' in spec && typeof (spec as StructParamHandle).of === 'function'
@@ -913,7 +913,7 @@ export function fn(
         ? (spec as ParamAttr | StructParamHandle).type
         : spec) as ShaderType,
       attr: fieldSpec?.attr,
-      // #763 S5 — thread the structured IO fields through to FuncDecl.params;
+      // X-GIS #763 S5 — thread the structured IO fields through to FuncDecl.params;
       // dropping them here made reflect() see ZERO vertex attributes for
       // location()-authored entry params (the string fallback was load-bearing).
       location: fieldSpec?.location,
@@ -944,13 +944,13 @@ export function fn(
     try {
       return body(paramNodes, bld)
     } catch (e) {
-      // #843 — outermost authoring context: name the fn whose body threw, once
+      // X-GIS #843 — outermost authoring context: name the fn whose body threw, once
       // (a nested subBody has already tagged the statement kind by this point).
       tagAuthoringError(e, AUTHOR_FN_TAGGED, `while building fn '${name}'`)
       throw e
     }
   })
-  // A struct field proxy returned directly (`return o` — #763 X14) forwards
+  // A struct field proxy returned directly (`return o` — X-GIS #763 X14) forwards
   // `.expr`/`.type` to its base var, so it reads like a node from here on.
   const result = rawResult as ReadonlyNode | void
   if (result !== undefined) bld.ret(result)
@@ -966,14 +966,14 @@ export function fn(
       : opts?.stage
         ? [`@${opts.stage}`]
         : undefined
-  // retAttr: string | FieldSpec, with the fragment default (#763 X3).
+  // retAttr: string | FieldSpec, with the fragment default (X-GIS #763 X3).
   const retAttrRaw = opts?.retAttr
   const retAttr =
     (typeof retAttrRaw === 'string' ? retAttrRaw : retAttrRaw?.attr) ??
     (opts?.stage === 'fragment' && ret.kind !== 'struct' && ret.kind !== 'void'
       ? '@location(0)'
       : undefined)
-  // The FieldSpec form carries the STRUCTURED builtin id — preserve it (#1672): dropping
+  // The FieldSpec form carries the STRUCTURED builtin id — preserve it (X-GIS #1672): dropping
   // it here made `retAttr: builtin('point_size', …)` invisible to assertBuiltins, the
   // one authoring path where an absent builtin could still reach WGSL text silently.
   const retBuiltin = typeof retAttrRaw === 'string' ? undefined : retAttrRaw?.builtin
@@ -983,10 +983,10 @@ export function fn(
     ret,
     body: bld.stmts,
     attrs,
-    // Structured stage (#740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
+    // Structured stage (X-GIS #740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
     stage: opts?.stage,
     workgroupSize: opts?.stage === 'compute' ? (opts.workgroupSize ?? 64) : undefined,
-    // Structured-only, no attrs spelling (#740 R3 / #1812) — see FuncDecl.portable.
+    // Structured-only, no attrs spelling (X-GIS #740 R3 / X-GIS #1812) — see FuncDecl.portable.
     portable: opts?.portable,
     retAttr,
     retBuiltin,
@@ -1005,7 +1005,7 @@ export function fn(
     ret,
     body: decl.body,
     attrs: decl.attrs,
-    // #1812 — `portable` has NO attrs spelling by design, so unlike `stage`/`workgroupSize`
+    // X-GIS #1812 — `portable` has NO attrs spelling by design, so unlike `stage`/`workgroupSize`
     // it has no fallback to recover it from: a handle that did not mirror it would drop the
     // declaration the moment module() put the handle (not the decl) into funcs[], and the
     // whole tier would be silently dead on the only path that can author it — fn().
@@ -1045,7 +1045,7 @@ export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
  *  caller has no declaration to list in `module({ funcs })`, so the host that owns the body
  *  links it in at emit.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param name - the callee's emitted name, which the linked-in definition must match.
  *  @param params - the parameter record, in declaration order.
@@ -1054,7 +1054,7 @@ export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
  *
  *  @example
  *  ```ts
- *  import { externFn, f32T, vec2fT } from '@xgis/shader-dsl'
+ *  import { externFn, f32T, vec2fT } from 'typeshade'
  *
  *  // Callable now; the real fn() body is linked in later, at emit, by the host.
  *  export const warp = externFn('warp', { x: f32T, y: f32T, scale: f32T }, vec2fT)
@@ -1069,7 +1069,7 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(
   return makeCallFactory(name, ret, paramList) as ExternFn<P, R>
 }
 
-// ── module assembly: transitive fn collection + key-naming (#740 R1) ──
+// ── module assembly: transitive fn collection + key-naming (X-GIS #740 R1) ──
 
 /** A declarator handle accepted by `module({ uses })`: anything that carries its own
  *  declaration or binding. {@link uniformStruct} returns `{ struct, binding }`;
@@ -1088,7 +1088,7 @@ export type UsesHandle =
  *  is named by its key, with no separate `name` string to keep in sync. Prefer the array form
  *  when order matters and the functions already carry explicit names.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1136,14 +1136,14 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
   const authored: FuncDecl[] = record
     ? Object.entries(input as Readonly<Record<string, FuncDecl>>).map(([key, f]) => {
         const d = declOf(f)
-        // #763 D4 — a record-form rename mutates the SHARED FuncDecl in place.
+        // X-GIS #763 D4 — a record-form rename mutates the SHARED FuncDecl in place.
         // If this decl already participated in another assembly under a
         // DIFFERENT name, renaming it now silently corrupts that module's
         // re-emit (`fn old` definition vs `new(...)` calls). Fail loud.
         const prev = d[ASSEMBLED_AS]
         if (prev !== undefined && prev !== key) {
           throw new Error(
-            `shader-dsl: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (#763 D4). Author a separate fn (or reuse the key '${prev}').`,
+            `typeshade: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (X-GIS #763 D4). Author a separate fn (or reuse the key '${prev}').`,
           )
         }
         if (d.name !== key) {
@@ -1224,7 +1224,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
  *  {@link fp64Guard} among them, and derives the struct, binding and const entries from what
  *  each handle already knows. Explicit arrays still work and merge with the derived ones.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param parts - the declaration arrays, the optional `funcs` record, and `uses`.
  *  @returns the assembled module.
@@ -1233,7 +1233,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
  *
  *  @example
  *  ```ts
- *  import { module } from '@xgis/shader-dsl'
+ *  import { module } from 'typeshade'
  *
  *  // Array form: the order is the emit order, callees first.
  *  const m = module({ structs: [VsOut.decl], bindings: [U.binding], funcs: [wrap, vs, fs] })
@@ -1247,7 +1247,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
  *  @see {@link reflect} for reading the assembled module's pipeline metadata.
  */
 export function module(parts: ModuleParts): ModuleDecl {
-  // #763 X1 — `uses:` derives structs/bindings/consts from the HANDLES, which
+  // X-GIS #763 X1 — `uses:` derives structs/bindings/consts from the HANDLES, which
   // already know their own decls; every module used to restate them by hand,
   // and a forgotten `U.binding` was green through tsc AND validate, dying at
   // pipeline creation. Explicit arrays still work and merge (name-deduped —
@@ -1295,15 +1295,15 @@ export function module(parts: ModuleParts): ModuleDecl {
     structs,
     bindings,
     funcs: normalizeFuncs(parts.funcs),
-    // #923 — carry the specialization-constant declarators through (absent ⇒ omit the
+    // X-GIS #923 — carry the specialization-constant declarators through (absent ⇒ omit the
     // key, so an override-free module object stays byte-identical to before).
     ...(parts.overrides ? { overrides: parts.overrides } : {}),
-    // #1713 — same carry-through for host-provided globals. Passed EXPLICITLY rather than
+    // X-GIS #1713 — same carry-through for host-provided globals. Passed EXPLICITLY rather than
     // through `uses:`: an ExternVarHandle is `{ node, decl }`, which the `uses` dispatch's
     // `'decl' in h` branch would route to addConst and silently emit as a module constant.
     ...(parts.externs ? { externs: parts.externs } : {}),
   }
-  // #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
+  // X-GIS #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
   // enables-free module object stays byte-identical to before).
   return parts.enables ? { ...decl, enables: parts.enables } : decl
 }
@@ -1316,7 +1316,7 @@ export function module(parts: ModuleParts): ModuleDecl {
  *  `node` is non-enumerable: the declaration is spread, compared and serialized on its way to
  *  the emitted module, and it stays exactly the object it was.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @typeParam T The constant's `ShaderType`, which types `node`'s key.
  */
@@ -1337,14 +1337,14 @@ export interface ConstExprDecl<T extends ShaderType> extends ConstDecl {
  *  evaluates the full double. `constExpr` has no such split, because a folded literal node
  *  carries one value for both.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  The declaration carries `.node`, the typed reference to read it through, so the name is
  *  written once. Without it a reader is spelled `constRef('SKY', vec4fT)` — a string the type
  *  checker never compares against the declaration, and a second copy of the type, so a rename
  *  or a retype is silent at every call site until the GPU compiler sees it.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param name - the emitted constant name, and the name every reference spells.
  *  @param type - the constant's shader type, emitted as its declared type.
@@ -1353,7 +1353,7 @@ export interface ConstExprDecl<T extends ShaderType> extends ConstDecl {
  *
  *  @example
  *  ```ts
- *  import { constExpr, arrayLit, arrayT, vec4, vec4fT } from '@xgis/shader-dsl'
+ *  import { constExpr, arrayLit, arrayT, vec4, vec4fT } from 'typeshade'
  *
  *  const SKY = constExpr('SKY', vec4fT, vec4(0.4, 0.6, 0.9, 1))
  *  const PALETTE = constExpr('PALETTE', arrayT(vec4fT, 2), arrayLit(vec4fT, c0, c1))
@@ -1412,14 +1412,14 @@ export function constExpr<T extends ShaderType>(
  *  call there is a discarded expression, since the returned statement is never pushed and
  *  nothing is emitted.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param payload - the per-target spellings, at least one of `wgsl` and `glsl`.
  *  @returns the raw statement node, ready to place in a body array.
  *
  *  @example
  *  ```ts
- *  import { fn, rawStmt, vec4fT } from '@xgis/shader-dsl'
+ *  import { fn, rawStmt, vec4fT } from 'typeshade'
  *
  *  // Inside a fn body, through the builder:
  *  const fs = fn('fs_main', {}, vec4fT, (_p, b) => {
@@ -1462,7 +1462,7 @@ export interface OverrideHandle<K extends string> {
  *
  *  WGSL allows scalar overrides only, so `type` must be `bool`, `i32`, `u32` or `f32`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param name - the override's name, as the host spells it in `constants` or in a define.
  *  @param type - the scalar shader type of the value.
@@ -1473,7 +1473,7 @@ export interface OverrideHandle<K extends string> {
  *
  *  @example
  *  ```ts
- *  import { overrideConst, module, reflect, u32T } from '@xgis/shader-dsl'
+ *  import { overrideConst, module, reflect, u32T } from 'typeshade'
  *
  *  const quality = overrideConst('QUALITY', u32T, 1)
  *  const m = module({ overrides: [quality.decl], funcs: [fs] })
@@ -1513,7 +1513,7 @@ export interface ExternVarHandle<K extends string> {
  *  value differently, as a WGSL struct member or a bound uniform in place of a GLSL prelude
  *  global, the change is confined to the spelling map.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param name - the logical symbol name, and the default spelling on both targets.
  *  @param type - its shader type, for checking every read.
@@ -1523,7 +1523,7 @@ export interface ExternVarHandle<K extends string> {
  *
  *  @example
  *  ```ts
- *  import { externVar, mat4fT } from '@xgis/shader-dsl'
+ *  import { externVar, mat4fT } from 'typeshade'
  *
  *  const uMatrix = externVar('u_matrix', mat4fT, { stage: 'vertex' })
  *  const clip = uMatrix.node.mul(worldPos) // type-checked; emits `u_matrix * …`
@@ -1569,7 +1569,7 @@ export function externVar<T extends ShaderType>(
  *  that var re-emits at every read unless it is materialised. Inside such a loop, wrap
  *  anything derived from the mutated var that you read more than once.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param name - the emitted binding name. Omit it and the builder generates one.
  *  @param value - the expression to bind.
@@ -1577,7 +1577,7 @@ export function externVar<T extends ShaderType>(
  *
  *  @example
  *  ```ts
- *  import { fn, Loop, Let, If, Break, length, f32, u32, f32T, vec3fT } from '@xgis/shader-dsl'
+ *  import { fn, Loop, Let, If, Break, length, f32, u32, f32T, vec3fT } from 'typeshade'
  *
  *  const march = fn('march', { ro: vec3fT, rd: vec3fT }, f32T, ({ ro, rd }) => {
  *    const t = f32(0) // mutated below, so the emit materialises it as a var
@@ -1621,7 +1621,7 @@ export function Let<K extends string>(
  *  parameter and a module constant all return the read-only node type, which has no `.assign`,
  *  so mutating one is a tsc error at the authoring line.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param name - the emitted identifier. Omit it and the builder generates one.
  *  @param type - the declared type. Omit it when an initialiser carries the type.
@@ -1630,7 +1630,7 @@ export function Let<K extends string>(
  *
  *  @example
  *  ```ts
- *  import { Var, Switch, f32 } from '@xgis/shader-dsl'
+ *  import { Var, Switch, f32 } from 'typeshade'
  *
  *  const radiusPx = Var('radius_px', rawRadius)
  *  Switch(sizeMode)
@@ -1656,12 +1656,12 @@ export function Var<T extends ShaderType>(
   maybeInit?: ReadonlyNode<KeyOf<T>>,
 ): Node<KeyOf<T>> {
   // Var(init) — a mutable var seeded from a value infers its WGSL type from that value.
-  // Brand probe, not instanceof (#763 D1) — a cross-instance init node must not
+  // Brand probe, not instanceof (X-GIS #763 D1) — a cross-instance init node must not
   // fall through to the ShaderType arm and declare a garbage-typed var.
   if (isNodeValue(nameOrTypeOrInit))
     return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>
   if (typeof nameOrTypeOrInit === 'string') {
-    // Var(name, init) — the second slot is a NODE, not a ShaderType (#763 X9).
+    // Var(name, init) — the second slot is a NODE, not a ShaderType (X-GIS #763 X9).
     if (isNodeValue(typeOrInit))
       return currentBuilder().var(nameOrTypeOrInit, typeOrInit.type, typeOrInit) as Node<KeyOf<T>>
     return currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit)
@@ -1676,7 +1676,7 @@ export function Var<T extends ShaderType>(
  *  early if a condition holds" shape, {@link ReturnIf} is the more readable guard-clause
  *  spelling.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1692,7 +1692,7 @@ export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value
  *  A native `return` inside an `If` body emits nothing, so an early return from a branch is
  *  written in one of these two forms.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param cond - the guard condition.
  *  @param value - the value to return; omit it for a bare `return;`.
@@ -1710,7 +1710,7 @@ export const ReturnIf = (cond: ReadonlyNode<'bool'>, value?: ReadonlyNode): void
  *  enclosing loop. An `If` or `Switch` body nested inside a `Loop` is not itself a loop
  *  boundary, so `Continue()` written inside a guard in a loop still targets that loop.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1722,7 +1722,7 @@ export const Continue = (): void => currentBuilder().continue()
  *  current `Switch` case) outright, under the same nesting rule as {@link Continue}: an `If`
  *  nested inside the loop is not itself a break boundary.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1738,7 +1738,7 @@ export const Break = (): void => currentBuilder().break()
  *  typically guarded by an `If` for a cull test: a backface, an alpha clip, an out-of-bounds
  *  sample.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -1759,7 +1759,7 @@ export const Discard = (): void => currentBuilder().discard()
  *  `If(c, () => Return(f32(1)))` by three characters and by everything else. For a value,
  *  reach for {@link when}.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param cond - the branch condition.
  *  @param body - the statements of the branch, authored through the ambient functions.
@@ -1802,7 +1802,7 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  {@link Break} and {@link Continue} are the loop terminators. For a loop whose only job is
  *  to fold a value, {@link reduce} returns the accumulator and needs no `Var`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param name - the emitted counter identifier. Omit it and one is generated.
  *  @param init - the counter's initial value, which also fixes its type. A plain number is
@@ -1813,7 +1813,7 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *
  *  @example
  *  ```ts
- *  import { Loop, toF32, u32 } from '@xgis/shader-dsl'
+ *  import { Loop, toF32, u32 } from 'typeshade'
  *
  *  Loop(64, (i) => {
  *    acc.assign(acc.add(toF32(i)))
@@ -1895,7 +1895,7 @@ export function Loop<K extends string>(
  *  variable, the loop and the assignment internally, and the emitted statements are the same
  *  as the hand-written form. Returns the accumulator node for use after the loop.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param init - the accumulator's initial value, which also fixes its type.
  *  @param loopInit - the counter's initial value.
@@ -1906,7 +1906,7 @@ export function Loop<K extends string>(
  *
  *  @example
  *  ```ts
- *  import { reduce, toF32, f32, u32 } from '@xgis/shader-dsl'
+ *  import { reduce, toF32, f32, u32 } from 'typeshade'
  *
  *  const sum = reduce(f32(0), u32(0), (i) => i.lt(u32(8)), (acc, i) => acc.add(toF32(i)))
  *  ```
@@ -1952,7 +1952,7 @@ export function reduce<K extends string, J extends string>(
  *  `ifExpr` and `condExpr` are deprecated aliases of the two-arm and N-arm shapes. They
  *  forward here unchanged.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param cond - the test, for the two-arm shape.
  *  @param arms - condition and value pairs, for the N-arm shape, evaluated in order.
@@ -1962,7 +1962,7 @@ export function reduce<K extends string, J extends string>(
  *
  *  @example
  *  ```ts
- *  import { when, vec2 } from '@xgis/shader-dsl'
+ *  import { when, vec2 } from 'typeshade'
  *
  *  const dir = when(
  *    segLen.lt(1e-6),
@@ -2049,7 +2049,7 @@ export function condExpr<K extends string>(
  *  real `switch` on both targets. `.case(n, body)` adds a case label; `.default(body?)` adds
  *  the optional default arm and ends the chain, pushing the statement.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
@@ -2085,7 +2085,7 @@ export class SwitchChain {
  *  scrutinee is a read position, so a read-only node is accepted, and it must be `i32` or
  *  `u32`: WGSL and GLSL ES 3.00 both type `switch` over integers only.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param scrut - the integer value dispatched on.
  *  @returns the chain, for `.case` and `.default`.

@@ -77,8 +77,8 @@ describe('internal-frame filter', () => {
     file.includes('/shader-dsl/src/core/') && !file.endsWith('.test.ts')
 
   it.each([
-    ['a dist build', '/app/node_modules/@xgis/shader-dsl/dist/core/', 'ir/builder.js'],
-    ['a renamed install dir', '/app/vendor/xgis-dsl/core/', 'passes/opt/optimize.js'],
+    ['a dist build', '/app/node_modules/typeshade/dist/core/', 'ir/builder.js'],
+    ['a renamed install dir', '/app/vendor/typeshade-fork/core/', 'passes/opt/optimize.js'],
     ['a Vite /@fs dev URL', 'https://localhost:3000/@fs/w/pkg/dist/core/', 'ir/node.js'],
   ])('classifies %s as internal where the hardcoded filter did not', (_what, prefix, rest) => {
     const frame = prefix + rest
@@ -87,7 +87,7 @@ describe('internal-frame filter', () => {
   })
 
   it('still exempts a co-located *.test.ts and still passes consumer frames through', () => {
-    const prefix = '/app/node_modules/@xgis/shader-dsl/dist/core/'
+    const prefix = '/app/node_modules/typeshade/dist/core/'
     expect(isInternalFrame(`${prefix}ir/builder.test.ts`, prefix)).toBe(false)
     expect(isInternalFrame('/app/src/shaders/my-shader.ts', prefix)).toBe(false)
   })

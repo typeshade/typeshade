@@ -1,4 +1,4 @@
-// ═══ emitIdentity (#1715 Problem B) — telling dev bytes from prod bytes ═══
+// ═══ emitIdentity (X-GIS #1715 Problem B) — telling dev bytes from prod bytes ═══
 //
 // The reported failure: a committed generated registry, a production build that rewrote
 // those tracked files, and dev-mode golden tests that then disagreed with what the build
@@ -106,8 +106,8 @@ describe('emitIdentity — the shape of the string', () => {
   })
 })
 
-describe('emitIdentity — the #1812 portable declaration is a mode too', () => {
-  // Since #1812 the compute→fragment lowering runs on GLSL for a `portable`-declared entry
+describe('emitIdentity — the X-GIS #1812 portable declaration is a mode too', () => {
+  // Since X-GIS #1812 the compute→fragment lowering runs on GLSL for a `portable`-declared entry
   // with NO emit option — so the `emulateCompute` marker means "the lowering RAN", and a
   // stamp built from the options alone would claim a plain emit for exactly the bytes the
   // lowering rewrote. The module (third argument) is what closes that gap.

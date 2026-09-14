@@ -1,4 +1,4 @@
-// ═══ Shader DSL — compile + link EVERY variant of a family (#1715 Problem A) ═══
+// ═══ Shader DSL — compile + link EVERY variant of a family (X-GIS #1715 Problem A) ═══
 //
 // A module is type-checked; the COMBINATION a host actually selects is only proven when a
 // driver compiles and links it. The consumer that asked for this found two failures at the
@@ -17,7 +17,7 @@
 // It does not create the context, choose the canvas, or decide what a failure means for the
 // build. That is the same split as `buildRegistry`: the environment belongs to the caller.
 //
-// `validateVariantsWgsl` is the WGSL half. naga/tint still cannot enter this package (#1681
+// `validateVariantsWgsl` is the WGSL half. naga/tint still cannot enter this package (X-GIS #1681
 // zero-dependency), so validation is a real browser's Tint through
 // `GPUDevice.createShaderModule()` + `getCompilationInfo()` — hence the ASYNC shape and the
 // second structural parameter. What was wrong was the follow-on claim, once recorded here and
@@ -170,7 +170,7 @@ function linkOne(gl: GlLinker, key: string, vsSrc: string, fsSrc: string): Varia
     ? { key, ok: true }
     : { key, ok: false, failedAt: 'link', log: log.slice(0, MAX_LOG) }
 }
-// ── the WGSL half (#1715 Problem A) ──────────────────────────────────────────
+// ── the WGSL half (X-GIS #1715 Problem A) ──────────────────────────────────────────
 
 /** The slice of `GPUDevice` that validating a WGSL module needs.
  *

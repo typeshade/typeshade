@@ -1,35 +1,25 @@
-// ═══ #1681 C — THE MIRROR INVARIANT: shader-dsl/ names no path outside shader-dsl/ ═══
+// ═══ X-GIS #1681 C — SELF-CONTAINMENT: this package names no path outside itself ═══
 //
-// WHAT THE MIRROR IS. This package is NOT published to npm. The consuming project takes it
-// as a git SUBMODULE of a MIRROR repository produced by
+// WHERE THIS CAME FROM. The invariant was written when the package was the `shader-dsl/`
+// workspace of the X-GIS monorepo and reached its consumer as a git submodule of a MIRROR
+// repository produced by `git subtree split --prefix=shader-dsl`. The monorepo was
+// authoritative and the mirror was a read-only derivative. None of that is true now: this
+// repository is the source, it publishes to npm as `typeshade`, and the split has happened
+// once and for all. The measurements that motivated the invariant (the split is idempotent,
+// the mirror clone is 1.7 MB against the monorepo's 498 MB .git, a fresh clone builds with
+// no node_modules anywhere up the tree) belong to that history and are not re-run here.
 //
-//     git subtree split --prefix=shader-dsl
+// WHY IT STILL EARNS ITS PLACE. The invariant outlived its original reason, because the
+// property it protects is what a consumer depends on either way: a path that climbs OUT of
+// this tree (`../../shared/src/x`, a `../tsconfig.base.json`, `cd ..`) names a directory
+// that exists on the author's machine and nowhere else. A submodule checkout is exactly the
+// tracked files and nothing else; an npm tarball is exactly `files` and nothing else. In
+// both, an escaping path is a build that fails for everyone but the person who wrote it,
+// and it fails at config-load time, before a single .ts file is read.
 //
-// The monorepo stays authoritative; the mirror is a read-only derivative and fixes flow back
-// through X-GIS. Measured on this machine while the pivot was decided:
-//
-//   F1  the split yields 235 commits and the tree ROOTS AT THE PACKAGE — src/, examples/,
-//       package.json, tsconfig.json, tsconfig.base.json, tsconfig.tests.json, README.md,
-//       LICENSE, CHANGELOG.md, AUTHORING.md, AGENTS.md all sit at top level. No dist/ (it is
-//       untracked), and — the load-bearing part — no `..`.
-//   F2  the split is IDEMPOTENT: a second split over the same history reproduced head SHA
-//       5afff6ec, so CI can FAST-FORWARD push the mirror. No force-push, no rewritten
-//       submodule pins in the consumer.
-//   F3  the mirror bare repo gc's to 1.6 MB against this monorepo's 498 MB .git; a consumer
-//       clone is 1.7 MB carrying all 235 commits.
-//   F4  a fresh consumer clone BUILDS STANDALONE: `tsc -p tsconfig.json`, with no
-//       node_modules anywhere up the tree, exits 0 with 0 errors and emits 82 dist JS files.
-//       Increment B's package-local tsconfig.base.json is what makes that resolve.
-//
-// WHY THE INVARIANT IS THE THING THAT MAKES IT WORK. F4 is not a property of the split — it
-// is a property of the SOURCE. The split re-roots the tree at shader-dsl/, so any path that
-// climbs out of the package (`../../shared/src/x`, `../tsconfig.base.json` at the monorepo
-// root, `cd ..`) names a directory that DOES NOT EXIST in the consumer clone. Nothing
-// downstream can repair that: the tarball is fine, the monorepo is fine, and the mirror —
-// the only tree the consumer ever compiles — is broken, in a repository nobody here builds.
-// So the invariant is F5: NOTHING TRACKED UNDER shader-dsl/ MAY REFERENCE A PATH OUTSIDE IT.
-// Measured across the three surfaces a package can reach outward through, this file gates
-// all three, plus the manifest hygiene the invariant leans on.
+// So: NOTHING TRACKED HERE MAY REFERENCE A PATH OUTSIDE THIS PACKAGE. Measured across the
+// three surfaces a package can reach outward through, this file gates all three, plus the
+// manifest hygiene the invariant leans on.
 //
 // WHAT EACH ARM CATCHES THAT NO OTHER ARM CAN
 //   S1 relative imports      — the .ts source graph. 223 tracked .ts files, 771 relative
@@ -41,7 +31,7 @@
 //                              overlaps `src/tsconfig-drift.test.ts`'s B1 arm, which frames
 //                              it around the older source-vendoring story and hand-LISTS the
 //                              four configs; this arm derives the list from git, so a config
-//                              that is added or moved cannot leave it vacuously green (#996).
+//                              that is added or moved cannot leave it vacuously green (X-GIS #996).
 //                              Collapsing the two is a follow-up, not a silent divergence:
 //                              neither carries an allowlist, so they can only both-red.
 //   S3 script `..` segments  — a script is not compiled, so S1/S2 never see it; it fails at
@@ -73,20 +63,16 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { monorepoRoot } from '../scripts/monorepo-context.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url)) // shader-dsl/src
-const PKG_DIR = resolve(HERE, '..') // shader-dsl — the root of the mirror
-/** The monorepo root when this tree is a workspace of one; `null` in the standalone tree (the
- *  mirror clone, a consumer's submodule checkout) — see scripts/monorepo-context.ts. The S1–S6
- *  arms are about the PACKAGE and run in both trees; the S7 arms are about the monorepo's
- *  workspaces array and run only where one exists. */
-const MONOREPO = monorepoRoot(PKG_DIR)
-/** What `TRACKED` paths are relative to: the monorepo root (paths prefixed `shader-dsl/`) or
- *  the package itself (no prefix). */
-const REPO_ROOT = MONOREPO ?? PKG_DIR
-const PATHSPEC = MONOREPO === null ? '.' : relative(MONOREPO, PKG_DIR)
-const PKG_PREFIX = MONOREPO === null ? '' : `${PATHSPEC}/`
+const HERE = dirname(fileURLToPath(import.meta.url))
+/** The repository root, which is also the package root: this tree stands alone. It was a
+ *  workspace of the X-GIS monorepo until the split, and these arms asked which of the two
+ *  trees they were running in before deciding what to assert. There is one tree now, so the
+ *  three values below are constants and every arm simply asserts. */
+const PKG_DIR = resolve(HERE, '..')
+const REPO_ROOT = PKG_DIR
+const PATHSPEC = '.'
+const PKG_PREFIX = ''
 
 /** `git`, array-argv, output captured to a variable (CLAUDE.md §12 shell rules). Throws on a
  *  non-zero exit instead of returning `[]` — a silently empty list is precisely how a scan
@@ -169,7 +155,7 @@ type Tsconfig = {
 }
 
 /** Tracked tsconfigs at any depth in the package, by BASENAME — derived, not hand-listed, so
- *  a new or moved config joins the census automatically (#996: a path-keyed list needs a
+ *  a new or moved config joins the census automatically (X-GIS #996: a path-keyed list needs a
  *  companion "every key still resolves"; having no list is strictly better). */
 const CONFIGS = TRACKED.filter((f) =>
   /^tsconfig(\.[\w.-]+)?\.json$/.test(f.slice(f.lastIndexOf('/') + 1)),
@@ -222,52 +208,7 @@ const BUILT_ARTIFACTS: Readonly<Record<string, string>> = {}
 /** How many tracked paths a `files`-style pathspec expands to, asked from the package dir. */
 const trackedBehind = (entry: string): number => git(PKG_DIR, 'ls-files', '--', entry).length
 
-// ── S7: the publish-shaped workspace set ────────────────────────────────────────────────
-
-const WORKSPACES =
-  MONOREPO === null
-    ? []
-    : (readJsonc<{ workspaces?: string[] }>(resolve(MONOREPO, 'package.json')).workspaces ?? [])
-
-/** Workspaces whose manifest does NOT say `private: true` — i.e. that `npm publish` would
- *  happily upload. Entries are plain directory names today; a glob entry would throw here
- *  rather than be silently skipped, which is the correct direction to fail. */
-const PUBLISH_SHAPED = WORKSPACES.filter(
-  (ws) => readJsonc<Manifest>(resolve(REPO_ROOT, ws, 'package.json')).private !== true,
-)
-
-/** Being publish-shaped is an OBLIGATION with a named owner, not a default. Shrink-only in
- *  BOTH directions (the earth-literal-ratchet contract): a publish-shaped workspace missing
- *  from here fails, and an entry whose workspace has since gained `private: true` also fails,
- *  so the exemption cannot outlive its reason. Values are machine-checked for an issue. */
-const PUBLISHABLE: Readonly<Record<string, string>> = {
-  'shader-dsl':
-    'The mirror source (#1681 C). `git subtree split --prefix=shader-dsl` makes THIS manifest ' +
-    'the root of the mirror repo the consumer submodules, so its name / version / exports / ' +
-    'files stay meaningful outside the monorepo and `private: true` would be a claim about a ' +
-    'tree that is consumed. This is NOT an npm publish — the pivot on #1681 dropped npm, the ' +
-    'release script, the tag convention and the version-bump story. If the maintainer later ' +
-    'decides the monorepo copy should carry `private: true`, delete this entry in the same commit.',
-}
-
-/** The derived, per-workspace failure a publish would produce — computed from the manifest
- *  and git rather than written down, so the report stays true for a workspace nobody has
- *  looked at yet. */
-function publishFailure(ws: string): string {
-  const dir = resolve(REPO_ROOT, ws)
-  const manifest = readJsonc<Manifest>(resolve(dir, 'package.json'))
-  const declared = manifest.files ?? []
-  const empty = declared.filter(
-    (e) => !e.startsWith('!') && git(dir, 'ls-files', '--', e).length === 0,
-  )
-  return (
-    `${ws} (${manifest.name ?? '?'}): files=${JSON.stringify(declared)}` +
-    (empty.length > 0 ? `, of which ${JSON.stringify(empty)} expand to ZERO tracked paths` : '') +
-    `, main=${JSON.stringify(manifest.main)}`
-  )
-}
-
-describe('#1681 C — the mirror invariant (F5) + the manifest hygiene it rests on', () => {
+describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it rests on', () => {
   // ── S1 ────────────────────────────────────────────────────────────────────────────────
 
   it('scan sanity — the import scanner SAW the package source', () => {
@@ -361,7 +302,7 @@ describe('#1681 C — the mirror invariant (F5) + the manifest hygiene it rests 
         'vendored or mirrored copy of this directory hits, because the subtree split roots ' +
         'the tree here and the monorepo above it is gone. A bare specifier fails the same way: ' +
         'F4 measured the consumer clone building with NO node_modules anywhere up the tree. ' +
-        'Every chain must terminate at shader-dsl/tsconfig.base.json (#1681 B1).',
+        'Every chain must terminate at shader-dsl/tsconfig.base.json (X-GIS #1681 B1).',
     ).toEqual([])
   })
 
@@ -371,9 +312,7 @@ describe('#1681 C — the mirror invariant (F5) + the manifest hygiene it rests 
     // Four gates below iterate this manifest. If the read returned `{}` — wrong path, parse
     // failure swallowed — all four pass on nothing. These witnesses are chosen to survive the
     // fix increment C lands, so this arm reds only when the READER is broken.
-    expect(PKG.name, 'shader-dsl/package.json did not parse as this package').toBe(
-      '@xgis/shader-dsl',
-    )
+    expect(PKG.name, 'package.json did not parse as this package').toBe('typeshade')
     expect(typeof PKG.version).toBe('string')
     expect(
       Object.keys(SCRIPTS).length,
@@ -495,70 +434,4 @@ describe('#1681 C — the mirror invariant (F5) + the manifest hygiene it rests 
         'same commit that made the path tracked; this allowlist shrinks in both directions.',
     ).toEqual([])
   })
-
-  // ── S7 ────────────────────────────────────────────────────────────────────────────────
-
-  // The S7 arms have a subject only inside the monorepo (`MONOREPO` above): in the standalone
-  // tree there is no workspaces array to compare against, so they do not run there — the same
-  // file, unchanged, keeps asserting them here.
-  it.runIf(MONOREPO !== null)('workspace sanity — the root workspaces array was read', () => {
-    expect(
-      WORKSPACES.length,
-      'root package.json declared no `workspaces` — the S7 arms below compare two empty sets ' +
-        'and pass on nothing',
-    ).toBeGreaterThanOrEqual(10)
-    expect(WORKSPACES).toContain(PATHSPEC)
-  })
-
-  it.runIf(MONOREPO !== null)(
-    'S7 — every publish-shaped workspace is an allowlisted obligation',
-    () => {
-      const unowned = PUBLISH_SHAPED.filter((ws) => !Object.hasOwn(PUBLISHABLE, ws))
-        .map(publishFailure)
-        .sort()
-      expect(
-        unowned,
-        'Workspace with no `private: true`, and no entry in PUBLISHABLE saying who owns that. ' +
-          'Publish-shaped is an OBLIGATION, not a default: one `npm publish` from that ' +
-          'directory uploads whatever `files` expands to, and the report above shows entries ' +
-          'that expand to ZERO tracked paths while `main`/`exports` name a source path the ' +
-          'tarball does not contain — a package with no entry point. npm forbids republishing a ' +
-          'version, so that upload is permanent and the version is burned. For @xgis/map this ' +
-          'is #1685 (files ships only the gitignored dist; exports names ./src/index.ts). Fix ' +
-          'it by adding `private: true` to that workspace — or, if it really is meant to leave ' +
-          'the monorepo, add it here with the reason and its issue.',
-      ).toEqual([])
-    },
-  )
-
-  it.runIf(MONOREPO !== null)(
-    'S7 — an allowlisted workspace that went private must lose its entry',
-    () => {
-      const stale = Object.keys(PUBLISHABLE)
-        .filter((ws) => !PUBLISH_SHAPED.includes(ws))
-        .sort()
-      expect(
-        stale,
-        'PUBLISHABLE entry whose workspace now carries `private: true` (or left the workspaces ' +
-          'array). The obligation is discharged, so DELETE the entry in the same commit that ' +
-          'discharged it — this pair of arms is a set equality, and a stale exemption is a ' +
-          'failure rather than slack. Leaving it means the next reader believes a package is ' +
-          'still meant to leave the monorepo when it is not.',
-      ).toEqual([])
-    },
-  )
-
-  it.runIf(MONOREPO !== null)(
-    'S7 — every PUBLISHABLE entry states a reason and cites an issue',
-    () => {
-      expect(
-        Object.entries(PUBLISHABLE)
-          .filter(([, reason]) => !/#\d+/.test(reason))
-          .map(([ws]) => ws)
-          .sort(),
-        'PUBLISHABLE entry with no issue number — an exemption nobody can trace is an exemption ' +
-          'nobody will remove.',
-      ).toEqual([])
-    },
-  )
 })

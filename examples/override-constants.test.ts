@@ -1,4 +1,4 @@
-// ═══ shader-dsl — specialization constants (#923) ═══
+// ═══ shader-dsl — specialization constants (X-GIS #923) ═══
 //
 // The pinned contract for `overrideConst`: one authored declarator lowers to a WGSL
 // module-scope `override` AND a GLSL `#define`/`#ifndef` permutation seam; its read is
@@ -24,13 +24,13 @@ import {
   emitModuleAt,
   emitGlslModule,
   reflect,
-  ShaderDslError,
+  TypeShadeError,
 } from '../src/index.js'
 import { overrideQuality } from './override-quality.js'
 
 const m = overrideQuality.module
 
-describe('#923 — specialization constants (WGSL override ↔ GLSL #define)', () => {
+describe('X-GIS #923 — specialization constants (WGSL override ↔ GLSL #define)', () => {
   // ── 1. WGSL emit: the `override` line + the surviving guarded branch ──
   it('WGSL emits a module-scope `override` with the default and keeps the guarded branch', () => {
     const wgsl = emitModule(m)
@@ -168,12 +168,12 @@ describe('#923 — specialization constants (WGSL override ↔ GLSL #define)', (
 
   // ── 4 (constraint): reject vec/matrix overrides at authoring (SD0014) ──
   it('rejects a non-scalar (vec) override at authoring with SD0014', () => {
-    expect(() => overrideConst('tint', vec4fT, 0)).toThrow(ShaderDslError)
+    expect(() => overrideConst('tint', vec4fT, 0)).toThrow(TypeShadeError)
     try {
       overrideConst('tint', vec4fT, 0)
       expect.unreachable('vec override should throw')
     } catch (e) {
-      expect((e as ShaderDslError).code).toBe('SD0014')
+      expect((e as TypeShadeError).code).toBe('SD0014')
     }
   })
 })

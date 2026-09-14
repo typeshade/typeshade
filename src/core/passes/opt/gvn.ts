@@ -2,7 +2,7 @@
 //
 // Completes the CSE family. `cse` hoists fn-top INPUT-ONLY repeats; `cse-local`
 // hoists repeats WITHIN A SINGLE statement that touch a local/var. The gap
-// (#627): a subexpression that touches a local/var and repeats ACROSS statements
+// (X-GIS #627): a subexpression that touches a local/var and repeats ACROSS statements
 // in the same block — e.g.
 //
 //   let a = hash(cell + g);      // statement i
@@ -25,7 +25,7 @@
 // Bit-exact (pure dedup — no float arithmetic changes), so no f32 differential
 // gate is needed; pinned by oracle value-equality like cse / cse-local.
 //
-// WIRED into DEFAULT_PASSES and O1 (#1865). It sat available-but-unwired for a
+// WIRED into DEFAULT_PASSES and O1 (X-GIS #1865). It sat available-but-unwired for a
 // long time because turning it on changes production WGSL bytes and every
 // byte-stable snapshot has to be regenerated; the measurement settled it — 208 of
 // 6008 IR ops across the production modules, concentrated in the two per-fragment
@@ -58,7 +58,7 @@ function rootsOf(e: Expr): Set<string> {
 /** The exprs of a statement this block evaluates UNCONDITIONALLY (never the lvalue
  *  target).
  *
- *  An `if`'s FIRST arm condition belongs here (#1886): it runs on every path through
+ *  An `if`'s FIRST arm condition belongs here (X-GIS #1886): it runs on every path through
  *  this block, exactly like a `let` initialiser, so binding a repeat inside it to a
  *  temp placed before the statement adds no work on any path. It used to be absent —
  *  `default: []` covered every control-flow statement under the note "handled by
@@ -68,7 +68,7 @@ function rootsOf(e: Expr): Set<string> {
  *
  *  WORTH 6 CALL SITES ON ITS OWN — measured, not estimated: over the 87-source baked
  *  corpus, before vs after a real build + bake, raw call sites went 12239 -> 12233.
- *  The value is as the PREREQUISITE for cross-block dominance (#1886), where 144 of
+ *  The value is as the PREREQUISITE for cross-block dominance (X-GIS #1886), where 144 of
  *  the 241 remaining repeats sit: the outer occurrence that dominates an inner
  *  recompute is usually the `if` condition, so until it is tallied there is no outer
  *  temp for the inner block to reuse. Do not quote a bigger number for this pass
@@ -209,7 +209,7 @@ function availableIn(s: Stmt, live: ReadonlyMap<string, Avail>): Map<string, Ava
 }
 
 /** GVN one straight-line block: its OWN statements, then each nested block with the
- *  temps this one has bound so far in scope (#1886).
+ *  temps this one has bound so far in scope (X-GIS #1886).
  *
  *  Nested blocks used to be numbered FIRST and in isolation, so a value the enclosing
  *  block had already computed was recomputed from scratch inside an `if`. Handing the
@@ -364,7 +364,7 @@ function gvnFn(f: FuncDecl, loadRoots: ReadonlySet<string>): FuncDecl {
 
 /** Cross-statement value numbering of local-touching repeats. Pure (module → module). */
 export function gvn(m: ModuleDecl): ModuleDecl {
-  // Indexing one of these is a memory load, not free addressing (#1886).
+  // Indexing one of these is a memory load, not free addressing (X-GIS #1886).
   const loadRoots = new Set(m.bindings.map((b) => b.name))
   return { ...m, funcs: m.funcs.map((f) => gvnFn(f, loadRoots)) }
 }

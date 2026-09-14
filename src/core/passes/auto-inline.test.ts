@@ -4,10 +4,10 @@ import { module, fn, f32T, externFn, type ModuleDecl } from '../ir/index.js'
 import { emitModule } from '../backends/wgsl.js'
 import { compileModule } from '../oracle.js'
 
-// #627 — cost-driven AUTO inlining over inlineFn. Inline a non-entry,
+// X-GIS #627 — cost-driven AUTO inlining over inlineFn. Inline a non-entry,
 // non-recursive, single-return helper iff it is single-call (strict win) or its
 // return is a leaf (param/lit/const — never bloats). Pinned by oracle equality.
-describe('autoInline — cost-driven function inlining (#627)', () => {
+describe('autoInline — cost-driven function inlining (X-GIS #627)', () => {
   it('inlines a single-call helper and drops it', () => {
     const dbl = fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
       b.ret(x.mul(2))
@@ -121,7 +121,7 @@ describe('autoInline — cost-driven function inlining (#627)', () => {
   // autoInline is unwired (not in DEFAULT_PASSES), so the df64 library never
   // reaches it in production and no other gate exercises the guard. It is still
   // the shape a maintainer would wire, and it must not learn to flatten an EFT.
-  it('never inlines an `opaque` helper, however cheap it looks (#1926)', () => {
+  it('never inlines an `opaque` helper, however cheap it looks (X-GIS #1926)', () => {
     // A LEAF return — the single shape autoInline inlines at any call count. If
     // the guard is dropped, this one goes, which is what makes the arm sharp.
     const leaf = (name: string) => fn(name, { x: f32T }, f32T, ({ x }, b) => b.ret(x))

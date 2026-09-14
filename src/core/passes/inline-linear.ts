@@ -24,7 +24,7 @@
 // it computes a value a branch won't use, which is unobservable. That is the
 // whole license for this transform, and it's why the CONSERVATIVE exclusions
 // below are the only ones needed. It is the obfuscation counterpart of a JS
-// minifier's function inlining (`@xgis/shader-dsl/emit-prod`'s `inline()`).
+// minifier's function inlining (`typeshade/emit-prod`'s `inline()`).
 //
 // CONSERVATIVE EXCLUSIONS (leave the function; never inline unsoundly):
 //   • body isn't single-exit, or its prelude holds a statement whose meaning moves
@@ -38,7 +38,7 @@
 // `switch` scrutinees, and inside any block body — is lifted within its own
 // block, so conditional execution is preserved.
 //
-// INLINING OWES A CLEANUP (#1860). Copying a body to N call sites RE-CREATES the
+// INLINING OWES A CLEANUP (X-GIS #1860). Copying a body to N call sites RE-CREATES the
 // redundancy the optimizer had already removed: every value the helper derives
 // from a shared argument is now computed once PER SITE, in the caller's own
 // block, where nothing has run since. `transformIR` fires AFTER `lowerForBackend`
@@ -465,7 +465,7 @@ const CLEANUP: readonly OptPass[] = LEVEL_PASSES.O1
 /** Inline EVERY safely-inlinable helper — single-return via the proven inlineFn,
  *  then linear multi-statement via inlineLinearFn — until none remain, then clean
  *  up the duplication that created (`CLEANUP`). Pure (module -> module);
- *  `@xgis/shader-dsl/emit-prod`'s inline() plugin.
+ *  `typeshade/emit-prod`'s inline() plugin.
  *
  *  `counter` is the lift-temp uniquifier, and it defaults to a FRESH one — correct for a
  *  single call, and wrong for a SEQUENCE. A caller that inlines in several passes over the

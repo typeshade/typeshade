@@ -133,7 +133,7 @@ function shortestF32(text: string): string {
  *  correct iff this sequence is unchanged across it, modulo the numeric
  *  canonicalisation — asserting that is what makes "token-safe by construction"
  *  a checked claim rather than a comment.
- *  See `shader-dsl/examples/minify-safety.test.ts`. */
+ *  See `examples/minify-safety.test.ts`. */
 export function shaderTokens(src: string): string[] {
   return lexShader(src).map((t) => t.text)
 }
@@ -154,7 +154,7 @@ export function shaderTokens(src: string): string[] {
  *  `false` exists specifically so a caller can diff minified output against a
  *  hand-checked baseline with the literals left untouched.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  */
 export interface MinifyOptions {
   /** How numeric literals are re-spelled.

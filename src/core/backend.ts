@@ -21,7 +21,7 @@ import type {
   RawStmt,
 } from './ir/index.js'
 import { ALL_CAPABILITIES } from './ir/nodes.js'
-import { ShaderDslError } from './diagnostics/error.js'
+import { TypeShadeError } from './diagnostics/error.js'
 import type { ParenMode } from './emit.js'
 
 // The `Capability` vocabulary lives with the IR data shapes (ir/nodes.ts) — a module
@@ -67,7 +67,7 @@ export type CapProfile = Readonly<Partial<Record<Capability, CapSupport>>>
  *  This is why the GLSL ES 3.00 `capProfile` has no row for `storageBuffer`, `compute`, or
  *  `msaaTextureLoad`: the gate refuses the module before the writer sees it.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export class Capabilities {
   constructor(private readonly set: ReadonlySet<Capability>) {}
@@ -113,7 +113,7 @@ export class Capabilities {
  *  function: a `map` over the profile at each call site yields `undefined` holes a host then
  *  hands to `getExtension` verbatim. The returned list has no holes.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param be - the backend whose capability profile does the translating.
  *  @param caps - the neutral ids, usually `reflect(m).requiredFeatures`.
@@ -122,7 +122,7 @@ export class Capabilities {
  *
  *  @example
  *  ```ts
- *  import { hostFeaturesFor, reflect, glslEs300Backend, wgslBackend } from '@xgis/shader-dsl'
+ *  import { hostFeaturesFor, reflect, glslEs300Backend, wgslBackend } from 'typeshade'
  *
  *  const caps = reflect(MODULE).requiredFeatures
  *
@@ -163,7 +163,7 @@ export function hostFeaturesFor(be: Backend, caps: readonly Capability[]): reado
  *  declaration (GLSL has no syntax for a struct or binding at a bare emit site) throws the
  *  same error from that method.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface Backend {
   readonly id: string
@@ -283,14 +283,14 @@ export interface Backend {
  *  `SD0030`. The capability gate that runs before every emit throws it naming the missing
  *  capabilities, and an individual backend method throws it when asked for a construct its
  *  target cannot express. No source is produced in either case. */
-export class UnsupportedFeatureError extends ShaderDslError {
+export class UnsupportedFeatureError extends TypeShadeError {
   constructor(message: string) {
     super({ code: 'SD0030', message })
     this.name = 'UnsupportedFeatureError'
   }
 }
 
-// ── Capability × backend matrix (#1717) ──────────────────────────────────────
+// ── Capability × backend matrix (X-GIS #1717) ──────────────────────────────────────
 
 /** How one backend supports one capability.
  *  - `'native'`: supported, with nothing to emit and nothing for the host to turn on.
@@ -338,14 +338,14 @@ export interface CapabilityRow {
  *  `declarable` is false for the three capabilities derived from a module's shape,
  *  `storageBuffer`, `compute` and `msaaTextureLoad`, which `enables` cannot name.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param backends - the backends to compare, in the column order you want.
  *  @returns one row per capability, in the canonical capability order.
  *
  *  @example
  *  ```ts
- *  import { capabilityMatrix, wgslBackend, glslEs300Backend } from '@xgis/shader-dsl'
+ *  import { capabilityMatrix, wgslBackend, glslEs300Backend } from 'typeshade'
  *
  *  capabilityMatrix([wgslBackend, glslEs300Backend])
  *  // [{ capability: 'storageBuffer',
@@ -382,7 +382,7 @@ export function capabilityMatrix(backends: readonly Backend[]): readonly Capabil
 
 /** The three caps `requiredCaps` derives from a module's SHAPE — a storage binding, a
  *  `@compute` entry, an MSAA texture load — and which `DeclarableCapability` therefore
- *  makes unrepresentable in `enables` (#1681 A2). */
+ *  makes unrepresentable in `enables` (X-GIS #1681 A2). */
 const DERIVED_CAPABILITIES: ReadonlySet<Capability> = new Set([
   'storageBuffer',
   'compute',

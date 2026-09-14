@@ -40,7 +40,7 @@ describe('validate — aggregated errors', () => {
   })
 })
 
-// ═══ #763 V1 — firing fixtures for the CORE rules that had none ═══
+// ═══ X-GIS #763 V1 — firing fixtures for the CORE rules that had none ═══
 //
 // engine.test.ts pins rule MEMBERSHIP (ids present in the registry); these pin that each
 // rule's visitor actually FIRES through the real validate() path. Without a positive
@@ -56,7 +56,7 @@ function coreErrorsOf(m: Parameters<typeof validate>[0]): string[] {
   return []
 }
 
-describe('#763 V1 — CORE rule firing fixtures', () => {
+describe('X-GIS #763 V1 — CORE rule firing fixtures', () => {
   it('all-paths-return fires: a non-void fn that can fall off the end', () => {
     const bad = fn('v1_ap', { x: f32T }, f32T, ({ x }, b) => {
       b.if(x.gt(0), (bb) => bb.ret(x)) // no else, no trailing return
@@ -81,7 +81,7 @@ describe('#763 V1 — CORE rule firing fixtures', () => {
   // ── V2 — the CORE catalogue itself, pinned (intrinsic-coverage style) ──
   // Silently dropping a rule from CORE_RULES (e.g. a refactor that forgets call-signature)
   // is invisible to every other test; this makes it a one-line, reviewed diff.
-  it('#763 V2 — CORE_RULES id catalogue is exactly the structural invariants', () => {
+  it('X-GIS #763 V2 — CORE_RULES id catalogue is exactly the structural invariants', () => {
     expect(CORE_RULES.map((r) => r.id)).toEqual([
       'dup-struct',
       'dup-func',
@@ -90,10 +90,10 @@ describe('#763 V1 — CORE rule firing fixtures', () => {
       'mixed-scalar',
       'call-signature',
       'fragment-only-builtin',
-      // #1812 — the portable kernel tier. CORE because `portable: true` claims the kernel
+      // X-GIS #1812 — the portable kernel tier. CORE because `portable: true` claims the kernel
       // emits on BOTH backends, so the claim is checked at every emit on both writers.
       'portable-kernel',
-      // #2341 — the premise five optimizer passes rest on. CORE because a duplicated local
+      // X-GIS #2341 — the premise five optimizer passes rest on. CORE because a duplicated local
       // name is a SILENT miscompile on every backend (two sibling scopes binding `t` folded
       // to the same literal at O1), not a style opinion.
       'no-shadowed-local',

@@ -82,7 +82,7 @@ const GLSL_RESERVED: ReadonlySet<string> = new Set([
   // era. Every spelling below is a KEYWORD in ES 3.00, so a DSL local or param named
   // `usampler2D` emitted `float usampler2D = …` and died on the driver. The gate in
   // glsl.test.ts ties this set to what glslType() can actually declare, so a new texture
-  // shape cannot reopen the gap (#1703).
+  // shape cannot reopen the gap (X-GIS #1703).
   'sampler',
   'sampler2D',
   'sampler3D',
@@ -163,7 +163,7 @@ export function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
   }
   const locallyClean = { ...m, funcs: m.funcs.map(rewriteFunc) }
 
-  // #763 P6 — module-level surfaces the per-fn pass could not cover:
+  // X-GIS #763 P6 — module-level surfaces the per-fn pass could not cover:
   // (a) BINDING names reach GLSL verbatim as UBO/texture identifiers; renaming
   //     one would desync the host's reflection-driven bind points → fail loud.
   for (const b of m.bindings) {

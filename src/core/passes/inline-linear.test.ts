@@ -386,7 +386,7 @@ describe('inlineLinearAll — conservative exclusions', () => {
 
   // CONTROL ARM. The assertion above passes if the df64 fns survive — including in
   // the world where `inlineLinearAll` inlines NOTHING at all, which is the "failed
-  // either way" shape (#1444). This pins that the opacity is the RULE talking: two
+  // either way" shape (X-GIS #1444). This pins that the opacity is the RULE talking: two
   // helpers with IDENTICAL bodies, differing only in the flag, and only the flagged
   // one survives.
   it('… and that opacity is the RULE talking, not an un-inlinable body', () => {
@@ -438,7 +438,7 @@ describe('inlineLinearAll — conservative exclusions', () => {
   })
 })
 
-// ═══ post-inline cleanup (#1860) ═══
+// ═══ post-inline cleanup (X-GIS #1860) ═══
 //
 // Inlining pays its own debt: `inlineFn` substitutes the ARGUMENT expression at
 // every occurrence of the parameter, and `inlineLinearFn` copies the prelude per

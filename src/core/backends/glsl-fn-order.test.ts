@@ -1,11 +1,11 @@
-// ═══ GLSL ES 3.00 — the fn section's shape: dependency order + main() as the entry (#1858) ═══
+// ═══ GLSL ES 3.00 — the fn section's shape: dependency order + main() as the entry (X-GIS #1858) ═══
 //
 // Two emitter defects, one theme: GLSL ES 3.00 has no hoisting and one `main()` per unit,
 // and the backend used to pay for both facts with structure nothing reads.
 //
 //   • It emitted a forward prototype for EVERY helper, because `lowered.funcs` order is not
 //     dependency order — module()'s transitive collection PREPENDS collected callees, which
-//     may land ahead of the extern-bodied projection fns they call (#740 R1). On the baked
+//     may land ahead of the extern-bodied projection fns they call (X-GIS #740 R1). On the baked
 //     map corpus that was 507 prototypes, 6.2% of the text, of which 20 were load-bearing.
 //   • It spelled every entry as `<name>_impl` and synthesised a `main()` that called it once.
 //     Entry names are ABI, so `mangle()` may not touch them: `fs_impl` shipped verbatim into
@@ -24,9 +24,9 @@
 // entry wrongly merged is a compile error.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule } from '@xgis/shader-dsl'
-import { f32T, vec2fT, vec4fT } from '@xgis/shader-dsl'
-import type { FuncDecl, ModuleDecl } from '@xgis/shader-dsl'
+import { emitGlslModule } from 'typeshade'
+import { f32T, vec2fT, vec4fT } from 'typeshade'
+import type { FuncDecl, ModuleDecl } from 'typeshade'
 import {
   fn,
   module as dslModule,
@@ -38,7 +38,7 @@ import {
   ReturnIf,
   Let,
   rawStmt,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 import { pruneRedundantPrototypes } from '../../emit-prod.js'
 
 /** Where `text` DEFINES `name` (the `{`-bodied declarator), or -1. */
@@ -76,7 +76,7 @@ const vsEntry = fn(
 
 const orderedModule = (): ModuleDecl => dslModule({ uses: [IoOut], funcs: [outer, inner, vsEntry] })
 
-describe('glsl-es300 — the fn section is emitted in dependency order (#1858)', () => {
+describe('glsl-es300 — the fn section is emitted in dependency order (X-GIS #1858)', () => {
   it('defines a callee BEFORE its caller even when the module declares them the other way', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     const at = { inner: defAt(vs, 'inner'), outer: defAt(vs, 'outer') }
@@ -118,12 +118,12 @@ describe('glsl-es300 — the fn section is emitted in dependency order (#1858)',
   })
 })
 
-describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
+describe('glsl-es300 — a single-exit entry IS main() (X-GIS #1858)', () => {
   it('emits the entry body inside main(), with no `_impl` fn and no call to one', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     expect(vs).not.toContain('_impl')
     expect((vs.match(/void main\(\) \{/g) ?? []).length).toBe(1)
-    // …and the values still land. This exit is a CONSTRUCTOR, so since #1867 each of its
+    // …and the values still land. This exit is a CONSTRUCTOR, so since X-GIS #1867 each of its
     // arguments goes straight to its field's varying and no aggregate is built at all.
     expect(vs).toContain('gl_Position = vec4(_v0, 0.0, 0.0, 1.0);')
     expect(vs).toContain('uv = vec2(_v0, _v0);')
@@ -133,7 +133,7 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
 
   it('scatters straight from the exit VARIABLE, minting no copy of it', () => {
     // A struct exit that stays a VARIABLE. The write-once form is collapsed to a
-    // constructor by #1867's structCtor, so reaching this path needs the shape that pass
+    // constructor by X-GIS #1867's structCtor, so reaching this path needs the shape that pass
     // refuses — a field read back, which is the polygon fragment's real shape
     // (`out.color.w = out.color.w * rim`). The scatter then needs the value in a named
     // place, and `o` already IS one: `IoOut _out = o;` would copy a struct nothing reads.
@@ -234,16 +234,16 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
   })
 })
 
-// ═══ #1867 — the IO struct is materialised only to be taken apart, so do not build it ═══
+// ═══ X-GIS #1867 — the IO struct is materialised only to be taken apart, so do not build it ═══
 //
-// One level below #1858: `main()` still opened by copying the varyings into a struct and
+// One level below X-GIS #1858: `main()` still opened by copying the varyings into a struct and
 // closed by binding the exit to a temp, purely to read its fields back out one line later.
 // Neither aggregate is needed, and once nothing spells the type the DECL goes too — which
 // is where the bytes are. The gates below pin both halves AND both bail-outs, because the
 // bail-outs are what keep the transform sound: a struct handed WHOLE to a helper is a real
 // aggregate, and a field source shadowed by a body local would silently read the local.
 
-describe('glsl-es300 — the entry IO struct is never built (#1867)', () => {
+describe('glsl-es300 — the entry IO struct is never built (X-GIS #1867)', () => {
   it('scatters a CONSTRUCTOR exit field-by-field, minting no aggregate', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     expect(vs).toContain('gl_Position = vec4(_v0, 0.0, 0.0, 1.0);')
@@ -285,7 +285,7 @@ describe('glsl-es300 — the entry IO struct is never built (#1867)', () => {
   })
 
   it('KEEPS the gather when a body local would CAPTURE the substituted read', () => {
-    // The #1858 `seg_id` hazard in its second form, and just as silent: substituting
+    // The X-GIS #1858 `seg_id` hazard in its second form, and just as silent: substituting
     // `inp.uv` -> `uv` binds to a body local named `uv` if one exists, and the shader
     // still compiles and links. The whole substitution is refused for that param.
     const fsCap = fn(

@@ -1,4 +1,4 @@
-// ═══ Capability-reachability ratchet (#1681 A3) ═══
+// ═══ Capability-reachability ratchet (X-GIS #1681 A3) ═══
 //
 // A `Capability` is a PROMISE to an author: declare it (or write the shape that derives
 // it) and the DSL will let you use the feature. Three of the nine keep only half of that
@@ -33,7 +33,7 @@
 // (the second half of `bun run build`), and the new entry then has to resolve or be
 // allowlisted with a reason.
 //
-// NON-VACUITY (#996 / CLAUDE.md §12 — "the authority itself is seen"): the resolver is
+// NON-VACUITY (X-GIS #996 / CLAUDE.md §12 — "the authority itself is seen"): the resolver is
 // probed per kind with BOTH a known-good and a known-bad witness, so a resolver that
 // broke into always-true or always-false cannot carry the two ratchet arms above.
 
@@ -264,25 +264,25 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
  *  and with nothing behind them. Each entry is a debt with a reason and an issue, not a
  *  waiver: the arms below fail if one becomes reachable and the entry survives. */
 const UNREACHABLE_ALLOWLIST: Readonly<Partial<Record<Capability, string>>> = {
-  // #1681 A3 — `enable f16;` emits on WGSL, but `Scalar` (ir/types.ts:9) is
+  // X-GIS #1681 A3 — `enable f16;` emits on WGSL, but `Scalar` (ir/types.ts:9) is
   // f32|i32|u32|bool and every scalar/vector/matrix type keys off it, so no f16 value
   // can be declared, passed, or returned. Reachable only once `Scalar` gains 'f16' and
   // the type constants / promotion rules follow.
-  f16: 'no f16 value type — Scalar is f32|i32|u32|bool (ir/types.ts:9) — #1681',
-  // #1681 A3 — `enable subgroups;` emits on WGSL and the registry has no subgroup
+  f16: 'no f16 value type — Scalar is f32|i32|u32|bool (ir/types.ts:9) — X-GIS #1681',
+  // X-GIS #1681 A3 — `enable subgroups;` emits on WGSL and the registry has no subgroup
   // intrinsic (subgroupAdd / subgroupBallot / subgroupBroadcast), so the directive is
   // the entire feature.
-  subgroups: 'no subgroup intrinsic in the registry (core/intrinsics.ts) — #1681',
-  // #1681 A3 — the GLSL row emits `#extension GL_OVR_multiview2 : require` and the
+  subgroups: 'no subgroup intrinsic in the registry (core/intrinsics.ts) — X-GIS #1681',
+  // X-GIS #1681 A3 — the GLSL row emits `#extension GL_OVR_multiview2 : require` and the
   // module still renders SINGLE-VIEW: `layout(num_views = N) in;` is unspellable and
   // `gl_ViewID_OVR` has no `@builtin` mapping. The cap exists to prove the `#extension`
   // path end to end (backends/glsl.ts GLSL_CAP_PROFILE says so in its own comment), and
   // this entry is the machine-checked version of that admission.
-  multiview: 'directive-only — no gl_ViewID_OVR / num_views authoring surface — #1681',
+  multiview: 'directive-only — no gl_ViewID_OVR / num_views authoring surface — X-GIS #1681',
 }
 
-describe('capability reachability (#1681 A3)', () => {
-  // ── NON-VACUITY (#996) — the resolver SEES a known-good witness of every kind, and
+describe('capability reachability (X-GIS #1681 A3)', () => {
+  // ── NON-VACUITY (X-GIS #996) — the resolver SEES a known-good witness of every kind, and
   // does NOT see a known-bad one. Without both halves a resolver stuck at true would
   // green the ratchet arm and one stuck at false would green the allowlist arm.
   it('resolver sanity — every witness kind distinguishes a real surface from a missing one', () => {
@@ -333,10 +333,10 @@ describe('capability reachability (#1681 A3)', () => {
       ['typeConstant -', 'f16', { kind: 'typeConstant', id: 'f128T' }, false],
       // intrinsic: a registry id vs a nonexistent one.
       ['intrinsic +', 'subgroups', { kind: 'intrinsic', id: 'sin' }, true],
-      ['intrinsic -', 'subgroups', { kind: 'intrinsic', id: 'xgisNotAnIntrinsic' }, false],
+      ['intrinsic -', 'subgroups', { kind: 'intrinsic', id: 'notAnIntrinsic' }, false],
       // builtin: one the GLSL writer maps vs one it does not.
       ['builtin +', 'multiview', { kind: 'builtin', id: 'front_facing' }, true],
-      ['builtin -', 'multiview', { kind: 'builtin', id: 'xgis_not_a_builtin' }, false],
+      ['builtin -', 'multiview', { kind: 'builtin', id: 'not_a_builtin' }, false],
       // hostOnly: a genuinely zero-byte cap vs one whose row carries a directive (f16 on
       // WGSL) — "nothing to author" must not be satisfiable by a cap with a source token.
       ['hostOnly +', 'floatRenderTarget', hostOnly('floatRenderTarget'), true],
@@ -354,7 +354,7 @@ describe('capability reachability (#1681 A3)', () => {
     ).toEqual([])
   })
 
-  // ── The witness table is not stale (#996's companion assertion) ──
+  // ── The witness table is not stale (X-GIS #996's companion assertion) ──
   it('every witnessed capability is one a backend actually profiles', () => {
     const profiled = new Set<string>([
       ...Object.keys(glslEs300Backend.capProfile),

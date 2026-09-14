@@ -15,7 +15,7 @@ import {
 } from './index.js'
 import { emitModule } from '../backends/wgsl.js'
 
-// ═══ #2458 — a body that RETURNS A VALUE at run time must NAME its return type ═══
+// ═══ X-GIS #2458 — a body that RETURNS A VALUE at run time must NAME its return type ═══
 //
 // `inferReturnType` walks the recorded statements at RUNTIME and finds the type a
 // guard-style body returns through an ambient `Return()`. TypeScript cannot: the value never
@@ -30,7 +30,7 @@ import { emitModule } from '../backends/wgsl.js'
 // bodies TypeScript cannot tell apart ARE separable once the body has run: `inferReturnType`
 // already computed the answer. A body that took the void form and returned a value is turned
 // away with `SD0113`, naming the token to write — so `'void'` is never a lie, which is
-// #2458's actual requirement.
+// X-GIS #2458's actual requirement.
 
 type Exact<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
@@ -39,10 +39,10 @@ type Exact<A, B> =
 // assertion below is vacuous.
 const _exactRejectsFallback: Exact<string, 'void'> = false
 
-describe('#2458 — fn() and the void body', () => {
+describe('X-GIS #2458 — fn() and the void body', () => {
   it('REJECTS a guard-style body that omits the return type', () => {
     // #8 B1: the call now type-checks (it takes the void overload), and is turned away when
-    // the body has run and `inferReturnType` reports f32 — the point #2458 was making, moved
+    // the body has run and `inferReturnType` reports f32 — the point X-GIS #2458 was making, moved
     // from tsc to the throw that can actually see the answer.
     expect(() =>
       fn('guard_no_ret', { x: f32T }, ({ x }) => {
@@ -77,7 +77,7 @@ describe('#2458 — fn() and the void body', () => {
     expect(emitModule(module({ funcs: [g] }))).toContain('fn guard_vec(x: f32) -> vec2<f32>')
   })
 
-  it('lands a genuinely void fn on `void`, which KeyOf now spells (#2456)', () => {
+  it('lands a genuinely void fn on `void`, which KeyOf now spells (X-GIS #2456)', () => {
     const k = fn('cs_entry', {}, voidT, () => {}, { stage: 'compute' })
     // Asserted on the CALL RESULT's key, not on the whole handle: an empty param spec infers
     // as `{}` rather than `Record<string, never>`, so a whole-handle Exact would fail on the

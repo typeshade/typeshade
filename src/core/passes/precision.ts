@@ -1,4 +1,4 @@
-// ═══ Shader DSL — the f32 oracle mode (#2426, direction record D2.2) ═══
+// ═══ Shader DSL — the f32 oracle mode (X-GIS #2426, direction record D2.2) ═══
 //
 // The CPU oracle evaluates in f64 and says so (oracle.ts:20-38). That is the right default —
 // it is the ALGEBRA oracle, the reference an implementation is checked against — but it means

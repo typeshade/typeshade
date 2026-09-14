@@ -6,7 +6,7 @@
 // `testTimeout` mirrors the root config's value, and is the reason this file exists: the
 // df64 property suites (`src/core/fp64/df64-int-property.test.ts`) sample random inputs for
 // 8–16 s per test on a 4-core container, and vitest's 5 s default fails four of them in a
-// tree that has no other config to say otherwise (measured 2026-09-07, #2660).
+// tree that has no other config to say otherwise (measured 2026-09-07, X-GIS #2660).
 //
 // Raised from 30 s to 90 s on 2026-09-14, because 30 s was not the headroom it looked like.
 // Measured on an idle container, the two slowest tests in that file are `floor / fract match

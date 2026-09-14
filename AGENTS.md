@@ -1,6 +1,6 @@
 <!-- Generated: 2026-06-23 | Updated: 2026-09-08 -->
 
-# TypeShade (`@xgis/shader-dsl`)
+# TypeShade (`typeshade`)
 
 ## Purpose
 
@@ -14,7 +14,7 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 
 | File | What it is |
 | --- | --- |
-| `package.json` | `@xgis/shader-dsl`, ESM, no runtime dependencies. `main` and `exports` point at `src/index.ts`; consumers compile the TypeScript. Scripts: `build`, `test`, `gate:compile`. |
+| `package.json` | `typeshade`, ESM, no runtime dependencies. `main` and `exports` point at `src/index.ts`; consumers compile the TypeScript. Scripts: `build`, `test`, `gate:compile`. |
 | `tsconfig.json` | Standalone project. It extends the package-local `tsconfig.base.json`; nothing tracked here may name a path outside this tree, or the vendored copy stops compiling. `tsc --build` (`bun run build`) is the canonical type check. |
 | `vitest.config.ts` | Test config: `src/**` and `examples/**` specs, 30 s timeout because the df64 property suites run 8 to 16 s. |
 | `scripts/compile-gate.ts` | `bun run gate:compile`. Emits every registered example and hands the WGSL to Tint (Chromium's headless WebGPU) and both GLSL ES 3.00 stages to a real WebGL2 context. Each compiler is fed a broken shader first, so an instrument that cannot fail cannot pass. |

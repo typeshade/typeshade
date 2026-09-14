@@ -33,7 +33,7 @@ import { fixpoint, irEqual } from './passes/opt/optimize.js'
  *  correctly, not a regression — read this axis for compile-time / bundle-size budgets only,
  *  never as a stand-in for runtime cost.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  */
 export interface EmitSize {
   /** Emitted source length in characters. */
@@ -57,7 +57,7 @@ export function emitSize(code: string): EmitSize {
  *  blocks reports an UNDERCOUNT, not a wrong delta, so don't compare op counts across modules
  *  that mix raw and IR-authored bodies.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  */
 export interface OpCount {
   /** Intrinsic / user function-call nodes (sin, mix, pack4x8unorm, …) — the transcendental / ALU work. */
@@ -107,8 +107,8 @@ function walkExpr(e: Expr, c: { calls: number; arith: number }): void {
       break
     case 'lit':
     case 'constref':
-    case 'externref': // #1713 — a host-provided global read is a leaf too
-    case 'overrideref': // #923 — a specialization-constant read is a leaf (zero ops)
+    case 'externref': // X-GIS #1713 — a host-provided global read is a leaf too
+    case 'overrideref': // X-GIS #923 — a specialization-constant read is a leaf (zero ops)
     case 'param':
     case 'varref':
       break // leaf — no op
@@ -189,7 +189,7 @@ export function countOps(m: ModuleDecl): OpCount {
  *  way — they can go negative, and a negative size delta is not a regression to chase, it is
  *  CSE trading source bytes for GPU work (see `EmitSize`).
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  */
 export interface OptimizerReport {
   /** Source size at O0 vs O2; `saved*` may be NEGATIVE (CSE trades bytes for ops). */
@@ -233,7 +233,7 @@ export function optimizerReport(m: ModuleDecl): OptimizerReport {
   }
 }
 
-// ── Where the emit time actually goes (#2449, direction record D1.1) ────────────────────
+// ── Where the emit time actually goes (X-GIS #2449, direction record D1.1) ────────────────────
 //
 // Every recorded compile cost in this repo is a TOTAL: 58-184 ms per retained family
 // (map/src/render/material/wgsl-for.ts:85), 80 ms for the polygon vertex emit against a 2 ms
@@ -258,7 +258,7 @@ export interface PassTiming {
 
 /** Where one module's emit spends its time, stage by stage and pass by pass.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  */
 export interface EmitProfile {
   readonly target: 'wgsl' | 'glsl-es300'
@@ -277,7 +277,7 @@ export interface EmitProfile {
  *  never the absolute milliseconds, and re-measure on the same commit before believing a
  *  gradient (CLAUDE.md §12).
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  */
 export function profileEmit(m: ModuleDecl, target: 'wgsl' | 'glsl-es300' = 'wgsl'): EmitProfile {
   const be: Backend = target === 'wgsl' ? wgslBackend : glslEs300Backend

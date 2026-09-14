@@ -37,7 +37,7 @@
 // WHAT PROTECTS THE RENORM AFTER ITS CALL IS GONE. `renormForCancel` (fp64-lower.ts)
 // launders a LOADED lo into a computed one by adding a df64 ZERO ahead of a cancelling
 // op, and it is spelled as a df64_ call precisely so the optimizer cannot fold it
-// (#915 — Apple sub, Blackwell WebGL2 div). Inlining removes that spelling, so the
+// (X-GIS #915 — Apple sub, Blackwell WebGL2 div). Inlining removes that spelling, so the
 // protection has to come from the ADDEND instead.
 //
 // It now does, BY CONSTRUCTION: the zero is `vec2(optBarrier(0), optBarrier(0))`, a
@@ -125,10 +125,10 @@ function countCalls(m: ModuleDecl, name: string): number {
 }
 
 /** Inline through `opaque`, then drop the functions that inlining emptied. Pure
- *  (module -> module); `@xgis/shader-dsl/emit-prod`'s `forceInline()` plugin.
+ *  (module -> module); `typeshade/emit-prod`'s `forceInline()` plugin.
  *
  *  Opacity is re-applied from a set captured BEFORE the first round, never from a
- *  `df64_` NAME test — a name test is exactly what #1926 removed, because `mangle`
+ *  `df64_` NAME test — a name test is exactly what X-GIS #1926 removed, because `mangle`
  *  renames the library and the invariant then held or not depending on plugin order. */
 /** Every Expr node in the module, counted through the SAME walker the passes
  *  rewrite with (`mapModuleExprs`), so the budget cannot drift from what the

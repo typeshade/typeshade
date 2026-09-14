@@ -1,8 +1,8 @@
-# `@xgis/shader-dsl` examples
+# `typeshade` examples
 
 Self-contained shaders authored with the DSL. Each builds a `module`, and from that single
 source emits **WGSL** (WebGPU) + **GLSL ES 3.00** (WebGL2) + the `reflect()` pipeline metadata —
-with **no dependency on the X-GIS runtime**. They import only from the package's own source
+with **no dependency on any host runtime**. They import only from the package's own source
 (`../src/index.ts`), so they run straight from a checkout.
 
 Every example is also exported (`module` + metadata) from [`index.ts`](./index.ts), so the same
@@ -24,7 +24,7 @@ on the site detail page and need nothing from the example.
 
 ## Coordinate spaces
 
-Three spaces appear in these shaders — name the one you are in (#842):
+Three spaces appear in these shaders — name the one you are in (X-GIS #842):
 
 1. **uv** — `vo.uv`, `[0,1]²`, origin bottom-left. What the vertex stage hands you.
 2. **centred isotropic** — `screenCoords(vo.uv, res)` (from `_fullscreen.ts`): y spans ±1

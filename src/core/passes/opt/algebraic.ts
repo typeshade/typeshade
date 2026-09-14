@@ -122,7 +122,7 @@ function simplifyNode(e: Expr): Expr {
 }
 
 /** Apply the sound algebraic identities throughout a module. Pure (module -> module).
- *  Raw-Stmt fns are skipped (#763 P1) — identity rewrites must not touch authored
+ *  Raw-Stmt fns are skipped (X-GIS #763 P1) — identity rewrites must not touch authored
  *  arithmetic around a verbatim raw splice. */
 export function algebraicSimplify(m: ModuleDecl): ModuleDecl {
   return mapModuleExprs(m, simplifyNode, { skipRawBodies: true })

@@ -5,7 +5,7 @@ import { emitFunc } from '../backends/wgsl.js'
 // #6 typed-arith-lift: a bare number against a u32/i32 scalar LHS lifts to that
 // scalar (so `u32node.add(1)` emits `+ 1u`, not naga-invalid `+ 1.0`); every
 // other LHS (the f32-dominant projection/geometry math) keeps the f32 lift.
-describe('shader-dsl IR — typed arithmetic lift (#6)', () => {
+describe('shader-dsl IR — typed arithmetic lift (X-GIS #6)', () => {
   it('u32-LHS .add(1) emits an integer literal (1u), not 1.0', () => {
     const f = fn('addU', { a: u32T }, u32T, (p, b) => {
       b.ret(p.a.add(1))

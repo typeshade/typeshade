@@ -5,7 +5,7 @@ import { smoothstepEdgeOrder } from './smoothstep-edge-order.js'
 
 const run = (m: ReturnType<typeof module>) => lint(m, [smoothstepEdgeOrder])
 
-describe('smoothstep-edge-order (#841)', () => {
+describe('smoothstep-edge-order (X-GIS #841)', () => {
   it('flags constant edge0 > edge1 (undefined in GLSL ES)', () => {
     const m = module({
       funcs: [fn('rev', { x: f32T }, f32T, ({ x }) => smoothstep(1, 0, x))],

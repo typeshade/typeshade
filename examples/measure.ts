@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl examples — optimizer measurement report ═══
+// ═══ typeshade examples — optimizer measurement report ═══
 //
 // "Measure, don't guess." Prints, per example, what the optimizer (O2) removes versus
 // the naive emit (O0) on both axes — OP COUNT (the GPU-work proxy the optimizer

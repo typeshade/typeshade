@@ -1,5 +1,5 @@
 {
-  // #1681 B1 — the PACKAGE-LOCAL base, never the monorepo root's: this directory
+  // X-GIS #1681 B1 — the PACKAGE-LOCAL base, never the monorepo root's: this directory
   // must compile when it is vendored out of the repo. See tsconfig.base.json.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
@@ -7,7 +7,7 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "types": [],
-    // #1686 — nodenext is the RATCHET, not a preference. `tsc` does not rewrite import
+    // X-GIS #1686 — nodenext is the RATCHET, not a preference. `tsc` does not rewrite import
     // specifiers, so an extensionless `from './core/ir'` is copied verbatim into
     // `dist/*.js` and `dist/*.d.ts`, and Node ESM resolves neither an extensionless
     // path nor a directory: every entry point failed at the first hop with
@@ -26,7 +26,7 @@
     "moduleResolution": "nodenext"
   },
   "include": ["src/**/*.ts"],
-  // #763 V6 — tests never reach dist/ (compiled *.test.js/.d.ts were riding along
+  // X-GIS #763 V6 — tests never reach dist/ (compiled *.test.js/.d.ts were riding along
   // into the build output). Test TYPE-CHECKING is not lost: the
   // `build` script chains `tsc -p tsconfig.tests.json` (a noEmit pass over src + examples).
   "exclude": ["src/**/*.test.ts"]

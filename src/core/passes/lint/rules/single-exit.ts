@@ -4,7 +4,7 @@ import { checkSingleExit } from '../../single-exit.js'
 /** MISRA-C Rule 15.5 — a single point of exit (one return, as the final statement).
  *  The structural check lives in passes/single-exit.ts; this wires it as a rule.
  *
- *  POLICY (#740 R5 review): this is a STYLE discipline, not a correctness
+ *  POLICY (X-GIS #740 R5 review): this is a STYLE discipline, not a correctness
  *  invariant — an early return emits perfectly valid WGSL/GLSL. It stays
  *  'error' in the DEFAULT ruleset (the shader static-analysis tests gate the
  *  authored shaders with it), but as 'style' it is OFF under the LENIENT

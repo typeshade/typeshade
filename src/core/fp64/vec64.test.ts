@@ -161,7 +161,7 @@ describe('vec64 lowering', () => {
 // ── Known answers under the f32-rounding oracle ──
 
 /** The f32 oracle: `fp64Lower`'s output evaluated as a correctly-rounding f32 machine, which
- *  is what the GPU is. `precision: 'f32'` (#2426) replaced a copy of this wrapper in each of
+ *  is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper in each of
  *  these six files; it additionally rounds literals and parameters, which the copies did not. */
 const f32Oracle = (m: ModuleDecl, opts?: Parameters<typeof fp64Lower>[1]) =>
   compileModule(fp64Lower(m, opts), { precision: 'f32' })

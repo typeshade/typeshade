@@ -21,14 +21,14 @@ import type { SourceSpan } from './span.js'
  *  `x / 0 = x` and `x % 0 = 0`, and `<<`/`>>` as logical shifts on `u32`, with `>>` on
  *  `i32` an arithmetic (sign-preserving) shift.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type BinOp = '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>'
 /** The operator tag on `Expr.compare`: the six relational operators. A comparison
  *  produces a `bool`, or a `vecN<bool>` when the operands are vectors. The WGSL, GLSL
  *  and CPU backends spell or evaluate it identically.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
 /** The operator tag on `Expr.logical`: the short-circuiting boolean operators `&&` and
@@ -36,7 +36,7 @@ export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!='
  *  `binop` because WGSL and GLSL give `&&` and `||` short-circuit evaluation, which a
  *  plain binary operator does not have.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type LogOp = '&&' | '||'
 
@@ -50,12 +50,12 @@ export type LogOp = '&&' | '||'
  *  `.mul()`, …) and the free functions such as {@link vec4} and {@link mod} fill in
  *  `type` and validate the operands before the shape is constructed.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type Expr =
   | { readonly op: 'lit'; readonly type: ShaderType; readonly value: number | boolean }
   | { readonly op: 'constref'; readonly type: ShaderType; readonly name: string }
-  // A read of a pipeline SPECIALIZATION CONSTANT (#923) — a `ModuleDecl.overrides`
+  // A read of a pipeline SPECIALIZATION CONSTANT (X-GIS #923) — a `ModuleDecl.overrides`
   // entry. Structurally a named leaf like `constref`, but SEMANTICALLY OPAQUE to the
   // authoring-time optimizer: its value is fixed at PIPELINE CREATION (WGSL `constants:
   // {}` / a GLSL `#define` per permutation), NOT module build, so const-fold /
@@ -66,7 +66,7 @@ export type Expr =
   // it can never fold an overrideref). Emits as the bare name on both backends
   // (WGSL: the `override` identifier; GLSL: the `#define` macro).
   | { readonly op: 'overrideref'; readonly type: ShaderType; readonly name: string }
-  // A read of a HOST-PROVIDED global (#1713) — a `ModuleDecl.externs` entry. The variable
+  // A read of a HOST-PROVIDED global (X-GIS #1713) — a `ModuleDecl.externs` entry. The variable
   // twin of `externFn`: the host's prelude (MapLibre's injected GLSL globals, a host-owned
   // WGSL bind group) declares it, we only reference it, and the module emits NO
   // declaration for it. Its own `op` — not a reused `varref` — for three reasons that a
@@ -186,7 +186,7 @@ export type Expr =
  *  argument pushes them one at a time (`b.let(...)`, `b.var(...)`, `b.if(...)`,
  *  `b.ret(...)`, …), so a body is always assembled in source order.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type Stmt =
   | {
@@ -280,7 +280,7 @@ export type Stmt =
   // CPU backend throws (raw text has no CPU evaluation), and the
   // lowerModule pass treats it as a leaf (no sub-Expr to lower).
   //
-  // #1671 — PAIRED PER-TARGET PAYLOADS. One node carries the SAME statement
+  // X-GIS #1671 — PAIRED PER-TARGET PAYLOADS. One node carries the SAME statement
   // spelled for each backend; the MEANING is fixed ("splice verbatim here")
   // and only the SPELLING is per-target — the same per-target-spelling pattern
   // `INTRINSICS`' `Spelling` record already uses (intrinsics.ts:15-19). Unlike
@@ -321,7 +321,7 @@ export type RawPayload =
  *  {@link constExpr}, which fills `valueExpr` instead. When both forms are present,
  *  `valueExpr` wins.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface ConstDecl {
   readonly name: string
@@ -368,7 +368,7 @@ export interface OverrideDecl {
  *  syntax, so an I/O struct is flattened into individual `in`/`out` globals keyed off
  *  those fields.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface StructField {
   readonly name: string
@@ -392,7 +392,7 @@ export interface StructField {
  *  {@link ioStruct} to derive one together with its binding and typed field access
  *  instead of writing this shape by hand.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface StructDecl {
   readonly name: string
@@ -405,7 +405,7 @@ export interface StructDecl {
  *  no native storage buffer). See {@link BindingDecl.access}, which applies only when
  *  this is `'storage'`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type AddressSpace = 'uniform' | 'storage'
 /** A `ModuleDecl.bindings` entry: a resource bound at a `(group, binding)` slot. It is a
@@ -417,7 +417,7 @@ export type AddressSpace = 'uniform' | 'storage'
  *  Use {@link uniformStruct}, {@link resource} or {@link storageBuffer} to derive one
  *  instead of constructing it directly.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface BindingDecl {
   readonly group: number
@@ -480,7 +480,7 @@ export interface ExternVarDecl {
 /** Non-enumerable marker key on a {@link FuncDecl}: the name the declaration was last
  *  assembled under by {@link module}. It is a `Symbol.for` symbol, so it survives two
  *  copies of the package loaded side by side. */
-export const ASSEMBLED_AS = Symbol.for('xgis.shader-dsl.assembledAs')
+export const ASSEMBLED_AS = Symbol.for('typeshade.assembledAs')
 
 /** A `ModuleDecl.funcs` entry: a WGSL/GLSL function, either an ordinary helper or a
  *  pipeline entry point (`stage` set). This is the object {@link fn} builds: the
@@ -488,7 +488,7 @@ export const ASSEMBLED_AS = Symbol.for('xgis.shader-dsl.assembledAs')
  *  callable in other function bodies and, unwrapped, the plain `FuncDecl` that
  *  `module({ funcs })` collects. Every backend (WGSL, GLSL, CPU) walks `body` directly.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export interface FuncDecl {
   readonly name: string
@@ -664,11 +664,11 @@ export type DeclarableCapability = Exclude<
  *  and `hostFeature`, coverage is built from its keys, and a backend whose table has no row
  *  for a declared id fails closed at emit.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { module } from '@xgis/shader-dsl'
+ *  import { module } from 'typeshade'
  *
  *  const m = module({ enables: ['floatRenderTarget'], structs: [VsOut.decl], funcs: [vs, fs] })
  *  ```

@@ -6,8 +6,8 @@
 // (no opt-in) still throws. See render-graph-pass-scheduler.md §6.5 + the M2 design.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, UnsupportedFeatureError } from '@xgis/shader-dsl'
-import { requiredCaps } from '@xgis/shader-dsl/dev'
+import { emitGlslModule, UnsupportedFeatureError } from 'typeshade'
+import { requiredCaps } from 'typeshade/dev'
 import {
   f32T,
   u32T,
@@ -18,7 +18,7 @@ import {
   type ShaderType,
   type Expr,
   type ModuleDecl,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 
 const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
 const arrF32 = { kind: 'array', elem: f32T } as ShaderType // runtime-sized storage array<f32>
@@ -125,7 +125,7 @@ describe('glsl-es300 — compute → fragment-GPGPU lowering (emulateCompute)', 
     expect(() => emitGlslModule(computeMod, 'fragment')).toThrow(UnsupportedFeatureError)
     // The DIAGNOSIS must stay the compute caps error — the default storage lowering
     // skips @compute modules precisely so this does not degrade into a storage-shape
-    // message pointing away from the missing {emulateCompute} opt-in (#1648 review).
+    // message pointing away from the missing {emulateCompute} opt-in (X-GIS #1648 review).
     expect(() => emitGlslModule(computeMod, 'fragment')).toThrow(
       /missing capabilities:[\s\S]*compute/,
     )

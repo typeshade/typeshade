@@ -112,7 +112,7 @@ describe('memberFold — bails rather than guessing', () => {
     expect(retExprOf(body)).toEqual(src)
   })
 
-  // ── #2354: the ARGUMENT side of the same rule ──────────────────────────────────
+  // ── X-GIS #2354: the ARGUMENT side of the same rule ──────────────────────────────────
   //
   // Resolving through the `let` is what makes this pass useful, and it is also what
   // makes the forward a MOVE: `c.x` folds to the argument expression, which is then
@@ -121,7 +121,7 @@ describe('memberFold — bails rather than guessing', () => {
   // and df64 lowering emits exactly the losing shape — a `vec2(hi, lo)` bound to a
   // `let` whose scalar is a running accumulator reassigned later in the same block.
 
-  it('#2354 leaves the read alone when a construct ARGUMENT is reassigned', () => {
+  it('X-GIS #2354 leaves the read alone when a construct ARGUMENT is reassigned', () => {
     const src = mem(ref('_c', vec2fT), 'x')
     const body = foldBody([
       letS('_c', ctor(vec2fT, [ref('h'), lit(0)])),
@@ -137,7 +137,7 @@ describe('memberFold — bails rather than guessing', () => {
     expect(retExprOf(body)).toEqual(src)
   })
 
-  it('#2354 a mutation ANYWHERE in the fn disqualifies it, including before the let', () => {
+  it('X-GIS #2354 a mutation ANYWHERE in the fn disqualifies it, including before the let', () => {
     // `mutated` is function-wide by design (const-prop's rule), so the guard must not
     // be read as "between the binding and the read" — this arm pins the conservative
     // reading rather than leaving it to a future reader to assume the narrow one.
@@ -150,7 +150,7 @@ describe('memberFold — bails rather than guessing', () => {
     expect(retExprOf(body)).toEqual(src)
   })
 
-  it('#2354 CONTROL — an unmutated argument still folds, and a sibling mutation does not block it', () => {
+  it('X-GIS #2354 CONTROL — an unmutated argument still folds, and a sibling mutation does not block it', () => {
     // Separates "the argument guard works" from "the pass stopped folding": `hi`/`lo`
     // are clean, and an unrelated mutated name in the same fn must not disqualify them.
     const body = foldBody([
@@ -194,7 +194,7 @@ describe('memberFold — bails rather than guessing', () => {
 //
 // `renormForCancel` feeds a raw df64 operand through `df64_add(x, 0)` before a cancelling
 // op, so the twoSum recomputes the pair and a LOADED lo becomes a COMPUTED one — the
-// launder #915 paid for on Apple `sub` and Blackwell WebGL2 `div`. Once forceInline copies
+// launder X-GIS #915 paid for on Apple `sub` and Blackwell WebGL2 `div`. Once forceInline copies
 // the addend into the body, this fold is exactly what can resolve `_cseN.x` back to the
 // literal `0.0`; const-prop then carries it into `s = a + b` and the pre-existing
 // `x + 0 -> x` identity deletes the add.
@@ -205,7 +205,7 @@ describe('memberFold — bails rather than guessing', () => {
 //
 // TWO rules currently stop it, and the difference between them matters. The barrier makes
 // the zero unresolvable by ANY fold — that is the by-construction guarantee, and it is what
-// #1969's header asked for. This pass's own call exclusion ALSO happens to cover it, because
+// X-GIS #1969's header asked for. This pass's own call exclusion ALSO happens to cover it, because
 // a bitcast is a call. That second one is a property of this pass and could be relaxed
 // tomorrow; the first cannot. The cut below still isolates the barrier either way: stripping
 // it leaves literal arguments, which no exclusion here touches.

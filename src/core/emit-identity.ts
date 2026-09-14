@@ -1,4 +1,4 @@
-// ═══ Shader DSL — the emit MODE is part of an artifact's identity (#1715 Problem B) ═══
+// ═══ Shader DSL — the emit MODE is part of an artifact's identity (X-GIS #1715 Problem B) ═══
 //
 // A consumer reported the failure this exists to end: their generated shader registry is
 // COMMITTED to git, a production build rewrote those tracked files, and the dev-mode golden
@@ -14,7 +14,7 @@
 // committed goldens, and on GLSL it has to sit before `#version` where it reads like a
 // mistake. The identity belongs on the ARTIFACT that gets committed — a registry banner, a
 // manifest line, a filename — which is exactly where the reported failure happened.
-// `buildRegistry` (#1716) takes it as `stamp` for that reason.
+// `buildRegistry` (X-GIS #1716) takes it as `stamp` for that reason.
 
 import type { EmitOptions } from './emit.js'
 import type { ModuleDecl } from './ir/index.js'
@@ -86,7 +86,7 @@ export function emitIdentity(target: EmitTarget, opts?: EmitIdentityInput, m?: M
   const overrides = Object.entries(opts?.overrideValues ?? {})
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([k, v]) => `${k}=${String(v)}`)
-  // The lowering RAN — by the option, or (GLSL only, #1812) because the module declares a
+  // The lowering RAN — by the option, or (GLSL only, X-GIS #1812) because the module declares a
   // portable compute entry, which takes the same path with no option. WGSL never runs it,
   // so the target gates the declaration half.
   const emulateCompute =

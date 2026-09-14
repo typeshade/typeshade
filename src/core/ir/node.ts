@@ -102,7 +102,7 @@ export type NonComposite<K extends string> = K extends `vec${string}` | `mat${st
 // (SD0004 below, the bitwise SD0005 precedent), which still fails long before a
 // GPU compiler would.
 
-// Returns ReadonlyNode<string>, not <any> (#763 X12): `<any>` was assignable to
+// Returns ReadonlyNode<string>, not <any> (X-GIS #763 X12): `<any>` was assignable to
 // EVERY ReadonlyNode<K>, so `const b: ReadonlyNode<'bool'> = lift(3)` type-checked.
 /** Normalizes a {@link NodeLike} operand to a {@link ReadonlyNode}: a JS number becomes an f32
  *  literal, and an existing node passes through unchanged. Every free-function builtin (`sin`,
@@ -112,11 +112,11 @@ export type NonComposite<K extends string> = K extends `vec${string}` | `mat${st
  *  passed to a method lifts to the receiver's own scalar kind (u32, i32 or f64), so
  *  `u32node.add(1)` emits an unsigned literal.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { lift, f32 } from '@xgis/shader-dsl'
+ *  import { lift, f32 } from 'typeshade'
  *
  *  lift(2)       // Node<'f32'>: 2 lifted to an f32 literal
  *  lift(f32(2))  // the same node, passed through unchanged
@@ -146,17 +146,17 @@ function liftAgainst(t: ShaderType, o: NodeLike): ReadonlyNode {
  *  registry, so when a bundler loads two copies of this package a node built by one copy still
  *  carries the brand the other copy checks for. `instanceof Node` gives no such guarantee,
  *  because prototype identity differs per copy. {@link isNodeValue} reads this slot. */
-export const NODE_BRAND: unique symbol = Symbol.for('xgis.shader-dsl.node') as never
+export const NODE_BRAND: unique symbol = Symbol.for('typeshade.node') as never
 /** Runtime type guard for "is this value a node". It reads the {@link NODE_BRAND} slot instead
  *  of using `instanceof Node`, so it also recognizes a node built by a different loaded copy of
  *  this package, which `instanceof` would miss because a dual-loaded dependency splits
  *  prototype identity. Use it over `instanceof` anywhere a value may come from another copy.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { isNodeValue, f32 } from '@xgis/shader-dsl'
+ *  import { isNodeValue, f32 } from 'typeshade'
  *
  *  isNodeValue(f32(1))  // true
  *  isNodeValue(42)      // false: a bare number is not a node
@@ -182,11 +182,11 @@ let _stmtSink: StmtSink | undefined
  *  node and never calls this directly; a host that supplies its own statement builder is the
  *  only other caller.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { installStmtSink, typeKey } from '@xgis/shader-dsl'
+ *  import { installStmtSink, typeKey } from 'typeshade'
  *
  *  // Record every `.assign()` instead of building a statement.
  *  const log: string[] = []
@@ -277,7 +277,7 @@ const VEC_FIELD_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 }
 // Colour-alias components map onto the same lanes (WGSL allows either set).
 const SWIZZLE_ALIAS: Record<string, string> = { r: 'x', g: 'y', b: 'z', a: 'w' }
 
-// ── Swizzle result-key inference (#740 R9) ──
+// ── Swizzle result-key inference (X-GIS #740 R9) ──
 type StrLen<S extends string, A extends readonly unknown[] = []> = S extends `${string}${infer R}`
   ? StrLen<R, [...A, 1]>
   : A['length']
@@ -293,9 +293,9 @@ export type SwizzleKey<K extends string, S extends string> =
  *  whenever the value is only read: it then accepts a `Let`, a parameter and a `Var` alike,
  *  since `Node` is a subtype of this class.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
- *  @throws {ShaderDslError} `SD0004` from an arithmetic or comparison method whose two operands
+ *  @throws {TypeShadeError} `SD0004` from an arithmetic or comparison method whose two operands
  *    have incompatible types (`vec3<f32>` against `vec2<f32>`, say). The `Node<K>` phantom key
  *    catches most of these at `tsc` time; this is the runtime check for an operand typed
  *    `ReadonlyNode<string>` or built dynamically.
@@ -331,13 +331,13 @@ export class ReadonlyNode<K extends string = string> {
       b: b.expr,
     })
   }
-  // Scalar-node × vec-node BROADCASTS (#740 R9): `t.add(phases)` where t is f32
+  // Scalar-node × vec-node BROADCASTS (X-GIS #740 R9): `t.add(phases)` where t is f32
   // and phases vec3<f32> types as vec3<f32> — the runtime (binResultType) always
   // supported it; only the signature forced authors to unroll per component.
   // The `vec${number}<${K}>` constraint self-limits these overloads to a SCALAR
   // LHS (for K = 'vec3<f32>' no vec key can contain it), so vec LHS keeps its
   // exact-K arithmetic unchanged.
-  // The `this:` bound (#763 X8) removes these overloads from a VECTOR LHS's
+  // The `this:` bound (X-GIS #763 X8) removes these overloads from a VECTOR LHS's
   // candidate set entirely — a vec2+vec3 mismatch now rejects with the readable
   // ArithArg diagnostic instead of leaking a self-nested `vec${n}<vec3<f32>>`
   // template-literal key from a dead broadcast candidate. NonComposite keeps
@@ -394,7 +394,7 @@ export class ReadonlyNode<K extends string = string> {
   div(o: NodeLike): Node {
     return this.bin('/', o)
   }
-  // mod joins the broadcast family (#763 X5) — the runtime (binResultType)
+  // mod joins the broadcast family (X-GIS #763 X5) — the runtime (binResultType)
   // always supported scalar%vec; only the signature forced an unroll.
   mod<K2 extends `vec${number}<${K}>`>(
     this: ReadonlyNode<NonComposite<K>>,
@@ -409,7 +409,7 @@ export class ReadonlyNode<K extends string = string> {
   }
 
   private cmp(cop: CmpOp, o: NodeLike): Node<'bool'> {
-    // Runtime backstop (#763 X8): these comparisons return Node<'bool'> — a
+    // Runtime backstop (X-GIS #763 X8): these comparisons return Node<'bool'> — a
     // VECTOR comparison in WGSL yields vecN<bool>, so a vec LHS here would emit
     // invalid-typed WGSL with no earlier check (mixed-scalar lint reads binops
     // only). The `this:` bounds below reject it at tsc; hand-built calls land here.
@@ -567,7 +567,7 @@ export class ReadonlyNode<K extends string = string> {
     for (const c of comps) {
       const fam: 'xyzw' | 'rgba' = SWIZZLE_ALIAS[c] !== undefined ? 'rgba' : 'xyzw'
       // WGSL forbids mixing the xyzw and rgba component sets in one swizzle
-      // ('xg' is invalid) — reject at author time (#763 X15).
+      // ('xg' is invalid) — reject at author time (X-GIS #763 X15).
       if (family !== undefined && fam !== family)
         throw dslError('SD0008', `.${comps} — mixes xyzw and rgba component sets (WGSL forbids)`)
       family = fam
@@ -604,7 +604,7 @@ export class ReadonlyNode<K extends string = string> {
 
   // Common multi-component swizzle getters — `w.zxy` instead of vec3(w.z, w.x, w.y).
   // For any other component order (u32/i32 vectors included) use the inferred
-  // `.swizzle('...')` — the result key derives from the components string (#740 R9).
+  // `.swizzle('...')` — the result key derives from the components string (X-GIS #740 R9).
   get xy(): Node<SwizzleKey<K, 'xy'>> {
     return this.swizzle('xy')
   }
@@ -764,7 +764,7 @@ export class ReadonlyNode<K extends string = string> {
  *  This is a TYPE-LEVEL distinction only — the runtime is one class, so emitted WGSL/GLSL is
  *  byte-identical. (Mirrors RxJS `Observable` (read) vs `Subject` (read+write).) */
 // One prototype slot — every ReadonlyNode/Node instance (any package copy)
-// answers the cross-instance brand probe (#763 D1).
+// answers the cross-instance brand probe (X-GIS #763 D1).
 Object.defineProperty(ReadonlyNode.prototype, NODE_BRAND, { value: true })
 
 /** The write-capable node. Every value-producing method and builtin, and `Var()`, return this
@@ -773,7 +773,7 @@ Object.defineProperty(ReadonlyNode.prototype, NODE_BRAND, { value: true })
  *  `someLet.assign(…)` is a `tsc` error. The split is type-level only: the runtime is one
  *  class, and the emitted WGSL and GLSL do not depend on which type a value carried.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  */
 export class Node<K extends string = string> extends ReadonlyNode<K> {
@@ -856,7 +856,7 @@ export class Node<K extends string = string> extends ReadonlyNode<K> {
  *  point: `f32(someVec3)` used to type-check on both authoring surfaces and emit `f32(v)`,
  *  which no target compiles.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type ScalarCastSource = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
 
@@ -869,7 +869,7 @@ const scalarCast = (x: ReadonlyNode<string>, fn: string, t: ShaderType): Node =>
   // `.type` here), with the GPU compiler as the first reader.
   if (!isNodeValue(x)) {
     throw new TypeError(
-      `shader-dsl: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof x}`,
+      `typeshade: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof x}`,
     )
   }
   if (x.type.kind !== 'scalar' && !isF64(x.type)) {
@@ -886,7 +886,7 @@ const scalarCast = (x: ReadonlyNode<string>, fn: string, t: ShaderType): Node =>
 const litNum = (v: number, fn: string): number => {
   if (typeof v !== 'number') {
     throw new TypeError(
-      `shader-dsl: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof v}`,
+      `typeshade: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof v}`,
     )
   }
   // Neither WGSL nor GLSL has an Infinity/NaN literal, so a non-finite value here
@@ -895,7 +895,7 @@ const litNum = (v: number, fn: string): number => {
   // authoring site — fail loud at construction instead.
   if (!Number.isFinite(v)) {
     throw new TypeError(
-      `shader-dsl: ${fn}(${v}) — a shader literal must be finite (no Infinity/NaN spelling exists on either target); clamp or guard the host-side value first`,
+      `typeshade: ${fn}(${v}) — a shader literal must be finite (no Infinity/NaN spelling exists on either target); clamp or guard the host-side value first`,
     )
   }
   return v
@@ -910,14 +910,14 @@ const litNum = (v: number, fn: string): number => {
  *  scalar, which closes a hole both surfaces had: `f32(someVec3)` type-checked and emitted
  *  `f32(v)`, which no target compiles.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} `v` is neither a JS number nor a scalar node.
  *  @throws `SD0116` when the node operand is not a scalar.
  *
  *  @example
  *  ```ts
- *  import { f32 } from '@xgis/shader-dsl'
+ *  import { f32 } from 'typeshade'
  *
  *  const half = f32(0.5)  // Node<'f32'>
  *  ```
@@ -936,14 +936,14 @@ export function f32(v: number | ReadonlyNode<string>): Node<'f32'> {
  *  A Node argument is a CAST instead: `i32(x)` converts, the free-function twin of `x.i32()`.
  *  It builds what {@link toI32} builds, and its operand is bounded to a scalar.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} `v` is neither a JS number nor a scalar node.
  *  @throws `SD0116` when the node operand is not a scalar.
  *
  *  @example
  *  ```ts
- *  import { i32 } from '@xgis/shader-dsl'
+ *  import { i32 } from 'typeshade'
  *
  *  const zero = i32(0)  // Node<'i32'>
  *  ```
@@ -961,14 +961,14 @@ export function i32(v: number | ReadonlyNode<string>): Node<'i32'> {
  *  A Node argument is a CAST instead: `u32(x)` converts, the free-function twin of `x.u32()`.
  *  It builds what {@link toU32} builds, and its operand is bounded to a scalar.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} `v` is neither a JS number nor a scalar node.
  *  @throws `SD0116` when the node operand is not a scalar.
  *
  *  @example
  *  ```ts
- *  import { u32 } from '@xgis/shader-dsl'
+ *  import { u32 } from 'typeshade'
  *
  *  const flags = u32(4)  // Node<'u32'>
  *  ```
@@ -988,14 +988,14 @@ export function u32(v: number | ReadonlyNode<string>): Node<'u32'> {
  *  free-function twin of `x.f64()`. Bounded to f32 for the reason `toF64` is: no other scalar
  *  has an exact widening the fp64 lowering implements.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} `v` is neither a JS number nor an f32 node.
  *  @throws `SD0116` when the node operand is not a scalar.
  *
  *  @example
  *  ```ts
- *  import { f64 } from '@xgis/shader-dsl'
+ *  import { f64 } from 'typeshade'
  *
  *  const radius = f64(6378137)  // Node<'f64'>
  *  ```
@@ -1011,20 +1011,20 @@ export function f64(v: number | ReadonlyNode<string>): Node<'f64'> {
  *  (`If`, `While`). Only a JS boolean is accepted, so a stray `bool(someNode)` fails at the
  *  call site instead of coercing to `true`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} `v` is not a JS boolean.
  *
  *  @example
  *  ```ts
- *  import { bool } from '@xgis/shader-dsl'
+ *  import { bool } from 'typeshade'
  *
  *  const flag = bool(true)  // Node<'bool'>
  *  ```
  */
 export const bool = (v: boolean): Node<'bool'> => {
   if (typeof v !== 'boolean')
-    throw new TypeError(`shader-dsl: bool() takes a boolean literal, got ${typeof v}`)
+    throw new TypeError(`typeshade: bool() takes a boolean literal, got ${typeof v}`)
   return new Node<'bool'>({ op: 'lit', type: boolT, value: v })
 }
 
@@ -1081,7 +1081,7 @@ export function bindingRef<T extends ShaderType>(name: string, type: T): Node<Ke
 const freeBin = (bop: BinOp, name: string, a: NodeLike, b: NodeLike): Node => {
   if (typeof a === 'number' && typeof b === 'number') {
     throw new TypeError(
-      `shader-dsl: ${name}(${a}, ${b}) — at least one operand must be a Node; fold two host numbers before they reach the shader`,
+      `typeshade: ${name}(${a}, ${b}) — at least one operand must be a Node; fold two host numbers before they reach the shader`,
     )
   }
   const an = typeof a === 'number' ? liftAgainst((b as ReadonlyNode).type, a) : a
@@ -1101,13 +1101,13 @@ const freeBin = (bop: BinOp, name: string, a: NodeLike, b: NodeLike): Node => {
  *  Whichever operand is a node types the other: `add(1, u32node)` emits `1u`, the same typed
  *  lift `u32node.add(1)` performs. Two bare numbers are rejected — fold those on the host.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} both operands are plain numbers.
  *
  *  @example
  *  ```ts
- *  import { fn, add, f32T } from '@xgis/shader-dsl'
+ *  import { fn, add, f32T } from 'typeshade'
  *
  *  const shifted = fn('shifted', { x: f32T }, ({ x }) => add(0.5, x))
  *  ```
@@ -1132,13 +1132,13 @@ export function add(a: NodeLike, b: NodeLike): Node {
  *
  *  Whichever operand is a node types the other. Two bare numbers are rejected.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} both operands are plain numbers.
  *
  *  @example
  *  ```ts
- *  import { fn, sub, smoothstep, f32T } from '@xgis/shader-dsl'
+ *  import { fn, sub, smoothstep, f32T } from 'typeshade'
  *
  *  const rim = fn('rim', { d: f32T }, ({ d }) => sub(1, smoothstep(0, 1, d)))
  *  ```
@@ -1162,13 +1162,13 @@ export function sub(a: NodeLike, b: NodeLike): Node {
  *
  *  Whichever operand is a node types the other. Two bare numbers are rejected.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} both operands are plain numbers.
  *
  *  @example
  *  ```ts
- *  import { fn, mul, f32T } from '@xgis/shader-dsl'
+ *  import { fn, mul, f32T } from 'typeshade'
  *
  *  const doubled = fn('doubled', { x: f32T }, ({ x }) => mul(2, x))
  *  ```
@@ -1193,13 +1193,13 @@ export function mul(a: NodeLike, b: NodeLike): Node {
  *
  *  Whichever operand is a node types the other. Two bare numbers are rejected.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @throws {TypeError} both operands are plain numbers.
  *
  *  @example
  *  ```ts
- *  import { fn, div, f32T } from '@xgis/shader-dsl'
+ *  import { fn, div, f32T } from 'typeshade'
  *
  *  const recip = fn('recip', { x: f32T }, ({ x }) => div(1, x))
  *  ```
@@ -1227,7 +1227,7 @@ export function div(a: NodeLike, b: NodeLike): Node {
 // Every builtin's key parameter is bounded to the keys its WGSL/GLSL spec
 // domain (and, for f64, the df64 whitelist) actually admits — `K extends
 // string` used to admit bool/texture/struct keys, so `sinh(someBool)`
-// type-checked and died at naga (#763 X6/X7's key-class discipline, applied
+// type-checked and died at naga (X-GIS #763 X6/X7's key-class discipline, applied
 // to the free-function builtins).
 
 /** The f32-family keys, `'f32'` and the f32 vectors: the argument domain of the float-only
@@ -1235,7 +1235,7 @@ export function div(a: NodeLike, b: NodeLike): Node {
  *  3.00 define those builtins over floats only, so an i32, u32 or bool node is rejected at
  *  `tsc`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type FloatKey = 'f32' | `vec${number}<f32>`
 /** The emulated-double keys, `'f64'` and the f64 vectors. Only the builtins with an f64
@@ -1243,14 +1243,14 @@ export type FloatKey = 'f32' | `vec${number}<f32>`
  *  `normalize` and scalar `sqrt`. Every other builtin bounds its key to {@link FloatKey}, so
  *  an f64 argument to one is a `tsc` error at the authoring site.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type Float64Key = 'f64' | `vec${number}<f64>`
 /** The integer keys, i32 and u32 scalars and vectors, for the builtins whose WGSL and GLSL
  *  domain includes integers: `abs`, `min`, `max` and `clamp`. `sign` is defined over floats
  *  and signed integers only, so it takes i32 and rejects u32.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export type IntKey = 'i32' | 'u32' | `vec${number}<i32>` | `vec${number}<u32>`
 
@@ -1270,11 +1270,11 @@ const genType1 =
 
 /** `sin(x)`: sine of `x` in radians, component-wise. Spelled the same on WGSL and GLSL ES 3.00.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, sin, f32T } from '@xgis/shader-dsl'
+ *  import { fn, sin, f32T } from 'typeshade'
  *
  *  const wave = fn('wave', { t: f32T }, ({ t }) => sin(t))
  *  ```
@@ -1282,11 +1282,11 @@ const genType1 =
 export const sin = genType1<FloatKey | Float64Key>('sin')
 /** `cos(x)`: cosine of `x` in radians, component-wise. Spelled the same on WGSL and GLSL ES 3.00.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, cos, f32T } from '@xgis/shader-dsl'
+ *  import { fn, cos, f32T } from 'typeshade'
  *
  *  const wave = fn('wave', { t: f32T }, ({ t }) => cos(t))
  *  ```
@@ -1294,11 +1294,11 @@ export const sin = genType1<FloatKey | Float64Key>('sin')
 export const cos = genType1<FloatKey | Float64Key>('cos')
 /** `tan(x)`: tangent of `x` in radians, component-wise. Spelled the same on WGSL and GLSL ES 3.00.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, tan, f32T } from '@xgis/shader-dsl'
+ *  import { fn, tan, f32T } from 'typeshade'
  *
  *  const slope = fn('slope', { angle: f32T }, ({ angle }) => tan(angle))
  *  ```
@@ -1308,11 +1308,11 @@ export const tan = genType1('tan')
  *  `[-1, 1]` is undefined per the WGSL and GLSL specs (NaN on most drivers); {@link clamp} the
  *  argument first when rounding can push it outside that range.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, asin, clamp, f32T } from '@xgis/shader-dsl'
+ *  import { fn, asin, clamp, f32T } from 'typeshade'
  *
  *  const angle = fn('angle', { sinA: f32T }, ({ sinA }) => asin(clamp(sinA, -1, 1)))
  *  ```
@@ -1322,11 +1322,11 @@ export const asin = genType1('asin')
  *  it is undefined outside `x ∈ [-1, 1]`, so {@link clamp} the argument first when float error
  *  can push it a hair past ±1, as it can after a chain of floating-point operations.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, acos, clamp, f32T } from '@xgis/shader-dsl'
+ *  import { fn, acos, clamp, f32T } from 'typeshade'
  *
  *  const angle = fn('angle', { cosTheta: f32T }, ({ cosTheta }) => acos(clamp(cosTheta, -1, 1)))
  *  ```
@@ -1336,11 +1336,11 @@ export const acos = genType1('acos')
  *  It covers two quadrants only; use {@link atan2} for the two-argument form, which recovers
  *  the full angle from a `(y, x)` pair with the sign information a plain ratio drops.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, atan, exp, f32T } from '@xgis/shader-dsl'
+ *  import { fn, atan, exp, f32T } from 'typeshade'
  *
  *  // The Gudermannian function, 2·atan(exp(y)) − π/2, is built on atan(exp(y)).
  *  const gudermannian = fn('gud', { y: f32T }, ({ y }) => atan(exp(y)))
@@ -1349,11 +1349,11 @@ export const acos = genType1('acos')
 export const atan = genType1('atan')
 /** `exp(x)`: eˣ, component-wise. {@link exp2} is the base-2 form.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, exp, f32T } from '@xgis/shader-dsl'
+ *  import { fn, exp, f32T } from 'typeshade'
  *
  *  const decay = fn('decay', { t: f32T }, ({ t }) => exp(t.mul(-1)))
  *  ```
@@ -1362,11 +1362,11 @@ export const exp = genType1('exp')
 /** `log(x)`: natural logarithm, component-wise. {@link log2} is the base-2 form. `x <= 0` is
  *  undefined per spec, so floor the argument with {@link max} when it can reach zero.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, log, max, f32, f32T } from '@xgis/shader-dsl'
+ *  import { fn, log, max, f32, f32T } from 'typeshade'
  *
  *  const decayRate = fn('decayRate', { x: f32T }, ({ x }) => log(max(x, f32(1e-6))))
  *  ```
@@ -1375,11 +1375,11 @@ export const log = genType1('log')
 /** `log2(x)`: base-2 logarithm, component-wise; the inverse of {@link exp2}. {@link log} is the
  *  natural-base form.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, log2, f32T } from '@xgis/shader-dsl'
+ *  import { fn, log2, f32T } from 'typeshade'
  *
  *  const bits = fn('bits', { x: f32T }, ({ x }) => log2(x))
  *  ```
@@ -1388,11 +1388,11 @@ export const log2 = genType1('log2')
 /** `floor(x)`: round toward −∞, component-wise. {@link ceil}, {@link trunc} and {@link round}
  *  are the other rounding directions, and {@link fract} computes `x.sub(floor(x))` in one call.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, floor, f32T } from '@xgis/shader-dsl'
+ *  import { fn, floor, f32T } from 'typeshade'
  *
  *  const cell = fn('cell', { x: f32T }, ({ x }) => floor(x))
  *  ```
@@ -1400,11 +1400,11 @@ export const log2 = genType1('log2')
 export const floor = genType1<FloatKey | Float64Key>('floor')
 /** `ceil(x)`: round toward +∞, component-wise. {@link floor} rounds the other way.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, ceil, f32T } from '@xgis/shader-dsl'
+ *  import { fn, ceil, f32T } from 'typeshade'
  *
  *  const steps = fn('steps', { x: f32T }, ({ x }) => ceil(x))
  *  ```
@@ -1412,11 +1412,11 @@ export const floor = genType1<FloatKey | Float64Key>('floor')
 export const ceil = genType1('ceil')
 /** `abs(x)`: absolute value, component-wise.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, abs, f32T } from '@xgis/shader-dsl'
+ *  import { fn, abs, f32T } from 'typeshade'
  *
  *  const magnitude = fn('magnitude', { x: f32T }, ({ x }) => abs(x))
  *  ```
@@ -1425,11 +1425,11 @@ export const abs = genType1<FloatKey | Float64Key | IntKey>('abs')
 /** `sqrt(x)`: square root, component-wise. `x < 0` is undefined per spec. When only 1/√x is
  *  needed, {@link inverseSqrt} is one call in place of a square root and a divide.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, sqrt, f32T } from '@xgis/shader-dsl'
+ *  import { fn, sqrt, f32T } from 'typeshade'
  *
  *  const dist = fn('dist', { sq: f32T }, ({ sq }) => sqrt(sq))
  *  ```
@@ -1439,11 +1439,11 @@ export const sqrt = genType1<FloatKey | 'f64'>('sqrt')
  *  repetition (tiling a coordinate into `[0, 1)`) and for hash-style noise such as
  *  `fract(dot(p3, p3.yzx.add(33.33)))`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, fract, f32T } from '@xgis/shader-dsl'
+ *  import { fn, fract, f32T } from 'typeshade'
  *
  *  const wrap = fn('wrap', { x: f32T }, ({ x }) => fract(x))
  *  ```
@@ -1455,11 +1455,11 @@ export const radians = genType1('radians')
 /** `degrees(rad)`: radians to degrees, component-wise, with the built-in's exact 180/π; the
  *  inverse of {@link radians}. Write it in place of `x.mul(RAD2DEG)` with a hand-rounded constant.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, degrees, f32T } from '@xgis/shader-dsl'
+ *  import { fn, degrees, f32T } from 'typeshade'
  *
  *  const deg = fn('deg', { rad: f32T }, ({ rad }) => degrees(rad))
  *  ```
@@ -1467,11 +1467,11 @@ export const radians = genType1('radians')
 export const degrees = genType1('degrees')
 /** `sign(x)`: `-1`, `0` or `1` per component, according to the sign of `x`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, sign, f32T } from '@xgis/shader-dsl'
+ *  import { fn, sign, f32T } from 'typeshade'
  *
  *  const dir = fn('dir', { x: f32T }, ({ x }) => sign(x))
  *  ```
@@ -1493,11 +1493,11 @@ export const inverseSqrt = genType1('inverseSqrt')
  *  `atan(sinh(y))` is the inverse of `asinh(tan(x))`, one transcendental fewer, and better
  *  conditioned near y = 0, than the Gudermannian form `2·atan(exp(y)) − π/2`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, atan, sinh, f32T } from '@xgis/shader-dsl'
+ *  import { fn, atan, sinh, f32T } from 'typeshade'
  *
  *  const gd = fn('gd', { y: f32T }, ({ y }) => atan(sinh(y)))
  *  ```
@@ -1513,11 +1513,11 @@ export const tanh = genType1('tanh')
  *  Gudermannian, `asinh(tan(φ))` equals `log(tan(π/4 + φ/2))` with one transcendental fewer
  *  and no π/4 constant to truncate.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, asinh, tan, f32T } from '@xgis/shader-dsl'
+ *  import { fn, asinh, tan, f32T } from 'typeshade'
  *
  *  const invGd = fn('invGd', { phi: f32T }, ({ phi }) => asinh(tan(phi)))
  *  ```
@@ -1535,11 +1535,11 @@ export const atanh = genType1('atanh')
  *  colour channels, interpolation factors and coverage. WGSL has a `saturate` builtin; GLSL ES
  *  3.00 has none, so the GLSL output is `clamp(x, 0.0, 1.0)`, with the same semantics.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, saturate, f32T } from '@xgis/shader-dsl'
+ *  import { fn, saturate, f32T } from 'typeshade'
  *
  *  const alpha = fn('alpha', { fade: f32T }, ({ fade }) => saturate(fade))
  *  ```
@@ -1551,11 +1551,11 @@ export const saturate = genType1('saturate')
  *  quadrant information, as when recovering a heading from a 2-D offset. Spelled `atan2` on
  *  WGSL and as the two-argument `atan(y, x)` on GLSL.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, atan2, f32T } from '@xgis/shader-dsl'
+ *  import { fn, atan2, f32T } from 'typeshade'
  *
  *  const heading = fn('heading', { dy: f32T, dx: f32T }, ({ dy, dx }) => atan2(dy, dx))
  *  ```
@@ -1572,11 +1572,11 @@ export function atan2(y: ReadonlyNode<string> | number, x: NodeLike): Node<strin
  *  the same rule as the arithmetic methods, so `min(color, 1)` caps every channel against one
  *  literal without unrolling per component.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, min, f32T } from '@xgis/shader-dsl'
+ *  import { fn, min, f32T } from 'typeshade'
  *
  *  const capped = fn('capped', { x: f32T }, ({ x }) => min(x, 1))
  *  ```
@@ -1589,11 +1589,11 @@ export const min = <K extends FloatKey | Float64Key | IntKey>(
  *  broadcast against a vector `a`. A common floor idiom is `max(x, f32(1e-6))`, which keeps a
  *  divisor or a `sqrt` or `log` argument off zero without a branch.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, max, f32, f32T } from '@xgis/shader-dsl'
+ *  import { fn, max, f32, f32T } from 'typeshade'
  *
  *  const safe = fn('safe', { x: f32T }, ({ x }) => max(x, f32(1e-6)))
  *  ```
@@ -1627,7 +1627,7 @@ export function pow(a: ReadonlyNode<string> | number, b: NodeLike): Node<string>
  *
  *  Component-wise. `y` may be a scalar broadcast over a vector `x`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param x - the value to wrap.
  *  @param y - the modulus, a vector of the same shape or a scalar to broadcast.
@@ -1635,7 +1635,7 @@ export function pow(a: ReadonlyNode<string> | number, b: NodeLike): Node<string>
  *
  *  @example
  *  ```ts
- *  import { fn, mod, f32T } from '@xgis/shader-dsl'
+ *  import { fn, mod, f32T } from 'typeshade'
  *
  *  // Fold an angle into one revolution, whatever sign it arrives with.
  *  const wrap = fn('wrap_angle', { a: f32T }, ({ a }) => mod(a, 6.283185307179586))
@@ -1650,11 +1650,11 @@ export const mod = <K extends FloatKey>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<
  *  {@link acos}, whose domain is `[-1, 1]`, keeping float rounding from pushing an in-range
  *  value a hair past its bound.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, clamp, f32T } from '@xgis/shader-dsl'
+ *  import { fn, clamp, f32T } from 'typeshade'
  *
  *  const norm = fn('norm', { x: f32T }, ({ x }) => clamp(x, 0, 1))
  *  ```
@@ -1679,11 +1679,11 @@ export const fma = <K extends FloatKey>(
  *  outside `[0, 1]` extrapolates; pass `t` through {@link clamp} or {@link smoothstep} when the
  *  result must stay within the `a..b` range.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, mix, vec3, f32T } from '@xgis/shader-dsl'
+ *  import { fn, mix, vec3, f32T } from 'typeshade'
  *
  *  const blend = fn('blend', { t: f32T }, ({ t }) => mix(vec3(0, 0, 0), vec3(1, 1, 1), t))
  *  ```
@@ -1729,18 +1729,18 @@ export function smoothstep(
  *  WGSL requires `edge` and `x` to have the same type. */
 export const step = <K extends FloatKey>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNode<K>): Node<K> =>
   call('step', x.type, edge, x) as Node<K>
-// K-constrained like `cross` (#763 X7) — dot(v2, v3) used to COMPILE and die at
+// K-constrained like `cross` (X-GIS #763 X7) — dot(v2, v3) used to COMPILE and die at
 // naga; the shared K pins both operands to one float-vector key.
 /** `length(v)`: Euclidean vector magnitude, `|v|`. The return precision follows the operand: an
  *  f32 vector (vec2, vec3 or vec4) returns f32, and an emulated-double `vec${N}<f64>` returns
  *  f64, so an f64 operand keeps its precision without a cast.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *
  *  @example
  *  ```ts
- *  import { fn, length, vec2, f32T } from '@xgis/shader-dsl'
+ *  import { fn, length, vec2, f32T } from 'typeshade'
  *
  *  const mag = fn('mag', { x: f32T, y: f32T }, ({ x, y }) => length(vec2(x, y)))
  *  ```
@@ -1754,12 +1754,12 @@ export function length(v: ReadonlyNode<string>): Node<string> {
  *  the operand key: f32 vectors return f32, emulated-double `vec${N}<f64>` vectors return f64.
  *  Both operands share one key, so `dot(v2, v3)` is a `tsc` error.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *
  *  @example
  *  ```ts
- *  import { fn, dot, vec3, f32T } from '@xgis/shader-dsl'
+ *  import { fn, dot, vec3, f32T } from 'typeshade'
  *
  *  const luma = fn('luma', { x: f32T }, ({ x }) => dot(vec3(x, x, x), vec3(0.2, 0.7, 0.1)))
  *  ```
@@ -1812,11 +1812,11 @@ export const unpack4x8unorm = (v: ReadonlyNode<'u32'>): Node<'vec4<f32>'> =>
  *  A compact carrier for a pair where 8-bit unorm quantisation is too coarse and two full f32
  *  components are too wide; {@link unpack2x16float} restores the rounded pair.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, pack2x16float, vec2fT } from '@xgis/shader-dsl'
+ *  import { fn, pack2x16float, vec2fT } from 'typeshade'
  *
  *  const packed = fn('packed', { hv: vec2fT }, ({ hv }) => pack2x16float(hv))
  *  ```
@@ -1880,11 +1880,11 @@ export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
  *  optimizer would otherwise be free to rewrite: a Kahan compensation term, a split constant,
  *  an error-free-transform residual. Wrapping every operation buys nothing.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, Let, optBarrier, f32T } from '@xgis/shader-dsl'
+ *  import { fn, Let, optBarrier, f32T } from 'typeshade'
  *
  *  // Kahan compensation: `(sum + y) - sum - y` is algebraically zero, which is exactly
  *  // what a reassociating compiler is licensed to delete.
@@ -1896,7 +1896,7 @@ export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
  */
 export const optBarrier = (v: ReadonlyNode<'f32'> | number): Node<'f32'> =>
   bitcastF32(bitcastU32(typeof v === 'number' ? f32(v) : v))
-/** An array-layer argument (#1651). A `number` becomes an i32 LITERAL, not the f32
+/** An array-layer argument (X-GIS #1651). A `number` becomes an i32 LITERAL, not the f32
  *  one `lift()` defaults to: WGSL's array_index takes i32/u32, and `0.0` there is a
  *  type error (GLSL wraps the value in float() either way). A FRACTIONAL number is
  *  rejected here (SD0015): `i32(1.5)` would emit `1.5` as an i32 literal — a naga
@@ -1910,7 +1910,7 @@ const layerArg = (l: ReadonlyNode<'i32' | 'u32'> | number): NodeLike => {
   return l
 }
 /** A textureLoad MIP-LEVEL (or MSAA sample-index) argument — layerArg's twin, and for
- *  the same reason (#1703). WGSL's `textureLoad` takes an INTEGER level, but `lift()`
+ *  the same reason (X-GIS #1703). WGSL's `textureLoad` takes an INTEGER level, but `lift()`
  *  defaults a bare number to f32, so the `textureLoad(t, c, 0)` this function's own doc
  *  recommends emitted `textureLoad(t, c, 0.0)` — which naga REJECTS. It went unnoticed
  *  because every in-repo caller writes `u32(0)` by hand and because GLSL's spelling
@@ -1953,7 +1953,7 @@ const levelArg = (l: NodeLike): NodeLike => {
  *  The CPU evaluation (`compileModule`) has no way to read a texture and returns a placeholder
  *  under its `gpuStubs` option.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param tex - the sampled texture binding, `resource(name, texture2dfT, at).node`.
  *  @param smp - the sampler binding to filter with.
@@ -1963,7 +1963,7 @@ const levelArg = (l: NodeLike): NodeLike => {
  *
  *  @example
  *  ```ts
- *  import { fn, resource, textureSample, texture2dfT, samplerT, vec2fT, vec4fT } from '@xgis/shader-dsl'
+ *  import { fn, resource, textureSample, texture2dfT, samplerT, vec2fT, vec4fT } from 'typeshade'
  *
  *  const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
  *  const smp = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
@@ -2142,14 +2142,14 @@ export const textureDimensions = (
  *  The CPU evaluation (`compileModule`) has no way to query a texture and returns a
  *  placeholder under its `gpuStubs` option.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param tex - the array-texture binding to measure.
  *  @returns the layer count.
  *
  *  @example
  *  ```ts
- *  import { resource, textureNumLayers, toF32, texture2dArrayfT } from '@xgis/shader-dsl'
+ *  import { resource, textureNumLayers, toF32, texture2dArrayfT } from 'typeshade'
  *
  *  const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 1 })
  *  const layers = toF32(textureNumLayers(atlas.node))
@@ -2175,11 +2175,11 @@ export const dpdx = genType1('dpdx')
  *  partner of {@link dpdx}, with the same GPU-only and fragment-only constraints. Spelled `dpdy`
  *  on WGSL and `dFdy` on GLSL ES 3.00.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, dpdy, f32T } from '@xgis/shader-dsl'
+ *  import { fn, dpdy, f32T } from 'typeshade'
  *
  *  const dv = fn('dv', { v: f32T }, ({ v }) => dpdy(v))
  *  ```
@@ -2214,13 +2214,13 @@ export function select<R extends string>(
  * Every arm's type must equal the default's. The shared `R extends string` bound rejects most
  * mismatches at `tsc`; one that reaches the runtime throws.
  *
- * Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ * Exported from `typeshade`, `typeshade/core/ir`.
  *
- * @throws {ShaderDslError} `SD0011` when an arm's type differs from the default's.
+ * @throws {TypeShadeError} `SD0011` when an arm's type differs from the default's.
  *
  * @example
  * ```ts
- * import { fn, matchExpr, f32, u32T } from '@xgis/shader-dsl'
+ * import { fn, matchExpr, f32, u32T } from 'typeshade'
  *
  * const width = fn('width', { kind: u32T }, ({ kind }) =>
  *   matchExpr(kind, [[0, f32(1)], [1, () => f32(2)]], f32(0.5)),
@@ -2231,7 +2231,7 @@ export function select<R extends string>(
  */
 export function matchExpr<S extends ScalarKey, R extends string>(
   scrutinee: ReadonlyNode<S>,
-  // Thunk-or-node arms (#763 X17): when/matchEnum arms are thunks while
+  // Thunk-or-node arms (X-GIS #763 X17): when/matchEnum arms are thunks while
   // matchExpr's were eager nodes — migrating between the dispatch forms
   // silently moved value construction (and any inner Let) in or out of the
   // arm. Accepting both normalises the family; eager nodes stay supported.
@@ -2293,7 +2293,7 @@ export function matchEnum<M extends Record<string, number>, R extends string>(
   arms: { readonly [K in keyof M]: () => ReadonlyNode<R> },
 ): Node<R> {
   const keys = Object.keys(e.values) as (keyof M & string)[]
-  if (keys.length === 0) throw new Error('shader-dsl: matchEnum needs at least one member')
+  if (keys.length === 0) throw new Error('typeshade: matchEnum needs at least one member')
   const last = keys[keys.length - 1]!
   const cases = keys.slice(0, -1).map((k) => [e.values[k], arms[k]()] as const)
   return matchExpr(scrutinee, cases, arms[last]())
@@ -2327,11 +2327,11 @@ export const f64Parts = (x: ReadonlyNode<'f64'>): Node<'vec2<f32>'> =>
  *  number. Emits `i32(x)` on WGSL and `int(x)` on GLSL. Use it to turn a computed f32 or u32
  *  node into an integer index or scrutinee.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, toI32, f32T } from '@xgis/shader-dsl'
+ *  import { fn, toI32, f32T } from 'typeshade'
  *
  *  const idx = fn('idx', { u: f32T }, ({ u }) => toI32(u.mul(16)))
  *  ```
@@ -2342,11 +2342,11 @@ export const toI32 = (x: ReadonlyNode<string> | number): Node<'i32'> =>
  *  number. Emits `u32(x)` on WGSL and `uint(x)` on GLSL. Use it over {@link toI32} wherever the
  *  context is unsigned, such as a buffer stride.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, toU32, f32T } from '@xgis/shader-dsl'
+ *  import { fn, toU32, f32T } from 'typeshade'
  *
  *  const idx = fn('idx', { anchorMode: f32T }, ({ anchorMode }) => toU32(anchorMode))
  *  ```
@@ -2360,11 +2360,11 @@ export const toU32 = (x: ReadonlyNode<string> | number): Node<'u32'> =>
  *  to the constructed type's element scalar. Call it directly only for a `ShaderType` those
  *  named helpers do not cover; ordinary authoring uses the typed wrapper.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { construct, vec3fT } from '@xgis/shader-dsl'
+ *  import { construct, vec3fT } from 'typeshade'
  *
  *  const v = construct(vec3fT, [1, 0, 0])  // same result as vec3(1, 0, 0)
  *  ```
@@ -2407,11 +2407,11 @@ export const member = <T extends ShaderType>(
  *  so `vec2(pos.x, 0)` emits an f32 zero with no `f32()` wrapper. {@link construct} is the
  *  untyped primitive this and every other vector and struct constructor is built on.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec2 } from '@xgis/shader-dsl'
+ *  import { vec2 } from 'typeshade'
  *
  *  const uv = vec2(0, 1)  // Node<'vec2<f32>'>
  *  ```
@@ -2420,11 +2420,11 @@ export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> =>
   construct(vec2fT, a) as Node<'vec2<f32>'>
 /** A `vec3<f32>` constructor, WGSL-style: `vec3(x, y, z)`. Bare number components lift to f32.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec3 } from '@xgis/shader-dsl'
+ *  import { vec3 } from 'typeshade'
  *
  *  const rgb = vec3(1, 0, 0)  // Node<'vec3<f32>'>
  *  ```
@@ -2435,11 +2435,11 @@ export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> =>
  *  f32, so the common clip-space pattern `vec4(pos, 0, 1)` needs no `f32()` wrapper on the
  *  trailing arguments.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { fn, vec2, vec4, f32T } from '@xgis/shader-dsl'
+ *  import { fn, vec2, vec4, f32T } from 'typeshade'
  *
  *  const clip = fn('clip', { pos: f32T }, ({ pos }) => vec4(vec2(pos, pos), 0, 1))
  *  ```
@@ -2449,11 +2449,11 @@ export const vec4 = (...a: NodeLike[]): Node<'vec4<f32>'> =>
 /** A `vec2<u32>` constructor, WGSL-style: `vec2u(x, y)`. Bare number components lift to u32,
  *  where {@link vec2} lifts them to f32. For unsigned pairs such as a pick-buffer coordinate.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec2u } from '@xgis/shader-dsl'
+ *  import { vec2u } from 'typeshade'
  *
  *  const pick = vec2u(0, 0)  // Node<'vec2<u32>'>
  *  ```
@@ -2464,11 +2464,11 @@ export const vec2u = (...a: NodeLike[]): Node<'vec2<u32>'> =>
  *  the type of the integer texel coordinate {@link textureLoad} takes
  *  (`vec2i(toI32(...), toI32(...))`).
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec2i, toI32, f32T, fn } from '@xgis/shader-dsl'
+ *  import { vec2i, toI32, f32T, fn } from 'typeshade'
  *
  *  const coord = fn('coord', { u: f32T, v: f32T }, ({ u, v }) => vec2i(toI32(u), toI32(v)))
  *  ```
@@ -2484,11 +2484,11 @@ export const vec2i = (...a: NodeLike[]): Node<'vec2<i32>'> =>
  *  where {@link vec3} lifts them to f32. It is the type of the compute `global_invocation_id`
  *  builtin, so this is how a workgroup coordinate is built by hand.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec3u } from '@xgis/shader-dsl'
+ *  import { vec3u } from 'typeshade'
  *
  *  const origin = vec3u(0, 0, 0)  // Node<'vec3<u32>'>
  *  ```
@@ -2498,11 +2498,11 @@ export const vec3u = (...a: NodeLike[]): Node<'vec3<u32>'> =>
 /** A `vec4<u32>` constructor, WGSL-style: `vec4u(x, y, z, w)`. Bare number components lift to
  *  u32. The shape of a packed unsigned parameter block or a `texture_2d<u32>` texel.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec4u } from '@xgis/shader-dsl'
+ *  import { vec4u } from 'typeshade'
  *
  *  const params = vec4u(64, 1, 0, 0)  // Node<'vec4<u32>'>
  *  ```
@@ -2512,11 +2512,11 @@ export const vec4u = (...a: NodeLike[]): Node<'vec4<u32>'> =>
 /** A `vec3<i32>` constructor, WGSL-style: `vec3i(x, y, z)`. Bare number components lift to i32.
  *  The signed integer triple, such as a texel coordinate into an array texture.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec3i } from '@xgis/shader-dsl'
+ *  import { vec3i } from 'typeshade'
  *
  *  const cell = vec3i(0, 0, 1)  // Node<'vec3<i32>'>
  *  ```
@@ -2526,11 +2526,11 @@ export const vec3i = (...a: NodeLike[]): Node<'vec3<i32>'> =>
 /** A `vec4<i32>` constructor, WGSL-style: `vec4i(x, y, z, w)`. Bare number components lift to
  *  i32. The signed counterpart of {@link vec4u}, and the texel type of a `texture_2d<i32>`.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec4i } from '@xgis/shader-dsl'
+ *  import { vec4i } from 'typeshade'
  *
  *  const texel = vec4i(0, 0, 0, 1)  // Node<'vec4<i32>'>
  *  ```
@@ -2547,11 +2547,11 @@ type Vec64Arg = ReadonlyNode<'f64' | 'f32'> | number
  *  One argument splats to both components, WGSL-style. Use it over {@link vec2} wherever the
  *  value needs more than the seven or so significant digits of f32.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec2f64 } from '@xgis/shader-dsl'
+ *  import { vec2f64 } from 'typeshade'
  *
  *  const p = vec2f64(1e8 + 0.5, 2)  // Node<'vec2<f64>'>: exact, where an f32 vec2 would round
  *  ```
@@ -2561,11 +2561,11 @@ export const vec2f64 = (...a: Vec64Arg[]): Node<'vec2<f64>'> =>
 /** An emulated-double `vec3<f64>` constructor, the three-component sibling of {@link vec2f64};
  *  that entry has the splat, split and widen rules every `vecNf64` constructor shares.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec3f64 } from '@xgis/shader-dsl'
+ *  import { vec3f64 } from 'typeshade'
  *
  *  const p = vec3f64(1e8 + 0.5, 2, 3)  // Node<'vec3<f64>'>
  *  ```
@@ -2575,11 +2575,11 @@ export const vec3f64 = (...a: Vec64Arg[]): Node<'vec3<f64>'> =>
 /** An emulated-double `vec4<f64>` constructor, the four-component sibling of {@link vec2f64};
  *  that entry has the splat, split and widen rules every `vecNf64` constructor shares.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { vec4f64 } from '@xgis/shader-dsl'
+ *  import { vec4f64 } from 'typeshade'
  *
  *  const p = vec4f64(1e8 + 0.5, 2, 3, 4)  // Node<'vec4<f64>'>
  *  ```
@@ -2596,11 +2596,11 @@ type Mat64Col<N extends 2 | 3 | 4> = ReadonlyNode<`vec${N}<f64>`>
  *  {@link mulMat64} for the f64 matrix-vector and matrix-matrix products; the generic `.mul`
  *  rejects a matrix operand.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { mat2f64, vec2f64 } from '@xgis/shader-dsl'
+ *  import { mat2f64, vec2f64 } from 'typeshade'
  *
  *  const m = mat2f64(vec2f64(1, 2), vec2f64(3, 4))  // Node<'mat2x2<f64>'>
  *  ```
@@ -2610,11 +2610,11 @@ export const mat2f64 = (...cols: [Mat64Col<2>, Mat64Col<2>]): Node<'mat2x2<f64>'
 /** An emulated-double `mat3x3<f64>` constructor, column-major, the 3×3 sibling of
  *  {@link mat2f64}; that entry has the column-argument convention and the transform helpers.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { mat3f64, vec3f64 } from '@xgis/shader-dsl'
+ *  import { mat3f64, vec3f64 } from 'typeshade'
  *
  *  const m = mat3f64(vec3f64(1, 0, 0), vec3f64(0, 1, 0), vec3f64(0, 0, 1))
  *  ```
@@ -2624,11 +2624,11 @@ export const mat3f64 = (...cols: [Mat64Col<3>, Mat64Col<3>, Mat64Col<3>]): Node<
 /** An emulated-double `mat4x4<f64>` constructor, column-major, the 4×4 sibling of
  *  {@link mat2f64}; that entry has the column-argument convention and the transform helpers.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
  *  ```ts
- *  import { mat4f64, vec4f64 } from '@xgis/shader-dsl'
+ *  import { mat4f64, vec4f64 } from 'typeshade'
  *
  *  const m = mat4f64(
  *    vec4f64(1, 0, 0, 0),
