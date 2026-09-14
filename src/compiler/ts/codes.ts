@@ -33,7 +33,7 @@ export const TS_CODES = {
   RETURN_SHAPE: 'TS8021',
   /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`). */
   UNKNOWN_NAME: 'TS8022',
-  /** The same function or binding name declared twice in one scope. */
+  /** The same function, binding, module constant or struct name declared twice in one scope. A struct counts whichever of the three spellings each declaration used: a class, an interface and a type alias of one name are one struct, not declarations that merge. */
   DUPLICATE_SYMBOL: 'TS8023',
   /** `@builtin("...")` names an id outside WGSL's builtin vocabulary (`WgslBuiltinName` in `core/sot.ts`). */
   BUILTIN_NAME: 'TS8024',

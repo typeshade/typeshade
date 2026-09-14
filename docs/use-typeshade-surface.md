@@ -64,7 +64,7 @@ Product code should use `declare`. Mixing `declare` and call form in one file sh
 
 ---
 
-## 2. Value types — `type` and `class`
+## 2. Value types — `type`, `interface` and `class`
 
 Plain data without field metadata uses a type alias:
 
@@ -77,8 +77,7 @@ type Camera = {
 
 `interface Camera { view: mat4; pos: vec3 }` is the same struct written a third way. A class,
 a type alias over an object type, and an interface all produce one `StructDecl`; the compiler
-accepts all three. One name may only be declared once — a class and an interface of the same
-name do **not** merge here.
+accepts all three.
 
 A `type`/`interface` struct is the members written in it: a method or call signature, an
 index signature, an optional (`a?: f32`) member, and an `interface … extends …` are each
@@ -109,14 +108,25 @@ an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(t
 Forbidden on these classes:
 
 - `new Camera()` as a resource
-- `extends`
+- `extends` (`TS8010`: the base's fields would silently vanish from the layout)
 - methods that close over `declare` resources
 - `@compute` / `@vertex` / `@fragment` methods
 - constructors, `this` as a pipeline
 
 Pure methods that only read `this` fields may land later as free functions. Not in the first class slice.
 
-`interface Scene { time: uniform<f32> }` is a reserved alternate bind-group spelling. Not in the first slice. `declare` is the default.
+A struct is collected only when something **uses** it: a `declare` binding's `uniform<T>` /
+`storage<T>` argument, a parameter, return or local annotation, or a field of another struct
+that is itself used. A `type` or `interface` declaration nothing refers to is not a shader
+type at all — it may be a host-side shape (`type Opts = { seed: number }`) — and is left
+alone, neither checked nor emitted. A `class` is always collected, as it always has been.
+
+One name, one declaration. A second class, interface or type alias of the same name is an
+error, **including two interfaces**, which TypeScript itself would merge: the merged layout
+would disagree with the one emitted here at every use site, so the ambiguity is refused
+rather than silently resolved.
+
+`declare` is the bind-group spelling; an `interface` is a value layout like any other.
 
 ---
 
