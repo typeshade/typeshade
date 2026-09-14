@@ -195,6 +195,15 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
           return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number)
         }
       }
+      // A call the front end RESOLVED to a declared function carries `declRef`, and that
+      // function is what the emitted shader calls — a module may declare `fn saturate(…)`,
+      // which shadows the builtin of that name in WGSL and GLSL alike. Honouring it here
+      // keeps the oracle evaluating what the GPU runs. An intrinsic call has no declRef and
+      // still takes the builtin, so nothing that resolved to one moves.
+      if (e.declRef !== undefined) {
+        const declared = ctx.fns[e.fn]
+        if (declared) return declared(...args)
+      }
       const b = BUILTINS[e.fn]
       if (b) return b(...args)
       const stub = GPU_STUBS[e.fn]

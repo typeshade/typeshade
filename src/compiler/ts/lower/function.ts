@@ -11,6 +11,7 @@ import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
+import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -51,6 +52,7 @@ export function lowerSourceFunctions(
     ready.push(stmt)
   }
   const funcs: FuncDecl[] = []
+  const nodeByName = new Map<string, ts.FunctionDeclaration>()
   for (const stmt of ready) {
     const stub = callees.get(stmt.name!.text)!
     fillFunctionBody(
@@ -65,6 +67,7 @@ export function lowerSourceFunctions(
       symbols,
     )
     funcs.push(stub)
+    nodeByName.set(stub.name, stmt)
   }
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
   // downstream of here was looking for one. In a single file a function is called by the name
@@ -78,7 +81,103 @@ export function lowerSourceFunctions(
     })),
     diagnostics,
   )
+  checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics)
   return funcs
+}
+
+/** The ops WGSL and GLSL ES 3.00 allow only in the fragment stage: the kill, and the three
+ *  screen-space derivatives, which need the neighbouring invocations of a quad. */
+const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set(['fwidth', 'dpdx', 'dpdy'])
+
+/** Whether a function's OWN body uses a fragment-only op, by the name to report it under. */
+function fragmentOnlyOpsOf(body: readonly Stmt[]): Set<string> {
+  const found = new Set<string>()
+  const walkStmt = (s: Stmt): void => {
+    if (s.s === 'discard') found.add('discard')
+    eachStmtExpr(
+      s,
+      (e) => {
+        eachExpr(e, (x) => {
+          if (x.op === 'call' && FRAGMENT_ONLY_CALLS.has(x.fn)) found.add(x.fn)
+        })
+      },
+      walkStmt,
+    )
+  }
+  for (const s of body) walkStmt(s)
+  return found
+}
+
+/** The functions a function's body calls, by name. */
+function calleeNamesOf(body: readonly Stmt[]): Set<string> {
+  const names = new Set<string>()
+  const walkStmt = (s: Stmt): void => {
+    eachStmtExpr(
+      s,
+      (e) => {
+        eachExpr(e, (x) => {
+          if (x.op === 'call') names.add(x.fn)
+        })
+      },
+      walkStmt,
+    )
+  }
+  for (const s of body) walkStmt(s)
+  return names
+}
+
+/** `discard` and the screen-space derivatives are fragment-only, and an entry is as illegal
+ *  for using one through a helper as for using one itself: Tint rejects a vertex entry whose
+ *  call graph reaches a `discard` ("cannot be used in vertex pipeline stage … called by entry
+ *  point 'vs'"), and ANGLE rejects the GLSL. Checking an entry's own body was not enough, so
+ *  this closes over the call graph once every body is lowered — which is also the first point
+ *  at which the graph is known. A helper is still never rejected on its own: it is legal
+ *  until something calls it from the wrong stage. */
+function checkFragmentOnlyOps(
+  funcs: readonly FuncDecl[],
+  nodeByName: ReadonlyMap<string, ts.FunctionDeclaration>,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const own = new Map<string, Set<string>>()
+  const calls = new Map<string, Set<string>>()
+  for (const f of funcs) {
+    own.set(f.name, fragmentOnlyOpsOf(f.body))
+    calls.set(f.name, calleeNamesOf(f.body))
+  }
+  for (const entry of funcs) {
+    if (entry.stage !== 'vertex' && entry.stage !== 'compute') continue
+    const node = nodeByName.get(entry.name)
+    if (!node?.name) continue
+    // Breadth-first over the call graph, reporting each op once at the nearest function that
+    // uses it, so a shared helper does not report the same thing twice for one entry.
+    const seen = new Set<string>([entry.name])
+    const queue: string[] = [entry.name]
+    const reported = new Set<string>()
+    while (queue.length > 0) {
+      const name = queue.shift()!
+      for (const op of own.get(name) ?? []) {
+        if (reported.has(op)) continue
+        reported.add(op)
+        const where =
+          name === entry.name
+            ? `"${entry.name}" is a ${entry.stage} entry`
+            : `"${name}" is reachable from the ${entry.stage} entry "${entry.name}"`
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.name,
+          `"${op}" is only valid in a fragment shader; ${where}.`,
+          TS_CODES.UNSUPPORTED,
+        )
+      }
+      for (const callee of calls.get(name) ?? []) {
+        if (seen.has(callee) || !own.has(callee)) continue
+        seen.add(callee)
+        queue.push(callee)
+      }
+    }
+  }
 }
 
 export function lowerFunctionDeclaration(

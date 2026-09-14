@@ -270,10 +270,84 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §§9 and 10 are reserved for issue #8's A2 (member and component assignment)
-and A6 (`discard`, the missing builtins, `**`), which are in flight on their own branches and
-append here in issue order. This section is §11 so the six A-item branches do not all claim
-§9 and collide on merge.
+**Numbering:** §9 is reserved for issue #8's A2 (member and component assignment), which is
+in flight on its own branch and appends here in issue order. The sections below took the next
+free numbers so the A-item branches do not all claim §9 and collide on merge.
+
+---
+
+## 10. Builtins, casts and `discard`
+
+The scalar casts are `f32(x)`, `i32(x)`, `u32(x)`, `bool(x)` and `f64(x)`. `bool(x)` is
+"x is not zero", WGSL's own conversion, and is spelled with the compare it means. `f64(x)`
+widens an `f32` to the emulated double; casting a value to the type it already has is that
+value.
+
+Free builtin functions, callable without a `Math.` prefix, are the GLSL / WGSL names the IR
+carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoothstep`, `step`,
+`length`, `dot`, `cross`, `distance`, `normalize`, `mod`, `fract`, `degrees`, `radians`,
+`inverseSqrt`):
+
+| Spelling | Meaning |
+|----------|---------|
+| `exp2(x)` | 2ˣ |
+| `saturate(x)` | `clamp(x, 0., 1.)`; GLSL ES 3.00 has no `saturate`, so it is inlined there |
+| `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL) |
+| `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
+| `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL) — `atan(x)` is still one argument |
+| `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
+| `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
+
+A function the file declares wins over any name in the table above, and over `bool` and
+`f64`: those names meant the author's function before they were builtins, and an addition
+does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
+`clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way —
+a program that resolves to one today must keep resolving to it.
+
+`discard` kills the fragment:
+
+```ts
+"use typeshade"
+
+class Color {
+  @location(0) color: vec4
+}
+
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  if (p.x > 0.5) {
+    discard
+  }
+  return { color: vec4(1., 0., 0., 1.) }
+}
+```
+
+It is allowed in a fragment entry, and in a helper as long as no `@vertex` or `@compute`
+entry can reach it: the check closes over the call graph, so `discard` inside a helper a
+vertex entry calls is rejected too, naming the helper and the entry. The three screen-space
+derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
+
+`**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
+as `pow(i32, i32)`, which neither compiler accepts.
+
+`transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
+emulated-double matrix, so there is nothing to expose yet.
+
+**One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
+rather than about this table: a declared function is emitted with the name the author wrote,
+and GLSL ES 3.00 does not let a program redeclare one of ITS builtins. Measured on the compile
+gate's own WebGL2 context, a module that declares and calls `exp2` or `fwidth` compiles on
+Tint and is rejected by ANGLE with
+
+```
+ERROR: 0:5: 'exp2' : Name of a built-in function cannot be redeclared as function
+```
+
+while `saturate` and `fma` are accepted, because GLSL ES 3.00 has neither name. This is not
+new — those two names are the GLSL builtins they always were, and a module declaring one
+emitted the same GLSL before this item existed — but it is the one way the precedence rule
+above can hand you a WGSL-only module. The fix is to rename the function; the compiler does
+not warn about it yet.
 
 ---
 

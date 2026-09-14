@@ -9,6 +9,7 @@
 import type { Backend } from './backend.js'
 import type { Expr, Stmt, ModuleDecl } from './ir/index.js'
 import { stageOf } from './ir/index.js'
+import { eachExpr, eachStmtExpr } from './ir/visit.js'
 import { fragmentRequires, type EmitFragment } from './fragment.js'
 import { intrinsicNeedsAtomArgs } from './intrinsics.js'
 import { validate } from './passes/validate.js'
@@ -125,14 +126,30 @@ function emitLeaf(
       // `externref` (#1713) likewise: its per-target spelling was already resolved into
       // `.name` by `spellExterns` during lowering, so the walk stays target-neutral.
       return e.name
-    case 'call':
+    case 'call': {
       // A registry spelling that splices an argument into a tighter position — `mod`'s
       // `/` operand, `pack4x8unorm`'s `.x` base — needs it as a PRIMARY: at the loose
       // argument precedence a minimally-parenthesized `a + b` re-associates inside the
       // template, changing the parse (#2350). The registry declares which entries do
       // that; `base` is the same ATOM rendering `.field` / `[i]` already demand, and
       // under 'full' both renderers are identical, so no emitted bytes move there.
-      return be.intrinsic(e.fn, e.args.map(intrinsicNeedsAtomArgs(e.fn) ? base : r))
+      //
+      // A module that declares its own `saturate` must CALL it. The backends rewrite an
+      // intrinsic they have no native spelling for — GLSL renders `saturate(x)` as
+      // `clamp(x, 0.0, 1.0)`, and `fma`, `dpdx` and `dpdy` likewise — and that rewrite keys
+      // on the NAME, so such a module emitted the user's function into the GLSL and then
+      // never called it: `saturate(2.)` answered with the user's arithmetic on WGSL and
+      // with `clamp(2.0, 0.0, 1.0)` on GLSL, from one module, with no diagnostic. The front
+      // end and both CPU backends already route the call to the declaration; this walk was
+      // the last place keyed on the name alone.
+      //
+      // Keyed on the module's declared NAMES, not on `call.declRef`: that field is
+      // documented as never read by the emit path and freely dropped by pass rewrites, so a
+      // rewrite that dropped it would silently flip the emit back. A name survives every
+      // pass, since a pass that removed the declaration would remove the call with it.
+      const args = e.args.map(intrinsicNeedsAtomArgs(e.fn) ? base : r)
+      return declaredFns.has(e.fn) ? `${e.fn}(${args.join(', ')})` : be.intrinsic(e.fn, args)
+    }
     case 'member':
       return `${base(e.base)}.${e.field}`
     case 'construct':
@@ -346,8 +363,68 @@ function spellExterns(m: ModuleDecl, be: Backend): ModuleDecl {
  *  (consts → structs → bindings → funcs, only non-empty sections), joined `\n\n` with a
  *  trailing newline. Split out of `emitModule` so the string and the reflection can be
  *  derived from the SAME lowered module (see `emitModuleWithReflection`). */
+let declaredFns: ReadonlySet<string> = new Set()
+
+/** The module's own function names that a call in it actually RESOLVES to — a declared name
+ *  reached by at least one `call` carrying a `declRef` to a declaration of that name.
+ *
+ *  Not every declared name: an intrinsic id the front end keeps as an intrinsic must stay one.
+ *  `inverseSqrt` and `atan2` are spellings a declaration does NOT win (the language's
+ *  precedence rule keeps the names that were builtins first), so a module declaring
+ *  `inverseSqrt` resolves `inverseSqrt(p.x)` to the intrinsic and the call carries no
+ *  `declRef`. Keyed on the name alone, emit called the user's function instead: the GLSL went
+ *  from `inversesqrt(p.x)` to `inverseSqrt(p.x)` while the CPU oracle still computed the
+ *  intrinsic — one module, three answers.
+ *
+ *  Not `declRef` per call either. That field is documented as never read by the emit path and
+ *  is freely dropped by pass rewrites, so a rewrite that dropped it on one call would flip that
+ *  call's emit while its twin two lines up kept it. Taking the NAMES some call resolves to
+ *  keeps the decision per module: a pass that drops `declRef` everywhere falls back to the
+ *  intrinsic (which is what emit did before this existed), and one that drops it here and there
+ *  cannot split a module's answer in two. */
+function resolvedOwnFns(lowered: ModuleDecl): ReadonlySet<string> {
+  const declared = new Set(lowered.funcs.map((f) => f.name))
+  if (declared.size === 0) return declared
+  const resolved = new Set<string>()
+  for (const f of lowered.funcs) {
+    for (const s of f.body) {
+      eachStmtExpr(s, (e: Expr) => {
+        eachExpr(e, (x: Expr) => {
+          if (x.op === 'call' && x.declRef !== undefined && declared.has(x.fn)) resolved.add(x.fn)
+        })
+      })
+    }
+  }
+  return resolved
+}
+
+/** Run `emit` with the module's own function names in scope, so a call to one of them is
+ *  rendered as a call rather than as the intrinsic of that name.
+ *
+ *  Scoped state rather than a parameter, and the reason is structural: the rewrite has to be
+ *  visible inside `Backend.emitFunc`, which each backend implements by calling `emitBody`
+ *  with its own singleton — `glsl.ts` does it in three places — so a wrapped backend object
+ *  is discarded one level in and a threaded argument would have to reach through every
+ *  backend's function signature. Emit is synchronous and single-threaded, and the restore is
+ *  in a `finally`, so the window cannot leak into an unrelated emit. If this is the wrong
+ *  trade, the alternative is widening `emitBody`/`emitExpr`/`emitFunc` to carry the set. */
+export function withDeclaredFns<T>(lowered: ModuleDecl, emit: () => T): T {
+  const previous = declaredFns
+  declaredFns = resolvedOwnFns(lowered)
+  try {
+    return emit()
+  } finally {
+    declaredFns = previous
+  }
+}
+
 function assembleLowered(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'full'): string {
+  return withDeclaredFns(lowered, () => assembleParts(lowered, be, parens))
+}
+
+function assembleParts(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'full'): string {
   const parts: string[] = []
+
   // #923 — specialization-constant declarations lead the module (WGSL `override`
   // lines): they are module-scope constants a later const/fn may reference. Skipped
   // when the module declares none, so override-free emit stays byte-identical.

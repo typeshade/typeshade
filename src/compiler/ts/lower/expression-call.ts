@@ -1,9 +1,12 @@
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
+import { typeKey } from '../../../core/ir/types.js'
+import { retargetIntLit } from '../lit-coerce.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import {
+  USER_FIRST_BUILTINS,
   expectedArity,
   isCanonicalMathFn,
   resolveMathConst,
@@ -120,6 +123,11 @@ export function lowerCall(
       const folded = lowerArrayFold(name, node, sourceFile, scope, diagnostics)
       if (folded !== 'fallback') return folded
     }
+    // A name #8 A6 added does not shadow a function the file declares: before it, the call
+    // resolved to that function, and an addition may not change what a program means.
+    const shadowed = USER_FIRST_BUILTINS.has(name) ? scope.resolveCallee(name) : undefined
+    if (shadowed) return lowerUserCall(node, shadowed, sourceFile, scope, diagnostics)
+    if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics)
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     ctor = VEC_CTOR[name]
     if (!ctor) {
@@ -199,6 +207,19 @@ export function lowerCall(
     )
     return undefined
   }
+  // atan(y, x) is WGSL's and GLSL's two-argument arctangent, which the IR carries under the
+  // neutral id atan2 (`atan2(y, x)` in WGSL, `atan(y, x)` in GLSL). One argument stays atan.
+  if (intrinsicId === 'atan' && args.length === 2) intrinsicId = 'atan2'
+  else if (intrinsicId === 'atan' && args.length !== 1) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${viaMath ? 'Math.' : ''}atan expects 1 argument, or 2 for atan(y, x), got ${args.length}.`,
+      TS_CODES.ARITY_MISMATCH,
+    )
+    return undefined
+  }
   const arity = expectedArity(intrinsicId) ?? (intrinsicId === 'mod' ? 2 : undefined)
   if (arity !== undefined && args.length !== arity) {
     pushDiag(
@@ -221,6 +242,63 @@ export function lowerCall(
     return undefined
   }
   return { op: 'call', type: mathResultType(intrinsicId, args), fn: intrinsicId, args }
+}
+
+/** `select(falseValue, trueValue, cond)` — WGSL's argument order, which is what this surface
+ *  follows (the EDSL's free `select(cond, a, b)` puts the condition first; #8 S-seam notes the
+ *  difference and keeps each surface's own order). It lowers to the `select` Expr op, the very
+ *  node `cond ? trueValue : falseValue` already lowers to, so the two spellings are one IR and
+ *  the backends spell it as `select(f, t, c)` in WGSL and `(c ? t : f)` in GLSL. It is not a
+ *  call: the oracle and both writers handle `select` as an Expr, never as an intrinsic call. */
+function lowerSelectCall(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (node.arguments.length !== 3) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `select expects 3 argument(s), got ${node.arguments.length}. ` +
+        "The order is WGSL's: select(falseValue, trueValue, cond).",
+      TS_CODES.ARITY_MISMATCH,
+    )
+    return undefined
+  }
+  const lowered: Expr[] = []
+  for (const arg of node.arguments) {
+    const one = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!one) return undefined
+    lowered.push(one)
+  }
+  let [ifFalse, ifTrue] = lowered as [Expr, Expr]
+  const cond = lowered[2]!
+  if (typeKey(cond.type) !== 'bool') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.arguments[2]!,
+      `select condition must be bool, got ${typeKey(cond.type)}. ` +
+        "The order is WGSL's: select(falseValue, trueValue, cond).",
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  ifFalse = retargetIntLit(ifFalse, node.arguments[0]!, ifTrue.type)
+  ifTrue = retargetIntLit(ifTrue, node.arguments[1]!, ifFalse.type)
+  if (typeKey(ifTrue.type) !== typeKey(ifFalse.type)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `select arm type mismatch: ${typeKey(ifFalse.type)} vs ${typeKey(ifTrue.type)}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse }
 }
 
 function vectorCtorType(n: 2 | 3 | 4, elem: 'f32' | 'i32' | 'u32' | 'f64'): ShaderType {

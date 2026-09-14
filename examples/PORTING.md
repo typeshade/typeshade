@@ -112,17 +112,17 @@ unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 
 ## The blockers
 
-| Code            | Missing feature                                                      | Issue #8        | Blocks | Examples                                                                                                                                                                  |
-| --------------- | -------------------------------------------------------------------- | --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A6-f64**      | the `f64()` cast — there is no f32 → f64 promotion at all            | A6, seam S1     | 13     | every `fp64-*`                                                                                                                                                            |
-| **N1**          | component read on a `vec2<f64>` (`c.x`)                              | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-rtc`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`          |
-| **N2**          | an f64 literal — `let z: f64 = 0.` and `f64Val * 2.` both fail       | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-cancellation` |
-| **A6-deriv**    | `fwidth`, and `dpdx` / `dpdy` to hand-roll it with                   | A6              | 5      | `graticule`, `fp64-loran`, `color-ramp`, `truchet`, `heart`                                                                                                               |
-| **L-loop**      | a loop bound that is not a compile-time constant                     | later (M22·S31) | 4      | `fp64-mercator-tiles`, `fbm-clouds`, `metaballs`, `fp64-mandelbrot`                                                                                                       |
-| **A3**          | an integer literal taking the declared type (`vec2i(0, 0)`)          | A3              | 1      | `texture-array-lod`                                                                                                                                                       |
-| **A6-discard**  | the `discard` statement                                              | A6              | 1      | `discard-cutout`                                                                                                                                                          |
-| **A7-tex**      | `texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad` | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
-| **A7-override** | `override<T>` specialization constants                               | A7              | 1      | `override-quality`                                                                                                                                                        |
+| Code            | Missing feature                                                             | Issue #8        | Blocks | Examples                                                                                                                                                                  |
+| --------------- | --------------------------------------------------------------------------- | --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A6-f64**      | ~~the `f64()` cast~~ — **landed** (#8 A6); N1 and N2 still block the family | A6, seam S1     | 13     | every `fp64-*`                                                                                                                                                            |
+| **N1**          | component read on a `vec2<f64>` (`c.x`)                                     | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-rtc`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`          |
+| **N2**          | an f64 literal — `let z: f64 = 0.` and `f64Val * 2.` both fail              | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-cancellation` |
+| **A6-deriv**    | ~~`fwidth`, and `dpdx` / `dpdy`~~ — **landed** (#8 A6)                      | A6              | 5      | `graticule`, `fp64-loran`, `color-ramp`, `truchet`, `heart`                                                                                                               |
+| **L-loop**      | a loop bound that is not a compile-time constant                            | later (M22·S31) | 4      | `fp64-mercator-tiles`, `fbm-clouds`, `metaballs`, `fp64-mandelbrot`                                                                                                       |
+| **A3**          | an integer literal taking the declared type (`vec2i(0, 0)`)                 | A3              | 1      | `texture-array-lod`                                                                                                                                                       |
+| **A6-discard**  | ~~the `discard` statement~~ — **landed** (#8 A6)                            | A6              | 1      | `discard-cutout`                                                                                                                                                          |
+| **A7-tex**      | `texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`        | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
+| **A7-override** | `override<T>` specialization constants                                      | A7              | 1      | `override-quality`                                                                                                                                                        |
 
 ### What the corpus does **not** need
 
@@ -155,6 +155,10 @@ additionally blocked the GLSL form of all 33 renderable examples, making every r
 bound — and that one is now spent: a source-compiled binding reaches its stages, so a row
 below that says "portable" means the GLSL form emits too. What the rows still do not claim is
 that the emitted shader is CORRECT; only Tint and WebGL2 answer that.
+
+Since the table was written, **A6-deriv**, **A6-discard** and **A6-f64** (the cast) have
+landed in #8 A6. The fp64 family is still held by **N1** and **N2**, which no issue item
+covers, so its rows have not moved.
 
 | After landing      | Portable |
 | ------------------ | -------- |
@@ -365,18 +369,18 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `0.5 * p.xyz`                                                                                                   | ✓ since #19, operand order kept as written                                                              |
 | `c *= 0.5` (c: vec3)                                                                                            | ✓ since #19                                                                                             |
 | `a * b` (both vec3)                                                                                             | ✓                                                                                                       |
-| `f64(p.x)`                                                                                                      | ✗ `Unknown function "f64(p.x)"` — `SCALAR_CAST` holds only f32/i32/u32                                  |
+| `f64(p.x)`                                                                                                      | ✓ since #8 A6 — the cast exists; an f64 LITERAL still does not (N2)                                     |
 | `u.cx * u.cx` (f64 uniform field)                                                                               | ✓ — f64 **arithmetic** works; only the cast and the literal are missing                                 |
 | `u.cx * 2.`                                                                                                     | ✗ `Type mismatch: cannot * f64 and f32. Types must match.` — #19 reworded this; f64 is a different item |
 | `let zx: f64 = 0.`                                                                                              | ✗ `cannot let/const zx f64 and f32`                                                                     |
 | `u.c.x` where `c: vec2<f64>`                                                                                    | ✗ `.x on vec2<f64> — swizzle requires vec2/vec3/vec4`                                                   |
 | `vec2f64(u.c)`                                                                                                  | ✓ — the constructor exists, the component read does not                                                 |
-| `fwidth(p.x)` / `dpdx(p.x)` / `dpdy(p.x)`                                                                       | ✗ `Unknown function`                                                                                    |
-| `exp2(x)` / `saturate(x)` / `select(a,b,c)`                                                                     | ✗ `Unknown function`                                                                                    |
+| `fwidth(p.x)` / `dpdx(p.x)` / `dpdy(p.x)`                                                                       | ✓ since #8 A6                                                                                           |
+| `exp2(x)` / `saturate(x)` / `select(a,b,c)`                                                                     | ✓ since #8 A6 — plus `fma(a,b,c)`, `atan(y,x)`, `bool(i)` and `a ** b`                                  |
 | `sign` `round` `trunc` `ceil` `degrees` `radians` `inverseSqrt`                                                 | ✓                                                                                                       |
 | `mod` `atan2` `distance` `normalize` `cross` `dot` `length`                                                     | ✓                                                                                                       |
 | `c ? 1. : 0.`                                                                                                   | ✓ — and it lowers to `select(...)`, so it is the spelling for the EDSL's `.select()`                    |
-| `discard`                                                                                                       | ✗ `Unsupported expression statement "discard"` — in an entry and in a helper alike                      |
+| `discard`                                                                                                       | ✓ since #8 A6 — in an entry and in a helper the entry calls                                             |
 | `declare const tex: texture_2d<f32>` / `sampler`                                                                | ✗ `TS8099 declare "tex" must be uniform<T> or storage<T>`                                               |
 | `declare const quality: override<f32>`                                                                          | ✗ same TS8099                                                                                           |
 | `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a constant bound`                                                       |
