@@ -9,6 +9,7 @@ import {
   type Scalar,
   type KeyOf,
   type ElemKey,
+  type ArrayElemKey,
   type ScalarKey,
   typeKey,
   typeEq,
@@ -676,11 +677,47 @@ export class ReadonlyNode<K extends string = string> {
     return scalarCast(this, 'f64', f64T) as Node<'f64'>
   }
 
-  /** Array index, `base[idx]`. The result key is inferred from the element `ShaderType`. A JS
-   *  number index lifts to a u32 literal, since WGSL indices are integers. */
-  at<T extends ShaderType>(idx: ReadonlyNode<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
+  /** Array index, `base[idx]`. A JS number index lifts to a u32 literal, since WGSL indices are
+   *  integers.
+   *
+   *  The element token is optional on an array-keyed node (#8 S3): `xs.at(i)` reads the element
+   *  from the array's own key, so an `array<f32, 4>` indexes to `Node<'f32'>` with nothing
+   *  restated. It is the spelling a `storageBuffer` handle's `.at(i)` already had, and the one
+   *  the `"use typeshade"` surface's `xs[i]` matches. Forgetting the token used to be a runtime
+   *  TypeError rather than a `tsc` error, since the element `ShaderType` was the only place the
+   *  type came from.
+   *
+   *  Pass the token for a node whose key does not carry the element — a widened
+   *  `ReadonlyNode<string>`, or a struct read the phantom key cannot see into.
+   *
+   *  @param idx - the index, a u32/i32/f32 node or a JS number.
+   *  @param elem - the element type. Omit it when the receiver's key is an array key.
+   *  @returns the element read.
+   *
+   *  @example
+   *  ```ts
+   *  const xs = Var('xs', arrayLit(f32T, f32(1), f32(2)))
+   *  const first = xs.at(0) // Node<'f32'>
+   *  ```
+   */
+  at<T extends ShaderType>(idx: ReadonlyNode<ScalarKey> | number, elem: T): Node<KeyOf<T>>
+  at(
+    this: ReadonlyNode<`array<${string}>`>,
+    idx: ReadonlyNode<ScalarKey> | number,
+  ): Node<ArrayElemKey<K>>
+  at(idx: ReadonlyNode<ScalarKey> | number, elem?: ShaderType): Node {
     const idxNode = typeof idx === 'number' ? u32(idx) : idx
-    return new Node<KeyOf<T>>({ op: 'index', type: elem, base: this.expr, idx: idxNode.expr })
+    // No token: take the element from the receiver's own ShaderType, which an array node
+    // always carries. The `this:` bound above keeps a non-array receiver from reaching here
+    // through typed code; the throw covers a widened or untyped one.
+    const type = elem ?? (this.type.kind === 'array' ? this.type.elem : undefined)
+    if (type === undefined) {
+      throw dslError(
+        'SD0117',
+        `.at(i) on ${typeKey(this.type)} — only an array node carries its element type; pass it as .at(i, elemType)`,
+      )
+    }
+    return new Node({ op: 'index', type, base: this.expr, idx: idxNode.expr })
   }
 
   /** `this ? a : b`, valid only on a bool node (enforced through the `this:` bound). Both

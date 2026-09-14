@@ -241,6 +241,13 @@ export const CODES = {
     summary: 'a scalar cast applied to a non-scalar value',
     hint: 'f32/i32/u32/f64 and the .f32()/.i32()/.u32()/.f64() methods convert one scalar — convert per component, or rebuild the vector with vec3(a.f32(), b.f32(), c.f32())',
   },
+  // `.at(i)` reads its element type from an array node's own ShaderType. A node of any other
+  // type has no element to read, and the one-argument call has nothing to build (#8 S3).
+  SD0117: {
+    code: 'SD0117',
+    summary: 'a one-argument .at(i) on a node that is not an array',
+    hint: 'only an array node carries its element type — pass the element explicitly as .at(i, elemType)',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
 /** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived
