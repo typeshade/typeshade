@@ -1,6 +1,7 @@
 // === Hover: TypeScript quick info for user symbols, TypeShade docs for the vocabulary (§5) ===
 
 import ts from 'typescript'
+import type { CompileTsSourceResult } from '../compiler/ts/source-file.js'
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js'
 import { nodeAtPosition, rangeForSpan, wordSpan } from './positions.js'
@@ -31,18 +32,62 @@ function isTypeName(node: ts.Node): node is ts.Identifier {
   )
 }
 
+/** The top-level variable declaration named `name` in `sourceFile`, if there is one. */
+function topLevelVariableNamed(
+  sourceFile: ts.SourceFile,
+  name: string,
+): ts.VariableDeclaration | undefined {
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isVariableStatement(stmt)) continue
+    for (const decl of stmt.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name) && decl.name.text === name) return decl
+    }
+  }
+  return undefined
+}
+
+/**
+ * For an identifier that refers to one of the front end's collected resource bindings
+ * (`analysis.bindings`: `uniform<T>(...)`, `storage<T>(...)` and the rest), the TypeShade line
+ * the hover adds under TypeScript's quick info: the address space and the `@group`/`@binding`
+ * slot the emitted WGSL declares it at, which the TypeScript type (`Camera`) says nothing
+ * about. The name alone is not enough, since a local could shadow the binding, so the
+ * identifier must resolve, per TypeScript, to the top-level declaration of that name.
+ */
+function resourceBindingLine(
+  languageService: ts.LanguageService,
+  analysis: CompileTsSourceResult,
+  sourceFile: ts.SourceFile,
+  uri: string,
+  offset: number,
+  node: ts.Node,
+): string | undefined {
+  if (!ts.isIdentifier(node)) return undefined
+  const binding = analysis.bindings.find((b) => b.name === node.text)
+  if (binding === undefined) return undefined
+  const decl = topLevelVariableNamed(sourceFile, node.text)
+  if (decl === undefined) return undefined
+  const defs = languageService.getDefinitionAtPosition(uri, offset) ?? []
+  const declStart = decl.name.getStart(sourceFile)
+  if (!defs.some((d) => d.fileName === uri && d.textSpan.start === declStart)) return undefined
+  return `${binding.space} resource at @group(${binding.group}) @binding(${binding.binding})`
+}
+
 /**
  * Hover at `offset` in `uri`: a TypeShade documentation sentence for a GPU type name, an
  * attribute, or a builtin string, and otherwise TypeScript's own quick info for the symbol —
  * which, for a value typed as one of the ambient GPU types, already names the alias (`f32`,
  * `vec4`, ...) rather than expanding its branded structure, since `typeToString` prints a named
- * type alias by its name whenever one applies.
+ * type alias by its name whenever one applies. A resource binding's quick info gains one line
+ * from `analysis` (the service's cached front-end run for this document version, §8): its
+ * address space and `@group`/`@binding` slot.
  */
 export function getHover(
   languageService: ts.LanguageService,
   sourceFile: ts.SourceFile,
   uri: string,
   offset: number,
+  analysis: CompileTsSourceResult,
 ): TypeshadeHover | undefined {
   const node = nodeAtPosition(sourceFile, offset)
 
@@ -80,8 +125,9 @@ export function getHover(
   if (!quickInfo) return undefined
   const display = ts.displayPartsToString(quickInfo.displayParts)
   const documentation = ts.displayPartsToString(quickInfo.documentation)
-  const contents = documentation
-    ? `\`\`\`ts\n${display}\n\`\`\`\n\n${documentation}`
-    : `\`\`\`ts\n${display}\n\`\`\``
-  return { contents, range: rangeForSpan(sourceFile, quickInfo.textSpan) }
+  const resource = resourceBindingLine(languageService, analysis, sourceFile, uri, offset, node)
+  const sections = [`\`\`\`ts\n${display}\n\`\`\``]
+  if (resource !== undefined) sections.push(resource)
+  if (documentation) sections.push(documentation)
+  return { contents: sections.join('\n\n'), range: rangeForSpan(sourceFile, quickInfo.textSpan) }
 }

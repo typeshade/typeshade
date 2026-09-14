@@ -1,7 +1,7 @@
 // === TypeScript + TypeShade diagnostics, merged into one TypeshadeDiagnostic list (§5, §6) ===
 
 import ts from 'typescript'
-import { compileTsSource } from '../compiler/ts/source-file.js'
+import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js'
 import { TS_CODES } from '../compiler/ts/codes.js'
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js'
 import type { TypeshadeDiagnostic, TypeshadeSeverity } from './types.js'
@@ -137,38 +137,48 @@ export function getTypeScriptDiagnostics(
 }
 
 /**
- * Returns `sourceFile`'s TypeShade diagnostics — the front end's own analysis, run with
- * `{ emit: false }` so `getDiagnostics` never produces shader text (§8) and with `sourceFile`
- * passed straight through so the front end never re-parses text the language service's program
- * already parsed (§5). Mapped to `TypeshadeDiagnostic` with `source: 'typeshade'` and the
- * `TS8xxx` codes from `compiler/ts/codes.ts`.
+ * Maps one front-end diagnostic (`TsCompilerDiagnostic`, one-based lines plus raw offsets) to a
+ * `TypeshadeDiagnostic` with `source: 'typeshade'` and its `TS8xxx` code, the span coming
+ * straight from the compiler's own `start`/`length` (see `spanForDiagnostic`). Shared by
+ * `getTypeshadeDiagnostics` and by `getCompiledOutput`'s emit-failure diagnostic in
+ * `service.ts`, so both shape a compiler diagnostic the same way.
+ */
+export function fromCompilerDiagnostic(
+  sourceFile: ts.SourceFile,
+  uri: string,
+  diagnostic: TsCompilerDiagnostic,
+): TypeshadeDiagnostic {
+  const span = spanForDiagnostic(sourceFile, diagnostic)
+  return {
+    uri,
+    span,
+    range: rangeForSpan(sourceFile, span),
+    severity: severityOfTypeshade(diagnostic.category),
+    message: diagnostic.message,
+    code: diagnostic.code ?? 'TS8099',
+    source: 'typeshade',
+  }
+}
+
+/**
+ * Returns `sourceFile`'s TypeShade diagnostics from `analysis`, the front end's own analysis
+ * of it (`compileTsSource` with `{ emit: false }`, run once per document version by
+ * `service.ts` and shared with symbols, semantic tokens and hover, so `getDiagnostics` never
+ * produces shader text and never lowers a document a second time for the same version, §8).
+ * Mapped to `TypeshadeDiagnostic` with `source: 'typeshade'` and the `TS8xxx` codes from
+ * `compiler/ts/codes.ts`.
  */
 export function getTypeshadeDiagnostics(
+  analysis: CompileTsSourceResult,
   sourceFile: ts.SourceFile,
   uri: string,
 ): TypeshadeDiagnostic[] {
-  const result = compileTsSource(sourceFile.text, {
-    sourceFile,
-    requireDirective: true,
-    emit: false,
-  })
   return (
-    result.diagnostics
+    analysis.diagnostics
       // TypeScript's parse errors reach the editor from `getTypeScriptDiagnostics`, with their
       // own `TS1005`-style codes. The compiler's `SYNTAX` copies of them exist so a `compile()`
       // caller sees them without `tsc`; here they would underline the same token twice.
       .filter((d) => d.code !== TS_CODES.SYNTAX)
-      .map((d) => {
-        const span = spanForDiagnostic(sourceFile, d)
-        return {
-          uri,
-          span,
-          range: rangeForSpan(sourceFile, span),
-          severity: severityOfTypeshade(d.category),
-          message: d.message,
-          code: d.code ?? 'TS8099',
-          source: 'typeshade' as const,
-        }
-      })
+      .map((d) => fromCompilerDiagnostic(sourceFile, uri, d))
   )
 }

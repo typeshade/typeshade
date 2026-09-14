@@ -3,7 +3,7 @@
 import ts from 'typescript'
 import { emitModule } from '../core/backends/wgsl.js'
 import { emitGlslModule } from '../core/backends/glsl.js'
-import { compileTsSource } from '../compiler/ts/source-file.js'
+import { compileTsSource, type CompileTsSourceResult } from '../compiler/ts/source-file.js'
 import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js'
 import { getTypeScriptDiagnostics, getTypeshadeDiagnostics } from './diagnostics.js'
 import { getCompletions } from './completions.js'
@@ -95,10 +95,27 @@ export interface TypeshadeLanguageService {
   offsetAt(uri: string, position: TypeshadePosition): number
 }
 
-interface DiagnosticsCacheEntry {
+/**
+ * The front-end analysis of one document: `compileTsSource` over the program's own
+ * `ts.SourceFile`, with `emit: false` so no shader text is produced and `requireDirective:
+ * true` so a file without `"use typeshade"` reports that as a diagnostic (§8). Every method
+ * that reads the front end (diagnostics, symbols, semantic tokens, hover, compiled output)
+ * reads one cached result of this per document version instead of running it itself.
+ */
+export type AnalyzeSourceFile = (sourceFile: ts.SourceFile) => CompileTsSourceResult
+
+/** The production `AnalyzeSourceFile`. */
+export const analyzeSourceFile: AnalyzeSourceFile = (sourceFile) =>
+  compileTsSource(sourceFile.text, { sourceFile, requireDirective: true, emit: false })
+
+/** Everything the service has computed about one document under one `dependencyKey`
+ * (design doc §8): the front-end analysis, always, and the merged diagnostics once
+ * `getDiagnostics` has asked for them. */
+interface DocumentCacheEntry {
   /** The `dependencyKey` the entry was computed under. */
   readonly key: string
-  readonly diagnostics: readonly TypeshadeDiagnostic[]
+  readonly analysis: CompileTsSourceResult
+  diagnostics?: readonly TypeshadeDiagnostic[]
 }
 
 /** The module specifier of every static `import ... from '...'` and `export ... from '...'`
@@ -123,9 +140,22 @@ function importSpecifiersOf(sourceFile: ts.SourceFile): string[] {
 export function createTypeshadeLanguageService(
   host: TypeshadeLanguageServiceHost = {},
 ): TypeshadeLanguageService {
+  return createTypeshadeLanguageServiceWith(host, analyzeSourceFile)
+}
+
+/**
+ * `createTypeshadeLanguageService` with the front-end analysis function supplied by the
+ * caller. Not exported from the `./language-service` subpath: it exists so a test can wrap
+ * `analyzeSourceFile` in a counter and assert the front end runs once per document version
+ * (§8) without mocking the compiler module.
+ */
+export function createTypeshadeLanguageServiceWith(
+  host: TypeshadeLanguageServiceHost,
+  analyze: AnalyzeSourceFile,
+): TypeshadeLanguageService {
   const tsHost = new TypeshadeHost(host)
   const languageService = ts.createLanguageService(tsHost, ts.createDocumentRegistry())
-  const diagnosticsCache = new Map<string, DiagnosticsCacheEntry>()
+  const cache = new Map<string, DocumentCacheEntry>()
 
   function program(): ts.Program {
     const p = languageService.getProgram()
@@ -167,35 +197,48 @@ export function createTypeshadeLanguageService(
     return parts.join('|')
   }
 
+  /** The cache entry for `uri` under its current `dependencyKey`, computing the front-end
+   * analysis of `sourceFile` when there is none or the key has moved on. */
+  function entryOf(uri: string, sourceFile: ts.SourceFile): DocumentCacheEntry {
+    const key = dependencyKey(uri)
+    const cached = cache.get(uri)
+    if (cached && cached.key === key) return cached
+    const entry: DocumentCacheEntry = { key, analysis: analyze(sourceFile) }
+    cache.set(uri, entry)
+    return entry
+  }
+
+  /** `uri`'s merged TypeScript and TypeShade diagnostics, computed once per cache entry. */
+  function diagnosticsOf(uri: string, sourceFile: ts.SourceFile): readonly TypeshadeDiagnostic[] {
+    const entry = entryOf(uri, sourceFile)
+    entry.diagnostics ??= [
+      ...getTypeScriptDiagnostics(languageService, sourceFile, uri),
+      ...getTypeshadeDiagnostics(entry.analysis, sourceFile, uri),
+    ]
+    return entry.diagnostics
+  }
+
   return {
     openDocument(uri, text, version) {
       tsHost.openDocument(uri, text, version)
-      diagnosticsCache.delete(uri)
+      cache.delete(uri)
     },
 
     updateDocument(uri, text, version) {
       tsHost.updateDocument(uri, text, version)
-      diagnosticsCache.delete(uri)
+      cache.delete(uri)
     },
 
     closeDocument(uri) {
       tsHost.closeDocument(uri)
-      diagnosticsCache.delete(uri)
+      cache.delete(uri)
     },
 
     getDiagnostics(uri) {
       if (!tsHost.hasDocument(uri)) return []
-      const key = dependencyKey(uri)
-      const cached = diagnosticsCache.get(uri)
-      if (cached && cached.key === key) return cached.diagnostics
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return []
-      const diagnostics = [
-        ...getTypeScriptDiagnostics(languageService, sourceFile, uri),
-        ...getTypeshadeDiagnostics(sourceFile, uri),
-      ]
-      diagnosticsCache.set(uri, { key, diagnostics })
-      return diagnostics
+      return diagnosticsOf(uri, sourceFile)
     },
 
     getCompletions(uri, position) {
@@ -209,7 +252,7 @@ export function createTypeshadeLanguageService(
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return undefined
       const offset = offsetAt(sourceFile, position)
-      return getHover(languageService, sourceFile, uri, offset)
+      return getHover(languageService, sourceFile, uri, offset, entryOf(uri, sourceFile).analysis)
     },
 
     getDefinition(uri, position) {
@@ -229,7 +272,7 @@ export function createTypeshadeLanguageService(
     getDocumentSymbols(uri) {
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return []
-      return getDocumentSymbols(sourceFile)
+      return getDocumentSymbols(sourceFile, entryOf(uri, sourceFile).analysis)
     },
 
     getSignatureHelp(uri, position) {
@@ -256,25 +299,21 @@ export function createTypeshadeLanguageService(
     getSemanticTokens(uri, range) {
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return []
-      return getSemanticTokens(languageService, sourceFile, uri, range)
+      return getSemanticTokens(
+        languageService,
+        sourceFile,
+        uri,
+        entryOf(uri, sourceFile).analysis,
+        range,
+      )
     },
 
     getCompiledOutput(uri, target) {
-      const text = tsHost.getDocumentText(uri)
-      if (text === undefined) return undefined
+      if (!tsHost.hasDocument(uri)) return undefined
       const sourceFile = sourceFileOf(uri)
-      const analysis = compileTsSource(text, {
-        fileName: uri,
-        sourceFile,
-        requireDirective: true,
-        emit: false,
-      })
-      const diagnostics: TypeshadeDiagnostic[] = sourceFile
-        ? [
-            ...getTypeScriptDiagnostics(languageService, sourceFile, uri),
-            ...getTypeshadeDiagnostics(sourceFile, uri),
-          ]
-        : []
+      if (!sourceFile) return undefined
+      const { analysis } = entryOf(uri, sourceFile)
+      const diagnostics = [...diagnosticsOf(uri, sourceFile)]
       const hasError = diagnostics.some((d) => d.severity === 'error')
       let outputText = ''
       if (!hasError) {

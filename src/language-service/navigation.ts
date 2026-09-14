@@ -9,7 +9,7 @@
 // renamable program symbol, and `prepareRename` and `rename` share one predicate for that.
 
 import ts from 'typescript'
-import { compileTsSource } from '../compiler/ts/source-file.js'
+import type { CompileTsSourceResult } from '../compiler/ts/source-file.js'
 import { isUseTypeshadeDirective } from '../compiler/ts/directive.js'
 import { AMBIENT_LIB_URI } from './host.js'
 import { nodeAtPosition, rangeForSpan } from './positions.js'
@@ -137,14 +137,13 @@ export function getReferences(
 }
 
 /** The outline of `sourceFile`: its structs, entries, functions, resources and constants,
- * re-labelled from the front end's own collected declarations (`compileTsSource`) rather than
- * TypeScript's generic `class`/`variable` kinds (design doc §5). */
-export function getDocumentSymbols(sourceFile: ts.SourceFile): TypeshadeDocumentSymbol[] {
-  const analysis = compileTsSource(sourceFile.text, {
-    sourceFile,
-    requireDirective: false,
-    emit: false,
-  })
+ * re-labelled from the front end's own collected declarations (`analysis`, the service's one
+ * cached `compileTsSource` run for this document version, §8) rather than TypeScript's generic
+ * `class`/`variable` kinds (design doc §5). */
+export function getDocumentSymbols(
+  sourceFile: ts.SourceFile,
+  analysis: CompileTsSourceResult,
+): TypeshadeDocumentSymbol[] {
   const structNames = new Set(analysis.structs.map((s) => s.decl.name))
   const bindingNames = new Set(analysis.bindings.map((b) => b.name))
   const constNames = new Set(analysis.consts.map((c) => c.name))
