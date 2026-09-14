@@ -7,6 +7,7 @@ import type { BindingDecl } from '../../core/ir/nodes.js'
 import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
+import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 
@@ -21,6 +22,7 @@ export function isResourceCall(expr: ts.Expression): expr is ts.CallExpression {
 export function collectBindings(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  symbols?: DeclaredSymbolSink,
 ): BindingDecl[] {
   const out: BindingDecl[] = []
   let next = 0
@@ -36,6 +38,11 @@ export function collectBindings(
         const b = fromCall(decl.name.text, decl.initializer, isConst, sourceFile, diagnostics, next)
         if (b) {
           out.push(b)
+          recordDeclaration(symbols, sourceFile, decl.name, {
+            name: b.name,
+            kind: 'binding',
+            type: b.type,
+          })
           next = Math.max(next, b.binding + 1)
         }
         continue
@@ -44,6 +51,11 @@ export function collectBindings(
         const b = fromType(decl.name.text, decl.type, isConst, sourceFile, diagnostics, next)
         if (b) {
           out.push(b)
+          recordDeclaration(symbols, sourceFile, decl.name, {
+            name: b.name,
+            kind: 'binding',
+            type: b.type,
+          })
           next = Math.max(next, b.binding + 1)
         }
       }

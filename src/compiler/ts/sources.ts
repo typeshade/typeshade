@@ -8,6 +8,7 @@ import { collectModuleConsts } from './module-const.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import type { DeclaredSymbol } from './symbols.js'
 
 export interface CompileTsSourcesOptions {
   readonly entry?: string
@@ -138,9 +139,12 @@ export function compileTsSources(
       consts: [],
       bindings: [],
       structs: [],
+      symbols: [],
     }
   }
   const diagnostics: TsCompilerDiagnostic[] = []
+  // `symbols` spans index `sourceFile`, the entry file, so only the entry file is recorded.
+  const symbols: DeclaredSymbol[] = []
   const parsed = new Map<string, ts.SourceFile>()
   for (const raw of names)
     parsed.set(normalizeFile(raw), parseFile(normalizeFile(raw), files[raw]!))
@@ -160,6 +164,7 @@ export function compileTsSources(
       consts: [],
       bindings: [],
       structs: [],
+      symbols,
     }
   }
 
@@ -200,6 +205,7 @@ export function compileTsSources(
       consts: [],
       bindings: [],
       structs: [],
+      symbols,
     }
   }
 
@@ -209,10 +215,23 @@ export function compileTsSources(
     const imported = importsOf(sf, exported, diagnostics)
     const callees = new Map<string, FuncDecl>(imported)
     for (const [fnName, rec] of bag) callees.set(fnName, rec.stub)
-    for (const rec of bag.values()) fillFunctionBody(rec.node, rec.stub, sf, diagnostics, callees)
+    // Positional: `fillFunctionBody`'s consts/bindings/structs keep their defaults here.
+    const sink = name === entry ? symbols : undefined
+    for (const rec of bag.values())
+      fillFunctionBody(
+        rec.node,
+        rec.stub,
+        sf,
+        diagnostics,
+        callees,
+        undefined,
+        undefined,
+        undefined,
+        sink,
+      )
   }
 
-  const consts = collectModuleConsts(entrySf, diagnostics)
+  const consts = collectModuleConsts(entrySf, diagnostics, symbols)
   const entryBag = stubs.get(entry) ?? new Map()
   const imported = importsOf(entrySf, exported, diagnostics)
   const funcs: FuncDecl[] = []
@@ -255,6 +274,7 @@ export function compileTsSources(
     consts,
     bindings: [],
     structs: [],
+    symbols,
     wgsl,
   }
 }

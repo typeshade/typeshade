@@ -149,6 +149,7 @@ function lowerForInit(
     mutable: true,
     constValue: init.op === 'lit' ? init.value : undefined,
   })
+  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true })
   return { s: 'var', name, type, init }
 }
 

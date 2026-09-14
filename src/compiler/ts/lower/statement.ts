@@ -212,6 +212,12 @@ function lowerVariableDeclaration(
     )
     return undefined
   }
+  scope.recordDeclaration(sourceFile, decl.name, {
+    name,
+    kind: 'local',
+    type: bindingType,
+    mutable: !isConst,
+  })
   if (isConst) return { s: 'let', name, expr: init }
   return { s: 'var', name, type: bindingType, init }
 }

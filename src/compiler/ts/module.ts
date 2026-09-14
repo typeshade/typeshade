@@ -8,6 +8,7 @@ import type { TsCompilerDiagnostic } from './source-file.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import type { DeclaredSymbol } from './symbols.js'
 
 export interface TsSourceFileInput {
   readonly fileName: string
@@ -17,6 +18,11 @@ export interface TsSourceFileInput {
 export interface CompileTsSourcesResult {
   readonly funcs: readonly FuncDecl[]
   readonly diagnostics: readonly TsCompilerDiagnostic[]
+  /** What the front end declared while lowering the ENTRY file (`entry`, or the first file
+   *  given), as `CompileTsSourceResult.symbols` records it. One file only: a `DeclaredSymbol`
+   *  span is a UTF-16 offset, which means nothing without the file it indexes, and this result
+   *  names no source file. Empty when nothing was lowered. */
+  readonly symbols: readonly DeclaredSymbol[]
   readonly wgsl?: string
 }
 
@@ -42,6 +48,7 @@ export function compileTsSources(
   entry?: string,
 ): CompileTsSourcesResult {
   const diagnostics: TsCompilerDiagnostic[] = []
+  const symbols: DeclaredSymbol[] = []
   const parsed = new Map<string, ts.SourceFile>()
   const exports = new Map<
     string,
@@ -70,7 +77,7 @@ export function compileTsSources(
   const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
   if (syntax.length > 0) {
     diagnostics.push(...syntax)
-    return { funcs: [], diagnostics }
+    return { funcs: [], diagnostics, symbols }
   }
 
   for (const [name, sf] of parsed) {
@@ -195,10 +202,26 @@ export function compileTsSources(
   }
 
   const funcs: FuncDecl[] = []
+  // Only the entry file feeds the symbol table, since a span alone cannot say which file it
+  // indexes; resolved the way the emit-failure anchor below resolves it.
+  const symbolFile =
+    (entry !== undefined && parsed.has(entry) ? entry : undefined) ?? [...parsed.keys()][0]
   for (const [name, table] of exports) {
     const callees = fileCallees.get(name)!
     for (const rec of table.values()) {
-      fillFunctionBody(rec.node, rec.stub, rec.sf, diagnostics, callees)
+      // Positional: `fillFunctionBody`'s consts/bindings/structs keep their defaults here.
+      const sink = name === symbolFile ? symbols : undefined
+      fillFunctionBody(
+        rec.node,
+        rec.stub,
+        rec.sf,
+        diagnostics,
+        callees,
+        undefined,
+        undefined,
+        undefined,
+        sink,
+      )
       funcs.push(rec.stub)
     }
   }
@@ -229,5 +252,5 @@ export function compileTsSources(
       )
     }
   }
-  return { funcs, diagnostics, wgsl }
+  return { funcs, diagnostics, symbols, wgsl }
 }

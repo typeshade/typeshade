@@ -1,7 +1,9 @@
 // === Lowering context / symbol table ===
 
+import ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
 import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
+import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
 
 export type BindingKind = 'param' | 'local' | 'module'
 
@@ -17,10 +19,24 @@ export class LoweringScope {
   private readonly frames: Map<string, Binding>[] = [new Map()]
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
+  private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
 
-  constructor(callees?: Map<string, FuncDecl>) {
+  constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
     this.callees = callees ?? new Map()
+    this.symbols = symbols
+  }
+
+  /** Record one declaration this scope just defined into the caller's symbol table, spanning
+   *  `nameNode` (see `symbols.ts`). A no-op when the caller asked for no symbols. Deliberately
+   *  separate from `define`: a function's scope also defines the module consts and the bindings
+   *  it can see, and those are recorded once where they are collected, not once per function. */
+  recordDeclaration(
+    sourceFile: ts.SourceFile,
+    nameNode: ts.Node,
+    symbol: Omit<DeclaredSymbol, 'start' | 'length'>,
+  ): void {
+    recordDeclaration(this.symbols, sourceFile, nameNode, symbol)
   }
 
   enterLoop(): void {
