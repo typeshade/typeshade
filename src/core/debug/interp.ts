@@ -74,10 +74,9 @@ export interface StepCtx {
   readonly decls: Map<string, FuncDecl>
   readonly bindings: Record<string, CpuValue>
   readonly structs: Map<string, StructDecl>
-  /** The module's declared uniform and storage names. The `"use typeshade"` front end lowers
-   *  a read of one to a `constref` today and to a `varref` once #14's fix lands, so the walk
-   *  needs the list to answer BOTH the same way: a binding nobody supplied is named, rather
-   *  than reported as an unknown constant or an unbound name. */
+  /** The module's declared uniform and storage names, so a binding nobody supplied is NAMED
+   *  rather than reported as an unbound local. Since #18 a binding read is a `varref` like any
+   *  other name, and this set is what tells the two apart. */
   readonly bindingNames: Set<string>
   readonly gpuStubs: boolean
   readonly frames: StepFrame[]
@@ -112,18 +111,16 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       return e.value
     case 'constref': {
       const v = ctx.consts.get(e.name)
-      if (v !== undefined) return v
-      // A `"use typeshade"` read of `declare const camera: uniform<Camera>` lowers to a
-      // `constref` carrying the binding's name, not to the `varref` the EDSL surface builds,
-      // so the oracle's own `constref` case throws `unknown const` on any source-compiled
-      // module with a binding — `compile(src).eval` cannot run one today. PR #18 (issue #14)
-      // changes that lowering to a `varref`; when it lands this arm simply stops being
-      // reached, because the `param`/`varref` case above resolves and reports a binding
-      // identically. Neither spelling is privileged here, so this file needs no change either
-      // way, and a session keeps working across the merge.
-      if (e.name in ctx.bindings) return ctx.bindings[e.name]
-      if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name)
-      throw new Error(`shader-dsl/debug: unknown const ${e.name}`)
+      if (v === undefined) throw new Error(`shader-dsl/debug: unknown const ${e.name}`)
+      return v
+      // This arm once also resolved a BINDING named by a constref, because the front end
+      // spelled a read of `declare const camera: uniform<Camera>` that way and the oracle
+      // therefore threw `unknown const` on any source-compiled module with a binding. #18
+      // (issue #14) changed the lowering to a `varref`, so that shape can no longer be built
+      // by either surface, and the resolution moved to the `param`/`varref` case above. The
+      // workaround is gone rather than kept: unreachable code that answers differently from
+      // `oracle.ts` is a divergence nothing exercises, which is exactly what
+      // `step-differential.test.ts` exists to prevent.
     }
     case 'overrideref': {
       const v = ctx.overrides.get(e.name)
