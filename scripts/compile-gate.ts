@@ -10,10 +10,11 @@
 //   GLSL ES 3.00     `compileShader` for the vertex AND fragment stage, then `linkProgram`,
 //                    on a real WebGL2 context — ANGLE's translator. The `renderable` examples
 //                    only — that registry flag is this package's single authority on "has a
-//                    GLSL ES 3.00 form", and 5 of 41 clear it false today for four different
-//                    reasons (no compute in GLSL ES 3.00; a helper module with no entry point,
-//                    twice; a host-side one; a loose scalar uniform, which GLSL ES 3.00 has no
-//                    std140 block for). Those print `—`, never `ok`, so the count stays honest.
+//                    GLSL ES 3.00 form", and 6 of 43 clear it false today for four different
+//                    reasons (no compute stage in GLSL ES 3.00, twice — the EDSL kernel and its
+//                    source twin; a helper module with no entry point, twice; a host-side one; a
+//                    loose scalar uniform, which GLSL ES 3.00 has no std140 block for). Those
+//                    print `—`, never `ok`, so the count stays honest.
 //
 // BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
 // `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They

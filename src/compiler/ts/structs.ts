@@ -3,6 +3,7 @@ import type { StructDecl, StructField } from '../../core/ir/nodes.js'
 import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
+import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
@@ -15,10 +16,17 @@ export type CollectedStruct = {
 export function collectStructs(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  symbols?: DeclaredSymbolSink,
 ): CollectedStruct[] {
   const out: CollectedStruct[] = []
   for (const stmt of sourceFile.statements) {
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue
+    const structName = stmt.name.text
+    recordDeclaration(symbols, sourceFile, stmt.name, {
+      name: structName,
+      kind: 'struct',
+      type: structT(structName),
+    })
     for (const d of stmt.modifiers ?? []) {
       if (!ts.isDecorator(d)) continue
       checkAttributeName(diagnostics, sourceFile, d)
@@ -65,6 +73,12 @@ export function collectStructs(
       if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
       else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
       fields.push(field)
+      recordDeclaration(symbols, sourceFile, member.name, {
+        name: field.name,
+        kind: 'field',
+        type: field.type,
+        struct: structName,
+      })
     }
     out.push({ decl: { name: stmt.name.text, fields }, packing: 'wgsl' })
   }

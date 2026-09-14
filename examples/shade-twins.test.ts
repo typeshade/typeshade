@@ -5,18 +5,18 @@
 // something checks that they agree; until there was a twin, the sentence was aspirational.
 // `examples/PORTING.md` (landed in #12) classifies which of the 36 examples the compiler
 // accepts as source today, and why the rest are blocked. This suite is what a twin written
-// from that classification is FOR. One is registered so far — `compute-reduction-twin`;
-// `gradient` is held by #14, which makes a source-compiled module's GLSL drop its uniform
-// block while keeping the uses.
+// from that classification is FOR. One is registered so far — `compute-reduction-twin`.
+// `gradient` was held by #14 until that landed; it is registered in its own change.
 //
 // Three jobs, in increasing strength:
 //
 //   1. THE CLAIM IS WELL-FORMED — every `twinOf` names an example that exists.
 //   2. THE INTERFACE IS IDENTICAL — `reflect()` of the twin deep-equals `reflect()` of the
-//      original. An assertion, not a golden: there is no acceptable reason for a twin's
-//      bind groups or entry points to differ from its original's. This is not covered by
-//      `semanticDiff` below — that compares the authored modules, while `reflect()` is the
-//      derived host-facing view, and the difference between them is where #14 shows up.
+//      original, whole. An assertion, not a golden: there is no acceptable reason for a
+//      twin's bind groups, reached stages or entry points to differ from its original's.
+//      Not covered by `semanticDiff` below — that compares the authored modules, while
+//      `reflect()` is the derived host-facing view, and the gap between them is exactly
+//      where #14 lived.
 //   3. THE DIFFERENCE IS PINNED — `semanticDiff()`'s four buckets, and a unified diff of
 //      the two WGSL texts. Goldens rather than assertions because the two surfaces
 //      legitimately differ (an EDSL `const` is a build-time JavaScript binding; a
@@ -57,55 +57,25 @@ describe('twins — the claim is well-formed', () => {
   })
 })
 
-// ── #14: bindings are invisible to stage reachability in source-compiled modules ──
-//
-// The source compiler encodes a binding read as `constref`; `stage-bindings.ts` counts only
-// `varref`, so every binding of every `"use typeshade"` module reflects `stages: []` while
-// its EDSL twin reflects the stage that reads it. Blanking the field on BOTH sides keeps the
-// rest of the interface — group, binding, name, address space, access, resource kind, owner,
-// struct name, and every entry point — compared for real instead of dropping the assertion.
-// The arm below asserts the bug is STILL THERE, so when #14 lands it fails and takes this
-// normalisation with it rather than leaving a permanent hole.
-function withoutStages(r: ReturnType<typeof reflect>): unknown {
-  return {
-    ...r,
-    bindGroups: r.bindGroups.map((g) => ({
-      ...g,
-      entries: g.entries.map(({ stages, ...rest }) => rest),
-    })),
-  }
-}
-
 describe('twins — the pipeline interface is identical, not merely similar', () => {
   for (const p of pairs) {
-    it(`${p.twinId}: reflect() matches ${p.ofId} (stages excluded — #14)`, () => {
+    it(`${p.twinId}: reflect() matches ${p.ofId}`, () => {
       const twin = p.twin
       const original = p.original
       expect(twin).toBeDefined()
       expect(original).toBeDefined()
       if (!twin || !original) return
-      // Bind groups, std140/std430 layouts and entry-point signatures. A twin that shifts a
-      // binding or renames an entry point is not the same shader, however close the body is,
-      // and no host that packed a buffer for one could drive the other.
-      expect(withoutStages(reflect(twin.module))).toEqual(withoutStages(reflect(original.module)))
-    })
-
-    it(`${p.twinId}: #14 still reproduces — drop withoutStages() when this fails`, () => {
-      const twin = p.twin
-      const original = p.original
-      expect(twin).toBeDefined()
-      expect(original).toBeDefined()
-      if (!twin || !original) return
-      const stagesOf = (m: typeof twin.module): string[] =>
-        reflect(m).bindGroups.flatMap((g) => g.entries.flatMap((e) => [...e.stages]))
-      // The original reaches its bindings; the twin reaches none. The day that stops being
-      // true, #14 is fixed: delete this arm and the normalisation above, and let the
-      // assertion compare reflections whole.
-      expect(
-        stagesOf(original.module).length,
-        `${p.ofId}: the EDSL side should reach its bindings`,
-      ).toBeGreaterThan(0)
-      expect(stagesOf(twin.module), `${p.twinId}: #14 appears to be fixed`).toEqual([])
+      // Bind groups, std140/std430 layouts, the stages that reach each binding, and every
+      // entry-point signature. A twin that shifts a binding or renames an entry point is not
+      // the same shader, however close the body is, and no host that packed a buffer for one
+      // could drive the other.
+      //
+      // This compared reflections with `stages` blanked until #14: a source-compiled module
+      // encoded a binding read as `constref`, which the reachability walk does not count, so
+      // every binding reflected `stages: []`. The exclusion carried an arm asserting the bug
+      // still reproduced, and that arm is what failed when #14 landed — which is how both it
+      // and the exclusion came to be deleted here rather than outliving the bug.
+      expect(reflect(twin.module)).toEqual(reflect(original.module))
     })
   }
 })
