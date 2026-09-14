@@ -244,7 +244,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
 ---
 
-## 9. Module constants
+## 12. Module constants
 
 A top-level `const` is a module-scope shader constant. A scalar one is dual-precision (the
 shader gets the truncated value, the CPU oracle the full double); a **vector or array** one
