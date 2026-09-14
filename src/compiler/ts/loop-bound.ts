@@ -114,34 +114,70 @@ function readCond(
   return undefined
 }
 
-function readStep(update: Stmt, name: string, scope: LoweringScope): number | undefined {
+/** How a counted loop advances its induction variable: by ADDING a constant (`i++`,
+ *  `i += 2`, `i -= 1`) or by MULTIPLYING or DIVIDING by one (`i *= 2`, `i /= 2`).
+ *
+ *  A multiplicative step is a real counted loop — a 64-wide halving reaches its bound in six
+ *  iterations — and the only reason it was refused is that nothing here read it (#8 A15). */
+type Step =
+  | { readonly op: 'add'; readonly by: number }
+  | { readonly op: 'mul'; readonly by: number }
+  | { readonly op: 'div'; readonly by: number }
+
+function readStep(update: Stmt, name: string, scope: LoweringScope): Step | undefined {
   if (update.s === 'assignOp') {
     if (!isInduct(update.target, name)) return undefined
     const c = foldConstNumber(update.expr, scope)
     if (c === undefined) return undefined
-    if (update.bop === '+') return c
-    if (update.bop === '-') return -c
+    if (update.bop === '+') return { op: 'add', by: c }
+    if (update.bop === '-') return { op: 'add', by: -c }
+    if (update.bop === '*') return { op: 'mul', by: c }
+    if (update.bop === '/') return { op: 'div', by: c }
     return undefined
   }
   if (update.s === 'assign' && isInduct(update.target, name) && update.expr.op === 'binop') {
     const e = update.expr
     if (e.bop === '+') {
-      if (isInduct(e.a, name)) return foldConstNumber(e.b, scope)
-      if (isInduct(e.b, name)) return foldConstNumber(e.a, scope)
+      const c = isInduct(e.a, name)
+        ? foldConstNumber(e.b, scope)
+        : isInduct(e.b, name)
+          ? foldConstNumber(e.a, scope)
+          : undefined
+      return c === undefined ? undefined : { op: 'add', by: c }
     }
     if (e.bop === '-' && isInduct(e.a, name)) {
       const c = foldConstNumber(e.b, scope)
-      return c === undefined ? undefined : -c
+      return c === undefined ? undefined : { op: 'add', by: -c }
+    }
+    if (e.bop === '*') {
+      const c = isInduct(e.a, name)
+        ? foldConstNumber(e.b, scope)
+        : isInduct(e.b, name)
+          ? foldConstNumber(e.a, scope)
+          : undefined
+      return c === undefined ? undefined : { op: 'mul', by: c }
+    }
+    if (e.bop === '/' && isInduct(e.a, name)) {
+      const c = foldConstNumber(e.b, scope)
+      return c === undefined ? undefined : { op: 'div', by: c }
     }
   }
   return undefined
+}
+
+/** How the step reads back in a diagnostic, in the source's own spelling. */
+function stepText(name: string, step: Step): string {
+  if (step.op === 'add') return step.by < 0 ? `${name} -= ${-step.by}` : `${name} += ${step.by}`
+  return `${name} ${step.op === 'mul' ? '*' : '/'}= ${step.by}`
 }
 
 export interface CountedLoop {
   readonly name: string
   readonly start: number
   readonly bound: number
+  /** The additive step, or the factor for a multiplicative one; see {@link CountedLoop.stepOp}. */
   readonly step: number
+  readonly stepOp: 'add' | 'mul' | 'div'
   readonly trips: number
 }
 
@@ -186,14 +222,15 @@ export function analyzeCountedFor(
   if (step === undefined) {
     return {
       ok: false,
-      message: `for-update must be ${init.name}++ / ${init.name} += <const>.`,
+      message: `for-update must be ${init.name}++ / ${init.name} += <const>, or ${init.name} *= / /= <const>.`,
       code: TS_CODES.LOOP_INDUCTION,
     }
   }
-  if (step === 0) {
+  const stall = stalls(step)
+  if (stall) {
     return {
       ok: false,
-      message: `for step of "${init.name}" is 0 — the loop never advances.`,
+      message: `for step "${stepText(init.name, step)}" never advances "${init.name}" — ${stall}`,
       code: TS_CODES.LOOP_INFINITE,
     }
   }
@@ -201,7 +238,7 @@ export function analyzeCountedFor(
   if (trips === undefined) {
     return {
       ok: false,
-      message: `for (${init.name} = ${start}; ${init.name} ${condInfo.cop} ${condInfo.bound}; step ${step}) does not exit.`,
+      message: `for (${init.name} = ${start}; ${init.name} ${condInfo.cop} ${condInfo.bound}; ${stepText(init.name, step)}) does not exit.`,
       code: TS_CODES.LOOP_INFINITE,
     }
   }
@@ -212,27 +249,98 @@ export function analyzeCountedFor(
       code: TS_CODES.LOOP_BOUND,
     }
   }
-  return { ok: true, loop: { name: init.name, start, bound: condInfo.bound, step, trips } }
+  return {
+    ok: true,
+    loop: { name: init.name, start, bound: condInfo.bound, step: step.by, stepOp: step.op, trips },
+  }
 }
 
+/** Why a step cannot move the induction variable, or undefined when it can. Each of these was
+ *  one message — "step of i is 0" — which only ever fitted the first. */
+function stalls(step: Step): string | undefined {
+  if (step.op === 'add') return step.by === 0 ? 'a step of 0 leaves it where it is.' : undefined
+  if (step.by === 1) return 'multiplying or dividing by 1 leaves it where it is.'
+  if (step.by === 0) {
+    return step.op === 'mul'
+      ? 'multiplying by 0 pins it at 0.'
+      : 'dividing by 0 is undefined on both targets.'
+  }
+  return undefined
+}
+
+/**
+ * How many times the body runs, or undefined when the loop does not exit.
+ *
+ * An ADDITIVE step is counted arithmetically rather than by walking the sequence, and that is
+ * the point of this half of #8 A15: walking it could only look `MAX_LOOP_TRIPS + 2` steps
+ * ahead, so `for (let i = 0; i < 1024; i++)` — which exits, at 1024 — was reported as a loop
+ * that "does not exit". A policy violation wore the words of a non-terminating loop, and the
+ * author was told the wrong thing about their program. Counted exactly, 1024 is 1024 and the
+ * message says it exceeds the limit.
+ *
+ * A MULTIPLICATIVE step is still walked, and that is exact too: multiplying or dividing by a
+ * factor of at least 2 reaches any 32-bit bound within 32 iterations, so a walk that has not
+ * exited by then is one that runs away — the same answer, reached the same way, in a handful
+ * of steps rather than a bounded guess.
+ */
 function countTrips(
   start: number,
   cop: CmpOp,
   bound: number,
-  step: number,
+  step: Step,
   kind: string,
 ): number | undefined {
   const lo = kind === 'u32' ? 0 : -0x80000000
   const hi = kind === 'u32' ? 0xffffffff : 0x7fffffff
-  const seq: number[] = []
+  if (start < lo || start > hi) return undefined
+  if (!cmpHolds(cop, start, bound)) return 0
+  if (step.op === 'add') return addTrips(start, cop, bound, step.by, lo, hi)
+  // A division on an integer induction variable truncates, exactly as both targets do.
+  const advance = (v: number): number => (step.op === 'mul' ? v * step.by : Math.trunc(v / step.by))
   let v = start
-  for (let g = 0; g < MAX_LOOP_TRIPS + 2; g++) {
+  for (let n = 0; n <= 64; n++) {
     if (v < lo || v > hi) return undefined
-    if (!cmpHolds(cop, v, bound)) return seq.length
-    seq.push(v)
-    v += step
+    if (!cmpHolds(cop, v, bound)) return n
+    const next = advance(v)
+    if (next === v) return undefined
+    v = next
   }
   return undefined
+}
+
+/** The trip count of an additive loop, in closed form. `lo`/`hi` are the induction type's
+ *  range: a loop that would have to leave it before the condition fails does not exit. */
+function addTrips(
+  start: number,
+  cop: CmpOp,
+  bound: number,
+  step: number,
+  lo: number,
+  hi: number,
+): number | undefined {
+  // `==` and `!=` are about hitting one value, not about crossing a threshold.
+  if (cop === '==') return start === bound ? (bound + step === bound ? undefined : 1) : 0
+  if (cop === '!=') {
+    const gap = bound - start
+    if (gap === 0) return 0
+    if (step === 0 || gap % step !== 0 || gap / step < 0) return undefined
+    return gap / step
+  }
+  // The remaining four are `<`, `<=`, `>`, `>=`. Normalise to "how far is the last value that
+  // still satisfies the condition", then divide by the step.
+  const inclusive = cop === '<=' || cop === '>='
+  const goingUp = cop === '<' || cop === '<='
+  if (step === 0) return undefined
+  if (goingUp !== step > 0) return undefined // stepping away from the bound
+  const last = goingUp ? (inclusive ? bound : bound - 1) : inclusive ? bound : bound + 1
+  const span = goingUp ? last - start : start - last
+  if (span < 0) return 0
+  const trips = Math.floor(span / Math.abs(step)) + 1
+  // The value AFTER the final iteration has to be representable, since the loop computes it
+  // before the condition rejects it.
+  const end = start + trips * step
+  if (end < lo || end > hi) return undefined
+  return trips
 }
 
 export function loopConditionError(
