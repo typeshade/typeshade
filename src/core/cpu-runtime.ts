@@ -467,6 +467,42 @@ export const f32ToU32Sat = (v: number): number =>
 export const f32ToI32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(2147483520, Math.max(-2147483648, Math.trunc(v)))
 
+/** One component of an element-CONVERTING vector constructor, `vecN<T>(v: vecN<S>)`
+ *  (`vec3<f32>(v)` in WGSL, `vec3(uv)` in GLSL ES 3.00). WGSL converts every component the
+ *  way its scalar conversion does, so this applies exactly the rules the scalar cast path
+ *  applies: a float source saturates into an integer target ({@link f32ToU32Sat} /
+ *  {@link f32ToI32Sat}), an integer source is reinterpreted two's-complement between `i32`
+ *  and `u32` (the wrapping the `BUILTINS` `i32`/`u32` entries do), and anything into a float
+ *  target is the number itself. A component whose kind already matches is returned untouched,
+ *  which is every component of an ordinary composing constructor such as `vec3(a, b, c)`.
+ *
+ *  Both CPU backends call it — the interpreter per component, the generator through the `$`
+ *  runtime — so an element-converting constructor evaluates identically in the two. Before
+ *  this, both flattened the source components verbatim, and `vec3<u32>(vec3<f32>(1.7, 2.9,
+ *  -3.2))` evaluated to `[1.7, 2.9, -3.2]` where both GPU targets give `[1, 2, 0]`. */
+export const convertComponent = (v: number, from: string, to: string): number => {
+  if (from === to) return v
+  if (to === 'u32') return from === 'f32' || from === 'f64' ? f32ToU32Sat(v) : v >>> 0
+  if (to === 'i32') return from === 'f32' || from === 'f64' ? f32ToI32Sat(v) : v | 0
+  return Number(v)
+}
+
+/** Every component of `v` through {@link convertComponent}. The generated CPU code spreads
+ *  the result where it would otherwise spread the source array. */
+export const convertComponents = (v: number[], from: string, to: string): number[] =>
+  from === to ? v : v.map((c) => convertComponent(c, from, to))
+
+/** The element kind of a value of type `t` as {@link convertComponent} names it: a vector's
+ *  element, a scalar's own kind, `'f64'` for an emulated double. `undefined` for a type with
+ *  no single numeric element kind (a struct, an array, a matrix), where no conversion is
+ *  defined and the components pass through. */
+export function elemKindOf(t: ShaderType): string | undefined {
+  if (t.kind === 'vec') return t.elem
+  if (t.kind === 'scalar') return t.scalar
+  if (t.kind === 'f64') return 'f64'
+  return undefined
+}
+
 /** The names of every builtin function the CPU backends ({@link compileModule},
  *  {@link compileModuleJs}) evaluate with real arithmetic, as a read-only set. Meant for
  *  tests: the union of this set and {@link ORACLE_GPU_STUB_NAMES} should cover every
