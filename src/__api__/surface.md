@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 384 exports
+## `.` — 389 exports
 
 ```
 abs
@@ -377,12 +377,17 @@ vec3
 vec3f64
 vec3f64T
 vec3fT
+vec3i
+vec3iT
+vec3u
 vec3uT
 vec4
 vec4f64
 vec4f64T
 vec4fT
+vec4i
 vec4iT
+vec4u
 vec4uT
 VertexAttr
 VertexLayout
@@ -465,7 +470,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 229 exports
+## `./core/ir` — 234 exports
 
 ```
 abs
@@ -687,19 +692,24 @@ vec3
 vec3f64
 vec3f64T
 vec3fT
+vec3i
+vec3iT
+vec3u
 vec3uT
 vec4
 vec4f64
 vec4f64T
 vec4fT
+vec4i
 vec4iT
+vec4u
 vec4uT
 voidT
 when
 workgroupSizeOf
 ```
 
-## Shapes — 438 definitions
+## Shapes — 443 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -950,8 +960,12 @@ src/core/ir/node.ts#vec2i  const  (...a: NodeLike[]) => Node<"vec2<i32>">
 src/core/ir/node.ts#vec2u  const  (...a: NodeLike[]) => Node<"vec2<u32>">
 src/core/ir/node.ts#vec3  const  (...a: NodeLike[]) => Node<"vec3<f32>">
 src/core/ir/node.ts#vec3f64  const  (...a: Vec64Arg[]) => Node<"vec3<f64>">
+src/core/ir/node.ts#vec3i  const  (...a: NodeLike[]) => Node<"vec3<i32>">
+src/core/ir/node.ts#vec3u  const  (...a: NodeLike[]) => Node<"vec3<u32>">
 src/core/ir/node.ts#vec4  const  (...a: NodeLike[]) => Node<"vec4<f32>">
 src/core/ir/node.ts#vec4f64  const  (...a: Vec64Arg[]) => Node<"vec4<f64>">
+src/core/ir/node.ts#vec4i  const  (...a: NodeLike[]) => Node<"vec4<i32>">
+src/core/ir/node.ts#vec4u  const  (...a: NodeLike[]) => Node<"vec4<u32>">
 src/core/ir/nodes.ts#ALL_CAPABILITIES  const  readonly ["storageBuffer", "compute", "msaaTextureLoad", "f16", "subgroups", "floatRenderTarget", "float32Blend", "float32Filterable", "multiview"]
 src/core/ir/nodes.ts#ASSEMBLED_AS  const  typeof ASSEMBLED_AS
 src/core/ir/nodes.ts#AddressSpace  type  "uniform" | "storage"
@@ -1015,6 +1029,7 @@ src/core/ir/types.ts#vec2iT  const  { readonly kind: "vec"; readonly n: 2; reado
 src/core/ir/types.ts#vec2uT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "u32"; }
 src/core/ir/types.ts#vec3f64T  const  { readonly kind: "vec64"; readonly n: 3; }
 src/core/ir/types.ts#vec3fT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "f32"; }
+src/core/ir/types.ts#vec3iT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "i32"; }
 src/core/ir/types.ts#vec3uT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }
 src/core/ir/types.ts#vec4f64T  const  { readonly kind: "vec64"; readonly n: 4; }
 src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }

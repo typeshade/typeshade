@@ -35,6 +35,8 @@ import {
   vec4fT,
   vec2uT,
   vec2iT,
+  vec3uT,
+  vec3iT,
   vec4uT,
   vec4iT,
   arrayT,
@@ -2473,6 +2475,68 @@ export const vec2u = (...a: NodeLike[]): Node<'vec2<u32>'> =>
  */
 export const vec2i = (...a: NodeLike[]): Node<'vec2<i32>'> =>
   construct(vec2iT, a) as Node<'vec2<i32>'>
+// #8 S4 — the rest of the integer vector family. `vec2u` and `vec2i` were here and the wider
+// ones were not, so `vec3u(1, 2, 3)` — which the `"use typeshade"` surface writes and WGSL
+// writes — went through `construct(vec3uT, [1, 2, 3])`, whose array argument is easy to get
+// wrong (the first attempt is `construct(vec3uT, 1, 2, 3)` and an `args.map` error). Each is
+// the same `construct` call the long form makes.
+/** A `vec3<u32>` constructor, WGSL-style: `vec3u(x, y, z)`. Bare number components lift to u32,
+ *  where {@link vec3} lifts them to f32. It is the type of the compute `global_invocation_id`
+ *  builtin, so this is how a workgroup coordinate is built by hand.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { vec3u } from '@xgis/shader-dsl'
+ *
+ *  const origin = vec3u(0, 0, 0)  // Node<'vec3<u32>'>
+ *  ```
+ */
+export const vec3u = (...a: NodeLike[]): Node<'vec3<u32>'> =>
+  construct(vec3uT, a) as Node<'vec3<u32>'>
+/** A `vec4<u32>` constructor, WGSL-style: `vec4u(x, y, z, w)`. Bare number components lift to
+ *  u32. The shape of a packed unsigned parameter block or a `texture_2d<u32>` texel.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { vec4u } from '@xgis/shader-dsl'
+ *
+ *  const params = vec4u(64, 1, 0, 0)  // Node<'vec4<u32>'>
+ *  ```
+ */
+export const vec4u = (...a: NodeLike[]): Node<'vec4<u32>'> =>
+  construct(vec4uT, a) as Node<'vec4<u32>'>
+/** A `vec3<i32>` constructor, WGSL-style: `vec3i(x, y, z)`. Bare number components lift to i32.
+ *  The signed integer triple, such as a texel coordinate into an array texture.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { vec3i } from '@xgis/shader-dsl'
+ *
+ *  const cell = vec3i(0, 0, 1)  // Node<'vec3<i32>'>
+ *  ```
+ */
+export const vec3i = (...a: NodeLike[]): Node<'vec3<i32>'> =>
+  construct(vec3iT, a) as Node<'vec3<i32>'>
+/** A `vec4<i32>` constructor, WGSL-style: `vec4i(x, y, z, w)`. Bare number components lift to
+ *  i32. The signed counterpart of {@link vec4u}, and the texel type of a `texture_2d<i32>`.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { vec4i } from '@xgis/shader-dsl'
+ *
+ *  const texel = vec4i(0, 0, 0, 1)  // Node<'vec4<i32>'>
+ *  ```
+ */
+export const vec4i = (...a: NodeLike[]): Node<'vec4<i32>'> =>
+  construct(vec4iT, a) as Node<'vec4<i32>'>
 // Emulated-double vector constructors. Components are f64 nodes (or bare
 // numbers, split losslessly at build time); an f32 component widens exactly
 // during lowering. A single argument splats, WGSL-style.

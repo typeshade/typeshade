@@ -238,6 +238,12 @@ export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies Shad
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec2iT = { kind: 'vec', n: 2, elem: 'i32' } as const satisfies ShaderType
+/** A native `vec3<i32>`, the signed-integer counterpart of {@link vec3uT} — a texel coordinate
+ *  into an array texture, a signed grid cell. Build a value with the {@link vec3i} constructor.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
+export const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType
 /** A native `vec4<i32>`, completing the signed-integer vector family alongside {@link vec2iT}.
  *  Use it to type an `fn` parameter, `resource` or struct field declared as `vec4<i32>`; build
  *  a value with `construct(vec4iT, [...])` or read one with `.at()` against this type.
