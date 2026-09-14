@@ -369,11 +369,12 @@ hold it, in order of preference:
    not a guess, and `src/core/measure.ts` cannot supply it: its axes are op count and emit
    size, neither of which is interpreter throughput. Milestone 2 added a benchmark of its own,
    `scripts/bench-stepping.ts` (`bun run bench:stepping`), and measured the generator walk at
-   roughly **five times** the tree-walk: a median between 5.0x and 5.5x across runs, individual
-   repetitions between about 4x and 9x. It is a range rather than a figure because a single run
-   is not reproducible on a loaded machine; an earlier draft of this document quoted 3.1x from
-   one sample and a reviewer measuring the same thing got 4.1x, which is what moved the
-   benchmark out of a comment and into a script. Several-fold on every use of the reference
+   **about five times** the tree-walk. Say it that loosely on purpose: the script's own median
+   has come back anywhere from 4.7x to 5.8x on different runs of the same tree, and individual
+   repetitions inside one run span roughly 4x to 7x. Quoting two significant figures from one
+   sample is what produced the 3.1x an earlier draft carried and the 4.1x a reviewer measured
+   against it, neither wrong and both over-precise. Run the script and read the band it prints
+   rather than trusting a number written down here. Several-fold on every use of the reference
    backend is the cost option 1 would impose, so the answer is option 3.
 2. **Generate both from one description.** Not worth it here: the walk is one `switch` with
    thirteen arms, and a code generator over it would be more machinery than the duplication.
