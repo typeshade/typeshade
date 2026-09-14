@@ -341,10 +341,11 @@ not call a function, read a resource, or take a component, field or element — 
 array constant can bound a loop. An array **of arrays** is refused: the GLSL ES 3.00 spelling
 it would produce is not one ANGLE accepts.
 
-One limitation that is not this section's: an **integer** earlier const is not usable as a
-component yet, because the backend's `emitConst` spells every scalar constant with a float
-literal (`const N: i32 = 4` emits `4.0`). That is issue #13, and #17 is its fix; until it
-lands, read "an earlier const is a valid component" as being about `f32` components.
+An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
+followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and
+`const NV: vec3<i32> = vec3<i32>(N, N, N);`. Before that fix the backend's `emitConst` spelled
+every scalar constant with a float literal (`4.0`), which is why this section once limited the
+rule to `f32` components.
 
 This is the same declaration the EDSL's `constExpr(name, type, node)` produces — one
 `ConstDecl` with its `valueExpr` filled.
