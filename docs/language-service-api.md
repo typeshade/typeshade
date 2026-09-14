@@ -326,7 +326,7 @@ The strategy's formula is _TypeScript Language Service + TypeShade semantic laye
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `getDiagnostics`                                                                     | syntax and semantic diagnostics, filtered (§6)                                        | `compileTsSource`-style analysis of the front-end only (no emit), with `range` from `node.getStart()`/`node.getEnd()`; stage-3 checks: builtin name allow-list (`WgslBuiltinName`), builtin-to-stage compatibility, `@compute` workgroup shape, missing return annotation as an error |
 | `getCompletions`                                                                     | user symbols in scope (functions, struct fields, resources, locals), keywords         | context items: after `@` the attribute list, inside `@builtin("` the `WgslBuiltinName` list filtered by the enclosing stage, in a type position `SUPPORTED_TYPE_NAMES`, snippets for `vec2/3/4(...)`, entry function templates                                                        |
-| `getHover`                                                                           | quick info for user symbols, with the TypeShade type name where TS would say `number` | documentation table for GPU types, attributes and builtins, shared with the site's reference pages; the emitted WGSL type for a struct field                                                                                                                                          |
+| `getHover`                                                                           | quick info for user symbols, with the TypeShade type name where TS would say `number` | documentation table for GPU types, attributes and builtins, shared with the site's reference pages; the emitted WGSL type for a struct field; a resource binding's address space and `@group`/`@binding` slot                                                                         |
 | `getDefinition`, `getReferences`, `rename`, `getDocumentSymbols`, `getSignatureHelp` | TypeScript, unchanged                                                                 | symbol kinds re-labelled (`entry`, `resource`, `struct`) using the front-end's collected declarations                                                                                                                                                                                 |
 | `getSemanticTokens`                                                                  | TypeScript classifications                                                            | GPU types as `type`+`gpu`, entries as `function`+`entry`, resources, builtin strings inside `@builtin(...)`                                                                                                                                                                           |
 | `getCompiledOutput`                                                                  | none                                                                                  | `compileTsSource` / GLSL emit, on demand                                                                                                                                                                                                                                              |
@@ -373,6 +373,43 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   already makes for swizzles, a false negative in the editor over a false positive on valid
   code, and the compiler's own type checks still catch the scalar mixing that TypeScript's
   structural check lets through.
+- A storage array is writable in the editor exactly as it is in the compiler: `ambient.ts`'s
+  `array<T, N>` declares a plain `[index: number]: T`, not a `readonly` one. `out[idx] = value`
+  is the shape every compute kernel ends with (`examples/compute-reduction-twin.shade.ts`), and
+  the compiler lowers it to a storage store, so the `readonly` this type first carried made
+  TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
+  on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
+  assignable in the source language, so `out.length = 2` keeps its TS2540.
+
+### Vector and matrix arithmetic (issue #21)
+
+`v * s`, `a + b`, `c.rgb * 0.5`, `m * v` and `v *= 2.` are the arithmetic a shader is written in,
+and TypeScript rejects all of it. The ambient lib brands `vec2`/`vec3`/`vec4`, the `f64` vectors
+and the matrices with a required unique-symbol property, and that brand is exactly what keeps a
+`vec3` from satisfying a `vec2`; a branded object type is also not a `number`, which is what the
+arithmetic check demands. Un-branding the vector types would take every real vector check with
+them, so the service filters these diagnostics instead, deciding from the type checker rather
+than from the syntax: each rule resolves the operand's TypeScript type and drops the diagnostic
+only when that type carries one of `GPU_BRAND_TAGS` (`vecTag`, `vec64Tag`, `matTag`), matched
+structurally as the `__@<tag>@<id>` property the checker reports, never by type name.
+
+| Code     | Why it fires                                                                                                                                                                  | Dropped when                                                                                                                                                                                                                                                                                                                                       |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TS2362` | The left operand of an arithmetic operation is not `number` (`v * s`, `c.rgb * 0.5`, `v *= 2.`).                                                                              | The left operand's own type carries a vector or matrix brand. Per operand, not "either operand", so the string in `v * "x"` still reports through TS2363.                                                                                                                                                                                          |
+| `TS2363` | The right operand is not `number` (`m * v`, `2. * v`).                                                                                                                        | The right operand's own type carries a vector or matrix brand.                                                                                                                                                                                                                                                                                     |
+| `TS2365` | The operator cannot be applied to the two types (`a + b` on two `vec3`).                                                                                                      | The operator is `+ - * / %` or a compound form of one, and either operand carries a brand. A TS2365 from any other operator is left alone.                                                                                                                                                                                                         |
+| `TS2322` | Arithmetic on a branded type is typed `number`, so the vector position it flows into (a return annotation, a local, a struct field, an assignment target) looks unassignable. | The target type carries a vector or matrix brand AND the value either carries one too or does vector or matrix arithmetic anywhere inside it (`normalize(a * 2.)` is already a `number` by the time the call is typed). `let n: f32 = v` keeps its TS2322: a scalar target is a `number` to TypeScript, so that mismatch is not the brand's doing. |
+
+A dropped diagnostic is not an unreported mistake. The compiler front end's own `TYPE_MISMATCH`
+(`TS8003`) is the authority on which shapes combine, so `vec3(1.) + vec2(1.)` is reported once,
+by the compiler, where leaving TypeScript's TS2365 in place would underline it twice.
+`diagnostics.test.ts` pins both halves: every arithmetic shape above produces no
+TypeScript-sourced diagnostic, and `v * "x"`, `1 * "x"` and `let n: f32 = v` still do.
+
+One case of the same cause is deliberately not filtered: an argument position, where the
+`number` an operation produced reaches a call (`dot(a * 2., b)` infers `number` for the whole
+call and reports TS2345 on the other argument). Filtering that needs the parameter's type rather
+than an operand's, and no rule claims TS2345 today.
 
 Two more gaps the ambient lib cannot close by itself, because both are about names the lib was
 never going to declare: a misspelled attribute (`@vertx`) has no ambient declaration to resolve
@@ -388,23 +425,23 @@ backend as invalid emitted WGSL.
 TypeShade's own diagnostic codes added since this document's first draft (`compiler/ts/codes.ts`;
 each meaning copied from that file's own comment):
 
-| Code     | Name                       | Meaning                                                                                                                                                                                                                          |
-| -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TS8017` | `SWITCH_CASE`               | Invalid `switch` case: not a numeric literal, or a fall-through case body.                                                                                                                                                       |
-| `TS8018` | `ASSIGN_TARGET`             | An assignment or `++`/`--` target that is not a writable name (not an identifier, unknown, or a non-writable parameter). Assigning to a known immutable binding is `CONST_ASSIGN` instead.                                      |
-| `TS8019` | `ARITY_MISMATCH`            | Wrong number of arguments, elements, or fields at a call or constructor site.                                                                                                                                                    |
-| `TS8020` | `FUNCTION_SHAPE`            | A function declaration or parameter shape TypeShade does not support (missing name or body, optional/rest/destructured parameter).                                                                                              |
-| `TS8021` | `RETURN_SHAPE`              | A `return` shape problem: bare `return` where a value is required, or a function with no return type annotation.                                                                                                                |
-| `TS8022` | `UNKNOWN_NAME`              | Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`).                                                             |
-| `TS8023` | `DUPLICATE_SYMBOL`          | The same function or binding name declared twice in one scope.                                                                                                                                                                   |
-| `TS8024` | `BUILTIN_NAME`              | `@builtin("...")` names an id outside WGSL's builtin vocabulary (`WgslBuiltinName` in `core/sot.ts`).                                                                                                                            |
-| `TS8025` | `BUILTIN_STAGE`             | A `@builtin(...)` id used as the wrong stage's input or output, e.g. `frag_depth` on a vertex return, or `front_facing` on a vertex parameter.                                                                                   |
-| `TS8026` | `WORKGROUP_SHAPE`           | `@compute([x, y, z])` with `y` or `z` other than `1`: the backend only carries the first workgroup axis today, so a shape it would silently drop is rejected instead.                                                           |
-| `TS8027` | `MAT_UNSUPPORTED`           | `mat2`/`mat3`: not implemented (only `mat4`/`mat4x4` maps to a real WGSL type), so authoring one is rejected instead of silently widening to `mat4x4`.                                                                           |
-| `TS8028` | `ATTRIBUTE_NAME`            | A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`), e.g. a misspelled `@vertx`: without this, the decorated function or field just silently stops being an entry point or an I/O field. |
-| `TS8029` | `STRUCT_FIELD_MISSING_ATTR` | A field of a struct used as an entry function's parameter or return type carries neither `@builtin(...)` nor `@location(...)`: WGSL rejects an entry-IO struct member with no attribute, so this is caught at the front end instead of reaching the backend as invalid emitted WGSL. |
+| Code     | Name                        | Meaning                                                                                                                                                                                                                                                                                                                                                |
+| -------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TS8017` | `SWITCH_CASE`               | Invalid `switch` case: not a numeric literal, or a fall-through case body.                                                                                                                                                                                                                                                                             |
+| `TS8018` | `ASSIGN_TARGET`             | An assignment or `++`/`--` target that is not a writable name (not an identifier, unknown, or a non-writable parameter). Assigning to a known immutable binding is `CONST_ASSIGN` instead.                                                                                                                                                             |
+| `TS8019` | `ARITY_MISMATCH`            | Wrong number of arguments, elements, or fields at a call or constructor site.                                                                                                                                                                                                                                                                          |
+| `TS8020` | `FUNCTION_SHAPE`            | A function declaration or parameter shape TypeShade does not support (missing name or body, optional/rest/destructured parameter).                                                                                                                                                                                                                     |
+| `TS8021` | `RETURN_SHAPE`              | A `return` shape problem: bare `return` where a value is required, or a function with no return type annotation.                                                                                                                                                                                                                                       |
+| `TS8022` | `UNKNOWN_NAME`              | Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`).                                                                                                                                                                                   |
+| `TS8023` | `DUPLICATE_SYMBOL`          | The same function or binding name declared twice in one scope.                                                                                                                                                                                                                                                                                         |
+| `TS8024` | `BUILTIN_NAME`              | `@builtin("...")` names an id outside WGSL's builtin vocabulary (`WgslBuiltinName` in `core/sot.ts`).                                                                                                                                                                                                                                                  |
+| `TS8025` | `BUILTIN_STAGE`             | A `@builtin(...)` id used as the wrong stage's input or output, e.g. `frag_depth` on a vertex return, or `front_facing` on a vertex parameter.                                                                                                                                                                                                         |
+| `TS8026` | `WORKGROUP_SHAPE`           | `@compute([x, y, z])` with `y` or `z` other than `1`: the backend only carries the first workgroup axis today, so a shape it would silently drop is rejected instead.                                                                                                                                                                                  |
+| `TS8027` | `MAT_UNSUPPORTED`           | `mat2`/`mat3`: not implemented (only `mat4`/`mat4x4` maps to a real WGSL type), so authoring one is rejected instead of silently widening to `mat4x4`.                                                                                                                                                                                                 |
+| `TS8028` | `ATTRIBUTE_NAME`            | A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`), e.g. a misspelled `@vertx`: without this, the decorated function or field just silently stops being an entry point or an I/O field.                                                                   |
+| `TS8029` | `STRUCT_FIELD_MISSING_ATTR` | A field of a struct used as an entry function's parameter or return type carries neither `@builtin(...)` nor `@location(...)`: WGSL rejects an entry-IO struct member with no attribute, so this is caught at the front end instead of reaching the backend as invalid emitted WGSL.                                                                   |
 | `TS8030` | `SYNTAX`                    | A TypeScript parse error (an unclosed parenthesis, a missing brace, an unexpected token) in a `"use typeshade"` file, carried through as a TypeShade diagnostic so a `compile()` caller sees it without running `tsc`. The language service drops these in favour of TypeScript's own syntactic diagnostics, which carry the real `TS1005`-style code. |
-| `TS8099` | `UNSUPPORTED`               | Catch-all for a diagnostic whose site does not yet deserve its own code; the one code that is not assigned sequentially, so it stays parked past the sequential range instead of at its head.                                    |
+| `TS8099` | `UNSUPPORTED`               | Catch-all for a diagnostic whose site does not yet deserve its own code; the one code that is not assigned sequentially, so it stays parked past the sequential range instead of at its head.                                                                                                                                                          |
 
 ## 7. Adapter contracts
 
@@ -431,18 +468,55 @@ LSP (VS Code):
   way).
 - The server holds no TypeShade knowledge. Its size is a measure of drift.
 
+Document versions, for either adapter:
+
+- `openDocument` and `updateDocument` take the adapter's version, and the service does not
+  rely on it: the script version TypeScript compares (`TypeshadeHost.getScriptVersion`) is
+  that version plus a store-wide revision that changes whenever the stored text changes, so a
+  text change under a repeated version, or under no version at all, is seen as a change by
+  TypeScript and by the caches of §8 alike. An unchanged text under a new version keeps its
+  revision.
+- A file pulled in through `readDocument` gets a version of its own, `imported.<revision>`,
+  which cannot collide with an adapter's version; opening that uri in the editor replaces the
+  read copy, closing it drops the copy so the next request re-reads the file.
+
 ## 8. Incrementality and performance
 
 - One `ts.LanguageService` per service instance; documents are snapshots with versions.
-- Diagnostics are computed per request and cached per `(uri, version)` (`service.ts`'s
-  `diagnosticsCache`); a second call for the same document version returns the cached list
-  instead of re-running the TypeScript and TypeShade analyses. `getDocumentSymbols` and
-  `getSemanticTokens` are not cached: each call re-runs the front end against the document's
-  current `ts.SourceFile`, even when nothing has changed since the previous call. Caching those
-  two the same way is a follow-up (§10).
+- What is cached: one entry per document a request has asked about (`service.ts`'s `cache`),
+  holding the front-end analysis of that document (`compileTsSource` over the program's own
+  `ts.SourceFile`, with `emit: false` and `requireDirective: true`) and, once `getDiagnostics`
+  has asked for them, the merged TypeScript and TypeShade diagnostics. `getDiagnostics`,
+  `getDocumentSymbols`, `getSemanticTokens`, `getHover` and `getCompiledOutput` all read that
+  one analysis, so an editor refresh that asks for all of them lowers the document once, not
+  once per method. `getDiagnostics` and `getCompiledOutput` answer for open documents only;
+  symbols, tokens and hover answer for any file the program holds, a file read through
+  `readDocument` included, so such a file can hold an entry too, and every entry whose uri is
+  not an open document is dropped whenever a document closes.
+  `analysis-cache.test.ts` counts the runs through `createTypeshadeLanguageServiceWith`, a
+  variant of the factory that takes the analysis function as a parameter; it is not exported
+  from the subpath.
+- How it invalidates: the entry is keyed by `dependencyKey(uri)`, the document's own script
+  version followed by the version of every document it imports, transitively, each specifier
+  resolved through the host's own import rule (`TypeshadeHost.resolveImportUri`, the method
+  `resolveModuleNameLiterals` also uses) over every module reference in the file: the static
+  `import`/`export ... from` declarations, an `import("...")` type, a dynamic `import("...")`
+  call and an `import x = require("...")`, the same references the TypeScript program
+  resolves. A request whose key differs from the stored one recomputes; `openDocument`,
+  `updateDocument` and `closeDocument` also drop the document's own entry directly. So editing
+  or closing an imported document refreshes the importing document's diagnostics on its next
+  request without that document being touched: an edited import carries a new revision (§7);
+  a closed one is re-read through `readDocument` when the host has one, under a new revision
+  again, and otherwise drops to `getScriptVersion`'s `'0'`; each changes the key. A bare or
+  unresolvable specifier contributes nothing to the key; TypeScript reports it from the
+  importing file, whose version the key already carries.
 - The front-end analysis is separable from emit: `compileTsSource` takes an `emit: false`
   option that still parses, analyzes, and lowers to IR but skips `packModule`/WGSL emission, and
-  `getDiagnostics` passes it, so diagnostics never produce shader text.
+  the cached analysis passes it, so diagnostics never produce shader text. `getCompiledOutput`
+  is the one method that emits; when the backend throws (a compute-only module asked for a GLSL
+  stage), the exception comes back as a `BACKEND` (`TS8015`) diagnostic on the file's first
+  statement with `text: ''`, and the document's cached diagnostics stay as they were, since the
+  failure is a fact about that target only.
 - Nothing in the service is asynchronous. Cancellation is the adapter's concern (drop results
   whose version is stale).
 
@@ -490,16 +564,22 @@ LSP (VS Code):
    `typeshade-syntax.mjs`).
 9. **Not started: MCP adapter.** The same "adapters convert, the service decides" rule as §1
    applies here too; nothing in this repository or a sibling one implements it yet.
-10. **Not started: caching for `getDocumentSymbols` and `getSemanticTokens`** (§8). Both re-run
-    the front end on every call today; only `getDiagnostics` is cached.
-11. **Not started: minor findings from the review pass** that landed the fixes in items 3, 4
-    and 5 above. `rename` will rewrite the `"use typeshade"` directive itself if it is the
-    token under the cursor; the diagnostics cache is not invalidated when an imported document
-    changes, only when the importing document itself does; completion triggers fire inside
-    comments and string literals; `getCompiledOutput` swallows an emit exception into an empty
-    output string instead of reporting it as a diagnostic; and `nodeAtPosition` is duplicated
-    across `navigation.ts`, `diagnostics.ts`, `hover.ts`, and `completions.ts` instead of
-    shared from one place.
+10. **Done: one cached front-end analysis per document** (§8), read by `getDiagnostics`,
+    `getDocumentSymbols`, `getSemanticTokens`, `getHover` and `getCompiledOutput`, keyed by the
+    document's version and the versions of everything it imports.
+11. **Done: the minor findings from the review pass** that landed the fixes in items 3, 4 and
+    5 above, one commit each with a regression test. `rename` now refuses exactly what
+    `prepareRename` refuses (the `"use typeshade"` directive string, a `@builtin(...)` id, an
+    ambient name, a stage decorator), through one shared predicate; the diagnostics cache is
+    keyed on imported document versions too (§8); completion context is decided from the
+    syntax tree, so nothing TypeShade-specific is offered inside a comment, nothing at all
+    inside a string except the builtin ids inside `@builtin("...")`, and the `vec2`/`vec3`/
+    `vec4` snippets appear only where a value expression can start; `getCompiledOutput`
+    reports an emit exception as a `BACKEND` diagnostic (§8); and `nodeAtPosition` is one
+    exported helper in `positions.ts`.
+12. **Not started: the rest.** The LSP adapter and `vscode-typeshade` (item 8), the MCP
+    adapter (item 9), the VS Code extension itself, and the shipped `shade.d.ts` with a
+    `"types"` entry (item 6, §9).
 
 ## 11. Open questions
 
