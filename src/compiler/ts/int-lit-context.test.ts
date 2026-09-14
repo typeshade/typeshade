@@ -290,3 +290,91 @@ describe('what still does not compile', () => {
     ).toContain('mismatch')
   })
 })
+
+// A declaration with an annotation is one of the ten positions above, but it was reaching the
+// retarget through a special case of its own — `init.op === 'lit'` — and a negative literal is
+// not one node, it is a PrefixUnaryExpression wrapping one. So `let j: i32 = -1` fell through
+// to the type check and was rejected for being an f32, and the same line inside a `for` init
+// silently emitted `var j: i32 = -1.0`. That is issue #40; these are its four faces.
+describe('a negative integer literal in a declaration (issue #40)', () => {
+  it('takes the declared type in a let, a const, and a for-init', () => {
+    expect(wgslOf('export function f(): i32 {\n  let j: i32 = -1;\n  return j;\n}')).toContain(
+      'var j: i32 = -1;',
+    )
+    // A `const` is folded into its use, so what there is to look at is the type it carries.
+    const folded = returnExpr('export function f(): i32 {\n  const j: i32 = -1;\n  return j;\n}')
+    expect(typeKey(folded.type)).toBe('i32')
+    expect(
+      wgslOf(`
+        export function f(): i32 {
+          let a: i32 = 0;
+          for (let j: i32 = -1; j <= 1; j++) {
+            a = a + j;
+          }
+          return a;
+        }
+      `),
+    ).toContain('for (var j: i32 = -1;')
+  })
+
+  it('takes it through a folded expression too', () => {
+    expect(wgslOf('export function f(): i32 {\n  let j: i32 = -1 - 2;\n  return j;\n}')).toContain(
+      'var j: i32 = -3;',
+    )
+  })
+
+  it('leaves an annotated float declaration exactly as it was', () => {
+    expect(wgslOf('export function f(): f32 {\n  let y: f32 = -1;\n  return y;\n}')).toContain(
+      'var y: f32 = -1.0;',
+    )
+    expect(wgslOf('export function f(): bool {\n  let b: bool = true;\n  return b;\n}')).toContain(
+      'var b: bool = true;',
+    )
+  })
+
+  it('now rejects a fractional initializer an integer declaration used to swallow', () => {
+    // Before, `init.op === 'lit'` retyped the literal without looking at its value, so this
+    // compiled to `var j: i32 = 1.5` — a WGSL error the author never saw here.
+    expect(diagnose('export function f(): i32 {\n  let j: i32 = 1.5;\n  return j;\n}')).toBe(
+      'Type mismatch: cannot let/const j i32 and f32 — no implicit int/float conversion. ' +
+        'Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
+    )
+  })
+
+  it('now rejects a fractional for-init with a diagnostic instead of a backend crash', () => {
+    // `for (let j: i32 = 1.5; …)` reached the WGSL writer as an i32 loop over an f32 literal
+    // and died there with SD0017; the front end says what is wrong now.
+    expect(
+      diagnose(`
+        export function f(): i32 {
+          for (let j: i32 = 1.5; j <= 1; j++) {
+          }
+          return 0;
+        }
+      `),
+    ).toBe(
+      'Type mismatch: cannot for-init j i32 and f32 — no implicit int/float conversion. ' +
+        'Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
+    )
+  })
+
+  it('agrees on the CPU', () => {
+    const c = compile(`
+      "use typeshade";
+      export function neg(): i32 {
+        let j: i32 = -1;
+        return j;
+      }
+      export function sum(): i32 {
+        let a: i32 = 0;
+        for (let j: i32 = -1; j <= 1; j++) {
+          a = a + j;
+        }
+        return a;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.eval('neg', [])).toBe(-1)
+    expect(c.eval('sum', [])).toBe(0)
+  })
+})

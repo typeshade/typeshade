@@ -184,11 +184,17 @@ function lowerVariableDeclaration(
   }
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
-  if (annotated && init.op === 'lit') {
-    if (typeof init.value === 'number' && isNumericScalar(annotated)) {
+  if (annotated) {
+    if (init.op === 'lit' && typeof init.value === 'boolean' && typeKey(annotated) === 'bool') {
       init = { op: 'lit', type: annotated, value: init.value }
-    } else if (typeof init.value === 'boolean' && typeKey(annotated) === 'bool') {
-      init = { op: 'lit', type: annotated, value: init.value }
+    } else {
+      // `let j: i32 = -1` takes its declared type like any other position (#8 A3, issue #40).
+      // A negative literal is a PrefixUnaryExpression, not a NumericLiteral, so the
+      // `init.op === 'lit'` special case this replaces never fired for one and the author was
+      // told to cast an integer they had already written. Going through retargetIntLitCtx also
+      // stops `let j: i32 = 1.5` from being retyped as an i32 literal holding 1.5: it only
+      // retypes what is actually an integer, and the type check below now catches the rest.
+      init = retargetIntLitCtx(init, decl.initializer, annotated)
     }
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {

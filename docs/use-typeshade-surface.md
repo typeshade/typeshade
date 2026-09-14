@@ -260,12 +260,18 @@ for (let i = 0; i < 4; i++)                      // i32, the type an induction v
 xs[0]                                            // i32
 min(i, 4)                                        // the kind of the call's other arguments
 const N: u32 = 16                                // the declared type
+let j: i32 = -1                                  // the declared type, sign and all
 ```
 
 Only a declared **integer** type changes anything. In every float position the literal stays
 an `f32` exactly as before — `g(2)` where `g` takes an `f32` is `g(2.0)`, `mix(a, b, 1)` is
 `mix(a, b, 1.0)`, and a call whose arguments are all written numbers (`min(1, 2)`) is
 untouched.
+
+A minus sign in front of a literal is part of the literal for this purpose. `let j: i32 = -1`
+and `for (let j: i32 = -1; …)` take `i32` the way `let j: i32 = 1` does; the negative form used
+to be told to cast an integer the author had already written, and inside a `for` init it emitted
+`var j: i32 = -1.0`, which no backend accepts (issue #40).
 
 A literal that is not an integer stays what it is and is diagnosed against the declared type:
 `return 1.5` in a `u32` function is still a type mismatch, and so is passing an `i32` value
