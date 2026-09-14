@@ -12,7 +12,7 @@
 // tokens, entry functions and resource bindings get the TypeShade-specific type/modifier.
 
 import ts from 'typescript'
-import { compileTsSource } from '../compiler/ts/source-file.js'
+import type { CompileTsSourceResult } from '../compiler/ts/source-file.js'
 import { WGSL_BUILTIN_NAMES } from './ambient.js'
 import { TYPE_DOCS } from './docs.js'
 import { stageOf } from './navigation.js'
@@ -134,26 +134,23 @@ function collectOverlay(sourceFile: ts.SourceFile): Overlay {
 /**
  * Semantic tokens for `sourceFile` (backed by `uri`'s entry in `languageService`), optionally
  * restricted to `range`, in document order (design doc §4, §5). GPU-typed tokens carry the
- * `gpu` modifier, an entry function's name carries `entry`, a resource binding's name is typed
- * `'resource'` wherever it appears, a decorator's own identifier is typed `'decorator'`, and
- * the id inside `@builtin("...")` is typed `'builtin'` — everything else is TypeScript's own
- * syntactic/semantic classification, mapped straight across.
+ * `gpu` modifier, an entry function's name carries `entry`, a resource binding's name (one of
+ * `analysis.bindings`, from the service's one cached front-end run for this document version,
+ * §8) is typed `'resource'` wherever it appears, a decorator's own identifier is typed
+ * `'decorator'`, and the id inside `@builtin("...")` is typed `'builtin'` — everything else is
+ * TypeScript's own syntactic/semantic classification, mapped straight across.
  */
 export function getSemanticTokens(
   languageService: ts.LanguageService,
   sourceFile: ts.SourceFile,
   uri: string,
+  analysis: CompileTsSourceResult,
   range?: TypeshadeRange,
 ): TypeshadeSemanticToken[] {
   const lo = range ? offsetAt(sourceFile, range.start) : 0
   const hi = range ? offsetAt(sourceFile, range.end) : sourceFile.text.length
   const span: ts.TextSpan = { start: lo, length: hi - lo }
   const overlay = collectOverlay(sourceFile)
-  const analysis = compileTsSource(sourceFile.text, {
-    sourceFile,
-    requireDirective: false,
-    emit: false,
-  })
   const bindingNames = new Set(analysis.bindings.map((b) => b.name))
 
   const tokens: RawToken[] = []
