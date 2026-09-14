@@ -10,6 +10,7 @@ import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { TS_CODES } from './codes.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import type { DeclaredSymbol } from './symbols.js'
 
 export interface TsSourceFileInput {
   readonly fileName: string
@@ -23,6 +24,11 @@ export interface CompileTsSourcesResult {
    *  a `const` is module scope and the entry is the module: two files declaring `PI` are two
    *  modules that each have one, not one module with a duplicate. */
   readonly consts: readonly ConstDecl[]
+  /** What the front end declared while lowering the ENTRY file (`entry`, or the first file
+   *  given), as `CompileTsSourceResult.symbols` records it. One file only: a `DeclaredSymbol`
+   *  span is a UTF-16 offset, which means nothing without the file it indexes, and this result
+   *  names no source file. Empty when nothing was lowered. */
+  readonly symbols: readonly DeclaredSymbol[]
   readonly wgsl?: string
 }
 
@@ -55,6 +61,7 @@ export function compileTsSources(
   entry?: string,
 ): CompileTsSourcesResult {
   const diagnostics: TsCompilerDiagnostic[] = []
+  const symbols: DeclaredSymbol[] = []
   const parsed = new Map<string, ts.SourceFile>()
   const exports = new Map<
     string,
@@ -83,7 +90,7 @@ export function compileTsSources(
   const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
   if (syntax.length > 0) {
     diagnostics.push(...syntax)
-    return { funcs: [], diagnostics, consts: [] }
+    return { funcs: [], diagnostics, consts: [], symbols }
   }
 
   for (const [name, sf] of parsed) {
@@ -235,10 +242,26 @@ export function compileTsSources(
   const consts = entrySf ? collectModuleConsts(entrySf, diagnostics) : []
 
   const funcs: FuncDecl[] = []
+  // Only the entry file feeds the symbol table, since a span alone cannot say which file it
+  // indexes. `entryName` above is that file: already normalized, so the caller's `'./main.ts'`
+  // and `'main.ts'` name one file and neither can be handed the other's offsets.
   for (const [name, table] of exports) {
     const callees = fileCallees.get(name)!
     for (const rec of table.values()) {
-      fillFunctionBody(rec.node, rec.stub, rec.sf, diagnostics, callees, consts)
+      // Positional: `bindings` and `structs` keep their defaults; `consts` is the entry
+      // file's, collected above, and the symbol sink is passed only for the entry file.
+      const sink = name === entryName ? symbols : undefined
+      fillFunctionBody(
+        rec.node,
+        rec.stub,
+        rec.sf,
+        diagnostics,
+        callees,
+        consts,
+        undefined,
+        undefined,
+        sink,
+      )
       funcs.push(rec.stub)
     }
   }
@@ -262,7 +285,7 @@ export function compileTsSources(
       )
     }
   }
-  return { funcs, diagnostics, consts, wgsl }
+  return { funcs, diagnostics, consts, symbols, wgsl }
 }
 
 /** A diagnostic needs a source file to carry a position. With no parsable file left to point

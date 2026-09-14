@@ -322,14 +322,36 @@ twice per keystroke; the shim exists for other PR #6 callers, not for the Playgr
 
 The strategy's formula is _TypeScript Language Service + TypeShade semantic layer_. Concretely:
 
-| Method                                                                               | TypeScript Language Service (over the ambient lib)                                    | TypeShade layer                                                                                                                                                                                                                                                                       |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getDiagnostics`                                                                     | syntax and semantic diagnostics, filtered (§6)                                        | `compileTsSource`-style analysis of the front-end only (no emit), with `range` from `node.getStart()`/`node.getEnd()`; stage-3 checks: builtin name allow-list (`WgslBuiltinName`), builtin-to-stage compatibility, `@compute` workgroup shape, missing return annotation as an error |
-| `getCompletions`                                                                     | user symbols in scope (functions, struct fields, resources, locals), keywords         | context items: after `@` the attribute list, inside `@builtin("` the `WgslBuiltinName` list filtered by the enclosing stage, in a type position `SUPPORTED_TYPE_NAMES`, snippets for `vec2/3/4(...)`, entry function templates                                                        |
-| `getHover`                                                                           | quick info for user symbols, with the TypeShade type name where TS would say `number` | documentation table for GPU types, attributes and builtins, shared with the site's reference pages; the emitted WGSL type for a struct field; a resource binding's address space and `@group`/`@binding` slot                                                                         |
-| `getDefinition`, `getReferences`, `rename`, `getDocumentSymbols`, `getSignatureHelp` | TypeScript, unchanged                                                                 | symbol kinds re-labelled (`entry`, `resource`, `struct`) using the front-end's collected declarations                                                                                                                                                                                 |
-| `getSemanticTokens`                                                                  | TypeScript classifications                                                            | GPU types as `type`+`gpu`, entries as `function`+`entry`, resources, builtin strings inside `@builtin(...)`                                                                                                                                                                           |
-| `getCompiledOutput`                                                                  | none                                                                                  | `compileTsSource` / GLSL emit, on demand                                                                                                                                                                                                                                              |
+| Method                                                                               | TypeScript Language Service (over the ambient lib)                                                                                      | TypeShade layer                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getDiagnostics`                                                                     | syntax and semantic diagnostics, filtered (§6)                                                                                          | `compileTsSource`-style analysis of the front-end only (no emit), with `range` from `node.getStart()`/`node.getEnd()`; stage-3 checks: builtin name allow-list (`WgslBuiltinName`), builtin-to-stage compatibility, `@compute` workgroup shape, missing return annotation as an error     |
+| `getCompletions`                                                                     | user symbols in scope (functions, struct fields, resources, locals), keywords                                                           | context items: after `@` the attribute list, inside `@builtin("` the `WgslBuiltinName` list filtered by the enclosing stage, in a type position `SUPPORTED_TYPE_NAMES`, snippets for `vec2/3/4(...)`, entry function templates                                                            |
+| `getHover`                                                                           | quick info for a symbol this document does not declare (an imported one, a host-side one), and the documentation section of every hover | the COMPILER's type for every name the front end declared in this document, read off `CompileTsSourceResult.symbols`; documentation table for GPU types, attributes and builtins, shared with the site's reference pages; a resource binding's address space and `@group`/`@binding` slot |
+| `getDefinition`, `getReferences`, `rename`, `getDocumentSymbols`, `getSignatureHelp` | TypeScript, unchanged                                                                                                                   | symbol kinds re-labelled (`entry`, `resource`, `struct`) using the front-end's collected declarations                                                                                                                                                                                     |
+| `getSemanticTokens`                                                                  | TypeScript classifications                                                                                                              | GPU types as `type`+`gpu`, entries as `function`+`entry`, resources, builtin strings inside `@builtin(...)`                                                                                                                                                                               |
+| `getCompiledOutput`                                                                  | none                                                                                                                                    | `compileTsSource` / GLSL emit, on demand                                                                                                                                                                                                                                                  |
+
+The type in a hover's first line is the front end's, not TypeScript's. The ambient GPU scalars
+brand `number` optionally (`number & { readonly [f32Tag]?: true }`), so a bare literal is
+assignable to `f32` without being one, and TypeScript infers `number`: `let x = 1.` used to hover
+as `let x: number` while the compiler lowered it as `f32`. The front end records every name it
+declares with the `ShaderType` it gave it and the span of the declared identifier, and
+`getHover` joins the two through `getDefinitionAtPosition`, so the same `let x: f32` shows at the
+declaration and at every use, and two shadowing declarations of one name are told apart by the
+span TypeScript resolved to. A function with no return annotation hovers as the `void` the front
+end gave it, which is what its TS8021 warning is about, rather than as the return type TypeScript
+infers from the body.
+
+Three kinds of name keep TypeScript's quick info instead. One this document does not declare (an
+imported symbol, a host-side declaration) is not in this document's table at all, since a span
+means nothing without the file it indexes. One the front end could not lower is never recorded
+either, so `for (let j = 0; ...)`, which the loop-induction check rejects, still hovers as
+`let j: number`, and so does `let a = d * 2.` where `d: f64` and the multiplication was refused:
+the front end's own diagnostic on the same line says why. And a data class name keeps
+`class Vertex`, which already says what the compiler would. The documentation section of every
+hover is TypeScript's too. A resource binding is the one place TypeShade adds a line of its own
+under the type: its address space and `@group`/`@binding` slot, read off the front end's
+collected bindings, not off TypeScript.
 
 Syntax errors are their own case, not part of the stage-3 checks above. `compileTsSource`,
 `compileTsSources`, and `compile()` surface TypeScript's own parse errors (an unclosed
@@ -373,43 +395,6 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   already makes for swizzles, a false negative in the editor over a false positive on valid
   code, and the compiler's own type checks still catch the scalar mixing that TypeScript's
   structural check lets through.
-- A storage array is writable in the editor exactly as it is in the compiler: `ambient.ts`'s
-  `array<T, N>` declares a plain `[index: number]: T`, not a `readonly` one. `out[idx] = value`
-  is the shape every compute kernel ends with (`examples/compute-reduction-twin.shade.ts`), and
-  the compiler lowers it to a storage store, so the `readonly` this type first carried made
-  TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
-  on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
-  assignable in the source language, so `out.length = 2` keeps its TS2540.
-
-### Vector and matrix arithmetic (issue #21)
-
-`v * s`, `a + b`, `c.rgb * 0.5`, `m * v` and `v *= 2.` are the arithmetic a shader is written in,
-and TypeScript rejects all of it. The ambient lib brands `vec2`/`vec3`/`vec4`, the `f64` vectors
-and the matrices with a required unique-symbol property, and that brand is exactly what keeps a
-`vec3` from satisfying a `vec2`; a branded object type is also not a `number`, which is what the
-arithmetic check demands. Un-branding the vector types would take every real vector check with
-them, so the service filters these diagnostics instead, deciding from the type checker rather
-than from the syntax: each rule resolves the operand's TypeScript type and drops the diagnostic
-only when that type carries one of `GPU_BRAND_TAGS` (`vecTag`, `vec64Tag`, `matTag`), matched
-structurally as the `__@<tag>@<id>` property the checker reports, never by type name.
-
-| Code     | Why it fires                                                                                                                                                                  | Dropped when                                                                                                                                                                                                                                                                                                                                       |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TS2362` | The left operand of an arithmetic operation is not `number` (`v * s`, `c.rgb * 0.5`, `v *= 2.`).                                                                              | The left operand's own type carries a vector or matrix brand. Per operand, not "either operand", so the string in `v * "x"` still reports through TS2363.                                                                                                                                                                                          |
-| `TS2363` | The right operand is not `number` (`m * v`, `2. * v`).                                                                                                                        | The right operand's own type carries a vector or matrix brand.                                                                                                                                                                                                                                                                                     |
-| `TS2365` | The operator cannot be applied to the two types (`a + b` on two `vec3`).                                                                                                      | The operator is `+ - * / %` or a compound form of one, and either operand carries a brand. A TS2365 from any other operator is left alone.                                                                                                                                                                                                         |
-| `TS2322` | Arithmetic on a branded type is typed `number`, so the vector position it flows into (a return annotation, a local, a struct field, an assignment target) looks unassignable. | The target type carries a vector or matrix brand AND the value either carries one too or does vector or matrix arithmetic anywhere inside it (`normalize(a * 2.)` is already a `number` by the time the call is typed). `let n: f32 = v` keeps its TS2322: a scalar target is a `number` to TypeScript, so that mismatch is not the brand's doing. |
-
-A dropped diagnostic is not an unreported mistake. The compiler front end's own `TYPE_MISMATCH`
-(`TS8003`) is the authority on which shapes combine, so `vec3(1.) + vec2(1.)` is reported once,
-by the compiler, where leaving TypeScript's TS2365 in place would underline it twice.
-`diagnostics.test.ts` pins both halves: every arithmetic shape above produces no
-TypeScript-sourced diagnostic, and `v * "x"`, `1 * "x"` and `let n: f32 = v` still do.
-
-One case of the same cause is deliberately not filtered: an argument position, where the
-`number` an operation produced reaches a call (`dot(a * 2., b)` infers `number` for the whole
-call and reports TS2345 on the other argument). Filtering that needs the parameter's type rather
-than an operand's, and no rule claims TS2345 today.
 
 Two more gaps the ambient lib cannot close by itself, because both are about names the lib was
 never going to declare: a misspelled attribute (`@vertx`) has no ambient declaration to resolve
