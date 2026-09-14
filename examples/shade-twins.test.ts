@@ -5,8 +5,22 @@
 // something checks that they agree; until there was a twin, the sentence was aspirational.
 // `examples/PORTING.md` (landed in #12) classifies which of the 36 examples the compiler
 // accepts as source today, and why the rest are blocked. This suite is what a twin written
-// from that classification is FOR. One is registered so far — `compute-reduction-twin`.
-// `gradient` was held by #14 until that landed; it is registered in its own change.
+// from that classification is FOR. Eleven are registered: `compute-reduction-twin`,
+// `gradient-twin` (held by #14 until that landed), and the nine fullscreen twins A1 unlocked.
+//
+// Three of PORTING.md's fourteen portable examples have NO twin, each stopped by a compiler
+// bug the twin itself uncovered:
+//
+//   - `raymarch-sphere`, `raymarch-boxes` — both bind a local named `p` twice in one
+//     function (the march position, then the hit position). Valid TypeScript; #38.
+//   - `voronoi` — the 3x3 neighbour scan counts `for (let j: i32 = -1; …)`, and a negative
+//     integer literal in a for-init emits `var j: i32 = -1.0`; #40. Nothing here caught it:
+//     it compiled, it reflected identically, its goldens baked. Tint and WebGL2 caught it.
+//
+// They are absent rather than renamed or rewritten, because a twin that spells the shader
+// differently from its original to dodge a compiler bug is not the oracle this suite claims
+// to run — and `voronoi` is the case that shows why the compile gate is part of the oracle
+// and this suite alone is not.
 //
 // Three jobs, in increasing strength:
 //

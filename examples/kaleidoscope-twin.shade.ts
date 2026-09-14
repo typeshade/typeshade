@@ -1,0 +1,84 @@
+"use typeshade"
+
+// The `"use typeshade"` twin of `kaleidoscope.ts`. `screenCoords` is a helper
+// function here rather than an import — see `plasma-twin.shade.ts` on the
+// repeated head.
+
+class Uniforms {
+  time: f32
+  resolution: vec2
+  segments: f32
+}
+
+declare const U: uniform<Uniforms>
+
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+// Centred, isotropic screen coordinates: y spans ±1 over the height and x spans
+// ±aspect over the width, so one unit covers the same pixels on both axes.
+function screenCoords(uv: vec2, resolution: vec2): vec2 {
+  const asp = resolution.x / resolution.y
+  return vec2((uv.x * 2. - 1.) * asp, uv.y * 2. - 1.)
+}
+
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  const x = f32(vi & 1) * 4. - 1.
+  const y = f32(vi >> 1) * 4. - 1.
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) }
+}
+
+// scalar hash of a lattice point → [0,1)
+function hash(p: vec2): f32 {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453)
+}
+
+// bilinear value noise with smootherstep weights
+function noise(p: vec2): f32 {
+  const i = floor(p)
+  const f = fract(p)
+  const u = f * f * (vec2(3.) - f * 2.)
+  return mix(
+    mix(hash(i), hash(i + vec2(1., 0.)), u.x),
+    mix(hash(i + vec2(0., 1.)), hash(i + vec2(1., 1.)), u.x),
+    u.y,
+  )
+}
+
+// 4-octave fbm, unrolled so the helper stays a pure value expression
+function fbm(p: vec2): f32 {
+  return noise(p) * 0.5 + noise(p * 2.02) * 0.25 + noise(p * 4.08) * 0.125 +
+    noise(p * 8.2) * 0.0625
+}
+
+// Iridescent cosine palette: 0.5 + 0.5·cos(2π(t + phase)).
+function palette(t: f32): vec3 {
+  const ph = vec3(0.0, 0.33, 0.67)
+  return vec3(0.5) + cos((t + ph) * 6.283) * 0.5
+}
+
+@fragment
+export function fs(vo: VsOut): vec4 {
+  const t = U.time
+  const res = U.resolution
+  const p = screenCoords(vo.uv, res)
+  const r = length(p)
+  const a0 = atan2(p.y, p.x)
+  // fold: floor-mod the angle into one sector, mirror about its midline
+  const sector = 6.2831853 / U.segments
+  const am = mod(a0, sector)
+  const af = abs(am - sector * 0.5)
+  const q = vec2(cos(af), sin(af)) * r
+  // wedge pattern: swirling fbm + concentric rings
+  const v = fbm(q * 3. + vec2(t * 0.12, -(t * 0.09)))
+  const rings = sin(r * 9. - t * 0.8) * 0.5 + 0.5
+  const col = palette(v * 0.7 + rings * 0.15 + r * 0.3 - t * 0.03)
+  // the fbm field doubles as a brightness relief so the wedges keep depth
+  const relief = v * 0.9 + 0.35
+  // vignette so the fold's outer edge fades instead of clipping
+  const vig = 1. - smoothstep(0.55, 1.25, r)
+  return vec4(col * relief * vig, 1.)
+}
