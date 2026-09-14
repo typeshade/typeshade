@@ -67,3 +67,73 @@ describe('default resolveImport / multi-file resolution', () => {
     expect(diagnostics.filter((d) => d.code === 2307)).toEqual([])
   })
 })
+
+// Regression: getScriptVersion returned the adapter's version verbatim for an open document and
+// a fixed '1' for a file read through readDocument, so a text change under a repeated or
+// omitted version (open at 1, update with no version: the store's own counter starts at 1 too)
+// left TypeScript reusing the old SourceFile, and an imported file opened in the editor at
+// version 1 collided with the imported copy's '1'. The import-aware cache key in service.ts is
+// built from the same versions, so it inherited every one of these.
+describe('script versions follow the text (design doc §7)', () => {
+  const B_OK = '"use typeshade";\nexport function k(): f32 {\n  return 1.\n}\n'
+  const B_BOOL = '"use typeshade";\nexport function k(): bool {\n  return true\n}\n'
+  const B_BAD = '"use typeshade";\nexport function k(): f32 {\n  return true\n}\n'
+  const A =
+    '"use typeshade";\nimport { k } from "./b.js"\nexport function f(): f32 {\n  return k()\n}\n'
+  const tsErrors = (service: ReturnType<typeof createTypeshadeLanguageService>, uri: string) =>
+    service
+      .getDiagnostics(uri)
+      .filter((d) => d.source === 'typescript')
+      .map((d) => d.code)
+
+  it('reflects a text change under the same version, reopened without a close', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('/b.ts', B_OK, 1)
+    expect(tsErrors(service, '/b.ts')).toEqual([])
+    service.openDocument('/b.ts', B_BAD, 1)
+    expect(tsErrors(service, '/b.ts')).toContain(2322)
+  })
+
+  it('reflects a text change when the version was given once and then omitted, in the document and its importer', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('/b.ts', B_OK, 1)
+    service.openDocument('/a.ts', A, 1)
+    expect(tsErrors(service, '/b.ts')).toEqual([])
+    expect(tsErrors(service, '/a.ts')).toEqual([])
+    service.updateDocument('/b.ts', B_BAD)
+    expect(tsErrors(service, '/b.ts')).toContain(2322)
+    service.updateDocument('/b.ts', B_BOOL)
+    expect(tsErrors(service, '/b.ts')).toEqual([])
+    expect(tsErrors(service, '/a.ts')).toContain(2322)
+  })
+
+  it('lets an imported file opened in the editor at version 1 replace the copy read from disk', () => {
+    const service = createTypeshadeLanguageService({
+      readDocument: (uri) => (uri === '/b.ts' ? B_OK : undefined),
+    })
+    service.openDocument('/a.ts', A, 1)
+    expect(tsErrors(service, '/a.ts')).toEqual([])
+    service.openDocument('/b.ts', B_BOOL, 1)
+    expect(tsErrors(service, '/a.ts')).toContain(2322)
+  })
+
+  it('re-reads a closed import through readDocument instead of keeping the first read', () => {
+    let disk = B_OK
+    const service = createTypeshadeLanguageService({
+      readDocument: (uri) => (uri === '/b.ts' ? disk : undefined),
+    })
+    service.openDocument('/a.ts', A, 1)
+    expect(tsErrors(service, '/a.ts')).toEqual([])
+    service.openDocument('/b.ts', B_OK, 1)
+    service.updateDocument('/b.ts', B_BOOL, 2)
+    expect(tsErrors(service, '/a.ts')).toContain(2322)
+    disk = B_BOOL
+    service.closeDocument('/b.ts')
+    // The saved file is what the importer sees now, not the first text ever read from disk.
+    expect(tsErrors(service, '/a.ts')).toContain(2322)
+    disk = B_OK
+    service.openDocument('/b.ts', B_OK, 3)
+    service.closeDocument('/b.ts')
+    expect(tsErrors(service, '/a.ts')).toEqual([])
+  })
+})

@@ -1,9 +1,10 @@
 // === The TypeScript LanguageServiceHost over an in-memory document store (design doc §4, §6, §8) ===
 //
 // One `ts.LanguageService` per `TypeshadeHost` instance (§8). Documents are script snapshots
-// keyed by uri, `getScriptVersion` follows the document's own version so TypeScript reuses an
-// unchanged file's parse/bind/check work, and the ambient lib rides along as one more virtual
-// file rather than a real path on disk — the host never touches a filesystem or a DOM API.
+// keyed by uri, `getScriptVersion` changes whenever a document's text changes (and with the
+// adapter's own version) so TypeScript reuses an unchanged file's parse/bind/check work and
+// never keeps a stale one, and the ambient lib rides along as one more virtual file rather than
+// a real path on disk — the host never touches a filesystem or a DOM API.
 
 import ts from 'typescript'
 import { SHADE_DTS } from './ambient.js'
@@ -90,11 +91,20 @@ function joinPath(dir: string, specifier: string): string {
   return prefix + (isAbsolute ? '/' : '') + out.join('/')
 }
 
-/** One open or updated document: its text and the version an adapter supplied (or the store's
- * own monotonic counter when none was given). */
+/** One open or updated document: its text, the version an adapter supplied (or the store's
+ * own monotonic counter when none was given), and the store-wide `revision` at which its text
+ * last changed. */
 interface StoredDocument {
   text: string
   version: number
+  revision: number
+}
+
+/** A file pulled in through `readDocument` because an open document imports it: its text as
+ * read, and the store-wide `revision` of that read. */
+interface ImportedDocument {
+  text: string
+  revision: number
 }
 
 /**
@@ -107,8 +117,11 @@ interface StoredDocument {
  */
 export class TypeshadeHost implements ts.LanguageServiceHost {
   private readonly docs = new Map<string, StoredDocument>()
-  private readonly imported = new Map<string, string>()
+  private readonly imported = new Map<string, ImportedDocument>()
   private nextVersion = 1
+  /** Counts every text change the store has seen, across all documents, so that a script
+   * version derived from it never repeats for a uri whose text differs (design doc §7). */
+  private revision = 0
   private readonly ambientLib: string
   private readonly resolveImport: (fromUri: string, specifier: string) => string | undefined
   private readonly readDocument: (uri: string) => string | undefined
@@ -124,18 +137,35 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
   /** Opens or replaces a document's text. `version` defaults to the store's own monotonic
    * counter when the adapter does not track versions itself. */
   openDocument(uri: string, text: string, version?: number): void {
-    this.docs.set(uri, { text, version: version ?? this.nextVersion++ })
+    this.store(uri, text, version)
   }
 
   /** Updates an already-open document's text; behaves like `openDocument` if it was not open. */
   updateDocument(uri: string, text: string, version?: number): void {
-    this.docs.set(uri, { text, version: version ?? this.nextVersion++ })
+    this.store(uri, text, version)
+  }
+
+  /** Stores `text` for `uri`, taking a new `revision` only when the text differs from what the
+   * store holds for that uri, so an unchanged text under a new version keeps its revision and a
+   * changed text under the same version (or none) gets a new one either way. A copy of the
+   * same uri pulled in through `readDocument` is dropped: the open document is the only text
+   * the program sees for it from here on. */
+  private store(uri: string, text: string, version: number | undefined): void {
+    const current = this.docs.get(uri)
+    const revision =
+      current !== undefined && current.text === text ? current.revision : ++this.revision
+    this.docs.set(uri, { text, version: version ?? this.nextVersion++, revision })
+    this.imported.delete(uri)
   }
 
   /** Removes a document from the store. It stops appearing in `getScriptFileNames`, so
-   * TypeScript drops it from the program on the next request. */
+   * TypeScript drops it from the program on the next request; if another open document imports
+   * it, that request resolves the import again and re-reads the file through `readDocument`
+   * (a copy read earlier is dropped here too), so the importer sees the current text and not
+   * the closed document's. */
   closeDocument(uri: string): void {
     this.docs.delete(uri)
+    this.imported.delete(uri)
   }
 
   /** Whether `uri` is currently an open document (not an imported, adapter-unopened file). */
@@ -145,12 +175,22 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
 
   /** The text of an open document, or of a file pulled in only through `readDocument`. */
   getDocumentText(uri: string): string | undefined {
-    return this.docs.get(uri)?.text ?? this.imported.get(uri)
+    return this.docs.get(uri)?.text ?? this.imported.get(uri)?.text
   }
 
   /** Every currently open document's uri. */
   openUris(): readonly string[] {
     return [...this.docs.keys()]
+  }
+
+  /** The uri a `specifier` written in `fromUri` resolves to through `resolveImport`, or
+   * `undefined` for a bare (non-relative) specifier or one the host cannot resolve. The same
+   * rule `resolveModuleNameLiterals` applies to TypeScript's own module resolution, exposed so
+   * `service.ts` can key its per-document caches on the versions of the documents a file
+   * imports (design doc §8), without a second resolution rule that could drift from this one. */
+  resolveImportUri(fromUri: string, specifier: string): string | undefined {
+    if (!specifier.startsWith('.')) return undefined
+    return this.resolveImport(fromUri, specifier)
   }
 
   // ── ts.LanguageServiceHost ───────────────────────────────────────────────────────────────
@@ -159,11 +199,19 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
     return [AMBIENT_LIB_URI, ...this.docs.keys(), ...this.imported.keys()]
   }
 
+  /** The version TypeScript compares to decide whether to reuse a file (design doc §7): the
+   * adapter's version and the store's revision for an open document, so it changes whenever
+   * the text changes even when the adapter repeats or omits the version; `imported.<revision>`
+   * for a file read through `readDocument`, a space that cannot collide with an adapter's
+   * version so opening such a file in the editor is always seen as a change; `'0'` for a uri
+   * the store does not hold at all. */
   getScriptVersion(uri: string): string {
     if (uri === AMBIENT_LIB_URI) return '1'
     const doc = this.docs.get(uri)
-    if (doc) return String(doc.version)
-    return this.imported.has(uri) ? '1' : '0'
+    if (doc) return `${doc.version}.${doc.revision}`
+    const imported = this.imported.get(uri)
+    if (imported) return `imported.${imported.revision}`
+    return '0'
   }
 
   getScriptSnapshot(uri: string): ts.IScriptSnapshot | undefined {
@@ -214,14 +262,12 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
     containingFile: string,
   ): readonly ts.ResolvedModuleWithFailedLookupLocations[] {
     return moduleLiterals.map((literal) => {
-      const specifier = literal.text
-      if (!specifier.startsWith('.')) return { resolvedModule: undefined }
-      const resolvedUri = this.resolveImport(containingFile, specifier)
+      const resolvedUri = this.resolveImportUri(containingFile, literal.text)
       if (resolvedUri === undefined) return { resolvedModule: undefined }
       if (!this.docs.has(resolvedUri) && !this.imported.has(resolvedUri)) {
         const text = this.readDocument(resolvedUri)
         if (text === undefined) return { resolvedModule: undefined }
-        this.imported.set(resolvedUri, text)
+        this.imported.set(resolvedUri, { text, revision: ++this.revision })
       }
       return {
         resolvedModule: {
