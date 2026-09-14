@@ -8,9 +8,16 @@ import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js'
 import { getTypeScriptDiagnostics, getTypeshadeDiagnostics } from './diagnostics.js'
 import { getCompletions } from './completions.js'
 import { getHover } from './hover.js'
-import { offsetAt, positionAt, rangeForSpan } from './positions.js'
-import { TYPE_DOCS } from './docs.js'
-import { WGSL_BUILTIN_NAMES } from './ambient.js'
+import {
+  getDefinition,
+  getDocumentSymbols,
+  getReferences,
+  prepareRename,
+  rename,
+} from './navigation.js'
+import { getSignatureHelp } from './signature.js'
+import { getSemanticTokens } from './semantic-tokens.js'
+import { offsetAt, positionAt } from './positions.js'
 import type {
   TypeshadeCompiledOutput,
   TypeshadeCompletionItem,
@@ -21,10 +28,7 @@ import type {
   TypeshadePosition,
   TypeshadeRange,
   TypeshadeSemanticToken,
-  TypeshadeSemanticTokenModifier,
-  TypeshadeSemanticTokenType,
   TypeshadeSignatureHelp,
-  TypeshadeSymbolKind,
   TypeshadeTextEdit,
 } from './types.js'
 
@@ -96,54 +100,6 @@ interface DiagnosticsCacheEntry {
   readonly diagnostics: readonly TypeshadeDiagnostic[]
 }
 
-function spanOfNode(node: ts.Node): { start: number; length: number } {
-  return { start: node.getStart(), length: node.getEnd() - node.getStart() }
-}
-
-/** See the identical note in `completions.ts`: `ts.canHaveDecorators` says a function
- * declaration cannot syntactically carry a decorator, but the parser attaches `@vertex` etc.
- * to it anyway, so decorators must be read off `modifiers` directly rather than through the
- * `canHaveDecorators`-gated helper. */
-function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
-  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? []
-  const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? []
-  return modifiers.filter(ts.isDecorator)
-}
-
-function decoratorTextsOf(node: ts.Node, sourceFile: ts.SourceFile): readonly string[] {
-  return decoratorsOf(node).map((d) => d.getText(sourceFile))
-}
-
-function stageOf(node: ts.FunctionDeclaration, sourceFile: ts.SourceFile): string | undefined {
-  for (const text of decoratorTextsOf(node, sourceFile)) {
-    if (/^@vertex\b/.test(text)) return 'vertex'
-    if (/^@fragment\b/.test(text)) return 'fragment'
-    if (/^@compute\b/.test(text)) return 'compute'
-  }
-  return undefined
-}
-
-/** Maps `SyntaxKind` values that read as TypeShade "keywords" for semantic tokens — the
- * authoring surface's own control-flow and declaration vocabulary, not every JS keyword. */
-const KEYWORD_KINDS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.ConstKeyword,
-  ts.SyntaxKind.LetKeyword,
-  ts.SyntaxKind.VarKeyword,
-  ts.SyntaxKind.FunctionKeyword,
-  ts.SyntaxKind.ClassKeyword,
-  ts.SyntaxKind.ReturnKeyword,
-  ts.SyntaxKind.IfKeyword,
-  ts.SyntaxKind.ElseKeyword,
-  ts.SyntaxKind.ForKeyword,
-  ts.SyntaxKind.WhileKeyword,
-  ts.SyntaxKind.SwitchKeyword,
-  ts.SyntaxKind.CaseKeyword,
-  ts.SyntaxKind.BreakKeyword,
-  ts.SyntaxKind.ExportKeyword,
-  ts.SyntaxKind.DeclareKeyword,
-  ts.SyntaxKind.DefaultKeyword,
-])
-
 /**
  * Creates a Typeshade language service (design doc §4). `host` configures the ambient lib and
  * multi-file import resolution (`TypeshadeLanguageServiceHost`, defined in `host.ts`); omit it
@@ -164,18 +120,6 @@ export function createTypeshadeLanguageService(
 
   function sourceFileOf(uri: string): ts.SourceFile | undefined {
     return program().getSourceFile(uri)
-  }
-
-  function locationsFrom(
-    entries: readonly { fileName: string; textSpan: ts.TextSpan }[],
-  ): TypeshadeLocation[] {
-    const out: TypeshadeLocation[] = []
-    for (const entry of entries) {
-      const sf = program().getSourceFile(entry.fileName)
-      if (!sf) continue
-      out.push({ uri: entry.fileName, range: rangeForSpan(sf, entry.textSpan) })
-    }
-    return out
   }
 
   return {
@@ -227,84 +171,47 @@ export function createTypeshadeLanguageService(
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return []
       const offset = offsetAt(sourceFile, position)
-      const defs = languageService.getDefinitionAtPosition(uri, offset)
-      if (!defs) return []
-      return locationsFrom(defs)
+      return getDefinition(languageService, program(), uri, offset)
     },
 
     getReferences(uri, position, options) {
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return []
       const offset = offsetAt(sourceFile, position)
-      const symbols = languageService.findReferences(uri, offset)
-      if (!symbols) return []
-      const includeDeclaration = options?.includeDeclaration ?? true
-      const entries = symbols.flatMap((s) =>
-        s.references.filter((r) => includeDeclaration || !r.isDefinition),
-      )
-      return locationsFrom(entries)
+      return getReferences(languageService, program(), uri, offset, options)
     },
 
     getDocumentSymbols(uri) {
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return []
-      return documentSymbolsOf(sourceFile)
+      return getDocumentSymbols(sourceFile)
     },
 
     getSignatureHelp(uri, position) {
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return undefined
       const offset = offsetAt(sourceFile, position)
-      const items = languageService.getSignatureHelpItems(uri, offset, undefined)
-      if (!items) return undefined
-      return {
-        signatures: items.items.map((item) => ({
-          label:
-            ts.displayPartsToString(item.prefixDisplayParts) +
-            item.parameters
-              .map((p) => ts.displayPartsToString(p.displayParts))
-              .join(ts.displayPartsToString(item.separatorDisplayParts)) +
-            ts.displayPartsToString(item.suffixDisplayParts),
-          documentation: ts.displayPartsToString(item.documentation) || undefined,
-          parameters: item.parameters.map((p) => ({
-            label: ts.displayPartsToString(p.displayParts),
-            documentation: ts.displayPartsToString(p.documentation) || undefined,
-          })),
-        })),
-        activeSignature: items.selectedItemIndex,
-        activeParameter: items.argumentIndex,
-      }
+      return getSignatureHelp(languageService, uri, offset)
     },
 
     prepareRename(uri, position) {
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return undefined
       const offset = offsetAt(sourceFile, position)
-      const info = languageService.getRenameInfo(uri, offset, {})
-      if (!info.canRename) return undefined
-      return { range: rangeForSpan(sourceFile, info.triggerSpan), placeholder: info.displayName }
+      return prepareRename(languageService, sourceFile, uri, offset)
     },
 
     rename(uri, position, newName) {
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return {}
       const offset = offsetAt(sourceFile, position)
-      const locations = languageService.findRenameLocations(uri, offset, false, false, false)
-      if (!locations) return {}
-      const out: Record<string, TypeshadeTextEdit[]> = {}
-      for (const loc of locations) {
-        const sf = program().getSourceFile(loc.fileName)
-        if (!sf) continue
-        const edits = (out[loc.fileName] ??= [])
-        edits.push({ range: rangeForSpan(sf, loc.textSpan), newText: newName })
-      }
-      return out
+      return rename(languageService, program(), sourceFile, uri, offset, newName)
     },
 
     getSemanticTokens(uri, range) {
       const sourceFile = sourceFileOf(uri)
       if (!sourceFile) return []
-      return semanticTokensOf(sourceFile, range)
+      return getSemanticTokens(languageService, sourceFile, uri, range)
     },
 
     getCompiledOutput(uri, target) {
@@ -355,192 +262,5 @@ export function createTypeshadeLanguageService(
       if (!sourceFile) return 0
       return offsetAt(sourceFile, position)
     },
-  }
-
-  // ── document symbols (§5: re-labelled using the front end's own collected declarations) ──
-  function documentSymbolsOf(sourceFile: ts.SourceFile): TypeshadeDocumentSymbol[] {
-    const analysis = compileTsSource(sourceFile.text, {
-      sourceFile,
-      requireDirective: false,
-      emit: false,
-    })
-    const structNames = new Set(analysis.structs.map((s) => s.decl.name))
-    const bindingNames = new Set(analysis.bindings.map((b) => b.name))
-    const constNames = new Set(analysis.consts.map((c) => c.name))
-
-    const symbols: TypeshadeDocumentSymbol[] = []
-    for (const stmt of sourceFile.statements) {
-      if (ts.isClassDeclaration(stmt) && stmt.name) {
-        const kind: TypeshadeSymbolKind = structNames.has(stmt.name.text) ? 'struct' : 'variable'
-        const children: TypeshadeDocumentSymbol[] = []
-        for (const member of stmt.members) {
-          if (ts.isPropertyDeclaration(member) && ts.isIdentifier(member.name)) {
-            children.push({
-              name: member.name.text,
-              kind: 'field',
-              range: rangeForSpan(sourceFile, spanOfNode(member)),
-              selectionRange: rangeForSpan(sourceFile, spanOfNode(member.name)),
-            })
-          }
-        }
-        symbols.push({
-          name: stmt.name.text,
-          kind,
-          range: rangeForSpan(sourceFile, spanOfNode(stmt)),
-          selectionRange: rangeForSpan(sourceFile, spanOfNode(stmt.name)),
-          ...(children.length ? { children } : {}),
-        })
-      } else if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-        const stage = stageOf(stmt, sourceFile)
-        const children: TypeshadeDocumentSymbol[] = []
-        for (const param of stmt.parameters) {
-          if (ts.isIdentifier(param.name)) {
-            children.push({
-              name: param.name.text,
-              kind: 'parameter',
-              range: rangeForSpan(sourceFile, spanOfNode(param)),
-              selectionRange: rangeForSpan(sourceFile, spanOfNode(param.name)),
-            })
-          }
-        }
-        symbols.push({
-          name: stmt.name.text,
-          kind: stage ? 'entry' : 'function',
-          ...(stage ? { detail: stage } : {}),
-          range: rangeForSpan(sourceFile, spanOfNode(stmt)),
-          selectionRange: rangeForSpan(sourceFile, spanOfNode(stmt.name)),
-          ...(children.length ? { children } : {}),
-        })
-      } else if (ts.isVariableStatement(stmt)) {
-        for (const decl of stmt.declarationList.declarations) {
-          if (!ts.isIdentifier(decl.name)) continue
-          const name = decl.name.text
-          const kind: TypeshadeSymbolKind = bindingNames.has(name)
-            ? 'resource'
-            : constNames.has(name)
-              ? 'constant'
-              : 'variable'
-          symbols.push({
-            name,
-            kind,
-            range: rangeForSpan(sourceFile, spanOfNode(decl)),
-            selectionRange: rangeForSpan(sourceFile, spanOfNode(decl.name)),
-          })
-        }
-      }
-    }
-    return symbols
-  }
-
-  // ── semantic tokens: a direct AST walk (§5) ──
-  //
-  // TypeScript's own `getSemanticClassifications` does not distinguish a function name from a
-  // property from a plain identifier finely enough for this taxonomy (functions, properties and
-  // ordinary variables are all just `identifier`), so this walks the tree itself instead of
-  // layering onto that API — one pass produces the base classification (type/struct/function/
-  // parameter/variable/property/keyword/number/string) and the TypeShade enrichments
-  // (decorator, builtin, gpu/entry/readonly modifiers) together, rather than two systems that
-  // could disagree about the same token.
-  function semanticTokensOf(
-    sourceFile: ts.SourceFile,
-    range?: TypeshadeRange,
-  ): TypeshadeSemanticToken[] {
-    const analysis = compileTsSource(sourceFile.text, {
-      sourceFile,
-      requireDirective: false,
-      emit: false,
-    })
-    const bindingNames = new Set(analysis.bindings.map((b) => b.name))
-    const constNames = new Set(analysis.consts.map((c) => c.name))
-    const lo = range ? offsetAt(sourceFile, range.start) : 0
-    const hi = range ? offsetAt(sourceFile, range.end) : sourceFile.text.length
-
-    const tokens: {
-      start: number
-      length: number
-      type: TypeshadeSemanticTokenType
-      modifiers: TypeshadeSemanticTokenModifier[]
-    }[] = []
-    const push = (
-      start: number,
-      length: number,
-      type: TypeshadeSemanticTokenType,
-      modifiers: readonly TypeshadeSemanticTokenModifier[] = [],
-    ): void => {
-      if (start + length < lo || start > hi) return
-      tokens.push({ start, length, type, modifiers: [...modifiers] })
-    }
-
-    const visit = (node: ts.Node): void => {
-      if (KEYWORD_KINDS.has(node.kind)) {
-        push(node.getStart(), node.getWidth(), 'keyword')
-      } else if (ts.isNumericLiteral(node)) {
-        push(node.getStart(), node.getWidth(), 'number')
-      } else if (ts.isDecorator(node)) {
-        const expr = ts.isCallExpression(node.expression)
-          ? node.expression.expression
-          : node.expression
-        if (ts.isIdentifier(expr)) push(expr.getStart(), expr.getWidth(), 'decorator')
-      } else if (
-        ts.isStringLiteralLike(node) &&
-        ts.isCallExpression(node.parent) &&
-        ts.isIdentifier(node.parent.expression) &&
-        node.parent.expression.text === 'builtin' &&
-        WGSL_BUILTIN_NAMES.includes(node.text)
-      ) {
-        push(node.getStart() + 1, node.text.length, 'builtin')
-      } else if (ts.isStringLiteralLike(node)) {
-        push(node.getStart(), node.getWidth(), 'string')
-      } else if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) {
-        const modifiers: TypeshadeSemanticTokenModifier[] = TYPE_DOCS[node.typeName.text]
-          ? ['gpu']
-          : []
-        push(node.typeName.getStart(), node.typeName.getWidth(), 'type', modifiers)
-      } else if (ts.isClassDeclaration(node) && node.name) {
-        push(node.name.getStart(), node.name.getWidth(), 'struct', ['declaration'])
-      } else if (ts.isFunctionDeclaration(node) && node.name) {
-        const stage = stageOf(node, sourceFile)
-        push(
-          node.name.getStart(),
-          node.name.getWidth(),
-          'function',
-          stage ? ['declaration', 'entry'] : ['declaration'],
-        )
-      } else if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
-        push(node.name.getStart(), node.name.getWidth(), 'parameter', ['declaration'])
-      } else if (ts.isPropertyDeclaration(node) && ts.isIdentifier(node.name)) {
-        push(node.name.getStart(), node.name.getWidth(), 'property', ['declaration'])
-      } else if (
-        ts.isVariableDeclaration(node) &&
-        ts.isIdentifier(node.name) &&
-        ts.isSourceFile(node.parent.parent.parent)
-      ) {
-        const name = node.name.text
-        const isConstDecl = (node.parent.flags & ts.NodeFlags.Const) !== 0
-        const modifiers: TypeshadeSemanticTokenModifier[] = ['declaration']
-        if (isConstDecl) modifiers.push('readonly')
-        const type: TypeshadeSemanticTokenType = bindingNames.has(name) ? 'resource' : 'variable'
-        if (bindingNames.has(name) || constNames.has(name)) modifiers.push('gpu')
-        push(node.name.getStart(), node.name.getWidth(), type, modifiers)
-      } else if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name)) {
-        push(node.name.getStart(), node.name.getWidth(), 'property')
-      } else if (ts.isIdentifier(node) && !ts.isDecorator(node.parent)) {
-        push(node.getStart(), node.getWidth(), 'variable')
-      }
-      node.forEachChild(visit)
-    }
-    sourceFile.forEachChild(visit)
-
-    tokens.sort((a, b) => a.start - b.start)
-    return tokens.map((t) => {
-      const pos = positionAt(sourceFile, t.start)
-      return {
-        line: pos.line,
-        character: pos.character,
-        length: t.length,
-        type: t.type,
-        modifiers: t.modifiers,
-      }
-    })
   }
 }
