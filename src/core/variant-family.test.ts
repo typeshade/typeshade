@@ -1,4 +1,4 @@
-// ═══ variantFamily — the typed matrix, and the guarded lowering of it (#1712) ═══
+// ═══ variantFamily — the typed matrix, and the guarded lowering of it (X-GIS #1712) ═══
 //
 // The acceptance criterion the issue names is the one asserted hardest here: every arm of
 // `emitGuarded` must be byte-identical to the corresponding standalone variant. If it is,
@@ -188,7 +188,7 @@ describe('variantFamily.emitGuarded — a GENERATED ladder, provably equal to th
 // stripping the header again: the regex #1711 exists to delete. `emitGuardedFragment`
 // returns the same ladder with the preamble as DATA instead.
 
-describe('variantFamily.emitGuardedFragment — the ladder, composable (#1712 + #1711)', () => {
+describe('variantFamily.emitGuardedFragment — the ladder, composable (X-GIS #1712 + X-GIS #1711)', () => {
   // Each arm declares a helper the OTHER one does not, so no single arm's manifest is the
   // union — first-arm-only and last-arm-only both fail the assertions below. (A fixture
   // whose distinguishing name sits in arm 0 would let a first-arm-only implementation pass;

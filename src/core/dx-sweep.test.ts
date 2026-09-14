@@ -85,7 +85,7 @@ describe('#763 X — type-surface sweep', () => {
     const tex = resource('x6_tex', texture2dfT, { group: 0, binding: 0 })
     const smp = resource('x6_smp', samplerT, { group: 0, binding: 1 })
     const g = fn('x6', { uv: vec2fT }, ({ uv }) => {
-      // @ts-expect-error — sampler where the texture goes (#763 X6); used to compile
+      // @ts-expect-error — sampler where the texture goes (X-GIS #763 X6); used to compile
       const bad = textureSample(smp.node, tex.node, uv)
       void bad
       return textureSample(tex.node, smp.node, uv)
@@ -173,7 +173,7 @@ describe('#763 X — type-surface sweep', () => {
       // Uncalled thunks: these are tsc-only probes, kept out of the authored body.
       // @ts-expect-error — a plain 2d texture has no layer count
       const on2d = () => textureNumLayers(tex.node)
-      // @ts-expect-error — a sampler is not a texture (the #763 X6 key class)
+      // @ts-expect-error — a sampler is not a texture (the X-GIS #763 X6 key class)
       const onSampler = () => textureNumLayers(smp.node)
       void [on2d, onSampler]
       // POSITIVE probe: the array form returns u32, so it needs toF32 to join float math.
@@ -283,7 +283,7 @@ describe('#763 X — type-surface sweep', () => {
 
   it('X7: dot/length are K-constrained — dot(v2, v3) is a tsc error', () => {
     fn('x7', { a: vec2fT, b: vec3fT }, ({ a, b }) => {
-      // @ts-expect-error — mismatched vector keys (#763 X7); used to compile and die at naga
+      // @ts-expect-error — mismatched vector keys (X-GIS #763 X7); used to compile and die at naga
       const bad = dot(a, b)
       void bad
       return dot(a, a).add(length(b))
@@ -296,7 +296,7 @@ describe('#763 X — type-surface sweep', () => {
       // tsc-level probe INSIDE a never-executed closure — the runtime backstop
       // below would otherwise throw during authoring and kill the fn body.
       void (() =>
-        // @ts-expect-error — vec LHS comparison returns vecN<bool> in WGSL, not bool (#763 X8)
+        // @ts-expect-error — vec LHS comparison returns vecN<bool> in WGSL, not bool (X-GIS #763 X8)
         v.lt(1))
       return v.x
     })
@@ -347,7 +347,7 @@ describe('#763 X — type-surface sweep', () => {
   })
 
   it('X12: lift returns ReadonlyNode<string>, no longer assignable to every key', () => {
-    // @ts-expect-error — lift(3) is ReadonlyNode<string>, not ReadonlyNode<'bool'> (#763 X12)
+    // @ts-expect-error — lift(3) is ReadonlyNode<string>, not ReadonlyNode<'bool'> (X-GIS #763 X12)
     const bad: ReadonlyNode<'bool'> = lift(3)
     void bad
     expect(lift(3).type).toEqual(f32T)

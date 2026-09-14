@@ -1635,7 +1635,7 @@ import { setSourceTracing } from 'typeshade/dev'
 setSourceTracing(true)
 ```
 
-Setting `XGIS_SHADER_DSL_TRACE=1` in the environment turns it on for the whole process,
+Setting `TYPESHADE_TRACE=1` in the environment turns it on for the whole process,
 which is the way to get locations out of a test run without editing the test. Locations
 never reach the emitted shader: WGSL and GLSL come out byte-identical with tracing on and
 with it off. Because capture is optional, `loc` on an error and on a diagnostic is optional

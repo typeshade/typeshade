@@ -23,7 +23,7 @@ const mk = (): ModuleDecl => {
   })
 }
 
-describe('inline — Fn composition (#8)', () => {
+describe('inline — Fn composition (X-GIS #8)', () => {
   it('inlines the call, substituting the arg (dbl(y+1) -> (y+1)*2)', () => {
     const wgsl = emitModule(inlineFn(mk(), 'dbl'))
     expect(wgsl).not.toMatch(/\bdbl\(/) // the call site is gone

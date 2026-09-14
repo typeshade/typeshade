@@ -1,4 +1,4 @@
-// ═══ capabilityMatrix — the capability × backend table, DERIVED (#1717) ═══
+// ═══ capabilityMatrix — the capability × backend table, DERIVED (X-GIS #1717) ═══
 //
 // #1717 Ask 2 asked for this as a documentation page. It is a function instead, because
 // #1700 already records three authorities describing this API and a hand-written table
@@ -49,7 +49,7 @@ describe('capabilityMatrix — one row per capability, one column per backend', 
   })
 
   it('marks the three DERIVED caps as not declarable', () => {
-    // `DeclarableCapability` (#1681 A2) makes naming one in `enables` a compile error; the
+    // `DeclarableCapability` (X-GIS #1681 A2) makes naming one in `enables` a compile error; the
     // matrix has to report the same taxonomy or a doc rendered from it would invite the
     // mistake the type system already forbids.
     for (const c of ['storageBuffer', 'compute', 'msaaTextureLoad'] as const)
@@ -60,7 +60,7 @@ describe('capabilityMatrix — one row per capability, one column per backend', 
 
   it('the documented unreachable trio is visible as SUPPORTED but unusable', () => {
     // f16 / subgroups / multiview are declarable and emit a directive, yet nothing can be
-    // authored with them (capability-reachability.test.ts's allowlist, #1681 A3). The
+    // authored with them (capability-reachability.test.ts's allowlist, X-GIS #1681 A3). The
     // matrix reports support honestly; a renderer must pair it with that allowlist rather
     // than let a reader conclude the DSL can do multiview.
     expect(rowFor('f16').support['wgsl']).toBe('directive')

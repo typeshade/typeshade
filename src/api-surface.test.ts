@@ -1,4 +1,4 @@
-// ═══ The public API surface is a COMMITTED artifact — a change to it is a diff (#1842) ═══
+// ═══ The public API surface is a COMMITTED artifact — a change to it is a diff (X-GIS #1842) ═══
 //
 // WHAT THIS IS FOR. The changelog files one entry per squash-merged commit, and that entry's
 // text is the commit SUBJECT — a human's summary, not the change's public-surface delta. The
@@ -213,9 +213,9 @@ function render(): string {
     'Every symbol a consumer can import, per `package.json` `exports` subpath, followed by one',
     'line of shape per definition. `shader-dsl/src/api-surface.test.ts` fails when this file and',
     'the tree disagree, so a public-surface change cannot land without appearing in a diff —',
-    'which is what the changelog, filing one entry per commit SUBJECT, cannot show (#1842).',
+    'which is what the changelog, filing one entry per commit SUBJECT, cannot show (X-GIS #1842).',
     '',
-    'This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs',
+    'This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs',
     'of this file is the exact list of what changed for them.',
     '',
   ]

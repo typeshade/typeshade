@@ -4,7 +4,7 @@
 // measurement, source tracing, and pipeline-introspection helpers. None of it is
 // needed to AUTHOR or EMIT a shader (that is the main barrel), and none of it has
 // production consumers — keeping it off the main entry keeps the authoring surface
-// honest about what a shader author actually needs (#740 R2b).
+// honest about what a shader author actually needs (X-GIS #740 R2b).
 //
 // Import as `typeshade/dev`.
 
@@ -52,7 +52,7 @@ export {
   type PassTiming,
 } from './core/measure.js'
 
-// Optimizer pass surface for A/B and pass-level tests (#763 D3 — the former
+// Optimizer pass surface for A/B and pass-level tests (X-GIS #763 D3 — the former
 // `core/passes/opt/index` deep-path consumers; the `./core/*` wildcard subpath
 // that reached it bypassed the main//dev split and enabled partial-graph loads).
 export { optimize, fixpoint, DEFAULT_PASSES, constFold } from './core/passes/opt/index.js'

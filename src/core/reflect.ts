@@ -7,7 +7,7 @@
 // mechanically: bind-group entries, std140/std430 struct byte layouts, vertex
 // attributes, and entry-point signatures.
 //
-// PURE + ADDITIVE — scoped precisely (#763 H2): `reflect()` itself is read-only over
+// PURE + ADDITIVE — scoped precisely (X-GIS #763 H2): `reflect()` itself is read-only over
 // the IR and sits on no emit path. The LAYOUT ENGINE in this file (typeLayout /
 // structLayout) does NOT share that invariant: the GLSL backend imports it to bake
 // std140 UBO / std430 storage offsets into emitted source (glsl.ts), so a layout-rule
@@ -565,10 +565,10 @@ const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
         ? 'storage-buffer'
         : 'uniform-buffer'
 
-// String fallback ONLY (#740 R3): fn()-authored decls carry structured
+// String fallback ONLY (X-GIS #740 R3): fn()-authored decls carry structured
 // `stage`/`workgroupSize` — reflect reads those first; the attrs-string parse
 // survives solely for hand-built FuncDecl literals.
-// Stage / workgroup-size predicates live in core/ir (#763 S1) — one shared helper
+// Stage / workgroup-size predicates live in core/ir (X-GIS #763 S1) — one shared helper
 // for reflect, the capability gate, GLSL entry classification, and fn-DCE roots.
 
 /** Options for {@link reflect}. */
@@ -584,7 +584,7 @@ export interface ReflectOptions {
 }
 
 /** The module's declared bindings, plus any a LOWERING injects that a host must still bind
- *  (#1724).
+ *  (X-GIS #1724).
  *
  *  `fp64Lower` auto-injects the `_fp64` guard texture into any module whose f64 helpers read
  *  it — authors declare nothing, which is the documented contract (`fp64/df64-lib.ts`: "Either
@@ -740,7 +740,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       ...(stage === 'compute' ? { workgroupSize: workgroupSizeOf(f) ?? 64 } : {}),
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
-      // Present only when declared (#1812) — an absent field, not `portable: false`, so the
+      // Present only when declared (X-GIS #1812) — an absent field, not `portable: false`, so the
       // host reads "WebGPU-only" the same way it reads every other absent capability.
       ...(f.portable === true ? { portable: true as const } : {}),
       io: { inputs: io.inputs.map(ioField), outputs: io.outputs.map(ioField) },

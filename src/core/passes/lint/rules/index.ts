@@ -107,7 +107,7 @@ export const CORE_RULES: readonly LintRule[] = [
   // module (no style opinion), and its native failure is an opaque driver error —
   // so it belongs at emit, not lint-only.
   fragmentOnlyBuiltin,
-  // The portable kernel tier (#1812). CORE is the whole point: `portable: true` claims the
+  // The portable kernel tier (X-GIS #1812). CORE is the whole point: `portable: true` claims the
   // kernel emits on BOTH backends, so the claim must be checked at every emit on BOTH
   // writers — a lint-only gate would let a kernel that cannot lower for WebGL2 sail through
   // every WGSL path. Silent for any module that declares no portable entry.
@@ -116,6 +116,6 @@ export const CORE_RULES: readonly LintRule[] = [
   // its NAME alone, so a duplicated name merges two bindings and const-prop / copy-prop /
   // dead-branch / member-fold / inline-linear move a value across a scope boundary it may not
   // cross. CORE because the failure is a SILENT miscompile on every backend — two sibling `if`
-  // arms binding `t` folded to the same literal at O1 — not a style opinion (#2341).
+  // arms binding `t` folded to the same literal at O1 — not a style opinion (X-GIS #2341).
   noShadowedLocal,
 ]

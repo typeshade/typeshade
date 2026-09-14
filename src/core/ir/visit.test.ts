@@ -1,4 +1,4 @@
-// ═══ The Stmt traversal SoT — coverage ratchet (#2534, audit rows 1 + 8) ═══
+// ═══ The Stmt traversal SoT — coverage ratchet (X-GIS #2534, audit rows 1 + 8) ═══
 //
 // The walkers in `visit.ts` replaced nine hand-written `switch (s.s)` copies, so a
 // statement kind they forget is now forgotten EVERYWHERE at once. Neither switch is

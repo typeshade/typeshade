@@ -37,7 +37,7 @@ const storageMod = () =>
     ],
   })
 
-describe('capabilities — requiredCaps + assertCaps (#9)', () => {
+describe('capabilities — requiredCaps + assertCaps (X-GIS #9)', () => {
   it('a storage binding requires storageBuffer', () => {
     expect(requiredCaps(storageMod())).toContain('storageBuffer')
   })

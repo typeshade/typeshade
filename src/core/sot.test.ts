@@ -40,7 +40,7 @@ const VsOut = ioStruct('VsOut', {
 })
 
 describe('sot — ioStruct (single source of truth for IO structs)', () => {
-  it('derives the StructDecl exactly as the hand-written form (+ structured attrs, #740 R3)', () => {
+  it('derives the StructDecl exactly as the hand-written form (+ structured attrs, X-GIS #740 R3)', () => {
     expect(VsOut.decl).toEqual({
       name: 'VsOut',
       fields: [
@@ -69,7 +69,7 @@ describe('sot — ioStruct (single source of truth for IO structs)', () => {
     expect(emitExpr(VsOut.of(n).sdf.expr)).toBe(emitExpr(member(n, 'sdf', f32T).expr))
   })
 
-  it('.var() fuses the Var(T.type) + .of(out) output stub — byte-identical emit (#740 R6c)', () => {
+  it('.var() fuses the Var(T.type) + .of(out) output stub — byte-identical emit (X-GIS #740 R6c)', () => {
     const emitF = (f: ReturnType<typeof fn>): string => emitModule(module({ funcs: { f } }))
     const viaVar = emitF(
       fn('f', {}, () => {
@@ -159,7 +159,7 @@ describe('sot — uniformStruct + resource (single source of truth for bindings)
     )
   })
 
-  it('arrayOf(handle, n) uniform field declares array<T, n> and .at(i) gives the typed proxy (#740 R6c)', () => {
+  it('arrayOf(handle, n) uniform field declares array<T, n> and .at(i) gives the typed proxy (X-GIS #740 R6c)', () => {
     const Slot = structDecl('Slot', { id: u32T, size: f32T })
     const L = uniformStruct(
       'Layer',

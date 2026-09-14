@@ -4,7 +4,7 @@
 // call and must not leak fragment-only machinery into the vertex unit (`stageScope` in
 // backends/glsl.ts). A HOST needs the same fact because `GPUBindGroupLayoutEntry.visibility`
 // is a required stage mask and a WebGL2 host assigns UBO points / texture units per stage
-// — `reflect()` publishes it as `BindEntry.stages` (#1906).
+// — `reflect()` publishes it as `BindEntry.stages` (X-GIS #1906).
 //
 // Before this the walk lived only inside the backend, so every host re-declared visibility
 // by hand next to the binding (the reported cost: 32 hand-written `visibility:` sites in one

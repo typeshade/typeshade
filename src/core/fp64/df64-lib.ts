@@ -38,7 +38,7 @@
 // stamps `opaque: true` on every helper it injects and both inliners honour it
 // (see FuncDecl.opaque). The rule is deliberately NOT a name test: `mangle`
 // renames this library on purpose, so a name test held or not depending on
-// plugin order (#1926).
+// plugin order (X-GIS #1926).
 
 import {
   fn,

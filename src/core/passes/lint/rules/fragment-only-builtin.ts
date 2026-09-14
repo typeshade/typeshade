@@ -2,7 +2,7 @@ import type { LintRule } from '../engine.js'
 import { stageOf } from '../../../ir/index.js'
 import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs.js'
 
-/** The derivative builtins (#1654) share ONE fix: unlike the texture rows there is
+/** The derivative builtins (X-GIS #1654) share ONE fix: unlike the texture rows there is
  *  no drop-in same-shape alternative — a screen-space derivative simply does not
  *  exist outside a fragment invocation, so the quantity has to come from elsewhere. */
 const DERIVATIVE_FIX =
@@ -11,7 +11,7 @@ const DERIVATIVE_FIX =
 /** Fragment-only builtin id -> the fix its message must name. Table-driven, so a
  *  further fragment-only builtin joins by adding ONE row.
  *
- *  THIS TABLE IS THE SINGLE FIX-AUTHORITY (#1654). It now holds three fix families —
+ *  THIS TABLE IS THE SINGLE FIX-AUTHORITY (X-GIS #1654). It now holds three fix families —
  *  the explicit-LOD texture form, its array form (whose fix must name the layer
  *  argument), and the derivatives (no same-shape alternative exists at all) — so the
  *  SD0109 catalogue hint (codes.ts) is deliberately GENERIC and points the reader at
@@ -39,14 +39,14 @@ const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
  *  `textureSample` derives its mip level from screen-space derivatives, which exist
  *  only in a fragment invocation — WGSL therefore rejects it in any other stage, and
  *  the failure surfaces as an opaque naga/driver error far from the call site. The
- *  derivative builtins themselves (`dpdx` / `dpdy` / `fwidth`, #1654) are fragment-only
+ *  derivative builtins themselves (`dpdx` / `dpdy` / `fwidth`, X-GIS #1654) are fragment-only
  *  for the same reason.
  *
  *  Reachability is the call-graph closure from each non-fragment entry over the
  *  module's own fns (collectFnRefs — the collector stageScope also uses), so a builtin
  *  buried two helpers deep is caught too. A helper reachable only from a fragment
  *  entry is fine; one reachable from BOTH is flagged, because it is emitted into the
- *  vertex/compute stage as well (pinned by a dual-entry test, #1654). A module with no
+ *  vertex/compute stage as well (pinned by a dual-entry test, X-GIS #1654). A module with no
  *  non-fragment entry (helper-only / runtime-composed) is silent by construction.
  *
  *  `raw` Stmts: collectFnRefs cannot see a call made inside raw WGSL text (its

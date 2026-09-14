@@ -1,4 +1,4 @@
-// ═══ externVar (#1713) + hostUniform (#1710) — the host boundary, declared ═══
+// ═══ externVar (X-GIS #1713) + hostUniform (X-GIS #1710) — the host boundary, declared ═══
 //
 // These are one concept at two granularities, which is why they are one design and one
 // test file. The dc4i corpus on #1710 proves it: its four helpers run as a single chain —

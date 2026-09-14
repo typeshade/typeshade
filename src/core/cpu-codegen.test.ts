@@ -1,4 +1,4 @@
-// ═══ compileModuleJs — differential + microbench gate (#1162) ═══
+// ═══ compileModuleJs — differential + microbench gate (X-GIS #1162) ═══
 //
 // GATE A1 (keystone): the js-source backend is BIT-IDENTICAL to the tree-walk
 // interpreter over the SAME IR. Every fn below is swept over seeded-random +
@@ -381,7 +381,7 @@ function buildModule(): ModuleDecl {
         ),
         ret(vref('r')),
       ]),
-      // switch INSIDE a for-loop (#2275): a `continue` raised in a case body must reach
+      // switch INSIDE a for-loop (X-GIS #2275): a `continue` raised in a case body must reach
       // the loop (skips one increment → 3), and a `break` must exit the switch only (→ 4).
       func('swcont', [{ name: 'n', type: i32T }], f32T, [
         varS('acc', f32T, lit(0)),

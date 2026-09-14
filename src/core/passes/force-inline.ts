@@ -37,7 +37,7 @@
 // WHAT PROTECTS THE RENORM AFTER ITS CALL IS GONE. `renormForCancel` (fp64-lower.ts)
 // launders a LOADED lo into a computed one by adding a df64 ZERO ahead of a cancelling
 // op, and it is spelled as a df64_ call precisely so the optimizer cannot fold it
-// (#915 — Apple sub, Blackwell WebGL2 div). Inlining removes that spelling, so the
+// (X-GIS #915 — Apple sub, Blackwell WebGL2 div). Inlining removes that spelling, so the
 // protection has to come from the ADDEND instead.
 //
 // It now does, BY CONSTRUCTION: the zero is `vec2(optBarrier(0), optBarrier(0))`, a

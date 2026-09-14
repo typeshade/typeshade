@@ -1,4 +1,4 @@
-// ═══ Shader DSL — registry generation from a set of discovered modules (#1716) ═══
+// ═══ Shader DSL — registry generation from a set of discovered modules (X-GIS #1716) ═══
 //
 // At 20+ programs the hand-written wiring file becomes the bottleneck: a consumer reported
 // 762 lines of import → key → emitter → reflection boilerplate, and adding a program means

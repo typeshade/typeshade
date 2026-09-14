@@ -1,4 +1,4 @@
-// ═══ shader-dsl — caps-gated language-feature enable directives (#628) ═══
+// ═══ shader-dsl — caps-gated language-feature enable directives (X-GIS #628) ═══
 //
 // The `enable`-directive knob system: a module opts into a language-feature
 // capability via `enables` (e.g. `['f16']`); the WGSL writer emits the matching

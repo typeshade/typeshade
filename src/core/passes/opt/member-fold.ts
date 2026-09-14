@@ -15,7 +15,7 @@
 // the O2 list does not. That is the same call `optimize.ts` already makes for `deadFnElim`
 // and `unrollLoops` — a byte-perturbing pass stays available-but-unwired — and here the
 // numbers make it easy. Measured by instrumenting THIS function over the example corpus
-// (not by matching a shape in the emitted text: a text probe is what produced #1972's
+// (not by matching a shape in the emitted text: a text probe is what produced X-GIS #1972's
 // wrong numbers, and re-quoting them would have repeated the mistake):
 //
 //   fires, default emit                       0     — nothing to fold; df64 is still opaque
@@ -40,7 +40,7 @@
 // that, not one — the BINDING, so the aggregate the read resolves through is the one
 // that was built, and every ARGUMENT, because forwarding `c.x` out of
 // `let c = vec2(h, 0)` moves `h` PAST the statements between the binding and the read
-// (#2354: with only the binding checked, `let c = vec2(h,0); h = h + 10; … c.x` folded
+// (X-GIS #2354: with only the binding checked, `let c = vec2(h,0); h = h + 10; … c.x` folded
 // to a bare `h` and read `h + 10`). A name that is ever an assignment target
 // disqualifies the binding on either side. It forwards ONE argument into
 // ONE use — never the aggregate — so the construct itself is not duplicated; when
@@ -142,7 +142,7 @@ export function memberFold(m: ModuleDecl): ModuleDecl {
     // read may ever be an assignment target. Both halves are load-bearing — the
     // binding check keeps the aggregate itself stable; the ARGUMENT check is what
     // makes the forward legal across the statements between the binding and the
-    // read, which is the whole point of resolving through the `let` (#2354).
+    // read, which is the whole point of resolving through the `let` (X-GIS #2354).
     // Conservative on purpose: a mutation anywhere in the fn disqualifies the
     // binding, rather than deciding whether it lies between the two points.
     const ctors = collectLets(

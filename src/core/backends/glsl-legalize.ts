@@ -335,7 +335,7 @@ function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
 
 /** Bind every struct-constructor argument that carries a transitively-discarding call to a
  *  fresh `_dhN` local declared immediately before its statement, and pass the local to the
- *  constructor instead (#1840). Pure (module → module); IDENTITY for a module in which
+ *  constructor instead (X-GIS #1840). Pure (module → module); IDENTITY for a module in which
  *  nothing discards, so a discard-free module emits byte-for-byte what it always did. */
 export function hoistDiscardingCtorArgs(m: ModuleDecl): ModuleDecl {
   const discarding = transitivelyDiscardingFns(m)

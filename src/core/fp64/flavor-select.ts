@@ -2,7 +2,7 @@
 //
 // The integer df64 flavor (df64-int.ts) exists because Apple's Metal shader
 // compiler reassociates the float EFT error terms at ANY large-magnitude
-// cancellation — proven on-device (probe history, PR #924–#932): every float
+// cancellation — proven on-device (probe history, PR X-GIS #924–X-GIS #932): every float
 // barrier collapses on Apple while the integer lowering passes 9/9. Elsewhere
 // the guarded float flavor is correct on the real chains and cheaper, so:
 //

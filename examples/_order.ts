@@ -1,4 +1,4 @@
-// ═══ The curated example ORDER — the one hand-written half of the registry (#1716) ═══
+// ═══ The curated example ORDER — the one hand-written half of the registry (X-GIS #1716) ═══
 //
 // A directory scan enumerates the example modules. It cannot know that cartographic
 // examples lead because the site is a map site, or that the compute example belongs last.

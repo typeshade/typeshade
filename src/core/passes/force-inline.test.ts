@@ -34,7 +34,7 @@ import type { EmitPlugin } from '../emit.js'
 // that is _fp64-known-answer.spec.ts on a real device.
 
 /** The f32 oracle over an ALREADY-lowered module: a correctly-rounding f32 machine, which
- *  is what the GPU is. `precision: 'f32'` (#2426) replaced a copy of this wrapper here and
+ *  is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper here and
  *  in six fp64 test files. */
 const f32Oracle = (lowered: ModuleDecl) => compileModule(lowered, { precision: 'f32' })
 

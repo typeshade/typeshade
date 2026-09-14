@@ -4,7 +4,7 @@
 // sector, mirror about the sector's midline, convert back — every sector now
 // shows the same wedge of pattern, seamlessly. The pattern inside the wedge is
 // swirling fbm + concentric rings through a cosine palette. The fold uses
-// `mod` (#839), the portable FLOOR-mod, so the negative angles atan2
+// `mod` (X-GIS #839), the portable FLOOR-mod, so the negative angles atan2
 // produces wrap identically on both targets. WGSL + GLSL ES 3.00 (WebGL2).
 
 import {

@@ -6,7 +6,7 @@
 // (every pass must leave compileModule(m) producing identical results) and, once
 // it lands (P3), the real-GPU f32 differential.
 //
-// STATUS — WIRED into BOTH emit paths (#763 H1; this header long claimed "deferred
+// STATUS — WIRED into BOTH emit paths (X-GIS #763 H1; this header long claimed "deferred
 // until P3" after P3 had landed). emitModule (backends/wgsl.ts `optimize:`) and
 // emitGlslModule (backends/glsl.ts `optimize:`) each run the full `fixpoint` pipeline
 // over the lowered module on EVERY emit. The f32 concern that once gated the wiring
@@ -38,7 +38,7 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  input-only repeats) + cse-local (statement-local repeats that touch a local/var) /
  *  LICM (loop invariants), then DCE last (clean up everything orphaned).
  *
- *  `gvn` completes the CSE family here (#1865): `cse` owns fn-top input-only repeats
+ *  `gvn` completes the CSE family here (X-GIS #1865): `cse` owns fn-top input-only repeats
  *  and `cseLocal` owns repeats inside ONE statement, which leaves the repeat that
  *  touches a local and spans STATEMENTS — the commonest shape in the real shaders —
  *  to nobody. It was long left unwired because it perturbs emitted bytes, and the
@@ -48,8 +48,8 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  re-bake moved bytes, never pixels.
  *
  *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns), small fixed-count loop
- *  unrolling (`unrollLoops`, ./unroll — #627) and the member-of-construct fold
- *  (`memberFold`, ./member-fold — #1972, applied by `passes/force-inline.ts`) are
+ *  unrolling (`unrollLoops`, ./unroll — X-GIS #627) and the member-of-construct fold
+ *  (`memberFold`, ./member-fold — X-GIS #1972, applied by `passes/force-inline.ts`) are
  *  still deliberately NOT in this list — like `inlineFn` (../inline), they are
  *  available-but-unwired passes.
  *  The shaders that share a projection prelude emit it as one module of helper fns
@@ -64,7 +64,7 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   algebraicSimplify,
   deadBranch,
   // …then collapse a write-once struct local into the constructor it is assembling
-  // (#1867), so CSE below sees one value rather than N field writes and BOTH writers
+  // (X-GIS #1867), so CSE below sees one value rather than N field writes and BOTH writers
   // emit the shorter shape.
   structCtor,
   cse,
@@ -112,7 +112,7 @@ export function optimize(
   }, m)
 }
 
-/** Called once per pass per fixpoint iteration when profiling (#2449). Absent on the
+/** Called once per pass per fixpoint iteration when profiling (X-GIS #2449). Absent on the
  *  production path, which keeps the plain `reduce` above — a profiler must not be something
  *  the shipped pipeline pays for. */
 export type PassSink = (pass: string, ms: number) => void
@@ -126,7 +126,7 @@ const nowMs = (): number => {
 
 /** Structural equality over the IR — the fixpoint's own convergence test, exported so
  *  `profileEmit` can assert its instrumented optimizer produced the same module as the
- *  production one (#2449). @internal
+ *  production one (X-GIS #2449). @internal
  *
  *  Mirrors the `JSON.stringify(a) ===
  *  JSON.stringify(b)` test it replaces — but SHORT-CIRCUITING at the first
@@ -162,7 +162,7 @@ export function irEqual(a: unknown, b: unknown): boolean {
   return true
 }
 
-/** Optimize ONE function to a fixed point (#1186). Reuses the module-level passes
+/** Optimize ONE function to a fixed point (X-GIS #1186). Reuses the module-level passes
  *  by wrapping the function in a one-function module — every DEFAULT_PASSES pass
  *  is `{ ...m, funcs: m.funcs.map(perFnFn) }` with a `(f: FuncDecl) => FuncDecl`
  *  transform, so the only function state it reads is the one it maps; the shell's
@@ -175,12 +175,12 @@ export function irEqual(a: unknown, b: unknown): boolean {
  *  whole-module on the real projection module so wiring such a pass fails loudly.
  *
  *  MODULE-LEVEL reads are fine and two passes now make one: `cseLocal` and `gvn`
- *  derive a set of BINDING NAMES from `m.bindings` (#1886 — indexing one of those is
+ *  derive a set of BINDING NAMES from `m.bindings` (X-GIS #1886 — indexing one of those is
  *  a memory load, not free addressing). That is not the hazard above. The shell this
  *  builds is `{ ...m, funcs: [cur] }`, so `m.bindings` here IS the whole module's
  *  binding list, identical in both arrangements; what breaks the equivalence is
  *  reading another FUNCTION, which is per-function state the shell does not carry.
- *  (`gvn` was listed as cross-function here too until #1865 wired it. It never
+ *  (`gvn` was listed as cross-function here too until X-GIS #1865 wired it. It never
  *  belonged, and neither does this.) */
 function fnFixpoint(
   fn: FuncDecl,
@@ -203,7 +203,7 @@ function fnFixpoint(
  *  `member-fold` and `inline-linear` each key a FUNCTION-WIDE flat map on it. A duplicated
  *  name merges two bindings, and the passes then move a value across a scope boundary it may
  *  not cross: two sibling `if` arms binding `t` folded to the SAME literal at O1, which is
- *  the tier documented as value-identical to O0 (#2341).
+ *  the tier documented as value-identical to O0 (X-GIS #2341).
  *
  *  The `no-shadowed-local` lint rule is the same check at the front door (CORE, so `validate()`
  *  runs it at every emit). This one covers what the rule cannot: a direct `fixpoint()` /
@@ -228,11 +228,11 @@ function assertUniqueLocalNames(fn: FuncDecl): void {
  *  convergence instead of being re-swept until the slowest function in the module
  *  settles — the merged multi-projection shaders carry ~38 functions of very
  *  uneven depth, so the whole-module loop wasted most sweeps re-running the ones
- *  that had already converged (#1186).
+ *  that had already converged (X-GIS #1186).
  *
  *  Convergence is tested by `irEqual`, a short-circuiting structural walk that
  *  replaced a whole-module `JSON.stringify` compare (188 MB across a demo's
- *  pipeline compiles — #1186); it bails at the first differing node and allocates
+ *  pipeline compiles — X-GIS #1186); it bails at the first differing node and allocates
  *  nothing. */
 export function fixpoint(
   m: ModuleDecl,
