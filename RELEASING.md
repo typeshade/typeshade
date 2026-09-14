@@ -152,7 +152,7 @@ You can also create the tag from the release form itself, in which case the `git
 | `bun run build`                            | Emits `dist/src/**`, `dist/examples/**` and `dist/shade.d.ts`.                                                                                                                                                 |
 | `publish-manifest.ts --write`              | Rewrites `main`, `types`, `exports` and `sideEffects` onto `dist/`. Derived from the repository's own `exports` map by one rule, and it exits non-zero naming any entry point the build did not produce.       |
 | `npm pack`                                 | Records name, version, size and file count in the job summary.                                                                                                                                                 |
-| tarball check                              | Installs the packed tarball into a scratch project, imports all seven runtime subpaths, and compiles a small `"use typeshade"` program through it. The last chance to catch a tarball that cannot be imported. |
+| tarball check                              | Installs the packed tarball into a scratch project, imports every runtime subpath **read back out of the published `exports` map** (eight today; `./shade` is types-only and skipped), and compiles a small `"use typeshade"` program through it. The last chance to catch a tarball that cannot be imported. |
 | `npm publish --provenance --access public` | Uploads, with a provenance attestation linking the tarball to this workflow run and commit.                                                                                                                    |
 
 ---

@@ -128,6 +128,14 @@ jobs:
       # The last chance to catch a tarball that cannot be imported. npm has no un-publish, so
       # a resolution failure found here is a cancelled release; found by a user, it is a
       # burned version number.
+      #
+      # THE LIST IS READ OUT OF THE INSTALLED PACKAGE, not written here. A literal list is a
+      # second authority on what the package exports — the thing `publish-manifest.ts` exists
+      # to avoid — and it fails in the direction that matters: a subpath added to `exports`
+      # and forgotten here ships unchecked, which is exactly what happened when `./debug`
+      # landed. Reading the map back means a new subpath is covered by the release that
+      # introduces it. Types-only entries (`./shade`) carry no `import` condition and are
+      # skipped; the floor below is there so a misread map cannot pass vacuously.
       - name: The packed tarball must install and import
         run: |
           set -euo pipefail
@@ -135,8 +143,17 @@ jobs:
           echo '{"name":"verify","version":"1.0.0","private":true,"type":"module"}' > package.json
           npm install --silent /tmp/typeshade-*.tgz
           node --input-type=module -e "
-            const subpaths = ['typeshade', 'typeshade/dev', 'typeshade/compute', 'typeshade/emit-prod',
-                              'typeshade/core/ir', 'typeshade/examples', 'typeshade/language-service']
+            const { readFile } = await import('node:fs/promises')
+            const pkg = JSON.parse(await readFile('node_modules/typeshade/package.json', 'utf8'))
+            const entries = Object.entries(pkg.exports ?? {})
+            const typesOnly = entries.filter(([, t]) => !(t && t.import)).map(([k]) => k)
+            const subpaths = entries
+              .filter(([, t]) => t && t.import)
+              .map(([k]) => (k === '.' ? 'typeshade' : 'typeshade/' + k.slice(2)))
+            if (subpaths.length < 7) {
+              throw new Error(\`read only \${subpaths.length} runtime subpaths from the published exports map — the map or this reader is broken, not the package\`)
+            }
+            console.log(\`checking \${subpaths.length} runtime subpaths; types-only, not imported: \${typesOnly.join(', ') || 'none'}\`)
             for (const s of subpaths) {
               const m = await import(s)
               console.log(\`ok   \${s} — \${Object.keys(m).length} exports\`)
