@@ -246,23 +246,37 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
 ## 12. Module constants
 
-A top-level `const` is a module-scope shader constant. A scalar one is dual-precision (the
-shader gets the truncated value, the CPU oracle the full double); a **vector or array** one
-carries its value as an expression every backend emits and evaluates:
+A top-level `const` is a module-scope shader constant. A scalar one folds to a single value
+at declaration; a **vector or array** one carries its value as an expression every backend
+emits and evaluates:
 
 ```ts
-const PI2: f32 = 6.28318                                  // scalar, as before
-const UP = vec3(0., 1., 0.)                               // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
+"use typeshade"
+
+const PI2: f32 = 6.28318 // scalar, as before
+const UP = vec3(0., 1., 0.) // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
 const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
 const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.)
 const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.))
 const K: f32 = 2.
-const V = vec3(K, K, K)                                   // an earlier const is a valid component
+const V = vec3(K, K, K) // an earlier const is a valid component
+
+export function pick(i: i32): vec4 {
+  return PAL[i] * K + vec4(UP, PI2) + vec4(V, XS[0]) + SKY
+}
 ```
 
-The value must be **constant**: a literal, a constructor over literals, arithmetic over
-those, or a reference to a constant declared earlier in the file. It may not call a function
-or read a resource. `XS.length` is a constant too, so an array constant can bound a loop.
+The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
+a constructor over those, or arithmetic over those with a divisor that is not zero. It may
+not call a function, read a resource, or take a component, field or element — `vec3(UP.x, 0.,
+0.)` is refused even though both writers would fold it. `XS.length` is a constant too, so an
+array constant can bound a loop. An array **of arrays** is refused: the GLSL ES 3.00 spelling
+it would produce is not one ANGLE accepts.
+
+One limitation that is not this section's: an **integer** earlier const is not usable as a
+component yet, because the backend's `emitConst` spells every scalar constant with a float
+literal (`const N: i32 = 4` emits `4.0`). That is issue #13, and #17 is its fix; until it
+lands, read "an earlier const is a valid component" as being about `f32` components.
 
 This is the same declaration the EDSL's `constExpr(name, type, node)` produces — one
 `ConstDecl` with its `valueExpr` filled.

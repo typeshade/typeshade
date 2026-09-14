@@ -16,9 +16,15 @@ function constsOf(source: string): readonly ConstDecl[] {
 }
 
 function diagnose(source: string): string {
+  return diagnoseFull(source).message
+}
+
+/** The first diagnostic whole, for an assertion that wants the code as well as the text. */
+function diagnoseFull(source: string): { code: string | undefined; message: string } {
   const r = compileTsSource(`"use typeshade";\n${source}`)
   expect(r.diagnostics.length).toBeGreaterThan(0)
-  return r.diagnostics[0]!.message
+  const d = r.diagnostics[0]!
+  return { code: d.code, message: d.message }
 }
 
 describe('a vector module constant', () => {
@@ -173,9 +179,66 @@ describe('what a module constant still is not', () => {
         }
       `),
     ).toBe(
-      'Module const "V" must be constant: a literal, a constructor over literals, arithmetic ' +
-        'over those, or an earlier module const. It cannot call a function or read a resource.',
+      'Module const "V" must be constant: a literal, a whole earlier module const, a ' +
+        'constructor over those, or arithmetic over those with a non-zero divisor. It cannot ' +
+        'call a function, read a resource, or take a component, field or element.',
     )
+  })
+
+  it('reports being non-constant, not being the wrong type, for a scalar', () => {
+    // The two checks used to run the other way round, so `const K: f32 = sin(1.)` was told
+    // "f32 is neither a foldable scalar nor a whole vector or array" — untrue of f32, and the
+    // type was never the problem.
+    expect(
+      diagnose(`
+        const K: f32 = sin(1.)
+        export function f(): f32 {
+          return K;
+        }
+      `),
+    ).toContain('must be constant')
+  })
+
+  it('rejects a division by a divisor it can prove is zero', () => {
+    // The scalar path gets this from foldConstNumber returning undefined for `/ 0`. This path
+    // only asked whether the operands were foldable, so the whole declaration compiled clean,
+    // Tint refused the WGSL, and GLSL and the CPU disagreed about the value.
+    for (const src of [
+      'const ZERO: f32 = 0.\nconst Y = vec3(1. / ZERO, 0., 0.)',
+      'const Y = vec3(1. / 0., 0., 0.)',
+      'const Y = vec3(1. % 0., 0., 0.)',
+      'const A = vec3(1., 2., 3.)\nconst Y = A / vec3(1., 0., 1.)',
+    ]) {
+      expect(
+        diagnose(`
+          ${src}
+          export function f(): vec3 {
+            return Y;
+          }
+        `),
+      ).toContain('non-zero divisor')
+    }
+    // A divisor that is merely not foldable is not proven anything, and a real one still works.
+    const c = compile(`
+      "use typeshade";
+      const Y = vec3(1. / 4., 0., 0.)
+      export function f(): vec3 {
+        return Y;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.eval('f', [])).toEqual([0.25, 0, 0])
+  })
+
+  it('rejects an array of arrays, which ANGLE will not take', () => {
+    expect(
+      diagnose(`
+        const G: array<array<f32, 2>, 2> = array<array<f32, 2>, 2>(array<f32, 2>(1., 2.), array<f32, 2>(3., 4.))
+        export function f(): f32 {
+          return 1.;
+        }
+      `),
+    ).toContain('is neither')
   })
 
   it('rejects a declared type its value does not have', () => {
@@ -190,15 +253,20 @@ describe('what a module constant still is not', () => {
   })
 
   it('rejects a write to it', () => {
-    expect(
-      diagnose(`
-        const UP = vec3(0., 1., 0.)
-        export function f(): vec3 {
-          UP = vec3(1., 0., 0.);
-          return UP;
-        }
-      `),
-    ).toBe('Cannot assign to "UP" — it is read-only resource or const.')
+    // Asserted as the code plus the part of the sentence that identifies the name and the
+    // reason. The tail ("read-only resource or const") is a hedge #18 removes — a binding and
+    // a module const share one BindingKind today, so the message cannot say which — and
+    // pinning it here would turn that fix red on this branch for no reason.
+    const d = diagnoseFull(`
+      const UP = vec3(0., 1., 0.)
+      export function f(): vec3 {
+        UP = vec3(1., 0., 0.);
+        return UP;
+      }
+    `)
+    expect(d.code).toBe('TS8005')
+    expect(d.message).toContain('Cannot assign to "UP"')
+    expect(d.message).toContain('read-only')
   })
 
   it('leaves a scalar module const exactly as it was', () => {

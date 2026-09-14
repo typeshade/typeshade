@@ -7,7 +7,7 @@ import { typeKey } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { LoweringScope } from './context.js'
 import { mapTsTypeToShaderType } from './type-map.js'
-import { foldConstValue } from './loop-bound.js'
+import { foldConstNumber, foldConstValue } from './loop-bound.js'
 import { lowerExpression } from './lower/expression.js'
 import { isResourceCall } from './bindings.js'
 import { TS_CODES } from './codes.js'
@@ -35,34 +35,56 @@ export function collectModuleConsts(
 }
 
 /** The shapes {@link ConstDecl.valueExpr} documents as constant-foldable: a literal, a
- *  constructor over those, arithmetic over those, and a reference to a constant declared
- *  earlier in the file. Anything reading a binding, a parameter or a runtime input is not
- *  one, and neither is a call — a module constant is folded once at emit, not evaluated. */
-function isFoldableValueExpr(e: Expr): boolean {
+ *  WHOLE constant declared earlier in the file, a constructor over those, and arithmetic
+ *  over those. Anything reading a binding, a parameter or a runtime input is not one, and
+ *  neither is a call, a swizzle, a member, an index or a conditional — a module constant is
+ *  folded once at emit, not evaluated.
+ *
+ *  Division is the one arm that looks at a value rather than a shape. The scalar path gets
+ *  that for free — `foldConstNumber` returns `undefined` for `/ 0`, so `const K: f32 = 1. / 0.`
+ *  never becomes a constant — but this path only asked whether the operands were foldable, so
+ *  `const Y = vec3(1. / ZERO, 0., 0.)` compiled with no diagnostic at all: Tint refuses the
+ *  WGSL it produces, and GLSL and the CPU oracle disagree about the value. A divisor this can
+ *  prove is zero is refused here instead. */
+function isFoldableValueExpr(e: Expr, scope: LoweringScope): boolean {
   switch (e.op) {
     case 'lit':
     case 'constref':
       return true
     case 'unop':
-      return isFoldableValueExpr(e.a)
+      return isFoldableValueExpr(e.a, scope)
     case 'binop':
-      return isFoldableValueExpr(e.a) && isFoldableValueExpr(e.b)
+      if ((e.bop === '/' || e.bop === '%') && foldsToZero(e.b, scope)) return false
+      return isFoldableValueExpr(e.a, scope) && isFoldableValueExpr(e.b, scope)
     case 'construct':
-      return e.args.every(isFoldableValueExpr)
+      return e.args.every((a) => isFoldableValueExpr(a, scope))
     default:
       return false
   }
 }
 
+/** Whether `e` is a divisor this can PROVE is zero: a scalar that folds to 0, or a vector
+ *  constructor with a component that does (`v / vec3(1., 0., 1.)` divides componentwise, so
+ *  one zero is enough). A divisor that does not fold is not proven anything and passes — the
+ *  point is to refuse what is certainly undefined, not to demand a proof of safety. */
+function foldsToZero(e: Expr, scope: LoweringScope): boolean {
+  if (e.op === 'construct') return e.args.some((a) => foldsToZero(a, scope))
+  return foldConstNumber(e, scope) === 0
+}
+
 /** The kinds a `valueExpr` constant may have, as {@link ConstDecl.valueExpr} documents them.
- *  An emulated-double vector is left out: a vec64 is a pair of f32 lanes the fp64 pass
- *  assembles from inside a function body, not a value a module-scope constant can carry yet.
- *  `struct` and `mat` are listed because the field carries them and every backend emits
- *  them, but neither is reachable from this surface today — a module-scope object literal
- *  has no struct table to match against here, and there is no matrix constructor — so the
- *  diagnostic below names only the vector and the array. */
+ *  `struct` and `mat` are listed because the field carries them and every backend emits them,
+ *  but neither is reachable from this surface today — a module-scope object literal has no
+ *  struct table to match against here, and there is no matrix constructor — so the diagnostic
+ *  below names only the vector and the array. A vec64 is not listed either, and there is no
+ *  way to build one at module scope to test the refusal with: `vec3f64(...)` is not a
+ *  constructor this surface has, so the exclusion is a statement of intent, not a live arm. */
 function isValueExprType(t: ShaderType): boolean {
-  return t.kind === 'vec' || t.kind === 'array' || t.kind === 'struct' || t.kind === 'mat'
+  // An array OF arrays is refused: the GLSL ES 3.00 writer spells the element type inline and
+  // the nested form it produces is not something ANGLE accepts, so allowing it here would ship
+  // a declaration that compiles on one backend and not the other.
+  if (t.kind === 'array') return t.elem.kind !== 'array'
+  return t.kind === 'vec' || t.kind === 'struct' || t.kind === 'mat'
 }
 
 /** `const UP = vec3(0., 1., 0.)` and friends: a module constant whose value is a whole
@@ -91,6 +113,23 @@ function valueExprConst(
     )
     return undefined
   }
+  // Constant-ness first, TYPE second. The other order answered `const K: f32 = sin(1.)` with
+  // "f32 is neither a foldable scalar nor a whole vector or array", which is untrue of f32 —
+  // the problem was never the type. Now the type message fires only for a value that IS
+  // constant and whose type this surface cannot carry.
+  if (!isFoldableValueExpr(init, scope)) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" must be constant: a literal, a whole earlier module const, ` +
+          `a constructor over those, or arithmetic over those with a non-zero divisor. ` +
+          `It cannot call a function, read a resource, or take a component, field or element.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
+    return undefined
+  }
   if (!isValueExprType(type)) {
     diagnostics.push(
       makeDiagnostic(
@@ -98,19 +137,6 @@ function valueExprConst(
         decl,
         `Module const "${name}" must be a foldable scalar (literal or const expression), ` +
           `or a whole vector or array built from them; ${typeKey(type)} is neither.`,
-        TS_CODES.TYPE_MISMATCH,
-      ),
-    )
-    return undefined
-  }
-  if (!isFoldableValueExpr(init)) {
-    diagnostics.push(
-      makeDiagnostic(
-        sourceFile,
-        decl,
-        `Module const "${name}" must be constant: a literal, a constructor over literals, ` +
-          `arithmetic over those, or an earlier module const. It cannot call a function or ` +
-          `read a resource.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     )

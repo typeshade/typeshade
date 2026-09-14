@@ -64,6 +64,10 @@ function normalizeExpr(e: Expr): unknown {
       return { op: 'param', type: typeKey(e.type), name: e.name }
     case 'varref':
       return { op: 'varref', type: typeKey(e.type), name: e.name }
+    case 'constref':
+      // Without this arm the "same constref" case compared the tag alone, so a reference to
+      // the wrong constant, or to one of the wrong type, would have passed.
+      return { op: 'constref', type: typeKey(e.type), name: e.name }
     case 'binop':
       return {
         op: 'binop',
