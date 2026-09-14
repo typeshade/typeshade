@@ -230,6 +230,43 @@ describe('what a module constant still is not', () => {
     expect(c.eval('f', [])).toEqual([0.25, 0, 0])
   })
 
+  it('follows a reference to an earlier VECTOR const to find the zero', () => {
+    // The hole the first zero-divisor fix left, and of the same shape: a non-scalar const's
+    // value lives in `valueExpr` and its binding carries no constValue, so `foldConstNumber`
+    // on a reference to one answered undefined and the divisor looked unprovable. Every one of
+    // these compiled clean and Tint refused the WGSL.
+    for (const src of [
+      'const Z = vec3(1., 0., 1.)\nconst A = vec3(1., 2., 3.)\nconst Y = A / Z',
+      'const Z = vec3(1., 0., 1.)\nconst A = vec3(1., 2., 3.)\nconst Y = A % Z',
+      'const Z = vec3(1., 0., 1.)\nconst W = Z\nconst A = vec3(1., 2., 3.)\nconst Y = A / W',
+      'const Z = vec3(1., 0., 1.)\nconst W = Z\nconst V = W\nconst A = vec3(1., 2., 3.)\nconst Y = A / V',
+    ]) {
+      expect(
+        diagnose(`
+          ${src}
+          export function f(): vec3 {
+            return Y;
+          }
+        `),
+      ).toContain('non-zero divisor')
+    }
+    // …and a reference whose components are all non-zero still divides, through a hop as well.
+    for (const src of [
+      'const Z = vec3(1., 2., 1.)\nconst A = vec3(2., 4., 6.)\nconst Y = A / Z',
+      'const Z = vec3(1., 2., 1.)\nconst W = Z\nconst A = vec3(2., 4., 6.)\nconst Y = A / W',
+    ]) {
+      const ok = compile(`
+        "use typeshade";
+        ${src}
+        export function f(): vec3 {
+          return Y;
+        }
+      `)
+      expect(ok.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+      expect(ok.eval('f', [])).toEqual([2, 2, 6])
+    }
+  })
+
   it('rejects an array of arrays, which ANGLE will not take', () => {
     expect(
       diagnose(`

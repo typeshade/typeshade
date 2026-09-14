@@ -25,12 +25,19 @@ export function collectModuleConsts(
 ): ConstDecl[] {
   const scope = new LoweringScope(undefined, symbols)
   const out: ConstDecl[] = []
+  // The value EXPRESSION of each non-scalar const declared so far, by name. A scalar const's
+  // value reaches `foldConstNumber` through the scope binding, but a vector or array one is
+  // carried by `valueExpr` alone and defines its binding WITHOUT a constValue — so without
+  // this map a later `A / Z` could not see the zero component inside `Z`.
+  const valueExprs = new Map<string, Expr>()
   for (const stmt of sourceFile.statements) {
     if (!isTopLevelConst(stmt)) continue
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue
     for (const decl of stmt.declarationList.declarations) {
-      const c = lowerOne(decl, sourceFile, scope, diagnostics)
-      if (c) out.push(c)
+      const c = lowerOne(decl, sourceFile, scope, diagnostics, valueExprs)
+      if (!c) continue
+      out.push(c)
+      if (c.valueExpr) valueExprs.set(c.name, c.valueExpr)
     }
   }
   return out
@@ -48,18 +55,24 @@ export function collectModuleConsts(
  *  `const Y = vec3(1. / ZERO, 0., 0.)` compiled with no diagnostic at all: Tint refuses the
  *  WGSL it produces, and GLSL and the CPU oracle disagree about the value. A divisor this can
  *  prove is zero is refused here instead. */
-function isFoldableValueExpr(e: Expr, scope: LoweringScope): boolean {
+function isFoldableValueExpr(
+  e: Expr,
+  scope: LoweringScope,
+  valueExprs: ReadonlyMap<string, Expr>,
+): boolean {
   switch (e.op) {
     case 'lit':
     case 'constref':
       return true
     case 'unop':
-      return isFoldableValueExpr(e.a, scope)
+      return isFoldableValueExpr(e.a, scope, valueExprs)
     case 'binop':
-      if ((e.bop === '/' || e.bop === '%') && foldsToZero(e.b, scope)) return false
-      return isFoldableValueExpr(e.a, scope) && isFoldableValueExpr(e.b, scope)
+      if ((e.bop === '/' || e.bop === '%') && foldsToZero(e.b, scope, valueExprs)) return false
+      return (
+        isFoldableValueExpr(e.a, scope, valueExprs) && isFoldableValueExpr(e.b, scope, valueExprs)
+      )
     case 'construct':
-      return e.args.every((a) => isFoldableValueExpr(a, scope))
+      return e.args.every((a) => isFoldableValueExpr(a, scope, valueExprs))
     default:
       return false
   }
@@ -69,8 +82,23 @@ function isFoldableValueExpr(e: Expr, scope: LoweringScope): boolean {
  *  constructor with a component that does (`v / vec3(1., 0., 1.)` divides componentwise, so
  *  one zero is enough). A divisor that does not fold is not proven anything and passes — the
  *  point is to refuse what is certainly undefined, not to demand a proof of safety. */
-function foldsToZero(e: Expr, scope: LoweringScope): boolean {
-  if (e.op === 'construct') return e.args.some((a) => foldsToZero(a, scope))
+function foldsToZero(
+  e: Expr,
+  scope: LoweringScope,
+  valueExprs: ReadonlyMap<string, Expr>,
+  seen: ReadonlySet<string> = new Set(),
+): boolean {
+  if (e.op === 'construct') return e.args.some((a) => foldsToZero(a, scope, valueExprs, seen))
+  // A reference to an earlier NON-SCALAR const: its value lives in `valueExpr`, not in the
+  // scope binding, so `const Z = vec3(1., 0., 1.); const Y = A / Z` looked unprovable and
+  // compiled to WGSL Tint refuses. Following the reference reaches the component, through any
+  // number of hops (`const W = Z; A / W`). `seen` is the cycle guard: a const can only name
+  // one declared EARLIER, so a cycle is unreachable from this collector — but foldsToZero is
+  // a recursive walk over a map, and a map is not the declaration order.
+  if (e.op === 'constref' && !seen.has(e.name)) {
+    const value = valueExprs.get(e.name)
+    if (value) return foldsToZero(value, scope, valueExprs, new Set([...seen, e.name]))
+  }
   return foldConstNumber(e, scope) === 0
 }
 
@@ -102,6 +130,7 @@ function valueExprConst(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  valueExprs: ReadonlyMap<string, Expr>,
 ): ConstDecl | undefined {
   const type = annotated ?? init.type
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
@@ -119,7 +148,7 @@ function valueExprConst(
   // "f32 is neither a foldable scalar nor a whole vector or array", which is untrue of f32 —
   // the problem was never the type. Now the type message fires only for a value that IS
   // constant and whose type this surface cannot carry.
-  if (!isFoldableValueExpr(init, scope)) {
+  if (!isFoldableValueExpr(init, scope, valueExprs)) {
     diagnostics.push(
       makeDiagnostic(
         sourceFile,
@@ -153,6 +182,7 @@ function lowerOne(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  valueExprs: ReadonlyMap<string, Expr>,
 ): ConstDecl | undefined {
   if (!ts.isIdentifier(decl.name)) {
     diagnostics.push(
@@ -199,7 +229,7 @@ function lowerOne(
     // A non-scalar constant — a vector, an array, a struct, a matrix — is carried by
     // ConstDecl.valueExpr instead of the wgslValue/cpuValue pair, which is what the EDSL's
     // constExpr fills: both writers emit the expression and the CPU backend evaluates it.
-    return valueExprConst(name, decl, init, annotated, sourceFile, scope, diagnostics)
+    return valueExprConst(name, decl, init, annotated, sourceFile, scope, diagnostics, valueExprs)
   }
   const type = annotated ?? init.type
   const k = typeKey(type)
