@@ -173,7 +173,7 @@ describe('IR equality: use typeshade vs fn()', () => {
       }
     `)
     expect(tsResult.diagnostics).toEqual([])
-    const edsl = fn('widen', { v: vec3uT }, vec3fT, ({ v }) => vec3(v as never))
+    const edsl = fn('widen', { v: vec3uT }, vec3fT, ({ v }) => vec3(v))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

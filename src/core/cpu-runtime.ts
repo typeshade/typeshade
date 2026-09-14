@@ -55,6 +55,12 @@ export const isArr = Array.isArray
  *  the generated JS). */
 export type NumKind = 'f32' | 'i32' | 'u32'
 
+/** Every element kind a value can carry where {@link convertComponent} is asked about it:
+ *  the three {@link NumKind}s, plus `'f64'` for an emulated double and `'bool'`, neither of
+ *  which converts. Spelled out rather than left as `string` so a caller cannot pass a kind
+ *  the conversion table has no arm for. */
+export type ElemKind = NumKind | 'f64' | 'bool'
+
 /** The `NumKind` of an IR type — its integer scalar/element kind, else `'f32'`. */
 export const numKindOf = (t: ShaderType): NumKind => {
   if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : 'f32'
@@ -479,8 +485,10 @@ export const f32ToI32Sat = (v: number): number =>
  *  Both CPU backends call it — the interpreter per component, the generator through the `$`
  *  runtime — so an element-converting constructor evaluates identically in the two. Before
  *  this, both flattened the source components verbatim, and `vec3<u32>(vec3<f32>(1.7, 2.9,
- *  -3.2))` evaluated to `[1.7, 2.9, -3.2]` where both GPU targets give `[1, 2, 0]`. */
-export const convertComponent = (v: number, from: string, to: string): number => {
+ *  -3.2))` evaluated to `[1.7, 2.9, -3.2]` where WGSL gives `[1, 2, 0]` — checked against
+ *  Tint, which is the target these rules come from. GLSL ES 3.00 agrees on in-range sources
+ *  and promises nothing outside them (see the block above), so it is not a second oracle. */
+export const convertComponent = (v: number, from: ElemKind, to: ElemKind): number => {
   if (from === to) return v
   if (to === 'u32') return from === 'f32' || from === 'f64' ? f32ToU32Sat(v) : v >>> 0
   if (to === 'i32') return from === 'f32' || from === 'f64' ? f32ToI32Sat(v) : v | 0
@@ -489,14 +497,14 @@ export const convertComponent = (v: number, from: string, to: string): number =>
 
 /** Every component of `v` through {@link convertComponent}. The generated CPU code spreads
  *  the result where it would otherwise spread the source array. */
-export const convertComponents = (v: number[], from: string, to: string): number[] =>
+export const convertComponents = (v: number[], from: ElemKind, to: ElemKind): number[] =>
   from === to ? v : v.map((c) => convertComponent(c, from, to))
 
 /** The element kind of a value of type `t` as {@link convertComponent} names it: a vector's
  *  element, a scalar's own kind, `'f64'` for an emulated double. `undefined` for a type with
  *  no single numeric element kind (a struct, an array, a matrix), where no conversion is
  *  defined and the components pass through. */
-export function elemKindOf(t: ShaderType): string | undefined {
+export function elemKindOf(t: ShaderType): ElemKind | undefined {
   if (t.kind === 'vec') return t.elem
   if (t.kind === 'scalar') return t.scalar
   if (t.kind === 'f64') return 'f64'

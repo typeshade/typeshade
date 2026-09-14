@@ -142,5 +142,12 @@ describe('a converting constructor on both CPU backends', () => {
     expect(emitModule(plain, wgslBackend)).toContain('return vec3<f32>(a, 2.0, 3.0);')
     expect(compileModule(plain).fns.plain!(1.5)).toEqual([1.5, 2, 3])
     expect(compileModuleJs(plain).fns.plain!(1.5)).toEqual([1.5, 2, 3])
+    // …and the generated code does not merely agree, it does not carry the conversion at all:
+    // no `$.cvt` / `$.cvtVec` call is emitted where every component kind already matches. That
+    // is the claim "a module that converts nothing generates what it generated before" makes,
+    // and reading the source is the only way to see it — an equal result would also come from
+    // a conversion that happens to be the identity.
+    const source = compileModuleJs(plain).fns.plain!.toString()
+    expect(source).not.toContain('$.cvt')
   })
 })

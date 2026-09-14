@@ -242,6 +242,11 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+**Numbering:** §§9 and 10 are reserved for issue #8's A2 (member and component assignment)
+and A6 (`discard`, the missing builtins, `**`), which are in flight on their own branches and
+append here in issue order. This section is §11 so the six A-item branches do not all claim
+§9 and collide on merge.
+
 ---
 
 ## 11. Vector constructors
@@ -264,9 +269,18 @@ EDSL's `vec3(v)` builds the same node. It needs exactly one argument, a vector o
 constructor's own size; a vector of another size and a mixed list such as `vec3(v2u, 1.)`
 stay rejected, as WGSL rejects them.
 
-The conversion follows WGSL's scalar conversion, on the GPU and in the CPU oracle alike: a
-float source saturates into an integer target (`vec3u(vec3(-3.2, …))` is `0`, not `-3`), and
-`i32` and `u32` are reinterpreted two's-complement. An emulated-double vector is not
-converted this way.
+The conversion follows **WGSL's** scalar conversion, which is what WebGPU and the CPU oracle
+both give you: a float source saturates into an integer target (`vec3u(vec3(-3.2, …))` is
+`0`, not `-3`), and `i32` and `u32` are reinterpreted two's-complement. An emulated-double
+vector is not converted this way.
+
+**GLSL ES 3.00 does not promise that.** It leaves an out-of-range or NaN float→int conversion
+undefined, and the WebGL2 context the compile gate uses disagrees with WGSL on exactly those
+inputs — measured against an RGBA32UI target, `uvec3(vec3(1e30)).x` reads back `0` where the
+oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the oracle gives
+`2147483520`, and `uvec3(vec3(NaN)).x` reads `2147483648` where the oracle gives `0`. The
+`-3.2` above happens to agree, and an in-range source always does. So the cross-backend
+ground a portable shader can stand on is **in-range values**; clamp before you convert if the
+source might not be.
 
 Last updated: 2026-09-14
