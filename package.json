@@ -59,6 +59,7 @@
   "scripts": {
     "build": "tsc --build && tsc -p tsconfig.tests.json",
     "test": "vitest run",
+    "bench:stepping": "bun scripts/bench-stepping.ts",
     "gate:compile": "bun scripts/compile-gate.ts",
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
     "format": "prettier --write .",

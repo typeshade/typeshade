@@ -1,34 +1,50 @@
-// ═══ Shader DSL — the stepping tree-walk (docs/debugging.md §2.1) ═══
+// ═══ Shader DSL: the stepping tree-walk (docs/debugging.md §2.1) ═══
 //
 // The CPU oracle's walk, re-spelled as a generator that yields at every statement boundary.
 // A debug session drives it: each `yield` is a pause carrying the statement about to run and
 // the live frame stack, and resuming continues exactly where it stopped.
 //
-// A THIRD WALK, NOT A THIRD SEMANTICS. Everything that decides a VALUE — the builtin table,
+// A THIRD WALK, NOT A THIRD SEMANTICS. Everything that decides a VALUE (the builtin table,
 // the GPU stubs, `applyBin`'s integer rules, the saturating float-to-integer conversions,
-// `zeroOf`, `FIELD_IDX` — comes from `cpu-runtime.ts`, the single authority `oracle.ts` and
+// `zeroOf`, `FIELD_IDX`) comes from `cpu-runtime.ts`, the single authority `oracle.ts` and
 // `cpu-codegen.ts` already share. This file owns only the CONTROL FLOW, which is the half
 // that has to suspend. That is the same split the `new Function` twin makes, and it gets the
-// same protection: `step.differential.test.ts` runs every example and a seeded random-IR
-// corpus through both this walk and `compileModule`, and requires `Object.is` equality.
+// same protection, in two files because the corpora live in two places:
+// `step-differential.test.ts` sweeps the seeded random-IR corpus, and
+// `examples/debug-step.test.ts` sweeps all 44 registered examples; both run every function
+// through this walk and `compileModule` and require equality.
+//
+// The second of those was added after a review found what the first cannot see: `random-ir.ts`
+// builds vectors of f32 scalars only, so WGSL's element-CONVERTING constructor `vecN<T>(v:
+// vecN<S>)` was never generated, and this walk's `construct` arm had missed the conversion
+// that `oracle.ts` applies. A generated corpus is only as wide as its generator; the
+// registered examples are as wide as the language the backends accept.
 //
 // WHY NOT MAKE `oracle.ts` ITSELF A GENERATOR. `docs/debugging.md` §2.5 puts that option
-// first and asks for a measurement rather than a guess. Measured on this tree, over a
-// 32-iteration `sin` accumulation loop, 2000 invocations, session setup hoisted out:
+// first and asks for a measurement rather than a guess. `scripts/bench-stepping.ts` is that
+// measurement, committed so it can be re-run: a 32-iteration `sin` accumulation loop, 2000
+// invocations, nine interleaved repetitions, median reported with the spread.
 //
-//   new Function codegen        1.3 µs / invocation
-//   oracle tree-walk           54.1 µs / invocation
-//   this generator walk       147.2 µs / invocation   (3.1× the tree-walk)
+//   new Function codegen       ~0.3 µs / invocation
+//   oracle tree-walk          ~13 µs / invocation
+//   this generator walk       ~63 µs / invocation
 //
-// So making the reference backend steppable would cost it roughly three times its runtime on
-// every use — and `compileModule` is production-used and sits under property suites that
-// already run for over a minute. The walk is therefore duplicated and differentially gated,
-// which is §2.5's option 3. The 3× is irrelevant where it is paid: one invocation is still
-// under a millisecond, and stepping is for one invocation (§1.3), never a frame.
+// Roughly FIVE times the tree-walk, and the honest form of that number is a range: the median
+// lands between 5.0× and 5.5× across runs, individual repetitions between about 4× and 9×.
+// An earlier version of this comment quoted 3.1× from a single run, a reviewer measuring the
+// same thing got 4.1×, and neither is wrong so much as over-precise. That disagreement is why
+// the benchmark is now a script rather than a number nobody can check.
+//
+// The conclusion does not turn on the exact multiple: making the reference backend steppable
+// would put SOME several-fold cost on every use of it, and `compileModule` is production-used
+// and sits under property suites that already run for over a minute. The walk is therefore
+// duplicated and differentially gated, which is §2.5's option 3. The multiple is irrelevant
+// where it is paid: one invocation is still well under a millisecond, and stepping is for one
+// invocation (§1.3), never a frame.
 //
 // PAUSE POINTS. Before each statement in a body, including the `init` and each `update` of a
 // `for`. The condition of an `if`, a `for` or a `switch` is evaluated as part of pausing on
-// that statement, never on its own — a shader statement is the unit the author wrote.
+// that statement, never on its own: a shader statement is the unit the author wrote.
 
 import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt, StructDecl } from '../ir/index.js'
 import type { SourceSpan } from '../ir/span.js'
@@ -45,6 +61,9 @@ import {
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
+  elemKindOf,
+  convertComponent,
+  convertComponents,
 } from '../cpu-runtime.js'
 
 /** One call frame of a paused run, innermost last. Mutable on purpose: the session reads a
@@ -68,6 +87,18 @@ export interface StepEvent {
   readonly stmt: Stmt
   /** Frame stack, outermost first. Live, so read it before resuming. */
   readonly frames: readonly StepFrame[]
+  /** Set on the event yielded when a CALLEE HAS JUST RETURNED and control is back in the
+   *  caller, part-way through the statement that made the call. `stmt` is that caller's
+   *  statement, and the callee's frame is already gone.
+   *
+   *  It exists for `stepOut`, which `docs/debugging.md` §2.1 defines as "returns to the same
+   *  statement with `f`'s frame gone", so that a following `stepIn` enters the SECOND call of
+   *  `return f(x) + g(y)`. Without it a step-out could only be "run until the stack is
+   *  shallower", which reaches the caller's NEXT statement and skips `g` entirely.
+   *
+   *  No other move stops here: `stepIn` and `stepOver` would otherwise stop twice on one
+   *  statement, which is not what either means. */
+  readonly afterCall?: true
 }
 
 /** Everything the walk needs that is not the program: the module's declarations, the host's
@@ -84,8 +115,12 @@ export interface StepCtx {
   readonly bindingNames: Set<string>
   readonly gpuStubs: boolean
   readonly frames: StepFrame[]
-  /** Names whose value came from a GPU stub rather than from real arithmetic, so a UI can
-   *  mark them as stand-ins rather than results (`docs/debugging.md` §2.4). */
+  /** The INTRINSICS that stood in during this run, by name: `dpdx`, `textureSample`.
+   *
+   *  Not, as this said before a review caught it, "names whose value came from a stub". It
+   *  holds `e.fn`, the intrinsic's own name, so it answers whether anything stood in and what,
+   *  and cannot distinguish one local from another. Marking a VALUE is `docs/debugging.md`
+   *  §2.4's other half and arrives with the milestone that delivers it. */
   readonly stubbed: Set<string>
 }
 
@@ -106,7 +141,7 @@ const NORMAL: Signal = { kind: 'normal' }
  *  different program. */
 const noValueFor = (name: string): Error =>
   new Error(
-    `shader-dsl/debug: no value supplied for binding '${name}' — pass it in the session's bindings`,
+    `shader-dsl/debug: no value supplied for binding '${name}'; pass it in the session's bindings`,
   )
 
 export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): Step<CpuValue> {
@@ -155,7 +190,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       }
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
         throw new Error(
-          'shader-dsl/debug: vec*mat (row-vector form) is not implemented — use mat*vec',
+          'shader-dsl/debug: vec*mat (row-vector form) is not implemented; use mat*vec',
         )
       }
       return applyBin(e.bop, av, bv, numKindOf(e.type))
@@ -203,7 +238,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       if (stub) {
         if (!ctx.gpuStubs) {
           throw new Error(
-            `shader-dsl/debug: '${e.fn}' is GPU-only and not computable here — start the session with gpuStubs: true to accept placeholder values`,
+            `shader-dsl/debug: '${e.fn}' is GPU-only and not computable here; start the session with gpuStubs: true to accept placeholder values`,
           )
         }
         ctx.stubbed.add(e.fn)
@@ -237,11 +272,26 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         }
         return obj as CpuValue
       }
+      // Vector constructor. Each component is converted to the constructed vector's element
+      // kind, exactly as `oracle.ts` does it and out of the same op library: for an ordinary
+      // composing constructor every kind already matches and `convertComponent(s)` hands the
+      // value back untouched, and for WGSL's element-CONVERTING form `vecN<T>(v: vecN<S>)` it
+      // applies the same saturating and reinterpreting rules the scalar cast path applies.
+      //
+      // Pushing the raw components instead is what the review caught: `vec2u(v)` skipped the
+      // saturation, so a stepped `convert-grid:fs` answered -3 where the oracle answers 0.
+      const elem = e.type.kind === 'vec' ? e.type.elem : undefined
       const out: number[] = []
       for (const a of e.args) {
         const v = yield* evalExpr(a, env, ctx)
-        if (isArr(v)) out.push(...(v as number[]))
-        else out.push(v as number)
+        const from = elemKindOf(a.type)
+        if (elem === undefined || from === undefined) {
+          if (isArr(v)) out.push(...(v as number[]))
+          else out.push(v as number)
+          continue
+        }
+        if (isArr(v)) out.push(...convertComponents(v as number[], from, elem))
+        else out.push(convertComponent(v as number, from, elem))
       }
       if ((e.type.kind === 'vec' || e.type.kind === 'vec64') && out.length === 1)
         return new Array(e.type.n as number).fill(out[0])
@@ -274,12 +324,17 @@ export function* callFunction(
   ctx: StepCtx,
 ): Step<CpuValue> {
   const r = yield* runFunction(decl, args, callSpan, ctx)
+  // The callee's frame has been popped by now (`runFunction`'s `finally`), so this event
+  // reports the CALLER, stopped part-way through the statement that made the call. See
+  // `StepEvent.afterCall`.
+  const caller = ctx.frames[ctx.frames.length - 1]
+  if (caller?.current) yield { stmt: caller.current, frames: ctx.frames, afterCall: true }
   // A void function invoked as a statement never has its value read, exactly as the oracle
   // bridges `undefined` here.
   return r.kind === 'return' ? (r.value as CpuValue) : (undefined as unknown as CpuValue)
 }
 
-/** The same call, handing back the whole {@link Signal} rather than just a value — what an
+/** The same call, handing back the whole {@link Signal} rather than just a value, which is what an
  *  entry point needs, because `discard` is an outcome a fragment debugger has to report and a
  *  returned value cannot express. */
 export function* runFunction(
@@ -403,11 +458,11 @@ export function* execBody(
       }
       case 'placeholder':
         throw new Error(
-          `shader-dsl/debug: placeholder Stmt reached the stepping backend — composer forgot to splice tag=${s.tag}`,
+          `shader-dsl/debug: placeholder Stmt reached the stepping backend; composer forgot to splice tag=${s.tag}`,
         )
       case 'raw':
         throw new Error(
-          'shader-dsl/debug: raw Stmt reached the stepping backend — raw passthrough is GPU-only',
+          'shader-dsl/debug: raw Stmt reached the stepping backend; raw passthrough is GPU-only',
         )
     }
   }
