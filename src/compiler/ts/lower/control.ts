@@ -9,7 +9,7 @@ import { mapTsTypeToShaderType } from '../type-map.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { lowerExpression } from './expression.js'
-import { lowerStatement, lowerStatements } from './statement.js'
+import { lowerLValue, lowerStatement, lowerStatements } from './statement.js'
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -253,40 +253,39 @@ export function lowerUpdate(
       return undefined
     }
     const targetExpr = expr.operand
-    if (!ts.isIdentifier(targetExpr)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        expr,
-        '++/-- target must be an identifier.',
-        TS_CODES.ASSIGN_TARGET,
-      )
-      return undefined
+    // A member or element target (`v.x++`, `ps[i].a++`) goes through lowerLValue, which owns
+    // the writability and single-component-swizzle rules; a bare identifier keeps its own
+    // path so its wording is unchanged.
+    let target: Expr | undefined
+    if (ts.isIdentifier(targetExpr)) {
+      const binding = scope.resolve(targetExpr.text)
+      if (!binding || !binding.mutable) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr,
+          `Cannot assign to "${targetExpr.text}" — it is declared with const.`,
+          TS_CODES.CONST_ASSIGN,
+        )
+        return undefined
+      }
+      target =
+        binding.kind === 'param'
+          ? { op: 'param', type: binding.type, name: binding.name }
+          : { op: 'varref', type: binding.type, name: binding.name }
+    } else {
+      target = lowerLValue(targetExpr, sourceFile, scope, diagnostics)
     }
-    const binding = scope.resolve(targetExpr.text)
-    if (!binding || !binding.mutable) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        expr,
-        `Cannot assign to "${targetExpr.text}" — it is declared with const.`,
-        TS_CODES.CONST_ASSIGN,
-      )
-      return undefined
-    }
-    const target: Expr =
-      binding.kind === 'param'
-        ? { op: 'param', type: binding.type, name: binding.name }
-        : { op: 'varref', type: binding.type, name: binding.name }
+    if (!target) return undefined
     return {
       s: 'assign',
       target,
       expr: {
         op: 'binop',
-        type: binding.type,
+        type: target.type,
         bop: op === ts.SyntaxKind.PlusPlusToken ? '+' : '-',
         a: target,
-        b: { op: 'lit', type: binding.type, value: 1 },
+        b: { op: 'lit', type: target.type, value: 1 },
       },
     }
   }

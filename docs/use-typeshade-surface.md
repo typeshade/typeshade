@@ -242,4 +242,37 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+---
+
+## 9. Assignment targets
+
+A write lands on a name, or on a field, component or element of one. The chain may be as
+deep as the types allow; what decides whether it is legal is the **root** of the chain.
+
+```ts
+v = vec3(0., 1., 0.)      // a name
+v.x = 0.                  // a component
+v.x += 1.                 // and the compound and ++ / -- forms
+o.pos = vec4(p, 0., 1.)   // a field
+o.pos.x = 2.              // a component of a field
+ps[i].a = 1.              // a field of an element
+pixels[i] = 1.            // an element
+```
+
+| Root | Writable? |
+|------|-----------|
+| `let` local | yes |
+| `declare let x: storage<T>` | yes |
+| `const` local | no — `TS8005` |
+| `declare const x: uniform<T>` / `storage<T>` | no — `TS8005` |
+| a function parameter | no — `TS8018`; parameters are read-only, as in WGSL |
+| anything that is not a name (`vec3(0.).x`) | no — `TS8018` |
+
+A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
+(`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
+assign that. `v.r` `v.g` `v.b` `v.a` are components like `v.x` … `v.w` and are writable.
+
+Lowering is the same `assign` / `assignOp` the EDSL's `v.x.assign(a)` and `o.pos.assign(v)`
+produce, so the two surfaces stay IR-equal here.
+
 Last updated: 2026-09-14

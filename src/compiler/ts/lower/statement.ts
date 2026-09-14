@@ -317,12 +317,15 @@ function lowerAssignOp(
   return { s: 'assignOp', target, bop, expr: value }
 }
 
-function lowerLValue(
+export function lowerLValue(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  if (ts.isPropertyAccessExpression(node)) {
+    return lowerMemberLValue(node, sourceFile, scope, diagnostics)
+  }
   if (ts.isElementAccessExpression(node)) {
     const baseName = ts.isIdentifier(node.expression) ? node.expression.text : undefined
     const binding = baseName ? scope.resolve(baseName) : undefined
@@ -355,7 +358,7 @@ function lowerLValue(
       diagnostics,
       sourceFile,
       node,
-      'Assignment target must be a simple identifier.',
+      'Assignment target must be a name, or a field, component or element of one.',
       TS_CODES.ASSIGN_TARGET,
     )
     return undefined
@@ -384,6 +387,103 @@ function lowerLValue(
   }
   if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
   return { op: 'varref', type: binding.type, name: binding.name }
+}
+
+/** A write through `v.x`, `ps[i].a` or `o.pos` lands on the binding at the root of the
+ *  chain, so that is the binding whose writability decides it: the same parameter and const
+ *  checks the identifier and element-access targets already make, made on the root instead
+ *  of on the chain. Returns the root identifier, or undefined for a chain rooted in
+ *  something that is not a name (a call result, a constructor). */
+function rootLValueName(node: ts.Expression): ts.Identifier | undefined {
+  if (ts.isIdentifier(node)) return node
+  if (ts.isParenthesizedExpression(node)) return rootLValueName(node.expression)
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return rootLValueName(node.expression)
+  }
+  return undefined
+}
+
+/** Lowers `v.x`, `o.pos`, `ps[i].a` and `o.pos.x` as an assignment target. The IR `assign`
+ *  target already takes a `member` — the EDSL spells the same write `o.pos.assign(v)`, and
+ *  WGSL, GLSL ES 3.00 and the CPU oracle all assign a struct field or a single vector
+ *  component in place — so the member expression `lowerExpression` already builds for the
+ *  read is the target verbatim. Two things are checked that a read does not care about: the
+ *  root binding must be writable, and a swizzle target must name exactly one component,
+ *  which is what WGSL allows (`v.xy = …` is rejected there too). */
+function lowerMemberLValue(
+  node: ts.PropertyAccessExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const root = rootLValueName(node.expression)
+  if (!root) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Assignment target must be a name, or a field, component or element of one.',
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  const binding = scope.resolve(root.text)
+  if (!binding) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to unknown name "${root.text}".`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  if (binding.kind === 'param') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot write through parameter "${root.text}" — parameters are not writable. Use a local or storage.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  if (!binding.mutable) {
+    const ro = binding.kind === 'module' ? 'read-only resource or const' : 'declared with const'
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${root.text}" — it is ${ro}.`,
+      TS_CODES.CONST_ASSIGN,
+    )
+    return undefined
+  }
+  const target = lowerExpression(node, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  if (target.op !== 'member') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${truncate(node.getText(sourceFile))}" — it is not a field, component or element.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  const base = target.base.type
+  if ((isVec(base) || isVec64(base)) && target.field.length > 1) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to the swizzle ".${target.field}" — WGSL writes one component at a time. ` +
+        `Assign each component (e.g. v.x = …; v.y = …), or build a whole ${typeKey(base)} and assign that.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  return target
 }
 
 function lowerIf(
