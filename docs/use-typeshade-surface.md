@@ -275,6 +275,12 @@ a program that resolves to one today must keep resolving to it.
 `discard` kills the fragment:
 
 ```ts
+"use typeshade"
+
+class Color {
+  @location(0) color: vec4
+}
+
 @fragment
 export function fs(@builtin("position") p: vec4): Color {
   if (p.x > 0.5) {
@@ -284,9 +290,13 @@ export function fs(@builtin("position") p: vec4): Color {
 }
 ```
 
-It is allowed in a fragment entry and in a helper (whose callers are not known when the
-helper is lowered); a `@vertex` or `@compute` entry that discards is rejected, as WGSL
-rejects it.
+It is allowed in a fragment entry, and in a helper as long as no `@vertex` or `@compute`
+entry can reach it: the check closes over the call graph, so `discard` inside a helper a
+vertex entry calls is rejected too, naming the helper and the entry. The three screen-space
+derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
+
+`**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
+as `pow(i32, i32)`, which neither compiler accepts.
 
 `transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
 emulated-double matrix, so there is nothing to expose yet.

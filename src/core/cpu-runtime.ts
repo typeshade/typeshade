@@ -433,9 +433,14 @@ export const BUILTINS: Record<string, Builtin> = {
 export const GPU_STUBS: Record<string, Builtin> = {
   textureSample: () => [0, 0, 0, 1],
   textureSampleLevel: () => [0, 0, 0, 1],
-  fwidth: () => 0,
-  dpdx: () => 0,
-  dpdy: () => 0,
+  // Component-wise on both targets, so the STUB has to keep the argument's shape even though
+  // its value is a placeholder: `dpdx(v)` on a vec2 is a vec2 of zeros, not the scalar 0.
+  // Returning a bare 0 made `dpdx(v).x` undefined and `length(fwidth(v))` throw
+  // "v.reduce is not a function" — a TypeError out of the oracle for a shader that emits and
+  // runs. Newly reachable from "use typeshade" with #8 A6, which gave the surface these names.
+  fwidth: (x) => zeroLike(x),
+  dpdx: (x) => zeroLike(x),
+  dpdy: (x) => zeroLike(x),
   textureLoad: () => [0, 0, 0, 1],
   // 2d-array reads (#1651) — same placeholder/throw contract as their 2d twins:
   // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.
@@ -466,6 +471,11 @@ export const f32ToU32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(4294967040, Math.max(0, Math.trunc(v)))
 export const f32ToI32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(2147483520, Math.max(-2147483648, Math.trunc(v)))
+
+/** A zero of the same shape as `v`: component-wise for a vector or matrix, the scalar 0
+ *  otherwise. Used by the derivative stubs, which have no real value to give but must not
+ *  change the shape the rest of the expression is typed for. */
+const zeroLike = (v: CpuValue): CpuValue => (isArr(v) ? (v as number[]).map(() => 0) : 0)
 
 /** The names of every builtin function the CPU backends ({@link compileModule},
  *  {@link compileModuleJs}) evaluate with real arithmetic, as a read-only set. Meant for

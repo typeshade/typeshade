@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
-import { f32, pow, saturate, select, toF64 } from '../../core/ir/node.js'
+import { atan2, exp2, f32, fma, fwidth, pow, saturate, select, toF64 } from '../../core/ir/node.js'
 import { boolT, f32T, f64T, vec3fT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
@@ -218,6 +218,61 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('square', { x: f32T }, f32T, ({ x }) => pow(x, x))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('atan(y, x) matches the EDSL atan2(y, x), in that order', () => {
+    // Distinct arguments on purpose: atan2(y, x) and atan2(x, y) differ, and a scalar eval of
+    // equal arguments could not tell them apart. This is the one place an argument-order
+    // mistake in the remap would be invisible.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function angle(y: f32, x: f32): f32 {
+        return atan(y, x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('angle', { y: f32T, x: f32T }, f32T, ({ y, x }) => atan2(y, x))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('exp2(x) matches the EDSL exp2(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(x: f32): f32 {
+        return exp2(x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    assertSameCore(
+      tsResult.funcs[0]!,
+      fn('f', { x: f32T }, f32T, ({ x }) => exp2(x)),
+    )
+  })
+
+  it('fwidth(x), a derivative, matches the EDSL fwidth(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(x: f32): f32 {
+        return fwidth(x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    assertSameCore(
+      tsResult.funcs[0]!,
+      fn('f', { x: f32T }, f32T, ({ x }) => fwidth(x)),
+    )
+  })
+
+  it('fma(a, b, c) matches the EDSL fma with the same argument order', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32, b: f32, c: f32): f32 {
+        return fma(a, b, c);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('f', { a: f32T, b: f32T, c: f32T }, f32T, ({ a, b, c }) => fma(a, b, c))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

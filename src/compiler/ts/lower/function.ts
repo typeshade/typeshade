@@ -8,6 +8,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
+import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import {
@@ -45,12 +46,110 @@ export function lowerSourceFunctions(
     ready.push(stmt)
   }
   const funcs: FuncDecl[] = []
+  const nodeByName = new Map<string, ts.FunctionDeclaration>()
   for (const stmt of ready) {
     const stub = callees.get(stmt.name!.text)!
     fillFunctionBody(stmt, stub, sourceFile, diagnostics, callees, consts, bindings, structs)
     funcs.push(stub)
+    nodeByName.set(stub.name, stmt)
   }
+  checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics)
   return funcs
+}
+
+/** The ops WGSL and GLSL ES 3.00 allow only in the fragment stage: the kill, and the three
+ *  screen-space derivatives, which need the neighbouring invocations of a quad. */
+const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set(['fwidth', 'dpdx', 'dpdy'])
+
+/** Whether a function's OWN body uses a fragment-only op, by the name to report it under. */
+function fragmentOnlyOpsOf(body: readonly Stmt[]): Set<string> {
+  const found = new Set<string>()
+  const walkStmt = (s: Stmt): void => {
+    if (s.s === 'discard') found.add('discard')
+    eachStmtExpr(
+      s,
+      (e) => {
+        eachExpr(e, (x) => {
+          if (x.op === 'call' && FRAGMENT_ONLY_CALLS.has(x.fn)) found.add(x.fn)
+        })
+      },
+      walkStmt,
+    )
+  }
+  for (const s of body) walkStmt(s)
+  return found
+}
+
+/** The functions a function's body calls, by name. */
+function calleeNamesOf(body: readonly Stmt[]): Set<string> {
+  const names = new Set<string>()
+  const walkStmt = (s: Stmt): void => {
+    eachStmtExpr(
+      s,
+      (e) => {
+        eachExpr(e, (x) => {
+          if (x.op === 'call') names.add(x.fn)
+        })
+      },
+      walkStmt,
+    )
+  }
+  for (const s of body) walkStmt(s)
+  return names
+}
+
+/** `discard` and the screen-space derivatives are fragment-only, and an entry is as illegal
+ *  for using one through a helper as for using one itself: Tint rejects a vertex entry whose
+ *  call graph reaches a `discard` ("cannot be used in vertex pipeline stage … called by entry
+ *  point 'vs'"), and ANGLE rejects the GLSL. Checking an entry's own body was not enough, so
+ *  this closes over the call graph once every body is lowered — which is also the first point
+ *  at which the graph is known. A helper is still never rejected on its own: it is legal
+ *  until something calls it from the wrong stage. */
+function checkFragmentOnlyOps(
+  funcs: readonly FuncDecl[],
+  nodeByName: ReadonlyMap<string, ts.FunctionDeclaration>,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const own = new Map<string, Set<string>>()
+  const calls = new Map<string, Set<string>>()
+  for (const f of funcs) {
+    own.set(f.name, fragmentOnlyOpsOf(f.body))
+    calls.set(f.name, calleeNamesOf(f.body))
+  }
+  for (const entry of funcs) {
+    if (entry.stage !== 'vertex' && entry.stage !== 'compute') continue
+    const node = nodeByName.get(entry.name)
+    if (!node?.name) continue
+    // Breadth-first over the call graph, reporting each op once at the nearest function that
+    // uses it, so a shared helper does not report the same thing twice for one entry.
+    const seen = new Set<string>([entry.name])
+    const queue: string[] = [entry.name]
+    const reported = new Set<string>()
+    while (queue.length > 0) {
+      const name = queue.shift()!
+      for (const op of own.get(name) ?? []) {
+        if (reported.has(op)) continue
+        reported.add(op)
+        const where =
+          name === entry.name
+            ? `"${entry.name}" is a ${entry.stage} entry`
+            : `"${name}" is reachable from the ${entry.stage} entry "${entry.name}"`
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.name,
+          `"${op}" is only valid in a fragment shader; ${where}.`,
+          TS_CODES.UNSUPPORTED,
+        )
+      }
+      for (const callee of calls.get(name) ?? []) {
+        if (seen.has(callee) || !own.has(callee)) continue
+        seen.add(callee)
+        queue.push(callee)
+      }
+    }
+  }
 }
 
 export function lowerFunctionDeclaration(
@@ -276,18 +375,6 @@ export function fillFunctionBody(
   }
   const body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
   ;(stub as { body: readonly Stmt[] }).body = body
-  // `discard` kills a fragment, and WGSL allows it only in a fragment entry or a function a
-  // fragment entry calls. A helper's callers are not known here, so only an entry that is not
-  // a fragment is rejected — the case a backend would otherwise pass to Tint as invalid WGSL.
-  if ((stub.stage === 'vertex' || stub.stage === 'compute') && hasDiscard(body)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node.name!,
-      `"discard" is only valid in a fragment shader; "${stub.name}" is a ${stub.stage} entry.`,
-      TS_CODES.UNSUPPORTED,
-    )
-  }
   if (typeKey(stub.ret) === 'void') {
     // An entry function (`stub.stage` set) with no return type annotation was left at the
     // tentative `void` from `parseSignature` above; now that the body is lowered, a `return`
@@ -426,23 +513,6 @@ function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): numbe
     if (a && ts.isNumericLiteral(a)) return Number(a.text)
   }
   return undefined
-}
-
-/** True when any statement in `stmts`, at any depth, is a `discard`. */
-function hasDiscard(stmts: readonly Stmt[]): boolean {
-  for (const s of stmts) {
-    if (s.s === 'discard') return true
-    if (s.s === 'if') {
-      if (s.arms.some((arm) => hasDiscard(arm.body))) return true
-      if (s.elseBody && hasDiscard(s.elseBody)) return true
-    } else if (s.s === 'for') {
-      if (hasDiscard(s.body)) return true
-    } else if (s.s === 'switch') {
-      if (s.cases.some((c) => hasDiscard(c.body))) return true
-      if (s.defaultBody && hasDiscard(s.defaultBody)) return true
-    }
-  }
-  return false
 }
 
 function collectReturns(stmts: readonly Stmt[]): { expr?: Expr }[] {
