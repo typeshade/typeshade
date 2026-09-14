@@ -18,9 +18,37 @@
 //      (`cyclic dependency found: 'a' -> 'b' -> 'a'`), so a check that only saw self-calls
 //      would close half of #48 and leave the other half looking fixed.
 //
-// The lint rule is left exactly as it is. It is direct-only by construction, and the `fn()`
-// EDSL surface still has the mutual-recursion hole this closes for `"use typeshade"`; that is
-// worth a separate decision about `CORE_RULES` rather than a silent widening from here.
+// The lint rule is left exactly as it is, and the `fn()` EDSL surface is therefore still open
+// at emit time for BOTH shapes, not just the mutual one: `noRecursion` is lint-only, so
+// `validate()` is silent and `emitModule` happily emits `fn rec(n: i32) -> i32 { return rec(n); }`
+// for a direct self-call too (`lint(m, RULES)` reports it; `lint(m, CORE_RULES)` is empty).
+// Closing that is a decision about `CORE_RULES` and belongs with whoever makes it, not a silent
+// widening from here.
+//
+// ═══ A CALL IN STATICALLY DEAD CODE IS STILL A CYCLE ═══
+//
+// This walks the SYNTAX TREE, and the emitter does not. `optimize.ts`'s `deadBranch` drops a
+// branch whose condition folds to false, and DCE drops an unread binding, so on `main` all of
+// these compiled and emitted a NON-recursive `fn f` that Tint accepted:
+//
+//   if (false) { return f(n - 1) }      if (1 > 2) { return f(n - 1) }
+//   if (false) { … } else { return n }  const unused = f(n - 1)
+//
+// They are rejected here. That is deliberate, and it is a rejection of programs that used to
+// work — the one place this check is stricter than the target language rather than equal to it.
+//
+// The alternative was to match the emitter and skip edges under a literal-`false` condition.
+// It was not taken, because it makes the rule depend on which folds the optimizer happens to
+// do, and the optimizer does not fold what an author would expect. Measured:
+//
+//   if (false)  { return f(n - 1) }              folded — the call never reaches the emit
+//   const DEBUG: bool = false; if (DEBUG) { … }  NOT folded — emits genuinely recursive WGSL
+//
+// Under the matching rule those two spellings of one idea would get opposite answers, for a
+// reason no author could predict from their own source. A syntactic rule is worse in exactly
+// one case (dead code that names a cycle) and predictable in every other, which is the trade
+// taken here. `docs/use-typeshade-surface.md` §4 says so too, because its "Tint rejects the
+// module outright" justification does NOT hold for this class.
 
 import ts from 'typescript'
 import { TS_CODES } from './codes.js'
@@ -67,7 +95,9 @@ function edgesOf(fn: RecursionNode): Edge[] {
   return edges
 }
 
-/** The cycle written the way Tint writes it: `'a' -> 'b' -> 'a'`. */
+/** The cycle, arrow-joined the way Tint reports one (`'a' -> 'b' -> 'a'`) but with the DOUBLE
+ *  quotes every other diagnostic in this compiler uses for a name. The arrows are Tint's; the
+ *  quoting is the house style, and the two differ on purpose. */
 function renderCycle(names: readonly string[]): string {
   return names.map((n) => `"${n}"`).join(' -> ')
 }
@@ -96,16 +126,24 @@ export function checkRecursion(
   nodes: readonly RecursionNode[],
   diagnostics: TsCompilerDiagnostic[],
 ): void {
-  const byName = new Map<string, RecursionNode>()
-  for (const n of nodes) if (!byName.has(n.name)) byName.set(n.name, n)
+  // Same-named nodes ACCUMULATE their edges rather than the first one winning. Two files can
+  // each declare `helper` — `sources.ts` and `module.ts` both check duplicates per file only,
+  // so a cross-file DUPLICATE_SYMBOL check is the real missing piece and is not this change's
+  // to add — and keeping only the first meant the second's calls left the graph entirely, so a
+  // recursive second `helper` reported nothing. The emit is already invalid in that case (Tint:
+  // `redeclaration of 'helper'`), but losing a node silently is not how this should fail.
   const outgoing = new Map<string, Edge[]>()
-  for (const [name, n] of byName) outgoing.set(name, edgesOf(n))
+  for (const n of nodes) {
+    const prior = outgoing.get(n.name)
+    if (prior) prior.push(...edgesOf(n))
+    else outgoing.set(n.name, edgesOf(n))
+  }
 
   const WHITE = 0
   const GREY = 1
   const BLACK = 2
   const colour = new Map<string, number>()
-  for (const name of byName.keys()) colour.set(name, WHITE)
+  for (const name of outgoing.keys()) colour.set(name, WHITE)
   const stack: string[] = []
   const reported = new Set<string>()
 

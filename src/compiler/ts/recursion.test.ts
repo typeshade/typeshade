@@ -1,8 +1,9 @@
 // === #48: a call cycle must be a diagnostic, not emitted WGSL ===
 //
-// Every arm here compiled with ZERO diagnostics and emitted a recursive `fn` before the check
-// in `recursion.ts`. Tint's verdict on that emit, measured through the same instrument
-// `scripts/compile-gate.ts` uses:
+// Every arm in the REJECTING describes below compiled with zero diagnostics and emitted a
+// recursive `fn` before the check in `recursion.ts`. (The negative-guard arms are the opposite:
+// they compiled before and must still compile now.) Tint's verdict on those emits, measured
+// through the same instrument `scripts/compile-gate.ts` uses:
 //
 //   fn fact(n: i32) -> i32 { … return n * fact(n - 1); }   REJECTED
 //       1:1 cyclic dependency found: 'fact' -> 'fact'
@@ -16,6 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { compileTsSources } from './module.js'
+import { compileTsSources as compileSources } from './sources.js'
 
 const fs = (body: string): string =>
   `"use typeshade"\n${body}\n@fragment\nexport function main_fs(): vec4 { return vec4(0., 0., 0., 1.) }\n`
@@ -79,6 +81,8 @@ export function fact(n: i32): i32 {
 export function main_fs(): vec4 { return vec4(0., 0., 0., 1.) }
 `,
     )
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.code).toBe('TS8031')
     expect(errors[0]?.line).toBe(4)
   })
 
@@ -93,6 +97,40 @@ export function q(n: i32): i32 { return b(n) }
 export function r(n: i32): i32 { return p(n) + q(n) }`),
     )
     expect(errors).toHaveLength(1)
+  })
+})
+
+describe('#48 — a call in statically dead code is still a cycle, deliberately', () => {
+  // These are the one class where this check is STRICTER than the target language. On `main`
+  // each compiled, the emitter's `deadBranch`/DCE dropped the call, and the emitted `fn f` was
+  // non-recursive and accepted by Tint. They are rejected now, and that is the decision — not
+  // an oversight — because matching the optimizer would make the rule unpredictable: measured,
+  // `if (false)` IS folded and `if (DEBUG)` for `const DEBUG: bool = false` is NOT, so the two
+  // spellings of one idea would get opposite answers. See `recursion.ts`'s header.
+  const rejects = (body: string): void => {
+    const errors = errorsOf(fs(body))
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.code).toBe('TS8031')
+  }
+
+  it('a call under a literal-false branch', () => {
+    rejects(`export function f(n: i32): i32 { if (false) { return f(n - 1) } return n }`)
+  })
+
+  it('a call under a condition that folds to false', () => {
+    rejects(`export function f(n: i32): i32 { if (1 > 2) { return f(n - 1) } return n }`)
+  })
+
+  it('a call bound to a name nobody reads', () => {
+    rejects(`export function f(n: i32): i32 { const unused = f(n - 1)\n return n }`)
+  })
+
+  it('the contrast case, which the optimizer does NOT fold, is rejected for the ordinary reason', () => {
+    // `const DEBUG: bool = false` is not const-folded into the branch, so `main` emitted
+    // genuinely recursive WGSL here. Same verdict as the three above, different reason — which
+    // is exactly the point: one rule, not two.
+    rejects(`const DEBUG: bool = false
+export function f(n: i32): i32 { if (DEBUG) { return f(n - 1) } return n }`)
   })
 })
 
@@ -183,6 +221,72 @@ export function helper(n: i32): i32 { if (n <= 0) { return i32(1) } return top(n
     // Anchored in the file that closes the cycle, not the one the walk started in.
     expect(errors[0]?.fileName).toBe('b.ts')
     expect(r.wgsl).toBeUndefined()
+  })
+
+  it('the OTHER multi-file compiler checks too — sources.ts, which doc-snippets uses', () => {
+    // There are two `compileTsSources`. `doc-snippets.test.ts` certifies every multi-file
+    // example in the README and docs through this one, and it had no recursion check at all:
+    // measured before the fix, both of these emitted their bodies with zero diagnostics.
+    const self = compileSources({
+      'a.ts': `"use typeshade"
+export function fact(n: i32): i32 { if (n <= 1) { return i32(1) } return n * fact(n - 1) }
+@fragment
+export function fs(): vec4 { return vec4(f32(fact(i32(5))), 0., 0., 1.) }
+`,
+    })
+    const selfErrors = self.diagnostics.filter((d) => d.category === 'error')
+    expect(selfErrors).toHaveLength(1)
+    expect(selfErrors[0]?.code).toBe('TS8031')
+    expect(self.wgsl).toBeUndefined()
+
+    const cross = compileSources({
+      'a.ts': `"use typeshade"
+import { helper as h } from "./b"
+export function top(n: i32): i32 { if (n <= 0) { return i32(0) } return h(n - 1) }
+`,
+      'b.ts': `"use typeshade"
+import { top } from "./a"
+export function helper(n: i32): i32 { if (n <= 0) { return i32(1) } return top(n - 1) }
+`,
+    })
+    const crossErrors = cross.diagnostics.filter((d) => d.category === 'error')
+    expect(crossErrors).toHaveLength(1)
+    expect(crossErrors[0]?.message).toContain('"top" -> "helper" -> "top"')
+    expect(cross.wgsl).toBeUndefined()
+  })
+
+  it('sources.ts still emits an acyclic multi-file program', () => {
+    const r = compileSources({
+      'a.ts': `"use typeshade"
+import { helper as h } from "./b"
+export function top(n: i32): i32 { return h(n) }
+`,
+      'b.ts': `"use typeshade"\nexport function helper(n: i32): i32 { return n * i32(2) }\n`,
+    })
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('fn top')
+  })
+
+  it('a same-named node in another file contributes its edges rather than vanishing', () => {
+    // Two files each declare `helper`, the second recursive. Keeping only the first node meant
+    // the second's calls left the graph and nothing was reported. The emit is separately
+    // invalid here (Tint: `redeclaration of 'helper'`) because neither multi-file compiler
+    // checks duplicates ACROSS files — that is the real defect underneath, and not this
+    // change's to fix — but the graph must not lose a node silently.
+    const errors = compileTsSources([
+      {
+        fileName: 'a.ts',
+        source: `"use typeshade"\nexport function helper(n: i32): i32 { return n + i32(1) }\n`,
+      },
+      {
+        fileName: 'b.ts',
+        source: `"use typeshade"
+export function helper(n: i32): i32 { if (n <= 0) { return i32(0) } return helper(n - 1) }
+`,
+      },
+    ]).diagnostics.filter((d) => d.category === 'error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.code).toBe('TS8031')
   })
 
   it('an acyclic import chain still emits', () => {
