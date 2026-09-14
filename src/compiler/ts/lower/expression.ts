@@ -85,6 +85,19 @@ export function lowerExpression(
     return lowerPropertyAccess(node, sourceFile, scope, diagnostics)
   if (ts.isElementAccessExpression(node)) return lowerIndex(node, sourceFile, scope, diagnostics)
   if (ts.isConditionalExpression(node)) return lowerSelect(node, sourceFile, scope, diagnostics)
+  if (ts.isArrayLiteralExpression(node)) {
+    // A list is lowered against a declared `array<T, N>` (#8 A16), which only a declaration
+    // gives it; anywhere else there is no type to fill, so say which spelling does work rather
+    // than repeating the generic "Unsupported expression".
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A list is only an initializer: write it as "const xs: array<T, ${node.elements.length}> = [...]", or call array<T, ${node.elements.length}>(...) here.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   pushDiag(
     diagnostics,
     sourceFile,

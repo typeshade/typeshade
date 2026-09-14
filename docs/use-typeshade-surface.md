@@ -311,4 +311,46 @@ oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the o
 ground a portable shader can stand on is **in-range values**; clamp before you convert if the
 source might not be.
 
+**Numbering:** §§9, 10 and 12 to 17 are reserved for issue #8's A2, A6, A9, A3, A10, A7, A11
+and A15, which are in flight on their own branches and append here in issue order. This
+section is §18 so the A-item branches do not all claim §9 and collide on merge.
+
+---
+
+## 18. A list as an array's initializer
+
+A local `array<T, N>` takes a list where its type is written:
+
+```ts
+"use typeshade"
+
+export function ramp(i: i32): f32 {
+  const stops: array<f32, 3> = [0., 0.5, 1.]
+  const weights: array<i32, 3> = [1, 2, 1]
+  let scratch: array<f32, 2> = [0., 0.]
+  scratch[0] = stops[i] * f32(weights[i])
+  return scratch[0]
+}
+```
+
+It is the same declaration `array<f32, 3>(0., 0.5, 1.)` makes — the same `construct` node, the
+same emitted text — so the two spellings are one program, and `src/compiler/ts/ir-equality.test.ts`
+pins both against the EDSL's `construct(arrayT(f32T, 3), …)`.
+
+A list carries no type of its own, which is what decides where it is allowed and what it
+means:
+
+- It is **only** an initializer, and only where the declaration states an `array<T, N>`.
+  `const xs = [1., 2.]` and `sum([1., 2.])` are refused, each naming the spelling that works.
+- The size must be fixed and must match: `array<f32>` has nothing to fill, and
+  `array<f32, 3> = [1., 2.]` is an arity error.
+- Every element must be the element type. There is no implicit conversion, so
+  `array<f32, 2> = [1., i32(2)]` is refused rather than silently widened.
+- A number **written** in the list takes the element type, so `array<i32, 3> = [1, 2, 3]`
+  emits `array<i32, 3>(1, 2, 3)`. A value that states its own type, `i32(2)`, keeps it. This
+  is the one thing the list does that the call form cannot: `array<i32, 3>(1, 2, 3)` lowers
+  each argument on its own and emits float literals into an i32 array, which is issue #8's A3
+  to fix at the call site.
+- A spread and a hole are refused: `[...xs]` would need the size of `xs` at lowering time.
+
 Last updated: 2026-09-14

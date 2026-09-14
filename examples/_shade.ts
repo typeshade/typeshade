@@ -119,6 +119,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: false,
   },
   {
+    id: 'array-literal-ramp',
+    title: 'Array literals',
+    blurb:
+      'A fullscreen triangle whose corners come from two `array<f32, 3>` lists and whose colour comes from an `array<vec3, 3>` of stops weighted by an `array<i32, 3>` — a list at every element type the initializer form takes, through Tint and a real WebGL2 context.',
+    renderable: true,
+  },
+  {
     id: 'convert-grid',
     title: 'Converting constructors',
     blurb:
