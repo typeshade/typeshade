@@ -716,4 +716,44 @@ describe('a name this item adds does not shadow a function the file declares', (
     expect(c.wgsl).toContain('return pow(2.0, 2.0);')
     expect(c.eval('g', [])).toBe(4)
   })
+
+  it('leaves a name that was already a builtin as it was WHERE THE WRITERS RESPELL IT', () => {
+    // The `pow` case above could not catch this: neither writer respells `pow`, so an emit
+    // keyed on the wrong thing still reads `pow(...)`. `inverseSqrt` and `atan` are the two
+    // that do move — GLSL ES 3.00 spells them `inversesqrt` and `atan(y, x)` — and both are
+    // names a declaration does NOT win, so the call carries no declRef and must stay the
+    // intrinsic. Keyed on the declared NAME alone, emit called the user's function instead:
+    // the GLSL went from `inversesqrt(p.x)` to `inverseSqrt(p.x)` while the CPU oracle went on
+    // computing the intrinsic — one module, three answers.
+    for (const [decl, call, wgsl, glsl] of [
+      [
+        'inverseSqrt(x: f32): f32 { return 99.; }',
+        'inverseSqrt(p.x)',
+        'inverseSqrt(p.x)',
+        'inversesqrt(p.x)',
+      ],
+      [
+        'atan(y: f32, x: f32): f32 { return 99.; }',
+        'atan(p.x, p.y)',
+        'atan2(p.x, p.y)',
+        'atan(p.x, p.y)',
+      ],
+    ] as const) {
+      const c = compile(`
+        "use typeshade";
+        class Color {
+          @location(0) color: vec4
+        }
+        export function ${decl}
+        @fragment
+        export function fs(@builtin("position") p: vec4): Color {
+          const v = ${call};
+          return { color: vec4(v, v, v, 1.) };
+        }
+      `)
+      expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+      expect(c.wgsl).toContain(wgsl)
+      expect(c.glsl?.fragment).toContain(glsl)
+    }
+  })
 })

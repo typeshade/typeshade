@@ -333,6 +333,22 @@ as `pow(i32, i32)`, which neither compiler accepts.
 `transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
 emulated-double matrix, so there is nothing to expose yet.
 
+**One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
+rather than about this table: a declared function is emitted with the name the author wrote,
+and GLSL ES 3.00 does not let a program redeclare one of ITS builtins. Measured on the compile
+gate's own WebGL2 context, a module that declares and calls `exp2` or `fwidth` compiles on
+Tint and is rejected by ANGLE with
+
+```
+ERROR: 0:5: 'exp2' : Name of a built-in function cannot be redeclared as function
+```
+
+while `saturate` and `fma` are accepted, because GLSL ES 3.00 has neither name. This is not
+new — those two names are the GLSL builtins they always were, and a module declaring one
+emitted the same GLSL before this item existed — but it is the one way the precedence rule
+above can hand you a WGSL-only module. The fix is to rename the function; the compiler does
+not warn about it yet.
+
 ---
 
 ## 11. Vector constructors

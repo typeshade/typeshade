@@ -318,7 +318,7 @@ ${expandFns}
 ${langConsts}
 
 // ── Spellings whose shape the generated tables above cannot express (#8 A6) ──
-// Each of these IS accepted by the compiler and documented in §9 of the surface document;
+// Each of these IS accepted by the compiler and documented in §10 of the surface document;
 // without a declaration here the editor red-squiggles valid source, which is the false
 // POSITIVE §6 forbids. They are written by hand because the generators derive a signature
 // from an arity alone: \`select\`'s third argument is a bool, \`atan\` has two arities, \`bool\`

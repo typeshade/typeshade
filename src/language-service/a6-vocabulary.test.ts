@@ -1,4 +1,4 @@
-// Every spelling §9 of docs/use-typeshade-surface.md documents must resolve in the ambient
+// Every spelling §10 of docs/use-typeshade-surface.md documents must resolve in the ambient
 // lib (#8 A6). The compiler accepts all of them; a name the editor cannot see red-squiggles
 // valid source, which is the false POSITIVE the design doc's §6 forbids — the opposite of the
 // false negatives it deliberately tolerates.
