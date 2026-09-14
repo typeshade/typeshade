@@ -8,8 +8,21 @@ import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
+import { isOverrideType } from './overrides.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
+
+/** The type names that are a resource HANDLE rather than a buffer: written bare in a
+ *  `declare const`, with no address-space wrapper. `sampler` and the texture names are the
+ *  whole set — {@link mapTsTypeToShaderType} owns what each one maps to. */
+const HANDLE_TYPES = new Set(['sampler', 'texture_2d', 'texture_2d_array'])
+
+/** Whether a `declare const x: T` names a resource this module collects — used by the module
+ *  const collector, which must not treat `declare const tex: texture_2d<f32>` as a constant
+ *  missing its initializer. */
+export function isResourceTypeName(name: string): boolean {
+  return HANDLE_TYPES.has(name) || name === 'uniform' || name === 'storage'
+}
 
 export function isResourceCall(expr: ts.Expression): expr is ts.CallExpression {
   return (
@@ -48,6 +61,9 @@ export function collectBindings(
         }
         continue
       }
+      // An override occupies no bind slot, so it must not take a binding number on the way
+      // past — overrides.ts collects it (#8 A7).
+      if (isOverrideType(decl.type)) continue
       if (declared && decl.type) {
         const b = fromType(decl.name.text, decl.type, isConst, sourceFile, diagnostics, next)
         if (b) {
@@ -90,12 +106,37 @@ function fromType(
   autoBinding: number,
 ): BindingDecl | undefined {
   if (!ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) {
-    diagnostics.push(diag(sourceFile, type, `declare "${name}" must be uniform<T> or storage<T>.`))
+    diagnostics.push(
+      diag(
+        sourceFile,
+        type,
+        `declare "${name}" must be uniform<T>, storage<T>, a texture, a sampler or override<T>.`,
+      ),
+    )
     return undefined
   }
   const kind = type.typeName.text
+  // A texture or a sampler is a HANDLE resource: it is written as the type itself, with no
+  // uniform<> or storage<> wrapper, because it lives in no address space (#8 A7). It takes
+  // the 'uniform' space the EDSL's `resource()` gives it — the field is not optional and
+  // every backend keys the declaration off the TYPE, not off the space.
+  if (HANDLE_TYPES.has(kind)) {
+    const handle = mapTsTypeToShaderType(type, sourceFile, diagnostics)
+    if (!handle) return undefined
+    if (!isConst) {
+      diagnostics.push(diag(sourceFile, type, `"${name}" is a ${kind}; declare it const, not let.`))
+      return undefined
+    }
+    return { group: 0, binding: autoBinding, name, space: 'uniform', type: handle }
+  }
   if (kind !== 'uniform' && kind !== 'storage') {
-    diagnostics.push(diag(sourceFile, type, `declare "${name}" must be uniform<T> or storage<T>.`))
+    diagnostics.push(
+      diag(
+        sourceFile,
+        type,
+        `declare "${name}" must be uniform<T>, storage<T>, a texture, a sampler or override<T>.`,
+      ),
+    )
     return undefined
   }
   const inner = type.typeArguments?.[0]

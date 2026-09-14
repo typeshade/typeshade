@@ -10,6 +10,7 @@ import { mapTsTypeToShaderType } from './type-map.js'
 import { foldConstValue } from './loop-bound.js'
 import { lowerExpression } from './lower/expression.js'
 import { isResourceCall } from './bindings.js'
+import { isOverrideType } from './overrides.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 
@@ -28,6 +29,10 @@ export function collectModuleConsts(
     if (!isTopLevelConst(stmt)) continue
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue
     for (const decl of stmt.declarationList.declarations) {
+      // `const q: override<f32> = 1.` is a specialization constant, not a module constant:
+      // its value is the DEFAULT a pipeline may replace, so overrides.ts owns it and folding
+      // it here would bake in a value the pipeline is allowed to change (#8 A7).
+      if (isOverrideType(decl.type)) continue
       const c = lowerOne(decl, sourceFile, scope, diagnostics)
       if (c) out.push(c)
     }

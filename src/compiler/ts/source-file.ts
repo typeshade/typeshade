@@ -1,13 +1,14 @@
 // === TypeShade source compiler entry point ===
 
 import ts from 'typescript'
-import type { BindingDecl, ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
+import type { BindingDecl, ConstDecl, FuncDecl, OverrideDecl } from '../../core/ir/nodes.js'
 import { emitModule } from '../../core/backends/wgsl.js'
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js'
 import { lowerSourceFunctions } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { collectBindings } from './bindings.js'
+import { collectOverrides } from './overrides.js'
 import { collectStructs, type CollectedStruct } from './structs.js'
 import type { DeclaredSymbol } from './symbols.js'
 import { TS_CODES } from './codes.js'
@@ -74,6 +75,9 @@ export interface CompileTsSourceResult {
   readonly consts: readonly ConstDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly structs: readonly CollectedStruct[]
+  /** Every `override<T>` the module declares — WGSL specialization constants, which the
+   *  pipeline sets and no pass folds. Empty for a module that declares none. */
+  readonly overrides: readonly OverrideDecl[]
   /** Every name the front end declared while lowering `sourceFile`, with the `ShaderType` it
    *  gave it and the UTF-16 span of the declared name: the table an editor answers "what type
    *  is this symbol" from, since TypeScript infers plain `number` for a numeric literal that
@@ -117,6 +121,7 @@ export function compileTsSource(
     consts: [],
     bindings: [],
     structs: [] as CollectedStruct[],
+    overrides: [] as OverrideDecl[],
     symbols,
   }
 
@@ -148,9 +153,18 @@ export function compileTsSource(
   const structs = collectStructs(sourceFile, diagnostics, symbols)
   const bindings = collectBindings(sourceFile, diagnostics, symbols)
   const consts = collectModuleConsts(sourceFile, diagnostics, symbols)
-  // The CollectedStructs whole, not their decls: this item's TS8029 names the spelling the
-  // author used (`class`, `interface` or `type`), which only the collected form carries.
-  const funcs = lowerSourceFunctions(sourceFile, diagnostics, consts, bindings, structs, symbols)
+  const overrides = collectOverrides(sourceFile, diagnostics, symbols)
+  // The CollectedStructs whole, not their decls: #23's TS8029 names the spelling the author
+  // used (`class`, `interface` or `type`), which only the collected form carries.
+  const funcs = lowerSourceFunctions(
+    sourceFile,
+    diagnostics,
+    consts,
+    bindings,
+    structs,
+    symbols,
+    overrides,
+  )
   let wgsl: string | undefined
   const shouldEmit = options.emit ?? true
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
@@ -160,6 +174,7 @@ export function compileTsSource(
         structs: structs.map((s) => s.decl),
         bindings: [...bindings],
         funcs: [...funcs],
+        overrides: [...overrides],
       })
     } catch (e) {
       // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
@@ -176,6 +191,7 @@ export function compileTsSource(
     consts,
     bindings,
     structs,
+    overrides,
     symbols,
     wgsl,
   }

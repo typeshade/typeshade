@@ -1,7 +1,7 @@
 // === Function lowering: two-pass signatures then bodies ===
 
 import ts from 'typescript'
-import type { BindingDecl, FuncDecl, Stmt, Expr } from '../../../core/ir/nodes.js'
+import type { BindingDecl, FuncDecl, Stmt, Expr, OverrideDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
@@ -30,6 +30,7 @@ export function lowerSourceFunctions(
   bindings: readonly BindingDecl[] = [],
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
+  overrides: readonly OverrideDecl[] = [],
 ): FuncDecl[] {
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
   const callees = new Map<string, FuncDecl>()
@@ -63,6 +64,7 @@ export function lowerSourceFunctions(
       bindings,
       structs,
       symbols,
+      overrides,
     )
     funcs.push(stub)
   }
@@ -290,6 +292,7 @@ export function fillFunctionBody(
   bindings: readonly BindingDecl[] = [],
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
+  overrides: readonly OverrideDecl[] = [],
 ): void {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
@@ -310,6 +313,11 @@ export function fillFunctionBody(
       mutable: b.access === 'read_write',
       space: b.space,
     })
+  }
+  // An override reads as an `overrideref`, which no pass folds: its value arrives when the
+  // pipeline is built, not when the module is compiled (#8 A7).
+  for (const o of overrides) {
+    scope.define({ kind: 'override', name: o.name, type: o.type, mutable: false })
   }
   for (const p of stub.params) {
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })
