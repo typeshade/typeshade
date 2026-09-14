@@ -54,7 +54,7 @@ describe('renameVarrefsInFunc', () => {
   })
 })
 
-describe('rewriteExprsInFunc — the identity contract (#2042 INC-4b vanished-fills)', () => {
+describe('rewriteExprsInFunc — the identity contract (X-GIS #2042 INC-4b vanished-fills)', () => {
   // auto-vars (opt) correlates a mutable value's declaration, assignments,
   // and reads by Expr OBJECT identity. The first walker cloned every
   // ancestor of a change PER OCCURRENCE: one shared assign-target/read

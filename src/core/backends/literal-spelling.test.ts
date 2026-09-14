@@ -1,4 +1,4 @@
-// ═══ Literal spelling is fail-closed on both writers (#2276) ═══
+// ═══ Literal spelling is fail-closed on both writers (X-GIS #2276) ═══
 //
 // Three shapes used to reach the target text as bytes no driver accepts:
 //   • `-(-1.0)` spelled `--1.0` — `--` is the DECREMENT token in WGSL and GLSL;
@@ -35,7 +35,7 @@ describe.each(backends)('unary minus never spells `--` (%s)', (_id, be) => {
     expect(emitExpr(neg(neg(v('a'))), be)).toBe('(-(-a))')
     expect(emitExpr(neg(neg(v('a'))), be, 'minimal')).toBe('-(-a)')
   })
-  it('the shape inside a subtraction (the #2276 repro) contains no `--`', () => {
+  it('the shape inside a subtraction (the X-GIS #2276 repro) contains no `--`', () => {
     for (const mode of ['full', 'minimal'] as const) {
       const s = emitExpr(sub(v('a'), neg(lit(-1))), be, mode)
       expect(s).not.toContain('--')

@@ -1,4 +1,4 @@
-// ═══ emitIdentity (#1715 Problem B) — telling dev bytes from prod bytes ═══
+// ═══ emitIdentity (X-GIS #1715 Problem B) — telling dev bytes from prod bytes ═══
 //
 // The reported failure: a committed generated registry, a production build that rewrote
 // those tracked files, and dev-mode golden tests that then disagreed with what the build

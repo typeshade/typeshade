@@ -1,4 +1,4 @@
-// ═══ WebGL2 extension profile surface — fail-before suite (#1670) ═══
+// ═══ WebGL2 extension profile surface — fail-before suite (X-GIS #1670) ═══
 //
 // Today a module can declare only the five `Capability` ids of ir/nodes.ts:304
 // (`storageBuffer | compute | msaaTextureLoad | f16 | subgroups`), and the GLSL ES
@@ -39,7 +39,7 @@
 // pinned exactly once, in the profile-pin arm (test 9).
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// FAIL-BEFORE TRANSCRIPT (#1670)
+// FAIL-BEFORE TRANSCRIPT (X-GIS #1670)
 // Recorded on the unmodified tree @ 9b8253bc (no source file touched; this test file
 // is the only addition). Per test: status + the EXACT reason it lands there.
 //
@@ -404,7 +404,7 @@ describe('#1670 — WebGL2 extension profile surface (fail-before)', () => {
     })
   })
 
-  // ── 15b. TYPE negative — a DERIVED cap is not DECLARABLE (#1681 A2) ──
+  // ── 15b. TYPE negative — a DERIVED cap is not DECLARABLE (X-GIS #1681 A2) ──
   // Same never-executed, tsc-validated mechanism as test 15, over the other axis:
   // `enables` is `readonly DeclarableCapability[]`, which EXCLUDES the three caps
   // `requiredCaps` derives from the module SHAPE. Declaring one used to typecheck and

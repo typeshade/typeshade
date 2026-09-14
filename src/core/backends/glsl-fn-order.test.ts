@@ -1,11 +1,11 @@
-// ═══ GLSL ES 3.00 — the fn section's shape: dependency order + main() as the entry (#1858) ═══
+// ═══ GLSL ES 3.00 — the fn section's shape: dependency order + main() as the entry (X-GIS #1858) ═══
 //
 // Two emitter defects, one theme: GLSL ES 3.00 has no hoisting and one `main()` per unit,
 // and the backend used to pay for both facts with structure nothing reads.
 //
 //   • It emitted a forward prototype for EVERY helper, because `lowered.funcs` order is not
 //     dependency order — module()'s transitive collection PREPENDS collected callees, which
-//     may land ahead of the extern-bodied projection fns they call (#740 R1). On the baked
+//     may land ahead of the extern-bodied projection fns they call (X-GIS #740 R1). On the baked
 //     map corpus that was 507 prototypes, 6.2% of the text, of which 20 were load-bearing.
 //   • It spelled every entry as `<name>_impl` and synthesised a `main()` that called it once.
 //     Entry names are ABI, so `mangle()` may not touch them: `fs_impl` shipped verbatim into
@@ -76,7 +76,7 @@ const vsEntry = fn(
 
 const orderedModule = (): ModuleDecl => dslModule({ uses: [IoOut], funcs: [outer, inner, vsEntry] })
 
-describe('glsl-es300 — the fn section is emitted in dependency order (#1858)', () => {
+describe('glsl-es300 — the fn section is emitted in dependency order (X-GIS #1858)', () => {
   it('defines a callee BEFORE its caller even when the module declares them the other way', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     const at = { inner: defAt(vs, 'inner'), outer: defAt(vs, 'outer') }
@@ -118,7 +118,7 @@ describe('glsl-es300 — the fn section is emitted in dependency order (#1858)',
   })
 })
 
-describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
+describe('glsl-es300 — a single-exit entry IS main() (X-GIS #1858)', () => {
   it('emits the entry body inside main(), with no `_impl` fn and no call to one', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     expect(vs).not.toContain('_impl')
@@ -243,7 +243,7 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
 // bail-outs are what keep the transform sound: a struct handed WHOLE to a helper is a real
 // aggregate, and a field source shadowed by a body local would silently read the local.
 
-describe('glsl-es300 — the entry IO struct is never built (#1867)', () => {
+describe('glsl-es300 — the entry IO struct is never built (X-GIS #1867)', () => {
   it('scatters a CONSTRUCTOR exit field-by-field, minting no aggregate', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     expect(vs).toContain('gl_Position = vec4(_v0, 0.0, 0.0, 1.0);')

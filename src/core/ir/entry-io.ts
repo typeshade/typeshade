@@ -11,7 +11,7 @@
 // This file is that read, once. It used to live inside the GLSL backend (its
 // `parseAttrString`/`ioAttr` pair), which meant a CONSUMER of `reflect()` — where the
 // interface is actually published — had no way to reach it and re-implemented the
-// attribute walk with its own regex (#1905). Two readers of one spelling is the drift
+// attribute walk with its own regex (X-GIS #1905). Two readers of one spelling is the drift
 // class this package exists to remove: they disagree and the varying-parity gate
 // greenlights a pair GLSL then fails to link.
 //
@@ -34,7 +34,7 @@ export interface IoAttr {
   interpolate?: string
 }
 
-/** String fallback ONLY (#740 R3): sot-authored fields carry structured
+/** String fallback ONLY (X-GIS #740 R3): sot-authored fields carry structured
  *  location/builtin — read those via {@link ioAttrOf}. This regex path survives
  *  solely for hand-built FuncDecl literals and bare `retAttr` strings. */
 export function parseIoAttrString(attr: string | undefined): IoAttr {
@@ -49,7 +49,7 @@ export function parseIoAttrString(attr: string | undefined): IoAttr {
   return {}
 }
 
-/** Structured-first IO attr read (#740 R3). `interpolate` rides along (#763 P4)
+/** Structured-first IO attr read (X-GIS #740 R3). `interpolate` rides along (X-GIS #763 P4)
  *  so `@interpolate(flat)` float varyings emit GLSL `flat` — they used to
  *  interpolate smooth on WebGL2 while WGSL got provoking-vertex flat. */
 export function ioAttrOf(
@@ -73,7 +73,7 @@ export function ioAttrOf(
 }
 
 /** The IO attribute of a BARE (non-struct) stage return — `-> @location(0) vec4<f32>`,
- *  `-> @builtin(point_size) f32`. Structured `retBuiltin` first (#1672 preserved it for
+ *  `-> @builtin(point_size) f32`. Structured `retBuiltin` first (X-GIS #1672 preserved it for
  *  exactly this read), `retAttr`'s spelling second, which is the only source for the
  *  LOCATION half: the IR has no `retLocation` twin. */
 export function retIoAttrOf(f: Pick<FuncDecl, 'retAttr' | 'retBuiltin'>): IoAttr {

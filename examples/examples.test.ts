@@ -14,7 +14,7 @@ describe('shader-dsl examples', () => {
   it('every example reflects a pipeline', () => {
     expect(examples.length).toBeGreaterThan(0)
     for (const ex of examples) {
-      // WGSL emit bytes are pinned exactly by emit-goldens.test.ts (#763 V3) — the old
+      // WGSL emit bytes are pinned exactly by emit-goldens.test.ts (X-GIS #763 V3) — the old
       // `.length > 50` check here was near-vacuous and is superseded by that gate.
       expect(reflect(ex.module), ex.id).toBeTruthy()
     }

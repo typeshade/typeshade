@@ -125,7 +125,7 @@ describe('glsl-es300 — compute → fragment-GPGPU lowering (emulateCompute)', 
     expect(() => emitGlslModule(computeMod, 'fragment')).toThrow(UnsupportedFeatureError)
     // The DIAGNOSIS must stay the compute caps error — the default storage lowering
     // skips @compute modules precisely so this does not degrade into a storage-shape
-    // message pointing away from the missing {emulateCompute} opt-in (#1648 review).
+    // message pointing away from the missing {emulateCompute} opt-in (X-GIS #1648 review).
     expect(() => emitGlslModule(computeMod, 'fragment')).toThrow(
       /missing capabilities:[\s\S]*compute/,
     )

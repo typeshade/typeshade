@@ -1,4 +1,4 @@
-// ═══ typeshade example — pipeline specialization constant (#923) ═══
+// ═══ typeshade example — pipeline specialization constant (X-GIS #923) ═══
 //
 // The ubershader / shader-variant mechanism: ONE authored module, `overrideConst`
 // declares a `quality` knob whose value is chosen at PIPELINE CREATION (not module
@@ -47,7 +47,7 @@ export const overrideQuality: ShaderExample = {
   id: 'override-quality',
   title: 'Specialization constant',
   blurb:
-    'A pipeline-overridable `quality` constant (#923): WGSL `override` + GLSL `#define`, guarding a branch the DRIVER dead-code-eliminates per variant. One authored module → N driver-specialized pipelines. Shows WGSL + reflection.',
+    'A pipeline-overridable `quality` constant (X-GIS #923): WGSL `override` + GLSL `#define`, guarding a branch the DRIVER dead-code-eliminates per variant. One authored module → N driver-specialized pipelines. Shows WGSL + reflection.',
   category: 'generic',
   file: 'override-quality.ts',
   module: overrideModule,

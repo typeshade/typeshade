@@ -91,7 +91,7 @@ describe('#1906 — BindEntry.stages', () => {
     expect(stagesOf(reflect(m), 'u')).toEqual(['fragment'])
   })
 
-  it('reports the INJECTED `_fp64` guard under the stage whose f64 pulled it in (#1724)', () => {
+  it('reports the INJECTED `_fp64` guard under the stage whose f64 pulled it in (X-GIS #1724)', () => {
     // The guard is referenced only by an intrinsic's SPELLING (`f64Guard` fetches `_fp64`
     // with no argument node), and only in the module fp64Lower produced — so a walk over
     // the AUTHORED module would report []. It must not: a host that binds nothing there

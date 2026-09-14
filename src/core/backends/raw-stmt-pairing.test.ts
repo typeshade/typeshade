@@ -1,4 +1,4 @@
-// ═══ Paired per-target raw statements — fail-before suite (#1671) ═══
+// ═══ Paired per-target raw statements — fail-before suite (X-GIS #1671) ═══
 //
 // Today a `raw` Stmt is WGSL-ONLY by construction: `{ s: 'raw'; wgsl: string }`
 // (ir/nodes.ts:143), the Backend contract spells it `rawStmt(wgsl: string)`
@@ -22,7 +22,7 @@
 // them via `bun run build` — vitest does not typecheck.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// FAIL-BEFORE TRANSCRIPT (#1671)
+// FAIL-BEFORE TRANSCRIPT (X-GIS #1671)
 // Recorded on unmodified main @ 4d6a7b2a (no source file touched; this test file
 // is the only addition). Per test: status + the EXACT reason it lands there.
 //
@@ -197,7 +197,7 @@ const expectSd0030 = (f: () => unknown): string => {
   return (caught as Error).message
 }
 
-describe('raw Stmt — paired per-target payloads (#1671)', () => {
+describe('raw Stmt — paired per-target payloads (X-GIS #1671)', () => {
   // ── (1) RED ──
   it('a paired raw emits the GLSL payload verbatim on the GLSL backend', () => {
     const glsl = emitGlslModule(pairedMod(), 'fragment')
@@ -333,10 +333,10 @@ describe('raw Stmt — paired per-target payloads (#1671)', () => {
   })
 
   // ── (9) type-level contract — exercised by tsc (`bun run build`), not vitest ──
-  it('a raw with NO payload is unrepresentable (#1671 at-least-one)', () => {
-    // @ts-expect-error — a raw with no payload is unrepresentable (#1671 at-least-one)
+  it('a raw with NO payload is unrepresentable (X-GIS #1671 at-least-one)', () => {
+    // @ts-expect-error — a raw with no payload is unrepresentable (X-GIS #1671 at-least-one)
     const _bare: Stmt = { s: 'raw' }
-    // @ts-expect-error — a raw with no payload is unrepresentable (#1671 at-least-one)
+    // @ts-expect-error — a raw with no payload is unrepresentable (X-GIS #1671 at-least-one)
     const _empty = rawStmt({})
     void _bare
     void _empty

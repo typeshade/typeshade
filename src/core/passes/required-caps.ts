@@ -2,15 +2,15 @@
 //
 // requiredCaps(module) derives the GPU features a module needs; assertCaps gates
 // emit on the target backend covering them, failing closed (UnsupportedFeatureError)
-// instead of a silent mis-emit. Wired at the top of every emit entry (#9) so the
+// instead of a silent mis-emit. Wired at the top of every emit entry (X-GIS #9) so the
 // fail-closed promise is real, not the GLSL writer's ad-hoc per-construct throws.
-// assertBuiltins is its sibling for the target's BUILTIN VOCABULARY (#1672) — same
+// assertBuiltins is its sibling for the target's BUILTIN VOCABULARY (X-GIS #1672) — same
 // place, same voice, per-backend sets.
 
 import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js'
 import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js'
 
-/** Capability DEPENDENCIES (#1670) — declaring the key implies needing the values, so a
+/** Capability DEPENDENCIES (X-GIS #1670) — declaring the key implies needing the values, so a
  *  host activating off `reflect().requiredFeatures` gets the whole set rather than the
  *  half the author happened to name.
  *
@@ -33,11 +33,11 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     if (b.type.kind === 'texture' && b.type.dim === '2d-ms') caps.add('msaaTextureLoad')
   }
   for (const f of m.funcs) {
-    // stageOf reads structured `stage` first (#763 S2) — a hand-built
+    // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built
     // `{ stage: 'compute' }` decl without attrs must NOT slip past the gate.
     if (stageOf(f) === 'compute') caps.add('compute')
   }
-  // OPT-IN language-feature caps (#628) — f16 / subgroups the author turned on. Folded
+  // OPT-IN language-feature caps (X-GIS #628) — f16 / subgroups the author turned on. Folded
   // in here so assertCaps gates them exactly like the derived resource caps (fail-closed
   // on GLSL); the WGSL backend then emits the matching `enable <ext>;` for each.
   for (const c of m.enables ?? []) caps.add(c)
@@ -59,7 +59,7 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
 }
 
 /** Throw UnsupportedFeatureError if `m` names a `@builtin(...)` id the target does
- *  not have (#1672) — the builtin-vocabulary twin of the capability gate above, run
+ *  not have (X-GIS #1672) — the builtin-vocabulary twin of the capability gate above, run
  *  from the same place (lowerForBackend) so BOTH backends share one mechanism with
  *  per-target sets (`Backend.absentBuiltins`). The GLSL writer keeps its own
  *  rejection (builtinIn/builtinOut, whose messages name the missing gl_* mapping)
@@ -67,7 +67,7 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
  *  rejection at all — it spelled `@builtin(point_size)` verbatim and the module died
  *  at naga, far from the author.
  *
- *  STRUCTURED FIELD ONLY (#740 R3): `attr` is the emit SPELLING, the `builtin` field
+ *  STRUCTURED FIELD ONLY (X-GIS #740 R3): `attr` is the emit SPELLING, the `builtin` field
  *  is the semantic source. Every sot-authored IO (`builtin(name, type)`) and every
  *  builder-made entry param carries it; a hand-built decl literal carrying only
  *  `attr: '@builtin(x)'` is outside that contract and is skipped here (the GLSL
@@ -83,7 +83,7 @@ export function assertBuiltins(backend: Backend, m: ModuleDecl): void {
   }
   // Every place a backend can SPELL a builtin attr: an IO struct field, an entry
   // param, and a bare return authored as `retAttr: builtin(name, T)` — the builder
-  // preserves that FieldSpec's id as `retBuiltin` (#1672 review finding: it used to
+  // preserves that FieldSpec's id as `retBuiltin` (X-GIS #1672 review finding: it used to
   // be discarded, leaving retAttr the one structured-authoring path this gate missed).
   for (const s of m.structs) for (const sf of s.fields) check(sf.builtin)
   for (const f of m.funcs) {
@@ -95,7 +95,7 @@ export function assertBuiltins(backend: Backend, m: ModuleDecl): void {
 /** Throw UnsupportedFeatureError if `backend` cannot cover everything `m` needs. */
 export function assertCaps(backend: Backend, m: ModuleDecl): void {
   const req = requiredCaps(m)
-  // Coverage is DERIVED from the one authority (#1670) — the backend carries the
+  // Coverage is DERIVED from the one authority (X-GIS #1670) — the backend carries the
   // `capProfile` table and nothing else; a cached `caps` field beside it was a second
   // place the same fact could live. Built once per call, over 9 keys.
   const caps = Capabilities.fromProfile(backend.capProfile)

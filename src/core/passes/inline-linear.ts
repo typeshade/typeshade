@@ -38,7 +38,7 @@
 // `switch` scrutinees, and inside any block body — is lifted within its own
 // block, so conditional execution is preserved.
 //
-// INLINING OWES A CLEANUP (#1860). Copying a body to N call sites RE-CREATES the
+// INLINING OWES A CLEANUP (X-GIS #1860). Copying a body to N call sites RE-CREATES the
 // redundancy the optimizer had already removed: every value the helper derives
 // from a shared argument is now computed once PER SITE, in the caller's own
 // block, where nothing has run since. `transformIR` fires AFTER `lowerForBackend`

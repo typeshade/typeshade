@@ -82,7 +82,7 @@ describe('no-shadowed-local', () => {
 
   // The shape an author is most likely to write by accident: two loops, each with its own
   // `let t`. It reads as obviously fine — separate loop scopes, legal WGSL — and const-prop
-  // propagated the SECOND loop's literal into the FIRST loop's body (#2341).
+  // propagated the SECOND loop's literal into the FIRST loop's body (X-GIS #2341).
   it('reports two sibling loop bodies that bind the same name', () => {
     const m = module({
       funcs: [

@@ -6,7 +6,7 @@ const litOf = (e: Expr): number | undefined =>
 
 /** GLSL ES leaves `smoothstep` UNDEFINED when edge0 >= edge1 — most drivers
  *  happen to return the mirrored ramp, so reversed edges "work" locally and
- *  break on another GPU (#841). When both edges are literals the order is
+ *  break on another GPU (X-GIS #841). When both edges are literals the order is
  *  statically decidable; the house form for a descending ramp is
  *  `1 − smoothstep(lo, hi, x)`. */
 export const smoothstepEdgeOrder: LintRule = {

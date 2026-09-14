@@ -77,7 +77,7 @@ describe('#2458 — fn() and the void body', () => {
     expect(emitModule(module({ funcs: [g] }))).toContain('fn guard_vec(x: f32) -> vec2<f32>')
   })
 
-  it('lands a genuinely void fn on `void`, which KeyOf now spells (#2456)', () => {
+  it('lands a genuinely void fn on `void`, which KeyOf now spells (X-GIS #2456)', () => {
     const k = fn('cs_entry', {}, voidT, () => {}, { stage: 'compute' })
     // Asserted on the CALL RESULT's key, not on the whole handle: an empty param spec infers
     // as `{}` rather than `Record<string, never>`, so a whole-handle Exact would fail on the

@@ -1,4 +1,4 @@
-// ═══ Shader DSL — variant families: the axes a HOST decides at runtime (#1712) ═══
+// ═══ Shader DSL — variant families: the axes a HOST decides at runtime (X-GIS #1712) ═══
 //
 // AUTHORING.md §11 is right that a preprocessor is unnecessary when WE decide the variant:
 // a builder parameter plus a plain `if` is strictly better, because the losing arm is
@@ -19,7 +19,7 @@
 //   family.emitGuarded(...)    GLSL-only, opt-in: ONE source with a GENERATED #if ladder,
 //                              for a host that owns the define
 //   family.emitGuardedFragment(...)
-//                              the same ladder as a header-less FRAGMENT (#1711), since the
+//                              the same ladder as a header-less FRAGMENT (X-GIS #1711), since the
 //                              reported shape puts the ladder inside an #include — and an
 //                              include cannot carry a second #version
 //

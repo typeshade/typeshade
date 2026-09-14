@@ -26,7 +26,7 @@ import type { ModuleDecl, FuncDecl } from '../../ir/index.js'
 import { collectFnRefs } from '../../ir/collect-refs.js'
 import { bodyHasRaw } from './dce.js'
 
-// Roots = pipeline entries via the shared stage predicate (#763 S4) — the old
+// Roots = pipeline entries via the shared stage predicate (X-GIS #763 S4) — the old
 // `attrs.length > 0` missed structured-only entries and mistook any attr'd
 // helper for a root.
 const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined

@@ -2,7 +2,7 @@ import type { LintRule } from '../engine.js'
 import { CODES } from '../../../diagnostics/codes.js'
 import { analyzePortableKernel, isPortableComputeEntry } from '../../portable-kernel.js'
 
-/** A `portable`-declared `@compute` entry must stay inside the gather-only tier (#1812).
+/** A `portable`-declared `@compute` entry must stay inside the gather-only tier (X-GIS #1812).
  *
  *  `portable: true` is a promise that the kernel emits on BOTH backends — natively on WGSL
  *  and, on GLSL ES 3.00, through the compute→fragment-GPGPU lowering run with no emit option.
@@ -18,7 +18,7 @@ import { analyzePortableKernel, isPortableComputeEntry } from '../../portable-ke
  *  rather than one-per-emit.
  *
  *  A module with no portable entry is silent by construction — the declaration is the only
- *  trigger, which is exactly why the tier is DECLARED rather than inferred (#1812: an inferred
+ *  trigger, which is exactly why the tier is DECLARED rather than inferred (X-GIS #1812: an inferred
  *  tier drifts silently the moment a kernel gains a non-portable construct). */
 export const portableKernel: LintRule = {
   id: 'portable-kernel',

@@ -1,4 +1,4 @@
-// ═══ examples/index.ts vs the directory — the registry drift gate (#1716) ═══
+// ═══ examples/index.ts vs the directory — the registry drift gate (X-GIS #1716) ═══
 //
 // `index.ts` is the file #1716 names: hand-maintained imports, hand-maintained re-exports,
 // hand-maintained array. It is NOT regenerated here, and that is a finding rather than a

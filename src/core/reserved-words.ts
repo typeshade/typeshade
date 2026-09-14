@@ -6,7 +6,7 @@
 // language owns. One shared blocklist, because two lists drift: `mangle` had the
 // keywords but not WGSL's separate FUTURE-keyword list, and `emit-alias` derived
 // its blocklist from the words the emitted TEXT happens to contain — so both
-// independently handed out `as`, which Tint rejects (#1861).
+// independently handed out `as`, which Tint rejects (X-GIS #1861).
 //
 // Contents: both languages' keywords, the type/qualifier vocabulary the BACKENDS
 // write textually (`vec2`, `float`, `layout`, `precision` — none of it appears in
@@ -88,7 +88,7 @@ export const RESERVED_WORDS: ReadonlySet<string> = new Set([
   'ref',
   'texture',
   // sampler types, GLSL ES 3.00 §3.7 — the same completion as glsl-sanitize's set
-  // (#1703): the float 2D/3D/Cube trio was ES-1.00-era and left every array/integer
+  // (X-GIS #1703): the float 2D/3D/Cube trio was ES-1.00-era and left every array/integer
   // sampler spelling absent.
   'sampler',
   'sampler2D',
@@ -130,7 +130,7 @@ export const RESERVED_WORDS: ReadonlySet<string> = new Set([
   'mat4x2',
   'mat4x3',
   'mat4x4',
-  // ── the FUTURE-keyword lists (#1861) ──
+  // ── the FUTURE-keyword lists (X-GIS #1861) ──
   // Both languages reserve a second, much longer vocabulary ALONGSIDE their
   // keywords — WGSL's "Reserved Words" section, GLSL ES 3.00's §3.6 list. `as`
   // is on WGSL's; `nthName` reaches it at the ~70th name in a scope, and Tint

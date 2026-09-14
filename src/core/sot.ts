@@ -420,16 +420,16 @@ export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
-          // Symbols are protocol probes (NODE_BRAND #763 D1, Symbol.toPrimitive,
+          // Symbols are protocol probes (NODE_BRAND X-GIS #763 D1, Symbol.toPrimitive,
           // inspection) — never authored fields. Answer undefined, don't throw.
           if (typeof prop !== 'string') return undefined
-          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13)
-          // `$` = the raw struct-value Node (#740 R6): lets a field proxy be
+          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13)
+          // `$` = the raw struct-value Node (X-GIS #740 R6): lets a field proxy be
           // FORWARDED — fn call factories unwrap it, so `helper(p.input)` works
           // when p.input arrived as a typed handle param. Not a WGSL identifier,
           // so it can never shadow a real field.
           if (prop === '$') return node
-          // Duck-type as the raw node for value positions (#763 X14): `return o`
+          // Duck-type as the raw node for value positions (X-GIS #763 X14): `return o`
           // / `Return(o)` read `.expr`/`.type` — they used to die at LOAD with a
           // misleading "no field 'expr'". A declared field of that name wins.
           if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop]
@@ -565,9 +565,9 @@ export function structDecl<F extends Record<string, ShaderType>, N extends strin
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
-          if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
-          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13)
-          if (prop === '$') return node // raw struct-value Node (#740 R6, forwardable)
+          if (typeof prop !== 'string') return undefined // symbol probes (X-GIS #763 D1) — never fields
+          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13)
+          if (prop === '$') return node // raw struct-value Node (X-GIS #740 R6, forwardable)
           if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop] // #763 X14
           const t = fields[prop as string]
           if (t === undefined)
@@ -650,7 +650,7 @@ const isTypeArray = (v: UniformFieldSpec): v is TypeArray<ShaderType> =>
   typeof v === 'object' && 'elemType' in v && 'count' in v
 
 /** Uniform fields are READ-ONLY in WGSL — the field proxy hands out `ReadonlyNode`
- *  (#763 G2): `U.field.opacity.assign(…)` is a tsc error, not a naga rejection.
+ *  (X-GIS #763 G2): `U.field.opacity.assign(…)` is a tsc error, not a naga rejection.
  *  Handle-array fields get the element handle's read view (the `.of` read overload). */
 type UniformFieldNode<V> =
   V extends HandleArray<infer H>
@@ -760,8 +760,8 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
     node,
     field: new Proxy({} as Record<string, unknown>, {
       get: (_t, prop) => {
-        if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
-        if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13) — await/JSON.stringify must not throw
+        if (typeof prop !== 'string') return undefined // symbol probes (X-GIS #763 D1) — never fields
+        if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13) — await/JSON.stringify must not throw
         const v = fields[prop as string]
         if (v === undefined)
           throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
@@ -778,7 +778,7 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
         }
         return member(node, prop as string, v)
       },
-      // `in`/spread feature-detection must see the declared fields (#763 X13 —
+      // `in`/spread feature-detection must see the declared fields (X-GIS #763 X13 —
       // the sibling proxies got this trap in R6; this one was the gap).
       has: (_t, prop) => typeof prop === 'string' && prop in fields,
     }) as { readonly [K in keyof F]: UniformFieldNode<F[K]> },
@@ -1020,7 +1020,7 @@ type MutableView<V> = {
   [K in keyof V]: K extends '$' ? V[K] : V[K] extends ReadonlyNode<infer T> ? Node<T> : V[K]
 }
 
-// The element view's WRITE capability follows the declared ACCESS (#763 G2):
+// The element view's WRITE capability follows the declared ACCESS (X-GIS #763 G2):
 // `access: 'read'` hands out read views (`buf.at(i).p0.assign(…)` is a tsc error —
 // it used to compile and die at the driver); `read_write` hands out mutable views.
 /** Declare a bound `array<Element>` storage buffer from its element alone. The element is a

@@ -65,11 +65,11 @@ export type ShaderType =
   | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'f64' }
   | { readonly kind: 'struct'; readonly name: string }
   | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
-  // A sampled texture. '2d-array' (#1651) is CORE in both targets — WGSL
+  // A sampled texture. '2d-array' (X-GIS #1651) is CORE in both targets — WGSL
   // texture_2d_array<f32>, GLSL ES 3.00 sampler2DArray — so it needs no Capability
   // (pinned by required-caps.test.ts); '2d-ms' still fails closed on GLSL.
   //
-  // Split into TWO arms (#1703) so a multisampled INTEGER texture is unrepresentable
+  // Split into TWO arms (X-GIS #1703) so a multisampled INTEGER texture is unrepresentable
   // by CONSTRUCTION rather than a runtime throw: '2d'/'2d-array' carry any
   // TextureElem, '2d-ms' is pinned to f32. Narrowing still works off `dim` alone —
   // every existing `t.dim === '…'` switch reads the same.
@@ -556,7 +556,7 @@ export function typeKey(t: ShaderType): string {
         case '2d':
           return `texture_2d<${t.elem}>`
         default:
-          // Exhaustiveness on the whole ARM, not on `t.dim` (#1703): the texture type
+          // Exhaustiveness on the whole ARM, not on `t.dim` (X-GIS #1703): the texture type
           // is now a two-arm union, so once every dim is handled `t` itself is `never`
           // and `t.dim` no longer exists to check. A new dim (or a new arm) still
           // fails compilation right here.

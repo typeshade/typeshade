@@ -1,4 +1,4 @@
-// ═══ shader-dsl examples — emit goldens (#763 V3) ═══
+// ═══ shader-dsl examples — emit goldens (X-GIS #763 V3) ═══
 //
 // Byte-equal drift gate over EVERY example module's emitted WGSL (and, for the
 // renderable ones, both GLSL ES 3.00 stages) — the same per-commit pinning the
@@ -8,8 +8,8 @@
 // of shipped output shows up as a reviewed golden diff, not a silent drift.
 //
 // Re-bake protocol (intentional emit changes): re-run with the env flag set —
-//   bun run bake:goldens        (from the REPO ROOT — #844; the script moved there
-//                                in #1681 C, because a shader-dsl script may not name
+//   bun run bake:goldens        (from the REPO ROOT — X-GIS #844; the script moved there
+//                                in X-GIS #1681 C, because a shader-dsl script may not name
 //                                a path outside the package)
 //   (equivalently: UPDATE_EMIT_GOLDENS=1 npx vitest run shader-dsl/examples/emit-goldens.test.ts)
 // — then commit the refreshed __emit-goldens__/ alongside the emitter change.
