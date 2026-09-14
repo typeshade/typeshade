@@ -395,6 +395,80 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   already makes for swizzles, a false negative in the editor over a false positive on valid
   code, and the compiler's own type checks still catch the scalar mixing that TypeScript's
   structural check lets through.
+- A storage array is writable in the editor exactly as it is in the compiler: `ambient.ts`'s
+  `array<T, N>` declares a plain `[index: number]: T`, not a `readonly` one. `out[idx] = value`
+  is the shape every compute kernel ends with (`examples/compute-reduction-twin.shade.ts`), and
+  the compiler lowers it to a storage store, so the `readonly` this type first carried made
+  TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
+  on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
+  assignable in the source language, so `out.length = 2` keeps its TS2540.
+
+### Vector and matrix arithmetic (issue #21)
+
+`v * s`, `a + b`, `c.rgb * 0.5`, `m * v` and `v *= 2.` are the arithmetic a shader is written in,
+and TypeScript rejects all of it. The ambient lib brands `vec2`/`vec3`/`vec4`, the `f64` vectors
+and the matrices with a required unique-symbol property, and that brand is exactly what keeps a
+`vec3` from satisfying a `vec2`; a branded object type is also not a `number`, which is what the
+arithmetic check demands. Un-branding the vector types would take every real vector check with
+them, so the service filters these diagnostics instead, deciding from the type checker rather
+than from the syntax: each rule resolves the operand's TypeScript type and drops the diagnostic
+only when that type carries one of `GPU_BRAND_TAGS` (`vecTag`, `vec64Tag`, `matTag`), matched
+structurally as the `__@<tag>@<id>` property the checker reports, never by type name.
+
+| Code     | Why it fires                                                                                                                                                                                                                                                                                                | Dropped when                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TS2362` | The left operand of an arithmetic operation is not `number` (`v * s`, `c.rgb * 0.5`, `v *= 2.`).                                                                                                                                                                                                            | The left operand's own type carries a vector or matrix brand. Per operand, not "either operand", so the string in `v * "x"` still reports through TS2363.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `TS2363` | The right operand is not `number` (`m * v`, `2. * v`).                                                                                                                                                                                                                                                      | The right operand's own type carries a vector or matrix brand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `TS2365` | The operator cannot be applied to the two types (`a + b` on two `vec3`).                                                                                                                                                                                                                                    | The operator is `+ - * / %` or a compound form of one, and either operand of the operation the code SPANS carries a brand. The spanned operation, not the innermost one starting at the same offset: a left-nested product starts where the operation it sits in starts, so asking the inner one made `n * 3. + v` report while `v + n * 3.` and `(n * 3.) + v` did not. A TS2365 from any other operator is left alone.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `TS2322` | Arithmetic on a branded type is typed `number`, so the vector position it flows into (a return annotation, a local, a struct field, an assignment target) looks unassignable.                                                                                                                               | The target type carries a vector or matrix brand AND the value either carries one too or does vector or matrix arithmetic anywhere inside it (`normalize(a * 2.)` is already a `number` by the time the call is typed). `let n: f32 = v` keeps its TS2322: a scalar target is a `number` to TypeScript, so that mismatch is not the brand's doing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `TS2345` | The same `number` reaches a CALL: an argument position that wants a vector or matrix (`vec4(u.tint.rgb * k, u.tint.a)`, `normalize(v * s)`, `mix(a, b * 0.5, t)`, a user function's `f(v * s)`), or an inferred parameter a sibling argument already poisoned (`dot(a * 2., b)`, reported on the good `b`). | The argument does vector or matrix arithmetic anywhere inside it AND the SHAPE that arithmetic would have produced (a `vec3 * f32` produces a `vec3`; `m * c` produces the vector, not the matrix) is one the parameter at that index accepts. For an overloaded ambient constructor that matched no overload: when SOME overload accepts that shape there. Or: the parameter's type is one of the signature's own type parameters (`dot<T extends Numeric>`), the argument is branded, and another argument's arithmetic, of exactly this argument's shape, decided `T`. Either way every OTHER argument of the call has to fit its own position too, measured the same way, because TypeScript reports only the first argument that fails. Arithmetic is required either way, so `vec4(1., c.a)`, `f(1.)` and `f(x)` with `x: f32` still report. |
+
+A dropped diagnostic is not an unreported mistake. The compiler front end's own `TYPE_MISMATCH`
+(`TS8003`) is the authority on which shapes combine, so `vec3(1.) + vec2(1.)` is reported once,
+by the compiler, where leaving TypeScript's TS2365 in place would underline it twice.
+`diagnostics.test.ts` pins both halves: every arithmetic shape above produces no
+TypeScript-sourced diagnostic, and `v * "x"`, `1 * "x"` and `let n: f32 = v` still do.
+
+The TS2345 rule is narrower than the TS2322 rule it mirrors in one way, and deliberately: a
+branded argument that reached a branded parameter with no arithmetic anywhere in the call is NOT
+dropped. TS2322's both-branded case is covered by the compiler's `TYPE_MISMATCH`, but the ambient
+math functions have no equivalent argument check in the front end (`dot(vec3, vec2)` produces no
+compiler diagnostic at all), so TypeScript is the only thing reporting it, and a `vec2` still
+fails a `vec4` parameter (`ambient.test.ts` pins that).
+
+Comparing SHAPES rather than asking "is there a brand here, and arithmetic somewhere in this
+call" is what keeps that guarantee once the call DOES contain arithmetic, which is the shape
+almost every real line has. `dot(a * 2., b)` with two `vec3` is a false positive and is dropped;
+`dot(a * 2., b)` with a `vec2` `b` is a real size mismatch and keeps its TS2345, because `vec2`
+is not the `vec3` the arithmetic would have inferred for `T`. The same question is put to the
+arguments TypeScript never reached (it stops at the first argument that fails a signature), so
+`cross(a * 2., b)` with a `vec2` `b` is not silenced by the false positive on its first argument.
+One false negative is left and is not otherwise visible: an argument AFTER the one this rule
+dropped, wrong in a way that is not a vector shape (a string, a scalar of the wrong kind), is
+still hidden, since TypeScript never reported it in the first place. For a user function and the
+vector constructors the front end's own argument check (`TS8003`, `TS8019`) says it anyway; for
+the ambient math functions nothing does, and a front-end argument check for them is the fix (#57).
+
+What stays open, measured by running the service over the 17 `.shade.ts` files on
+`feat/porting-twins` (the corpus in issue #43, which carries the gradient twin too, and whose copy
+of `hello-uniform-struct.shade.ts` is the un-annotated form): the TS2345 rule clears 12 of that
+corpus's 58 diagnostics and the TS2365 spanned-operation fix 2 more, which takes
+`hello-uniform-struct.shade.ts` to zero and leaves 44. `main`'s own `examples/` gate was already
+green before either rule, because #18 annotated the one local that failed it (`const rgb: vec3 =
+...`); what these rules buy is the twins, which cannot take that workaround, and the reason #18
+needed it.
+
+The 44 are two causes. 28 of them come from a product assigned to an un-annotated local: the local
+is declared `number`, the brand is gone at the declaration, and every later use of it reports:
+TS2339 on a swizzle of it (21), TS2345 where it is handed to a call (6), TS2322 where it is
+assigned back (1). No rule here can help, because by then there is no arithmetic left in the
+expression to recognize; `const col: vec3 = ...` restores the brand, which is the workaround #18
+took, and following an un-annotated local's initializer would be a different rule shape ("the
+brand was lost in an earlier statement"). The other 16 are the generic math signatures' own
+shape, not a diagnostic to filter: `mix<T>(a: T, b: T, t: T)` demands a vector for the `t` GLSL
+takes as a scalar (11), and `smoothstep(0.3, 0.55, h)` infers the literal type `0.3` for `T` from
+its first argument (5). A direct `(v * 2.).rgb` draws a TS2339 no rule claims either; the corpus
+happens to reach that code only through the un-annotated local above.
 
 Two more gaps the ambient lib cannot close by itself, because both are about names the lib was
 never going to declare: a misspelled attribute (`@vertx`) has no ambient declaration to resolve
@@ -426,6 +500,8 @@ each meaning copied from that file's own comment):
 | `TS8028` | `ATTRIBUTE_NAME`            | A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`), e.g. a misspelled `@vertx`: without this, the decorated function or field just silently stops being an entry point or an I/O field.                                                                   |
 | `TS8029` | `STRUCT_FIELD_MISSING_ATTR` | A field of a struct used as an entry function's parameter or return type carries neither `@builtin(...)` nor `@location(...)`: WGSL rejects an entry-IO struct member with no attribute, so this is caught at the front end instead of reaching the backend as invalid emitted WGSL.                                                                   |
 | `TS8030` | `SYNTAX`                    | A TypeScript parse error (an unclosed parenthesis, a missing brace, an unexpected token) in a `"use typeshade"` file, carried through as a TypeShade diagnostic so a `compile()` caller sees it without running `tsc`. The language service drops these in favour of TypeScript's own syntactic diagnostics, which carry the real `TS1005`-style code. |
+| `TS8031` | `RECURSION`                 | A call cycle: a function that reaches itself, directly or through other functions. WGSL has no call stack, so Tint rejects the emitted module (`cyclic dependency found: 'a' -> 'b' -> 'a'`). Reported on the call that closes the cycle. Syntactic, so a call in dead code counts (surface doc §4).                                                   |
+| `TS8032` | `UNSIZED_ARRAY_LENGTH`      | `.length` on an `array<T>` with no `N`, anywhere. It folded to `0`, making `gid.x >= xs.length` true for every invocation and the kernel a silent no-op in valid WGSL. Message differs by shape: a storage array needs `arrayLength`, everything else an explicit size.                                                                                |
 | `TS8099` | `UNSUPPORTED`               | Catch-all for a diagnostic whose site does not yet deserve its own code; the one code that is not assigned sequentially, so it stays parked past the sequential range instead of at its head.                                                                                                                                                          |
 
 ## 7. Adapter contracts
