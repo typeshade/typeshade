@@ -9,6 +9,7 @@ import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
+import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
@@ -55,6 +56,10 @@ export function lowerFor(
   try {
     const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics)
     if (!initStmt) return undefined
+    // The `for` header's own two statements never pass through `lowerStatement`, so the
+    // blanket stamp there does not reach them; give each the span of the clause it came from
+    // rather than the whole loop's, so stepping a loop highlights `let i: i32 = 0` and `i++`.
+    withSpan(initStmt, sourceFile, node.initializer)
     const cond = lowerExpression(node.condition, sourceFile, scope, diagnostics)
     if (!cond) return undefined
     if (typeKey(cond.type) !== 'bool') {
@@ -69,6 +74,7 @@ export function lowerFor(
     }
     const update = lowerUpdate(node.incrementor, sourceFile, scope, diagnostics)
     if (!update) return undefined
+    withSpan(update, sourceFile, node.incrementor)
     const counted = analyzeCountedFor(initStmt, cond, update, scope)
     if (!counted.ok) {
       pushDiag(diagnostics, sourceFile, node, counted.message, counted.code)
@@ -308,10 +314,14 @@ export function lowerUpdate(
       )
       return undefined
     }
-    const target: Expr =
+    // `i++` writes `i`, so the operand is the lvalue whose span the target carries.
+    const target: Expr = withSpan(
       binding.kind === 'param'
-        ? { op: 'param', type: binding.type, name: binding.name }
-        : { op: 'varref', type: binding.type, name: binding.name }
+        ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
+        : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+      sourceFile,
+      targetExpr,
+    )
     return {
       s: 'assign',
       target,
@@ -334,10 +344,13 @@ export function lowerUpdate(
     if (rhs.op === 'lit' && typeof rhs.value === 'number') {
       rhs = { op: 'lit', type: binding.type, value: rhs.value }
     }
-    const target: Expr =
+    const target: Expr = withSpan(
       binding.kind === 'param'
-        ? { op: 'param', type: binding.type, name: binding.name }
-        : { op: 'varref', type: binding.type, name: binding.name }
+        ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
+        : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+      sourceFile,
+      left,
+    )
     return { s: 'assignOp', target, bop: '+', expr: rhs }
   }
   pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)

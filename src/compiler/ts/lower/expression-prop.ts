@@ -37,6 +37,23 @@ const JS_ARRAY_METHODS = new Set([
 
 export { JS_ARRAY_METHODS }
 
+/** Whether `e` bottoms out in a STORAGE resource binding — the binding itself, a field of one,
+ *  or an element of one. Only that shape gets the `arrayLength` sentence, because only that
+ *  shape is what `arrayLength` accepts (`ptr<storage, array<E>, AM>`); a `uniform<array<T>>`,
+ *  a local or a parameter needs an explicit `N` instead. */
+function storageRooted(e: Expr, scope: LoweringScope): boolean {
+  switch (e.op) {
+    case 'varref':
+      return scope.resolve(e.name)?.space === 'storage'
+    case 'member':
+      return storageRooted(e.base, scope)
+    case 'index':
+      return storageRooted(e.base, scope)
+    default:
+      return false
+  }
+}
+
 export function lowerPropertyAccess(
   node: ts.PropertyAccessExpression,
   sourceFile: ts.SourceFile,
@@ -70,7 +87,34 @@ export function lowerPropertyAccess(
   const base = lowerExpression(obj, sourceFile, scope, diagnostics)
   if (!base) return undefined
   if (prop === 'length' && base.type.kind === 'array') {
-    return { op: 'lit', type: i32T, value: base.type.size ?? 0 }
+    // `?? 0` used to be the whole of this line, and 0 is not a length — it is the absence of
+    // one. A runtime-sized array carries no `size`, so the standard bounds guard folded to
+    // `if (gid.x >= 0u) { return; }`, which is TRUE for every unsigned invocation: the kernel
+    // returned immediately and wrote nothing, with zero diagnostics, as valid WGSL, on a real
+    // GPU (#46). A wrong answer that every gate accepts is the one failure mode worth a hard
+    // error, so an unsized array says so instead.
+    //
+    // The guard fires on FOUR shapes, not just the storage one, and they do not deserve the
+    // same sentence. `arrayLength` is spelled `ptr<storage, array<E>, AM>` and exists for
+    // nothing else, so naming it to the author of a local `array<f32>(1., 2., 3.)` or a
+    // `uniform<array<f32>>` sends them to an intrinsic Tint would refuse on their program,
+    // and never tells them the one fix that does work: write the `N`. Both shapes were
+    // already invalid GPU code before this check (Tint: "cannot construct a runtime-sized
+    // array"; "runtime-sized arrays can only be used in the <storage> address space"), so
+    // rejecting them is right — it is only the advice that has to be true.
+    if (base.type.size === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        storageRooted(base, scope)
+          ? `".length" on a runtime-sized array is not known at compile time: the length belongs to the buffer the host binds, not to the type. WGSL spells it arrayLength(&x), which TypeShade does not expose yet (#46).`
+          : `".length" on an array with no size is not known at compile time. Give the type a size: array<f32, 3> rather than array<f32>.`,
+        TS_CODES.UNSIZED_ARRAY_LENGTH,
+      )
+      return undefined
+    }
+    return { op: 'lit', type: i32T, value: base.type.size }
   }
   if (JS_ARRAY_METHODS.has(prop)) {
     pushDiag(
