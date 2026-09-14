@@ -3,6 +3,7 @@
 import ts from 'typescript'
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js'
+import { nodeAtPosition } from './positions.js'
 import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js'
 
 /** The `@builtin(...)` names valid for a parameter of a function decorated with each stage.
@@ -27,18 +28,6 @@ const VEC_SNIPPETS: readonly { readonly label: string; readonly insertText: stri
   { label: 'vec3', insertText: 'vec3(${1:x}, ${2:y}, ${3:z})' },
   { label: 'vec4', insertText: 'vec4(${1:x}, ${2:y}, ${3:z}, ${4:w})' },
 ]
-
-function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
-  let found: ts.Node = root
-  const visit = (node: ts.Node): void => {
-    if (pos >= node.getStart() && pos < node.getEnd()) {
-      found = node
-      node.forEachChild(visit)
-    }
-  }
-  visit(root)
-  return found
-}
 
 /** `ts.canHaveDecorators` reflects the *syntactically valid* decorator targets, and a plain
  * function declaration is not one of them — but the parser still attaches `@vertex` etc. to

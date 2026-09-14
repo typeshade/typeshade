@@ -3,20 +3,8 @@
 import ts from 'typescript'
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js'
-import { rangeForSpan, wordSpan } from './positions.js'
+import { nodeAtPosition, rangeForSpan, wordSpan } from './positions.js'
 import type { TypeshadeHover } from './types.js'
-
-function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
-  let found: ts.Node = root
-  const visit = (node: ts.Node): void => {
-    if (pos >= node.getStart() && pos < node.getEnd()) {
-      found = node
-      node.forEachChild(visit)
-    }
-  }
-  visit(root)
-  return found
-}
 
 function isBuiltinStringLiteral(node: ts.Node): node is ts.StringLiteralLike {
   if (!ts.isStringLiteralLike(node)) return false

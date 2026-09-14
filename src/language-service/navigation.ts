@@ -10,7 +10,7 @@
 import ts from 'typescript'
 import { compileTsSource } from '../compiler/ts/source-file.js'
 import { AMBIENT_LIB_URI } from './host.js'
-import { rangeForSpan } from './positions.js'
+import { nodeAtPosition, rangeForSpan } from './positions.js'
 import { WGSL_BUILTIN_NAMES } from './ambient.js'
 import type {
   TypeshadeDocumentSymbol,
@@ -22,18 +22,6 @@ import type {
 
 function spanOfNode(node: ts.Node): { start: number; length: number } {
   return { start: node.getStart(), length: node.getEnd() - node.getStart() }
-}
-
-function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
-  let found: ts.Node = root
-  const visit = (node: ts.Node): void => {
-    if (pos >= node.getStart() && pos < node.getEnd()) {
-      found = node
-      node.forEachChild(visit)
-    }
-  }
-  visit(root)
-  return found
 }
 
 /**

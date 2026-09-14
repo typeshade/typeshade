@@ -3,7 +3,7 @@
 import ts from 'typescript'
 import { compileTsSource } from '../compiler/ts/source-file.js'
 import { TS_CODES } from '../compiler/ts/codes.js'
-import { clampSpan, rangeForSpan, spanForDiagnostic } from './positions.js'
+import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js'
 import type { TypeshadeDiagnostic, TypeshadeSeverity } from './types.js'
 
 /**
@@ -20,22 +20,6 @@ interface DiagnosticFilterRule {
   /** Returns `true` when this specific occurrence is the known false positive and should be
    * dropped; `false` lets it through as a real diagnostic. */
   readonly when: (sourceFile: ts.SourceFile, diagnostic: ts.Diagnostic) => boolean
-}
-
-/**
- * Finds the innermost node of `root` whose span contains `pos`, by a plain recursive descent —
- * `ts.getTokenAtPosition` is compiler-internal and not part of the public `typescript` API.
- */
-function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
-  let found: ts.Node = root
-  const visit = (node: ts.Node): void => {
-    if (pos >= node.getStart() && pos < node.getEnd()) {
-      found = node
-      node.forEachChild(visit)
-    }
-  }
-  visit(root)
-  return found
 }
 
 /**
