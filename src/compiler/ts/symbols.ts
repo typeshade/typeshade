@@ -12,7 +12,7 @@
 // sink is optional at every call site, so a caller that does not ask for symbols pays one
 // `undefined` check per declaration.
 
-import ts from 'typescript'
+import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
 
 /** What kind of declaration a {@link DeclaredSymbol} records. `const` is a module-level

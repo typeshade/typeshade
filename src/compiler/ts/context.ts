@@ -1,6 +1,6 @@
 // === Lowering context / symbol table ===
 
-import ts from 'typescript'
+import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
 import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
