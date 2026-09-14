@@ -129,17 +129,17 @@ unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 Worth stating, because these rank high in issue #8 and would be natural things to reach for
 first. No example in the 36 is waiting on any of them:
 
-| Issue #8 item                                       | Blocks |
-| --------------------------------------------------- | ------ |
-| **A2** member / component assignment (`v.x = 0.`)   | 0      |
-| ~~**A4** `type` / `interface` structs~~ (landed)    | 0      |
-| **A5** `@align` / `@size` field decorators          | 0      |
-| ~~**A8** element-converting constructors~~ (landed) | 0      |
-| **A9** module-level vector constants                | 0      |
-| **A10** uninitialised `let`, `switch`, `<<=`        | 0      |
-| **A11** object-literal contextual typing            | 0      |
-| **S5** `arrayLength`                                | 0      |
-| **S7** `mat2` / `mat3`                              | 0      |
+| Issue #8 item                                     | Blocks |
+| ------------------------------------------------- | ------ |
+| **A2** member / component assignment (`v.x = 0.`) | 0      |
+| **A4** `type` / `interface` structs — landed      | 0      |
+| **A5** `@align` / `@size` field decorators        | 0      |
+| **A8** element-converting constructors — landed   | 0      |
+| **A9** module-level vector constants              | 0      |
+| **A10** uninitialised `let`, `switch`, `<<=`      | 0      |
+| **A11** object-literal contextual typing          | 0      |
+| **S5** `arrayLength`                              | 0      |
+| **S7** `mat2` / `mat3`                            | 0      |
 
 A2 in particular: every `.assign()` in the corpus targets a whole value, never a component.
 What reads as member assignment in the IR walk (`construct`, `lit`, `binop` targets) is the

@@ -299,16 +299,22 @@ stay rejected, as WGSL rejects them.
 
 The conversion follows **WGSL's** scalar conversion, which is what WebGPU and the CPU oracle
 both give you: a float source saturates into an integer target (`vec3u(vec3(-3.2, …))` is
-`0`, not `-3`), and `i32` and `u32` are reinterpreted two's-complement. An emulated-double
+`0`, not `-3` — on WGSL and on the CPU; see the GLSL caveat below), and `i32` and `u32` are
+reinterpreted two's-complement. An emulated-double
 vector is not converted this way.
 
 **GLSL ES 3.00 does not promise that.** It leaves an out-of-range or NaN float→int conversion
 undefined, and the WebGL2 context the compile gate uses disagrees with WGSL on exactly those
 inputs — measured against an RGBA32UI target, `uvec3(vec3(1e30)).x` reads back `0` where the
 oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the oracle gives
-`2147483520`, and `uvec3(vec3(NaN)).x` reads `2147483648` where the oracle gives `0`. The
-`-3.2` above happens to agree, and an in-range source always does. So the cross-backend
-ground a portable shader can stand on is **in-range values**; clamp before you convert if the
-source might not be.
+`2147483520`, and `uvec3(vec3(NaN)).x` reads `2147483648` where the oracle gives `0`.
+
+The `-3.2` above is **not** the exception this section first called it. Measured in the same
+place, `uvec3(vec3(-3.2)).x` reads back `4294967293` — ANGLE truncates to `-3` and wraps it,
+where WGSL and the oracle saturate to `0`. A negative source is as unportable as an
+out-of-range one, and the earlier claim that it "happens to agree" was wrong.
+
+An **in-range** source always does agree. That is the cross-backend ground a portable shader
+can stand on: clamp before you convert if the source might leave it.
 
 Last updated: 2026-09-14
