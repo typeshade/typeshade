@@ -19,6 +19,13 @@ export {
   isUseTypeshadeDirective,
   findUseTypeshadeDirective,
 } from './compiler/ts/directive.js'
+export {
+  packModule,
+  packJson,
+  type Pack,
+  type PackBinding,
+  type PackEntry,
+} from './compiler/ts/pack.js'
 
 // Editor intelligence shared by the Playground, VS Code adapter, and future LSP.
 export {
