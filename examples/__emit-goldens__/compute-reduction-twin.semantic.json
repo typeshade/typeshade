@@ -1,31 +1,30 @@
 {
   "twin": "compute-reduction-twin",
   "of": "compute-reduction",
-  "emitIdentical": false,
-  "loweredIdentical": false,
-  "interfaceDiff": [],
-  "functions": [
-    {
-      "name": "reduce_windows",
-      "same": false,
-      "diff": [
-        "-  let _c0 = (param(gid).x * 8)",
-        "-  if ((param(gid).x >= varref(params).x)) {",
-        "+  let _c0 = param(gid).x",
-        "+  if ((varref(_c0) >= constref(params).x)) {",
-        "     return",
-        "   }",
-        "-  var _c1: f32 = 0",
-        "-  for (var _c2: u32 = 0; (varref(_c2) < 8); varref(_c2) = (varref(_c2) + 1)) {",
-        "-    varref(_c1) = (varref(_c1) + varref(input)[(varref(_c0) + varref(_c2))])",
-        "+  let _c1 = (varref(_c0) * 8)",
-        "+  var _c2: f32 = 0",
-        "+  for (var _c3: u32 = 0; (varref(_c3) < 8); varref(_c3) = (varref(_c3) + 1)) {",
-        "+    varref(_c2) = (varref(_c2) + constref(input)[(varref(_c1) + varref(_c3))])",
-        "   }",
-        "-  varref(output)[param(gid).x] = varref(_c1)",
-        "+  constref(output)[varref(_c0)] = varref(_c2)"
-      ]
-    }
-  ]
+  "equal": false,
+  "diff": {
+    "interface": [],
+    "resources": [],
+    "constants": [],
+    "controlFlow": [
+      "+reduce_windows#0 let v#0 = (.x:u32 (param gid:vec3<u32>))",
+      "+reduce_windows#1 if arms=1 else=n conds=[(>=:bool (varref v#0:u32) (.x:u32 (const params:vec4<u32>)))]",
+      "+reduce_windows#1.arm0.0 return",
+      "+reduce_windows#2 let v#1 = (*:u32 (varref v#0:u32) (lit:u32))",
+      "+reduce_windows#3 var v#2: f32 = (lit:f32)",
+      "+reduce_windows#4 for cond=(<:bool (varref v#3:u32) (lit:u32))",
+      "+reduce_windows#4.body.0 assign (varref v#2:f32) = (+:f32 (varref v#2:f32) (index:f32 (const input:array<f32>) (+:u32 (varref v#1:u32) (varref v#3:u32))))",
+      "+reduce_windows#4.init.0 var v#3: u32 = (lit:u32)",
+      "+reduce_windows#4.update.0 assign (varref v#3:u32) = (+:u32 (varref v#3:u32) (lit:u32))",
+      "+reduce_windows#5 assign (index:f32 (const output:array<f32>) (varref v#0:u32)) = (varref v#2:f32)",
+      "-reduce_windows#0 if arms=1 else=n conds=[(>=:bool (.x:u32 (param gid:vec3<u32>)) (.x:u32 (varref params:vec4<u32>)))]",
+      "-reduce_windows#0.arm0.0 return",
+      "-reduce_windows#1 var v#0: f32 = (lit:f32)",
+      "-reduce_windows#2 for cond=(<:bool (varref v#1:u32) (lit:u32))",
+      "-reduce_windows#2.body.0 assign (varref v#0:f32) = (+:f32 (varref v#0:f32) (index:f32 (varref input:array<f32>) (+:u32 (*:u32 (.x:u32 (param gid:vec3<u32>)) (lit:u32)) (varref v#1:u32))))",
+      "-reduce_windows#2.init.0 var v#1: u32 = (lit:u32)",
+      "-reduce_windows#2.update.0 assign (varref v#1:u32) = (+:u32 (varref v#1:u32) (lit:u32))",
+      "-reduce_windows#3 assign (index:f32 (varref output:array<f32>) (.x:u32 (param gid:vec3<u32>))) = (varref v#0:f32)"
+    ]
+  }
 }

@@ -3,32 +3,35 @@
 // `docs/use-typeshade-surface.md` calls the EDSL corpus the IR-equality ORACLE for the
 // source language. That only means something if some shader exists on both surfaces and
 // something checks that they agree; until there was a twin, the sentence was aspirational.
-// `examples/PORTING.md` classifies which of the 36 examples can be written in the source
-// language today — two of them, at the time of writing — and this suite is what those two
-// are FOR.
+// `examples/PORTING.md` (landed in #12) classifies which of the 36 examples the compiler
+// accepts as source today, and why the rest are blocked. This suite is what a twin written
+// from that classification is FOR. One is registered so far — `compute-reduction-twin`;
+// `gradient` is held by #14, which makes a source-compiled module's GLSL drop its uniform
+// block while keeping the uses.
 //
 // Three jobs, in increasing strength:
 //
 //   1. THE CLAIM IS WELL-FORMED — every `twinOf` names an example that exists.
 //   2. THE INTERFACE IS IDENTICAL — `reflect()` of the twin deep-equals `reflect()` of the
-//      original. This is an assertion, not a golden, because there is no acceptable reason
-//      for a twin's bind groups or entry points to differ from its original's: that would
-//      not be "the same shader written differently", it would be a different shader.
-//   3. THE BODIES ARE PINNED — a unified diff of the two WGSL emits, plus a structural
-//      comparison of the two LOWERED modules with local names canonicalised. These are
-//      goldens rather than assertions because the two surfaces legitimately differ (an EDSL
-//      `const` is a build-time JavaScript binding; a source-language `const` is a shader
-//      `let`), and the useful gate is that the DIFFERENCE does not move unnoticed.
+//      original. An assertion, not a golden: there is no acceptable reason for a twin's
+//      bind groups or entry points to differ from its original's. This is not covered by
+//      `semanticDiff` below — that compares the authored modules, while `reflect()` is the
+//      derived host-facing view, and the difference between them is where #14 shows up.
+//   3. THE DIFFERENCE IS PINNED — `semanticDiff()`'s four buckets, and a unified diff of
+//      the two WGSL texts. Goldens rather than assertions because the two surfaces
+//      legitimately differ (an EDSL `const` is a build-time JavaScript binding; a
+//      source-language `const` is a shader `let`), and the useful gate is that the
+//      DIFFERENCE does not move unnoticed.
 //
 // The goldens live in `__emit-goldens__/` with the emits they are derived from, so the one
-// bake protocol in `_goldens.ts` covers them: `bun run bake:goldens` from the repo root.
+// bake protocol in `_goldens.ts` covers them: `UPDATE_EMIT_GOLDENS=1`.
 
 import { describe, it, expect } from 'vitest'
 import { shadeExamples, SHADE_TWINS } from './_shade.js'
 import { examples } from './index.js'
 import { checkGolden } from './_goldens.js'
-import { unifiedDiff, twinReport } from './_twin-diff.js'
-import { emitModule, reflect } from '../src/index.js'
+import { unifiedDiff } from './_twin-diff.js'
+import { emitModule, reflect, semanticDiff, isSemanticallyEqual } from '../src/index.js'
 
 /** The registered twins, paired with the EDSL example each mirrors. Resolved once so a
  *  missing original fails the well-formedness arm below rather than every arm at once. */
@@ -107,14 +110,30 @@ describe('twins — the pipeline interface is identical, not merely similar', ()
   }
 })
 
-describe('twins — the emit difference is pinned', () => {
+describe('twins — the difference is pinned', () => {
   for (const p of pairs) {
+    it(`${p.twinId}: semanticDiff against ${p.ofId} is byte-stable`, () => {
+      const twin = p.twin
+      const original = p.original
+      expect(twin).toBeDefined()
+      expect(original).toBeDefined()
+      if (!twin || !original) return
+      // The public comparison, defaults and all: `names` and `declOrder` are ignored, so
+      // what survives is what the two surfaces genuinely built differently.
+      const diff = semanticDiff(original.module, twin.module)
+      checkGolden(
+        `${p.twinId}.semantic.json`,
+        `${JSON.stringify({ twin: p.twinId, of: p.ofId, equal: isSemanticallyEqual(diff), diff }, null, 2)}\n`,
+      )
+    })
+
     it(`${p.twinId}: WGSL diff against ${p.ofId} is byte-stable`, () => {
       const twin = p.twin
       const original = p.original
       expect(twin).toBeDefined()
       expect(original).toBeDefined()
       if (!twin || !original) return
+      // Spelling, which semanticDiff deliberately does not report.
       const diff = unifiedDiff(
         emitModule(original.module),
         emitModule(twin.module),
@@ -122,23 +141,6 @@ describe('twins — the emit difference is pinned', () => {
         `${p.twinId} ("use typeshade")`,
       )
       checkGolden(`${p.twinId}.diff`, diff)
-    })
-
-    it(`${p.twinId}: lowered-module comparison against ${p.ofId} is byte-stable`, () => {
-      const twin = p.twin
-      const original = p.original
-      expect(twin).toBeDefined()
-      expect(original).toBeDefined()
-      if (!twin || !original) return
-      const report = twinReport(
-        p.twinId,
-        p.ofId,
-        original.module,
-        twin.module,
-        emitModule(original.module),
-        emitModule(twin.module),
-      )
-      checkGolden(`${p.twinId}.semantic.json`, `${JSON.stringify(report, null, 2)}\n`)
     })
   }
 })
