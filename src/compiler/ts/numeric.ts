@@ -1,8 +1,20 @@
 // Scalar numeric policy: NO implicit i32 ↔ u32 ↔ f32 conversion.
 
-import type { Expr } from '../../core/ir/nodes.js'
+import ts from 'typescript'
+import type { BinOp, Expr } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
-import { f32T, i32T, u32T, typeKey } from '../../core/ir/types.js'
+import {
+  f32T,
+  f64T,
+  i32T,
+  u32T,
+  isF64,
+  isScalar,
+  isVec,
+  isVec64,
+  typeKey,
+} from '../../core/ir/types.js'
+import { foldNumericLit, retargetIntLit } from './lit-coerce.js'
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -14,6 +26,66 @@ export function isNumericScalarType(t: ShaderType): boolean {
   const k = typeKey(t)
   return k === 'f32' || k === 'i32' || k === 'u32'
 }
+
+/** The type a bare numeric literal should take when it meets `peer` in an arithmetic op: the
+ *  element scalar of a native vector (`v * 2` with `v: vec3<u32>` types the `2` as u32), and
+ *  the peer itself otherwise, so the scalar-scalar behaviour of the literal retarget is
+ *  unchanged. */
+export function literalPeerType(peer: ShaderType): ShaderType {
+  if (isVec(peer)) return peer.elem === 'f32' ? f32T : peer.elem === 'i32' ? i32T : u32T
+  return peer
+}
+
+function stripParens(node: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(node) ? stripParens(node.expression) : node
+}
+
+/** Retargets a bare numeric literal on one side of an arithmetic op to the kind its `peer`
+ *  asks for. Against a native vector or a scalar this is {@link retargetIntLit} with the
+ *  vector's element scalar as the peer (`v * 2` with `v: vec3<u32>` types the `2` as u32; a
+ *  scalar peer behaves as before). Against an emulated-double vector (vec64) a literal that
+ *  lowered to an f32 (`0.1`, `-2`, `Math.PI`, a folded `1. / 3.`) becomes an f64 literal
+ *  carrying the full double, as liftAgainst in src/core/ir/node.ts does for `v.mul(0.1)`; the
+ *  fp64 pass splits it into (hi, lo) halves, so the low half is kept instead of being widened
+ *  from the f32 rounding as (x, 0.0). An explicit call such as `f32(0.1)` is left alone. */
+export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
+  if (!isVec64(peer)) return retargetIntLit(expr, node, literalPeerType(peer))
+  const folded = foldNumericLit(expr)
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded
+  if (typeKey(folded.type) !== 'f32') return folded
+  if (ts.isCallExpression(stripParens(node))) return folded
+  return { op: 'lit', type: f64T, value: folded.value }
+}
+
+const BROADCAST_OPS: ReadonlySet<BinOp> = new Set<BinOp>(['+', '-', '*', '/', '%'])
+
+/** Result type of an arithmetic op (`+ - * / %`) between a vector and a scalar, or undefined
+ *  when the pair does not broadcast. This follows binResultType in src/core/ir/node.ts, the
+ *  rule the fn() EDSL applies (`v.mul(s)`, `s.sub(v)`), for which shapes broadcast: the result
+ *  is the vector's type whichever side it is on, and an emulated-double vector (vec64) takes
+ *  an f64 or f32 scalar, except under `%`, which has no f64 emulation. For a native vector it
+ *  is tighter than binResultType, which accepts any scalar at runtime and leaves the element
+ *  check to tsc through ArithArg: here the scalar must be the vector's own element kind, since
+ *  WGSL and GLSL reject `vec3<u32> * f32`. Operand order is the caller's to keep: `s * v`
+ *  stays scalar-left, which both backends emit as written and WGSL and GLSL accept. A
+ *  same-type pair, a vector against a vector, and every non-arithmetic operator are not this
+ *  helper's business and return undefined. */
+export function broadcastResultType(
+  left: ShaderType,
+  right: ShaderType,
+  bop: BinOp,
+): ShaderType | undefined {
+  if (!BROADCAST_OPS.has(bop)) return undefined
+  const [vec, other] = isVec(left) || isVec64(left) ? [left, right] : [right, left]
+  if (isVec(vec)) return isScalar(other) && other.scalar === vec.elem ? vec : undefined
+  if (isVec64(vec)) {
+    if (bop === '%') return undefined
+    return isF64(other) || (isScalar(other) && other.scalar === 'f32') ? vec : undefined
+  }
+  return undefined
+}
+
+const VEC_CTOR_SUFFIX: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u' }
 
 export function numericMismatch(op: string, left: ShaderType, right: ShaderType): string {
   const lk = typeKey(left)
@@ -27,13 +99,57 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
       `Cast one side: ${lk}(…) or ${rk}(…), e.g. a + ${lk === 'i32' ? 'i32' : 'u32'}(b).`
     )
   }
-  if ((lk === 'f32' && (rk === 'i32' || rk === 'u32')) || (rk === 'f32' && (lk === 'i32' || lk === 'u32'))) {
+  if (
+    (lk === 'f32' && (rk === 'i32' || rk === 'u32')) ||
+    (rk === 'f32' && (lk === 'i32' || lk === 'u32'))
+  ) {
     return (
       `Type mismatch: cannot ${op} ${pair} — no implicit int/float conversion. ` +
       `Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).`
     )
   }
-  return `Type mismatch: cannot ${op} ${pair}. Types must match, or cast with f32()/i32()/u32().`
+  if (isVec(left) && isVec(right)) {
+    if (left.n !== right.n) {
+      return `Type mismatch: cannot ${op} ${pair}. Vectors must have the same size.`
+    }
+    // There is no element-converting vector constructor yet (#8 A8): vec3u(v) with v a
+    // vec3<f32> is rejected, so the only spelling that compiles today casts per component.
+    const rebuilt = `vec${left.n}${VEC_CTOR_SUFFIX[left.elem]}(${'xyzw'
+      .slice(0, left.n)
+      .split('')
+      .map((c) => `${left.elem}(b.${c})`)
+      .join(', ')})`
+    const example = /^[-+*/%]$/.test(op) ? op : '+'
+    return (
+      `Type mismatch: cannot ${op} ${pair}. Vectors must have the same element type. ` +
+      `Cast one side per component, e.g. a ${example} ${rebuilt}.`
+    )
+  }
+  if ((op === '%' || op === '%=') && (isVec64(left) || isVec64(right))) {
+    return (
+      `Type mismatch: cannot ${op} ${pair}. % has no f64 emulation; ` +
+      `a vec64 takes a scalar only through + - * /.`
+    )
+  }
+  const [vec, scalar] = isVec(left) ? [left, right] : [right, left]
+  if (isVec(vec) && isScalar(scalar) && scalar.scalar in VEC_CTOR_SUFFIX) {
+    const splat = `vec${vec.n}${VEC_CTOR_SUFFIX[vec.elem]}(x)`
+    if (scalar.scalar === vec.elem) {
+      return (
+        `Type mismatch: cannot ${op} ${pair}. ` +
+        `A vector combines with a scalar of its element type only through + - * / %; ` +
+        `splat the scalar with ${splat} to get a vector.`
+      )
+    }
+    return (
+      `Type mismatch: cannot ${op} ${pair}. A vector takes a scalar of its own element type. ` +
+      `Cast the scalar: ${vec.elem}(x).`
+    )
+  }
+  if (isScalar(left) && isScalar(right)) {
+    return `Type mismatch: cannot ${op} ${pair}. Types must match, or cast with f32()/i32()/u32().`
+  }
+  return `Type mismatch: cannot ${op} ${pair}. Types must match.`
 }
 
 export function lowerScalarCast(name: string, arg: Expr): Expr | string {
