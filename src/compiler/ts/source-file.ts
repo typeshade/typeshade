@@ -9,6 +9,7 @@ import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { collectBindings } from './bindings.js'
 import { collectStructs, type CollectedStruct } from './structs.js'
+import type { DeclaredSymbol } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
@@ -73,6 +74,12 @@ export interface CompileTsSourceResult {
   readonly consts: readonly ConstDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly structs: readonly CollectedStruct[]
+  /** Every name the front end declared while lowering `sourceFile`, with the `ShaderType` it
+   *  gave it and the UTF-16 span of the declared name: the table an editor answers "what type
+   *  is this symbol" from, since TypeScript infers plain `number` for a numeric literal that
+   *  the compiler types `f32`. Empty when nothing was lowered (no directive, a parse error).
+   *  A side output: nothing here feeds lowering, the IR or emitted text. See `DeclaredSymbol`. */
+  readonly symbols: readonly DeclaredSymbol[]
   readonly wgsl?: string
 }
 
@@ -99,6 +106,7 @@ export function compileTsSource(
       ts.ScriptKind.TS,
     )
   const diagnostics: TsCompilerDiagnostic[] = []
+  const symbols: DeclaredSymbol[] = []
   const directive = findUseTypeshadeDirective(sourceFile)
   const hasDirective = directive !== undefined
   const empty = {
@@ -109,6 +117,7 @@ export function compileTsSource(
     consts: [],
     bindings: [],
     structs: [] as CollectedStruct[],
+    symbols,
   }
 
   if (!hasDirective) {
@@ -136,10 +145,12 @@ export function compileTsSource(
   }
 
   analyzeSemantics(sourceFile, diagnostics)
-  const structs = collectStructs(sourceFile, diagnostics)
-  const bindings = collectBindings(sourceFile, diagnostics)
-  const consts = collectModuleConsts(sourceFile, diagnostics)
-  const funcs = lowerSourceFunctions(sourceFile, diagnostics, consts, bindings, structs)
+  const structs = collectStructs(sourceFile, diagnostics, symbols)
+  const bindings = collectBindings(sourceFile, diagnostics, symbols)
+  const consts = collectModuleConsts(sourceFile, diagnostics, symbols)
+  // The CollectedStructs whole, not their decls: this item's TS8029 names the spelling the
+  // author used (`class`, `interface` or `type`), which only the collected form carries.
+  const funcs = lowerSourceFunctions(sourceFile, diagnostics, consts, bindings, structs, symbols)
   let wgsl: string | undefined
   const shouldEmit = options.emit ?? true
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
@@ -157,7 +168,17 @@ export function compileTsSource(
     }
   }
 
-  return { hasDirective: true, funcs, diagnostics, sourceFile, consts, bindings, structs, wgsl }
+  return {
+    hasDirective: true,
+    funcs,
+    diagnostics,
+    sourceFile,
+    consts,
+    bindings,
+    structs,
+    symbols,
+    wgsl,
+  }
 }
 
 /** Return whether a TypeScript source string opts into TypeShade with the "use typeshade" directive. */
