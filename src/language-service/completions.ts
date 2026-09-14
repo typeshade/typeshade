@@ -121,21 +121,72 @@ type CompletionContext =
   | { readonly kind: 'string'; readonly literal: ts.LiteralLikeNode }
   | { readonly kind: 'code'; readonly slot: ts.Node }
 
+/** The last node reached by following each node's last child (`forEachChild` order, which is
+ * source order): the rightmost leaf of `node`. */
+function rightmostLeaf(node: ts.Node): ts.Node {
+  for (;;) {
+    let last: ts.Node | undefined
+    node.forEachChild((child) => {
+      last = child
+    })
+    if (last === undefined) return node
+    node = last
+  }
+}
+
+/** Whether `text` between `start` and `end` is whitespace and comments only, read with a
+ * scanner that reports trivia as tokens (the public counterpart of the compiler's internal
+ * `skipTrivia`). */
+function isTriviaOnly(text: string, start: number, end: number): boolean {
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    /* skipTrivia */ false,
+    ts.LanguageVariant.Standard,
+    text,
+    undefined,
+    start,
+    end - start,
+  )
+  for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
+    if (kind < ts.SyntaxKind.FirstTriviaToken || kind > ts.SyntaxKind.LastTriviaToken) return false
+  }
+  return true
+}
+
+/**
+ * Whether `node` ends in a zero-width node the parser inserted for something missing at its
+ * very end (the type after `let x:` or `a:` that has not been written yet), with nothing but
+ * trivia between that end and `pos`. Such a node marks the slot the cursor at `pos` is filling,
+ * even when the parser has already attached the tokens after the cursor to the next sibling.
+ */
+function endsInMissingNodeBefore(node: ts.Node, sourceFile: ts.SourceFile, pos: number): boolean {
+  const end = node.getEnd()
+  if (end > pos) return false
+  const leaf = rightmostLeaf(node)
+  if (leaf.getFullStart() !== leaf.getEnd() || leaf.getEnd() !== end) return false
+  return isTriviaOnly(sourceFile.text, end, pos)
+}
+
 /**
  * The innermost node whose full span (`getFullStart()`, leading trivia included, through
  * `getEnd()`) holds `pos`, under the editor convention that a cursor touches the token before
- * it: at each level the child the cursor is strictly inside or at the end of wins, then the
- * child whose leading trivia (or first character) the cursor sits in, then a zero-width node
- * the parser inserted for something missing (the identifier of a `@` still being typed, the
- * type after a `:` not yet written), which marks the slot the cursor is filling. Unlike
+ * it: at each level the child the cursor is strictly inside or at the end of wins; then the
+ * last child with content before the cursor, when it ends in a zero-width node the parser
+ * inserted for something missing (`endsInMissingNodeBefore`: the type after a `:` not yet
+ * written), which marks the
+ * slot the cursor is filling even when the parser has attached what follows the cursor to the
+ * next sibling (`pos: |` on the line before `@location(1) uv: vec2` used to resolve to that
+ * decorator's name); then the child whose leading trivia (or first character) the cursor sits
+ * in; then a zero-width last child (the identifier of a `@` still being typed). Unlike
  * `nodeAtPosition`, which anchors a hover to a token, this never skips trivia, so a position
- * inside a comment resolves to the node the comment precedes and is then recognised as such
- * by `contextAt`.
+ * inside a comment resolves to the node around the comment and is then recognised as such by
+ * `contextAt`.
  */
 function slotAt(sourceFile: ts.SourceFile, pos: number): ts.Node {
   let node: ts.Node = sourceFile
   for (;;) {
     let inside: ts.Node | undefined
+    let prev: ts.Node | undefined
     let before: ts.Node | undefined
     let last: ts.Node | undefined
     node.forEachChild((child) => {
@@ -143,11 +194,13 @@ function slotAt(sourceFile: ts.SourceFile, pos: number): ts.Node {
       const start = child.getStart(sourceFile)
       const end = child.getEnd()
       if (inside === undefined && start < pos && pos <= end) inside = child
+      if (start < pos && end <= pos) prev = child
       if (before === undefined && fullStart <= pos && pos <= start) before = child
       if (fullStart <= pos) last = child
     })
     const next =
       inside ??
+      (prev !== undefined && endsInMissingNodeBefore(prev, sourceFile, pos) ? prev : undefined) ??
       before ??
       (last !== undefined && last.getFullStart() === last.getEnd() ? last : undefined)
     if (next === undefined) return node

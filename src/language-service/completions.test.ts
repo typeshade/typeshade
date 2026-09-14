@@ -155,6 +155,49 @@ describe('getCompletions: context is decided by the syntax tree, not the raw tex
     }
   })
 
+  // Regression: with nothing typed after the colon the parser's zero-width missing type node
+  // was only taken as the slot when it was the last child, so `f(a: |)` resolved to the
+  // FunctionDeclaration and `let x: |` at the end of the file to the EndOfFileToken, both of
+  // which counted as expression slots.
+  it('does not offer vec snippets in an empty type slot with nothing typed yet', () => {
+    const service = createTypeshadeLanguageService()
+    const source =
+      '"use typeshade";\n' +
+      'export function f(a: ): f32 {\n  return 1\n}\n' +
+      'class V {\n  pos: \n}\n' +
+      'let x: '
+    service.openDocument('t5.ts', source)
+    for (const cursor of ['f(a: ', 'pos: ', 'let x: ']) {
+      const items = completionsAt(service, 't5.ts', source, cursor)
+      expect(items.length, cursor).toBeGreaterThan(0)
+      expect(
+        items.filter((i) => i.kind === 'snippet'),
+        cursor,
+      ).toEqual([])
+    }
+  })
+
+  // Regression: the same empty type slot on the line before a decorated member or function
+  // resolved to the decorator's name in the next sibling's leading trivia and returned the
+  // attribute list alone, hiding TypeScript's type completions.
+  it("offers TypeScript's own answer, not attributes, in an empty type slot before a decorated sibling", () => {
+    const service = createTypeshadeLanguageService()
+    const source =
+      '"use typeshade";\n' +
+      'class V {\n  @location(0) pos: \n  @location(1) uv: vec2\n}\n' +
+      'let x: \n' +
+      '@vertex\nexport function f(): V {\n  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }\n}\n'
+    service.openDocument('t6.ts', source)
+    // TypeScript's own answer at `pos: ` before a decorated member is its class-member keyword
+    // list; before a decorated function it is the type list. Either way it is TypeScript's.
+    for (const cursor of ['pos: ', 'let x: ']) {
+      const items = completionsAt(service, 't6.ts', source, cursor)
+      expect(items.length, cursor).toBeGreaterThan(0)
+      expect(typeshadeSpecific(items), cursor).toEqual([])
+    }
+    expect(completionsAt(service, 't6.ts', source, 'let x: ').map((i) => i.label)).toContain('f32')
+  })
+
   it('does not offer vec snippets inside type arguments', () => {
     const service = createTypeshadeLanguageService()
     const source = '"use typeshade";\ndeclare const camera: uniform<vec>\n'
