@@ -1,5 +1,14 @@
-import ts from 'typescript'
-import { compileTsSource, type TsCompilerDiagnostic } from './compiler/ts/source-file.js'
+// === Compatibility shim over the real service in src/language-service/ (design doc §4 migration) ===
+//
+// PR #6's `TypeshadeLanguageService` took a source string on every call; the real service
+// (`./language-service/`) is document-based. This class keeps PR #6's exact method signatures
+// working by opening a temporary document on the real service for the duration of each call —
+// so `TypeshadeLanguageService` is now a thin adapter, not a second implementation.
+
+import {
+  createTypeshadeLanguageService,
+  type TypeshadeLanguageService as RealService,
+} from './language-service/index.js'
 
 /**
  * Zero-based editor position: `line` and `character` (a UTF-16 code unit offset) both start
@@ -35,7 +44,7 @@ export interface TypeshadeTextSpan {
  * `span`/`range` come directly from the compiler's own `start`/`length` (see
  * `TsCompilerDiagnostic` in `src/compiler/ts/source-file.ts`), which already cover the
  * offending node — `node.getStart(sourceFile)` through `node.getEnd()` — or the file's first
- * statement when the diagnostic has no single node behind it. Nothing here recomputes a
+ * statement when the diagnostic has no node behind it. Nothing here recomputes a
  * one-character span from `line`/`character` any more.
  */
 export interface TypeshadeDiagnostic {
@@ -81,119 +90,32 @@ export interface TypeshadeLanguageServiceOptions {
   readonly fileName?: string
 }
 
-const TYPES: readonly TypeshadeCompletionItem[] = [
-  { label: 'vec2', kind: 'type', detail: 'TypeShade vector type' },
-  { label: 'vec3', kind: 'type', detail: 'TypeShade vector type' },
-  { label: 'vec4', kind: 'type', detail: 'TypeShade vector type' },
-  { label: 'u32', kind: 'type', detail: '32-bit unsigned integer' },
-  { label: 'i32', kind: 'type', detail: '32-bit signed integer' },
-  { label: 'f32', kind: 'type', detail: '32-bit floating-point value' },
-]
-
-const ATTRIBUTES: readonly TypeshadeCompletionItem[] = [
-  { label: '@builtin', kind: 'attribute', detail: 'Declare a WebGPU builtin binding' },
-  { label: '@location', kind: 'attribute', detail: 'Declare a numeric shader location' },
-  { label: '@vertex', kind: 'attribute', detail: 'Mark a vertex entry point' },
-  { label: '@fragment', kind: 'attribute', detail: 'Mark a fragment entry point' },
-]
-
-const BUILTINS: readonly TypeshadeCompletionItem[] = [
-  { label: 'position', kind: 'value', detail: 'Builtin vertex position' },
-  { label: 'vertex_index', kind: 'value', detail: 'Builtin vertex index' },
-  { label: 'instance_index', kind: 'value', detail: 'Builtin instance index' },
-  { label: 'front_facing', kind: 'value', detail: 'Builtin fragment front-facing flag' },
-  { label: 'frag_depth', kind: 'value', detail: 'Builtin fragment depth' },
-]
-
-const FUNCTIONS: readonly TypeshadeCompletionItem[] = [
-  { label: 'vec2', kind: 'function', detail: 'Construct a vec2 value', insertText: 'vec2($1, $2)' },
-  {
-    label: 'vec3',
-    kind: 'function',
-    detail: 'Construct a vec3 value',
-    insertText: 'vec3($1, $2, $3)',
-  },
-  {
-    label: 'vec4',
-    kind: 'function',
-    detail: 'Construct a vec4 value',
-    insertText: 'vec4($1, $2, $3, $4)',
-  },
-]
-
-function isLineBreak(code: number): boolean {
-  return code === 10 /* \n */ || code === 13 /* \r */
+/** Maps the real service's `TypeshadeSeverity` (which adds `'information'`/`'hint'`) onto PR
+ * #6's three-way `category`, since nothing this shim's diagnostics table produces is a hint. */
+function toLegacyCategory(
+  severity: 'error' | 'warning' | 'information' | 'hint',
+): 'error' | 'warning' | 'message' {
+  if (severity === 'error' || severity === 'warning') return severity
+  return 'message'
 }
 
-/**
- * Clamps a zero-based line/character pair into the bounds of `sourceFile`: the line into
- * `[0, lineCount - 1]`, and the character into `[0, lineLength]` where `lineLength` excludes
- * the line's own terminator (so a CRLF or LF line ending is never treated as addressable
- * character content). Used so a caller-supplied position — including one derived from a
- * one-based compiler diagnostic — never reaches `ts.getPositionOfLineAndCharacter` out of range,
- * since that helper throws on a bad line or character.
- */
-function clampPosition(
-  sourceFile: ts.SourceFile,
-  line: number,
-  character: number,
-): { line: number; character: number } {
-  const lineStarts = sourceFile.getLineStarts()
-  const lineCount = lineStarts.length
-  const clampedLine = Math.max(0, Math.min(line, lineCount - 1))
-  const lineStart = lineStarts[clampedLine]!
-  const lineEndWithBreak =
-    clampedLine + 1 < lineCount ? lineStarts[clampedLine + 1]! : sourceFile.text.length
-  let lineEnd = lineEndWithBreak
-  while (lineEnd > lineStart && isLineBreak(sourceFile.text.charCodeAt(lineEnd - 1))) lineEnd--
-  const lineLength = lineEnd - lineStart
-  const clampedCharacter = Math.max(0, Math.min(character, lineLength))
-  return { line: clampedLine, character: clampedCharacter }
-}
-
-/** Converts a zero-based editor position into a UTF-16 source offset, using the parsed source file so CRLF and LF line endings are both handled correctly. */
-function offsetAt(sourceFile: ts.SourceFile, position: TypeshadePosition): number {
-  const clamped = clampPosition(sourceFile, position.line, position.character)
-  return ts.getPositionOfLineAndCharacter(sourceFile, clamped.line, clamped.character)
-}
-
-/** Converts a UTF-16 source offset into a zero-based editor position, using the parsed source file. */
-function positionAt(sourceFile: ts.SourceFile, offset: number): TypeshadePosition {
-  const clampedOffset = Math.max(0, Math.min(offset, sourceFile.text.length))
-  const lc = ts.getLineAndCharacterOfPosition(sourceFile, clampedOffset)
-  return { line: lc.line, character: lc.character }
-}
-
-/**
- * Builds the UTF-16 offset span for a compiler diagnostic directly from its own `start`/
- * `length` (real node bounds, or the file's first statement when the diagnostic has no node —
- * see `TsCompilerDiagnostic`), clamped into the file's bounds in case the source the diagnostic
- * was computed against differs from `sourceFile`.
- */
-function spanForDiagnostic(
-  sourceFile: ts.SourceFile,
-  diagnostic: TsCompilerDiagnostic,
-): TypeshadeTextSpan {
-  const max = sourceFile.text.length
-  const start = Math.max(0, Math.min(diagnostic.start, max))
-  const end = Math.max(start, Math.min(diagnostic.start + diagnostic.length, max))
-  return { start, length: end - start }
-}
-
-/** Converts a UTF-16 offset span into the equivalent zero-based half-open range. */
-function rangeForSpan(sourceFile: ts.SourceFile, span: TypeshadeTextSpan): TypeshadeRange {
-  return {
-    start: positionAt(sourceFile, span.start),
-    end: positionAt(sourceFile, span.start + span.length),
-  }
-}
-
-function wordSpan(source: string, offset: number): TypeshadeTextSpan {
-  let start = offset
-  let end = offset
-  while (start > 0 && /[A-Za-z0-9_@]/.test(source[start - 1]!)) start--
-  while (end < source.length && /[A-Za-z0-9_@]/.test(source[end]!)) end++
-  return { start, length: end - start }
+function toLegacyCompletionKind(
+  kind:
+    | 'keyword'
+    | 'type'
+    | 'function'
+    | 'attribute'
+    | 'builtin'
+    | 'variable'
+    | 'field'
+    | 'struct'
+    | 'resource'
+    | 'snippet',
+): 'keyword' | 'type' | 'function' | 'attribute' | 'value' {
+  if (kind === 'keyword' || kind === 'type' || kind === 'function' || kind === 'attribute')
+    return kind
+  if (kind === 'snippet') return 'function'
+  return 'value'
 }
 
 /** Provides Typeshade diagnostics, completion, hover, and position mapping for editor integrations. */
@@ -201,97 +123,72 @@ export class TypeshadeLanguageService {
   /** File name used when parsing source text; carries no filesystem meaning. */
   readonly fileName: string
 
+  #service: RealService
+
   constructor(options: TypeshadeLanguageServiceOptions = {}) {
     this.fileName = options.fileName ?? 'typeshade-input.ts'
+    this.#service = createTypeshadeLanguageService()
+  }
+
+  /** Opens `source` as a temporary document under `this.fileName`, runs `fn`, and closes it. */
+  #withDocument<T>(source: string, fn: (uri: string) => T): T {
+    const uri = this.fileName
+    this.#service.openDocument(uri, source)
+    try {
+      return fn(uri)
+    } finally {
+      this.#service.closeDocument(uri)
+    }
   }
 
   /** Returns compiler diagnostics with zero-based ranges and UTF-16 spans suitable for editor markers. */
   getDiagnostics(source: string): readonly TypeshadeDiagnostic[] {
-    const result = compileTsSource(source, { fileName: this.fileName, requireDirective: true })
-    return result.diagnostics.map((diagnostic) => {
-      const span = spanForDiagnostic(result.sourceFile, diagnostic)
-      return {
-        message: diagnostic.message,
-        category: diagnostic.category,
-        code: diagnostic.code,
-        fileName: diagnostic.fileName,
-        range: rangeForSpan(result.sourceFile, span),
-        span,
-      }
-    })
+    return this.#withDocument(source, (uri) =>
+      this.#service.getDiagnostics(uri).map((d) => ({
+        message: d.message,
+        category: toLegacyCategory(d.severity),
+        code: typeof d.code === 'string' ? d.code : String(d.code),
+        fileName: uri,
+        range: d.range,
+        span: d.span,
+      })),
+    )
   }
 
   /** Returns context-aware Typeshade completion items at a zero-based editor position. */
   getCompletions(source: string, position: TypeshadePosition): readonly TypeshadeCompletionItem[] {
-    const sourceFile = ts.createSourceFile(
-      this.fileName,
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
+    return this.#withDocument(source, (uri) =>
+      this.#service.getCompletions(uri, position).map((item) => ({
+        label: item.label,
+        kind: toLegacyCompletionKind(item.kind),
+        detail: item.detail ?? '',
+        ...(item.insertText ? { insertText: item.insertText } : {}),
+      })),
     )
-    const offset = offsetAt(sourceFile, position)
-    const before = source.slice(0, offset)
-    const attributeMatch = before.match(/@builtin\(\s*["']([^"']*)$/)
-    if (attributeMatch) return BUILTINS.filter((item) => item.label.startsWith(attributeMatch[1]!))
-
-    if (/@[A-Za-z]*$/.test(before)) return ATTRIBUTES
-    if (/(?:^|[\s:(,])(?:v|ve|vec|u|i|f)[A-Za-z0-9_]*$/.test(before))
-      return [...TYPES, ...FUNCTIONS]
-    return [...TYPES, ...ATTRIBUTES]
   }
 
   /** Returns hover documentation for known Typeshade types and attributes at a zero-based editor position. */
   getHover(source: string, position: TypeshadePosition): TypeshadeHover | undefined {
-    const sourceFile = ts.createSourceFile(
-      this.fileName,
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    )
-    const offset = offsetAt(sourceFile, position)
-    const span = wordSpan(source, offset)
-    const word = source.slice(span.start, span.start + span.length)
-    const descriptions: Record<string, string> = {
-      vec2: '`vec2` — two-component shader vector.',
-      vec3: '`vec3` — three-component shader vector.',
-      vec4: '`vec4` — four-component shader vector.',
-      u32: '`u32` — 32-bit unsigned integer shader type.',
-      i32: '`i32` — 32-bit signed integer shader type.',
-      f32: '`f32` — 32-bit floating-point shader type.',
-      '@builtin': '`@builtin` — maps a field or parameter to a WebGPU builtin.',
-      '@location': '`@location` — maps a field to a numeric shader location.',
-      '@vertex': '`@vertex` — marks a function as a vertex entry point.',
-      '@fragment': '`@fragment` — marks a function as a fragment entry point.',
-    }
-    const description = descriptions[word]
-    return description
-      ? { contents: [description], span, range: rangeForSpan(sourceFile, span) }
-      : undefined
+    return this.#withDocument(source, (uri) => {
+      const hover = this.#service.getHover(uri, position)
+      if (!hover) return undefined
+      const start = this.#service.offsetAt(uri, hover.range.start)
+      const end = this.#service.offsetAt(uri, hover.range.end)
+      return {
+        contents: [hover.contents],
+        span: { start, length: end - start },
+        range: hover.range,
+      }
+    })
   }
 
   /** Converts a UTF-16 source offset into the zero-based position used by adapters; an offset past the end of the source clamps to the end. */
   getPosition(source: string, offset: number): TypeshadePosition {
-    const sourceFile = ts.createSourceFile(
-      this.fileName,
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    )
-    return positionAt(sourceFile, offset)
+    return this.#withDocument(source, (uri) => this.#service.positionAt(uri, offset))
   }
 
   /** Converts a zero-based editor position into a UTF-16 source offset; a position past the end of the source clamps to the end. */
   getOffset(source: string, position: TypeshadePosition): number {
-    const sourceFile = ts.createSourceFile(
-      this.fileName,
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    )
-    return offsetAt(sourceFile, position)
+    return this.#withDocument(source, (uri) => this.#service.offsetAt(uri, position))
   }
 }

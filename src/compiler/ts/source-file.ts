@@ -16,6 +16,18 @@ import { makeDiagnostic } from './diagnostic.js'
 export interface CompileTsSourceOptions {
   readonly fileName?: string
   readonly requireDirective?: boolean
+  /** When `false`, skips `packModule`/WGSL emission entirely: the front end still parses,
+   * analyzes and lowers to IR, but `CompileTsSourceResult.wgsl` is always `undefined`. The
+   * language service's diagnostics analysis uses this so `getDiagnostics` never produces
+   * shader text (design doc §8). Defaults to `true`, the pre-existing behavior. */
+  readonly emit?: boolean
+  /** A pre-parsed source file to analyze instead of parsing `source` again — the language
+   * service passes its own TypeScript program's `SourceFile` here so `getDiagnostics` runs on
+   * the exact node identities the program already built, never a second parse (design doc §5,
+   * §8). `source` must still be given (some callers, and every existing one, use it as the
+   * text and never set this); when set, `source` is not re-parsed and `options.fileName` is
+   * ignored in favor of `sourceFile.fileName`. */
+  readonly sourceFile?: ts.SourceFile
 }
 
 /**
@@ -64,14 +76,15 @@ export function compileTsSource(
   source: string,
   options: CompileTsSourceOptions = {},
 ): CompileTsSourceResult {
-  const fileName = options.fileName ?? 'typeshade-input.ts'
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  )
+  const sourceFile =
+    options.sourceFile ??
+    ts.createSourceFile(
+      options.fileName ?? 'typeshade-input.ts',
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    )
   const diagnostics: TsCompilerDiagnostic[] = []
   const directive = findUseTypeshadeDirective(sourceFile)
   const hasDirective = directive !== undefined
@@ -111,7 +124,8 @@ export function compileTsSource(
     structs.map((s) => s.decl),
   )
   let wgsl: string | undefined
-  if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
+  const shouldEmit = options.emit ?? true
+  if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {
       wgsl = emitModule({
         consts: [...consts],
