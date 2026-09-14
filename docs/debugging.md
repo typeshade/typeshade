@@ -449,7 +449,7 @@ inconsistency and is better described as two conventions answering to two differ
 The one-based pair IS read, by three places, and all three format it into a human-readable
 `file:line:col` string: `compile()`'s "cannot evaluate" error (`src/compiler/ts/compile.ts`),
 the Vite plugin's build failure (`src/compiler/ts/vite.ts`) and the example gate's report
-(`examples/_shade.ts`). What no reader does is consume it as a POSITION — the language service
+(`examples/_shade.ts`). What no reader does is consume it as a POSITION: the language service
 re-derives zero-based positions from the same `start` and `length` this type carries, and never
 from the pair. So one-based is the convention a person reading a terminal line expects, and a
 type meant for an editor should follow the editor's. Changing the diagnostic shape is a
@@ -648,7 +648,7 @@ Four builtins the front end accepts as an entry input have no row above: `sample
 (fragment), `subgroup_invocation_id` and `subgroup_size` (compute), and `clip_distances`, which
 `builtin-check.ts` leaves unconstrained. Nothing special happens to them. The resolver is keyed
 by the entry's OWN declarations rather than by this table, so each of the four is namable where
-an entry declares it, and each reads as the zero of its type when omitted — the same default
+an entry declares it, and each reads as the zero of its type when omitted, the same default
 every other omitted input gets. The table is what a reader needs, not what the resolver
 consults.
 
