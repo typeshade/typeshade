@@ -9,6 +9,59 @@ Related: `docs/use-typeshade-surface.md` (the language), `docs/use-typeshade-pla
 phases, Phase 22 "Tooling"), typeshade/typeshade#8 (authoring ergonomics survey, item A13 on the
 ambient `.d.ts`).
 
+## 0. What exists on this branch
+
+The string-based Stage 1 service from PR #6, with the coordinate change applied. This is the
+starting point the rest of the document moves away from:
+
+```ts
+export interface TypeshadePosition {
+  readonly line: number
+  readonly character: number
+} // zero-based
+export interface TypeshadeRange {
+  readonly start: TypeshadePosition
+  readonly end: TypeshadePosition
+} // half-open
+export interface TypeshadeTextSpan {
+  readonly start: number
+  readonly length: number
+} // UTF-16 offsets
+export interface TypeshadeDiagnostic {
+  readonly message: string
+  readonly category: 'error' | 'warning' | 'message'
+  readonly code?: string
+  readonly fileName: string
+  readonly range: TypeshadeRange // width 1 until the compiler reports an end position
+  readonly span: TypeshadeTextSpan
+}
+export interface TypeshadeCompletionItem {
+  label
+  kind
+  detail
+  insertText?
+}
+export interface TypeshadeHover {
+  readonly contents: readonly string[]
+  readonly span: TypeshadeTextSpan
+  readonly range: TypeshadeRange
+}
+
+export class TypeshadeLanguageService {
+  constructor(options?: { fileName?: string })
+  getDiagnostics(source: string): readonly TypeshadeDiagnostic[]
+  getCompletions(source: string, position: TypeshadePosition): readonly TypeshadeCompletionItem[]
+  getHover(source: string, position: TypeshadePosition): TypeshadeHover | undefined
+  getPosition(source: string, offset: number): TypeshadePosition
+  getOffset(source: string, position: TypeshadePosition): number
+}
+```
+
+Every conversion goes through the parsed `ts.SourceFile` (`getLineStarts`,
+`getPositionOfLineAndCharacter`, `getLineAndCharacterOfPosition`) with clamping, so CRLF sources
+and positions past the end of the file are handled. Completion and hover are still table-driven
+(no TypeScript program yet); that is what §4 and §5 change.
+
 ## 1. Layering
 
 ```
