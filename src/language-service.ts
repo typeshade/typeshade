@@ -1,21 +1,25 @@
 import ts from 'typescript'
 import { compileTsSource, type TsCompilerDiagnostic } from './compiler/ts/source-file.js'
 
+/** One-based editor position used by Typeshade editor adapters. */
 export interface TypeshadePosition {
   readonly line: number
   readonly character: number
 }
 
+/** UTF-16 source span used to map Typeshade information back into an editor. */
 export interface TypeshadeTextSpan {
   readonly start: number
   readonly length: number
 }
 
+/** Compiler diagnostic enriched with the source span that produced it. */
 export interface TypeshadeDiagnostic extends TsCompilerDiagnostic {
   readonly start: number
   readonly length: number
 }
 
+/** Completion item exposed by the Typeshade language layer. */
 export interface TypeshadeCompletionItem {
   readonly label: string
   readonly kind: 'keyword' | 'type' | 'function' | 'attribute' | 'value'
@@ -23,11 +27,13 @@ export interface TypeshadeCompletionItem {
   readonly insertText?: string
 }
 
+/** Hover documentation and source span returned by the language layer. */
 export interface TypeshadeHover {
   readonly contents: readonly string[]
   readonly span: TypeshadeTextSpan
 }
 
+/** Configuration for a Typeshade language-service instance. */
 export interface TypeshadeLanguageServiceOptions {
   readonly fileName?: string
 }
@@ -86,6 +92,7 @@ function wordSpan(source: string, offset: number): TypeshadeTextSpan {
   return { start, length: end - start }
 }
 
+/** Provides Typeshade diagnostics, completion, hover, and position mapping for editor integrations. */
 export class TypeshadeLanguageService {
   readonly fileName: string
 
@@ -93,11 +100,13 @@ export class TypeshadeLanguageService {
     this.fileName = options.fileName ?? 'typeshade-input.ts'
   }
 
+  /** Returns compiler diagnostics with source offsets suitable for editor markers. */
   getDiagnostics(source: string): readonly TypeshadeDiagnostic[] {
     const result = compileTsSource(source, { fileName: this.fileName, requireDirective: true })
     return result.diagnostics.map((diagnostic) => ({ ...diagnostic, ...spanForDiagnostic(result.sourceFile, diagnostic) }))
   }
 
+  /** Returns context-aware Typeshade completion items at an editor position. */
   getCompletions(source: string, position: TypeshadePosition): readonly TypeshadeCompletionItem[] {
     const offset = offsetAt(source, position)
     const before = source.slice(0, offset)
@@ -109,6 +118,7 @@ export class TypeshadeLanguageService {
     return [...TYPES, ...ATTRIBUTES]
   }
 
+  /** Returns hover documentation for known Typeshade types and attributes. */
   getHover(source: string, position: TypeshadePosition): TypeshadeHover | undefined {
     const offset = offsetAt(source, position)
     const span = wordSpan(source, offset)
@@ -129,6 +139,7 @@ export class TypeshadeLanguageService {
     return description ? { contents: [description], span } : undefined
   }
 
+  /** Converts a UTF-16 source offset into the one-based position used by adapters. */
   getPosition(source: string, offset: number): TypeshadePosition {
     const file = ts.createSourceFile(this.fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
     return positionAt(file, offset)
