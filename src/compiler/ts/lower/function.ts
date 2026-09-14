@@ -3,6 +3,7 @@
 import ts from 'typescript'
 import type { BindingDecl, FuncDecl, Stmt, Expr, StructDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
+import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
@@ -10,6 +11,7 @@ import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
 import { makeDiagnostic } from '../diagnostic.js'
+import { spanOf } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import {
   builtinDecoratorArg,
@@ -239,6 +241,11 @@ export function parseSignature(
     )
   }
   const decl: FuncDecl = { name, params, ret, body: [] }
+  // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
+  // function's span covers its `@fragment` line; `nameSpan` is just the identifier, for a
+  // stack frame that highlights the name rather than the whole body.
+  ;(decl as { span?: SourceSpan }).span = spanOf(sourceFile, node)
+  ;(decl as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, node.name)
   if (stageInfo.stage) (decl as { stage?: FuncDecl['stage'] }).stage = stageInfo.stage
   if (stageInfo.workgroupSize !== undefined) {
     ;(decl as { workgroupSize?: number }).workgroupSize = stageInfo.workgroupSize

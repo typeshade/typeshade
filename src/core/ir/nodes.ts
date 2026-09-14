@@ -3,9 +3,10 @@
 // The pure data shapes of the IR: expression nodes (Expr), statement nodes
 // (Stmt), and module-level declarations. No Node class, no runtime helpers —
 // just the structural types the authoring layer (node.ts/builder.ts) builds and
-// the backends consume. Imports only types.ts.
+// the backends consume. Imports only types.ts and span.ts (both type-only).
 
 import type { ShaderType } from './types.js'
+import type { SourceSpan } from './span.js'
 
 // ── Expression nodes ──
 
@@ -75,8 +76,26 @@ export type Expr =
   // to report it under `requires` rather than as a binding. Emits as the bare name, or as
   // the per-target spelling when the host spells it differently on each backend.
   | { readonly op: 'externref'; readonly type: ShaderType; readonly name: string }
-  | { readonly op: 'param'; readonly type: ShaderType; readonly name: string }
-  | { readonly op: 'varref'; readonly type: ShaderType; readonly name: string }
+  | {
+      readonly op: 'param'
+      readonly type: ShaderType
+      readonly name: string
+      /** Where this was written, when it is the TARGET of an assignment — the lvalue a
+       *  statement is about to write, so a debugger can highlight what changes rather than the
+       *  whole line. A read of the same name carries none in this increment. Read it with
+       *  {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
+  | {
+      readonly op: 'varref'
+      readonly type: ShaderType
+      readonly name: string
+      /** Where this was written, when it is the TARGET of an assignment — the lvalue a
+       *  statement is about to write, so a debugger can highlight what changes rather than the
+       *  whole line. A read of the same name carries none in this increment. Read it with
+       *  {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
   | {
       readonly op: 'binop'
       readonly type: ShaderType
@@ -110,6 +129,13 @@ export type Expr =
       readonly fn: string
       readonly args: readonly Expr[]
       readonly declRef?: FuncDecl
+      /** Where this call was written, when it is the outermost call node lowered from a
+       *  `ts.CallExpression`. Stepping into a helper has to tell two calls in one statement
+       *  apart, which is why this expression kind carries a span at all. A call the front end
+       *  synthesises while expanding one (the `random` hash, an array higher-order function,
+       *  a `Math.*` expansion, a numeric cast) carries none, because it was written nowhere.
+       *  Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
     }
   | {
       readonly op: 'member'
@@ -125,7 +151,17 @@ export type Expr =
       readonly ifTrue: Expr
       readonly ifFalse: Expr
     }
-  | { readonly op: 'index'; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr }
+  | {
+      readonly op: 'index'
+      readonly type: ShaderType
+      readonly base: Expr
+      readonly idx: Expr
+      /** Where this was written, when it is the TARGET of an assignment — the lvalue a
+       *  statement is about to write, so a debugger can highlight what changes rather than the
+       *  whole line. A read of the same name carries none in this increment. Read it with
+       *  {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
   // `match (scrutinee) { case v0: e0; ...; default: dflt }`. The WGSL backend
   // pre-emit pass (core/passes/match-lower.ts) lowers every matchExpr inside
   // an fn body into a hoisted `{ Stmt.var slot, Stmt.switch }` pair + a
@@ -153,32 +189,77 @@ export type Expr =
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export type Stmt =
-  | { readonly s: 'let'; readonly name: string; readonly expr: Expr }
-  | { readonly s: 'var'; readonly name: string; readonly type: ShaderType; readonly init?: Expr }
-  | { readonly s: 'assign'; readonly target: Expr; readonly expr: Expr }
-  | { readonly s: 'assignOp'; readonly target: Expr; readonly bop: BinOp; readonly expr: Expr }
+  | {
+      readonly s: 'let'
+      readonly name: string
+      readonly expr: Expr
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
+  | {
+      readonly s: 'var'
+      readonly name: string
+      readonly type: ShaderType
+      readonly init?: Expr
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
+  | {
+      readonly s: 'assign'
+      readonly target: Expr
+      readonly expr: Expr
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
+  | {
+      readonly s: 'assignOp'
+      readonly target: Expr
+      readonly bop: BinOp
+      readonly expr: Expr
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
   | {
       readonly s: 'if'
       readonly arms: ReadonlyArray<{ readonly cond: Expr; readonly body: readonly Stmt[] }>
       readonly elseBody?: readonly Stmt[]
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
     }
-  | { readonly s: 'return'; readonly expr?: Expr }
+  | {
+      readonly s: 'return'
+      readonly expr?: Expr
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
   | {
       readonly s: 'for'
       readonly init: Stmt
       readonly cond: Expr
       readonly update: Stmt
       readonly body: readonly Stmt[]
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
     }
   | {
       readonly s: 'switch'
       readonly scrut: Expr
       readonly cases: ReadonlyArray<{ readonly value: number; readonly body: readonly Stmt[] }>
       readonly defaultBody?: readonly Stmt[]
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
     }
-  | { readonly s: 'break' }
-  | { readonly s: 'continue' }
-  | { readonly s: 'discard' }
+  | { readonly s: 'break'; readonly span?: SourceSpan }
+  | { readonly s: 'continue'; readonly span?: SourceSpan }
+  | { readonly s: 'discard'; readonly span?: SourceSpan }
   // Phase 2.5 US-007 — composer-swap marker. The polygon DSL module
   // (shaders/polygon.ts) lays down a placeholder Stmt at each
   // variant-injection site (`fill-return` / `stroke-return`); the
@@ -189,7 +270,7 @@ export type Stmt =
   // (the comment would silently no-op a missing return). The
   // lowerModule pre-emit pass treats placeholder as a leaf — no
   // matchExpr lowering descends into it.
-  | { readonly s: 'placeholder'; readonly tag: string }
+  | { readonly s: 'placeholder'; readonly tag: string; readonly span?: SourceSpan }
   // Phase 2 PR 2e.B.2 — raw passthrough. Carries a pre-built target
   // fragment emitted verbatim (at the enclosing body indent) before the
   // surrounding statements. Used by the polygon composer's fill/stroke
@@ -212,8 +293,8 @@ export type Stmt =
   // glsl-only raw throws on the WGSL one. A one-sided raw is therefore still
   // a hard "this module does not build for that target", never a silent
   // mis-emit.
-  | { readonly s: 'raw'; readonly wgsl: string; readonly glsl?: string }
-  | { readonly s: 'raw'; readonly wgsl?: string; readonly glsl: string }
+  | { readonly s: 'raw'; readonly wgsl: string; readonly glsl?: string; readonly span?: SourceSpan }
+  | { readonly s: 'raw'; readonly wgsl?: string; readonly glsl: string; readonly span?: SourceSpan }
 
 /** The `raw` statement node: a fragment of target source spliced verbatim into a
  *  function body, spelled per target. It carries a `wgsl` side, a `glsl` side, or both,
@@ -462,6 +543,14 @@ export interface FuncDecl {
    *  Structured only, with no `attrs` spelling (like `portable` above): it is not a WGSL
    *  attribute and changes nothing in the emitted source. */
   readonly opaque?: boolean
+  /** Where this function was declared in its authored `"use typeshade"` source: the whole
+   *  declaration, from the first decorator or the `export` keyword through the closing brace.
+   *  Absent on an EDSL-authored or pass-synthesised function. Read it with
+   *  {@link sourceSpanOf}. */
+  readonly span?: SourceSpan
+  /** The span of just this function's name in its authored source, so a stack frame can
+   *  highlight the identifier rather than the whole body. Absent whenever `span` is. */
+  readonly nameSpan?: SourceSpan
   /** Documented deviation from the single-exit lint rule: when true, the rule skips this
    *  function because it has an intentional early return, such as a guard that skips an
    *  expensive loop. Use sparingly, with a comment stating why. */

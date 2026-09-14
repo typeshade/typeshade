@@ -140,6 +140,9 @@ const nowMs = (): number => {
  *  Object key ORDER is not compared: the emitter reads IR fields by name, so a
  *  key-order-only difference can never reach emitted bytes — pinned by the
  *  emit-goldens + polygon-variant-diff byte gates. */
+/** Keys that record where a node came from rather than what it means. */
+const isProvenance = (k: string): boolean => k === 'span' || k === 'nameSpan'
+
 export function irEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
@@ -154,8 +157,13 @@ export function irEqual(a: unknown, b: unknown): boolean {
   }
   const ao = a as Record<string, unknown>
   const bo = b as Record<string, unknown>
-  const ak = Object.keys(ao).filter((k) => ao[k] !== undefined)
-  const bk = Object.keys(bo).filter((k) => bo[k] !== undefined)
+  // `span`/`nameSpan` are PROVENANCE, never program: they say where a statement was written,
+  // and this function asks whether a pass changed what the program DOES. Leaving them in makes
+  // two otherwise-equal trees compare unequal whenever a pass rebuilt one of them, which costs
+  // the fixpoint an extra iteration — measured at twice the iterations on a registered example
+  // when spans first landed. No emitted byte moves either way; the cost was the whole effect.
+  const ak = Object.keys(ao).filter((k) => ao[k] !== undefined && !isProvenance(k))
+  const bk = Object.keys(bo).filter((k) => bo[k] !== undefined && !isProvenance(k))
   if (ak.length !== bk.length) return false
   // A key defined on `a` but absent/undefined on `b` fails via irEqual(x, undefined).
   for (const k of ak) if (!irEqual(ao[k], bo[k])) return false
