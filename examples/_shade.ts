@@ -120,9 +120,23 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
   },
   {
     id: 'palette-const',
-    title: 'Module constants',
+    title: 'Module vector and array constants',
     blurb:
       'A fullscreen triangle banded by a module-scope `array<vec4, 3>` palette and an `array<f32, 3>` of stops, with a `vec3` constant built from an earlier scalar one — every shape a module constant can now take, read from both stages.',
+    renderable: true,
+  },
+  {
+    id: 'convert-grid',
+    title: 'Converting constructors',
+    blurb:
+      'A fullscreen triangle whose corner comes from `vec2(vec2u(...))` and whose colour comes from an `f32`→`u32`→`f32` round trip — the element-converting constructor in both directions and at both ends of the pipeline.',
+    renderable: true,
+  },
+  {
+    id: 'module-const',
+    title: 'Module constants',
+    blurb:
+      'A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands every spelling to Tint and to a real WebGL2 context.',
     renderable: true,
   },
   {
