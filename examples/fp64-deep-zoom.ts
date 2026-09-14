@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 deep-zoom precision stripes ═══
+// ═══ typeshade example — fp64 deep-zoom precision stripes ═══
 //
 // The emulated-double (f64) surface in one screen: a world coordinate near
 // 1e8 (where f32's ulp is 8 — every sub-integer detail is gone) is swept

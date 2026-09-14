@@ -67,7 +67,7 @@ export type CapProfile = Readonly<Partial<Record<Capability, CapSupport>>>
  *  This is why the GLSL ES 3.00 `capProfile` has no row for `storageBuffer`, `compute`, or
  *  `msaaTextureLoad`: the gate refuses the module before the writer sees it.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export class Capabilities {
   constructor(private readonly set: ReadonlySet<Capability>) {}
@@ -113,7 +113,7 @@ export class Capabilities {
  *  function: a `map` over the profile at each call site yields `undefined` holes a host then
  *  hands to `getExtension` verbatim. The returned list has no holes.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param be - the backend whose capability profile does the translating.
  *  @param caps - the neutral ids, usually `reflect(m).requiredFeatures`.
@@ -122,7 +122,7 @@ export class Capabilities {
  *
  *  @example
  *  ```ts
- *  import { hostFeaturesFor, reflect, glslEs300Backend, wgslBackend } from '@xgis/shader-dsl'
+ *  import { hostFeaturesFor, reflect, glslEs300Backend, wgslBackend } from 'typeshade'
  *
  *  const caps = reflect(MODULE).requiredFeatures
  *
@@ -163,7 +163,7 @@ export function hostFeaturesFor(be: Backend, caps: readonly Capability[]): reado
  *  declaration (GLSL has no syntax for a struct or binding at a bare emit site) throws the
  *  same error from that method.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface Backend {
   readonly id: string
@@ -338,14 +338,14 @@ export interface CapabilityRow {
  *  `declarable` is false for the three capabilities derived from a module's shape,
  *  `storageBuffer`, `compute` and `msaaTextureLoad`, which `enables` cannot name.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param backends - the backends to compare, in the column order you want.
  *  @returns one row per capability, in the canonical capability order.
  *
  *  @example
  *  ```ts
- *  import { capabilityMatrix, wgslBackend, glslEs300Backend } from '@xgis/shader-dsl'
+ *  import { capabilityMatrix, wgslBackend, glslEs300Backend } from 'typeshade'
  *
  *  capabilityMatrix([wgslBackend, glslEs300Backend])
  *  // [{ capability: 'storageBuffer',

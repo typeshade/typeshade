@@ -17,7 +17,7 @@ import { getLoc } from '../../diagnostics/loc.js'
  *  narrows its own `severity` to `'error' | 'warning'`. An `'error'` is what
  *  {@link LintSummary}'s `errors` counts, and the usual gate on whether emit should proceed.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  */
 export type Severity = 'error' | 'warning' | 'off'
 
@@ -31,7 +31,7 @@ export type Severity = 'error' | 'warning' | 'off'
  *  present on rules that map onto one. Tooling should branch on `code` or `ruleId`, since
  *  `message` is free text.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface Diagnostic {
   /** Id of the rule that reported the problem, for example `'param-count'`. */
@@ -98,11 +98,11 @@ export interface LintRule {
  *  instead, put the rule id in that function's `lintDisable` — a deviation that is checked in
  *  turn by `unusedDeviations`, so it cannot rot into a permanent unexplained mute.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  *
  *  @example
  *  ```ts
- *  import { diagnose } from '@xgis/shader-dsl/dev'
+ *  import { diagnose } from 'typeshade/dev'
  *
  *  diagnose(MODULE, {
  *    config: { severity: { 'param-count': 'warning' }, options: { 'param-count': { max: 8 } } },
@@ -258,7 +258,7 @@ export function lint(m: ModuleDecl, rules: readonly LintRule[], config?: LintCon
  *  array. `errors + warnings === total` (a {@link Diagnostic} is never `'off'`), and `byRule`
  *  is keyed by `ruleId` with rules that fired nothing simply absent rather than present at 0.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  */
 export interface LintSummary {
   readonly total: number

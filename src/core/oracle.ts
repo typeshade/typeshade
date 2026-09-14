@@ -56,7 +56,7 @@ import {
   numKindOf,
 } from './cpu-runtime.js'
 
-// Preserve the historical `@xgis/shader-dsl` oracle surface: the value-model
+// Preserve the historical `typeshade` oracle surface: the value-model
 // types + the builtin/stub name sets moved to cpu-runtime.ts (single authority),
 // re-exported here so existing importers of `./oracle` are unaffected.
 export type { CpuValue, CpuStruct } from './cpu-runtime.js'
@@ -86,7 +86,7 @@ interface Ctx {
  *  `compileModuleJs(m).fns.f(args)` and `compileModule(m).fns.f(args)` agree under `Object.is`,
  *  element for element.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface CpuModule {
   /** The module's declared functions by name. Parameters are positional, in declaration
@@ -399,7 +399,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
  *    it when the question is what the target computes, so a parity gate can compare at ulp
  *    scale without a tolerance wide enough to hide a real error.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type CpuPrecision = 'f64' | 'f32'
 
@@ -433,7 +433,7 @@ export type CpuPrecision = 'f64' | 'f32'
  *  It runs {@link validate} and {@link autoVars} first, the same passes the GPU writers run, so
  *  it rejects the same malformed modules they do.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to evaluate.
  *  @param opts - `precision` and `gpuStubs`, as above.
@@ -443,7 +443,7 @@ export type CpuPrecision = 'f64' | 'f32'
  *
  *  @example
  *  ```ts
- *  import { compileModule } from '@xgis/shader-dsl'
+ *  import { compileModule } from 'typeshade'
  *
  *  const cpu = compileModule(MODULE, { precision: 'f32' })
  *  cpu.setBinding('u', { scale: 2, offset: [0.5, 0.5] })

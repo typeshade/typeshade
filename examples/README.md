@@ -1,4 +1,4 @@
-# `@xgis/shader-dsl` examples
+# `typeshade` examples
 
 Self-contained shaders authored with the DSL. Each builds a `module`, and from that single
 source emits **WGSL** (WebGPU) + **GLSL ES 3.00** (WebGL2) + the `reflect()` pipeline metadata —

@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl/dev — development / analysis tooling surface ═══
+// ═══ typeshade/dev — development / analysis tooling surface ═══
 //
 // Everything here is DEV-TIME machinery: linting, diagnostics reports, optimizer
 // measurement, source tracing, and pipeline-introspection helpers. None of it is
@@ -6,7 +6,7 @@
 // production consumers — keeping it off the main entry keeps the authoring surface
 // honest about what a shader author actually needs (#740 R2b).
 //
-// Import as `@xgis/shader-dsl/dev`.
+// Import as `typeshade/dev`.
 
 // Lint engine front-ends + result formatters. (validate()/ValidationError — the
 // EMIT-time gate — stay on the main barrel; this is the opt-in analysis surface.

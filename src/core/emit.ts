@@ -364,7 +364,7 @@ function assembleLowered(lowered: ModuleDecl, be: Backend, parens: ParenMode = '
 /** A transform that runs inside module emit. Plugins are passed to `emitModule` and
  *  `emitGlslModule` through {@link EmitOptions} as `{ plugins: [...] }`. The core emit knows
  *  nothing about what a plugin does. The plugins shipped with the package (`mangle`, `minify`,
- *  `prune`, `obfuscate` and others) live on the `@xgis/shader-dsl/emit-prod` subpath, so an
+ *  `prune`, `obfuscate` and others) live on the `typeshade/emit-prod` subpath, so an
  *  application that emits at runtime and never imports them does not bundle them.
  *
  *  A plugin has two hooks, both optional. `transformIR` receives the module after every
@@ -406,7 +406,7 @@ export interface EmitPlugin {
  *
  *  @example
  *  ```ts
- *  import { obfuscate } from '@xgis/shader-dsl/emit-prod'
+ *  import { obfuscate } from 'typeshade/emit-prod'
  *
  *  const wgsl = emitModule(MODULE, { plugins: obfuscate(), parens: 'minimal' })
  *  ``` */

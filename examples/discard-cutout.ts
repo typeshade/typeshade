@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — discard cutout (#1840 GLSL-legalize coverage) ═══
+// ═══ typeshade example — discard cutout (#1840 GLSL-legalize coverage) ═══
 //
 // A fragment helper discards outside a centred circle and returns the fill colour;
 // the fragment stage calls it ONCE, as the sole argument of the fragment IO-struct's

@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — hillshade (shaded relief) ═══
+// ═══ typeshade example — hillshade (shaded relief) ═══
 //
 // A cartographic shader: procedural terrain + Lambert hillshade, the shaded-relief look
 // of a topographic map. A reusable `terrain()` DSL function (called 3× — once for height,

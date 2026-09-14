@@ -42,11 +42,11 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
  *  module. `.message` renders the same list as text; the array is the form to present in a
  *  UI or a test report.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @example
  *  ```ts
- *  import { validate, ValidationError } from '@xgis/shader-dsl'
+ *  import { validate, ValidationError } from 'typeshade'
  *
  *  try {
  *    validate(MODULE)
@@ -95,7 +95,7 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
  *  modules assembled with {@link composeModule} and compute kernels that return early on
  *  purpose. Style rules are lint-only; run {@link lintModule} or {@link diagnose} for those.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the authored module, as built, before any pass has rewritten its nodes.
  *  @throws {@link ValidationError} carrying every error-severity diagnostic, with code
@@ -103,7 +103,7 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
  *
  *  @example
  *  ```ts
- *  import { validate, ValidationError } from '@xgis/shader-dsl'
+ *  import { validate, ValidationError } from 'typeshade'
  *
  *  try {
  *    validate(MODULE)

@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 Mandelbrot distance estimate ═══
+// ═══ typeshade example — fp64 Mandelbrot distance estimate ═══
 //
 // MIXED precision on purpose: the ORBIT (z) iterates in f64 — its absolute
 // position is what deep zoom destroys — while the DERIVATIVE (dz ← 2·z·dz + 1)

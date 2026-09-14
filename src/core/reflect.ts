@@ -50,7 +50,7 @@ const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
  *  of 8 bytes while GLSL std140 gives it 16, and this engine reports one number for both
  *  backends. Declare the two columns as `vec2` fields instead.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type LayoutKind = 'std140' | 'std430'
 
@@ -175,7 +175,7 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  slots divides `offset` by 4; every type this engine lays out is at least 4-byte aligned,
  *  so the division is exact.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface FieldLayout {
   readonly name: string
@@ -191,7 +191,7 @@ export interface FieldLayout {
  *  already rounded up to `align`, which under std140 is itself rounded to 16, so it is also
  *  the element stride of an array of this struct.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface StructLayout {
   readonly name: string
@@ -205,7 +205,7 @@ export interface StructLayout {
  *  struct's and every nested array's base alignment rounds up to 16; under `'std430'` natural
  *  alignment applies.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param struct - the struct to lay out.
  *  @param layout - `'std140'` for a uniform buffer, `'std430'` for a storage buffer.
@@ -218,7 +218,7 @@ export interface StructLayout {
  *
  *  @example
  *  ```ts
- *  import { wgslLayout, vec3fT, f32T } from '@xgis/shader-dsl'
+ *  import { wgslLayout, vec3fT, f32T } from 'typeshade'
  *
  *  const light = { name: 'Light', fields: [{ name: 'pos', type: vec3fT }, { name: 'radius', type: f32T }] }
  *  wgslLayout(light, 'std140')
@@ -264,7 +264,7 @@ function structLayout(
  *  still appears in `bindGroups`, since reflection reports the module's structure, with
  *  nothing separate for a host to bind.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type ResourceKind = 'uniform-buffer' | 'storage-buffer' | 'texture' | 'sampler'
 /** One resource slot in a reflected bind group: the shape of a single WGSL
@@ -283,7 +283,7 @@ export type ResourceKind = 'uniform-buffer' | 'storage-buffer' | 'texture' | 'sa
  *  no group, so a host whose modules declare more than one group folds `group` into the point
  *  it assigns (`group * 8 + binding`, say) so that two groups' binding 0 do not collide.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface BindEntry {
   readonly group: number
@@ -350,7 +350,7 @@ export interface BindEntry {
  *  group; see {@link BindEntry} for how a GLSL host folds `group` into the binding point it
  *  assigns.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface BindGroup {
   readonly group: number
@@ -363,7 +363,7 @@ export interface BindGroup {
  *  changes every later attribute's `offset`. `type` is the DSL type key (the string
  *  {@link typeKey} returns), the same spelling `StructLayout.fields[].type` uses.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface VertexAttr {
   readonly name: string
@@ -377,7 +377,7 @@ export interface VertexAttr {
  *  point gets a `VertexLayout` for the one declared first. `Reflection.vertex` is `undefined`
  *  when the module has no `@location` vertex parameters.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface VertexLayout {
   readonly attributes: readonly VertexAttr[]
@@ -388,7 +388,7 @@ export interface VertexLayout {
  *  of a struct parameter or struct return, the field is reported flattened out of that struct;
  *  see {@link EntryIo}.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface EntryIoField {
   /** The field's own identifier: a parameter's name, a flattened struct field's name, or
@@ -421,7 +421,7 @@ export interface EntryIoField {
  *  The fields are read through the same attribute readers the GLSL backend uses for its `in`
  *  and `out` declarations, so the published interface and the emitted one cannot disagree.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface EntryIo {
   readonly inputs: readonly EntryIoField[]
@@ -434,7 +434,7 @@ export interface EntryIo {
  *  with this shape: two modules whose entries differ here have a different pipeline contract
  *  even if every other byte of emitted source matches.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface EntryInfo {
   readonly name: string
@@ -460,7 +460,7 @@ export interface EntryInfo {
  *  `#define <name> <value>` line per entry. Both are keyed by `name` and fall back to
  *  `default` when the host supplies nothing.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface OverrideInfo {
   readonly name: string
@@ -477,7 +477,7 @@ export interface OverrideInfo {
  *  from keeps one table, so a struct field cannot sit at byte 20 in the shader and at byte 24
  *  in the CPU packer.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface Reflection {
   readonly bindGroups: readonly BindGroup[]
@@ -536,7 +536,7 @@ export interface Reflection {
  *  logical name the module uses. `stage`, when present, is the advisory stage the declaration
  *  named.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface ExternRequirement {
   readonly name: string
@@ -666,7 +666,7 @@ function bindingsIncludingInjected(
  *  {@link wgslLayout} is the same offset engine on its own, for a single struct with no module
  *  around it.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to describe.
  *  @param opts - the emit facts that change what a host must bind, the fp64 flavour among
@@ -676,7 +676,7 @@ function bindingsIncludingInjected(
  *
  *  @example
  *  ```ts
- *  import { reflect, hostFeaturesFor, wgslBackend } from '@xgis/shader-dsl'
+ *  import { reflect, hostFeaturesFor, wgslBackend } from 'typeshade'
  *
  *  const r = reflect(MODULE)
  *  const device = await adapter.requestDevice({

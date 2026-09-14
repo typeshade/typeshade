@@ -1,4 +1,4 @@
-// ═══ Shader DSL — production-emit plugins (`@xgis/shader-dsl/emit-prod`) ═══
+// ═══ Shader DSL — production-emit plugins (`typeshade/emit-prod`) ═══
 //
 // Ship-time transforms for the emitted shader text, composed the Vite/Webpack
 // way: each transform is a named EmitPlugin, and you pass a `{ plugins: [...] }`
@@ -7,11 +7,11 @@
 // imports this module bundles ZERO bytes of it. This is where the
 // production-emit axis grows (a forced-inline plugin is the planned next
 // resident); the main barrel stays runtime-only, the same split
-// `@xgis/shader-dsl/dev` made for the lint/measure tooling (#740 R2b).
+// `typeshade/dev` made for the lint/measure tooling (#740 R2b).
 //
 // Typical build-time use:
 //
-//   import { obfuscate, decodeShaderLog } from '@xgis/shader-dsl/emit-prod'
+//   import { obfuscate, decodeShaderLog } from 'typeshade/emit-prod'
 //   const renames = new Map<string, string>()
 //   const fs = emitGlslModule(m, 'fragment', {
 //     parens: 'minimal',
@@ -83,15 +83,15 @@ export type { InlineOpaque, InlineDecision } from './core/passes/force-inline.js
  *
  *  It runs in the IR stage.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  *
  *  @param opts - `renames`, a map to receive the authored-to-emitted table.
  *  @returns the plugin, for an emit call's `plugins` array.
  *
  *  @example
  *  ```ts
- *  import { mangle, minify } from '@xgis/shader-dsl/emit-prod'
- *  import { emitModule } from '@xgis/shader-dsl'
+ *  import { mangle, minify } from 'typeshade/emit-prod'
+ *  import { emitModule } from 'typeshade'
  *
  *  const renames = new Map<string, string>()
  *  const wgsl = emitModule(MODULE, { plugins: [mangle({ renames }), minify()] })
@@ -145,7 +145,7 @@ export function mangle(opts?: { renames?: Map<string, string> }): EmitPlugin {
  *
  *  {@link minifyShaderText} is the raw function it wraps, for a string you already hold.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  *
  *  @param opts - `numbers`: `true` for the lossless canonicalisation (the default), `'f32'` for
  *    the shortest f32-exact spelling, `false` to leave literals alone.
@@ -153,8 +153,8 @@ export function mangle(opts?: { renames?: Map<string, string> }): EmitPlugin {
  *
  *  @example
  *  ```ts
- *  import { minify } from '@xgis/shader-dsl/emit-prod'
- *  import { emitGlslModule } from '@xgis/shader-dsl'
+ *  import { minify } from 'typeshade/emit-prod'
+ *  import { emitGlslModule } from 'typeshade'
  *
  *  const fs = emitGlslModule(MODULE, 'fragment', { plugins: [minify({ numbers: 'f32' })] })
  *  ```
@@ -199,7 +199,7 @@ export function minify(opts?: MinifyOptions): EmitPlugin {
  *  It runs in the IR stage, so place it before {@link mangle} in the array. It is opt-in and
  *  not part of {@link obfuscate}, so no existing output moves.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  *
  *  @param opts - `opaque` to unlock the emulation library, `maxGrowth` to cap how far the
  *    module's operation count may grow, and `report` to receive one decision per helper
@@ -208,8 +208,8 @@ export function minify(opts?: MinifyOptions): EmitPlugin {
  *
  *  @example
  *  ```ts
- *  import { inline, obfuscate } from '@xgis/shader-dsl/emit-prod'
- *  import { emitModule } from '@xgis/shader-dsl'
+ *  import { inline, obfuscate } from 'typeshade/emit-prod'
+ *  import { emitModule } from 'typeshade'
  *
  *  const wgsl = emitModule(MODULE, { plugins: [inline(), ...obfuscate()] })
  *  ```
@@ -258,15 +258,15 @@ export function inline(opts?: {
  *
  *  It runs in the text stage.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  *
  *  @param opts - `renames`, the same map {@link mangle} takes.
  *  @returns the plugin, for an emit call's `plugins` array.
  *
  *  @example
  *  ```ts
- *  import { mangle, aliasTypes } from '@xgis/shader-dsl/emit-prod'
- *  import { emitModule } from '@xgis/shader-dsl'
+ *  import { mangle, aliasTypes } from 'typeshade/emit-prod'
+ *  import { emitModule } from 'typeshade'
  *
  *  const renames = new Map<string, string>()
  *  const wgsl = emitModule(MODULE, { plugins: [mangle({ renames }), aliasTypes({ renames })] })
@@ -301,14 +301,14 @@ export function aliasTypes(opts?: { renames?: Map<string, string> }): EmitPlugin
  *
  *  It runs in the text stage.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  *
  *  @returns the plugin, for an emit call's `plugins` array.
  *
  *  @example
  *  ```ts
- *  import { prune, minify } from '@xgis/shader-dsl/emit-prod'
- *  import { emitGlslModule } from '@xgis/shader-dsl'
+ *  import { prune, minify } from 'typeshade/emit-prod'
+ *  import { emitGlslModule } from 'typeshade'
  *
  *  const fs = emitGlslModule(MODULE, 'fragment', { plugins: [prune(), minify()] })
  *  ```
@@ -333,15 +333,15 @@ export function prune(): EmitPlugin {
  *  {@link aliasTypes} and {@link minify}, which compose in array order among themselves.
  *  Putting `inline()` in front of the spread is therefore enough to order it correctly.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  *
  *  @param opts - `renames`, the map both {@link mangle} and {@link aliasTypes} report into.
  *  @returns the four plugins, in order, to spread into a `plugins` array.
  *
  *  @example
  *  ```ts
- *  import { obfuscate, decodeShaderLog } from '@xgis/shader-dsl/emit-prod'
- *  import { emitGlslModule } from '@xgis/shader-dsl'
+ *  import { obfuscate, decodeShaderLog } from 'typeshade/emit-prod'
+ *  import { emitGlslModule } from 'typeshade'
  *
  *  const renames = new Map<string, string>()
  *  const fs = emitGlslModule(MODULE, 'fragment', {

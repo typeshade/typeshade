@@ -16,7 +16,7 @@
  *  {@link ShaderDslError}'s `.message`, which is why the summary can be relied on as a category
  *  while the message cannot.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade`, `typeshade/dev`.
  */
 export interface ErrorCodeDef {
   readonly code: string
@@ -33,11 +33,11 @@ export interface ErrorCodeDef {
  *  a consumer may `switch` on `err.code` across versions. A test snapshots this object, so
  *  adding or removing an entry is a deliberate diff rather than a silent one.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade`, `typeshade/dev`.
  *
  *  @example
  *  ```ts
- *  import { CODES, type ErrorCode } from '@xgis/shader-dsl'
+ *  import { CODES, type ErrorCode } from 'typeshade'
  *
  *  const docsUrl = (code: ErrorCode) => `https://example.com/errors/${code}`
  *  console.log(CODES.SD0002.summary) // 'binary op on mismatched vectors'
@@ -91,7 +91,7 @@ export const CODES = {
   SD0012: {
     code: 'SD0012',
     summary: 'statement sink not installed',
-    hint: 'import @xgis/shader-dsl from its entry, not a deep path',
+    hint: 'import typeshade from its entry, not a deep path',
   },
   SD0013: {
     code: 'SD0013',
@@ -259,6 +259,6 @@ export const CODES = {
  *  {@link ShaderDslError}'s `.code` field, which is a plain `string` — a subclass or a future
  *  version may carry a code this union does not have, so narrow rather than assume.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade`, `typeshade/dev`.
  */
 export type ErrorCode = keyof typeof CODES

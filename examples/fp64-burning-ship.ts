@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 Burning Ship ═══
+// ═══ typeshade example — fp64 Burning Ship ═══
 //
 // The Burning Ship (z ← (|Re z| + i·|Im z|)² + c) is the fp64 family's
 // showcase for `abs` ON THE f64 TYPE: the fold happens inside the

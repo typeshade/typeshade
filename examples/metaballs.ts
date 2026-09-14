@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — metaballs (implicit blob field) ═══
+// ═══ typeshade example — metaballs (implicit blob field) ═══
 //
 // The classic 2D metaballs: each ball contributes an inverse-square field
 // w = k/d², the fields SUM, and the iso-contour of the summed field is the

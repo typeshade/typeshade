@@ -21,6 +21,21 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 _Entries are the commits touching `shader-dsl/`; a listed commit may also touch other packages._
 
+## Unreleased
+
+Maintained by hand. `scripts/emit-changelog.ts`, named in the banner above, lives in the monorepo
+this package was split out of and is not part of this repository, so everything below the
+`### 2026-09` heading is the generated monorepo-era history and is left exactly as it was
+generated — including its `shader-dsl` scope names and its `X-GIS/X-GIS` pull request links.
+
+#### chore
+
+- the package publishes as `typeshade`. `package.json` `name`, the `Exported from ...` JSDoc line
+  on every public symbol, `AUTHORING.md`, `README.md`, `docs/` and `examples/` move off
+  `@xgis/shader-dsl` and onto `typeshade` and its subpaths (`typeshade/dev`, `typeshade/compute`,
+  `typeshade/emit-prod`, `typeshade/core/ir`, `typeshade/language-service`). A pure rename: no
+  code, no emitted shader text and no public export changed shape.
+
 ### 2026-09
 
 #### ⚠ BREAKING CHANGES

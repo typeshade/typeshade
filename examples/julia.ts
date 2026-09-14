@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — animated Julia set (escape-time fractal) ═══
+// ═══ typeshade example — animated Julia set (escape-time fractal) ═══
 //
 // Iterate z ← z² + c per pixel until |z| escapes, then colour by the (smoothed)
 // iteration count through a cosine palette. `c` orbits slowly so the fractal morphs.

@@ -20,7 +20,7 @@ import type { ModuleDecl, Stmt, FuncDecl } from '../ir/index.js'
  *  CPU in double precision) throw only when they reach it. Set `allowUnswapped` only when
  *  leaving a placeholder open is deliberate.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface ComposeOptions {
   /** Let a placeholder with no matching swap stay in the module. The WGSL emitter writes it as
@@ -98,7 +98,7 @@ function swapInBody(
  *  this build. It turns off the first check only; a swap key that matches no placeholder is
  *  still an error.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the base module carrying the placeholders.
  *  @param swaps - tag to statement list, one entry per placeholder to fill.
@@ -109,7 +109,7 @@ function swapInBody(
  *
  *  @example
  *  ```ts
- *  import { composeModule, fn, module, f32, f32T, type Stmt } from '@xgis/shader-dsl'
+ *  import { composeModule, fn, module, f32, f32T, type Stmt } from 'typeshade'
  *
  *  const base = module({
  *    funcs: [fn('shade', {}, f32T, (_p, b) => b.placeholder('result'))],

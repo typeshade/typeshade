@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 catastrophic cancellation ═══
+// ═══ typeshade example — fp64 catastrophic cancellation ═══
 //
 // The numerics-textbook figure, live on the GPU: (x−1)⁷ EVALUATED IN EXPANDED
 // FORM (x⁷ − 7x⁶ + 21x⁵ − 35x⁴ + 35x³ − 21x² + 7x − 1) near x = 1. The terms

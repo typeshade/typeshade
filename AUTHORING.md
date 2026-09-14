@@ -1,4 +1,4 @@
-# Authoring shaders with `@xgis/shader-dsl`
+# Authoring shaders with `typeshade`
 
 After this page you know what one TypeScript source turns into, how to import the
 authoring surface, and which page of this guide answers which question. The samples are
@@ -32,7 +32,7 @@ That module value is the input to four outputs:
   attributes and entry signatures.
 
 ```ts
-import { fn, module, abs, length, f32T, vec2fT, emitModule, compileModule, reflect } from '@xgis/shader-dsl'
+import { fn, module, abs, length, f32T, vec2fT, emitModule, compileModule, reflect } from 'typeshade'
 
 // One helper. The return type is inferred from the value the body returns.
 const ringMask = fn('ring_mask', { uv: vec2fT, radius: f32T }, (p) =>
@@ -65,18 +65,18 @@ the layout declarators, the WGSL and GLSL backends, the validator, the CPU oracl
 `reflect`.
 
 ```ts
-import { fn, module, vec4, If, Switch, when, emitModule, reflect } from '@xgis/shader-dsl'
-import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
+import { fn, module, vec4, If, Switch, when, emitModule, reflect } from 'typeshade'
+import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from 'typeshade'
 ```
 
 Other subpaths carry surface you do not need in order to author and emit, and an import
 you never write costs nothing in your bundle:
 
-- `@xgis/shader-dsl/dev` has the development tooling: lint reports, optimizer measurement
+- `typeshade/dev` has the development tooling: lint reports, optimizer measurement
   and source locations in errors.
-- `@xgis/shader-dsl/emit-prod` has the ship-time text plugins that mangle, minify and
+- `typeshade/emit-prod` has the ship-time text plugins that mangle, minify and
   obfuscate the emitted source.
-- `@xgis/shader-dsl/compute` has the runner that dispatches a portable compute kernel on
+- `typeshade/compute` has the runner that dispatches a portable compute kernel on
   whichever backend the host has.
 
 This package ships the authoring surface. The shaders themselves live in your repository
@@ -146,7 +146,7 @@ import {
   vec4,
   vec2fT,
   vec4fT,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 ```
 
 Two kinds of name appear there. `vec2fT` and `vec4fT` are *type tokens*, which is what you
@@ -1190,7 +1190,7 @@ pre-emit checks first, so a module that does not validate, or that needs a capab
 target lacks, throws a coded error at the emit call.
 
 ```ts
-import { emitModule, emitModuleAt, emitIdentity } from '@xgis/shader-dsl'
+import { emitModule, emitModuleAt, emitIdentity } from 'typeshade'
 
 const wgsl = emitModule(m)
 
@@ -1216,7 +1216,7 @@ per call. `emitGlslStages(m)` returns both stages of one module and pays the sha
 lowering once for the pair.
 
 ```ts
-import { emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
+import { emitGlslModule, emitGlslStages } from 'typeshade'
 
 const { vertex, fragment } = emitGlslStages(m)
 
@@ -1244,7 +1244,7 @@ ours into it. It is what to reach for where a GLSL codebase would write `#includ
 the same shape.
 
 ```ts
-import { emitFragment, emitGlslFragment } from '@xgis/shader-dsl'
+import { emitFragment, emitGlslFragment } from 'typeshade'
 
 const f = emitGlslFragment(m, 'fragment')
 
@@ -1273,7 +1273,7 @@ takes only a module, with no backend argument, so one reflection describes the W
 and the GLSL emit of that module at once.
 
 ```ts
-import { reflect } from '@xgis/shader-dsl'
+import { reflect } from 'typeshade'
 
 const r = reflect(m)
 
@@ -1307,7 +1307,7 @@ A host walks `bindGroups` and creates one resource per entry. Three fields carry
 decision.
 
 ```ts
-import { reachFrom, reflect, stageOf } from '@xgis/shader-dsl'
+import { reachFrom, reflect, stageOf } from 'typeshade'
 
 for (const group of reflect(m).bindGroups) {
   for (const e of group.entries) {
@@ -1360,7 +1360,7 @@ JavaScript. A scalar is a `number` or a `boolean`, a vector or a matrix is a fla
 and a struct is an object keyed by field name.
 
 ```ts
-import { module, fn, vec2fT, dot, sqrt, compileModule } from '@xgis/shader-dsl'
+import { module, fn, vec2fT, dot, sqrt, compileModule } from 'typeshade'
 
 const len = fn('len', { p: vec2fT }, ({ p }) => sqrt(dot(p, p)))
 const m = module({ funcs: [len] })
@@ -1390,7 +1390,7 @@ module with f64 arithmetic needs no value for the injected `_fp64` guard texture
 `shader-dsl/cpu: unbound <name>`.
 
 ```ts
-import { module, fn, uniformStruct, storageBuffer, f32T, u32T, compileModule } from '@xgis/shader-dsl'
+import { module, fn, uniformStruct, storageBuffer, f32T, u32T, compileModule } from 'typeshade'
 
 const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { scale: f32T })
 const data = storageBuffer('data', f32T, { group: 0, binding: 1, access: 'read' })
@@ -1424,7 +1424,7 @@ computes this value, and a comparison against a GPU readback can then be an ulp-
 instead of a tolerance wide enough to hide a real disagreement.
 
 ```ts
-import { module, fn, f32T, compileModule } from '@xgis/shader-dsl'
+import { module, fn, f32T, compileModule } from 'typeshade'
 
 const acc = fn('acc', { a: f32T, b: f32T }, ({ a, b }) => a.add(b))
 const m = module({ funcs: [acc] })
@@ -1442,7 +1442,7 @@ A comparison then reads the buffer the GPU wrote and walks it against the same m
 CPU, one row at a time.
 
 ```ts
-import { compileModuleJs } from '@xgis/shader-dsl'
+import { compileModuleJs } from 'typeshade'
 
 // m: the module from the bindings sample above.
 const cpu = compileModuleJs(m, { precision: 'f32' })
@@ -1477,7 +1477,7 @@ still has to be set, because the module reads the texture and sampler variables 
 call is stubbed.
 
 ```ts
-import { module, fn, resource, texture2dfT, samplerT, vec2fT, textureSample, compileModule } from '@xgis/shader-dsl'
+import { module, fn, resource, texture2dfT, samplerT, vec2fT, textureSample, compileModule } from 'typeshade'
 
 const tex = resource('tex', texture2dfT, { group: 0, binding: 0 })
 const smp = resource('smp', samplerT, { group: 0, binding: 1 })
@@ -1512,7 +1512,7 @@ remedy for that code. `ValidationError` is a subclass, so one `instanceof Shader
 handler catches every coded failure.
 
 ```ts
-import { ShaderDslError, emitModule } from '@xgis/shader-dsl'
+import { ShaderDslError, emitModule } from 'typeshade'
 
 try {
   emitModule(buildModule())
@@ -1562,7 +1562,7 @@ them all in its message and carries the array on `.diagnostics`, which is the on
 present in a UI.
 
 ```ts
-import { emitModule, ValidationError } from '@xgis/shader-dsl'
+import { emitModule, ValidationError } from 'typeshade'
 
 try {
   emitModule(m)
@@ -1597,8 +1597,8 @@ nowhere else. The last one is the `Let` then `.assign()` mistake, which emits WG
 rejects, so it is worth a `diagnose` run before you ship a shader.
 
 ```ts
-import { wgslBackend } from '@xgis/shader-dsl'
-import { diagnose, formatReport } from '@xgis/shader-dsl/dev'
+import { wgslBackend } from 'typeshade'
+import { diagnose, formatReport } from 'typeshade/dev'
 
 const report = diagnose(m, { rules: 'all', backend: wgslBackend })
 if (report.summary.errors > 0) console.error(formatReport(report))
@@ -1630,7 +1630,7 @@ walked at all, so leaving the switch in place costs nothing. Turn it on for a de
 or test run:
 
 ```ts
-import { setSourceTracing } from '@xgis/shader-dsl/dev'
+import { setSourceTracing } from 'typeshade/dev'
 
 setSourceTracing(true)
 ```
@@ -1666,7 +1666,7 @@ To specialize is to build one program for one set of choices, with the choices m
 TypeScript before the module exists. Write the builder to take the fact and branch on it.
 
 ```ts
-import { fn, module, f32, resource, samplerT, texture2dfT, textureSample, vec2fT } from '@xgis/shader-dsl'
+import { fn, module, f32, resource, samplerT, texture2dfT, textureSample, vec2fT } from 'typeshade'
 
 const dem = resource('dem', texture2dfT, { group: 0, binding: 0 })
 const demSampler = resource('dem_sampler', samplerT, { group: 0, binding: 1 })
@@ -1700,7 +1700,7 @@ variant with `composeModule`. A placeholder is a marker statement carrying a tag
 swap is the list of statements that replaces it.
 
 ```ts
-import { composeModule, fn, module, vec4, vec4fT, type Stmt } from '@xgis/shader-dsl'
+import { composeModule, fn, module, vec4, vec4fT, type Stmt } from 'typeshade'
 
 const base = module({
   funcs: [
@@ -1728,7 +1728,7 @@ multiplies pipelines for nothing. Declare a specialization constant instead, wit
 symbolic through every DSL pass and is pinned by the host when it creates the pipeline.
 
 ```ts
-import { f32, f32T, If, Var, fn, module, overrideConst } from '@xgis/shader-dsl'
+import { f32, f32T, If, Var, fn, module, overrideConst } from 'typeshade'
 
 const quality = overrideConst('quality', f32T, 1.0)
 
@@ -1763,7 +1763,7 @@ state you do not own, the matrix itself becomes the authored thing: `variantFami
 the axes, a builder for one point, and a key derivation, and builds every point.
 
 ```ts
-import { fn, f32T, module, variantFamily } from '@xgis/shader-dsl'
+import { fn, f32T, module, variantFamily } from 'typeshade'
 
 const family = variantFamily({
   axes: { quality: ['low', 'high'] },
@@ -1912,7 +1912,7 @@ which returns the concrete strings one backend's host needs. It skips every capa
 no host half, so there are no holes to hand a driver:
 
 ```ts
-import { hostFeaturesFor, reflect, glslEs300Backend, wgslBackend } from '@xgis/shader-dsl'
+import { hostFeaturesFor, reflect, glslEs300Backend, wgslBackend } from 'typeshade'
 
 // WebGL2: verify the already-booted context has each extension.
 for (const ext of hostFeaturesFor(glslEs300Backend, reflect(m).requiredFeatures)) {
@@ -2018,7 +2018,7 @@ local. The arithmetic methods, the comparisons and the builtins keep their spell
 body converted from f32 usually changes only in its signature.
 
 ```ts
-import { f32T, f64T, fn, module, sqrt, toF32, uniformStruct } from '@xgis/shader-dsl'
+import { f32T, f64T, fn, module, sqrt, toF32, uniformStruct } from 'typeshade'
 
 const U = uniformStruct(
   'U',
@@ -2047,7 +2047,7 @@ arrive already split, a vertex attribute pair for instance. Narrowing is always 
 Mixing an f64 with an integer or a boolean is an author-time `SD0004`.
 
 ```ts
-import { f32T, f64, f64FromParts, fn, toF32, toF64 } from '@xgis/shader-dsl'
+import { f32T, f64, f64FromParts, fn, toF32, toF64 } from 'typeshade'
 
 const g = fn('g', { a: f32T, hi: f32T, lo: f32T }, (p) => {
   const widened = toF64(p.a) // exact
@@ -2068,7 +2068,7 @@ Relative error for the transcendental itself floors at about 2^-36, and it grows
 size of the argument through the range reduction.
 
 ```ts
-import { f64, f64T, floor, fn, min, toF32 } from '@xgis/shader-dsl'
+import { f64, f64T, floor, fn, min, toF32 } from 'typeshade'
 
 // A triangle wave on a coordinate that has outgrown f32.
 const stripe = fn('stripe', { x: f64T }, (p) => {
@@ -2099,7 +2099,7 @@ binding at all.
 
 ```ts
 // `k` and `U` are the function and the uniform struct from the first example.
-import { emitModule, fp64Guard, module, recommendFp64Flavor } from '@xgis/shader-dsl'
+import { emitModule, fp64Guard, module, recommendFp64Flavor } from 'typeshade'
 
 const pinned = module({ funcs: [k], uses: [U, fp64Guard({ group: 0, binding: 3 })] })
 
@@ -2120,7 +2120,7 @@ triangle is numerically wrong. Interpolate an f32 quantity instead, or carry the
 uniform and do the f64 arithmetic in the fragment stage.
 
 ```ts
-import { splitF64 } from '@xgis/shader-dsl'
+import { splitF64 } from 'typeshade'
 
 const [hi, lo] = splitF64(-8_234_567.890123)
 new Float32Array(uniformBuffer, 0, 2).set([hi, lo])
@@ -2137,7 +2137,7 @@ again, so narrow one component at a time with `toF32(v.x)`. A vector lowers to a
 hi plane and a lo plane, so componentwise work runs once for the whole vector.
 
 ```ts
-import { dot, f64T, fn, toF32, uniformStruct, vec2f64, vec2f64T } from '@xgis/shader-dsl'
+import { dot, f64T, fn, toF32, uniformStruct, vec2f64, vec2f64T } from 'typeshade'
 
 const P = uniformStruct('P', { group: 0, binding: 1, as: 'p' }, { center: vec2f64T })
 
@@ -2158,7 +2158,7 @@ per value: hold the coordinates that need the range in f64, narrow as soon as th
 is small enough for f32, and let the rest of the shader run at f32 speed.
 
 ```ts
-import { f64T, fn, toF32 } from '@xgis/shader-dsl'
+import { f64T, fn, toF32 } from 'typeshade'
 
 // The subtraction needs the range; the shading after it does not.
 const shade = fn('shade', { world: f64T, camera: f64T }, (p) =>
@@ -2187,7 +2187,7 @@ that, so the GLSL emit options carry a knob for it.
 `'mediump'` in their options bag:
 
 ```ts
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitGlslModule } from 'typeshade'
 
 const fs = emitGlslModule(m, 'fragment', { floatPrecision: 'mediump' })
 ```
@@ -2217,7 +2217,7 @@ the option is per emit call, a program can take one qualifier in its vertex stag
 another in its fragment stage:
 
 ```ts
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitGlslModule } from 'typeshade'
 
 const vertex = emitGlslModule(m, 'vertex') // positions stay highp
 const fragment = emitGlslModule(m, 'fragment', { floatPrecision: 'mediump' })
@@ -2271,7 +2271,7 @@ What a build can assert is that the option changed one line and left the rest of
 alone:
 
 ```ts
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitGlslModule } from 'typeshade'
 
 const highp = emitGlslModule(m, 'fragment')
 const mediump = emitGlslModule(m, 'fragment', { floatPrecision: 'mediump' })
@@ -2290,7 +2290,7 @@ driver log that comes back in the renamed text.
 
 A bundler minifies your JavaScript and never touches the shader string you hand to
 `createShaderModule` or to `gl.shaderSource`. The transforms here do that half. They live
-on their own subpath, `@xgis/shader-dsl/emit-prod`, so a build that never imports it
+on their own subpath, `typeshade/emit-prod`, so a build that never imports it
 bundles none of them and a plain emit call keeps the bytes it has.
 
 ### The plugin bag
@@ -2302,8 +2302,8 @@ rewrites the module before it is assembled, `transformText` rewrites the emitted
 Every IR stage runs before any text stage, and within a stage they run in array order.
 
 ```ts
-import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
-import { mangle, minify, obfuscate } from '@xgis/shader-dsl/emit-prod'
+import { emitModule, emitGlslModule } from 'typeshade'
+import { mangle, minify, obfuscate } from 'typeshade/emit-prod'
 
 const renames = new Map<string, string>()
 const wgsl = emitModule(m, { plugins: [mangle({ renames }), minify()] })
@@ -2365,7 +2365,7 @@ emits a prototype only where the call graph forces one, so reach for this on GLS
 backend did not author: a `raw` body, or a fragment a host splices in.
 
 ```ts
-import { aliasTypes, minify, minifyShaderText, prune } from '@xgis/shader-dsl/emit-prod'
+import { aliasTypes, minify, minifyShaderText, prune } from 'typeshade/emit-prod'
 
 const glsl = emitGlslModule(m, 'fragment', {
   parens: 'minimal',
@@ -2396,7 +2396,7 @@ module's operation count may grow while unlocking, as a multiplier, and `report`
 one decision per helper considered.
 
 ```ts
-import { inline, obfuscate, type InlineDecision } from '@xgis/shader-dsl/emit-prod'
+import { inline, obfuscate, type InlineDecision } from 'typeshade/emit-prod'
 
 const decisions: InlineDecision[] = []
 const wgsl = emitModule(m, {
@@ -2422,7 +2422,7 @@ functions on purpose, so one that inverts to several candidates is annotated wit
 them. `invertRenames(renames)` hands you the table as data.
 
 ```ts
-import { decodeShaderLog, invertRenames } from '@xgis/shader-dsl/emit-prod'
+import { decodeShaderLog, invertRenames } from 'typeshade/emit-prod'
 
 decodeShaderLog("no matching overload in 'b' for arg of type 'l'", renames)
 // "no matching overload in 'terrain_shade' for arg of type 'vec2<f32>'"
@@ -2464,7 +2464,7 @@ classified out of those buckets into `explained`, each entry naming the plugin, 
 and the fact line.
 
 ```ts
-import { isSemanticallyEqual, semanticDiff } from '@xgis/shader-dsl'
+import { isSemanticallyEqual, semanticDiff } from 'typeshade'
 
 const d = semanticDiff(devModule, prodModule, { transforms: [inline(), ...obfuscate()] })
 
@@ -2502,7 +2502,7 @@ A payload is the `{ wgsl, glsl }` object you hand to `rawStmt`, one spelling per
 `rawStmt` returns a statement node you can drop into a body array:
 
 ```ts
-import { rawStmt, vec4fT, type FuncDecl } from '@xgis/shader-dsl'
+import { rawStmt, vec4fT, type FuncDecl } from 'typeshade'
 
 const PAIRED = rawStmt({
   wgsl: 'return vec4<f32>(1.0, 0.0, 0.0, 1.0);',
@@ -2530,7 +2530,7 @@ A `fn` body is assembled by a builder, so splice a raw there with `b.raw(payload
 builder is the second argument the body receives:
 
 ```ts
-import { fn, voidT } from '@xgis/shader-dsl'
+import { fn, voidT } from 'typeshade'
 
 const seed_lane = fn('seed_lane', {}, voidT, (_p, b) => {
   b.raw({ wgsl: 'let _k = 1.0;', glsl: 'float _k = 1.0;' })
@@ -2552,7 +2552,7 @@ the other target. A backend handed a raw with no spelling for its own target thr
 and quotes the side you did give, so the error points at the statement to port.
 
 ```ts
-import { emitGlslModule, emitModule, fn, module, vec4, vec4fT } from '@xgis/shader-dsl'
+import { emitGlslModule, emitModule, fn, module, vec4, vec4fT } from 'typeshade'
 
 const fs = fn(
   'fs_main',
@@ -2610,8 +2610,8 @@ raw, it returns the module unchanged and an empty map, because renaming around t
 cannot read would desync the splice:
 
 ```ts
-import { emitModule, f32T, fn, module, vec4, vec4fT } from '@xgis/shader-dsl'
-import { mangle } from '@xgis/shader-dsl/emit-prod'
+import { emitModule, f32T, fn, module, vec4, vec4fT } from 'typeshade'
+import { mangle } from 'typeshade/emit-prod'
 
 const shade = fn('shade_pixel', { x: f32T }, vec4fT, (p) => vec4(p.x, 0, 0, 1))
 
@@ -2682,7 +2682,7 @@ A block this module owns is the most common first row. `uniformStruct` takes the
 name, the slot, and the field map, and gives back typed field access:
 
 ```ts
-import { mat4x4fT, uniformStruct, vec2fT } from '@xgis/shader-dsl'
+import { mat4x4fT, uniformStruct, vec2fT } from 'typeshade'
 
 // uniform Camera { mat4 u_matrix; vec2 u_viewport_px; } u_camera;
 const camera = uniformStruct(
@@ -2715,7 +2715,7 @@ A fragment stage reads the framebuffer coordinate through the same `position` bu
 vertex stage writes:
 
 ```ts
-import { builtin, f32, fn, vec4, vec4fT } from '@xgis/shader-dsl'
+import { builtin, f32, fn, vec4, vec4fT } from 'typeshade'
 
 const fsCoord = fn(
   'fs_coord',
@@ -2740,7 +2740,7 @@ reflection.
 std140 block or loose uniforms and the wrong one will not link:
 
 ```ts
-import { hostBlock, mat4x4fT, vec2fT } from '@xgis/shader-dsl'
+import { hostBlock, mat4x4fT, vec2fT } from 'typeshade'
 
 const camera = hostBlock(
   'CameraUniforms',
@@ -2773,7 +2773,7 @@ it. The GLSL writer splices the payload verbatim, and the WGSL writer, if it eve
 that module, fails closed on that statement:
 
 ```ts
-import { f32, f32T, fn } from '@xgis/shader-dsl'
+import { f32, f32T, fn } from 'typeshade'
 
 const sized = fn('sized', {}, f32T, (_p, b) => {
   b.raw({ glsl: 'gl_PointSize = 4.0;' })

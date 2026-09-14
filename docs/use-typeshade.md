@@ -40,7 +40,7 @@ export function foo(x: f32): f32 {
 The public entry points take **one** source string:
 
 ```ts
-import { compile, compileTsSource } from '@xgis/shader-dsl'
+import { compile, compileTsSource } from 'typeshade'
 
 const { diagnostics, module, wgsl, glsl, eval: run } = compile(appSrc)
 

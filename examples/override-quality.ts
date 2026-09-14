@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — pipeline specialization constant (#923) ═══
+// ═══ typeshade example — pipeline specialization constant (#923) ═══
 //
 // The ubershader / shader-variant mechanism: ONE authored module, `overrideConst`
 // declares a `quality` knob whose value is chosen at PIPELINE CREATION (not module

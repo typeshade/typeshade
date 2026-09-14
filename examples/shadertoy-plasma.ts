@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — a ShaderToy plasma, authored in the DSL ═══
+// ═══ typeshade example — a ShaderToy plasma, authored in the DSL ═══
 //
 // Ports the classic ShaderToy plasma (sum-of-sines → palette) to the DSL: a
 // fullscreen-triangle vertex stage + a fragment stage driven by a {time,

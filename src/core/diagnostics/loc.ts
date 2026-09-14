@@ -39,13 +39,13 @@ let tracing = _env?.XGIS_SHADER_DSL_TRACE === '1'
  *  {@link validate}, {@link lintModule} and {@link diagnose} all run before those passes, which
  *  is exactly where a location is worth having.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade`, `typeshade/dev`.
  *
  *  @param on - whether to capture a location for each node authored from here on.
  *
  *  @example
  *  ```ts
- *  import { setSourceTracing, diagnose, formatReport } from '@xgis/shader-dsl/dev'
+ *  import { setSourceTracing, diagnose, formatReport } from 'typeshade/dev'
  *
  *  setSourceTracing(true) // or run with XGIS_SHADER_DSL_TRACE=1
  *  const m = buildModule() // authored under tracing, so its nodes carry locations

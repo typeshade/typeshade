@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — compute reduction kernel ═══
+// ═══ typeshade example — compute reduction kernel ═══
 //
 // A self-contained compute pass: each invocation reduces a fixed-size WINDOW of an input
 // storage array into one output element (a segmented sum). Exercises two storage buffers

@@ -72,16 +72,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, emitModule, rawStmt, UnsupportedFeatureError } from '@xgis/shader-dsl'
-import { fn, module, voidT } from '@xgis/shader-dsl'
-import {
-  vec4fT,
-  f32T,
-  structT,
-  type Expr,
-  type ModuleDecl,
-  type StructDecl,
-} from '@xgis/shader-dsl'
+import { emitGlslModule, emitModule, rawStmt, UnsupportedFeatureError } from 'typeshade'
+import { fn, module, voidT } from 'typeshade'
+import { vec4fT, f32T, structT, type Expr, type ModuleDecl, type StructDecl } from 'typeshade'
 import type { Stmt } from '../ir/index.js'
 
 // ── the two payloads: the SAME statement, spelled for each target ──

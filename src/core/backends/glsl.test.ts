@@ -20,7 +20,7 @@ import {
   UnsupportedFeatureError,
   INTRINSIC_HELPERS,
   spellIntrinsic,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 import {
   mat4x4fT,
   vec4fT,
@@ -43,7 +43,7 @@ import {
   type ModuleDecl,
   type StructDecl,
   type FuncDecl,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 import {
   fn,
   module as dslModule,
@@ -65,7 +65,7 @@ import {
   vec2i,
   u32,
   uniformStruct,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 
 // ── a synthetic vertex+fragment module with a std140 uniform struct ──
 const Uniforms: StructDecl = {

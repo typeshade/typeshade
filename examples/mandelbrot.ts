@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — Mandelbrot set (smooth escape-time) ═══
+// ═══ typeshade example — Mandelbrot set (smooth escape-time) ═══
 //
 // The fractal every shader site ports first: iterate z ← z² + c where c is the
 // pixel, colour by the SMOOTH iteration count (the fractional remainder from

@@ -125,7 +125,7 @@ function countCalls(m: ModuleDecl, name: string): number {
 }
 
 /** Inline through `opaque`, then drop the functions that inlining emptied. Pure
- *  (module -> module); `@xgis/shader-dsl/emit-prod`'s `forceInline()` plugin.
+ *  (module -> module); `typeshade/emit-prod`'s `forceInline()` plugin.
  *
  *  Opacity is re-applied from a set captured BEFORE the first round, never from a
  *  `df64_` NAME test — a name test is exactly what #1926 removed, because `mangle`

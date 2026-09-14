@@ -6,8 +6,8 @@
 // (no opt-in) still throws. See render-graph-pass-scheduler.md §6.5 + the M2 design.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, UnsupportedFeatureError } from '@xgis/shader-dsl'
-import { requiredCaps } from '@xgis/shader-dsl/dev'
+import { emitGlslModule, UnsupportedFeatureError } from 'typeshade'
+import { requiredCaps } from 'typeshade/dev'
 import {
   f32T,
   u32T,
@@ -18,7 +18,7 @@ import {
   type ShaderType,
   type Expr,
   type ModuleDecl,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 
 const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
 const arrF32 = { kind: 'array', elem: f32T } as ShaderType // runtime-sized storage array<f32>

@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl examples — shared fullscreen-pass boilerplate (#840) ═══
+// ═══ typeshade examples — shared fullscreen-pass boilerplate (#840) ═══
 //
 // Every fullscreen example used to repeat the same ~20 lines: the {time,
 // resolution} uniform head, the VsOut ioStruct, and the fullscreen-triangle

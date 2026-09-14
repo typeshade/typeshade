@@ -26,7 +26,7 @@ import type { BinOp, ShaderType } from './ir/index.js'
  *  {@link CpuStruct}. This is the value type the functions of a {@link CpuModule} take
  *  and return, and the one its `setBinding` accepts.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type CpuValue = number | boolean | number[] | CpuStruct
 /** A struct value on the CPU: a plain object keyed by field name, holding one
@@ -36,7 +36,7 @@ export type CpuValue = number | boolean | number[] | CpuStruct
  *  no struct identity of its own: the field set is whatever the declaring struct listed,
  *  and the caller checks it structurally.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface CpuStruct {
   [k: string]: CpuValue
@@ -474,7 +474,7 @@ export const f32ToI32Sat = (v: number): number =>
  *  that each intrinsic a shader can emit for WGSL or GLSL also has a CPU implementation
  *  or a documented placeholder.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS))
 /** The names of every GPU-only intrinsic the CPU backends cannot genuinely evaluate, as a
@@ -492,7 +492,7 @@ export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUI
  *  so a test can assert that each intrinsic a shader can emit has either a CPU
  *  implementation or a documented placeholder.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const ORACLE_GPU_STUB_NAMES: ReadonlySet<string> = new Set(Object.keys(GPU_STUBS))
 

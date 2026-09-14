@@ -24,9 +24,9 @@
 // entry wrongly merged is a compile error.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule } from '@xgis/shader-dsl'
-import { f32T, vec2fT, vec4fT } from '@xgis/shader-dsl'
-import type { FuncDecl, ModuleDecl } from '@xgis/shader-dsl'
+import { emitGlslModule } from 'typeshade'
+import { f32T, vec2fT, vec4fT } from 'typeshade'
+import type { FuncDecl, ModuleDecl } from 'typeshade'
 import {
   fn,
   module as dslModule,
@@ -38,7 +38,7 @@ import {
   ReturnIf,
   Let,
   rawStmt,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 import { pruneRedundantPrototypes } from '../../emit-prod.js'
 
 /** Where `text` DEFINES `name` (the `{`-bodied declarator), or -1. */

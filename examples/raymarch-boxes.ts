@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — raymarched box field (domain repetition) ═══
+// ═══ typeshade example — raymarched box field (domain repetition) ═══
 //
 // One rounded-box SDF + floor-mod domain repetition = an infinite lattice of
 // boxes, flown through forever. The step up from raymarch-sphere.ts: a reusable

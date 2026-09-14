@@ -78,14 +78,14 @@ import {
  *  carrying every high part and one every low part, and rebuild the components in the shader
  *  with {@link f64FromParts}.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param x - the double to pack.
  *  @returns the `[hi, lo]` pair, both exactly representable as f32.
  *
  *  @example
  *  ```ts
- *  import { splitF64 } from '@xgis/shader-dsl'
+ *  import { splitF64 } from 'typeshade'
  *
  *  const [hi, lo] = splitF64(originLon)
  *  uniformData.set([hi, lo], offsetOfOrigin / 4)
@@ -112,7 +112,7 @@ export function splitF64(x: number): [hi: number, lo: number] {
  *  or pick the matching binding out of {@link reflect} to know which resource the host must
  *  supply the 1×1 texture for.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const FP64_GUARD_NAME = '_fp64'
 /** The guard binding's type: a 1×1 2D texture whose only texel reads 1.0. */
@@ -126,7 +126,7 @@ export const FP64_GUARD_TYPE: ShaderType = texture2dfT
  *  arithmetic. A module that pins a slot here but also declares a conflicting `_fp64`
  *  binding elsewhere (a different type or space) fails emit with `SD0042`.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface Fp64GuardHandle {
   /** The binding's shader type: a 2D `f32` texture. */
@@ -159,14 +159,14 @@ export interface Fp64GuardHandle {
  *  `df64_` or is one of the emitted `DF64Vec2`, `DF64Vec3`, `DF64Vec4` structs collides with
  *  the emulation and fails with `SD0043`.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param at - the `group` and `binding` to pin the guard texture to.
  *  @returns the {@link Fp64GuardHandle}: `.binding` for `module({ uses })`, and `.type`.
  *
  *  @example
  *  ```ts
- *  import { fp64Guard, module } from '@xgis/shader-dsl'
+ *  import { fp64Guard, module } from 'typeshade'
  *
  *  // Only needed when the host's bind-group layout fixes the slot.
  *  const m = module({ uses: [U, fp64Guard({ group: 0, binding: 3 })], funcs: [k] })

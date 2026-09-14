@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — kaleidoscope (polar mirror fold) ═══
+// ═══ typeshade example — kaleidoscope (polar mirror fold) ═══
 //
 // The kaleidoscope fold: convert to polar, floor-mod the angle into one
 // sector, mirror about the sector's midline, convert back — every sector now

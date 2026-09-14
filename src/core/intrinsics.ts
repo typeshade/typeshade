@@ -16,7 +16,7 @@
  *  writer (SPIR-V, MSL) would add a new column to every registry entry and a new case in
  *  `spellIntrinsic`.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type IntrinsicTarget = 'wgsl' | 'glsl'
 
@@ -78,7 +78,7 @@ const storageFetchGlsl =
  *  same way on both targets, as `name(args)`. The wgsl and glsl members of an entry each take
  *  the rendered argument expressions and return the call as source text.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // Scalar conversions — toF32/toI32/toU32 (node.ts) emit calls named f32/i32/u32 (the WGSL
@@ -329,7 +329,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
  *  rejects it at compile time. Any intrinsic that hardcodes a binding name into its spelling
  *  needs a row here.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>> = {
   f64Guard: ['_fp64'],
@@ -354,7 +354,7 @@ export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>>
  *  actually collected.
  *
  *  Only the GLSL target has helpers: WGSL indexes storage buffers directly. Exported from
- *  `@xgis/shader-dsl`.
+ *  `typeshade`.
  */
 export const INTRINSIC_HELPERS: Readonly<
   Record<string, { readonly fn: string; readonly def: string }>
@@ -416,7 +416,7 @@ export const intrinsicNeedsAtomArgs = (name: string): boolean => INTRINSICS[name
  *  GLSL ES 3.00; a builtin whose spelling differs belongs in `INTRINSICS`, since listing it here
  *  would emit the same text on both targets and one of them would be wrong.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   // genType1 (component-wise unary) — same name in WGSL + GLSL ES 3.00.
@@ -481,7 +481,7 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
  *  `f64` type the call carries, and the failure is reported before the driver sees invalid
  *  source.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set(['f64', 'f64FromParts', 'f64Parts'])
 

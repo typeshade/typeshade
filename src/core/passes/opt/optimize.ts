@@ -88,11 +88,11 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
  *  bit-exact set, `'O2'` the full one, and those two differ in whether float semantics can move
  *  at all — a distinction a hand-assembled pass list is easy to get wrong.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  *
  *  @example
  *  ```ts
- *  import { optimize, DEFAULT_PASSES } from '@xgis/shader-dsl/dev'
+ *  import { optimize, DEFAULT_PASSES } from 'typeshade/dev'
  *
  *  const once = optimize(MODULE)                 // one sweep of DEFAULT_PASSES
  *  const cseOnly = optimize(MODULE, [cse])       // isolate a single pass to measure it
@@ -268,7 +268,7 @@ export function fixpoint(
  *  `'O2'` otherwise. Pass a level to {@link emitModuleAt} to emit WGSL at it, or to
  *  {@link lowerWgsl} to get the optimized module without emitting text.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type OptLevel = 'O0' | 'O1' | 'O2'
 

@@ -98,13 +98,13 @@ import { DF64_FNS_INT, DF64_ORDER_INT } from '../fp64/df64-int.js'
  *  is fine. {@link recommendFp64Flavor} picks a flavour from a device's adapter or renderer
  *  information.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type Fp64Flavor = 'float' | 'integer'
 
 /** Options for {@link fp64Lower}.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface Fp64LowerOptions {
   /** Which primitives back the injected `df64_*` helper functions. Omitting it selects
@@ -953,7 +953,7 @@ function injectGuard(bindings: BindingDecl[]): void {
  *  The emit functions run this pass for you; pass `fp64Flavor` in {@link EmitOptions} to select
  *  the flavour there. Call it directly when you want to inspect the lowered module.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to lower.
  *  @param opts - `flavor` selects which primitives back the helpers; see {@link Fp64Flavor}.
@@ -968,7 +968,7 @@ function injectGuard(bindings: BindingDecl[]): void {
  *
  *  @example
  *  ```ts
- *  import { fp64Lower } from '@xgis/shader-dsl'
+ *  import { fp64Lower } from 'typeshade'
  *
  *  // authored: a ModuleDecl whose functions use f64
  *  const lowered = fp64Lower(authored, { flavor: 'integer' })

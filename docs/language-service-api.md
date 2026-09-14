@@ -503,8 +503,10 @@ LSP (VS Code):
 
 ## 11. Open questions
 
-- Package name for the published service (`typeshade`, `@typeshade/core`, or the current
-  `@xgis/shader-dsl`); the two `0.0.0` placeholders on npm need an owner and a plan.
+- ~~Package name for the published service~~ — decided: the package publishes as the unscoped
+  `typeshade`. Both npm placeholders (`typeshade` and `@typeshade/core`, reserved 2026-09-07 at
+  `0.0.0`) belong to the project owner; `@typeshade/core` stays reserved for a later split and
+  nothing is published to it.
 - Whether `.shade.ts` should be recognised by extension in editors before the file is parsed,
   or only by the `"use typeshade"` directive (the compiler uses the directive; the Vite plugin
   uses the extension).

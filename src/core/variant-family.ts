@@ -238,7 +238,7 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
  *  ladder usually goes inside an include, and an include cannot carry a second `#version`.
  *  Joining the preamble to the source reproduces `emitGuarded` byte for byte.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param spec - the axes, the per-point builder, and the key derivation.
  *  @returns the built family: every variant with its module, reflection and key, plus the
@@ -248,7 +248,7 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
  *
  *  @example
  *  ```ts
- *  import { variantFamily } from '@xgis/shader-dsl'
+ *  import { variantFamily } from 'typeshade'
  *
  *  const family = variantFamily({
  *    axes: { shadows: [false, true], blend: ['add', 'mix'] },

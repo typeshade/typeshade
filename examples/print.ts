@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl examples — CLI printer ═══
+// ═══ typeshade examples — CLI printer ═══
 //
 // Prints each example's emitted WGSL (+ GLSL ES 3.00 for the WebGL2-renderable ones) and
 // its pipeline Reflection. Run all, or one by id:

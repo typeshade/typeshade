@@ -30,9 +30,9 @@
 // those shapes before a real emit ever reached the analysis.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, emitGlslStages, emitModule, compileModule } from '@xgis/shader-dsl'
-import { vec4fT, f32T, boolT, arrayT, structT } from '@xgis/shader-dsl'
-import type { Expr, FuncDecl, ModuleDecl, ReadonlyNode, Stmt } from '@xgis/shader-dsl'
+import { emitGlslModule, emitGlslStages, emitModule, compileModule } from 'typeshade'
+import { vec4fT, f32T, boolT, arrayT, structT } from 'typeshade'
+import type { Expr, FuncDecl, ModuleDecl, ReadonlyNode, Stmt } from 'typeshade'
 import {
   fn,
   module as dslModule,
@@ -48,8 +48,8 @@ import {
   Switch,
   toI32,
   Var,
-} from '@xgis/shader-dsl'
-import { inline, obfuscate } from '@xgis/shader-dsl/emit-prod'
+} from 'typeshade'
+import { inline, obfuscate } from 'typeshade/emit-prod'
 import { hoistDiscardingCtorArgs, transitivelyDiscardingFns } from './glsl-legalize.js'
 
 // Every balanced `Name(...)` span in `text` for each ctor name — the exact spans ANGLE

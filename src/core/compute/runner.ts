@@ -15,7 +15,7 @@
 // `lib.dom`, the WebGPU surface is typed STRUCTURALLY below rather than pulled from
 // `@webgpu/types` (the package compiles with `types: []` so it can be vendored out of the
 // repo), and the whole thing is on its own subpath — an emit-only consumer that never
-// imports `@xgis/shader-dsl/compute` bundles none of it.
+// imports `typeshade/compute` bundles none of it.
 //
 // ─── THE THREE PROPERTIES THAT ARE NOT NEGOTIABLE ───
 // 1. ASYNC, because WebGPU readback genuinely is (`mapAsync`); CPU and WebGL2 resolve

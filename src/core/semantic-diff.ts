@@ -530,7 +530,7 @@ function resolvedLines(prev: readonly string[], next: readonly string[]): string
  *  Renaming with {@link mangle} produces no differences under the default options, because
  *  `'names'` canonicalizes exactly the identifiers that pass is free to rewrite.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param a - the reference module, the development side when `transforms` is declared.
  *  @param b - the module to compare against it, the transformed side.
@@ -540,8 +540,8 @@ function resolvedLines(prev: readonly string[], next: readonly string[]): string
  *
  *  @example
  *  ```ts
- *  import { semanticDiff, isSemanticallyEqual } from '@xgis/shader-dsl'
- *  import { inline, obfuscate } from '@xgis/shader-dsl/emit-prod'
+ *  import { semanticDiff, isSemanticallyEqual } from 'typeshade'
+ *  import { inline, obfuscate } from 'typeshade/emit-prod'
  *
  *  const d = semanticDiff(devModule, prodModule, { transforms: [inline(), ...obfuscate()] })
  *  isSemanticallyEqual(d) // true when prod differs from dev only as the declared pipeline dictates

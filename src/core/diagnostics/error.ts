@@ -36,13 +36,13 @@ export const formatLoc = (loc: SourceLoc): string => `${loc.file}:${loc.line}:${
  *  `hint` is the catalogue's one-line fix for the code, where it has one. `loc` points into the
  *  TypeScript that built the node (the file, line and column of the author's own call), and is
  *  present only when source tracing was on at the time the node was built; turn it on with
- *  `setSourceTracing(true)` from `@xgis/shader-dsl/dev`. Treat both fields as optional.
+ *  `setSourceTracing(true)` from `typeshade/dev`. Treat both fields as optional.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @example
  *  ```ts
- *  import { ShaderDslError } from '@xgis/shader-dsl'
+ *  import { ShaderDslError } from 'typeshade'
  *
  *  try {
  *    buildModule()
@@ -60,7 +60,7 @@ export class ShaderDslError extends Error {
   /** The catalogue's one-line fix, where the code has one. Absent otherwise. */
   readonly hint?: string
   /** Where in the author's TypeScript the offending node was built. Present only when source
-   *  tracing was on at that time (`setSourceTracing(true)` from `@xgis/shader-dsl/dev`), so
+   *  tracing was on at that time (`setSourceTracing(true)` from `typeshade/dev`), so
    *  treat it as optional. */
   readonly loc?: SourceLoc
   constructor(opts: { code: string; message: string; hint?: string; loc?: SourceLoc }) {

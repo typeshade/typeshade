@@ -371,9 +371,7 @@ describe('#1681 C — the mirror invariant (F5) + the manifest hygiene it rests 
     // Four gates below iterate this manifest. If the read returned `{}` — wrong path, parse
     // failure swallowed — all four pass on nothing. These witnesses are chosen to survive the
     // fix increment C lands, so this arm reds only when the READER is broken.
-    expect(PKG.name, 'shader-dsl/package.json did not parse as this package').toBe(
-      '@xgis/shader-dsl',
-    )
+    expect(PKG.name, 'shader-dsl/package.json did not parse as this package').toBe('typeshade')
     expect(typeof PKG.version).toBe('string')
     expect(
       Object.keys(SCRIPTS).length,

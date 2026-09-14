@@ -381,7 +381,7 @@ const GLSL_CAP_PROFILE: CapProfile = {
  *  first, and only the shapes that rewrite cannot cover throw, such as a `read_write`
  *  storage binding or an unsupported element type.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const glslEs300Backend: Backend = {
   id: 'glsl-es300',
@@ -2058,7 +2058,7 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
  *  has no pipeline-time equivalent. The shared {@link EmitOptions} apply too: `parens`,
  *  `plugins` and `fp64Flavor`.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to emit.
  *  @param stage - which stage to emit, or omitted for the whole module.
@@ -2073,7 +2073,7 @@ function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T
  *
  *  @example
  *  ```ts
- *  import { emitGlslModule } from '@xgis/shader-dsl'
+ *  import { emitGlslModule } from 'typeshade'
  *
  *  const vs = emitGlslModule(MODULE, 'vertex')
  *  const fs = emitGlslModule(MODULE, 'fragment', { floatPrecision: 'mediump' })
@@ -2113,7 +2113,7 @@ export function emitGlslModule(
  *  `declares.entryPoints` either way, and they still decide the stage scope, so the
  *  fragment carries exactly the helpers, structs and bindings the stage's entry reaches.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to emit.
  *  @param stage - which stage's scope to emit; omit for the whole module.
@@ -2123,7 +2123,7 @@ export function emitGlslModule(
  *
  *  @example
  *  ```ts
- *  import { emitGlslFragment } from '@xgis/shader-dsl'
+ *  import { emitGlslFragment } from 'typeshade'
  *
  *  const frag = emitGlslFragment(MODULE, 'fragment')
  *  // frag.preamble: ['#version 300 es', 'precision highp float;', 'precision highp int;']
@@ -2165,7 +2165,7 @@ export function emitGlslFragment(
  *  does not depend on which other entries the module carries, because every optimizer
  *  pass works on one function at a time.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to emit.
  *  @param opts - the {@link GlslEmitOptions}, plus `vertexEntry` and `fragmentEntry`.
@@ -2174,7 +2174,7 @@ export function emitGlslFragment(
  *
  *  @example
  *  ```ts
- *  import { emitGlslStages } from '@xgis/shader-dsl'
+ *  import { emitGlslStages } from 'typeshade'
  *
  *  const { vertex, fragment } = emitGlslStages(MODULE, { fragmentEntry: 'fs_pattern' })
  *  ```

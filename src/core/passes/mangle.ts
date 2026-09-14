@@ -63,7 +63,7 @@ import { RESERVED_WORDS } from '../reserved-words.js'
  *  `authoredFn.authoredName`, because the same spelling is renamed independently inside each
  *  function and a bare name would be ambiguous.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/emit-prod`, `typeshade/dev`.
  */
 export interface MangleResult {
   readonly module: ModuleDecl
@@ -132,11 +132,11 @@ function collectDeclNames(body: readonly Stmt[], acc: Set<string>): void {
  *  emitting a module that no longer compiles. That is worth knowing at the call site: a single
  *  `rawWgsl` anywhere in a module silently costs you the whole minification win.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/emit-prod`, `typeshade/dev`.
  *
  *  @example
  *  ```ts
- *  import { mangleModule } from '@xgis/shader-dsl/emit-prod'
+ *  import { mangleModule } from 'typeshade/emit-prod'
  *
  *  const { module, renames } = mangleModule(MODULE)
  *  // ship `module`; keep `renames` next to the build so a driver log can be decoded

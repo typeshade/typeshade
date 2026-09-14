@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — choropleth colour ramp ═══
+// ═══ typeshade example — choropleth colour ramp ═══
 //
 // A cartographic shader: the data-driven colour ramp a thematic map uses to paint a value
 // field. A reusable `ramp()` DSL function maps a normalised value [0,1] through a 5-stop

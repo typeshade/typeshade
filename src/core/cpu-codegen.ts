@@ -463,7 +463,7 @@ interface CodegenRuntime {
  *  calls {@link compileModule} instead. Reach for the interpreter directly when debugging, too,
  *  since it puts no generated source between you and the IR.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to evaluate.
  *  @param opts - the same `precision` and `gpuStubs` {@link compileModule} takes.
@@ -475,7 +475,7 @@ interface CodegenRuntime {
  *
  *  @example
  *  ```ts
- *  import { compileModuleJs, compileModule } from '@xgis/shader-dsl'
+ *  import { compileModuleJs, compileModule } from 'typeshade'
  *
  *  const cpu = (() => {
  *    try {

@@ -154,7 +154,7 @@ export function shaderTokens(src: string): string[] {
  *  `false` exists specifically so a caller can diff minified output against a
  *  hand-checked baseline with the literals left untouched.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`.
+ *  Exported from `typeshade/emit-prod`.
  */
 export interface MinifyOptions {
   /** How numeric literals are re-spelled.

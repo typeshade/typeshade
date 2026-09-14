@@ -11,7 +11,7 @@
 // by the M2a emit-shape test and the M2c real-GPU gate.
 
 import { describe, it, expect } from 'vitest'
-import { compileModule, lowerComputeToFragment } from '@xgis/shader-dsl'
+import { compileModule, lowerComputeToFragment } from 'typeshade'
 import {
   f32T,
   u32T,
@@ -22,7 +22,7 @@ import {
   type ShaderType,
   type Expr,
   type ModuleDecl,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 
 const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
 const arrF32 = { kind: 'array', elem: f32T } as ShaderType

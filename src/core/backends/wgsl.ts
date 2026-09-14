@@ -373,7 +373,7 @@ export const emitFuncsCsed = emitFuncs
  *  functions.
  *
  *  `opts` is an optional {@link EmitOptions}: `plugins` for emit-time transforms such as the
- *  production ones on the `@xgis/shader-dsl/emit-prod` subpath, and `parens` to choose how
+ *  production ones on the `typeshade/emit-prod` subpath, and `parens` to choose how
  *  many parentheses the expressions carry. */
 export const emitModule = (m: ModuleDecl, opts?: EmitOptions): string =>
   emitModuleDriver(m, wgslBackend, opts)
