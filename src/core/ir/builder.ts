@@ -439,10 +439,11 @@ function withScope<T>(b: Builder, run: () => T): T {
   }
 }
 
-// Wire the Node lvalue method (`x.assign(v)`) to the current scope — installed here so node.ts stays free
-// of a builder import.
+// Wire the Node lvalue methods (`x.assign(v)`, and `x.addAssign(v)` and its siblings — #8 S2)
+// to the current scope — installed here so node.ts stays free of a builder import.
 installStmtSink({
   assign: (target, value) => currentBuilder().assign(target, value),
+  assignOp: (target, bop, value) => currentBuilder().assignOp(target, bop, value),
 })
 
 // ═══ #843 — authoring-error context ═══

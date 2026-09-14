@@ -165,7 +165,13 @@ export const isNodeValue = (v: unknown): v is ReadonlyNode =>
 /** Statement sink — the builder installs how `node.assign(v)` pushes its Stmt to the
  *  current scope. Injected (not imported) so the Node lvalue methods can route to the builder without a
  *  node ↔ builder import cycle. (Reads only `.expr`, so a ReadonlyNode value is fine.) */
-type StmtSink = { assign(target: ReadonlyNode<any>, value: ReadonlyNode<any>): void }
+type StmtSink = {
+  assign(target: ReadonlyNode<any>, value: ReadonlyNode<any>): void
+  // #8 S2 — the compound-assignment route, `x += v`. OPTIONAL, so a host that installed a sink
+  // before this existed still type-checks and still works: the compound methods fall back to
+  // `assign(target, target ∘ value)`, which is the statement they used to have to be written as.
+  assignOp?(target: ReadonlyNode<any>, bop: BinOp, value: ReadonlyNode<any>): void
+}
 let _stmtSink: StmtSink | undefined
 /** Installs the statement sink that `Node.assign()` writes through. The node module cannot
  *  import the builder (the two would import each other), so the builder registers its own
@@ -738,6 +744,69 @@ export class Node<K extends string = string> extends ReadonlyNode<K> {
    *  The value lifts to this node's scalar kind. */
   assign(value: ArithArg<K>): void {
     stmtSink().assign(this, this.liftArg(value))
+  }
+
+  // ── Compound assignment (#8 S2) ──
+  //
+  // `acc.assign(acc.add(x))` and the `"use typeshade"` surface's `acc += x` mean the same
+  // thing and, until now, made two different IRs and two different texts: an `assign` holding
+  // a binop against an `assignOp`. That is a hole under the claim that `fn()` is the IR
+  // equivalence oracle for the source compiler, since the two surfaces could not meet on the
+  // one statement every shader writes. These four methods build the `assignOp` the source
+  // compiler builds, so a helper ported between surfaces emits the same text.
+  //
+  // The existing `assign(add(...))` spelling is untouched and keeps its own emit: this is a
+  // second statement, not a rewrite of the first.
+  private compound(bop: BinOp, value: ArithArg<K>): void {
+    const sink = stmtSink()
+    const v = this.liftArg(value)
+    if (sink.assignOp) {
+      sink.assignOp(this, bop, v)
+      return
+    }
+    // A sink installed before assignOp existed: fall back to the long form, which is the
+    // statement this method would otherwise be written as.
+    sink.assign(
+      this,
+      new Node({
+        op: 'binop',
+        type: binResultType(this.type, v.type, bop),
+        bop,
+        a: this.expr,
+        b: v.expr,
+      }),
+    )
+  }
+
+  /** `this += value;` — the compound assignment, emitted as `x += v` on both targets. The same
+   *  statement the `"use typeshade"` surface's `x += v` lowers to, so a helper ported between
+   *  the two authoring surfaces keeps its emit.
+   *
+   *  `this.assign(this.add(value))` is the other spelling and emits `x = (x + v)`. Both are
+   *  correct; this one is shorter and is the one the seam is defined on.
+   *
+   *  @example
+   *  ```ts
+   *  const acc = Var('acc', f32(0))
+   *  Loop(64, (i) => {
+   *    acc.addAssign(i.f32())
+   *  })
+   *  ```
+   */
+  addAssign(value: ArithArg<K>): void {
+    this.compound('+', value)
+  }
+  /** `this -= value;`, the subtracting {@link Node.addAssign}. */
+  subAssign(value: ArithArg<K>): void {
+    this.compound('-', value)
+  }
+  /** `this *= value;`, the multiplying {@link Node.addAssign}. */
+  mulAssign(value: ArithArg<K>): void {
+    this.compound('*', value)
+  }
+  /** `this /= value;`, the dividing {@link Node.addAssign}. */
+  divAssign(value: ArithArg<K>): void {
+    this.compound('/', value)
   }
 }
 
