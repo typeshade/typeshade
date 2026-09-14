@@ -75,6 +75,7 @@ import {
   lowerForBackend,
   applyIRPlugins,
   applyTextPlugins,
+  withDeclaredFns,
   type EmitOptions,
   type ParenMode,
 } from '../emit.js'
@@ -1708,6 +1709,22 @@ function assembleGlsl(
    *  composes into a program it owns. The entries are still computed (they decide the
    *  stage scope, so dropping them earlier would change which helpers and bindings
    *  survive) and are reported to the caller; only their spelling is withheld. */
+  omitEntries?: boolean,
+): GlslAssembly {
+  // The module's own function names, in scope for the whole assembly: this backend rewrites
+  // `saturate`, `fma`, `dpdx` and `dpdy` into GLSL spellings, and a module that declares one
+  // of those names must call ITS function, not the rewrite (emit.ts, withDeclaredFns).
+  return withDeclaredFns(lowered, () =>
+    assembleGlslParts(extHeader, lowered, stage, opts, keepEntry, omitEntries),
+  )
+}
+
+function assembleGlslParts(
+  extHeader: string,
+  lowered: ModuleDecl,
+  stage: 'vertex' | 'fragment' | undefined,
+  opts?: GlslEmitOptions,
+  keepEntry?: string,
   omitEntries?: boolean,
 ): GlslAssembly {
   const structs = new Map(lowered.structs.map((s) => [s.name, s]))

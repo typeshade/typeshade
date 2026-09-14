@@ -35,6 +35,24 @@ function expectCall(e: Expr, fn: string, type: string): void {
   expect(typeKey(e.type)).toBe(type)
 }
 
+/** The same IR with every source span stripped.
+ *
+ *  #32 gives an authored node the span of the text it came from, so two spellings of one
+ *  operation — `select(a, b, c)` and `c ? b : a` — build equal IR that is not deeply equal as
+ *  objects: their spans differ because the sources differ. These tests are about the SHAPE,
+ *  which is what `irEqual` compares and what makes `fn()` an oracle, so the provenance comes
+ *  off first. */
+function withoutSpans<T>(node: T): T {
+  if (Array.isArray(node)) return node.map(withoutSpans) as T
+  if (node === null || typeof node !== 'object') return node
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    if (k === 'span') continue
+    out[k] = withoutSpans(v)
+  }
+  return out as T
+}
+
 describe('the builtins the surface had no name for', () => {
   it.each([
     ['exp2(x)', 'exp2'],
@@ -160,7 +178,7 @@ describe('select', () => {
     `)
     expect(viaCall.diagnostics).toEqual([])
     expect(viaTernary.diagnostics).toEqual([])
-    expect(viaCall.funcs[0]!.body).toEqual(viaTernary.funcs[0]!.body)
+    expect(withoutSpans(viaCall.funcs[0]!.body)).toEqual(withoutSpans(viaTernary.funcs[0]!.body))
   })
 
   it('emits select in WGSL and the ternary in GLSL, and evaluates both arms', () => {
@@ -270,11 +288,11 @@ describe('the bool and f64 casts', () => {
       }
     `)
     expect(r.diagnostics).toEqual([])
-    expect(r.funcs[0]!.body[0]).toEqual({
+    expect(withoutSpans(r.funcs[0]!.body[0])).toEqual({
       s: 'return',
       expr: { op: 'param', type: expect.anything(), name: 'c' },
     })
-    expect(r.funcs[1]!.body[0]).toEqual({
+    expect(withoutSpans(r.funcs[1]!.body[0])).toEqual({
       s: 'return',
       expr: { op: 'lit', type: expect.anything(), value: false },
     })
@@ -416,7 +434,7 @@ describe('discard', () => {
     expect(r.diagnostics).toEqual([])
     const stmt = r.funcs[0]!.body[0]!
     if (stmt.s !== 'if') throw new Error(`expected an if, got ${stmt.s}`)
-    expect(stmt.arms[0]!.body).toEqual([{ s: 'discard' }])
+    expect(withoutSpans(stmt.arms[0]!.body)).toEqual([{ s: 'discard' }])
   })
 
   it('emits discard on both targets', () => {
@@ -481,6 +499,135 @@ describe('discard', () => {
   })
 })
 
+// ── The four majors, each pinned against its own mutation ──
+//
+// The verification report found that reverting any of these in a scratch copy left the whole
+// suite green: the features were exercised, the RULES were not. Each case below fails if the
+// guard it names is removed.
+
+describe('the fragment-only rule follows calls, not just the entry body', () => {
+  it('reports discard in a helper the entry calls, naming the chain', () => {
+    // The check walks the call graph from each entry. Reverting it to "does the entry body
+    // contain a discard" leaves every other discard test green, because they all discard in
+    // the entry itself.
+    const r = compileTsSource(`
+      "use typeshade";
+      export function cut(x: f32): f32 {
+        if (x > 0.5) {
+          discard;
+        }
+        return x;
+      }
+      class VsOut {
+        @builtin("position") pos: vec4
+      }
+      @vertex
+      export function vs(): VsOut {
+        const k = cut(1.);
+        return { pos: vec4(k, 0., 0., 1.) };
+      }
+    `)
+    // The exact front-end sentence, with the chain in it. A loose match would pass without
+    // the walk: the core's own `fragment-only-builtin` lint (SD0109) catches this at EMIT and
+    // surfaces as a TS8015 whose text also mentions the op, so what the walk is worth is the
+    // message and its position, not catching it at all.
+    expect(r.diagnostics[0]!.code).toBe('TS8099')
+    expect(r.diagnostics[0]!.message).toBe(
+      '"discard" is only valid in a fragment shader; "cut" is reachable from the vertex entry "vs".',
+    )
+  })
+
+  it('reports a derivative two levels deep from a compute entry', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function inner(x: f32): f32 {
+        return fwidth(x);
+      }
+      export function outer(x: f32): f32 {
+        return inner(x) * 2.;
+      }
+      declare let out: storage<array<f32>>
+      @compute([1, 1, 1])
+      export function k(@builtin("global_invocation_id") gid: vec3u) {
+        out[gid.x] = outer(1.);
+      }
+    `)
+    expect(r.diagnostics[0]!.code).toBe('TS8099')
+    expect(r.diagnostics[0]!.message).toBe(
+      '"fwidth" is only valid in a fragment shader; "inner" is reachable from the compute entry "k".',
+    )
+  })
+
+  it('says nothing about a helper NOTHING calls — the negative that makes it a walk', () => {
+    // If the check scanned every function instead of walking from the entries, this would
+    // report, and the rule would be "no discard anywhere" rather than "not in this stage".
+    const r = compileTsSource(`
+      "use typeshade";
+      export function unused(x: f32): f32 {
+        if (x > 0.5) {
+          discard;
+        }
+        return x;
+      }
+      class VsOut {
+        @builtin("position") pos: vec4
+      }
+      @vertex
+      export function vs(): VsOut {
+        return { pos: vec4(0., 0., 0., 1.) };
+      }
+    `)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+  })
+})
+
+describe('** refuses each operand kind that pow has no form for', () => {
+  const cases: readonly [string, string, string][] = [
+    ['an integer base', 'export function f(i: i32): i32 {\n  return i ** 2;\n}', 'i32'],
+    ['an integer exponent', 'export function f(x: f32, i: i32): f32 {\n  return x ** i;\n}', 'i32'],
+    ['a bool', 'export function f(b: bool): bool {\n  return b ** b;\n}', 'bool'],
+  ]
+  it('accepts a written number as the exponent, which is an f32 here', () => {
+    // `x ** 2` is `pow(x, 2.0)`: a bare number lowers to an f32, so this is the float case
+    // and not an integer one. Stated because it is the shape a reader reaches for first.
+    const r = compileTsSource(
+      '"use typeshade";\nexport function f(x: f32): f32 {\n  return x ** 2;\n}',
+    )
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('pow(x, 2.0)')
+  })
+
+  it.each(cases)('rejects %s', (_label, src, mentioned) => {
+    // The guard is what keeps `**` from lowering to a pow() call no backend has an overload
+    // for. Removing it leaves the float cases — the only ones tested before — green.
+    const message = diagnose(src)
+    expect(message).toContain('**')
+    expect(message).toContain(mentioned)
+  })
+})
+
+describe('the derivative stubs keep the shape their argument has', () => {
+  it('evaluates a component of a vector derivative, and a length over one', () => {
+    // The oracle has no neighbouring invocations, so a derivative is a ZERO of the argument's
+    // shape. A stub returning a scalar 0 makes `dpdx(v).x` throw and `length(fwidth(v))` a
+    // NaN, which no other test in this file would notice.
+    const c = compile(`
+      "use typeshade";
+      class Color {
+        @location(0) color: vec4
+      }
+      @fragment
+      export function fs(@builtin("position") p: vec4): Color {
+        const d = dpdx(p.xyz);
+        const w = length(fwidth(p.xy));
+        return { color: vec4(d.x, w, 0., 1.) };
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.eval('fs', [[0.5, 0.5, 0.5, 1]])).toEqual({ color: [0, 0, 0, 1] })
+  })
+})
+
 describe('a name this item adds does not shadow a function the file declares', () => {
   // Every one of these was an ordinary unknown name before #8 A6, so `export function
   // saturate(…)` followed by `saturate(x)` called the author's function. An addition may not
@@ -518,6 +665,39 @@ describe('a name this item adds does not shadow a function the file declares', (
     // …and the oracle evaluates the same function, through the call's declRef.
     expect(c.eval('g', [])).toBe(99)
   })
+
+  it.each(['saturate', 'fma', 'dpdx', 'dpdy'])(
+    'calls the declared %s on GLSL too, where the backend has a rewrite for that name',
+    (name) => {
+      // The one the front end and the CPU backends agreeing could not settle. GLSL ES 3.00 has
+      // no `saturate`, so this backend renders the INTRINSIC of that name as
+      // `clamp(x, 0.0, 1.0)` — and that rewrite keyed on the name, so a module declaring its
+      // own `saturate` emitted the function into the GLSL and then never called it. WGSL said
+      // 99, GLSL said something else, from one module, with no diagnostic.
+      const arity = name === 'fma' ? 3 : 1
+      const params = Array.from({ length: arity }, (_, i) => `a${i}: f32`).join(', ')
+      const args = Array.from({ length: arity }, () => '2.').join(', ')
+      const c = compile(`
+        "use typeshade";
+        export function ${name}(${params}): f32 {
+          return 99.;
+        }
+        class Color {
+          @location(0) color: vec4
+        }
+        @fragment
+        export function fs(): Color {
+          const v = ${name}(${args});
+          return { color: vec4(v, v, v, 1.) };
+        }
+      `)
+      expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+      expect(c.glsl?.fragment).toContain(`float ${name}(`)
+      expect(c.glsl?.fragment).toContain(`${name}(2.0`)
+      expect(c.glsl?.fragment).not.toContain('clamp(2.0, 0.0, 1.0)')
+      expect(c.eval('fs', [])).toEqual({ color: [99, 99, 99, 1] })
+    },
+  )
 
   it('leaves a name that was already a builtin exactly as it was', () => {
     // `pow` predates this item: the intrinsic wins, on both targets and on the CPU. Changing
