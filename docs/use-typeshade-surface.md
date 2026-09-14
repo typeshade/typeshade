@@ -242,4 +242,50 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+---
+
+## 9. Builtins, casts and `discard`
+
+The scalar casts are `f32(x)`, `i32(x)`, `u32(x)`, `bool(x)` and `f64(x)`. `bool(x)` is
+"x is not zero", WGSL's own conversion, and is spelled with the compare it means. `f64(x)`
+widens an `f32` to the emulated double; casting a value to the type it already has is that
+value.
+
+Free builtin functions, callable without a `Math.` prefix, are the GLSL / WGSL names the IR
+carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoothstep`, `step`,
+`length`, `dot`, `cross`, `distance`, `normalize`, `mod`, `fract`, `degrees`, `radians`,
+`inverseSqrt`):
+
+| Spelling | Meaning |
+|----------|---------|
+| `exp2(x)` | 2ˣ |
+| `saturate(x)` | `clamp(x, 0., 1.)`; GLSL ES 3.00 has no `saturate`, so it is inlined there |
+| `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL) |
+| `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
+| `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL) — `atan(x)` is still one argument |
+| `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
+| `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
+
+A name declared in the file wins over a builtin of the same name, for `select` as for any
+other.
+
+`discard` kills the fragment:
+
+```ts
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  if (p.x > 0.5) {
+    discard
+  }
+  return { color: vec4(1., 0., 0., 1.) }
+}
+```
+
+It is allowed in a fragment entry and in a helper (whose callers are not known when the
+helper is lowered); a `@vertex` or `@compute` entry that discards is rejected, as WGSL
+rejects it.
+
+`transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
+emulated-double matrix, so there is nothing to expose yet.
+
 Last updated: 2026-09-14

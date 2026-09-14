@@ -3,8 +3,8 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
-import { f32 } from '../../core/ir/node.js'
-import { f32T, vec3fT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import { f32, pow, saturate, select, toF64 } from '../../core/ir/node.js'
+import { boolT, f32T, f64T, vec3fT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -90,6 +90,16 @@ function normalizeExpr(e: Expr): unknown {
         a: normalizeExpr(e.a),
         b: normalizeExpr(e.b),
       }
+    case 'call':
+      return { op: 'call', type: typeKey(e.type), fn: e.fn, args: e.args.map(normalizeExpr) }
+    case 'select':
+      return {
+        op: 'select',
+        type: typeKey(e.type),
+        cond: normalizeExpr(e.cond),
+        ifTrue: normalizeExpr(e.ifTrue),
+        ifFalse: normalizeExpr(e.ifFalse),
+      }
     default:
       return { op: e.op }
   }
@@ -160,6 +170,54 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('select(f, t, c) matches the EDSL select(c, t, f)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function pick(a: f32, b: f32, c: bool): f32 {
+        return select(a, b, c);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('pick', { a: f32T, b: f32T, c: boolT }, f32T, ({ a, b, c }) => select(c, b, a))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('saturate(x) matches the EDSL saturate(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function clampUnit(x: f32): f32 {
+        return saturate(x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('clampUnit', { x: f32T }, f32T, ({ x }) => saturate(x))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('f64(x) matches the EDSL toF64(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function widen(x: f32): f64 {
+        return f64(x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('widen', { x: f32T }, f64T, ({ x }) => toF64(x))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a ** b matches the EDSL pow(a, b)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function square(x: f32): f32 {
+        return x ** x;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('square', { x: f32T }, f32T, ({ x }) => pow(x, x))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

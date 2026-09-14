@@ -184,6 +184,24 @@ function lowerBinary(
     }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
   }
+  // `a ** b` is WGSL's and GLSL's pow(a, b); TypeScript's exponent operator is the only
+  // arithmetic token with no binop of its own, and pow is component-wise over equal types on
+  // both targets, so the two operands must agree — a vector exponent is spelled out.
+  if (node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken) {
+    if (typeKey(left.type) !== typeKey(right.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Type mismatch: cannot ** ${typeKey(left.type)} and ${typeKey(right.type)}. ` +
+          '** is pow(a, b), which takes two values of one type; ' +
+          'splat the exponent, e.g. v ** vec3(2.).',
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: left.type, fn: 'pow', args: [left, right] }
+  }
   const bit = BITWISE[node.operatorToken.kind]
   if (bit !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {

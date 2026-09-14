@@ -28,6 +28,11 @@ export const MATH_FN_ARITY: Readonly<Record<string, number>> = {
   clamp: 3, mix: 3, smoothstep: 3, step: 2, length: 1, normalize: 1,
   fract: 1, degrees: 1, radians: 1, inverseSqrt: 1, distance: 2,
   dot: 2, cross: 2, mod: 2,
+  // Builtins the IR already spells on every target (src/core/intrinsics.ts) that this
+  // surface had no name for: exp2 and fwidth are portable, saturate, dpdx, dpdy and fma
+  // have a per-target INTRINSICS entry. `select` is NOT here — it is an Expr op, the same
+  // node `c ? a : b` lowers to, not a call, and lowerCall handles it on its own.
+  exp2: 1, saturate: 1, fwidth: 1, dpdx: 1, dpdy: 1, fma: 3,
 }
 
 export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {

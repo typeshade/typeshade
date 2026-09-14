@@ -1,0 +1,482 @@
+// `discard`, the missing WGSL builtins, and `**` in "use typeshade" (#8 A6). Every name here
+// is one the IR already carries and both backends already spell; the surface had no word for
+// it, so a shader needing one had to drop to the fn() EDSL. `select` and `bool` are the two
+// exceptions and are explained where they are lowered.
+
+import { describe, expect, it } from 'vitest'
+import { compileTsSource } from './source-file.js'
+import { compile } from './compile.js'
+import { typeKey } from '../../core/ir/types.js'
+import type { Expr } from '../../core/ir/nodes.js'
+
+function lowerReturn(body: string, params = 'x: f32, y: f32'): Expr {
+  const r = compileTsSource(`
+    "use typeshade";
+    export function f(${params}): f32 {
+      return ${body};
+    }
+  `)
+  expect(r.diagnostics).toEqual([])
+  const stmt = r.funcs[0]!.body[0]!
+  if (stmt.s !== 'return' || !stmt.expr) throw new Error(`expected a return, got ${stmt.s}`)
+  return stmt.expr
+}
+
+function diagnose(source: string): string {
+  const r = compileTsSource(`"use typeshade";\n${source}`)
+  expect(r.diagnostics.length).toBeGreaterThan(0)
+  return r.diagnostics[0]!.message
+}
+
+function expectCall(e: Expr, fn: string, type: string): void {
+  expect(e.op).toBe('call')
+  if (e.op !== 'call') return
+  expect(e.fn).toBe(fn)
+  expect(typeKey(e.type)).toBe(type)
+}
+
+describe('the builtins the surface had no name for', () => {
+  it.each([
+    ['exp2(x)', 'exp2'],
+    ['saturate(x)', 'saturate'],
+    ['fwidth(x)', 'fwidth'],
+    ['dpdx(x)', 'dpdx'],
+    ['dpdy(x)', 'dpdy'],
+  ])('lowers %s to a call of the same id', (source, fn) => {
+    expectCall(lowerReturn(source), fn, 'f32')
+  })
+
+  it('lowers fma(a, b, c) to a three-argument call', () => {
+    const e = lowerReturn('fma(x, y, x)')
+    expectCall(e, 'fma', 'f32')
+    if (e.op === 'call') expect(e.args).toHaveLength(3)
+  })
+
+  it('keeps a vector result type', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(v: vec3): vec3 {
+        return saturate(v);
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    const stmt = r.funcs[0]!.body[0]!
+    if (stmt.s !== 'return' || !stmt.expr) throw new Error('expected a return')
+    expect(typeKey(stmt.expr.type)).toBe('vec3<f32>')
+  })
+
+  it('spells them for each target', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(x: f32, y: f32): f32 {
+        return exp2(x) + saturate(y) + fwidth(x) + dpdx(x) + dpdy(y) + fma(x, y, x);
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toContain('exp2(x)')
+    expect(c.wgsl).toContain('saturate(y)')
+    expect(c.wgsl).toContain('dpdx(x)')
+    expect(c.wgsl).toContain('fma(x, y, x)')
+    // GLSL ES 3.00 has no saturate and no fma; the registry inlines both.
+    expect(c.glsl?.fragment).toContain('clamp(y, 0.0, 1.0)')
+    expect(c.glsl?.fragment).toContain('dFdx(x)')
+    expect(c.glsl?.fragment).toContain('((x) * (y) + (x))')
+  })
+
+  it('evaluates on the CPU oracle', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(x: f32, y: f32): f32 {
+        return exp2(x) + saturate(y) + fma(x, y, x);
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // exp2(3) = 8, saturate(2) = 1, fma(3, 2, 3) = 9
+    expect(c.eval('f', [3, 2])).toBe(18)
+  })
+})
+
+describe('atan with two arguments', () => {
+  it('lowers atan(y, x) to the atan2 id and atan(x) to atan', () => {
+    expectCall(lowerReturn('atan(y, x)'), 'atan2', 'f32')
+    expectCall(lowerReturn('atan(x)'), 'atan', 'f32')
+  })
+
+  it('spells atan2 in WGSL and atan in GLSL', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(x: f32, y: f32): f32 {
+        return atan(y, x);
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toContain('atan2(y, x)')
+    expect(c.glsl?.fragment).toContain('atan(y, x)')
+    expect(c.eval('f', [1, 1])).toBeCloseTo(Math.atan2(1, 1), 12)
+  })
+
+  it('still rejects three arguments', () => {
+    expect(
+      diagnose(`
+        export function f(x: f32): f32 {
+          return atan(x, x, x);
+        }
+      `),
+    ).toBe('atan expects 1 argument, or 2 for atan(y, x), got 3.')
+  })
+})
+
+describe('select', () => {
+  it('lowers select(f, t, c) to the select Expr, WGSL argument order', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32, b: f32, c: bool): f32 {
+        return select(a, b, c);
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    const stmt = r.funcs[0]!.body[0]!
+    if (stmt.s !== 'return' || !stmt.expr) throw new Error('expected a return')
+    const e = stmt.expr
+    expect(e.op).toBe('select')
+    if (e.op !== 'select') return
+    expect(e.ifFalse.op === 'param' && e.ifFalse.name).toBe('a')
+    expect(e.ifTrue.op === 'param' && e.ifTrue.name).toBe('b')
+    expect(e.cond.op === 'param' && e.cond.name).toBe('c')
+  })
+
+  it('is the same IR the ternary already built', () => {
+    const viaCall = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32, b: f32, c: bool): f32 {
+        return select(a, b, c);
+      }
+    `)
+    const viaTernary = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32, b: f32, c: bool): f32 {
+        return c ? b : a;
+      }
+    `)
+    expect(viaCall.diagnostics).toEqual([])
+    expect(viaTernary.diagnostics).toEqual([])
+    expect(viaCall.funcs[0]!.body).toEqual(viaTernary.funcs[0]!.body)
+  })
+
+  it('emits select in WGSL and the ternary in GLSL, and evaluates both arms', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(a: f32, b: f32, c: bool): f32 {
+        return select(a, b, c);
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toContain('select(a, b, c)')
+    expect(c.glsl?.fragment).toContain('(c ? b : a)')
+    expect(c.eval('f', [1, 2, true])).toBe(2)
+    expect(c.eval('f', [1, 2, false])).toBe(1)
+  })
+
+  it('takes the arms’ kind for a bare integer literal', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(n: u32, c: bool): u32 {
+        return select(0, n, c);
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    const stmt = r.funcs[0]!.body[0]!
+    if (stmt.s !== 'return' || stmt.expr?.op !== 'select') throw new Error('expected a select')
+    expect(typeKey(stmt.expr.ifFalse.type)).toBe('u32')
+    expect(typeKey(stmt.expr.type)).toBe('u32')
+  })
+
+  it('lets a user-declared select win, as a name in the file', () => {
+    const c = compile(`
+      "use typeshade";
+      export function select(a: f32, b: f32, c: f32): f32 {
+        return a + b + c;
+      }
+      export function f(x: f32): f32 {
+        return select(x, x, x);
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.eval('f', [2])).toBe(6)
+  })
+
+  it('names the argument order when the condition is not last', () => {
+    expect(
+      diagnose(`
+        export function f(c: bool, a: f32, b: f32): f32 {
+          return select(c, a, b);
+        }
+      `),
+    ).toBe(
+      'select condition must be bool, got f32. The order is WGSL’s: '.replace('’', "'") +
+        'select(falseValue, trueValue, cond).',
+    )
+  })
+
+  it('rejects the wrong argument count', () => {
+    expect(
+      diagnose(`
+        export function f(a: f32, c: bool): f32 {
+          return select(a, c);
+        }
+      `),
+    ).toBe(
+      "select expects 3 argument(s), got 2. The order is WGSL's: select(falseValue, trueValue, cond).",
+    )
+  })
+
+  it('rejects arms of different types', () => {
+    expect(
+      diagnose(`
+        export function f(a: f32, b: u32, c: bool): f32 {
+          return select(a, b, c);
+        }
+      `),
+    ).toBe('select arm type mismatch: f32 vs u32.')
+  })
+})
+
+describe('the bool and f64 casts', () => {
+  it('lowers bool(i) to the compare WGSL’s conversion means', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(i: i32): f32 {
+        return bool(i) ? 1. : 0.;
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    const stmt = r.funcs[0]!.body[0]!
+    if (stmt.s !== 'return' || stmt.expr?.op !== 'select') throw new Error('expected a select')
+    const cond = stmt.expr.cond
+    expect(cond.op).toBe('compare')
+    if (cond.op !== 'compare') return
+    expect(cond.cop).toBe('!=')
+    expect(typeKey(cond.b.type)).toBe('i32')
+  })
+
+  it('folds bool() of a literal, and is the identity on a bool', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(c: bool): bool {
+        return bool(c);
+      }
+      export function g(): bool {
+        return bool(0);
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    expect(r.funcs[0]!.body[0]).toEqual({
+      s: 'return',
+      expr: { op: 'param', type: expect.anything(), name: 'c' },
+    })
+    expect(r.funcs[1]!.body[0]).toEqual({
+      s: 'return',
+      expr: { op: 'lit', type: expect.anything(), value: false },
+    })
+  })
+
+  it('evaluates bool(i) both ways', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(i: i32): f32 {
+        return bool(i) ? 1. : 2.;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toContain('(i != 0)')
+    expect(c.eval('f', [0])).toBe(2)
+    expect(c.eval('f', [5])).toBe(1)
+  })
+
+  it('widens an f32 to f64 with the same call toF64 makes', () => {
+    const e = lowerReturn('f32(f64(x))')
+    expect(e.op).toBe('call')
+    if (e.op !== 'call') return
+    expectCall(e.args[0]!, 'f64', 'f64')
+  })
+
+  it('keeps the whole double in f64(0.1)', () => {
+    const c = compile(`
+      "use typeshade";
+      export function g(x: f32): f64 {
+        return f64(x) + f64(0.1);
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // The fp64 pass splits the literal into its (hi, lo) halves; a truncated f32 would
+    // have carried a zero low half.
+    expect(c.wgsl).toContain('vec2<f32>(0.10000000149011612, -1.4901161415892261e-9)')
+    expect(c.eval('g', [3])).toBeCloseTo(3.1, 15)
+  })
+
+  it('is the identity on a value that is already f64', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function g(x: f32): f64 {
+        return f64(f64(x));
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    const stmt = r.funcs[0]!.body[0]!
+    if (stmt.s !== 'return' || stmt.expr?.op !== 'call') throw new Error('expected a call')
+    expect(stmt.expr.fn).toBe('f64')
+    expect(stmt.expr.args[0]!.op).toBe('param')
+  })
+
+  it('rejects bool() of a vector and f64() of an integer', () => {
+    expect(
+      diagnose(`
+        export function f(v: vec3): f32 {
+          return bool(v) ? 1. : 0.;
+        }
+      `),
+    ).toBe('bool() takes a numeric scalar, got vec3<f32>.')
+    expect(
+      diagnose(`
+        export function f(i: i32): f64 {
+          return f64(i);
+        }
+      `),
+    ).toBe('f64() widens an f32, got i32. Cast to f32 first, e.g. f64(f32(x)).')
+  })
+})
+
+describe('the ** operator', () => {
+  it('lowers a ** b to pow(a, b)', () => {
+    const e = lowerReturn('x ** y')
+    expectCall(e, 'pow', 'f32')
+    if (e.op === 'call') {
+      expect(e.args[0]!.op).toBe('param')
+      expect(e.args[1]!.op).toBe('param')
+    }
+  })
+
+  it('emits pow on both targets and evaluates it', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(x: f32): f32 {
+        return x ** 2. + 2. ** x;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toContain('(pow(x, 2.0) + pow(2.0, x))')
+    expect(c.glsl?.fragment).toContain('(pow(x, 2.0) + pow(2.0, x))')
+    expect(c.eval('f', [3])).toBe(17)
+  })
+
+  it('works component-wise on two vectors', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(a: vec3, b: vec3): vec3 {
+        return a ** b;
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    const stmt = r.funcs[0]!.body[0]!
+    if (stmt.s !== 'return' || stmt.expr?.op !== 'call') throw new Error('expected a call')
+    expect(typeKey(stmt.expr.type)).toBe('vec3<f32>')
+  })
+
+  it('rejects a vector base with a scalar exponent, naming the splat', () => {
+    expect(
+      diagnose(`
+        export function f(v: vec3): vec3 {
+          return v ** 2.;
+        }
+      `),
+    ).toBe(
+      'Type mismatch: cannot ** vec3<f32> and f32. ** is pow(a, b), which takes two values of ' +
+        'one type; splat the exponent, e.g. v ** vec3(2.).',
+    )
+  })
+})
+
+describe('discard', () => {
+  const FRAGMENT = `
+    "use typeshade";
+    class Color {
+      @location(0) color: vec4
+    }
+    @fragment
+    export function fs(@builtin("position") p: vec4): Color {
+      if (p.x > 0.5) {
+        discard;
+      }
+      return { color: vec4(1., 0., 0., 1.) };
+    }
+  `
+
+  it('lowers to the discard statement', () => {
+    const r = compileTsSource(FRAGMENT)
+    expect(r.diagnostics).toEqual([])
+    const stmt = r.funcs[0]!.body[0]!
+    if (stmt.s !== 'if') throw new Error(`expected an if, got ${stmt.s}`)
+    expect(stmt.arms[0]!.body).toEqual([{ s: 'discard' }])
+  })
+
+  it('emits discard on both targets', () => {
+    const c = compile(FRAGMENT)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toContain('discard;')
+    expect(c.glsl?.fragment).toContain('discard;')
+  })
+
+  it('kills the fragment on the CPU oracle', () => {
+    const c = compile(FRAGMENT)
+    expect(c.eval('fs', [[0.2, 0, 0, 1]])).toEqual({ color: [1, 0, 0, 1] })
+    expect(c.eval('fs', [[0.9, 0, 0, 1]])).toBeUndefined()
+  })
+
+  it('is allowed in a helper, whose callers are not known here', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function cut(a: f32): f32 {
+        if (a < 0.) {
+          discard;
+        }
+        return a;
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+  })
+
+  it('is rejected in a vertex or compute entry', () => {
+    expect(
+      diagnose(`
+        @vertex
+        export function vs(@builtin("vertex_index") i: u32): vec4 {
+          discard;
+          return vec4(0.);
+        }
+      `),
+    ).toBe('"discard" is only valid in a fragment shader; "vs" is a vertex entry.')
+    expect(
+      diagnose(`
+        declare let xs: storage<array<f32>>
+        @compute([64, 1, 1])
+        export function k(@builtin("global_invocation_id") gid: vec3u) {
+          discard;
+          xs[gid.x] = 1.;
+        }
+      `),
+    ).toBe('"discard" is only valid in a fragment shader; "k" is a compute entry.')
+  })
+
+  it('leaves a local named discard alone', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(x: f32): f32 {
+        let discard = x;
+        discard = x + 1.;
+        return discard;
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    expect(r.funcs[0]!.body.some((s) => s.s === 'discard')).toBe(false)
+  })
+})

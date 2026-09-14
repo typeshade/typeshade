@@ -276,6 +276,18 @@ export function fillFunctionBody(
   }
   const body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
   ;(stub as { body: readonly Stmt[] }).body = body
+  // `discard` kills a fragment, and WGSL allows it only in a fragment entry or a function a
+  // fragment entry calls. A helper's callers are not known here, so only an entry that is not
+  // a fragment is rejected — the case a backend would otherwise pass to Tint as invalid WGSL.
+  if ((stub.stage === 'vertex' || stub.stage === 'compute') && hasDiscard(body)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.name!,
+      `"discard" is only valid in a fragment shader; "${stub.name}" is a ${stub.stage} entry.`,
+      TS_CODES.UNSUPPORTED,
+    )
+  }
   if (typeKey(stub.ret) === 'void') {
     // An entry function (`stub.stage` set) with no return type annotation was left at the
     // tentative `void` from `parseSignature` above; now that the body is lowered, a `return`
@@ -414,6 +426,23 @@ function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): numbe
     if (a && ts.isNumericLiteral(a)) return Number(a.text)
   }
   return undefined
+}
+
+/** True when any statement in `stmts`, at any depth, is a `discard`. */
+function hasDiscard(stmts: readonly Stmt[]): boolean {
+  for (const s of stmts) {
+    if (s.s === 'discard') return true
+    if (s.s === 'if') {
+      if (s.arms.some((arm) => hasDiscard(arm.body))) return true
+      if (s.elseBody && hasDiscard(s.elseBody)) return true
+    } else if (s.s === 'for') {
+      if (hasDiscard(s.body)) return true
+    } else if (s.s === 'switch') {
+      if (s.cases.some((c) => hasDiscard(c.body))) return true
+      if (s.defaultBody && hasDiscard(s.defaultBody)) return true
+    }
+  }
+  return false
 }
 
 function collectReturns(stmts: readonly Stmt[]): { expr?: Expr }[] {
