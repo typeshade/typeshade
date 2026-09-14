@@ -338,9 +338,14 @@ function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
   throw new CodegenUnsupported(`assignment target ${target.op}`)
 }
 
-/** The right-hand side of a `let` / `var` binding: an aggregate is COPIED, as `var w = v` is
- *  on both GPU targets, through the SAME cloneValue the interpreter calls, so the two stay
- *  bit-identical. A scalar binding emits exactly the source it emitted before. */
+/** The right-hand side of any STORE — a `let`/`var` binding or an assignment to an existing
+ *  name: an aggregate is COPIED, as `var w = v` and `w = v` both are on the GPU targets,
+ *  through the SAME cloneValue the interpreter calls, so the two stay bit-identical. A scalar
+ *  store emits exactly the source it emitted before.
+ *
+ *  The binding half alone was not enough: `w = v` stored the same array under the second name,
+ *  so a later `w.x = 100.` reached through to `v` and the CPU said 100 where both GPU targets
+ *  say 3. */
 function bindExpr(src: string, t: ShaderType): string {
   return isAggregateType(t) ? `$.clone(${src})` : src
 }
@@ -356,7 +361,7 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       return `${id} = ${s.init ? bindExpr(emitExpr(s.init, S), s.type) : zeroLit(s.type)};`
     }
     case 'assign':
-      return `${emitAssignExpr(s.target, emitExpr(s.expr, S), S)};`
+      return `${emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S)};`
     case 'assignOp': {
       const kind = numKindOf(s.target.type)
       const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`
@@ -417,7 +422,8 @@ function emitForInit(s: Stmt, S: FnCtx): string {
 }
 
 function emitForUpdate(s: Stmt, S: FnCtx): string {
-  if (s.s === 'assign') return emitAssignExpr(s.target, emitExpr(s.expr, S), S)
+  if (s.s === 'assign')
+    return emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S)
   if (s.s === 'assignOp') {
     const kind = numKindOf(s.target.type)
     const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`

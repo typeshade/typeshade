@@ -439,7 +439,9 @@ function checkRootWritable(
       sourceFile,
       node,
       `Cannot assign to unknown name "${root.text}".`,
-      TS_CODES.ASSIGN_TARGET,
+      // The same code as the bare-identifier arm above, for the same sentence: the root of a
+      // chain that names nothing is an unresolved identifier, not a target of the wrong shape.
+      TS_CODES.UNKNOWN_NAME,
     )
     return false
   }

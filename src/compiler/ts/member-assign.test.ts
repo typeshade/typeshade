@@ -7,7 +7,9 @@ import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { compile } from './compile.js'
 import { typeKey } from '../../core/ir/types.js'
-import type { Expr, Stmt } from '../../core/ir/nodes.js'
+import type { Expr, ModuleDecl, Stmt } from '../../core/ir/nodes.js'
+import { compileModule } from '../../core/oracle.js'
+import { compileModuleJs } from '../../core/cpu-codegen.js'
 
 const STRUCTS = `
   class P {
@@ -398,7 +400,9 @@ describe('rejections', () => {
       }
     `
     expect(diagnose(src)).toBe('Cannot assign to unknown name "q".')
-    expect(code(src)).toBe('TS8018')
+    // TS8022, the same code the bare-identifier arm gives the same sentence: an unresolved
+    // root is an unknown name, not a target of the wrong shape (which is what TS8018 says).
+    expect(code(src)).toBe('TS8022')
   })
 
   it('rejects a chain rooted in something that is not a name', () => {
@@ -491,6 +495,46 @@ describe('a write through a storage binding survives the optimizer', () => {
   })
 })
 
+/** One module from source, for a test that needs BOTH CPU backends rather than `compile()`'s
+ *  single `eval`: the interpreter and the generator have to agree bit for bit. */
+function buildModule(body: string): ModuleDecl {
+  const r = compileTsSource(`"use typeshade";\n${body}`)
+  expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+  return {
+    consts: [...r.consts],
+    structs: r.structs.map((x) => x.decl),
+    bindings: [...r.bindings],
+    funcs: [...r.funcs],
+  }
+}
+
+describe('what ++ and -- step', () => {
+  it('steps an emulated double, which the fp64 pass lowers', () => {
+    // The steppable check rejected f64 when it was first written, which broke a program that
+    // compiled: `s++` on an emulated double emits a df64 add, and Tint takes it. A check
+    // meant to stop an invalid emit must not reject a valid one.
+    const r = compileTsSource(`"use typeshade";
+      class U {
+        x: f64
+      }
+      declare const u: uniform<U>
+      export function f(): f64 {
+        let s = u.x;
+        s++;
+        return s;
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('s = df64_add(s, vec2<f32>(1.0, 0.0));')
+  })
+
+  it('still refuses the shapes that have no numeric step', () => {
+    expect(diagnose('export function f(): bool {\n  let q = true;\n  q++;\n  return q;\n}')).toBe(
+      'Cannot apply ++ to bool — ++ steps a numeric scalar or vector.',
+    )
+  })
+})
+
 describe('binding a value to another name copies it, as it does on the GPU', () => {
   it('leaves the source vector alone when the copy is written', () => {
     const c = compile(`
@@ -520,6 +564,51 @@ describe('binding a value to another name copies it, as it does on the GPU', () 
     `)
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(c.eval('f', [{ a: 3, b: 0 }])).toBe(3)
+  })
+
+  it('copies on ASSIGNMENT too, not only on a binding', () => {
+    // The binding half alone left the hole open: `w = v` stores without binding, so both CPU
+    // backends kept one array under two names and a later `w.x = 100.` reached through to
+    // `v` — 100 on the CPU where WGSL and GLSL both give 3. Asserted on the interpreter AND
+    // the generator, since the two have to stay bit-identical.
+    const module = buildModule(`
+      export function viaVector(x: f32): f32 {
+        let v = vec3(x, 0., 0.);
+        let w = vec3(0., 0., 0.);
+        w = v;
+        w.x = 100.;
+        return v.x;
+      }
+      export function viaField(x: f32): f32 {
+        let a = vec3(0., x, 0.);
+        let b = vec3(0., 0., 0.);
+        b = a;
+        b.y = 100.;
+        return a.y;
+      }
+    `)
+    for (const cpu of [compileModule(module), compileModuleJs(module)]) {
+      expect(cpu.fns.viaVector!(3)).toBe(3)
+      expect(cpu.fns.viaField!(4)).toBe(4)
+    }
+  })
+
+  it('does not copy a compound assignment result, which is already fresh', () => {
+    // `w += u` builds its value with applyBin, which maps into a NEW array, so there is
+    // nothing to alias and neither backend clones there — a copy per compound assignment in a
+    // hot loop, bought for nothing. Pinned so the two backends stay symmetric about it.
+    const module = buildModule(`
+      export function f(x: f32): f32 {
+        let v = vec3(x, 0., 0.);
+        let w = vec3(0., 0., 0.);
+        w = v;
+        w += vec3(10., 10., 10.);
+        return v.x;
+      }
+    `)
+    for (const cpu of [compileModule(module), compileModuleJs(module)]) {
+      expect(cpu.fns.f!(1)).toBe(1)
+    }
   })
 })
 

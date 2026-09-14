@@ -349,7 +349,10 @@ export function lowerUpdate(
 function isSteppable(t: ShaderType): boolean {
   if (isVec(t) || isVec64(t)) return true
   const k = typeKey(t)
-  return k === 'f32' || k === 'i32' || k === 'u32'
+  // f64 belongs here: an emulated double is a numeric scalar the fp64 pass lowers, and `s++`
+  // on one emitted `s = df64_add(s, vec2<f32>(1.0, 0.0))` before this check existed. Leaving
+  // it out made the check reject a program that compiled — the one thing it must not do.
+  return k === 'f32' || k === 'i32' || k === 'u32' || k === 'f64'
 }
 
 function lowerBody(
