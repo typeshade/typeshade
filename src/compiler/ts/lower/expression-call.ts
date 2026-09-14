@@ -150,6 +150,15 @@ export function lowerCall(
         args: Array.from({ length: ctor.n }, () => splat),
       }
     }
+    // vecN<T>(v: vecN<S>) — WGSL's element-converting constructor (`vec3f(v)`, `vec3u(v)`,
+    // `vec2(gid.xy)`), which GLSL ES 3.00 spells the same way (`vec3(uv)`) and which the
+    // EDSL's `vec3(v)` already builds as this very node: one argument, a vector of the same
+    // size, a different element kind, every component converted. It is checked before the
+    // component-count and element rules below, which are about composing a vector out of
+    // parts and would reject it as an element-type mismatch.
+    if (args.length === 1 && isConvertibleVector(args[0]!.type, ctor)) {
+      return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args }
+    }
     // fp64 lowering represents vecN<f64> as DF64VecN, while the constructor
     // contract is component-based. Flatten vec64 arguments here so the fp64 pass
     // only has to lower scalar f64 constructor components; it can then reassemble
@@ -217,6 +226,18 @@ export function lowerCall(
 function vectorCtorType(n: 2 | 3 | 4, elem: 'f32' | 'i32' | 'u32' | 'f64'): ShaderType {
   if (elem === 'f64') return { kind: 'vec64', n }
   return { kind: 'vec', n, elem }
+}
+
+/** True for the one argument shape {@link lowerCall} converts rather than composes: a native
+ *  vector of the constructor's own size whose element kind differs. Both sides must be native
+ *  (f32 / i32 / u32) — an emulated-double vector is not converted here, since a vec64 is a
+ *  pair of f32 lanes the fp64 pass assembles, not a component list to reinterpret. */
+function isConvertibleVector(
+  t: ShaderType,
+  ctor: { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' | 'f64' },
+): boolean {
+  if (ctor.elem === 'f64') return false
+  return t.kind === 'vec' && t.n === ctor.n && t.elem !== ctor.elem
 }
 
 function isVectorCtorScalar(t: ShaderType, elem: 'f32' | 'i32' | 'u32' | 'f64'): boolean {
