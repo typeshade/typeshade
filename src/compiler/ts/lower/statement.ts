@@ -8,6 +8,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, readOnlyPhrase } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
+import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -70,7 +71,9 @@ function lowerStatementNode(
     if (!node.expression) return { s: 'return' }
     const expr = lowerExpression(node.expression, sourceFile, scope, diagnostics)
     if (!expr) return undefined
-    return { s: 'return', expr }
+    // `return 0` takes the declared return type when that type is i32 or u32 (#8 A3).
+    const ret = scope.returnType()
+    return { s: 'return', expr: ret ? retargetIntLitCtx(expr, node.expression, ret) : expr }
   }
   if (ts.isIfStatement(node)) return lowerIf(node, sourceFile, scope, diagnostics)
   if (ts.isForStatement(node)) return lowerFor(node, sourceFile, scope, diagnostics)
@@ -219,11 +222,18 @@ function lowerVariableDeclaration(
   }
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
-  if (annotated && init.op === 'lit') {
-    if (typeof init.value === 'number' && isNumericScalar(annotated)) {
+  if (annotated) {
+    if (init.op === 'lit' && typeof init.value === 'boolean' && typeKey(annotated) === 'bool') {
       init = { op: 'lit', type: annotated, value: init.value }
-    } else if (typeof init.value === 'boolean' && typeKey(annotated) === 'bool') {
-      init = { op: 'lit', type: annotated, value: init.value }
+    } else {
+      // `let j: i32 = -1` takes its declared type like any other position (#8 A3, issue #40).
+      // A negative literal is a PrefixUnaryExpression, not a NumericLiteral, so the
+      // `init.op === 'lit'` special case this replaces never fired for one and the author was
+      // told to cast an integer they had already written. `retargetDeclaredIntLit` keeps that
+      // old special case as its fallback — `let y: i32 = 0.` and `let y: i32 = 1e3` compiled
+      // before this item and still do — while `let j: i32 = 1.5` stays refused, since the
+      // fallback takes an integral value only and the type check below catches the rest.
+      init = retargetDeclaredIntLit(init, decl.initializer, annotated)
     }
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
@@ -299,8 +309,11 @@ function lowerAssign(
 ): Stmt | undefined {
   const target = lowerLValue(left, sourceFile, scope, diagnostics)
   if (!target) return undefined
-  const value = lowerExpression(right, sourceFile, scope, diagnostics)
+  let value = lowerExpression(right, sourceFile, scope, diagnostics)
   if (!value) return undefined
+  // `x = 2` takes the target's type when it is i32 or u32 (#8 A3); the compound form already
+  // did through lowerAssignOp.
+  value = retargetIntLitCtx(value, right, target.type)
   if (typeKey(target.type) !== typeKey(value.type)) {
     pushDiag(
       diagnostics,

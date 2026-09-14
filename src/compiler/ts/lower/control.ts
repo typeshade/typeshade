@@ -1,15 +1,17 @@
 import ts from 'typescript'
 import type { Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { typeKey } from '../../../core/ir/types.js'
+import { i32T, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { readOnlyPhrase } from '../context.js'
 import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { retargetDeclaredIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerStatement, lowerStatements } from './statement.js'
 
@@ -134,8 +136,23 @@ function lowerForInit(
     : undefined
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
-  if (annotated && init.op === 'lit' && typeof init.value === 'number') {
-    init = { op: 'lit', type: annotated, value: init.value }
+  // The induction variable's declared type, or i32 when there is no annotation, since that is
+  // the type it must have. `for (let j: i32 = -1; …)` reaches this with a PrefixUnaryExpression
+  // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
+  // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
+  // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
+  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T)
+  if (annotated && typeKey(annotated) !== typeKey(init.type)) {
+    // The check statement.ts has always had at its own declaration site, and the reason this
+    // one was silent rather than merely wrong: nothing compared the two.
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      numericMismatch(`for-init ${name}`, annotated, init.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
   }
   const type: ShaderType = annotated ?? init.type
   const k = typeKey(type)

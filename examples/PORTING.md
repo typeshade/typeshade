@@ -99,7 +99,7 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 32  | `fp64-sine-sweep`     | generic      | blocked      | **A6-f64**                   | 13 / 36        |
 | 33  | `gradient`            | generic      | **portable** | —                            | —              |
 | 34  | `override-quality`    | generic      | blocked      | **A7-override**              | 1 / 36         |
-| 35  | `texture-array-lod`   | generic      | blocked      | **A3**, A7-tex               | 1 / 36         |
+| 35  | `texture-array-lod`   | generic      | blocked      | ~~A3~~, A7-tex               | 1 / 36         |
 | 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
 
 **Source the compiler accepts today: 14 of 36**, up from 2 when this was first measured — [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the
@@ -119,7 +119,7 @@ unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 | **N2**          | an f64 literal — `let z: f64 = 0.` and `f64Val * 2.` both fail       | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-cancellation` |
 | **A6-deriv**    | `fwidth`, and `dpdx` / `dpdy` to hand-roll it with                   | A6              | 5      | `graticule`, `fp64-loran`, `color-ramp`, `truchet`, `heart`                                                                                                               |
 | **L-loop**      | a loop bound that is not a compile-time constant                     | later (M22·S31) | 4      | `fp64-mercator-tiles`, `fbm-clouds`, `metaballs`, `fp64-mandelbrot`                                                                                                       |
-| **A3**          | an integer literal taking the declared type (`vec2i(0, 0)`)          | A3              | 1      | `texture-array-lod`                                                                                                                                                       |
+| **A3**          | ~~an integer literal taking the declared type~~ — **landed** (#8 A3) | A3              | 1      | `texture-array-lod`                                                                                                                                                       |
 | **A6-discard**  | the `discard` statement                                              | A6              | 1      | `discard-cutout`                                                                                                                                                          |
 | **A7-tex**      | `texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad` | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
 | **A7-override** | `override<T>` specialization constants                               | A7              | 1      | `override-quality`                                                                                                                                                        |
@@ -382,7 +382,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a constant bound`                                                       |
 | `for (let i: u32 = 0; i < WINDOW; i++)` with `const WINDOW: u32 = 8`                                            | ✓ — a module const **is** a constant bound                                                              |
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                       |
-| `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                              |
+| `vec2i(1, 2)`, `return 0` in a u32 fn, `g(1)`, `{ id: 0 }`, `c ? 1 : 2`, `min(i, 4)`                            | ✓ since #8 A3 (`min(i, 4)` used to emit the invalid `min(i, 4.0)`)                                      |
 | `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                       |
 | `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                           |
 | `f32(vi & 1) * 4. - 1.` (the fullscreen-triangle vertex stage)                                                  | ✓                                                                                                       |

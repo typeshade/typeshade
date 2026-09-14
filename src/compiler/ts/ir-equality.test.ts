@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
 import { uniformStruct } from '../../core/sot.js'
-import { f32, vec3 } from '../../core/ir/node.js'
-import { f32T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import { f32, min, u32, vec3 } from '../../core/ir/node.js'
+import { f32T, mat4x4fT, u32T, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -65,6 +65,15 @@ function normalizeExpr(e: Expr): unknown {
       return { op: 'param', type: typeKey(e.type), name: e.name }
     case 'varref':
       return { op: 'varref', type: typeKey(e.type), name: e.name }
+    case 'call':
+      // Without this arm the `min(i, 4)` case compared `{ op: 'call' }` to `{ op: 'call' }`
+      // and passed on the merge base, where the literal is still an f32.
+      return {
+        op: 'call',
+        type: typeKey(e.type),
+        fn: e.fn,
+        args: e.args.map(normalizeExpr),
+      }
     case 'construct':
       return { op: 'construct', type: typeKey(e.type), args: e.args.map(normalizeExpr) }
     case 'binop':
@@ -163,6 +172,30 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a bare integer literal in a u32 return matches the EDSL u32(0)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function zero(): u32 {
+        return 0;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('zero', {}, u32T, () => u32(0))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('min(i, 4) matches the EDSL min(i, u32(4)) rather than an f32 literal', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function cap(i: u32): u32 {
+        return min(i, 4);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('cap', { i: u32T }, u32T, ({ i }) => min(i, u32(4)))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 
