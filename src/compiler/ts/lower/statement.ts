@@ -351,7 +351,12 @@ function lowerLValue(
     return undefined
   }
   if (!binding.mutable) {
-    const ro = binding.kind === 'module' ? 'read-only resource or const' : 'declared with const'
+    const ro =
+      binding.kind === 'binding'
+        ? 'a read-only resource'
+        : binding.kind === 'module'
+          ? 'a module const'
+          : 'declared with const'
     pushDiag(
       diagnostics,
       sourceFile,

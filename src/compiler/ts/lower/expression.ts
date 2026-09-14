@@ -109,6 +109,9 @@ function lowerIdentifier(
   }
   if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
   if (binding.kind === 'module') return { op: 'constref', type: binding.type, name: binding.name }
+  // A resource binding is a module-scope `var`, so it reads as a `varref` — the same shape
+  // the fn() EDSL builds. `constref` here is what #14 was: invisible to the binding
+  // reachability walk, which counts `varref` names alone.
   return { op: 'varref', type: binding.type, name: binding.name }
 }
 

@@ -3,7 +3,16 @@
 import type { ShaderType } from '../../core/ir/types.js'
 import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
 
-export type BindingKind = 'param' | 'local' | 'module'
+/** What a name in scope refers to.
+ *
+ *  `module` and `binding` were one kind until #14, and conflating them is what broke stage
+ *  reachability: a resource binding lowered to `Expr.constref`, the shape the IR reserves for
+ *  a module-scope CONSTANT, and every consumer that asks "which bindings does this stage
+ *  reach" looks for `Expr.varref`. So no stage reached any binding in a source-compiled
+ *  module — the GLSL writer dropped the uniform block while keeping the uses, and
+ *  `reflect()` reported no stages for anything. A binding is a module-scope `var`, not a
+ *  const, and it now says so. */
+export type BindingKind = 'param' | 'local' | 'module' | 'binding'
 
 export interface Binding {
   readonly kind: BindingKind
