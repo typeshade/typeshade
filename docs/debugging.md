@@ -1,20 +1,26 @@
 # Debugging a `"use typeshade"` shader
 
-Status: **draft** for review. Nothing here is frozen. Written against `5f20c5e` on `main`.
-It proposes the layer that lets an author set a breakpoint in a `.shade.ts` file and step
-through it, and it fixes the compiler-side work that every viable design needs first.
+Status: **decided, open to revision against a measurement.** Written against `5f20c5e` on
+`main`; §5 records eleven decisions the owner has taken. It proposes the layer that lets an
+author set a breakpoint in a `.shade.ts` file and step through it, and it fixes the
+compiler-side work that every viable design needs first.
 
 Related: `docs/use-typeshade.md` (the surface), `docs/use-typeshade-surface.md` (the grammar),
-`docs/use-typeshade-plan.md` (Phase 10, "Diagnostics + Source Mapping", the phase this closes
-the second half of), `docs/language-service-api.md` (the editor layer that exists, and the
-layering rule this document reuses).
+`docs/use-typeshade-plan.md`, `docs/language-service-api.md` (the editor layer that exists,
+and the layering rule this document reuses).
 
-## 0. What exists today, and what does not
+Where this sits in the plan. Phase 10, "Diagnostics + Source Mapping", names two mappings, and
+milestone 1 closes one of them: the IR-to-source leg, which is what a debugger reads. The
+source-to-WGSL leg is untouched, and that is the one the plan names as blocking Milestone B, so
+Phase 10 stays open on it. Milestones 2 to 4 are not Phase 10 at all; they belong under Phase
+21, where the plan tracks debugging.
+
+## 0. Today's pieces, and the missing one
 
 Three things already in the tree do most of the work a debugger needs.
 
 - **The CPU oracle.** `compileModule` (`src/core/oracle.ts`) is a tree-walk interpreter over
-  the same IR the WGSL and GLSL ES 3.00 writers emit. It is the third backend, not a
+  the same IR the WGSL and GLSL ES 3.00 writers emit. It is the third backend rather than a
   simulator written beside them: `src/core/oracle-backend-parity.test.ts` holds its intrinsic
   set to `INTRINSICS`, and `src/core/cpu-codegen.test.ts` differentially gates it against
   `compileModuleJs`, the `new Function` twin, so the two agree element for element under
@@ -31,18 +37,18 @@ Three things already in the tree do most of the work a debugger needs.
 
 What does not exist: **any mapping from an IR node back to source**. `src/core/ir/nodes.ts`
 carries no source position on any `Stmt`, `Expr` or `FuncDecl` (`location?: number` on a
-`FuncDecl` param is the `@location` attribute, not a position). The one thing that comes close,
+`FuncDecl` param is the `@location` attribute, a different thing entirely). The one thing that comes close,
 `src/core/diagnostics/loc.ts`, is a line-level side table keyed by node identity, captured from
-`Error` stacks, opt-in, and — by its own header — valid only on the authored module, because
+`Error` stacks, opt-in, and, by its own header, valid only on the authored module, because
 `autoVars`, the lowering passes and the optimizer rebuild every node with a `{...}` spread and
 break identity. It exists for the `fn()` EDSL, where there is no AST to read a span from.
 
 So: the interpreter can run the program, and the front end knows where every statement came
 from, and nothing connects them. That connection is §3, and it is the first milestone.
 
-## 1. What debugging a shader can mean here
+## 1. The meaning of debugging here
 
-### 1.1 The GPU cannot be stepped, and that is not a gap we can close
+### 1.1 GPU stepping
 
 Neither WebGPU nor WebGL2 exposes a breakpoint, a single-step, a register read or a
 `printf` from inside a shader. There is no API to add; the abstraction does not have the
@@ -54,10 +60,10 @@ Two things are therefore **out of scope**, and stay out:
 - **Stepping on the GPU.** The only way to fake it is source-to-source instrumentation:
   rewrite the emitted WGSL so every intermediate value is written to a storage buffer, run the
   draw, read the buffer back, and reconstruct a trace. That changes the program being
-  debugged — different register pressure, different scheduling, different optimizer decisions
-  in the driver, and an unbounded buffer for any loop — so the thing you step through is not
+  debugged (different register pressure, different scheduling, different optimizer decisions
+  in the driver, and an unbounded buffer for any loop), so the thing you step through is not
   the thing that was wrong. It is also a large feature in its own right and belongs to a
-  proposal about GPU capture, not this one.
+  proposal about GPU capture.
 - **`printf` on the GPU.** WGSL has no print. The same storage-buffer-ring trick would be
   needed, with the same objection plus a decode step, and it would move emitted bytes on every
   shader that used it. A "shader trace buffer" is a defensible separate feature; it is not
@@ -68,24 +74,24 @@ fills a `renames` map that `decodeShaderLog` (`src/core/decode-log.ts`) uses to 
 driver's error message back into authored names. That is the answer to "the driver said
 something about a function called `b`". It is not stepping and does not try to be.
 
-### 1.2 The CPU oracle can be stepped, and it is the same program
+### 1.2 Oracle stepping
 
 `compileModule` walks the same `ModuleDecl` the WGSL writer emits, statement by statement, in
 a plain JavaScript function. Pausing it is a mechanical change: the interpreter already has a
 `execBody(body, env, ctx)` loop over `readonly Stmt[]` and a per-call `env: Map<string,
-CpuValue>`. Everything a debugger displays — the current statement, the frame's locals, the
-parameters, the bindings — is already a value in that function.
+CpuValue>`. Everything a debugger displays (the current statement, the frame's locals, the
+parameters, the bindings) is already a value in that function.
 
 So the promise this document proposes is exactly this, and nothing wider:
 
-> Set a breakpoint on a line of a `.shade.ts` file. Choose one invocation — a vertex index, a
-> fragment position, a compute global invocation id — and the values the shader reads:
+> Set a breakpoint on a line of a `.shade.ts` file. Choose one invocation (a vertex index, a
+> fragment position, a compute global invocation id) and the values the shader reads:
 > uniforms, storage buffers, vertex inputs. Run. Execution stops on the statement you marked,
 > in your own source. Step over, step into a helper, step out, continue. While stopped,
 > inspect parameters, locals, bindings and the value of an expression you type, in shader
 > types rather than JavaScript ones.
 
-### 1.3 What that fidelity is worth, stated honestly
+### 1.3 Fidelity limits
 
 The oracle's own header is blunt about its limits and this document inherits them rather than
 softening them.
@@ -112,14 +118,14 @@ softening them.
 
 Two consequences worth stating up front, because they shape §2:
 
-1. **One invocation, not a frame.** A full 1920×1080 fragment pass is about two million
+1. **One invocation.** A full 1920×1080 fragment pass is about two million
    invocations. Stepping is for one of them. The Playground's existing "run the whole preview
    on the CPU" path keeps using `compileModuleJs`, which is the fast backend, and is a
    different feature with a different implementation.
-2. **Before the optimizer, not after.** The author is debugging the program they wrote.
+2. **Before the optimizer.** The author is debugging the program they wrote.
    `compileModule` already runs only `validate` and `autoVars` before evaluating, and a
-   debugger should keep exactly that. Debugging the _optimized_ module is a real need — for
-   chasing an optimizer bug — but it is a separate mode, and it is honest only if the UI says
+   debugger should keep exactly that. Debugging the _optimized_ module is a real need for
+   chasing an optimizer bug, but it is a separate mode, and it is honest only if the UI says
    which module is running.
 
 ## 2. Approaches
@@ -129,12 +135,12 @@ this repository, effort in the editor extension, reuse by the Playground in the 
 helpers and loops step, what happens at a derivative or a texture read, compute workgroups,
 and performance for one pixel against a full frame.
 
-### 2.1 Approach A — a Debug Adapter Protocol server over a stepping oracle
+### 2.1 Approach A: a Debug Adapter Protocol server over a stepping oracle
 
 The interpreter gains a stepping mode: `execBody` and the call path become generators that
 `yield` a pause at every statement boundary, carrying the statement's source span and a
-readable snapshot of the frame. A session object drives it — `stepOver`, `stepIn`, `stepOut`,
-`continue` — and resolves breakpoints from an editor line to the spans that start on that
+readable snapshot of the frame. A session object drives it with `stepOver`, `stepIn`, `stepOut` and
+`continue`, and resolves breakpoints from an editor line to the spans that start on that
 line. A DAP server in the extension repository translates the protocol to that object and
 back.
 
@@ -169,14 +175,19 @@ export interface DebugSession {
 
 **Fidelity.** Identical to the oracle's, because it _is_ the oracle. That is the load-bearing
 property: a stepping mode that re-implemented evaluation would be a fourth backend nobody
-gates, and it would drift. The mitigation is a differential test in this repository — a
+gates, and it would drift. The mitigation is a differential test in this repository: a
 stepped run driven to completion must return the same value as `compileModule` for every
 example, under `Object.is`, exactly as `cpu-codegen.test.ts` already gates the JS twin.
 
-**Effort here.** Medium. The interpreter is 500 lines and the statement walk is one `switch`.
-Turning `execBody` into a generator and threading `yield*` through `evalExpr`'s user-call case
-is the whole change; the op library (`cpu-runtime.ts`) is untouched. The real cost is deciding
-where the pauses are and keeping one implementation rather than two — see §2.5.
+**Effort here.** Medium, and larger than "turn one function into a generator". `execBody`,
+`evalExpr` and `setLValue` all become generators, with `yield*` at every recursive site, and
+so does the per-function closure a call goes through: a pause raised inside a callee has to
+propagate out through every frame between it and the driver, and a plain call cannot carry
+one. Only `CpuModule.fns`, the outermost entry point, stays a plain function, because that is
+where the driver takes over. Milestone 2 confirmed this shape. The op library
+(`cpu-runtime.ts`) is untouched throughout, which is what keeps the change tractable. The real
+cost is deciding where the pauses are and keeping one implementation rather than two, which
+§2.5 takes up.
 
 **Effort in the extension.** Medium. A DAP server is a known quantity: VS Code ships the
 client, and the request set a first release needs is small (`initialize`, `launch`,
@@ -192,8 +203,8 @@ line 31 on invocation 3.
 
 **Helpers and loops.** Loops fall out: the `for` case already re-enters `execBody`, so each
 iteration pauses at each statement. Helpers are the interesting case, because a call is an
-_expression_, not a statement: `return f(x) + g(y)` contains two calls inside one statement.
-Proposal: pauses are at statement boundaries, and a call pushes a frame, so `stepIn` on that
+an expression: `return f(x) + g(y)` contains two calls inside one statement.
+**Decision:** pauses are at statement boundaries, and a call pushes a frame, so `stepIn` on that
 statement enters `f`, `stepOut` returns to the same statement with `f`'s frame gone, and
 `stepIn` again enters `g`. That is the model every JavaScript debugger uses for the same
 shape, so it needs no explanation to the author. It requires the interpreter to know which
@@ -214,7 +225,7 @@ scale. A full frame through it would be perhaps one to two orders of magnitude s
 `compileModuleJs`, which is why §1.3 says stepping is for one invocation and the preview path
 keeps its own backend.
 
-### 2.2 Approach B — emit JavaScript with a V3 source map and let the stock debugger step it
+### 2.2 Approach B: emit JavaScript with a V3 source map and let the stock debugger step it
 
 Half of B already exists. `compileModuleJs` (`src/core/cpu-codegen.ts`) walks the same IR,
 emits a JavaScript source string with one function per IR `FuncDecl`, and builds it with
@@ -234,26 +245,28 @@ and a real script URL to a backend that ships today".
   that can associate a generated name with an original one, but neither VS Code's node
   debugger nor Chrome DevTools resolves scope variables through it reliably. So the variables
   view shows `$v3`, not `sum`. Fixing that means a second, debug-only JS emitter that keeps
-  the authored names and declares each local where the author declared it — at which point B
+  the authored names and declares each local where the author declared it, at which point B
   is no longer "reuse what exists", it is a new backend that must be gated against the other
   two.
 - _f32 rounding_ is expressible and cheap: `froundF32` inserts the rounding into the IR before
-  emit, so the generated JavaScript reads `Math.fround(a * b)` and behaves exactly as the
-  interpreter does. It makes the generated source noisier, which matters only if a human ever
+  emit, so the generated JavaScript reads `$.B["__fround"](a * b)`, a lookup into the shared
+  builtin table rather than a call an author would recognise. That strengthens the point: the
+  rounding is exact and identical to the interpreter's, and the generated text it produces is
+  one more thing a human reading the mapped output has to decode. It makes the generated source noisier, which matters only if a human ever
   reads it.
 - _Variable display_ is where B loses regardless of the map. The CPU value model is
   `number[]` for vectors and matrices and a plain object for structs, deliberately, so that
   member mutation aliases the way the interpreter's does. A JS debugger renders `vec3(0.5,
 0.5, 1)` as `(3) [0.5, 0.5, 1]` and a `mat4` as a flat 16-element array. Chrome DevTools has
   custom formatters; VS Code's node debugger has nothing equivalent short of wrapping values
-  in classes with getters — which would change the values the shared op library operates on.
+  in classes with getters, which would change the values the shared op library operates on.
 
 **Fidelity.** Identical to A's, for the same reason: same IR, same op library, and
 `cpu-codegen.test.ts` already gates the twin against the interpreter.
 
 **Effort here.** Medium, and not much below A. B still needs §3 in full, because a source map
 is nothing but spans. On top of that it needs a VLQ mapping emitter, the debug-only naming
-changes above, and a place to put the generated file — a temporary `.mjs` the node debugger
+changes above, and a place to put the generated file: a temporary `.mjs` the node debugger
 can load, or a blob URL with `//# sourceURL` for DevTools, neither of which a zero-dependency
 browser-safe package is comfortable owning.
 
@@ -274,18 +287,18 @@ produce generator functions, which steps fine in a JS debugger but means the emi
 scheduler now both exist in the generated-code world where we have least control.
 
 **Performance.** The compiled backend is the fast one, so B is better at "run the whole frame
-on the CPU" — but under a debugger that is still hopeless at two million invocations, so in
+on the CPU", but under a debugger that is still hopeless at two million invocations, so in
 practice the two approaches are equal at the thing either is used for.
 
 **The decisive objection.** In B, the stepping model, the stepping unit, and the display are
-the JavaScript debugger's, not ours. We cannot say "this whole `if`/`else if` chain is one
+the JavaScript debugger's. We cannot say "this whole `if`/`else if` chain is one
 shader statement"; we cannot render a `vec3` as a `vec3`; we cannot make `evaluate` mean
 "evaluate this shader expression in this scope" rather than "evaluate this JavaScript
 expression over the CPU value model"; and we cannot add a bindings scope, a "this value is a
 GPU stub" marker, or an invocation switcher. Everything TypeShade-specific about the
 experience has to be given up or fought for.
 
-### 2.3 Approach C — the hybrid, and the recommendation
+### 2.3 Approach C, the hybrid, and the recommendation
 
 **Recommended: A as the engine, with the Playground and the extension as two thin adapters
 over it, and B kept as an explicitly open door rather than a rejected idea.**
@@ -320,29 +333,29 @@ Concretely:
 
 **What A costs, admitted plainly.** Someone must write and maintain a DAP server, which B
 would not need. And a stepping interpreter is a second traversal of the IR that can drift from
-the reference one — which is why §2.5 makes the shape of the change part of the
-recommendation, not an implementation detail.
+the reference one, which is why §2.5 makes the shape of the change part of the
+recommendation rather than an implementation detail.
 
-### 2.4 Derivatives and texture sampling, for either approach
+### 2.4 Derivatives and texture sampling
 
 Neither approach changes what the CPU can compute, so both need the same policy.
 
 - **Derivatives.** `dpdx` / `dpdy` / `fwidth` are defined over a 2×2 quad. Two honest options
   exist: return zero and say so, or evaluate the entry four times at the quad's four fragment
-  positions and take the differences. The second is real fidelity and is implementable —
-  the interpreter is re-entrant and one invocation is cheap — but it costs four evaluations,
+  positions and take the differences. The second is real fidelity and is implementable,
+  since the interpreter is re-entrant and one invocation is cheap, but it costs four evaluations,
   and under divergent control flow the GPU's answer depends on lockstep execution of the quad,
-  which a sequential re-evaluation does not reproduce. **Proposal:** milestone 2 returns the
+  which a sequential re-evaluation does not reproduce. **Decision:** milestone 2 returns the
   existing stub value and marks it in the variables view as a stand-in rather than a computed
   value, so no one mistakes `0` for a result; quad evaluation becomes an opt-in
   `derivatives: "quad"` when someone has a derivative bug to chase. This is §5 decision 4.
-- **Texture sampling.** There is no texture memory in a CPU run, and — worth noting, because
-  it decides the milestone — the `"use typeshade"` type map (`src/compiler/ts/type-map.ts`)
+- **Texture sampling.** There is no texture memory in a CPU run, and, worth noting because
+  it decides the milestone, the `"use typeshade"` type map (`src/compiler/ts/type-map.ts`)
   has no `texture` or `sampler` spelling at all today, so no `"use typeshade"` shader can
-  declare one. Textures are therefore **unsupported in this milestone**, not as a punt but
-  because there is nothing yet to support. §4.4 specifies the shape for when they arrive.
+  declare one. Textures are therefore **unsupported in this milestone**, because there is
+  nothing yet to support. §4.4 specifies the shape for when they arrive.
 
-### 2.5 One interpreter, not two
+### 2.5 Interpreter duplication
 
 The risk A carries is that `execBody` gets a stepping twin and the two drift. Three ways to
 hold it, in order of preference:
@@ -351,34 +364,37 @@ hold it, in order of preference:
    generators; `compileModule` drives the generator to completion internally and returns
    exactly what it returns today. There is then one traversal, and the non-stepping path pays
    one resume per statement. Whether that cost is acceptable on the hot path is a measurement,
-   not a guess — `src/core/measure.ts` exists for it — and if it is not, option 2.
+   not a guess, and `src/core/measure.ts` cannot supply it: its axes are op count and emit
+   size, neither of which is interpreter throughput. The milestone 2 pull request adds a
+   benchmark of its own, which is what it did. If the cost is unacceptable, option 2.
 2. **Generate both from one description.** Not worth it here: the walk is one `switch` with
-   fourteen arms, and a code generator over it would be more machinery than the duplication.
+   thirteen arms, and a code generator over it would be more machinery than the duplication.
 3. **A second walk with a differential gate.** A stepped run must return the same value as
    `compileModule` on every example in the registry and on the `"use typeshade"` corpus. This
    is what `cpu-codegen.test.ts` already does for the JS twin, so the pattern and the corpus
    both exist.
 
-**Proposal:** attempt 1, measure, and fall back to 3 with the gate. Milestone 2 reports the
+**Decision:** attempt 1, measure, and fall back to 3 with the gate. Milestone 2 reports the
 measurement either way.
 
 ### 2.6 Milestone plan
 
-**In this repository (`typeshade/typeshade`).**
+**In this repository (`typeshade/typeshade`).** M1 is the Phase 10 work; M2 to M4 sit under
+Phase 21, per the note above the table of contents.
 
-| #   | What                                                                                                                                                                                                                               | Why it is separable                                                                    |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| M1  | Source spans on the IR (§3): `SourceSpan`, a `span?` field on every `Stmt` and `FuncDecl` and on `call` expressions, capture in the source compiler, propagation through the passes, a public `sourceSpanOf` read API.             | Every approach needs it. It moves no emitted byte and nothing depends on the debugger. |
-| M2  | The stepping mode of the CPU oracle (§2.1), on a `./debug` subpath: pauses at statement boundaries with the span, the frame environment as a readable snapshot, step over / in / out / continue, breakpoints by span.              | Usable headlessly the day it lands; no editor work required to test it.                |
-| M3  | The launch configuration (§4) as a published TypeScript type plus a baked JSON Schema, the invocation builder for the three stages, binding defaults from `zeroOf`, and a value formatter that renders `CpuValue` in shader types. | This is what the two adapters share; baking it here is what stops them diverging.      |
-| M4  | Derivative policy (`derivatives: "zero" \| "quad"`) and, once the grammar has textures, the texture value shapes of §4.4.                                                                                                          | §5 decision 4 sets the first; the second waits on the language surface.                |
+| #   | What                                                                                                                                                                                                                                                         | Why it is separable                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| M1  | Source spans on the IR (§3): `SourceSpan`, a `span?` field on every `Stmt` and `FuncDecl`, on an authored `call` expression and on an assignment's target, capture in the source compiler, propagation through the passes, a public `sourceSpanOf` read API. | Every approach needs it. It moves no emitted byte and nothing depends on the debugger. |
+| M2  | The stepping mode of the CPU oracle (§2.1), on a `./debug` subpath: pauses at statement boundaries with the span, the frame environment as a readable snapshot, step over / in / out / continue, breakpoints by span.                                        | Usable headlessly the day it lands; no editor work required to test it.                |
+| M3  | The launch configuration (§4) as a published TypeScript type plus a baked JSON Schema, the invocation builder for the three stages, binding defaults from `zeroOf`, and a value formatter that renders `CpuValue` in shader types.                           | This is what the two adapters share; baking it here is what stops them diverging.      |
+| M4  | Derivative policy (`derivatives: "zero" \| "quad"`) and, once the grammar has textures, the texture value shapes of §4.4.                                                                                                                                    | §5 decision 4 sets the first; the second waits on the language surface.                |
 
 **In `typeshade/vscode-typeshade`** (not created by this work; it is the repository
 `docs/language-service-api.md` §1 already names for the language server):
 
 - A DAP server registering the `typeshade` debug type, contributing the `launch.json` schema
-  from M3, resolving breakpoints from line to span, and mapping `scopes` to three scopes —
-  Locals, Parameters, Bindings — plus `evaluate` for watches and hovers.
+  from M3, resolving breakpoints from line to span, and mapping `scopes` to three scopes,
+  Locals, Parameters and Bindings, plus `evaluate` for watches and hovers.
 - A "Debug this entry" code lens over each `@vertex` / `@fragment` / `@compute` function,
   built from the language service's existing `getDocumentSymbols`.
 - No TypeShade semantics of its own, per §1 of the language-service document.
@@ -390,8 +406,8 @@ measurement either way.
   scopes, and the invocation and bindings as an editable form defaulted to zeros.
 - A shareable invocation in the URL, so a bug report can carry "this pixel, these uniforms".
 - A documentation page derived from this document once it is no longer a draft.
-- The Playground pins the published package or a public subpath, never a deep path — the same
-  rule §7 of the language-service document sets for the Monaco adapter.
+- The Playground pins the published package or a public subpath, never a deep path, which is
+  the rule §10 item 7 of the language-service document sets for the Monaco adapter.
 
 ## 3. Source positions in the IR
 
@@ -420,18 +436,29 @@ export interface SourceSpan {
 }
 ```
 
-`start` / `length` are the authority and the other four are derived: the compiler holds the
-`ts.SourceFile` when it lowers, so `getLineAndCharacterOfPosition` is one call per statement,
-and a consumer that has only the span — a DAP server, a source-map writer — should not have to
-re-parse the file to display it.
+`start` and `length` are the authority. The other four are precomputed rather than derived on
+demand, and they earn their place on one argument: the consumer that needs them has no
+`ts.SourceFile` to convert with. A debug adapter holds a span and a protocol message; a
+source-map writer holds a span and a VLQ encoder. Neither has the parsed file, and neither
+should have to re-read the source to answer "which line". The compiler does hold it, so
+`getLineAndCharacterOfPosition` is one call per statement at the one moment it is free.
 
-**Zero-based**, matching `docs/language-service-api.md` §2 and LSP, and _not_ matching
-`TsCompilerDiagnostic`, whose `line` / `character` are one-based. That inconsistency is real
-and this document does not hide it: the two conventions already coexist in the tree, the
-language service already converts between them, and changing the diagnostic shape is a
-breaking change that has nothing to do with debugging. This is §5 decision 1.
+Lines and characters are **zero-based**, matching `docs/language-service-api.md` §2 and LSP.
+`TsCompilerDiagnostic`'s own `line` and `character` are one-based, which looks like an
+inconsistency and is better described as a vestige: nothing reads them. The language service
+re-derives zero-based positions from the same `start` and `length` this type carries, so the
+one-based pair is a field the front end fills and no consumer consults. A new type should
+therefore follow the convention its readers use rather than the one a dead field happens to
+have. Changing the diagnostic shape is a breaking change with nothing to do with debugging, so
+it stays as it is. This is §5 decision 1.
 
-### 3.2 A field on the node, not a side table
+`SourceSpan` is a third position shape beside the language service's `TypeshadeTextSpan` and
+`TypeshadeRange`, and it does not compose from them on purpose: `src/core/` cannot import
+`./language-service`, which sits above it and depends on the compiler front end. The shape is
+duplicated with only the zero-basing shared, and the alternative, hoisting a position type
+into `core/` for the service to import, is a larger change than a debugger should force.
+
+### 3.2 Field versus side table
 
 **Decision: an optional `span` field on the IR shapes.** The reasons, in order:
 
@@ -439,7 +466,7 @@ breaking change that has nothing to do with debugging. This is §5 decision 1.
    (`src/core/ir/visit.ts`) and `mapExpr` / `mapStmt` (`src/core/passes/opt/ir-transform.ts`)
    rebuild every node as `{ ...s, <rewritten children> }`. An optional field on the original
    object is carried by that spread with no code change anywhere. It is lost only where a pass
-   constructs a genuinely new node — which is exactly where there is no authored origin to
+   constructs a genuinely new node, which is exactly where there is no authored origin to
    carry, and where inventing one would be a lie.
 2. **A side table dies at the first rebuild.** `loc.ts` says this itself, in its own header:
    identity keys are valid only on the authored module because `autoVars`, `lowerModule` and
@@ -447,17 +474,26 @@ breaking change that has nothing to do with debugging. This is §5 decision 1.
    technique.
 3. **A side table the passes _propagate_ means changing every pass.** It would have to be
    threaded through every pass signature, and a new pass would silently opt out of it by
-   forgetting a parameter — a failure that is invisible until a debugger misreports a line.
+   forgetting a parameter, a failure that is invisible until a debugger misreports a line.
 
 **Why the emitted bytes cannot move.** Every emitter dispatches on `s` or `op` and reads named
 fields; none of them enumerates keys, serializes a node, or hashes one. `emitIdentity`
-(`src/core/emit-identity.ts`) hashes emit _options_, not the IR. So an added field is invisible
+(`src/core/emit-identity.ts`) hashes emit _options_ rather than the IR. So an added field is invisible
 to emit by construction, and `examples/emit-goldens.test.ts` plus the `"use typeshade"`
 goldens in `examples/shade-examples.test.ts` prove it per commit.
 
+One comparison does enumerate keys, and it is not an emitter: `irEqual`, the fixpoint's
+"did this pass change anything" test. A field it can see is a field that makes two otherwise
+equal trees compare unequal, which costs an extra iteration rather than a wrong byte. Measured
+on a registered example while milestone 1 was reviewed, the span doubled the fixpoint's
+iterations. `irEqual` therefore filters `span` and `nameSpan`, which is the correct reading of
+what it is for: it asks whether a pass changed the PROGRAM, and where a statement was written
+is not part of the program. Two lint rules compare nodes the same way and take the same filter
+(§3.4).
+
 **Why the IR-equality suites cannot break.** `src/compiler/ts/ir-equality.test.ts` and
-`src/core/ir/seam-ir-equality.test.ts` both normalise field by field before comparing —
-`normalizeStmt` and `normStmt` construct fresh objects from named fields — so a `span` on one
+`src/core/ir/seam-ir-equality.test.ts` both normalise field by field before comparing:
+`normalizeStmt` and `normStmt` construct fresh objects from named fields, so a `span` on one
 side and not the other is invisible to them. That matters, because the `"use typeshade"`
 compiler will carry spans and the `fn()` EDSL will not.
 
@@ -465,14 +501,18 @@ compiler will carry spans and the `fn()` EDSL will not.
 mean different things; and `location` on a `FuncDecl` param is the `@location` attribute, which
 is exactly the collision worth avoiding.
 
-### 3.3 Which nodes carry one
+### 3.3 The nodes that carry a span
 
 - **Every `Stmt` variant.** The stepping unit. Non-negotiable.
 - **`FuncDecl`.** The frame's identity in a stack trace, and what "step out lands here" means.
   The span covers the function's declaration through its closing brace; a separate `nameSpan`
   covers the identifier, for a stack-frame label that highlights the name rather than the body.
-- **`call` expressions.** Needed for step-into, where a statement contains more than one call,
-  and for a stack frame that says _where_ the call was made.
+- **A `call` expression the author wrote.** Needed for step-into, where a statement contains
+  more than one call, and for a stack frame that says where the call was made. A call the front
+  end synthesises carries none, and several do: the `random` hash expansion, the array
+  higher-order-function lowering, the `Math.*` expansions, and a scalar cast all build call
+  nodes from whole cloth. The read API says "when the node came from source", never "every
+  call".
 - **An assignment's target.** The lvalue a statement writes, so a debugger can highlight what
   is about to change rather than the whole line. It is the one other expression position an
   author points at while stepping.
@@ -481,23 +521,43 @@ is exactly the collision worth avoiding.
   which the first milestone promises. It is additive later, at the same capture sites. This is
   §5 decision 3.
 
-Statement spans use the TypeScript node's `getStart(sourceFile)` through `getEnd()` — the same
-pair `makeDiagnostic` uses — so a span never covers leading trivia and a breakpoint on a
+Statement spans use the TypeScript node's `getStart(sourceFile)` through `getEnd()`, the same
+pair `makeDiagnostic` uses, so a span never covers leading trivia and a breakpoint on a
 comment line resolves to the statement after it, which is what an author expects.
 
-### 3.4 Capture, and where it happens
+### 3.4 Capture sites
 
 Capture is in the source compiler, at the sites that already have both the `ts.Node` and the
-finished IR node. In `src/compiler/ts/lower/statement.ts` that is the handful of `return`
-expressions in `lowerStatement`, `lowerVariableDeclaration`, `lowerAssign`, `lowerAssignOp`
-and `lowerIf`; in `lower/control.ts` the `for` / `while` / `switch` builders; in
-`lower/function.ts` the `FuncDecl`; in `lower/expression-call.ts` the `call` node. The shape at
-each site is one helper applied to an existing return value, so the change is additive and
-does not restructure lowering.
+finished IR node. In `src/compiler/ts/lower/statement.ts` that is `lowerStatement`, which
+stamps every statement it produced, plus the finer sites that stamp first:
+`lowerVariableDeclaration` for one declarator of a multi-declarator `let`, and `lowerLValue`
+for an assignment's target. In `lower/control.ts` it is `lowerFor`, for the loop header's own
+`init` and `update`, and `lowerUpdate`, which owns the target of a standalone `i++` as well as
+a `for` header's. In `lower/function.ts` it is `parseSignature`, for the `FuncDecl` and its
+`nameSpan`; in `lower/expression.ts`, the one line that dispatches a call. The shape at each
+site is one helper applied to an existing return value, so the change is additive and does not
+restructure lowering.
 
-**Capture is always on, not opt-in.** `loc.ts` is opt-in because it allocates an `Error` and
+**A statement with no span executes without pausing, and breakpoint resolution ignores it.**
+That is the policy, and it is not a corner: the front end synthesises spanless statements
+today, and passes create more. A stepping session therefore skips such a statement rather than
+reporting a pause it cannot place in a file, which would leave an IDE with a stop and no line
+to show. The known spanless statements, as of milestone 1:
+
+| Statement                                 | Where it comes from                                                    |
+| ----------------------------------------- | ---------------------------------------------------------------------- |
+| the `_w` counter's `var` and its `assign` | `lowerWhile` lowers a `while` to a `for` over a counter nobody wrote   |
+| an `_av` materialisation                  | `autoVars`, for a value the author assigned to without naming          |
+| every `if`, at O1 and above               | `dead-branch` rebuilds the node from named fields instead of spreading |
+| an `fp64Lower` helper's whole body        | injected, with no authored origin at all                               |
+
+The third row is a defect rather than a fact of life, and milestone 1 fixes it by spreading:
+a pass that rewrites a node's children should carry the rest of it. The first, second and
+fourth are correct and permanent, because there is no authored statement to point at.
+
+**Capture is always on.** `loc.ts` is opt-in because it allocates an `Error` and
 parses a stack. Here there is no stack: the node is in hand and the cost is one frozen object
-per statement. More decisively, an IDE cannot set a flag retroactively — a debugger that only
+per statement. More decisively, an IDE cannot set a flag retroactively, and a debugger that only
 works when the compile was run with tracing enabled is a debugger nobody can start. The PR that
 lands this reports the measured effect on the test suite's wall time and on the goldens
 (which must be byte-identical).
@@ -509,7 +569,7 @@ lands this reports the measured effect on the test suite's wall time and on the 
 a width, so any conversion would have to invent the width, and every consumer downstream would
 then be highlighting a range the author never wrote. The honest statement is that the two
 surfaces can produce different things, that the debugger needs the exact one, and that it
-therefore supports `"use typeshade"` — which is precisely what was asked for. Should the EDSL
+therefore supports `"use typeshade"`, which is precisely what was asked for. Should the EDSL
 ever want stepping, the answer is not an adapter but a `fn()` that captures widths, which
 stacks cannot give.
 
@@ -534,8 +594,8 @@ be worse.
 ### 4.1 One schema, three carriers
 
 The same object describes a debug run whether it arrives as a `launch.json` entry in VS Code,
-a form in the Playground, or an argument to a headless test. It is defined here — as an
-exported TypeScript type and a JSON Schema baked like `src/__api__/surface.md` — so that the
+a form in the Playground, or an argument to a headless test. It is defined here, as an
+exported TypeScript type and a JSON Schema baked like `src/__api__/surface.md`, so that the
 extension's `launch.json` contribution and the Playground's form cannot drift from each other
 or from the engine.
 
@@ -568,7 +628,7 @@ zero of the type, which is what the Playground's "Run on the CPU" does today and
 ### 4.2 The invocation
 
 **Decision: one object keyed by WGSL builtin id, plus an `inputs` map keyed by parameter or
-entry-IO field name — not three per-stage shapes.** The grammar
+entry-IO field name, rather than three per-stage shapes.** The grammar
 (`docs/use-typeshade-surface.md` §3) already makes stage inputs explicit parameters carrying
 `@builtin(...)` or `@location(n)`, and `reflect()` already reports them as `EntryIo`. Keying
 the configuration the same way means the debugger validates it against reflection rather than
@@ -579,15 +639,38 @@ entry actually declares.
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | `@vertex`   | `vertex_index`, `instance_index`; `inputs` for each `@location(n)` vertex attribute, by field name                                                                                                          | `0`, `0`, zeros                  |
 | `@fragment` | `position` (a `vec4`: x, y in pixels with the half-pixel centre the author must supply themselves, then z, w), `front_facing`, `sample_index`; `inputs` for each interpolated `@location(n)`, by field name | `[0,0,0,1]`, `true`, `0`, zeros  |
-| `@compute`  | `global_invocation_id`, `local_invocation_id`, `workgroup_id`, `local_invocation_index`, `num_workgroups`                                                                                                   | all zeros, with derivation below |
+| `@compute`  | `global_invocation_id`, `local_invocation_id`, `workgroup_id`, `local_invocation_index`, `num_workgroups`, and `dispatch`                                                                                   | all zeros, with derivation below |
 
-For compute, supplying `global_invocation_id` alone is the common case, so the others are
-**derived** from it and the entry's declared `@compute([x, y, z])` workgroup size rather than
-left at zero: `workgroup_id = floor(gid / size)`, `local_invocation_id = gid % size`,
-`local_invocation_index` from the local id in the WGSL order. Supplying one of the derived
-values explicitly overrides the derivation, and supplying an inconsistent pair is an error
-rather than a silent pick — a wrong invocation id is exactly the kind of thing that makes a
-debugging session lie.
+Every builtin the front end accepts as an entry input has a row above. One the front end
+accepts and this table does not name reads as the zero of its type in this milestone, which is
+the same default every other omitted input gets.
+
+For compute, supplying `global_invocation_id` alone is the common case, so three of the others
+are **derived** from it and the entry's workgroup size rather than left at zero:
+
+```
+size                   = [workgroupSize, 1, 1]
+workgroup_id           = floor(gid / size)
+local_invocation_id    = gid % size
+local_invocation_index = local.x + local.y * size.x + local.z * size.x * size.y
+```
+
+The size is `[workgroupSize, 1, 1]`, from the scalar `reflect()` reports, because that is all
+the backend carries: `@compute([x, y, z])` with a `y` or `z` other than `1` is rejected at the
+front end (`TS8026`), precisely so a shape the backend would silently drop cannot be written.
+A genuinely three-dimensional derivation waits on the backend carrying three extents, and the
+formulas above are already written for it.
+
+`num_workgroups` is the exception, and it is not derivable: the number of workgroups is a
+property of the **dispatch** rather than of any one invocation, and nothing else in the configuration
+knows it. So the invocation object carries a `dispatch: [x, y, z]` field, defaulting to
+`[1, 1, 1]` rather than zeros, since a dispatch of zero workgroups runs nothing and zero is
+never the value a session wants, and `num_workgroups` is that field. Supplying `num_workgroups`
+directly overrides it.
+
+Supplying one of the derived values explicitly overrides the derivation. Supplying an
+inconsistent pair is an error rather than a silent pick, because a wrong invocation id is
+exactly the kind of thing that makes a whole debugging session lie.
 
 ### 4.3 The bindings
 
@@ -603,7 +686,7 @@ JSON in the CPU value model, which is already the model the oracle and `compile(
 | `array<T, N>` / `storage<array<T>>` | an array of the element's form                                  |
 
 An omitted binding is the zero of its type. A binding given a value whose shape does not match
-its declared type is an error before the run starts, naming the binding and both shapes —
+its declared type is an error before the run starts, naming the binding and both shapes,
 again because a silently reshaped buffer produces a plausible wrong answer, which §1.3 calls
 the worst failure mode a reference can have.
 
@@ -641,7 +724,7 @@ and evaluate that one function against the frame's environment.
 What that buys: the snippet is checked by the real compiler, so a type error in a watch is the
 same diagnostic the editor would show, and a watch can call the module's own helpers. What it
 costs: a compile per distinct expression (cacheable by text and frame shape), and the snippet
-sees only what the frame has names for — not a value mid-expression, which would need the
+sees only what the frame has names for, never a value mid-expression, which would need the
 expression spans §3.3 defers.
 
 ## 5. Decisions
@@ -664,14 +747,19 @@ recorded here as decisions rather than proposals, and the sections above follow 
    stand-in rather than a computed value**, so no one mistakes `0` for a result.
    `derivatives: "quad"` is an opt-in for later, when someone has a derivative bug, carrying
    the divergence caveat of §2.4.
-5. **The debugger runs the module before the optimizer** — `validate` + `autoVars`, exactly
-   what `compileModule` does today — because the author is debugging the program they wrote.
-   "Debug the optimized module" is a separate, honestly labelled mode for chasing optimizer
-   bugs.
+5. **The debugger runs the module before the optimizer**, because the author is debugging the
+   program they wrote. The passes it does run are the ones `compileModule` runs: `validate`,
+   then `autoVars`, then, once decision 6 makes `f32` the default, `froundF32`. That third one
+   has two consequences worth writing down. A stepper resolving a call to step into must look
+   through the `__fround` wrapper the pass puts around an f32-typed call, or every step-into
+   lands on the rounding rather than the callee. And §4.5's watch snippet evaluates at the
+   session's precision, so a watched expression agrees with the locals beside it rather than
+   answering in a different arithmetic. "Debug the optimized module" is a separate, honestly
+   labelled mode for chasing optimizer bugs.
 6. **Stepping evaluates at `f32` by default**, because the author's question is what the GPU
    computes, and the mode is visible in the UI: `f64` answers a different question, and the two
    disagree exactly where the interesting bugs are.
-7. **The engine ships on its own `./debug` subpath, not folded into `./dev`.** `./dev` is lint,
+7. **The engine ships on its own `./debug` subpath.** `./dev` is lint,
    diagnostics and optimizer measurement, consumed by tests; the debugger's consumer is an IDE,
    and a subpath is the cheapest way to keep the two dependency graphs apart.
 8. **The DAP server lives in `typeshade/vscode-typeshade`**, beside the LSP server that
