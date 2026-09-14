@@ -203,9 +203,16 @@ export function compileTsSources(
 
   const funcs: FuncDecl[] = []
   // Only the entry file feeds the symbol table, since a span alone cannot say which file it
-  // indexes; resolved the way the emit-failure anchor below resolves it.
+  // indexes. `parsed` is keyed by `normalizePath`, so the caller's spelling of `entry` has to be
+  // normalized before it is looked up: `'./main.ts'` and `'main.ts'` name the same file, and
+  // handing back another file's offsets for one of the two spellings is the exact hazard the
+  // one-file rule exists to prevent. (The emit-failure anchor below keeps its own pre-existing
+  // raw-`entry` lookup; changing which file an emit failure is reported against is not this
+  // change's business.)
+  const normalizedEntry = entry !== undefined ? normalizePath(entry) : undefined
   const symbolFile =
-    (entry !== undefined && parsed.has(entry) ? entry : undefined) ?? [...parsed.keys()][0]
+    (normalizedEntry !== undefined && parsed.has(normalizedEntry) ? normalizedEntry : undefined) ??
+    [...parsed.keys()][0]
   for (const [name, table] of exports) {
     const callees = fileCallees.get(name)!
     for (const rec of table.values()) {
