@@ -23,6 +23,15 @@
 //      source-language `const` is a shader `let`), and the useful gate is that the
 //      DIFFERENCE does not move unnoticed.
 //
+// READ THE TWO GOLDENS AS THE DIFFERENT THINGS THEY ARE. `semanticDiff` compares the
+// AUTHORED modules, before `autoVars` materialises the EDSL's assignment-to-a-value-node
+// into a real `var`. So a shader whose emits differ by one identifier can still show a whole
+// function as changed in the structural golden: on the EDSL side the vertex body is still
+// `assign (construct vec2 …) = …`, which has no counterpart in a source-compiled body and
+// drags its literals into the `constants` bucket with it. `gradient-twin` is exactly that
+// case — its `.diff` golden is two names and two extra `let`s. The structural golden is the
+// record that neither side moved; the text diff is the one to read for what they spell.
+//
 // The goldens live in `__emit-goldens__/` with the emits they are derived from, so the one
 // bake protocol in `_goldens.ts` covers them: `UPDATE_EMIT_GOLDENS=1`.
 

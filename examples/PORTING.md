@@ -100,8 +100,9 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
 
 **Source the compiler accepts today: 14 of 36**, up from 2 when this was first measured — [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the
-single largest blocker. Two have shipped as twins (`compute-reduction` in
-[#16](https://github.com/typeshade/typeshade/pull/16), `gradient` next); the other twelve are
+single largest blocker. Two have shipped as twins — `compute-reduction` in
+[#16](https://github.com/typeshade/typeshade/pull/16) and `gradient` once
+[#14](https://github.com/typeshade/typeshade/issues/14) unblocked its GLSL; the other twelve are
 unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 [What step 2 found](#what-step-2-found-that-this-classification-could-not).
 
