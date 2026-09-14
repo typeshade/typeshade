@@ -22,19 +22,27 @@ transfer to a shader compiler.
 
 **TypeScript.** Every user-visible string lives in exactly one JSON file keyed by its English text,
 each entry carrying a category (Error, Message, Suggestion) and a unique numeric code: 2121 entries,
-1345 Error, 755 Message, 21 Suggestion. Codes are never reused and are allocated in ranges by phase
-(1xxx syntactic, 2xxx semantic, 4xxx declaration emit, 5xxx options, 6xxx CLI and messages, 7xxx
-implicit-any, 9xxxx code-action descriptions), and CONTRIBUTING tells contributors that all
-user-visible strings go there. The table is the durable asset: the Go reimplementation ships the
-identical JSON (`ts59/src/compiler/diagnosticMessages.json`, first entry at line 2, code 1002;
-`ts59/CONTRIBUTING.md:270-273`; `ts-main/tsc/internal/diagnostics/diagnosticMessages.json`).
+2121 distinct codes, 1345 Error, 755 Message, 21 Suggestion. The generator enforces uniqueness
+within one snapshot of the table; nothing in either clone states a policy on reusing a retired code.
+Codes are allocated in ranges by phase: 1xxx syntactic (462), 2xxx semantic (537), 4xxx declaration
+emit (111), 5xxx options (66), 6xxx CLI and messages (489), 7xxx implicit-any (55), 8xxx JS files,
+JSDoc and rename (36), 9xxx isolated declaration emit (34), 17xxx JSX (73), 8xxxx suggestions (10)
+and 9xxxx code-action descriptions (247). CONTRIBUTING tells contributors that all user-visible
+strings go there. The table is the durable asset: the Go reimplementation carries the same table
+under the same file name and the same schema, its generator reading the same `category`, `code`,
+`reportsUnnecessary`, `reportsDeprecated` and `elidedInCompatabilityPyramid` fields with a comment
+marking that last misspelling as [sic] in Strada; the two differ only by ordinary branch drift, 2136
+entries at main against 2121 at release-5.9, not by a re-numbering
+(`ts59/src/compiler/diagnosticMessages.json`, first entry at line 2, code 1002;
+`ts59/CONTRIBUTING.md:270-273`; `ts-main/tsc/internal/diagnostics/diagnosticMessages.json`;
+`ts-main/tsc/internal/diagnostics/generate.go:31-40`).
 
 **TypeShade.** Two registries, neither of which is a message table for the front end. TS8xxx is a
-code enum with prose doc comments and no messages, 31 codes from TS8001 to TS8030 plus TS8099
-(`src/compiler/ts/codes.ts`), and the message text is composed inline at the raise sites, 45
-`makeDiagnostic` calls and 127 `pushDiag` calls over 21 files, where `makeDiagnostic` takes a
-free-form string (`src/compiler/ts/diagnostic.ts:46-58`). SD#### is a real table of code, summary
-and optional hint, 35 entries, but it belongs to the runtime DSL builder API
+code enum with prose doc comments and no messages, 30 codes, TS8001 to TS8030 with TS8011 retired,
+plus TS8099 (`src/compiler/ts/codes.ts:4` and `:8-53`), and the message text is composed inline at
+the raise sites, 42 `makeDiagnostic` calls and 127 `pushDiag` calls over 21 files, where
+`makeDiagnostic` takes a free-form string (`src/compiler/ts/diagnostic.ts:46-58`). SD#### is a real
+table of code, summary and optional hint, 35 entries, but it belongs to the runtime DSL builder API
 (`src/core/diagnostics/codes.ts:45+`).
 
 **Gap.** There is no single place that says what a TypeShade error says. Changing a message is a
@@ -44,7 +52,7 @@ never reconcile.
 
 **Adoption (L).** Add `src/compiler/ts/messages.ts`: one frozen record keyed by TS8xxx code with
 `{ code, category, template, hint? }`, and change `makeDiagnostic` and `pushDiag` to take a table
-key plus arguments instead of a string. Port the 172 raise sites in batches, starting with the codes
+key plus arguments instead of a string. Port the 169 raise sites in batches, starting with the codes
 used once or twice (SWITCH_CASE, STRUCT_FIELD, BREAK_OUTSIDE, UNKNOWN_FN). Leave SD#### as the DSL's
 own table and cross-reference the two from one doc page rather than merging them, since they
 describe two different authoring surfaces.
@@ -53,22 +61,23 @@ describe two different authoring surfaces.
 
 **TypeScript.** 899 of the 2121 messages are format strings with `{0}` and `{1}` placeholders, so
 the invariant text is separable from the arguments supplied at the raise site, which is what makes a
-message diffable, translatable and keyable (`ts59/src/compiler/diagnosticMessages.json:6`, code
-1005, and `:12`, code 1007 with two placeholders).
+message diffable, translatable and keyable (`ts59/src/compiler/diagnosticMessages.json:10`, code
+1005, and `:18`, code 1007 with two placeholders).
 
 **TypeShade.** Messages are template literals assembled at the raise site, and some are built by
-dedicated prose functions: `numericMismatch` returns eight different whole sentences for one code,
-each with its own remedy text baked in (`src/compiler/ts/numeric.ts:90-153`). The SD catalogue does
-make the split, summary plus per-throw detail (`src/core/diagnostics/error.ts:80-90`), so the
-project already knows the pattern on the DSL side.
+dedicated prose functions: `numericMismatch` returns ten different whole sentences for one code,
+seven of them with their own remedy text baked in (`src/compiler/ts/numeric.ts:90-153`; the three
+that carry no remedy are at `:93`, `:113` and `:152`). The SD catalogue does make the split, summary
+plus per-throw detail (`src/core/diagnostics/error.ts:80-90`), so the project already knows the
+pattern on the DSL side.
 
 **Gap.** A message change cannot be reviewed as such, no consumer can key on a message shape, and
 localization is impossible. The site already hits this: the Playground hard-codes a Korean
 replacement for exactly one code because it cannot get a translated message from the compiler.
 
 **Adoption (M).** When messages move into the table, write them as templates with `{0}` placeholders
-and add `formatMessage(code, ...args)`. Split the eight branches of `numericMismatch` into either
-eight codes or one code with a remedy slot, so the remedy text is a table row rather than a
+and add `formatMessage(code, ...args)`. Split the ten branches of `numericMismatch` into either
+ten codes or one code with a remedy slot, so the remedy text is a table row rather than a
 concatenation. Once templates exist, a `messages.ko.ts` keyed by the same codes replaces the
 Playground's TS8001 special case.
 
@@ -87,7 +96,7 @@ per-locale tables (`ts59/scripts/processDiagnosticMessages.mjs:56-75` and `:78-1
 uniqueness, non-empty summaries and an inline snapshot of every key, so adding or removing a code is
 a reviewed diff (`src/core/diagnostics/codes.test.ts:5-64`). TS8xxx has no such test, and the
 documentation table of TS8xxx codes is a hand-copy of the doc comments in `codes.ts`
-(`docs/language-service-api.md:395-408`); there is no `codes.test.ts` under `src/compiler/ts/`.
+(`docs/language-service-api.md:428-444`); there is no `codes.test.ts` under `src/compiler/ts/`.
 
 **Gap.** TS8xxx has no uniqueness or well-formedness gate and no snapshot, so a duplicated or
 malformed code ships silently, and the documentation table drifts from `codes.ts` the moment a code
@@ -97,23 +106,24 @@ is added.
 `src/core/diagnostics/codes.test.ts`: every key matches `TS8\d{3}`, values are unique, each has a
 message-table row once the table lands, plus an inline snapshot of the key list. Then add
 `scripts/gen-error-docs.ts` that emits the documentation table and the site's error index rows from
-the tables, so the docs cannot drift. Do not build a code generator for the raise sites; 31 codes do
+the tables, so the docs cannot drift. Do not build a code generator for the raise sites; 30 codes do
 not need one.
 
 ### Related information on a diagnostic
 
 **TypeScript.** A diagnostic can carry `DiagnosticRelatedInformation` entries, each with its own
-file, span and message; `addRelatedInfo` attaches them and it is used at 64 sites in the compiler,
+file, span and message; `addRelatedInfo` attaches them and it is used at 75 sites in the compiler,
 `relatedInformation` is on the public `Diagnostic` type, and the pretty formatter renders each
 related entry with its own location line and its own indented code frame
 (`ts59/src/compiler/utilities.ts:10285-10295`; `ts59/src/compiler/types.ts:7264`;
 `ts59/src/compiler/program.ts:796-807`).
 
 **TypeShade.** `TypeshadeDiagnostic` declares an optional `relatedInformation` field and nothing in
-the repository ever sets it; it is the only occurrence of the identifier in `src/`
-(`src/language-service/types.ts:74`). The adapter that converts a TypeScript diagnostic builds the
-object without it (`src/language-service/diagnostics.ts:114-131`), so TypeScript's own related spans
-are discarded before they reach the editor, and `TsCompilerDiagnostic` has no such field at all.
+the repository ever sets it; it is the only occurrence of the identifier in `src/` outside the
+generated surface snapshot (`src/language-service/types.ts:74`; `src/__api__/surface.md:1231`). The
+adapter that converts a TypeScript diagnostic builds the object without it
+(`src/language-service/diagnostics.ts:352-366`), so TypeScript's own related spans are discarded
+before they reach the editor, and `TsCompilerDiagnostic` has no such field at all.
 
 **Gap.** Messages that involve two places say so in prose instead of pointing: the duplicate binding
 message names both owners in text, as do the duplicate function and duplicate module const messages.
@@ -139,7 +149,7 @@ line with file, line and column, the message and a hint line, with no source exc
 (`src/core/diagnostics/report.ts:138-151`), and the lint engine's own `formatDiagnostics` is one
 line per diagnostic (`src/core/passes/lint/engine.ts:311-319`). Neither takes the front end's
 `TsCompilerDiagnostic` list, which does carry `start`, `length`, `line`, `character`, `endLine` and
-`endCharacter` (`src/compiler/ts/diagnostic.ts:20-32`). There is no `bin` entry in `package.json`,
+`endCharacter` (`src/compiler/ts/source-file.ts:50-65`). There is no `bin` entry in `package.json`,
 so the only renderer of a TS8xxx diagnostic today is the site Playground's DOM list
 (`typeshade.github.io/src/scripts/playground.ts:960-982`).
 
@@ -163,10 +173,10 @@ and `:52-62`).
 
 **TypeShade.** TS8099 UNSUPPORTED is deliberate and documented as the catch-all for a site that does
 not yet deserve its own code (`src/compiler/ts/codes.ts:4-6` and `:52`). It is used at 39 raise
-sites, the second heaviest code after TYPE_MISMATCH at 46, with ARITY_MISMATCH at 20, and fourteen
-codes are used at five sites or fewer.
+sites, the second heaviest code after TYPE_MISMATCH at 44, with ARITY_MISMATCH at 20, and 22 of the
+30 codes are used at five sites or fewer.
 
-**Gap.** About one in six raise sites is invisible to anything keyed on a code: a quick fix, a docs
+**Gap.** About one in five raise sites is invisible to anything keyed on a code: a quick fix, a docs
 link, an error index row, a Korean message. The sites hiding behind UNSUPPORTED are the "TypeShade
 does not support this" messages a newcomer most needs a documented page for.
 
@@ -182,16 +192,18 @@ declared but never read) and `reportsDeprecated` (3 entries, for example code 63
 threaded from the table through diagnostic construction and the builder into the public diagnostic,
 where an editor renders them faded or struck through rather than as red squiggles, and the
 Suggestion category with `computeSuggestionDiagnostics` powers the grey suggestion layer that code
-fixes also attach to (`ts59/src/compiler/diagnosticMessages.json:5175-5179` and `:3309-3313`;
+fixes also attach to (`ts59/src/compiler/diagnosticMessages.json:5175-5179` and `:5890-5893`;
 `ts59/src/compiler/utilities.ts:8558,8583`; `ts59/src/compiler/builder.ts:576`;
 `ts59/src/services/suggestionDiagnostics.ts:68`).
 
 **TypeShade.** `TypeshadeSeverity` includes `hint` and `information`, and TypeScript's Suggestion
 category maps to `hint`, so the channel exists for forwarded TypeScript suggestions
-(`src/language-service/diagnostics.ts:98-111`). No TypeShade diagnostic is ever raised at suggestion
+(`src/language-service/diagnostics.ts:335-345`). No TypeShade diagnostic is ever raised at suggestion
 severity, and there is no tag concept on `TypeshadeDiagnostic`
-(`src/language-service/types.ts:58-75`); the one non-error TypeShade diagnostic is the missing
-return annotation warning in `src/compiler/ts/lower/function.ts`.
+(`src/language-service/types.ts:58-75`); the two non-error TypeShade diagnostics are the missing
+return annotation warning (`src/compiler/ts/lower/function.ts:219-227`) and the warning `compile()`
+raises when the GLSL stage refuses a module whose WGSL emitted, which is deliberate
+(`src/compiler/ts/compile.ts:101-107`; `src/compiler/ts/diagnostic.ts:64-66`).
 
 **Gap.** Nothing TypeShade reports can render as faded-unused or deprecated, and TypeShade never
 raises a suggestion of its own even where the analysis already exists, for an unused local, a struct
@@ -212,15 +224,15 @@ contains a per-code documentation page: the website's page tree has only brandin
 chapter that teaches how to read an elaboration rather than documenting codes
 (`web/packages/documentation/copy/en/handbook-v2/Understanding Errors.md:1-56`). The message table
 itself is the de-facto index, the generated key-to-message JSON is what localizers and third-party
-error-explanation sites consume (`ts59/scripts/processDiagnosticMessages.mjs:109-122`), and the
+error-explanation sites consume (`ts59/scripts/processDiagnosticMessages.mjs:113-127`), and the
 Playground shows errors inline (`web/packages/playground/src/sidebar/showErrors.ts`).
 
 **TypeShade.** The closest artifact is a hand-copied table in the language-service design doc
-covering only TS8017 to TS8099 (`docs/language-service-api.md:393-408`); the language surface doc
+covering only TS8017 to TS8099 (`docs/language-service-api.md:428-444`); the language surface doc
 has a six-row table of diagnostic situations with no codes
-(`docs/use-typeshade-surface.md:202-212`); the site has no errors page, its page tree being guide,
-api and ko only (`typeshade.github.io/src/pages`); and the SD catalogue is documented only as an API
-surface dump (`src/__api__/surface.md:808-813`).
+(`docs/use-typeshade-surface.md:202-212`); the site has no errors page, its only documentation trees
+being guide, api and ko (`typeshade.github.io/src/pages`); and the SD catalogue is documented only
+as an API surface dump (`src/__api__/surface.md:808-813`).
 
 **Gap.** There is no URL for "what is TS8010", and the two code spaces are documented in two
 repositories in two vocabularies. A user who hits SD0044 through the `"use typeshade"` path has
@@ -230,7 +242,7 @@ nowhere to look.
 row per code with summary, hint and the source path that raises it, plus a short why-this-exists
 paragraph for the ten heaviest codes. Generate it with the same script that emits the documentation
 table so it cannot drift, and put the URL into the message table so the formatter and the Playground
-pane can link each diagnostic to its row. This is more than TypeScript does, and it is cheap at 66
+pane can link each diagnostic to its row. This is more than TypeScript does, and it is cheap at 65
 codes where it would be prohibitive at 2121.
 
 ### The spelling suggestion as structured fix data
@@ -261,17 +273,18 @@ end to end.
 to the CLI, the public API and the editor; there is no boundary at which a code degrades into text
 (`ts59/src/compiler/utilities.ts:8558-8583`, where code and flags are copied into every constructed
 diagnostic). The strongest evidence is the Go rewrite on main, which reimplemented the compiler in
-another language and kept the identical message JSON, so every code survived a full
-reimplementation (`ts-main/tsc/internal/diagnostics/diagnosticMessages.json` and
+another language and kept the same message table under the same file name and schema, 2136 entries
+against 5.9's 2121, so every code survived a full reimplementation
+(`ts-main/tsc/internal/diagnostics/diagnosticMessages.json`, `generate.go:31-40` and
 `diagnostics_generated.go`).
 
 **TypeShade.** The front end and the runtime DSL have separate identities and the boundary between
 them loses information. When emit throws, `compileTsSource` catches the exception and re-raises the
 text under TS8015 as a backend-emit-failed message with `e.message` glued on
-(`src/compiler/ts/source-file.ts:139-160`), so a `ShaderDslError`'s SD code, its catalogue hint and
-its captured `loc` are all flattened into a string (`src/core/diagnostics/error.ts:60-77`); the
-outer catch swallows the first `emitModule` failure with no diagnostic at all before the fallback
-path runs.
+(`src/compiler/ts/source-file.ts:159-163`, whose `backendDiagnostic` is the one shape every
+emit-time failure takes, `src/compiler/ts/diagnostic.ts:68-80`), so a `ShaderDslError`'s SD code,
+its catalogue hint and its captured `loc` are all flattened into a string
+(`src/core/diagnostics/error.ts:60-77`).
 
 **Gap.** A user who trips SD0044 through the `"use typeshade"` path sees TS8015 with SD text
 embedded in the message. No consumer can branch on the real code, the Playground cannot translate
@@ -282,8 +295,8 @@ already carries a hint that names the remedy.
 stringifying: keep TS8015 as the front-end code, add `relatedCode` set to `e.code`, set the
 diagnostic's hint from `e.hint`, and put the SD code in the message at a fixed position so the error
 index can resolve both spaces. About fifteen lines plus a test that an emit failure from a known SD
-code preserves that code. Do the same for the silent outer catch, which currently loses the first
-failure entirely.
+code preserves that code. Do it inside `backendDiagnostic`, so the two other emit boundaries that
+already report through it, `compile()`'s WGSL and GLSL catches, get the same treatment for free.
 
 ## Testing and CI
 
@@ -293,25 +306,26 @@ failure entirely.
 carry `// @option: value` directives, compiler options plus the harness-only `// @filename` that
 splits one file into several compilation units. The harness parses the directives, compiles the
 case, and writes one baseline file per output kind next to a reference copy; the test is the diff.
-There are 6367 `.ts` cases in `ts59/tests/cases/compiler`, 3547 `// @filename` occurrences, 956
-multi-file cases, and 46629 files under `ts59/tests/baselines/reference`
-(`ts59/tests/cases/compiler/moduleResolutionWithSymlinks.ts:1-22`, a case with
-`// @noImplicitReferences`, `// @traceResolution`, three `// @filename` units and a `// @symlink`;
-`ts59/src/testRunner/compilerRunner.ts:88-104`, one `it` per output kind per case for errors,
-module-resolution trace, sourcemap record, JS output, sourcemap output, types and symbols;
-`ts59/CONTRIBUTING.md:212-250`).
+There are 6367 `.ts` cases in `ts59/tests/cases/compiler`, 3547 `// @filename` occurrences, 1161
+cases carrying two or more of them and so compiling as several units, and 46629 files under
+`ts59/tests/baselines/reference` (`ts59/tests/cases/compiler/moduleResolutionWithSymlinks.ts:1-22`,
+a case with `// @noImplicitReferences`, `// @traceResolution`, three `// @filename` units and
+a `// @symlink`; `ts59/src/testRunner/compilerRunner.ts:88-104`, one `it` per output kind per case
+for errors, module-resolution trace, sourcemap record, JS output, sourcemap output, types and
+symbols; `ts59/CONTRIBUTING.md:212-250`).
 
 **TypeShade.** Tests are hand-written vitest files, one per feature, with the shader source inlined
-as a template string and the expectations written as `expect` calls, 223 `*.test.ts` files. The only
+as a template string and the expectations written as `expect` calls, 227 `*.test.ts` files. The only
 per-case baseline is emit: `checkGolden` pins each registered example's WGSL and both GLSL ES 3.00
 stages byte for byte into `examples/__emit-goldens__`, 116 files of which 42 are `.wgsl`, 72
 `.glsl`, one `.json` and one `.diff` (`examples/emit-goldens.test.ts:32-45`;
 `examples/_goldens.ts:38-53`). There is no case directory, no directive header, no multi-file case
 and no error baseline; the diagnostics suite inlines six error sources in an array and asserts only
-that each threw nothing and produced at least one diagnostic
-(`src/compiler/ts/diagnostics.test.ts:16-33`).
+that each threw nothing, produced at least one diagnostic, and that each diagnostic carries a
+one-based position, a category from a three-value set and a non-empty message
+(`src/compiler/ts/diagnostics.test.ts:13-35`).
 
-**Gap.** TypeShade pins emit only for the 47 registered examples, which are curated showcase
+**Gap.** TypeShade pins emit only for the 42 registered examples, which are curated showcase
 shaders, not for the feature cases the compiler tests actually exercise. A feature test asserts a
 substring or a `toBeGreaterThan(0)` rather than the whole output, so most of what the compiler
 produced on that input is unwatched, and there is no way to vary one case across targets or options
@@ -324,7 +338,7 @@ directives. Write a small parser, the directive grammar being a regex over leadi
 `// @name: value` lines with `// @filename` splitting the body, plus a runner that feeds each
 configuration through `compileTsSource` and writes `tests/baselines/local/<case>.<target>`, then
 reuses the existing `checkGolden` comparison against `tests/baselines/reference`. Start by
-converting the ten or so cases in `src/compiler/ts/diagnostics.test.ts` and
+converting the fifteen cases in `src/compiler/ts/diagnostics.test.ts` and
 `src/compiler/ts/stage.test.ts`, keep the rest of the vitest suites as they are, and let the case
 directory grow with new features.
 
@@ -364,32 +378,36 @@ for ranges, followed by an imperative script of `goTo.marker("1")`,
 `verify.codeFix({ description, newFileContent })`, `verify.codeFixAll({ fixId, fixAllDescription,
 newFileContent })`, `verify.renameInfoSucceeded(...)`. There are 6298 `.ts` tests in
 `ts59/tests/cases/fourslash` plus 243 more under `server/`, of which 1142 call `verify.codeFix`, 137
-call `verify.codeFixAll` and 648 exercise refactors, backed by a 5286-line implementation, a
+call `verify.codeFixAll` and 664 name a refactor, backed by a 5286-line implementation, a
 2049-line verify surface with 194 methods, and a 964-line declaration file that is both the type
 surface and the syntax guide (`ts59/tests/cases/fourslash/fourslash.ts:1-27`;
-`ts59/tests/cases/fourslash/codeFixAddMissingConstInForOfLoop1.ts`, a whole test in 7 lines;
+`ts59/tests/cases/fourslash/codeFixAddMissingConstInForOfLoop1.ts`, a whole test in 8 lines;
 `ts59/tests/cases/fourslash/codeFixAddMissingMember.ts`, a complete codeFix test in 18 lines;
-`ts59/tests/cases/fourslash/codeFixSpelling1.ts`, 8 lines;
+`ts59/tests/cases/fourslash/codeFixSpelling1.ts`, 9 lines through `verify.rangeAfterCodeFix`;
 `ts59/src/harness/fourslashImpl.ts:3443,3457` and `:4775-5000`;
 `ts59/src/harness/fourslashInterfaceImpl.ts`).
 
-**TypeShade.** Nine hand-written vitest files, 1037 lines and 68 `it` blocks total, each repeating
-the same four steps: construct the service, inline the source as a string, locate the cursor with
-`source.indexOf(...)` plus an arithmetic offset, convert with `positionAt`, then assert on the raw
-result object (`src/language-service/completions.test.ts:5-36`, with
+**TypeShade.** Twelve hand-written vitest files, 1932 lines and 116 `it` blocks total, most of them
+repeating the same four steps: construct the service, inline the source as a string, locate the
+cursor with `source.indexOf(...)` plus an arithmetic offset, convert with `positionAt`, then assert
+on the raw result object (`src/language-service/completions.test.ts:5-36`, with
 `const offset = source.indexOf('"ver') + 4` and
 `const offset = source.indexOf('@builtin("') + '@builtin("'.length`;
-`src/language-service/hover.test.ts:28-35`; and `service.test.ts` with 18 cases,
-`navigation.test.ts` 12, `ambient.test.ts` 11, `semantic-tokens.test.ts` 6, `completions.test.ts` 5,
-`hover.test.ts` 5, `symbols.test.ts` 5, `host.test.ts` 4, `signature.test.ts` 2). There is no helper
-for applying returned edits, because no method returns edits.
+`src/language-service/hover.test.ts:28-35`; and `service.test.ts` with 23 cases,
+`completions.test.ts` 22, `ambient.test.ts` 14, `navigation.test.ts` 14, `host.test.ts` 8,
+`diagnostics.test.ts` 7, `hover.test.ts` 7, `analysis-cache.test.ts` 5, `semantic-tokens.test.ts` 5,
+`symbols.test.ts` 5, `positions.test.ts` 4, `signature.test.ts` 2). One file has already grown out
+of the arithmetic: `completions.test.ts:65-71` defines a shared `completionsAt(service, uri, source,
+cursor)` that takes the cursor as text and asserts it was found, and the second half of the file
+uses it. No helper applies returned edits: `rename` is the one method that produces them
+(`src/language-service/service.ts:82-87`) and no test applies them.
 
 **Gap.** The cursor position is computed by string arithmetic in every test, which is the part most
 likely to be silently wrong: `indexOf('vertex_index') + 2` names no position a reader can check, and
 an edit to the sample source moves it without failing. There is no shared vocabulary for "the
 completion list is exactly this", "the rename range is these spans" or "applying the fix produces
 this file", so each new service feature arrives with a new hand-rolled shape of assertion, cross-file
-cases cannot be expressed at all, and the cost per case is the reason 68 cases is thin for a service
+cases cannot be expressed at all, and the cost per case is the reason 116 cases is thin for a service
 with 11 query methods.
 
 **Adoption (M).** Do not port fourslash. Write a fixture of roughly 150 lines,
@@ -398,7 +416,8 @@ with 11 query methods.
 `{ service, uri, marker(n), range(n), text }`, plus the verbs over it: `completionsExact(marker,
 labels)`, `hoverContains(marker, text)`, `renameSpans(marker, ranges)`,
 `expectCodeFix({ source, marker, fixName, expected })`, which applies the returned edits and
-compares the whole resulting text, and `expectFixAll` for the batch. Convert
+compares the whole resulting text, and `expectFixAll` for the batch. Generalise
+`completions.test.ts`'s own `completionsAt` into it rather than starting from nothing, convert
 `completions.test.ts` and `hover.test.ts` first so the marker arithmetic disappears from the two
 files that have the most of it, write it together with the first quick fix, then require every new
 service test to use it. Add `// @filename:` support only when the service gains a multi-document
@@ -467,13 +486,13 @@ version stamped by `hereby configure-nightly`, builds the LKG and runs `npm publ
 anyone can install `typescript@next` and check whether a bug is already fixed; a second workflow
 does the same for the insiders tag on `repository_dispatch`, and CONTRIBUTING points bug reporters
 at the nightly (`ts59/.github/workflows/nightly.yaml:1-63`; `ts59/Herebyfile.mjs:951-956`;
-`ts59/.github/workflows/insiders.yaml:1-40`; `ts59/CONTRIBUTING.md:68`).
+`ts59/.github/workflows/insiders.yaml:1-40`; `ts59/CONTRIBUTING.md:33`).
 
 **TypeShade.** No publish of any kind. `package.json` is at version 0.0.1 with
-`publishConfig.access: public` and no npm workflow and no release tags (`package.json:3` and `:56`;
-`.github/workflows/ci.yml`, the only workflow, with no publish job); the generated changelog states
-outright that the repo ships no versioned releases and carries no git tags (`CHANGELOG.md:21`), and
-consumers are told to pin a mirror SHA (`src/api-surface.test.ts:20-25`).
+`publishConfig.access: public` and no npm workflow and no release tags (`package.json:3` and
+`:83-85`; `.github/workflows/ci.yml`, the only workflow, with no publish job); the generated
+changelog states outright that the repo ships no versioned releases and carries no git tags
+(`CHANGELOG.md:20`), and consumers are told to pin a mirror SHA (`src/api-surface.test.ts:20-25`).
 
 **Gap.** There is nothing a user of typeshade.dev can install to try a fix, and nothing an issue
 reporter can be asked to reproduce against. Every consumer integration is a SHA pin, which makes "is
@@ -499,7 +518,7 @@ that a benchmark which fails to build or run breaks the build.
 **TypeShade.** No benchmark of any kind: nothing in `package.json:58-66`, nothing in `scripts`
 (which holds `bake-api-surface.ts`, `compile-gate.ts` and `monorepo-context.ts` only), no file whose
 name contains bench. The only timing signal is accidental, the df64 property suites taking 8 to 16
-seconds per test and forcing the vitest timeout to 30 seconds (`vitest.config.ts:6-9` and `:16`).
+seconds per test and forcing the vitest timeout to 30 seconds (`vitest.config.ts:6-9` and `:15`).
 
 **Gap.** Compile time is a first-class property of a language service, since the service recompiles
 on every keystroke and the diagnostics cache exists precisely because it is not fast enough to redo.
@@ -516,16 +535,17 @@ repository.
 
 ### A CI matrix over operating systems and runtimes
 
-**TypeScript.** The test job runs a matrix of 16 entries, Node 14, 16, 18, 20, 22 and 24 across
-ubuntu, windows and macos plus one `--no-bundle` entry, with `fail-fast: false` and a `skip` flag
-that trims the matrix inside merge queues; the Go repository does the same shape with runner, race
-mode, noembed and concurrent-test-programs variants (`ts59/.github/workflows/ci.yml:27-120`;
-`ts-main/.github/workflows/ci.yml:84-120`).
+**TypeScript.** The test job runs a matrix of 15 entries, Node 14, 16, 18, 20, 22 and 24 on ubuntu
+and windows, macOS on 24 and 16 only with the other four macOS rows commented out as too expensive,
+plus one `lts/*` `--no-bundle` entry, with `fail-fast: false` and a `skip` flag that trims the matrix
+inside merge queues; the Go repository does the same shape with runner, race mode, noembed and
+concurrent-test-programs variants (`ts59/.github/workflows/ci.yml:27-120`, the commented macOS rows
+at `:53-57`, `:65-69`, `:77-81` and `:101-105`; `ts-main/.github/workflows/ci.yml:84-120`).
 
 **TypeShade.** Two jobs, both `runs-on: ubuntu-latest`, both on `bun-version: latest`, with no
 matrix and no Node entry at all (`.github/workflows/ci.yml:36-47` and `:49-60`). The package declares
-`engines: node >=20` (`package.json:22`) and a TypeScript peer range of `>=5.0.0`
-(`package.json:53-55`) while the devDependency is 5.6.3 (`package.json:67-74`).
+`engines: node >=20` (`package.json:26-28`) and a TypeScript peer range of `>=5.0.0`
+(`package.json:75-77`) while the devDependency is 5.6.3 (`package.json:67-74`).
 
 **Gap.** Two dimensions are untested and both are claimed in `package.json`. The package is run only
 under bun, so a Node-only incompatibility (bun's `node:fs` and path behaviour differ in corners the
@@ -555,22 +575,25 @@ hands every emitted WGSL to Tint and both GLSL stages to a real WebGL2 context, 
 instrument first by feeding each compiler a deliberately broken shader that the compiler must
 report, with a `TYPESHADE_GATE_CUT` arm that proves the gate can name a broken example
 (`scripts/compile-gate.ts:1-43`; `.github/workflows/ci.yml:36-60`). The smoke half is missing:
-`main` and `exports` point at `src/*.ts` so consumers compile the sources (`package.json:26-35`),
-`files` ships src plus the tsconfigs (`package.json:36-48`), and nothing ever packs, installs or
+`main` and `exports` point at `src/*.ts` so consumers compile the sources (`package.json:29-38`),
+`files` ships src plus the tsconfigs (`package.json:39-53`), and nothing ever packs, installs or
 imports the package as a consumer would (`package.json:58-66`).
 
-**Gap.** Nothing checks that the published package resolves. `exports` names five subpaths against
-`./src/*.ts`, the `files` list excludes `**/*.test.ts` and `__emit-goldens__` with negated patterns,
-and the consumer is expected to typecheck the sources with their own tsconfig. Any one of those can
-break, a missing file in `files`, a subpath renamed in exports and not in files, a relative import
-the consumer's `moduleResolution` cannot follow, without a single test failing, because every test
-imports by relative path inside the repo.
+**Gap.** Nothing checks that the published package resolves. `exports` names seven subpaths, six
+against `./src/*.ts` and `./examples` against `./examples/index.ts` outside src, while
+`API_SUBPATHS` pins only five of them; the `files` list excludes `**/*.test.ts` and
+`__emit-goldens__` with negated patterns, and the consumer is expected to typecheck the sources with
+their own tsconfig. Any one of those can break, a missing file in `files`, a subpath renamed in
+exports and not in files, a relative import the consumer's `moduleResolution` cannot follow, without
+a single test failing, because every test imports by relative path inside the repo.
 
 **Adoption (M).** Add a `smoke` job: `npm pack`, then in a temp directory
-`npm init -y && npm install <tarball> typescript`, write a four-line consumer file that imports each
-of the five subpaths named in `package.json` exports and calls one function from each, and run
-`tsc --noEmit` plus `node` over it. Reuse the `API_SUBPATHS` list from `src/api-surface.test.ts:73`
-so the smoke file and the surface gate cannot disagree about what the subpaths are.
+`npm init -y && npm install <tarball> typescript`, write a consumer file that imports each of the
+seven subpaths named in `package.json:30-38` and calls one function from each, and run
+`tsc --noEmit` plus `node` over it. Import all seven rather than reusing the `API_SUBPATHS` list
+from `src/api-surface.test.ts:69`, which deliberately omits `./compute` and `./examples` and would
+leave those two unproven; assert instead that `API_SUBPATHS` is a subset of the exports keys, so the
+smoke file and the surface gate cannot disagree about the five they share.
 
 ### Format and lint enforced in CI
 
@@ -589,14 +612,14 @@ unused-export check.
 
 **Gap.** The formatter is a convention that CI does not hold, so formatting drifts and a later
 `bun run format` produces a reformat commit that buries a real change. The missing unused-export
-check matters more than usual here: `src/__api__/surface.md` is a committed list of 398 exports on
+check matters more than usual here: `src/__api__/surface.md` is a committed list of 399 exports on
 `.` alone, and an export that stops being used internally still stays in that snapshot, so
 `surface.md` grows monotonically with nothing to say a symbol became dead.
 
 **Adoption (S).** Two lines in `.github/workflows/ci.yml`: add `- run: bun run format:check` to the
 existing `check` job after `bun install`. Then add a separate `lint` job with eslint plus
 typescript-eslint using a small starting rule set (`no-floating-promises`, `no-unused-vars`,
-`consistent-type-imports`), which is the one that needs a config file and a pass over 223 test files
+`consistent-type-imports`), which is the one that needs a config file and a pass over 227 test files
 to settle. Do the format line now and the lint job as a follow-up; knip can wait until the
 dead-export question is actually live.
 
@@ -637,12 +660,13 @@ and `--keepFailed` for re-running only the last failures
 
 **TypeShade.** Vitest's default worker pool, no shard flag, and a global 30-second per-test timeout
 raised from vitest's 5-second default solely because the df64 property suites need it
-(`vitest.config.ts:6-9` and `:16`). The sample count is a hardcoded `const N = 20000`, identical on
+(`vitest.config.ts:6-9` and `:15`). The sample count is a hardcoded `const N = 20000`, identical on
 a developer laptop and a 4-core CI container, and the flakiness is documented in the file itself:
 the suite measured 58 s on one runner and 65 s on another, and vitest's worker RPC to its host times
 out at 60 s, so the file added an event-loop turn every 1000 samples to keep the reply readable
-(`src/core/fp64/df64-int-property.test.ts:84` and `:86-101`, with the sibling suites
-`df64-property.test.ts`, `df64-sincos.test.ts` and `df64-known-answer.test.ts`).
+(`src/core/fp64/df64-int-property.test.ts:84` and `:86-101`; `df64-property.test.ts:92` carries the
+same constant, while the sibling suites `df64-sincos.test.ts` and `df64-known-answer.test.ts` sweep
+fixed small bounds instead and have no `const N`).
 
 **Gap.** The suite is deterministic, a seeded mulberry32 with no `Math.random`, so it is not flaky
 in its assertions; it is flaky in its wall clock, and the only knob is a timeout already raised
@@ -650,9 +674,11 @@ sixfold. There is no way to run a cheaper sweep on a PR and the full sweep on a 
 more property suites are added the whole suite drifts toward the same cliff.
 
 **Adoption (S).** Replace `const N = 20000` with
-`const N = Number(process.env.TYPESHADE_SAMPLES ?? 20000)` in the four df64 property files, set
+`const N = Number(process.env.TYPESHADE_SAMPLES ?? 20000)` in the two files that have it,
+`src/core/fp64/df64-int-property.test.ts:84` and `src/core/fp64/df64-property.test.ts:92`, set
 `TYPESHADE_SAMPLES=4000` in the CI check job, and run the full 20000 in the nightly workflow. Keep
-the assertions and seeds identical so a failure at 4000 is a real failure.
+the assertions and seeds identical so a failure at 4000 is a real failure. The other two df64 suites
+need nothing: their loops are fixed small bounds, not a sample sweep.
 
 ### A public API baseline with its own CI signal
 
@@ -667,17 +693,17 @@ naming the two people who must be told (`ts59/.github/workflows/pr-modified-file
 
 **TypeShade.** Already adopted, and in one respect ahead: `src/__api__/surface.md` records not only
 the exported names per subpath but one line of shape per definition, member lists with optionality
-and spelled-out unions, 1243 lines covering 398 exports on `.` plus four other subpaths, with 31
-exports on `./language-service` (`src/__api__/surface.md:1-13` and `:721-753`). The reader carries
+and spelled-out unions, 1245 lines covering 399 exports on `.` plus four other subpaths, with 31
+exports on `./language-service` (`src/__api__/surface.md:1-13` and `:722-757`). The reader carries
 three anti-vacuity arms, a per-subpath export floor, a no-blank-kind-or-shape arm, and an arm
 rejecting compiler-internal symbol ids such as `__@iterator@173` that would re-bake the file on a
-TypeScript upgrade (`src/api-surface.test.ts:1-50` and `:193-247`), `bun run bake:api-surface` is
+TypeScript upgrade (`src/api-surface.test.ts:1-50` and `:242-283`), `bun run bake:api-surface` is
 the re-bake (`scripts/bake-api-surface.ts`; `package.json:62`), and
 `src/api-doc-coverage.test.ts:1-20` fails when a public export has no doc comment, which TypeScript
 has no equivalent of.
 
 **Gap.** Small and specific, on two axes. The gate runs inside the ordinary vitest run, so it fails
-alongside 222 other test files and its diff is buried in the middle of the output rather than
+alongside 226 other test files and its diff is buried in the middle of the output rather than
 reported as its own signal, which is exactly why TypeScript makes it a distinct CI step. And nothing
 distinguishes an addition from a removal or a shape change, so nothing tells a reviewer that a given
 diff is a break for a consumer; TypeScript solves that with a bot and a wiki page rather than with
@@ -724,12 +750,12 @@ as an artifact, and posts it to codecov with OIDC, disabled for fork PRs
 (`ts59/.github/workflows/ci.yml:140-172`).
 
 **TypeShade.** No coverage instrumentation, no reporter and no threshold; vitest supports it with a
-flag and a provider dependency and neither is configured (`vitest.config.ts:12-18`;
+flag and a provider dependency and neither is configured (`vitest.config.ts:12-17`;
 `package.json:60`; `.github/workflows/ci.yml:36-47`).
 
-**Gap.** 223 test files with no statement on what is unreached. The specific blind spot worth
+**Gap.** 227 test files with no statement on what is unreached. The specific blind spot worth
 knowing about is the backends: `src/core/backends` has ten test files against a WGSL and a GLSL
-emitter plus a legalizer, and the goldens only exercise the 47 example shaders, so whole emitter
+emitter plus a legalizer, and the goldens only exercise the 42 example shaders, so whole emitter
 branches, the absent-builtin fallbacks and the GLSL legalization paths, may have no coverage at all
 while the suite is green.
 
@@ -758,9 +784,9 @@ original service with one or two methods wrapped (`ts59/src/server/project.ts:25
 that builds its own `ts.LanguageService` over its own document store and its own compiler options
 (`lib: []`, `types: []`, `experimentalDecorators: true`, `strictPropertyInitialization: false`) with
 the ambient lib served as a virtual file at `typeshade:shade.d.ts`
-(`src/language-service/service.ts:44-97` and `:104-118`; `src/language-service/host.ts:14-25`,
-`:31-55`, `:180-186`). The design doc assumes an LSP server in a separate repository as the only
-editor path and marks it not started (`docs/language-service-api.md`, section 1 and section 10 item
+(`src/language-service/service.ts:50-102`; `src/language-service/host.ts:15-25`, `:41-58`, `:32`
+and `:218`). The design doc assumes an LSP server in a separate repository as the only editor path
+and marks it not started (`docs/language-service-api.md`, section 1 and section 10 item
 8); `package.json` has no `bin`, no `plugins` and no vscode entry.
 
 **Gap.** Feasible, with one hard boundary. A plugin can decorate what it is given: filter the known
@@ -802,8 +828,7 @@ top of the standard LSP surface (`ts-main/packages/vscode-typescript/src/languag
 **TypeShade.** The design doc rules that the Language Server and the VS Code extension live in a
 separate repository, `typeshade/vscode-typeshade`, and are not started until the package installs
 from npm (`docs/language-service-api.md`, section 1 last bullet and section 10 item 8). Neither
-repository nor extension exists, `package.json` has no `bin` and no workspace `packages/`, and the
-repo task list carries the vscode-typeshade session as pending.
+repository nor extension exists, and `package.json` has no `bin` and no workspace `packages/`.
 
 **Gap.** TypeShade's separation rule was set before this benchmark. TypeScript, which has far more
 reason to keep an editor client out of the compiler repo, does the opposite on main: client and
@@ -855,19 +880,20 @@ plugin or LSP work starts, since it decides what those two get to reuse.
 
 ### The protocol as a written artifact
 
-**TypeScript.** `ts59/src/server/protocol.ts:50-205` declares `CommandTypes` with roughly 160 named
+**TypeScript.** `ts59/src/server/protocol.ts:50-207` declares `CommandTypes` with 114 named
 commands, public and `@internal` ones side by side with deprecations marked in place, and every
 request, response and argument interface next to it carries prose doc comments;
-`ts59/src/server/session.ts:3713-3719` and `:3804-3809` map each command to one handler, 179 handler
-entries in one table. A CI job comments on any PR that touches `protocol.ts`, naming the four people
-who review protocol changes and reminding the author that consumers depend on it
+`ts59/src/server/session.ts:3404-3813` maps each command to one handler, 112 handler entries in one
+table. A CI job comments on any PR that touches `protocol.ts`, naming the four people who review
+protocol changes and reminding the author that consumers depend on it
 (`ts59/.github/workflows/pr-modified-files.yml:108-119`).
 
-**TypeShade.** `docs/language-service-api.md` is 514 lines and is the protocol document, but it is
+**TypeShade.** `docs/language-service-api.md` is 594 lines and is the protocol document, but it is
 headed "draft for review, nothing here is frozen" (`:1-6`), its section 0 documents the superseded
-PR #6 shape at length (`:12-20`), and the interface in section 4 is a hand copy of the one in
-`service.ts` that has already drifted (`:280-310` against `src/language-service/service.ts:44-97`,
-where the code's own doc comments are the more current text). Nothing checks the two against each
+PR #6 shape at length (`:12-77`), and the interface in section 4 is a hand copy of the one in
+`service.ts` (`:267-308` against `src/language-service/service.ts:50-102`: the same sixteen members
+in the same order with identical signatures today, the code's own doc comments being the richer
+text, and nothing that would catch it if they diverged). Nothing checks the two against each
 other.
 
 **Gap.** TypeShade has the prose but not the artifact. There is no single enumerated list of
@@ -893,7 +919,7 @@ it from the language service (`ts59/src/server/session.ts:3815-3820`;
 `ts59/src/server/project.ts:251-257`; `ts59/src/testRunner/unittests/tsserver/plugins.ts:27-37`).
 
 **TypeShade.** `getCompiledOutput(uri, target)` exists on the service and returns the WGSL or GLSL
-text with its diagnostics (`src/language-service/service.ts:84-88` and `:200-240`), but nothing
+text with its diagnostics (`src/language-service/service.ts:91-96` and `:344-386`), but nothing
 transports it to an editor; its only consumer is the Playground, which calls the service directly in
 the page (`docs/language-service-api.md`, section 7).
 
@@ -917,15 +943,15 @@ a registration declares `errorCodes` and `getCodeActions`, which builds text cha
 `ts59/src/services/codefixes` hold 72 registrations, and the action's own description is a
 message-table entry in the 95xxx range, so fix titles are translated like everything else
 (`ts59/src/services/codefixes/addMissingConst.ts:27-45`;
-`ts59/src/services/codeFixProvider.ts:28`, `:29-62`, `:52-62`, `:69-84`, `:85-90`;
-`ts59/src/services/services.ts:2688-2699`; `ts59/src/services/types.ts:651-652`;
+`ts59/src/services/codeFixProvider.ts:28`, `:29-62`, `:52-62`, `:64-68`, `:69-84`, `:85-90`;
+`ts59/src/services/services.ts:2688-2699`; `ts59/src/services/types.ts:657-658`;
 `ts59/src/compiler/diagnosticMessages.json:7866-7869`, code 95081, the fix description). The
-spelling fix is registered for exactly the "Did you mean" family
-(`ts59/src/services/codefixes/fixSpelling.ts:21-45`).
+spelling fix is registered for twelve codes, ten of them the "Did you mean" family and two of them
+JSX cases (`ts59/src/services/codefixes/fixSpelling.ts:46-74`).
 
 **TypeShade.** None. There is no `getCodeFixes`, no code action and no text-edit production anywhere
 in the language service, which exposes completions, hover, navigation, semantic tokens, signature
-help, symbols, rename and diagnostics (`src/language-service/service.ts:44-97`; there is no codefix
+help, symbols, rename and diagnostics (`src/language-service/service.ts:50-102`; there is no codefix
 or codeaction module under `src/language-service/`, and a grep for `getCodeFixes` or `CodeAction`
 over `src` returns nothing). The only fix concept in the repository is the lint engine's
 `rule.fix(module)` returning a module, implemented by two rules, which rewrites IR and produces no
@@ -957,7 +983,7 @@ and put the fix titles in the message table so they translate with everything el
 
 **TypeScript.** A fix declares `fixIds` and `getAllCodeActions`; `codeFixAll` walks every diagnostic
 in scope carrying the fix's codes and applies the same change through a single `ChangeTracker`, and
-the public `getCombinedCodeFix` is the batch entry point. 53 of the 72 registrations carry a
+the public `getCombinedCodeFix` is the batch entry point. 67 of the 72 registrations carry a
 `fixId`, the fix-all description is its own message-table entry, and the `fixId` is stripped from a
 single action when fewer than two diagnostics in the file are fixable, so the editor does not offer
 a pointless batch (`ts59/src/services/codeFixProvider.ts:69-80`, `:92-96` and `:110-118`;
@@ -994,7 +1020,7 @@ the measure of how much of this is not trivial (`ts59/src/services/textChanges.t
 
 **TypeShade.** `TypeshadeTextEdit` exists as a type, a range plus replacement text
 (`src/language-service/types.ts:41-47`), and `rename` returns a record of uri to edits
-(`src/language-service/service.ts:76-81`; `src/language-service/navigation.ts`), but the edits come
+(`src/language-service/service.ts:82-87`; `src/language-service/navigation.ts`), but the edits come
 straight from TypeScript's `findRenameLocations` and nothing in the repo constructs an edit of its
 own. There is no builder, no overlap check and no apply helper.
 
@@ -1020,7 +1046,7 @@ port the node printer or the formatting pass.
 `ts59/src/services/refactorProvider.ts` registers them and `ts59/src/services/refactors/` holds 16
 files with 15 `registerRefactor` calls, each naming its kinds (for example
 `refactor.extract.function`) plus `getAvailableActions` and `getEditsForAction`
-(`ts59/src/services/refactors/extractSymbol.ts:180-187`; `ts59/src/services/types.ts:669-672`;
+(`ts59/src/services/refactors/extractSymbol.ts:180-187`; `ts59/src/services/types.ts:676-678`;
 `ts59/src/services/services.ts:3294-3297` and `:3321-3332`). The catalogue includes extract function
 and constant, extract type, inline variable, convert to optional chain, convert parameters to a
 destructured object, and move to file. A refactor is deliberately a separate axis from a code fix:
@@ -1028,8 +1054,8 @@ it applies to correct code and is offered by selection, not by error code.
 
 **TypeShade.** None, and no equivalent concept. The service has no selection-driven action of any
 kind, the only structural rewrite in the repository is rename
-(`src/language-service/service.ts:44-97`), and the documented order of work lists no refactor stage
-(`docs/language-service-api.md:466-503`).
+(`src/language-service/service.ts:50-102`), and the documented order of work lists no refactor stage
+(`docs/language-service-api.md:540-583`).
 
 **Gap.** The generic refactors, extract function, convert to arrow, move to file, are mostly wrong
 for a shader unit, where a function must obey WGSL rules and a file is a compilation unit with its
@@ -1058,15 +1084,15 @@ so in the design doc so nobody tries.
 **TypeScript.** `provideInlayHints(fileName, span, preferences)` is a first-class language service
 member backed by `ts59/src/services/inlayHints.ts`, reached over the protocol as `provideInlayHints`,
 and the hints are preference-gated per category, parameter names, variable types, return types and
-enum member values (`ts59/src/services/types.ts:633`; `ts59/src/server/protocol.ts:198`;
-`ts59/src/server/session.ts:3804-3806`).
+enum member values (`ts59/src/services/types.ts:628`; `ts59/src/server/protocol.ts:202`;
+`ts59/src/server/session.ts:3804-3806`; the four preference flags at
+`ts59/src/compiler/types.ts:10478-10485`).
 
 **TypeShade.** Nothing. The service has hover, which is pull-based
 (`src/language-service/hover.ts`), and semantic tokens, which colour but do not annotate
-(`src/language-service/service.ts:44-97`). The design doc's own table says hover is where the
+(`src/language-service/service.ts:50-102`). The design doc's own table says hover is where the
 TypeShade type name replaces TypeScript's `number` (`docs/language-service-api.md`, section 5
-`getHover` row), and the repo already tracks a bug that it does not yet do so for a numeric literal
-local.
+`getHover` row).
 
 **Gap.** Inlay hints fit a shader language better than they fit TypeScript, because the three things
 a shader author most wants to see are all inferred and all invisible in the source: the GPU type of
@@ -1078,8 +1104,7 @@ reflection pass gave a resource. All three are already computed by the front end
 three kinds behind flags on the host: the inferred shader type after a `let` or `const` with no
 annotation, the resolved `@location(n)` on an entry IO struct field that has none written, and the
 group and binding pair beside each resource declaration. Source all three from the cached front-end
-analysis the diagnostics path already builds, so there is no second parse. The first kind also
-closes the hover bug already on the repo's list.
+analysis the diagnostics path already builds, so there is no second parse.
 
 ### A suggestion channel separate from errors
 
@@ -1087,10 +1112,10 @@ closes the hover bug already on the repo's list.
 protocol command, `suggestionDiagnosticsSync`, documented in the interface as proactively suggesting
 refactors as opposed to indicating incorrect runtime behaviour, and editors render them differently
 from errors (`ts59/src/services/types.ts:506-513`; `ts59/src/services/suggestionDiagnostics.ts`;
-`ts59/src/server/protocol.ts:96`).
+`ts59/src/server/protocol.ts:98`).
 
 **TypeShade.** One `getDiagnostics(uri)` returning everything
-(`src/language-service/service.ts:51-52` and `:141-156`; `src/language-service/diagnostics.ts`),
+(`src/language-service/service.ts:58-59` and `:270-275`; `src/language-service/diagnostics.ts`),
 with a four-value severity vocabulary that includes `hint` but nothing that produces a hint today
 (`src/language-service/types.ts:49-50`); the merged list is TypeScript diagnostics plus TypeShade
 diagnostics, both of them errors and warnings.
@@ -1116,10 +1141,10 @@ compile gate reads only `getDiagnostics`.
 `getImplementationAtPosition`, `getFileReferences(fileName)` and `getDefinitionAndBoundSpan`, each
 with its own protocol command and, for highlights, a dedicated file
 (`ts59/src/services/types.ts:606-623`; `ts59/src/services/documentHighlights.ts`;
-`ts59/src/server/protocol.ts:108-110` and `:85-87`).
+`ts59/src/server/protocol.ts:107-109` and `:83-85`).
 
 **TypeShade.** `getDefinition` and `getReferences` only, both delegating to TypeScript and
-re-labelling results (`src/language-service/service.ts:60-67`; `src/language-service/navigation.ts`).
+re-labelling results (`src/language-service/service.ts:66-72`; `src/language-service/navigation.ts`).
 
 **Gap.** Document highlights is the visible one: highlighting every occurrence of the identifier
 under the cursor is the feature users notice immediately and is the cheapest of the four, since it
@@ -1138,11 +1163,11 @@ land on, and add `getFileReferences` with the multi-file document store, not bef
 **TypeScript.** Three language service members, `prepareCallHierarchy`,
 `provideCallHierarchyIncomingCalls` and `provideCallHierarchyOutgoingCalls`, backed by
 `ts59/src/services/callHierarchy.ts`, each with its own protocol command
-(`ts59/src/services/types.ts:629-631`; `ts59/src/server/protocol.ts:195-197`).
+(`ts59/src/services/types.ts:624-626`; `ts59/src/server/protocol.ts:199-201`).
 
 **TypeShade.** None. `getReferences` and `getDefinition` delegate to TypeScript and
 `getDocumentSymbols` gives an outline with children, but there is no call graph view
-(`src/language-service/service.ts:60-72`; `src/language-service/navigation.ts`).
+(`src/language-service/service.ts:66-74`; `src/language-service/navigation.ts`).
 
 **Gap.** Shader files are small, so the generic "navigate a large call graph" motivation is weak. The
 shader-specific motivation is not: WGSL forbids recursion, every function is ultimately reachable
@@ -1161,12 +1186,12 @@ Until then, record the same information cheaply as a hover line on a helper func
 **TypeScript.** `getOutliningSpans(fileName)` is served by
 `ts59/src/services/outliningElementsCollector.ts` and reaches editors as the `getOutliningSpans`
 command; it covers more than braces, including comment regions and `#region` markers
-(`ts59/src/services/types.ts:635`; `ts59/src/server/protocol.ts:148-150`).
+(`ts59/src/services/types.ts:630`; `ts59/src/server/protocol.ts:147-149`).
 
 **TypeShade.** No outlining. `getDocumentSymbols` returns a nested tree with `range` and
 `selectionRange` per symbol, which is the same information for declarations but is consumed as an
-outline, not as folding regions (`src/language-service/service.ts:68`;
-`src/language-service/types.ts:119-135`).
+outline, not as folding regions (`src/language-service/service.ts:74`;
+`src/language-service/types.ts:126-140`).
 
 **Gap.** Real but nearly free, and its value depends entirely on the delivery vehicle. Under a
 tsserver plugin, or in Monaco with the TypeScript worker present, the editor already folds a
@@ -1185,12 +1210,13 @@ symbol's range.
 **TypeScript.** Three distinct navigation members: `getNavigateToItems(searchValue, ...)` searches
 symbols across the project with a fuzzy pattern matcher, `getNavigationBarItems` gives the
 dual-column bar shape, and `getNavigationTree` gives the nested tree, with
-`ts59/src/services/patternMatcher.ts` as the shared matcher (`ts59/src/services/types.ts:625-627`;
+`ts59/src/services/patternMatcher.ts` as the shared matcher (`ts59/src/services/types.ts:620-622`;
 `ts59/src/services/navigateTo.ts`).
 
-**TypeShade.** `getDocumentSymbols(uri)` only, per document, re-running the front end on each call
-(`src/language-service/service.ts:68` and `:168-172`; `docs/language-service-api.md`, section 8
-second bullet and section 10 item 10, which list caching it as not started).
+**TypeShade.** `getDocumentSymbols(uri)` only, per document. The front-end analysis it reads is
+already cached per document and per dependency key, so a second call costs nothing
+(`src/language-service/service.ts:74` and `:305-309`, reading `entryOf` at `:230-237`;
+`docs/language-service-api.md:486-498` and `:567-569`, which record that cache as done).
 
 **Gap.** There is no way to ask where the `pbr` helper is across a multi-file shader unit. The
 service already holds every open document plus the imported ones, so the data is there; only the
@@ -1200,8 +1226,8 @@ open item.
 **Adoption (S).** Add `getWorkspaceSymbols(query, maxResults?)` returning `TypeshadeDocumentSymbol`
 plus a `uri`, implemented as `getDocumentSymbols` over every open and imported document with a
 simple prefix and camel case match, and skip TypeScript's full pattern matcher. Land it in the same
-change that fixes the multi-file document store, and cache `getDocumentSymbols` per uri and version
-first so a workspace query does not re-run the front end once per file per keystroke.
+change that fixes the multi-file document store. No new caching work is needed: the per-document
+analysis is already cached, so the query is a loop over open and imported documents.
 
 ### Cancellation and delayed diagnostics
 
@@ -1214,10 +1240,10 @@ and `:365-405`).
 
 **TypeShade.** Nothing in the service is asynchronous and there is no cancellation token; the design
 doc assigns cancellation to the adapter, which is told to drop results whose version is stale
-(`docs/language-service-api.md`, section 8 last bullet). Diagnostics are cached per uri and version
-(`src/language-service/service.ts:40-43` and `:141-156`), the Playground debounces in its own Monaco
-glue, and the host interface exposes only `ambientLib`, `resolveImport` and `readDocument`
-(`src/language-service/host.ts:14-25`).
+(`docs/language-service-api.md`, section 8 last bullet). Diagnostics are cached per uri and
+dependency key (`src/language-service/service.ts:186` and `:239-247`), the Playground debounces in
+its own Monaco glue, and the host interface exposes only `ambientLib`, `resolveImport` and
+`readDocument` (`src/language-service/host.ts:15-25`).
 
 **Gap.** Smaller than it looks, and the reason is file size: a shader is tens to a few hundred lines
 with a `lib: []` program, so a full check is milliseconds, not the seconds a real TypeScript project
@@ -1256,7 +1282,7 @@ time (`typeshade.github.io/src/components/DiagnosticBlock.astro`;
 `typeshade.github.io/src/lib/typed-error.ts:1-10`). The ingredient twoslash needs already exists in
 the compiler: an editor-neutral language service with `getDiagnostics`, `getHover`,
 `getSignatureHelp`, `getSemanticTokens` and `getCompiledOutput`
-(`src/language-service/service.ts:44-107`; `src/language-service/hover.ts:91-98`).
+(`src/language-service/service.ts:50-102`; `src/language-service/hover.ts:91-98`).
 
 **Gap.** Every code sample on typeshade.dev is a picture of code. A reader cannot see what `vec2` or
 `uv` is, cannot see which line the compiler rejects, and has no proof the sample still compiles. The
@@ -1326,7 +1352,7 @@ from the default (opt, parens, minify, precision), so an untouched example keeps
 fragment is read before the first render, so the panes paint once under the link's settings, and a
 browser test asserts the round trip
 (`typeshade.github.io/src/scripts/playground.ts:306-369` and `:1128-1150`;
-`typeshade.github.io/scripts/check-playground.mjs`, check 17).
+`typeshade.github.io/scripts/check-playground.mjs`, check 18).
 
 **Gap.** Small, and TypeShade's scheme is the better one: no lz-string dependency, a prefix byte
 that says how the payload was packed, and short links for untouched examples. Two things TypeScript
@@ -1350,9 +1376,9 @@ Playground link, so a report carries its compiler version implicitly
 (`web/packages/playground/README.md`; `web/packages/sandbox/script/downloadReleases.js`;
 `web/packages/sandbox/src/monacoTSVersions.ts`; `web/packages/sandbox/src/index.ts:383-391`).
 
-**TypeShade.** The site header carries a version menu, but it is a label plus two links,
-`v{facts.mirrorVersion}`, Releases and Changelog
-(`typeshade.github.io/src/components/SiteHeader.astro:45-53` and `:104-108`). The Playground bundles
+**TypeShade.** The site header carries a version menu, but it is a label, `v{facts.mirrorVersion}`,
+a prerelease note and three links, Releases, Changelog and the pinned commit
+(`typeshade.github.io/src/components/SiteHeader.astro:45-56` and `:103-110`). The Playground bundles
 exactly one compiler, the submodule at the pinned commit, the site documents one version by design
 (`typeshade.github.io/DESIGN.md`, the Versions section), and the share link records the source and
 the emit options but not which compiler produced the output
@@ -1374,14 +1400,14 @@ what makes the issue template worth having, and it is the hook a real selector w
 **TypeScript.** The Playground has an exporter that builds a GitHub issue body from the current
 sandbox, diffing the active compiler options against the compiler's own defaults so only the flags
 that actually differ appear in the report, and also exports to CodeSandbox and to the TS AST viewer;
-the bug report form then asks for that link as its Playground Link field
-(`web/packages/playground/src/exporter.ts:29-70` and `:193`;
-`web/.github/ISSUE_TEMPLATE/bug_report.yml`).
+the bug report form, which lives in the compiler repository rather than the website one, then asks
+for that link as its optional Playground Link field (`web/packages/playground/src/exporter.ts:29-70`
+and `:193`; `ts-main/.github/ISSUE_TEMPLATE/bug_report.yml:47-59`, `required: false`).
 
 **TypeShade.** Nothing. The Playground can compile, emit three targets, reflect and rasterise on the
-CPU, and there is no way to turn a wrong result into a report; reporting is not among the seventeen
+CPU, and there is no way to turn a wrong result into a report; reporting is not among the eighteen
 behaviours the Playground check enumerates
-(`typeshade.github.io/scripts/check-playground.mjs:1-30`), and the repository's bugs URL points at a
+(`typeshade.github.io/scripts/check-playground.mjs:6-26`), and the repository's bugs URL points at a
 plain issue tracker with no form (`package.json`, the `bugs` field).
 
 **Gap.** The Playground is where a reader will first see a wrong emit, and it is a dead end. Every
@@ -1575,7 +1601,8 @@ order is derived rather than listed (`typeshade.github.io/src/lib/links.ts:20-62
 the `AUTHORING.md` sections are cut by a content loader, and the Korean translations do carry front
 matter (id, the sha256 of the English body, sourceLine) and are validated
 (`typeshade.github.io/content/guide/ko/overview.md:1-5`;
-`typeshade.github.io/scripts/check-i18n.mjs`).
+`typeshade.github.io/src/lib/guide-translations.ts:46-63`;
+`typeshade.github.io/scripts/check-guide-translations.ts`).
 
 **Gap.** None worth closing. TypeShade's version is stronger than TypeScript's on the axis that
 matters: the navigation is type-checked against real destinations instead of being a hand-kept array
@@ -1597,27 +1624,32 @@ it.
 matter and a permalink under `/docs/handbook/release-notes/`, plus a written procedure for producing
 them: the prose comes from a separate blog-posts repository, is copied into the release-notes folder
 with a header copied from the previous release, and twoslash may be added to its samples
-(`web/packages/documentation/copy/en/release-notes/`, from `TypeScript 1.1.md` through
-`TypeScript 5.2.md`; `web/docs/New TypeScript Version.md`, the Release Notes section).
+(`web/packages/documentation/copy/en/release-notes/`, 48 files from `TypeScript 1.1.md` through
+`TypeScript 6.0.md`; `web/docs/New TypeScript Version.md`, the Release Notes section).
 
 **TypeShade.** No release notes and no releases. The changelog is generated from git history and
 says so in its own body, that the repo ships no versioned releases and carries no git tags, so
 entries are grouped by month; its entries are squash-merge subjects, and every PR link points at the
-private monorepo this repository was split out of (`CHANGELOG.md:1-24` and `:30-50`). The site's
-header version menu links straight to that file (`typeshade.github.io/src/lib/links.ts`;
-`typeshade.github.io/src/components/SiteHeader.astro:52-53`).
+private monorepo this repository was split out of (`CHANGELOG.md:1-24` and `:30-50`). The generator
+that wrote it, `scripts/emit-changelog.ts`, is named in the file's own header but lives in that
+monorepo and is in neither of these repositories: `scripts/` holds `bake-api-surface.ts`,
+`compile-gate.ts` and `monorepo-context.ts` only. The site's header version menu links straight to
+the changelog (`typeshade.github.io/src/lib/links.ts`;
+`typeshade.github.io/src/components/SiteHeader.astro:53`).
 
 **Gap.** Two problems, one urgent. The public changelog of a public project links every entry into a
 repository readers cannot open, and names a monorepo the site is careful never to name anywhere
 else. And there is no per-version story at all, so a reader upgrading has nothing to read and the
 site's version menu leads to a wall of commit subjects grouped by month.
 
-**Adoption (M).** First, and immediately: change `scripts/emit-changelog.ts` to drop or rewrite the
-private PR links and the Repository line, so the public changelog cites only the public repository
-and its own short hashes. Then cut 0.1.0 with a tag and write `/guide/release-notes/0.1.0/` as a
-real page in both languages, three sections, what the language gained, what changed in emitted
-output, what breaks. Keep the generated changelog as the commit-level record beneath it, the way
-TypeScript keeps both a changelog and release notes.
+**Adoption (M).** First, and immediately: get the private PR links and the Repository line out of
+the published `CHANGELOG.md`, so the public changelog cites only the public repository and its own
+short hashes. The generator cannot be changed from here, so do it in this tree: add a small
+`scripts/` rewriter over the committed file and run it as part of the checks, or rewrite the header
+by hand once and stop regenerating the file here. Then cut 0.1.0 with a tag and write
+`/guide/release-notes/0.1.0/` as a real page in both languages, three sections, what the language
+gained, what changed in emitted output, what breaks. Keep the generated changelog as the
+commit-level record beneath it, the way TypeScript keeps both a changelog and release notes.
 
 ### Release and version bump automation
 
@@ -1639,7 +1671,7 @@ typecheck plus unit tests and the compile gate against Tint and a real WebGL2 co
 changelog states there are no tags (`.github/workflows/ci.yml`; `package.json`; `CHANGELOG.md`).
 Meanwhile the site is already built on the assumption that releases exist: the header shows a
 version, the footer shows the pinned commit, and the version menu links to a Releases page
-(`typeshade.github.io/src/components/SiteHeader.astro:45-53`;
+(`typeshade.github.io/src/components/SiteHeader.astro:45-56`;
 `typeshade.github.io/src/lib/links.ts`).
 
 **Gap.** Cutting 0.1.0 today is a manual sequence nobody has written down, and the site already
@@ -1758,17 +1790,20 @@ warning that apparently unrelated baseline changes are clues
 (key files, subdirectories, the two kinds of emit change, the three commands, the patterns to
 preserve, with the whole test section at `AGENTS.md:41-46`), `src/AGENTS.md`, and the site's
 `typeshade.github.io/.claude/skills/typeshade-site/SKILL.md` (voice, layout references, the Korean
-rules, the review procedure). The README's Contributing section is two sentences pointing at the
-Develop commands. The real test knowledge lives in the long explanatory headers on individual test
-files, which are excellent but are found only by opening the file that already failed
-(`examples/emit-goldens.test.ts:1-24`; `src/api-surface.test.ts:1-50`).
+rules, the review procedure). The README's Contributing section is three sentences pointing at the
+four Develop commands and saying that a change to compiler output may need the example goldens
+updated (`README.md:107-118` and `:120-122`); it does not mention the CPU oracle parity gate, the
+two kinds of emit change, or the re-bake command. The real test knowledge lives in the long
+explanatory headers on individual test files, which are excellent but are found only by opening the
+file that already failed (`examples/emit-goldens.test.ts:1-24`; `src/api-surface.test.ts:1-50`).
 
 **Gap.** This project is built largely by agents and has nothing written about what that means for
 contributions from outside: it will receive agent-generated PRs and has no stated policy, no
 disclosure requirement and no statement of which review it will not do. It also has no human-facing
 contribution guide at all, so the emit-change rule and the compile gate's Chromium prerequisite are
 discoverable only by reading an agent file, and a contributor who hits a failing golden or a failing
-surface snapshot has to find the right source comment to learn the re-bake command.
+surface snapshot has to find the right source comment to learn the re-bake command. The README names
+the goldens but not the gate that decides whether a golden update is even the right evidence.
 
 **Adoption (M).** Write `CONTRIBUTING.md` in the compiler repo with four parts. Prerequisites and
 commands: `bun install`, `bun run build`, `bun run test`, `bun run gate:compile`, and the one-time
@@ -1785,9 +1820,8 @@ check order.
 
 ### CODE_OF_CONDUCT.md
 
-**TypeScript.** Three lines at the repository root adopting an existing code of conduct by
-reference, with a contact address and a link to its FAQ, and no bespoke text
-(`ts-main/CODE_OF_CONDUCT.md`).
+**TypeScript.** One line at the repository root adopting an existing code of conduct by reference,
+with a contact address and a link to its FAQ, and no bespoke text (`ts-main/CODE_OF_CONDUCT.md`).
 
 **TypeShade.** Neither repository has one, in either root or `.github`.
 
@@ -1958,8 +1992,10 @@ Sorted by priority, then by size. The practice names are the subsection headings
 
 ## Adoption order
 
-1. Strip the private monorepo links and the Repository line from the generated changelog, because a
-   public project's public changelog currently cites a repository its readers cannot open.
+1. Strip the private monorepo links and the Repository line from the committed `CHANGELOG.md`,
+   because a public project's public changelog currently cites a repository its readers cannot open.
+   The generator that wrote it lives in the private monorepo and is not in this tree, so this is
+   either a post-processing script under `scripts/` or a one-time hand rewrite of the header.
 2. Add `bun run format:check` to the check job, two lines, so the formatter becomes a gate rather
    than a convention and later diffs stay readable.
 3. Add the `bake:goldens` and `bake` scripts and the CI step that uploads `goldens.patch`, so the
@@ -1972,8 +2008,8 @@ Sorted by priority, then by size. The practice names are the subsection headings
    package claims `engines: node >=20` and a peer range of `>=5.0.0` and is tested against neither.
 7. Add `src/compiler/ts/codes.test.ts` and generate the TS8xxx documentation table from the code
    tables, so a duplicated code cannot ship and the table cannot drift.
-8. Carry a `ShaderDslError`'s code and hint through the emit boundary in `compileTsSource` instead
-   of stringifying them, and give the silent outer catch a diagnostic.
+8. Carry a `ShaderDslError`'s code and hint through the emit boundary instead of stringifying them,
+   inside `backendDiagnostic` so all three emit catches get it at once.
 9. Map TypeScript's `relatedInformation` into the field that already exists on
    `TypeshadeDiagnostic`, then set it at the four TypeShade sites that name a second location in
    prose.
@@ -1995,7 +2031,7 @@ elaborations (`ts59/src/compiler/diagnosticMessages.json`;
 only code, summary and hint (`src/compiler/ts/codes.ts`; `src/core/diagnostics/codes.ts`) and there
 is no reporting consumer anywhere in `scripts/`. The flag exists to serve one internal ecosystem
 report over a 2121-message table where a few elaboration families would swamp the aggregate;
-TypeShade has 31 front-end codes, no aggregate report and no consumer that would read the field, so
+TypeShade has 30 front-end codes, no aggregate report and no consumer that would read the field, so
 copying it adds a column nothing reads. Revisit only if TypeShade ever publishes error statistics
 across a corpus of shaders.
 
@@ -2013,8 +2049,9 @@ because Tint and ANGLE are not TypeShade's own code.
 
 ### A real-world-code corpus runner
 
-TypeScript's test runner has categories beyond the in-repo cases
-(`ts59/src/testRunner/runner.ts:58-75`), and the surrounding infrastructure compiles large
+TypeScript's test runner is a fixed list of six in-repo suite kinds, conformance, compiler,
+fourslash, fourslash-server, project and transpile (`ts59/src/testRunner/runner.ts:58-74`); the
+third-party-corpus work runs entirely outside the repository, where infrastructure compiles large
 third-party repositories and whole Docker images to find regressions no hand-written case predicts;
 the error-deltas pipeline that drives this is external to the repository and is itself watched by a
 weekly workflow that files an issue if it stops producing results
@@ -2052,7 +2089,7 @@ comments state plainly that these files are not in the program, which is why the
 be made explicitly, and `getScriptFileNames` confirms it by returning root files plus typing files
 and never external files (`ts59/src/server/project.ts:1094-1106`, `:1756-1773` and `:698-711`).
 TypeShade's own host does the equivalent job differently, serving the ambient lib and imported
-documents through `fileExists` and `readFile` (`src/language-service/host.ts:14-25` and `:192-200`).
+documents through `fileExists` and `readFile` (`src/language-service/host.ts:15-25` and `:240-250`).
 The hook would buy TypeShade nothing: `.shade.ts` files are inside the program already, and the one
 file that is outside, the ambient lib, cannot be added this way because external files are not
 program roots, so reaching for `getExternalFiles` to inject `shade.d.ts` would look like it works
@@ -2065,11 +2102,12 @@ hook was built for.
 
 Six members serve brace matching, linked editing, doc comment templates, todo comments, brace
 completion and the JSX closing tag, each with its own protocol command
-(`ts59/src/services/types.ts:636-640` and `:648-655`; `ts59/src/server/protocol.ts:51-57` and
-`:149-152`). TypeShade has none of the six (`src/language-service/service.ts:44-97`), and that is a
-gap on paper only: every one of them is syntax level and `.shade.ts` is TypeScript, so a plugin
-delivery gets all six free from the service it proxies and Monaco gets them from its TypeScript
-language support, while the JSX one is meaningless here. Under the plugin, do not override them;
+(`ts59/src/services/types.ts:631-632`, `:639-641` and `:646-647`;
+`ts59/src/server/protocol.ts:51-57` and `:149-152`). TypeShade has none of the six
+(`src/language-service/service.ts:50-102`), and that is a gap on paper only: every one of them is
+syntax level and `.shade.ts` is TypeScript, so a plugin delivery gets all six free from the service
+it proxies and Monaco gets them from its TypeScript language support, while the JSX one is
+meaningless here. Under the plugin, do not override them;
 under the future LSP server, do not advertise their capabilities. Write this down in design doc
 section 4 as an explicit non-goal so the interface does not grow them by imitation.
 
@@ -2079,16 +2117,16 @@ TypeScript does not version its documentation: there is one copy of the handbook
 all versions, the version-specific content is the release-notes folder, and the version selector
 lives in the Playground rather than in the docs, with no per-version path prefix anywhere in the
 documentation tree (`web/packages/documentation/copy/en/`, holding get-started, handbook-v1,
-handbook-v2, reference, tutorials and release-notes and no version-prefixed directories;
-`web/packages/playground/README.md`). TypeShade's plan already matches that and is deliberately
-deferred: the site documents one version, the one vendored at the pinned commit, and when a later
-version diverges, older documentation moves under a path prefix while the unprefixed path stays
-latest (`typeshade.github.io/DESIGN.md`, the Versions section). Building it now would multiply the
-build's cost, since every number, every reference page and every translation hash is derived from
-one pin, to serve a version history that does not exist. Do the two cheap substitutes instead, the
-release-notes pages and the version recorded in the Playground share link, and revisit only at the
-trigger `DESIGN.md` already names, a breaking language change that makes a live page wrong for the
-current release.
+handbook-v2, reference, tutorials and release-notes among others, and no version-prefixed
+directories; `web/packages/playground/README.md`). TypeShade's plan already matches that and is
+deliberately deferred: the site documents one version, the one vendored at the pinned commit, and
+when a later version diverges, older documentation moves under a path prefix while the unprefixed
+path stays latest (`typeshade.github.io/DESIGN.md`, the Versions section). Building it now would
+multiply the build's cost, since every number, every reference page and every translation hash is
+derived from one pin, to serve a version history that does not exist. Do the two cheap substitutes
+instead, the release-notes pages and the version recorded in the Playground share link, and revisit
+only at the trigger `DESIGN.md` already names, a breaking language change that makes a live page
+wrong for the current release.
 
 ### CODEOWNERS
 
@@ -2109,8 +2147,8 @@ smart indenter, backs `getFormattingEditsForRange`, `getFormattingEditsForDocume
 `getFormattingEditsAfterKeystroke` and `getIndentationAtPosition`, and its README states that the
 reason it exists is not the format command but every language service operation that inserts or
 modifies code, and that it is not exported publicly
-(`ts59/src/services/formatting/README.md:1-40`; `ts59/src/services/types.ts:643-646` and `:641`).
-TypeShade has no formatting in the service (`src/language-service/service.ts:44-97`) and formats
+(`ts59/src/services/formatting/README.md:1-33`; `ts59/src/services/types.ts:635-637` and `:633`).
+TypeShade has no formatting in the service (`src/language-service/service.ts:50-102`) and formats
 itself with Prettier through the `format` and `format:check` scripts. The gap should stay open: a
 `.shade.ts` file is a TypeScript file, so the editor's own TypeScript formatter and the user's
 Prettier already format it, a TypeShade formatter would be a second opinion fighting the first, and
