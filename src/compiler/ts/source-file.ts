@@ -148,14 +148,9 @@ export function compileTsSource(
   const structs = collectStructs(sourceFile, diagnostics, symbols)
   const bindings = collectBindings(sourceFile, diagnostics, symbols)
   const consts = collectModuleConsts(sourceFile, diagnostics, symbols)
-  const funcs = lowerSourceFunctions(
-    sourceFile,
-    diagnostics,
-    consts,
-    bindings,
-    structs.map((s) => s.decl),
-    symbols,
-  )
+  // The CollectedStructs whole, not their decls: this item's TS8029 names the spelling the
+  // author used (`class`, `interface` or `type`), which only the collected form carries.
+  const funcs = lowerSourceFunctions(sourceFile, diagnostics, consts, bindings, structs, symbols)
   let wgsl: string | undefined
   const shouldEmit = options.emit ?? true
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
