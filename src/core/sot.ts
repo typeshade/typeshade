@@ -237,7 +237,7 @@ export function builtin(name: WgslBuiltinName, type?: ShaderType): FieldSpec<Sha
     // Unreachable from typed code — `clip_distances` is not in FixedTypeBuiltinName, so tsc
     // requires its token. This is the backstop for an untyped (JavaScript) caller.
     throw new TypeError(
-      `shader-dsl: builtin('${name}') supplies no single type — pass the type token, as in builtin('${name}', arrayT(f32T, 4))`,
+      `typeshade: builtin('${name}') supplies no single type — pass the type token, as in builtin('${name}', arrayT(f32T, 4))`,
     )
   }
   return { type: resolved, attr: `@builtin(${name})`, builtin: name }

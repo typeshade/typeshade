@@ -106,22 +106,22 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return e.value
     case 'constref': {
       const v = ctx.consts.get(e.name)
-      if (v === undefined) throw new Error(`shader-dsl/cpu: unknown const ${e.name}`)
+      if (v === undefined) throw new Error(`typeshade/cpu: unknown const ${e.name}`)
       return v
     }
     case 'overrideref': {
       const v = ctx.overrides.get(e.name)
-      if (v === undefined) throw new Error(`shader-dsl/cpu: unknown override ${e.name}`)
+      if (v === undefined) throw new Error(`typeshade/cpu: unknown override ${e.name}`)
       return v
     }
     // X-GIS #1713 — see cpu-codegen: no host here, so no value. Throw rather than fabricate.
     case 'externref':
-      throw new Error(`shader-dsl/cpu: host-provided global '${e.name}' has no CPU value`)
+      throw new Error(`typeshade/cpu: host-provided global '${e.name}' has no CPU value`)
     case 'param':
     case 'varref': {
       if (env.has(e.name)) return env.get(e.name) as CpuValue
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
-      throw new Error(`shader-dsl/cpu: unbound ${e.name}`)
+      throw new Error(`typeshade/cpu: unbound ${e.name}`)
     }
     case 'binop': {
       const av = evalExpr(e.a, env, ctx),
@@ -142,9 +142,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         return matMul(av as number[], bv as number[])
       }
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
-        throw new Error(
-          'shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec',
-        )
+        throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
       }
       // The RESULT type's numeric kind drives WGSL integer semantics (wrap, truncating
       // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (X-GIS #2274).
@@ -201,14 +199,14 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (stub) {
         if (!ctx.gpuStubs) {
           throw new Error(
-            `shader-dsl/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
+            `typeshade/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
           )
         }
         return stub(...args)
       }
       const user = ctx.fns[e.fn]
       if (user) return user(...args)
-      throw new Error(`shader-dsl/cpu: unknown fn ${e.fn}`)
+      throw new Error(`typeshade/cpu: unknown fn ${e.fn}`)
     }
     case 'member': {
       const base = evalExpr(e.base, env, ctx)
@@ -291,7 +289,7 @@ function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ct
     base[evalExpr(target.idx, env, ctx) as number] = value
     return
   }
-  throw new Error(`shader-dsl/cpu: bad assignment target ${target.op}`)
+  throw new Error(`typeshade/cpu: bad assignment target ${target.op}`)
 }
 
 type Signal =
@@ -387,7 +385,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         // comment, but on CPU there's no analogue and a silent
         // missing-return is much harder to localise).
         throw new Error(
-          `shader-dsl/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`,
+          `typeshade/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`,
         )
       }
       case 'raw': {
@@ -395,9 +393,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         // CPU evaluation. Reaching here means a raw Stmt was placed on a
         // shader path that also runs through the CPU mirror (cpu-projections
         // / compute eval), which is a composition bug — fail loudly.
-        throw new Error(
-          'shader-dsl/cpu: raw Stmt reached CPU backend — raw passthrough is GPU-only',
-        )
+        throw new Error('typeshade/cpu: raw Stmt reached CPU backend — raw passthrough is GPU-only')
       }
     }
   }

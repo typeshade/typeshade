@@ -21,7 +21,7 @@ import type {
   RawStmt,
 } from './ir/index.js'
 import { ALL_CAPABILITIES } from './ir/nodes.js'
-import { ShaderDslError } from './diagnostics/error.js'
+import { TypeShadeError } from './diagnostics/error.js'
 import type { ParenMode } from './emit.js'
 
 // The `Capability` vocabulary lives with the IR data shapes (ir/nodes.ts) — a module
@@ -283,7 +283,7 @@ export interface Backend {
  *  `SD0030`. The capability gate that runs before every emit throws it naming the missing
  *  capabilities, and an individual backend method throws it when asked for a construct its
  *  target cannot express. No source is produced in either case. */
-export class UnsupportedFeatureError extends ShaderDslError {
+export class UnsupportedFeatureError extends TypeShadeError {
   constructor(message: string) {
     super({ code: 'SD0030', message })
     this.name = 'UnsupportedFeatureError'

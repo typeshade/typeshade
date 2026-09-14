@@ -406,7 +406,7 @@ export class IfChain {
 // `fn` threw SD0013 at module load. Sharing the ambient state across copies
 // makes the duplication harmless.
 const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[
-  Symbol.for('xgis.shader-dsl.scopeStack')
+  Symbol.for('typeshade.scopeStack')
 ] ??= []) as Builder[]
 
 // Loud (once) when a second copy loads — the state above makes it SAFE, but a
@@ -414,7 +414,7 @@ const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[
 // dedupe/config problem worth seeing.
 {
   const g = globalThis as Record<symbol, unknown>
-  const key = Symbol.for('xgis.shader-dsl.instanceLoaded')
+  const key = Symbol.for('typeshade.instanceLoaded')
   if (g[key])
     console.warn(
       '[shader-dsl] a second copy of typeshade was loaded (dual-instance). Ambient state is globalThis-backed so this is safe, but check the bundler/dedupe config — see X-GIS #763 D2.',
@@ -732,9 +732,9 @@ function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): S
 // globalThis-backed counter (X-GIS #763 D2) — two copies each starting at `_fn0`
 // would collide in the name-keyed module dedup and silently mis-link
 // DIFFERENT anonymous fns as one.
-const fnAutoState = ((globalThis as Record<symbol, unknown>)[
-  Symbol.for('xgis.shader-dsl.fnAutoId')
-] ??= { n: 0 }) as { n: number }
+const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('typeshade.fnAutoId')] ??= {
+  n: 0,
+}) as { n: number }
 
 /** Author a function. One call covers a plain helper and a `@vertex`, `@fragment` or
  *  `@compute` entry point. The returned {@link FnHandle} is both the callable and the
@@ -1143,7 +1143,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
         const prev = d[ASSEMBLED_AS]
         if (prev !== undefined && prev !== key) {
           throw new Error(
-            `shader-dsl: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (X-GIS #763 D4). Author a separate fn (or reuse the key '${prev}').`,
+            `typeshade: fn was already assembled as '${prev}' — renaming the shared decl to '${key}' would corrupt the earlier module's re-emit (X-GIS #763 D4). Author a separate fn (or reuse the key '${prev}').`,
           )
         }
         if (d.name !== key) {

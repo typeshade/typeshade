@@ -147,7 +147,7 @@ function emitLeaf(
     // before emit. If one leaks through, that pass was bypassed — fail loudly.
     case 'matchExpr':
       throw new Error(
-        'shader-dsl: matchExpr Expr leaked into emitExpr — lowerModule should have hoisted it',
+        'typeshade: matchExpr Expr leaked into emitExpr — lowerModule should have hoisted it',
       )
   }
 }
@@ -235,7 +235,7 @@ export function forHeader(s: Stmt, be: Backend, parens: ParenMode = 'full'): str
       : be.localVar(s.name, s.type)
   if (s.s === 'assign') return `${r(s.target)} = ${r(s.expr)}`
   if (s.s === 'assignOp') return `${r(s.target)} ${s.bop}= ${r(s.expr)}`
-  throw new Error(`shader-dsl: bad for-header stmt ${s.s}`)
+  throw new Error(`typeshade: bad for-header stmt ${s.s}`)
 }
 
 // ── Module-level emit (shared driver) ──

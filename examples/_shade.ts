@@ -166,7 +166,7 @@ function shadeExample(spec: ShadeSpec): ShaderExample {
     const lines = errors.map(
       (d) => `  ${d.category} ${d.line}:${d.character} ${d.code ?? '—'} ${d.message}`,
     )
-    throw new Error(`shader-dsl: ${file} does not compile\n${lines.join('\n')}`)
+    throw new Error(`typeshade: ${file} does not compile\n${lines.join('\n')}`)
   }
   return {
     id: spec.id,

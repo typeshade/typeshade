@@ -135,14 +135,14 @@ export function composeModule(
   const unknownKeys = Object.keys(swaps).filter((k) => !used.has(k))
   if (unknownKeys.length) {
     throw new Error(
-      `shader-dsl: composeModule swap key(s) match no placeholder: ${unknownKeys.join(', ')} (seen: ${[...seen].join(', ') || 'none'})`,
+      `typeshade: composeModule swap key(s) match no placeholder: ${unknownKeys.join(', ')} (seen: ${[...seen].join(', ') || 'none'})`,
     )
   }
   if (!opts?.allowUnswapped) {
     const unswapped = [...seen].filter((t) => !used.has(t))
     if (unswapped.length) {
       throw new Error(
-        `shader-dsl: composeModule left placeholder(s) un-swapped: ${unswapped.join(', ')} — provide a swap or pass { allowUnswapped: true }`,
+        `typeshade: composeModule left placeholder(s) un-swapped: ${unswapped.join(', ')} — provide a swap or pass { allowUnswapped: true }`,
       )
     }
   }

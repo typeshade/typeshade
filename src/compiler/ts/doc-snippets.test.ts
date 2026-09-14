@@ -11,7 +11,7 @@
 //
 //   single   the first code line is the `"use typeshade"` directive → compileTsSource
 //   multi    `// name.ts` headers split the block into several files, each with the
-//            directive → compileTsSources (a record of fileName → source); the LAST
+//            directive → compileTsSources (a list of { fileName, source }); the LAST
 //            section is the entry, which is how the docs order them
 //
 // A fence with no directive anywhere is a grammar fragment (a bare `class` body, a host-side
@@ -34,7 +34,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js'
-import { compileTsSources } from './sources.js'
+import { compileTsSources } from './module.js'
 import { USE_TYPESHADE } from './directive.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
@@ -187,7 +187,10 @@ describe('documentation snippets compile', () => {
   for (const u of multi) {
     const names = Object.keys(u.files).join(' + ')
     it(`${u.fence.file}:${u.fence.line} compiles as a module (${names})`, () => {
-      const r = compileTsSources(u.files, { entry: u.entry })
+      const r = compileTsSources(
+        Object.entries(u.files).map(([fileName, source]) => ({ fileName, source })),
+        u.entry,
+      )
       expect(errorsOf(r.diagnostics)).toEqual([])
     })
   }

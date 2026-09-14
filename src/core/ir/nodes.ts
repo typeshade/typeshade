@@ -480,7 +480,7 @@ export interface ExternVarDecl {
 /** Non-enumerable marker key on a {@link FuncDecl}: the name the declaration was last
  *  assembled under by {@link module}. It is a `Symbol.for` symbol, so it survives two
  *  copies of the package loaded side by side. */
-export const ASSEMBLED_AS = Symbol.for('xgis.shader-dsl.assembledAs')
+export const ASSEMBLED_AS = Symbol.for('typeshade.assembledAs')
 
 /** A `ModuleDecl.funcs` entry: a WGSL/GLSL function, either an ordinary helper or a
  *  pipeline entry point (`stage` set). This is the object {@link fn} builds: the

@@ -1331,7 +1331,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
 //   • @compute @workgroup_size(N) entry → @fragment entry (N is perf-only on WebGPU,
 //     dropped — the output texel grid carries the dispatch).
 //   • the @builtin(global_invocation_id) param → removed; an @builtin(position)
-//     param (xgis_frag_pos → gl_FragCoord) injected. gid.x (the linear invocation index)
+//     param (typeshade_frag_pos → gl_FragCoord) injected. gid.x (the linear invocation index)
 //     → u32(floor(gl_FragCoord.x)) + u32(floor(gl_FragCoord.y)) * u_count.y, where
 //     u_count.y = the output-texture width W_out (packed by the M2c runtime, same 2D
 //     tiling as the input read texture).
@@ -1374,7 +1374,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
  *    `uniform` binding, and when the kernel is not gather-only: a write at an index other
  *    than `gid.x`, more than one write to the output, or a use of `global_invocation_id`
  *    other than `.x`.
- *  @throws {@link ShaderDslError} `SD0111` instead of the above when the entry is declared
+ *  @throws {@link TypeShadeError} `SD0111` instead of the above when the entry is declared
  *    `portable`: the portable-kernel check then reports every violation with its remedy at
  *    once, the same report both backends give. */
 export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
@@ -1411,7 +1411,7 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
     e.op === 'member' && e.field === 'x' && e.base.op === 'param' && e.base.name === gid.name
 
   // the linear texel index from gl_FragCoord (pixel-center → floor is exact in range).
-  const fragPos: Expr = { op: 'param', type: vec4fT, name: 'xgis_frag_pos' }
+  const fragPos: Expr = { op: 'param', type: vec4fT, name: 'typeshade_frag_pos' }
   const u32floor = (f: 'x' | 'y'): Expr => ({
     op: 'call',
     type: u32T,
@@ -1496,7 +1496,7 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
     // (CORE, so it runs again on this lowered module) from analysing a fragment entry.
     portable: undefined,
     params: [
-      { name: 'xgis_frag_pos', type: vec4fT, builtin: 'position' },
+      { name: 'typeshade_frag_pos', type: vec4fT, builtin: 'position' },
       ...entry.params.filter((p) => p !== gid),
     ],
     ret: u32T,

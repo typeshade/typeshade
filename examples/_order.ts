@@ -15,7 +15,7 @@
 // as the authority rather than drifting into a stale second copy of the directory.
 //
 // No filesystem access and no imports: this is data the browser build can carry, and it is
-// read by a root-level script, so it must stay `shader-dsl/`-self-contained.
+// read by a generator script, so it must stay self-contained.
 
 /** Every example id, in the order the site and the CLI printer present them:
  *  cartographic first, then generic, then compute. */

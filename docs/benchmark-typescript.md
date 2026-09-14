@@ -282,7 +282,7 @@ against 5.9's 2121, so every code survived a full reimplementation
 them loses information. When emit throws, `compileTsSource` catches the exception and re-raises the
 text under TS8015 as a backend-emit-failed message with `e.message` glued on
 (`src/compiler/ts/source-file.ts:159-163`, whose `backendDiagnostic` is the one shape every
-emit-time failure takes, `src/compiler/ts/diagnostic.ts:68-80`), so a `ShaderDslError`'s SD code,
+emit-time failure takes, `src/compiler/ts/diagnostic.ts:68-80`), so a `TypeShadeError`'s SD code,
 its catalogue hint and its captured `loc` are all flattened into a string
 (`src/core/diagnostics/error.ts:60-77`).
 
@@ -291,7 +291,7 @@ embedded in the message. No consumer can branch on the real code, the Playground
 it, the error index cannot link it, and no quick fix can attach to it even though the SD catalogue
 already carries a hint that names the remedy.
 
-**Adoption (S).** In that catch, test for `ShaderDslError` and carry its fields through instead of
+**Adoption (S).** In that catch, test for `TypeShadeError` and carry its fields through instead of
 stringifying: keep TS8015 as the front-end code, add `relatedCode` set to `e.code`, set the
 diagnostic's hint from `e.hint`, and put the SD code in the message at a fixed position so the error
 index can resolve both spaces. About fifteen lines plus a test that an emit failure from a known SD
@@ -2008,7 +2008,7 @@ Sorted by priority, then by size. The practice names are the subsection headings
    package claims `engines: node >=20` and a peer range of `>=5.0.0` and is tested against neither.
 7. Add `src/compiler/ts/codes.test.ts` and generate the TS8xxx documentation table from the code
    tables, so a duplicated code cannot ship and the table cannot drift.
-8. Carry a `ShaderDslError`'s code and hint through the emit boundary instead of stringifying them,
+8. Carry a `TypeShadeError`'s code and hint through the emit boundary instead of stringifying them,
    inside `backendDiagnostic` so all three emit catches get it at once.
 9. Map TypeScript's `relatedInformation` into the field that already exists on
    `TypeshadeDiagnostic`, then set it at the four TypeShade sites that name a second location in

@@ -19,7 +19,7 @@
 // difference rather than papering over it: WGSL fails inside `validate()` (a ValidationError
 // aggregating every CORE diagnostic, each rendered as a `[SD0111] portable-kernel …` line),
 // while GLSL fails EARLIER — inside `lowerComputeToFragment`, which runs before the lowered
-// module reaches validate() — as a direct `ShaderDslError` with `code === 'SD0111'`. What is
+// module reaches validate() — as a direct `TypeShadeError` with `code === 'SD0111'`. What is
 // symmetric, and what the tier's promise actually needs, is the CODE and the violation
 // SENTENCE: both come from the single authority, `analyzePortableKernel`.
 //
@@ -54,7 +54,7 @@ import { builtin, resource, storageBuffer } from '../sot.js'
 import { emitModule } from '../backends/wgsl.js'
 import { emitGlslModule } from '../backends/glsl.js'
 import { reflect } from '../reflect.js'
-import { ShaderDslError } from '../diagnostics/error.js'
+import { TypeShadeError } from '../diagnostics/error.js'
 import { ValidationError } from './validate.js'
 
 const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
@@ -167,15 +167,15 @@ describe('X-GIS #1812 SD0110 — portable is a COMPUTE declaration, rejected at 
     const err = captureThrow(() =>
       fn('bad_vs', {}, () => vec4(0, 0, 0, 1), { stage: 'vertex', portable: true }),
     )
-    expect(err).toBeInstanceOf(ShaderDslError)
-    expect((err as ShaderDslError).code).toBe('SD0110')
+    expect(err).toBeInstanceOf(TypeShadeError)
+    expect((err as TypeShadeError).code).toBe('SD0110')
     expect((err as Error).message).toContain("stage: 'vertex'")
   })
 
   it('fn() throws SD0110 for portable on a plain helper fn (no stage at all)', () => {
     const err = captureThrow(() => fn('bad_helper', {}, () => vec4(0, 0, 0, 1), { portable: true }))
-    expect(err).toBeInstanceOf(ShaderDslError)
-    expect((err as ShaderDslError).code).toBe('SD0110')
+    expect(err).toBeInstanceOf(TypeShadeError)
+    expect((err as TypeShadeError).code).toBe('SD0110')
     expect((err as Error).message).toContain('no stage')
   })
 
@@ -266,12 +266,12 @@ describe('X-GIS #1812 SD0111 — every tier violation fails on BOTH writers with
 
       // GLSL — the compute→fragment lowering gates the declared kernel through the SAME
       // analyzer, and throws before the lowered module ever reaches validate(); so the class
-      // is the base ShaderDslError, carrying SD0111 as its own code.
+      // is the base TypeShadeError, carrying SD0111 as its own code.
       const glsl = captureThrow(() => emitGlslModule(c.module, 'fragment'))
       expect(glsl, 'emitGlslModule ACCEPTED a kernel outside the portable tier').toBeInstanceOf(
-        ShaderDslError,
+        TypeShadeError,
       )
-      expect((glsl as ShaderDslError).code).toBe('SD0111')
+      expect((glsl as TypeShadeError).code).toBe('SD0111')
       expect((glsl as Error).message).toContain(c.detail)
     })
   }

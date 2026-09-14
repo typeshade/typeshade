@@ -211,7 +211,7 @@ function render(): string {
     'GENERATED FILE — do not hand-edit. Re-bake with `' + REBAKE + '` and commit the diff.',
     '',
     'Every symbol a consumer can import, per `package.json` `exports` subpath, followed by one',
-    'line of shape per definition. `shader-dsl/src/api-surface.test.ts` fails when this file and',
+    'line of shape per definition. `src/api-surface.test.ts` fails when this file and',
     'the tree disagree, so a public-surface change cannot land without appearing in a diff —',
     'which is what the changelog, filing one entry per commit SUBJECT, cannot show (X-GIS #1842).',
     '',

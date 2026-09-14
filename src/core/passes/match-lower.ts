@@ -248,7 +248,7 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
         (s.update.s === 'assign' && exprContainsMatch(s.update.expr))
       ) {
         throw new Error(
-          'shader-dsl: matchExpr in a for-loop header (init/cond/update) is not lowerable — hoisting evaluates it once instead of per-iteration. Compute it into a var inside the loop body (or before the loop if truly invariant).',
+          'typeshade: matchExpr in a for-loop header (init/cond/update) is not lowerable — hoisting evaluates it once instead of per-iteration. Compute it into a var inside the loop body (or before the loop if truly invariant).',
         )
       }
       return s

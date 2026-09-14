@@ -131,7 +131,7 @@ function product<A extends Record<string, readonly unknown[]>>(axes: A): AxisVal
   for (const name of Object.keys(axes)) {
     const values = axes[name] as readonly unknown[]
     if (values.length === 0)
-      throw new Error(`shader-dsl: variantFamily axis '${name}' declares no values`)
+      throw new Error(`typeshade: variantFamily axis '${name}' declares no values`)
     rows = rows.flatMap((r) => values.map((v) => ({ ...r, [name]: v })))
   }
   return rows as AxisValues<A>[]
@@ -149,7 +149,7 @@ function guardCondition<A extends Record<string, readonly unknown[]>>(
     if (typeof spec === 'string') {
       if (typeof value !== 'boolean')
         throw new Error(
-          `shader-dsl: variantFamily axis '${name}' has non-boolean value ${JSON.stringify(value)}` +
+          `typeshade: variantFamily axis '${name}' has non-boolean value ${JSON.stringify(value)}` +
             ` but a single define name — give it one define per value`,
         )
       terms.push(value ? `defined(${spec})` : `!defined(${spec})`)
@@ -157,7 +157,7 @@ function guardCondition<A extends Record<string, readonly unknown[]>>(
       const named = spec[String(value)]
       if (named === undefined)
         throw new Error(
-          `shader-dsl: variantFamily axis '${name}' value ${JSON.stringify(value)} has no define`,
+          `typeshade: variantFamily axis '${name}' value ${JSON.stringify(value)} has no define`,
         )
       terms.push(`defined(${named})`)
     }
@@ -184,7 +184,7 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
       const t = raw.trim()
       const neg = t.startsWith('!')
       const m = /^!?defined\(([^)]+)\)$/.exec(t)
-      if (!m) throw new Error(`shader-dsl: selectGuardedArm cannot read condition '${t}'`)
+      if (!m) throw new Error(`typeshade: selectGuardedArm cannot read condition '${t}'`)
       return neg ? !on.has(m[1]!) : on.has(m[1]!)
     })
 
@@ -275,7 +275,7 @@ export function variantFamily<A extends Record<string, readonly unknown[]>>(
   for (const v of variants) {
     if (byKey.has(v.key))
       throw new Error(
-        `shader-dsl: variantFamily key collision '${v.key}' — the key must mention every` +
+        `typeshade: variantFamily key collision '${v.key}' — the key must mention every` +
           ` axis the builder reads, or two different programs share one cache id`,
       )
     byKey.set(v.key, v)
@@ -341,7 +341,7 @@ function buildGuarded<A extends Record<string, readonly unknown[]>>(
   for (const { v, f } of frags)
     if (f.preamble.join('\n') !== preamble.join('\n'))
       throw new Error(
-        `shader-dsl: variantFamily.emitGuarded — variant '${v.key}' needs a different` +
+        `typeshade: variantFamily.emitGuarded — variant '${v.key}' needs a different` +
           ` preamble than '${frags[0]!.v.key}':\n  ${f.preamble.join(' | ')}\n  vs\n  ` +
           `${preamble.join(' | ')}\nOne guarded source can carry only one #version` +
           ` block, so these variants cannot share it — emit them separately.`,

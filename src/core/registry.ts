@@ -102,10 +102,10 @@ export function buildRegistry(
 ): BuiltRegistry {
   const byId = new Map<string, RegistryEntry>()
   for (const e of entries) {
-    if (byId.has(e.id)) throw new Error(`shader-dsl: buildRegistry duplicate id '${e.id}'`)
+    if (byId.has(e.id)) throw new Error(`typeshade: buildRegistry duplicate id '${e.id}'`)
     if (!IDENT.test(e.exportName))
       throw new Error(
-        `shader-dsl: buildRegistry export name '${e.exportName}' for '${e.id}' is not an identifier`,
+        `typeshade: buildRegistry export name '${e.exportName}' for '${e.id}' is not an identifier`,
       )
     byId.set(e.id, e)
   }
@@ -117,7 +117,7 @@ export function buildRegistry(
     const unregistered = ids.filter((id) => !curated.has(id))
     if (unknown.length || unregistered.length)
       throw new Error(
-        `shader-dsl: buildRegistry order does not match the discovered modules.` +
+        `typeshade: buildRegistry order does not match the discovered modules.` +
           (unknown.length ? `\n  curated but not discovered: ${unknown.join(', ')}` : '') +
           (unregistered.length
             ? `\n  discovered but not curated: ${unregistered.join(', ')}`
