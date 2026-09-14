@@ -14,7 +14,7 @@ describe('TypeshadeLanguageService', () => {
 
   it('completes builtin names inside @builtin strings', () => {
     const source = '"use typeshade";\nclass Clip { @builtin("ver") pos: vec4 }'
-    const items = service.getCompletions(source, { line: 2, character: 29 })
+    const items = service.getCompletions(source, { line: 2, character: 27 })
     expect(items.map((item) => item.label)).toContain('vertex_index')
   })
 
