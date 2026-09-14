@@ -1,6 +1,8 @@
 # Porting the examples to `"use typeshade"`
 
-Step 1 of the example port: a **classification**, not a port. Measured on `main` `b6d6c56`.
+Step 1 of the example port: a **classification**, not a port. First measured on `main`
+`b6d6c56`; the rows have been re-measured since, most recently on this branch with A1 (#19)
+and the #14 fix in place. Where a row's verdict changed, the correction note below says so.
 
 > **Corrected twice.** This document was written before three changes that invalidate much
 > of it, and the rows have been updated for all three. (1) **A1** — vector × scalar broadcast
@@ -101,8 +103,9 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 
 **Source the compiler accepts today: 14 of 36**, up from 2 when this was first measured — [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the
 single largest blocker. Two have shipped as twins — `compute-reduction` in
-[#16](https://github.com/typeshade/typeshade/pull/16) and `gradient` once
-[#14](https://github.com/typeshade/typeshade/issues/14) unblocked its GLSL; the other twelve are
+[#16](https://github.com/typeshade/typeshade/pull/16), and `gradient` here, once
+[#14](https://github.com/typeshade/typeshade/issues/14) — fixed in
+[#18](https://github.com/typeshade/typeshade/pull/18) — unblocked its GLSL; the other twelve are
 unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 [What step 2 found](#what-step-2-found-that-this-classification-could-not).
 
@@ -146,8 +149,11 @@ And no example uses a matrix at all, so `mat2`/`mat3` cannot be on this corpus's
 ## What it takes to unlock the corpus
 
 Landing the features in weight order, how much of the corpus the compiler would accept.
-**This counts source acceptance only** — #14 additionally blocks the GLSL form of all 33
-renderable examples, so every row below is an upper bound until it lands:
+**This counts source acceptance only.** It carried a second caveat until this PR — that #14
+additionally blocked the GLSL form of all 33 renderable examples, making every row an upper
+bound — and that one is now spent: a source-compiled binding reaches its stages, so a row
+below that says "portable" means the GLSL form emits too. What the rows still do not claim is
+that the emitted shader is CORRECT; only Tint and WebGL2 answer that.
 
 | After landing      | Portable |
 | ------------------ | -------- |
@@ -309,8 +315,9 @@ file a registry entry, goldens and a compile-gate slot. A twin lands as: write
 The `-twin` suffix is what keeps the golden stems disjoint; `shade-examples.test.ts` asserts
 that disjointness, because both corpora bake into one `__emit-goldens__/` directory.
 
-One twin landed, `compute-reduction-twin`. `gradient` is held by
-[#14](https://github.com/typeshade/typeshade/issues/14) — see above.
+One twin landed in #16, `compute-reduction-twin`. `gradient` was held by
+[#14](https://github.com/typeshade/typeshade/issues/14) until this PR fixed it, and lands as
+`gradient-twin` in [#36](https://github.com/typeshade/typeshade/pull/36).
 
 ### What changes between an original and its twin
 
@@ -331,11 +338,13 @@ now pinned as goldens rather than described here:
   statements. Worth knowing before writing the next twin — a twin that mirrors the original's
   **source** will not generally mirror its **emit**.
 
-### The third difference is a bug, not an artifact
+### The third difference was a bug, not an artifact — and it is fixed
 
-The structural golden also shows every binding read as `constref` on the twin against
-`varref` on the original. That is [#14](https://github.com/typeshade/typeshade/issues/14),
-sitting in the committed output where fixing it will visibly change the golden.
+The structural golden used to show every binding read as `constref` on the twin against
+`varref` on the original: [#14](https://github.com/typeshade/typeshade/issues/14), sitting in
+the committed output. This PR lowers a binding read to `varref`, the same shape the EDSL
+builds, so that row is gone from the golden rather than described here. What remains in the
+`compute-reduction-twin` diff is the two optimizer artifacts above and nothing else.
 
 ## Appendix: the probes
 
