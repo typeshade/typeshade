@@ -446,12 +446,16 @@ Document versions, for either adapter:
 ## 8. Incrementality and performance
 
 - One `ts.LanguageService` per service instance; documents are snapshots with versions.
-- What is cached: one entry per open document (`service.ts`'s `cache`), holding the front-end
-  analysis of that document (`compileTsSource` over the program's own `ts.SourceFile`, with
-  `emit: false` and `requireDirective: true`) and, once `getDiagnostics` has asked for them, the
-  merged TypeScript and TypeShade diagnostics. `getDiagnostics`, `getDocumentSymbols`,
-  `getSemanticTokens`, `getHover` and `getCompiledOutput` all read that one analysis, so an
-  editor refresh that asks for all of them lowers the document once, not once per method.
+- What is cached: one entry per document a request has asked about (`service.ts`'s `cache`),
+  holding the front-end analysis of that document (`compileTsSource` over the program's own
+  `ts.SourceFile`, with `emit: false` and `requireDirective: true`) and, once `getDiagnostics`
+  has asked for them, the merged TypeScript and TypeShade diagnostics. `getDiagnostics`,
+  `getDocumentSymbols`, `getSemanticTokens`, `getHover` and `getCompiledOutput` all read that
+  one analysis, so an editor refresh that asks for all of them lowers the document once, not
+  once per method. `getDiagnostics` and `getCompiledOutput` answer for open documents only;
+  symbols, tokens and hover answer for any file the program holds, a file read through
+  `readDocument` included, so such a file can hold an entry too, and every entry whose uri is
+  not an open document is dropped whenever a document closes.
   `analysis-cache.test.ts` counts the runs through `createTypeshadeLanguageServiceWith`, a
   variant of the factory that takes the analysis function as a parameter; it is not exported
   from the subpath.

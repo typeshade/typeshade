@@ -129,3 +129,33 @@ describe('the cached front-end analysis', () => {
     expect(counter.runs()).toBe(3)
   })
 })
+
+// Regression: getDocumentSymbols, getSemanticTokens and getHover answer for any file the
+// program holds, so a request for a file pulled in only through readDocument created a cache
+// entry under its uri, and closeDocument, which is never called for such a uri, never dropped
+// it: the entry lived for the service's lifetime.
+describe('cache entries of files that are not open documents', () => {
+  it('are dropped when a document closes', () => {
+    const B = '"use typeshade";\nexport function k(): f32 {\n  return 1.\n}\n'
+    const A =
+      '"use typeshade";\nimport { k } from "./b.js"\nexport function f(): f32 {\n  return k()\n}\n'
+    const counter = counting()
+    const service = createTypeshadeLanguageServiceWith(
+      { readDocument: (uri) => (uri === '/b.ts' ? B : undefined) },
+      counter.analyze,
+    )
+    service.openDocument('/a.ts', A, 1)
+    service.getDiagnostics('/a.ts')
+    expect(service.getDocumentSymbols('/b.ts').map((s) => s.name)).toEqual(['k'])
+    expect(counter.runs()).toBe(2)
+    service.getDocumentSymbols('/b.ts')
+    expect(counter.runs()).toBe(2)
+
+    // Closing A and reopening it leaves B's text and revision as they were, so a surviving
+    // entry for B would still match its key: a third run proves the entry was dropped.
+    service.closeDocument('/a.ts')
+    service.openDocument('/a.ts', A, 2)
+    service.getDocumentSymbols('/b.ts')
+    expect(counter.runs()).toBe(3)
+  })
+})

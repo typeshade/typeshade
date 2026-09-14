@@ -259,7 +259,12 @@ export function createTypeshadeLanguageServiceWith(
 
     closeDocument(uri) {
       tsHost.closeDocument(uri)
-      cache.delete(uri)
+      // Symbols, tokens and hover answer for any file the program holds, a file pulled in
+      // only through readDocument included, and such a uri is never closed itself; its entry
+      // goes when a document closes, which is when the program's file set changes.
+      for (const cached of cache.keys()) {
+        if (!tsHost.hasDocument(cached)) cache.delete(cached)
+      }
     },
 
     getDiagnostics(uri) {
