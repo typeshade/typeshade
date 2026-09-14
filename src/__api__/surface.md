@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 365 exports
+## `.` — 375 exports
 
 ```
 abs
@@ -58,8 +58,12 @@ clamp
 ClassifiedSemanticDiff
 CmpArg
 CmpOp
+compile
 compileModule
 compileModuleJs
+compileTsSource
+CompileTsSourceOptions
+CompileTsSourceResult
 composeModule
 ComposeOptions
 condExpr
@@ -134,6 +138,7 @@ f64Parts
 f64T
 FieldLayout
 FieldSpec
+findUseTypeshadeDirective
 Float64Key
 FloatKey
 floor
@@ -157,6 +162,7 @@ GlslEmitOptions
 glslEs300Backend
 GuardDefines
 HandleArray
+hasUseTypeshadeDirective
 hostBlock
 hostFeaturesFor
 hostUniform
@@ -185,6 +191,8 @@ isMat64
 isNodeValue
 isScalar
 isSemanticallyEqual
+isTypeshadeSource
+isUseTypeshadeDirective
 isVec
 isVec64
 KeyOf
@@ -324,6 +332,7 @@ transformMat4
 transformMat64
 transpose64
 trunc
+TsCompilerDiagnostic
 TypeArray
 typeEq
 typeKey
@@ -336,6 +345,7 @@ unpack2x16snorm
 unpack2x16unorm
 unpack4x8unorm
 UnsupportedFeatureError
+USE_TYPESHADE
 UsesHandle
 validate
 validateVariantsWgsl
@@ -673,9 +683,19 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 419 definitions
+## Shapes — 429 definitions
 
 ```
+src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
+src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
+src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: SourceFile) => ExpressionStatement
+src/compiler/ts/directive.ts#hasUseTypeshadeDirective  function  (sourceFile: SourceFile) => boolean
+src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => boolean
+src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { fileName?: string; requireDirective?: boolean }
+src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; sourceFile: SourceFile; structs: readonly CollectedStruct[]; wgsl?: string }
+src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; fileName: string; line: number; message: string }
+src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
+src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
 src/core/backend.ts#CapProfile  type  { compute?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; storageBuffer?: <no-declaration>; subgroups?: <no-declaration> }
 src/core/backend.ts#CapSupport  interface  { directive?: string; hostFeature?: string }
