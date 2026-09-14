@@ -1,0 +1,31 @@
+{
+  "twin": "compute-reduction-twin",
+  "of": "compute-reduction",
+  "emitIdentical": false,
+  "loweredIdentical": false,
+  "interfaceDiff": [],
+  "functions": [
+    {
+      "name": "reduce_windows",
+      "same": false,
+      "diff": [
+        "-  let _c0 = (param(gid).x * 8)",
+        "-  if ((param(gid).x >= varref(params).x)) {",
+        "+  let _c0 = param(gid).x",
+        "+  if ((varref(_c0) >= constref(params).x)) {",
+        "     return",
+        "   }",
+        "-  var _c1: f32 = 0",
+        "-  for (var _c2: u32 = 0; (varref(_c2) < 8); varref(_c2) = (varref(_c2) + 1)) {",
+        "-    varref(_c1) = (varref(_c1) + varref(input)[(varref(_c0) + varref(_c2))])",
+        "+  let _c1 = (varref(_c0) * 8)",
+        "+  var _c2: f32 = 0",
+        "+  for (var _c3: u32 = 0; (varref(_c3) < 8); varref(_c3) = (varref(_c3) + 1)) {",
+        "+    varref(_c2) = (varref(_c2) + constref(input)[(varref(_c1) + varref(_c3))])",
+        "   }",
+        "-  varref(output)[param(gid).x] = varref(_c1)",
+        "+  constref(output)[varref(_c0)] = varref(_c2)"
+      ]
+    }
+  ]
+}

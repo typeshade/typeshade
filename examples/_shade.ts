@@ -58,6 +58,11 @@ interface ShadeSpec {
    *  computed by try/catch around the emitter agrees with the emitter by construction, and
    *  the compile gate would then have nothing left to catch. */
   readonly renderable: boolean
+  /** The `examples` id this file is the source-language TWIN of: the same shader, authored
+   *  through the other surface. Set it and `shade-twins.test.ts` pins the two emits side by
+   *  side and compares the lowered modules — which is what turns "the EDSL corpus is the
+   *  oracle" from a claim in the surface document into something a suite can fail on. */
+  readonly twinOf?: string
 }
 
 /** The curated order, and the one place a `.shade.ts` file is registered.
@@ -106,6 +111,14 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     // uniform block and a helper with no `main()`, which is not a linkable program.
     renderable: false,
   },
+  {
+    id: 'compute-reduction-twin',
+    title: 'Compute reduction (source twin)',
+    blurb:
+      "`compute-reduction.ts` written in the source language: the EDSL's `reduce()` combinator spelled as the `for` loop it expands into. WGSL-only like its original — GLSL ES 3.00 has no compute stage.",
+    renderable: false,
+    twinOf: 'compute-reduction',
+  },
 ]
 
 /**
@@ -144,3 +157,12 @@ function shadeExample(spec: ShadeSpec): ShaderExample {
 /** Every `"use typeshade"` example, compiled. Iterated by `scripts/compile-gate.ts` and
  *  `shade-examples.test.ts` alongside `examples`. */
 export const shadeExamples: readonly ShaderExample[] = SHADE_ORDER.map((spec) => shadeExample(spec))
+
+/** Twin id → the `examples` id it mirrors, for the entries that claim one. Kept here rather
+ *  than on `ShaderExample` because the relationship belongs to this corpus: an EDSL example
+ *  has no twin field to fill in, and `_shared.ts` is the shape the site consumes. */
+export const SHADE_TWINS: ReadonlyMap<string, string> = new Map(
+  SHADE_ORDER.flatMap((spec) =>
+    spec.twinOf === undefined ? [] : [[spec.id, spec.twinOf] as const],
+  ),
+)
