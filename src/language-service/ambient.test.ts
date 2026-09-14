@@ -212,6 +212,157 @@ describe('scalar brands: an f32/u32/... annotation never false-positives on a pl
   })
 })
 
+// The generic math signatures' own shape, which is what the twins corpus failed on rather than
+// any diagnostic worth filtering. Two arms, and the second is the load-bearing one:
+//
+//   1. `mix(vecN, vecN, f32)` is real: WGSL spells it `mix(e1: vecN<T>, e2: vecN<T>, e3: T)`,
+//      GLSL ES 3.00 `mix(genType, genType, float)`, and the compiler lowers it to exactly that
+//      call. `mix<T extends Numeric>(a: T, b: T, t: T)` demanded a vector for `t`, which is why
+//      `mix(u.bottom.rgb, u.top.rgb, t)` drew TS2345 on a line that compiles and runs.
+//   2. Every OTHER vector-beside-scalar shape the front end accepts is NOT real: measured by
+//      emitting one module per shape and handing it to Tint and to WebGL2's GLSL ES 3.00
+//      translator, `clamp(vecN, s, s)`, `min`/`max(vecN, s)`, `pow(vecN, s)`, `step(vecN, s)`
+//      and `mix` on an `i32`/`u32` vector are all rejected with "no matching call". The front
+//      end has no argument check for the math functions at all (#57), so TypeScript is the only
+//      thing reporting them and this lib must not declare them away.
+describe('vector-with-scalar math shapes: exactly the ones both backends accept', () => {
+  const diagnosticsOf = (body: string): string[] => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
+  }
+  const reports = (body: string): boolean =>
+    diagnosticsOf(body).some(
+      (d) => d.startsWith('typescript 2345') || d.startsWith('typescript 2769'),
+    )
+
+  describe('mix(vecN, vecN, scalar) is clean, for every f32 arity', () => {
+    for (const [type, ctor] of [
+      ['vec2', 'vec2(1., 2.)'],
+      ['vec3', 'vec3(1., 2., 3.)'],
+      ['vec4', 'vec4(1., 2., 3., 4.)'],
+    ]) {
+      it(`${type} endpoints with an f32 blend factor`, () => {
+        expect(
+          diagnosticsOf(
+            `export function f(a: ${type}, b: ${type}, t: f32): ${type} {\n  return mix(a, b, t)\n}`,
+          ),
+        ).toEqual([])
+      })
+      it(`${type} endpoints with a literal blend factor`, () => {
+        expect(
+          diagnosticsOf(
+            `export function f(a: ${type}, b: ${type}): ${type} {\n  return mix(a, b, 0.5)\n}`,
+          ),
+        ).toEqual([])
+      })
+      it(`${type} constructors with a computed blend factor`, () => {
+        expect(
+          diagnosticsOf(
+            `export function f(t: f32): ${type} {\n  return mix(${ctor}, ${ctor}, t * 0.5 + 0.5)\n}`,
+          ),
+        ).toEqual([])
+      })
+    }
+
+    // The line PR #42's gradient twin is written in, which is where this started.
+    it('a swizzle pair from a uniform struct with a uniform-driven t', () => {
+      expect(
+        diagnosticsOf(
+          'class U {\n  top: vec4\n  bottom: vec4\n  mix_bias: f32\n}\n' +
+            'declare const u: uniform<U>\n' +
+            'export function f(uv: vec2): vec4 {\n' +
+            '  const t = uv.y + u.mix_bias\n' +
+            '  return vec4(mix(u.bottom.rgb, u.top.rgb, t), 1.)\n' +
+            '}',
+        ),
+      ).toEqual([])
+    })
+
+    it('keeps the same-shape form: mix(vecN, vecN, vecN) and mix(f32, f32, f32)', () => {
+      expect(
+        diagnosticsOf(
+          'export function f(a: vec3, b: vec3, t: vec3): vec3 {\n  return mix(a, b, t)\n}',
+        ),
+      ).toEqual([])
+      expect(
+        diagnosticsOf('export function f(a: f32, b: f32, t: f32): f32 {\n  return mix(a, b, t)\n}'),
+      ).toEqual([])
+      expect(
+        diagnosticsOf(
+          'export function f(a: vec3i, b: vec3i, t: vec3i): vec3i {\n  return mix(a, b, t)\n}',
+        ),
+      ).toEqual([])
+    })
+  })
+
+  describe('a literal beside an f32 no longer settles T to the literal type', () => {
+    it('smoothstep(0.3, 0.55, h) on an f32 h', () => {
+      expect(
+        diagnosticsOf('export function f(h: f32): f32 {\n  return smoothstep(0.3, 0.55, h)\n}'),
+      ).toEqual([])
+    })
+    it('step(horizon, y) on a literal-typed const', () => {
+      expect(
+        diagnosticsOf(
+          'export function f(y: f32): f32 {\n  const horizon = 0.58\n  return step(horizon, y)\n}',
+        ),
+      ).toEqual([])
+    })
+    it('max(0.3, h) on an f32 h', () => {
+      expect(diagnosticsOf('export function f(h: f32): f32 {\n  return max(0.3, h)\n}')).toEqual([])
+    })
+    it('the same call nested in mix, which is how the twins write it', () => {
+      expect(
+        diagnosticsOf(
+          'export function f(a: vec3, b: vec3, h: f32): vec3 {\n  return mix(a, b, smoothstep(0.3, 0.55, h))\n}',
+        ),
+      ).toEqual([])
+    })
+  })
+
+  describe('every shape a GPU compiler rejects still reports', () => {
+    // Each of these emits WGSL the front end is happy with and Tint refuses: measured through
+    // the compile gate's own instruments, on SwiftShader, with the broken-shader check first.
+    const rejectedByTint: Readonly<Record<string, string>> = {
+      'clamp(vec3, f32, f32)':
+        'export function f(a: vec3, lo: f32, hi: f32): vec3 {\n  return clamp(a, lo, hi)\n}',
+      'min(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return min(a, s)\n}',
+      'max(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return max(a, s)\n}',
+      'pow(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return pow(a, s)\n}',
+      'step(vec3, f32)': 'export function f(a: vec3, s: f32): vec3 {\n  return step(a, s)\n}',
+      'mix(vec3i, vec3i, i32)':
+        'export function f(a: vec3i, b: vec3i, t: i32): vec3i {\n  return mix(a, b, t)\n}',
+      'mix(vec3u, vec3u, u32)':
+        'export function f(a: vec3u, b: vec3u, t: u32): vec3u {\n  return mix(a, b, t)\n}',
+    }
+    for (const [name, body] of Object.entries(rejectedByTint)) {
+      it(`${name}: reported, because Tint reports it too`, () => {
+        expect(reports(body), body).toBe(true)
+      })
+    }
+
+    const wrongShape: Readonly<Record<string, string>> = {
+      'dot(vec3, vec2)': 'export function f(a: vec3, b: vec2): f32 {\n  return dot(a, b)\n}',
+      'mix(vec3, vec2, f32)':
+        'export function f(a: vec3, b: vec2, t: f32): vec3 {\n  return mix(a, b, t)\n}',
+      'mix(vec3, vec3, vec2)':
+        'export function f(a: vec3, b: vec3, t: vec2): vec3 {\n  return mix(a, b, t)\n}',
+      'mix(vec2, vec2, vec3)':
+        'export function f(a: vec2, b: vec2, t: vec3): vec2 {\n  return mix(a, b, t)\n}',
+      'mix(f32, vec3, f32): a scalar where a vector is required':
+        'export function f(a: f32, b: vec3, t: f32): vec3 {\n  return mix(a, b, t)\n}',
+      'mix(vec3, vec3i, f32): same arity, different element kind':
+        'export function f(a: vec3, b: vec3i, t: f32): vec3 {\n  return mix(a, b, t)\n}',
+    }
+    for (const [name, body] of Object.entries(wrongShape)) {
+      it(`${name}: reported`, () => {
+        expect(reports(body), body).toBe(true)
+      })
+    }
+  })
+})
+
 describe('WGSL_BUILTIN_NAMES stays in sync with core/sot.ts#WgslBuiltinName', () => {
   it('matches the type alias exactly', () => {
     const text = readFileSync(SOT_FILE, 'utf8')

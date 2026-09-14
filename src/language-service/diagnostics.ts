@@ -625,6 +625,89 @@ function isGpuArithmeticArgument(
   return poisoned && otherArgumentsFit(context, checker, position, resolved, shape)
 }
 
+/** The shape key an INFERRED parameter position carries for an argument with no vector or
+ * matrix brand at all (a literal, an `f32`, a `bool`). A type parameter is one type for the
+ * whole call, so "scalar" has to be a shape of its own here: without it `mix(vec3i, vec3i, i32)`
+ * would look like a call the generic `mix<T>(a: T, b: T, t: T)` accepts, and that is a program
+ * Tint rejects ("no matching call to mix(vec3<i32>, vec3<i32>, i32)"). */
+const SCALAR_SHAPE = 'scalar'
+
+/**
+ * Whether `overload` accepts every argument of `call` once the brand vector arithmetic erased is
+ * put back: each argument is measured by `gpuValueShape` (its own brand, or the one the
+ * arithmetic inside it would have produced), a parameter the overload declares concretely by the
+ * brands its type carries, and a parameter the overload infers by the one shape a type parameter
+ * can settle on for the whole call.
+ *
+ * The arity check is first and is exact, because none of the ambient declarations has an
+ * optional parameter: without it `mix(a * 0.5, b)` would "fit" the three-parameter overload
+ * whose first two parameters it matches, and the missing argument would go unreported.
+ */
+function overloadFitsRestoredShapes(
+  context: DiagnosticFilterContext,
+  checker: ts.TypeChecker,
+  call: ts.CallExpression,
+  overload: ts.Signature,
+): boolean {
+  const parameters = overload.getParameters()
+  const last = parameters[parameters.length - 1]
+  const rest = last !== undefined && isRestParameter(last)
+  if (
+    rest
+      ? call.arguments.length < parameters.length - 1
+      : parameters.length !== call.arguments.length
+  ) {
+    return false
+  }
+  let inferred: string | undefined
+  for (let index = 0; index < call.arguments.length; index++) {
+    const argument = call.arguments[index]!
+    const parameter = parameterTypeOfSignature(checker, overload, index, call)
+    if (parameter === undefined) return false
+    const shape = gpuValueShape(context, argument) ?? SCALAR_SHAPE
+    const position: ArgumentPosition = { call, index, argument }
+    if (isInferredParameter(checker, position, overload)) {
+      if (inferred !== undefined && inferred !== shape) return false
+      inferred = shape
+      continue
+    }
+    const declared = gpuShapeKeysOfType(checker, parameter, call)
+    if (shape === SCALAR_SHAPE ? declared.size !== 0 : !declared.has(shape)) return false
+  }
+  return true
+}
+
+/**
+ * TS2769 ("No overload matches this call"), the shape TS2345 takes when the callee is
+ * overloaded and no candidate matched. `mix` is the callee that matters: its four concrete
+ * overloads and its generic one all take three arguments, so TypeScript has no single candidate
+ * to blame and reports this code instead of naming the parameter.
+ *
+ * Dropped only when the call does vector or matrix arithmetic somewhere AND some overload
+ * accepts every argument with that arithmetic's shape restored. Asking the whole signature,
+ * rather than each index against the union of every overload's parameter there, is what keeps
+ * `mix(c * 0.5, vo.uv, 0.5)` reported: a `vec2` is a shape SOME overload accepts in the second
+ * position, but no one overload accepts a `vec3` first and a `vec2` second. Arithmetic is
+ * required for the same reason it is in the TS2345 rule, and it is what keeps
+ * `mix(vec3i, vec3i, i32)` reporting, which is a call the front end lowers and Tint then
+ * rejects.
+ */
+function isGpuArithmeticOverloadArgument(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const checker = context.checker
+  if (checker === undefined) return false
+  const position = argumentAt(context, diagnostic)
+  if (position === undefined) return false
+  if (gpuValueShape(context, position.argument) === undefined) return false
+  if (!position.call.arguments.some((argument) => hasGpuArithmetic(context, argument))) return false
+  return checker
+    .getTypeAtLocation(position.call.expression)
+    .getCallSignatures()
+    .some((overload) => overloadFitsRestoredShapes(context, checker, position.call, overload))
+}
+
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
@@ -687,6 +770,20 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       'still report. Still hidden, because TypeScript stopped at the argument this rule ' +
       'dropped: a later argument wrong in a way that is not a vector shape. Issue #43.',
     when: isGpuArithmeticArgument,
+  },
+  {
+    code: 2769,
+    reason:
+      'The TS2345 case at an OVERLOADED callee ("No overload matches this call"). TypeScript ' +
+      'reports the specific argument error only when a single candidate has the arity of the ' +
+      'call, which is why the ambient vector constructors report TS2345 while the math ' +
+      'functions, whose overloads all share one arity, report this instead. Dropped when the ' +
+      'call does vector or matrix arithmetic somewhere and SOME overload accepts every ' +
+      "argument once that arithmetic's shape is put back, which is the whole-signature form " +
+      'of the TS2345 rule above: `mix(a, b * 0.5, t)` fits `mix(vec3, vec3, number)` and goes, ' +
+      'while `mix(a * 0.5, b, c)` with a vec2 `c` fits no overload and keeps reporting. Issue ' +
+      '#43, and the twins corpus measurement in design doc §6.',
+    when: isGpuArithmeticOverloadArgument,
   },
 ]
 

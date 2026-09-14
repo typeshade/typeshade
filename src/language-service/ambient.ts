@@ -129,16 +129,70 @@ function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
  * path, so a second `f32` overload here would be dead vocabulary, never a real ambiguity). */
 const FREE_MATH_NAMES = Object.keys(MATH_FN_ARITY).filter((name) => name !== 'f32')
 
+/** The `f32` vector names, smallest first. `mix`'s vector-with-scalar overloads are limited to
+ * these three because that is what the GPU compilers accept: measured by emitting one module per
+ * shape and handing it to Tint and to ANGLE's GLSL ES 3.00 translator, `mix(vecN<f32>,
+ * vecN<f32>, f32)` is the ONLY vector-beside-scalar call in this vocabulary both accept. The
+ * `i32`/`u32` vectors get none (WGSL's and GLSL's `mix` are float only), and neither do
+ * `clamp(vecN, s, s)`, `min`/`max(vecN, s)`, `pow(vecN, s)` or `step(vecN, s)`: the front end
+ * lowers all of those to a call Tint rejects with "no matching call", so declaring them here
+ * would make the editor green on a program that does not reach the GPU. */
+const F32_VEC_TYPE_NAMES: readonly string[] = ['vec2', 'vec3', 'vec4']
+
+/**
+ * `mix(a, b, t)`, whose `t` is a BLEND FACTOR rather than a third value of `a`'s type: WGSL
+ * spells it `mix(e1: vecN<T>, e2: vecN<T>, e3: T)` and GLSL ES 3.00 `mix(genType, genType,
+ * float)`, and the compiler lowers `mix(u.bottom.rgb, u.top.rgb, t)` with a scalar `t` to
+ * exactly that call. The generic `mix<T extends Numeric>(a: T, b: T, t: T)` this vocabulary had
+ * before demanded a vector there, so the line every gradient, hillshade and ocean shader is
+ * written in drew TS2345 in the editor while it compiled, emitted and ran.
+ *
+ * Declared as CONCRETE overloads, one per vector arity, ahead of the generic same-shape one.
+ * Concrete is the point: a parameter TypeScript does not have to infer cannot collapse `T`, so
+ * neither the vector arguments nor `t` are measured against a type another argument settled,
+ * which is where the second-hand messages inside these calls came from (`'0.55' is not
+ * assignable to '0.3'`). The same-shape generic overload stays last and still carries
+ * `mix(vecN, vecN, vecN)`, `mix(f32, f32, f32)` and the `i32`/`u32` vectors, so nothing this
+ * lib accepted before is rejected now.
+ */
+function mixSignature(): string {
+  return [
+    ...F32_VEC_TYPE_NAMES.map((v) => `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`),
+    scalarMathOverload('mix', 3),
+    'declare function mix<T extends Numeric>(a: T, b: T, t: T): T',
+  ].join('\n')
+}
+
+/**
+ * The all-scalar shape of one math function, declared ahead of its generic overload.
+ *
+ * `T extends Numeric` has a PRIMITIVE constraint (`Numeric` includes `number`), which is exactly
+ * the condition under which TypeScript keeps a literal argument's literal type as an inference
+ * candidate instead of widening it. With no scalar overload to resolve to, `smoothstep(0.3,
+ * 0.55, h)` on an `f32` `h` therefore settled `T` to `0.3` and reported the perfectly good
+ * `0.55` against it, and `step(horizon, y)` on a `const horizon = 0.58` reported `y`. A concrete
+ * `(a0: number, a1: number, ...) => number` matches first for every all-scalar call, infers
+ * nothing, and returns `number` rather than a literal type. A vector argument is not a `number`,
+ * so the overload cannot swallow a vector call: those still resolve to the generic one.
+ */
+function scalarMathOverload(name: string, arity: number): string {
+  const params = Array.from({ length: arity }, (_, i) => `a${i}: number`).join(', ')
+  return `declare function ${name}(${params}): number`
+}
+
 /** Real GLSL semantics for the handful of free math functions whose signature is not simply
- * "same numeric type in, same numeric type out" — `dot`/`distance`/`length` reduce a vector to
- * a scalar, `cross` is vec3-only, `normalize` preserves its vector's shape. Declared by hand
- * because `MATH_FN_ARITY` records arity only, not shape. */
+ * "same numeric type in, same numeric type out": `dot`/`distance`/`length` reduce a vector to
+ * a scalar, `cross` is vec3-only, `normalize` preserves its vector's shape, and `mix` takes a
+ * scalar blend factor beside two vectors (see {@link mixSignature}). Declared by hand because
+ * `MATH_FN_ARITY` records arity only, not shape. An entry here replaces the generated pair
+ * outright, so a name listed must declare its own all-scalar overload too when it wants one. */
 const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   dot: 'declare function dot<T extends Numeric>(a: T, b: T): number',
   distance: 'declare function distance<T extends Numeric>(a: T, b: T): number',
   length: 'declare function length<T extends Numeric>(a: T): number',
   normalize: 'declare function normalize<T extends Numeric>(a: T): T',
   cross: 'declare function cross(a: vec3, b: vec3): vec3',
+  mix: mixSignature(),
 }
 
 function freeMathSignature(name: string): string {
@@ -146,7 +200,7 @@ function freeMathSignature(name: string): string {
   if (special) return special
   const arity = MATH_FN_ARITY[name]!
   const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ')
-  return `declare function ${name}<T extends Numeric>(${params}): T`
+  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends Numeric>(${params}): T`
 }
 
 const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS)
