@@ -47,6 +47,8 @@ export const TS_CODES = {
   ATTRIBUTE_NAME: 'TS8028',
   /** A field of a struct used as an entry function's parameter or return type carries neither `@builtin(...)` nor `@location(...)`: WGSL rejects an entry-IO struct member with no attribute, so this is caught at the front end instead of reaching the backend as invalid emitted WGSL. */
   STRUCT_FIELD_MISSING_ATTR: 'TS8029',
+  /** A TypeScript parse error (an unclosed parenthesis, a missing brace, an unexpected token) in a `"use typeshade"` file, carried through as a TypeShade diagnostic so a `compile()` caller sees it without running `tsc`. A file with one is not lowered or emitted: before this, `vec4(3.14` compiled to WGSL. The language service drops these in favour of TypeScript's own syntactic diagnostics, which carry the real `TS1005`-style code. */
+  SYNTAX: 'TS8030',
   UNSUPPORTED: 'TS8099',
 } as const
 

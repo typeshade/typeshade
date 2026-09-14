@@ -10,7 +10,7 @@ import { collectModuleConsts } from './module-const.js'
 import { collectBindings } from './bindings.js'
 import { collectStructs, type CollectedStruct } from './structs.js'
 import { TS_CODES } from './codes.js'
-import { makeDiagnostic } from './diagnostic.js'
+import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
@@ -110,6 +110,16 @@ export function compileTsSource(
       )
     }
     return empty
+  }
+
+  // A file TypeScript could not parse is not lowered. The tree it hands back is the parser's
+  // recovery, not the author's program: lowering it produced a cascade of misleading TypeShade
+  // diagnostics at best and, for `vec4(3.14`, a clean WGSL emit at worst. Its parse errors are
+  // the whole answer.
+  const syntax = syntaxDiagnostics(sourceFile)
+  if (syntax.length > 0) {
+    diagnostics.push(...syntax)
+    return { ...empty, hasDirective: true }
   }
 
   analyzeSemantics(sourceFile, diagnostics)

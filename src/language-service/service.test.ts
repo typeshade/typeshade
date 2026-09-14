@@ -241,3 +241,24 @@ describe('positionAt / offsetAt', () => {
     expect(service.getDiagnostics('crlf-hello.ts')).toEqual([])
   })
 })
+
+describe('getDiagnostics: a syntax error', () => {
+  it('shows the parse error once, from TypeScript, with no cascaded TypeShade diagnostics', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument(
+      'syntax.ts',
+      '"use typeshade";\nexport function f(): vec4 {\n  return vec4(3.14;\n}\n',
+    )
+    const all = service.getDiagnostics('syntax.ts')
+    // TypeScript's own TS1005 (`')' expected`) on line 2 (0-based), once.
+    const parse = all.filter((d) => d.source === 'typescript' && d.code === 1005)
+    expect(parse).toHaveLength(1)
+    expect(parse[0]!.range.start.line).toBe(2)
+    // The compiler's SYNTAX copy of it is dropped here, and nothing was lowered, so no
+    // TypeShade diagnostic at all.
+    expect(all.filter((d) => d.source === 'typeshade')).toEqual([])
+    expect(all.filter((d) => /'\)' expected/.test(d.message))).toHaveLength(1)
+    // And the compiled output for such a document is empty, not a WGSL module.
+    expect(service.getCompiledOutput('syntax.ts', 'wgsl')?.text ?? '').not.toMatch(/fn f/)
+  })
+})

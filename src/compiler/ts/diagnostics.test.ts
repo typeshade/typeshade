@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
+import { compile } from './compile.js'
 import { TS_CODES } from './codes.js'
 
 function diag(source: string) {
@@ -80,5 +81,60 @@ describe('diagnostics (use typeshade)', () => {
     `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.funcs).toHaveLength(1)
+  })
+})
+
+// A file TypeScript could not parse is not lowered. Before this, `vec4(3.14` (no closing
+// parenthesis) compiled to WGSL without a word: the parser's recovered tree looked enough like
+// a program for the front end to lower it. The parse errors are now the whole answer.
+describe('syntax errors', () => {
+  const unclosedCall = `"use typeshade";\nexport function f(): vec4 { return vec4(3.14; }`
+
+  it('reports an unclosed call as a SYNTAX diagnostic and lowers nothing', () => {
+    const r = diag(unclosedCall)
+    expect(r.hasDirective).toBe(true)
+    expect(r.diagnostics.length).toBeGreaterThan(0)
+    for (const d of r.diagnostics) {
+      expect(d.code).toBe(TS_CODES.SYNTAX)
+      expect(d.category).toBe('error')
+    }
+    expect(r.diagnostics[0]!.message).toMatch(/'\)' expected/)
+    expect(r.diagnostics[0]!.line).toBe(2)
+    expect(r.funcs).toEqual([])
+    expect(r.wgsl).toBeUndefined()
+  })
+
+  it("gives a syntax diagnostic the parser's own span, inside the file", () => {
+    const r = diag(unclosedCall)
+    const d = r.diagnostics[0]!
+    expect(d.start).toBeGreaterThan(0)
+    expect(d.start + d.length).toBeLessThanOrEqual(r.sourceFile.text.length)
+    expect(r.sourceFile.text.slice(d.start, d.start + d.length)).toBe(';')
+    const end = r.sourceFile.getLineAndCharacterOfPosition(d.start + d.length)
+    expect(d.endLine).toBe(end.line + 1)
+    expect(d.endCharacter).toBe(end.character + 1)
+  })
+
+  it('reports a missing closing brace without cascading into TypeShade diagnostics', () => {
+    const r = diag(`"use typeshade";\nexport function f(): f32 {\n  return 1.;\n`)
+    expect(r.diagnostics.length).toBeGreaterThan(0)
+    expect(r.diagnostics.every((d) => d.code === TS_CODES.SYNTAX)).toBe(true)
+    expect(r.funcs).toEqual([])
+    expect(r.wgsl).toBeUndefined()
+  })
+
+  it('reports a parse error in a file with no directive only when the directive is required', () => {
+    const broken = 'export function f(): number { return (1; }'
+    expect(compileTsSource(broken).diagnostics).toEqual([])
+    const r = compileTsSource(broken, { requireDirective: true })
+    expect(r.diagnostics.map((d) => d.code)).toEqual([TS_CODES.MISSING_DIRECTIVE])
+  })
+
+  it('compile() carries the SYNTAX diagnostic and emits no function for the file', () => {
+    const c = compile(unclosedCall)
+    expect(c.diagnostics.some((d) => d.code === TS_CODES.SYNTAX)).toBe(true)
+    expect(c.module.funcs).toEqual([])
+    expect(c.wgsl ?? '').not.toMatch(/fn f/)
+    expect(c.glsl?.vertex ?? '').not.toMatch(/\bf\(/)
   })
 })

@@ -7,7 +7,7 @@ import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
-import { makeDiagnostic } from './diagnostic.js'
+import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 export interface CompileTsSourcesOptions {
   readonly entry?: string
@@ -145,6 +145,23 @@ export function compileTsSources(
   for (const raw of names)
     parsed.set(normalizeFile(raw), parseFile(normalizeFile(raw), files[raw]!))
   const entry = options.entry ? normalizeFile(options.entry) : [...parsed.keys()][0]!
+
+  // A file TypeScript could not parse takes the whole set down: nothing is lowered or emitted,
+  // and the parse errors, each naming its file, are the diagnostics (see `compileTsSource`).
+  const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
+  if (syntax.length > 0) {
+    diagnostics.push(...syntax)
+    const entryFile = parsed.get(entry)
+    return {
+      hasDirective: entryFile !== undefined && findUseTypeshadeDirective(entryFile) !== undefined,
+      funcs: [],
+      diagnostics,
+      sourceFile: entryFile ?? emptySf,
+      consts: [],
+      bindings: [],
+      structs: [],
+    }
+  }
 
   const stubs = new Map<string, Map<string, { stub: FuncDecl; node: ts.FunctionDeclaration }>>()
   for (const [name, sf] of parsed) {

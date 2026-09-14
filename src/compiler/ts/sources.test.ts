@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSources } from './sources.js'
+import { TS_CODES } from './codes.js'
 
 describe('compileTsSources', () => {
   it('resolves relative named imports into one WGSL module', () => {
@@ -36,5 +37,23 @@ describe('compileTsSources', () => {
       { entry: 'app.ts' },
     )
     expect(r.diagnostics.some((d) => /relative/.test(d.message))).toBe(true)
+  })
+})
+
+describe('compileTsSources syntax errors', () => {
+  it('reports a parse error in any file as SYNTAX, naming the file, and lowers nothing', () => {
+    const r = compileTsSources(
+      {
+        'math.ts': `"use typeshade";\nexport function square(x: f32): f32 { return x * x; }`,
+        'app.ts': `"use typeshade";\nimport { square } from "./math";\nexport function foo(x: f32): f32 { return square(x; }`,
+      },
+      { entry: 'app.ts' },
+    )
+    expect(r.hasDirective).toBe(true)
+    expect(r.diagnostics.length).toBeGreaterThan(0)
+    expect(r.diagnostics.every((d) => d.code === TS_CODES.SYNTAX)).toBe(true)
+    expect(r.diagnostics[0]!.fileName).toBe('app.ts')
+    expect(r.funcs).toEqual([])
+    expect(r.wgsl).toBeUndefined()
   })
 })

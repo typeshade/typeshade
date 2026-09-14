@@ -2,6 +2,7 @@
 
 import ts from 'typescript'
 import { compileTsSource } from '../compiler/ts/source-file.js'
+import { TS_CODES } from '../compiler/ts/codes.js'
 import { clampSpan, rangeForSpan, spanForDiagnostic } from './positions.js'
 import type { TypeshadeDiagnostic, TypeshadeSeverity } from './types.js'
 
@@ -167,16 +168,23 @@ export function getTypeshadeDiagnostics(
     requireDirective: true,
     emit: false,
   })
-  return result.diagnostics.map((d) => {
-    const span = spanForDiagnostic(sourceFile, d)
-    return {
-      uri,
-      span,
-      range: rangeForSpan(sourceFile, span),
-      severity: severityOfTypeshade(d.category),
-      message: d.message,
-      code: d.code ?? 'TS8099',
-      source: 'typeshade' as const,
-    }
-  })
+  return (
+    result.diagnostics
+      // TypeScript's parse errors reach the editor from `getTypeScriptDiagnostics`, with their
+      // own `TS1005`-style codes. The compiler's `SYNTAX` copies of them exist so a `compile()`
+      // caller sees them without `tsc`; here they would underline the same token twice.
+      .filter((d) => d.code !== TS_CODES.SYNTAX)
+      .map((d) => {
+        const span = spanForDiagnostic(sourceFile, d)
+        return {
+          uri,
+          span,
+          range: rangeForSpan(sourceFile, span),
+          severity: severityOfTypeshade(d.category),
+          message: d.message,
+          code: d.code ?? 'TS8099',
+          source: 'typeshade' as const,
+        }
+      })
+  )
 }

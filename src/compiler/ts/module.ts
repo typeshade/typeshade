@@ -7,7 +7,7 @@ import { hasUseTypeshadeDirective } from './directive.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
-import { makeDiagnostic } from './diagnostic.js'
+import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 export interface TsSourceFileInput {
   readonly fileName: string
@@ -62,6 +62,15 @@ export function compileTsSources(
         ),
       )
     }
+  }
+
+  // A file TypeScript could not parse takes the whole program down: nothing is lowered or
+  // emitted, and the parse errors, each naming its file, are the diagnostics (see
+  // `compileTsSource`).
+  const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
+  if (syntax.length > 0) {
+    diagnostics.push(...syntax)
+    return { funcs: [], diagnostics }
   }
 
   for (const [name, sf] of parsed) {
