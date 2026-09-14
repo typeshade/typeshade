@@ -1,0 +1,439 @@
+// ═══ Shader DSL — the stepping tree-walk (docs/debugging.md §2.1) ═══
+//
+// The CPU oracle's walk, re-spelled as a generator that yields at every statement boundary.
+// A debug session drives it: each `yield` is a pause carrying the statement about to run and
+// the live frame stack, and resuming continues exactly where it stopped.
+//
+// A THIRD WALK, NOT A THIRD SEMANTICS. Everything that decides a VALUE — the builtin table,
+// the GPU stubs, `applyBin`'s integer rules, the saturating float-to-integer conversions,
+// `zeroOf`, `FIELD_IDX` — comes from `cpu-runtime.ts`, the single authority `oracle.ts` and
+// `cpu-codegen.ts` already share. This file owns only the CONTROL FLOW, which is the half
+// that has to suspend. That is the same split the `new Function` twin makes, and it gets the
+// same protection: `step.differential.test.ts` runs every example and a seeded random-IR
+// corpus through both this walk and `compileModule`, and requires `Object.is` equality.
+//
+// WHY NOT MAKE `oracle.ts` ITSELF A GENERATOR. `docs/debugging.md` §2.5 puts that option
+// first and asks for a measurement rather than a guess. Measured on this tree, over a
+// 32-iteration `sin` accumulation loop, 2000 invocations, session setup hoisted out:
+//
+//   new Function codegen        1.3 µs / invocation
+//   oracle tree-walk           54.1 µs / invocation
+//   this generator walk       147.2 µs / invocation   (3.1× the tree-walk)
+//
+// So making the reference backend steppable would cost it roughly three times its runtime on
+// every use — and `compileModule` is production-used and sits under property suites that
+// already run for over a minute. The walk is therefore duplicated and differentially gated,
+// which is §2.5's option 3. The 3× is irrelevant where it is paid: one invocation is still
+// under a millisecond, and stepping is for one invocation (§1.3), never a frame.
+//
+// PAUSE POINTS. Before each statement in a body, including the `init` and each `update` of a
+// `for`. The condition of an `if`, a `for` or a `switch` is evaluated as part of pausing on
+// that statement, never on its own — a shader statement is the unit the author wrote.
+
+import type { Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '../ir/index.js'
+import type { SourceSpan } from '../ir/span.js'
+import {
+  type CpuValue,
+  FIELD_IDX,
+  isArr,
+  applyBin,
+  BUILTINS,
+  GPU_STUBS,
+  zeroOf,
+  matVec,
+  matMul,
+  f32ToU32Sat,
+  f32ToI32Sat,
+  numKindOf,
+} from '../cpu-runtime.js'
+
+/** One call frame of a paused run, innermost last. Mutable on purpose: the session reads a
+ *  frame's `current` at each pause, and a snapshot is taken there rather than here. */
+export interface StepFrame {
+  readonly fnName: string
+  readonly fnSpan: SourceSpan | undefined
+  /** The span of the call that created this frame; absent on the entry frame. */
+  readonly callSpan: SourceSpan | undefined
+  readonly env: Map<string, CpuValue>
+  /** The statement this frame is about to execute, set at every pause. */
+  current: Stmt | undefined
+}
+
+/** What the interpreter hands the driver at a statement boundary. */
+export interface StepEvent {
+  readonly stmt: Stmt
+  /** Frame stack, outermost first. Live, so read it before resuming. */
+  readonly frames: readonly StepFrame[]
+}
+
+/** Everything the walk needs that is not the program: the module's declarations, the host's
+ *  binding values, and the two switches `compileModule` takes. */
+export interface StepCtx {
+  readonly consts: Map<string, CpuValue>
+  readonly overrides: Map<string, CpuValue>
+  readonly decls: Map<string, FuncDecl>
+  readonly bindings: Record<string, CpuValue>
+  readonly structs: Map<string, StructDecl>
+  /** The module's declared uniform and storage names. The `"use typeshade"` front end lowers
+   *  a read of one to a `constref`, not a `varref` (see the `constref` case below), so the
+   *  walk needs the list to tell a binding read apart from a genuinely unknown constant. */
+  readonly bindingNames: Set<string>
+  readonly gpuStubs: boolean
+  readonly frames: StepFrame[]
+  /** Names whose value came from a GPU stub rather than from real arithmetic, so a UI can
+   *  mark them as stand-ins rather than results (`docs/debugging.md` §2.4). */
+  readonly stubbed: Set<string>
+}
+
+/** A generator that yields statement pauses and finally produces `T`. */
+export type Step<T> = Generator<StepEvent, T, void>
+
+/** The non-local exits a body can take, exactly as `oracle.ts` spells them. */
+export type Signal =
+  | { kind: 'normal' }
+  | { kind: 'return'; value: CpuValue | undefined }
+  | { kind: 'break' }
+  | { kind: 'continue' }
+  | { kind: 'discard' }
+const NORMAL: Signal = { kind: 'normal' }
+
+export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): Step<CpuValue> {
+  switch (e.op) {
+    case 'lit':
+      return e.value
+    case 'constref': {
+      const v = ctx.consts.get(e.name)
+      if (v !== undefined) return v
+      // A `"use typeshade"` read of `declare const camera: uniform<Camera>` lowers to a
+      // `constref` carrying the binding's name, not to the `varref` the EDSL surface builds,
+      // so the oracle's own `constref` case throws `unknown const` on any source-compiled
+      // module with a binding — `compile(src).eval` cannot run one today. Resolving it here
+      // is local and reversible: the day the front end lowers a binding read as a `varref`,
+      // this arm stops being reached and the `param`/`varref` case below already handles it.
+      if (e.name in ctx.bindings) return ctx.bindings[e.name]
+      if (ctx.bindingNames.has(e.name)) {
+        throw new Error(
+          `shader-dsl/debug: no value supplied for binding '${e.name}' — pass it in the session's bindings`,
+        )
+      }
+      throw new Error(`shader-dsl/debug: unknown const ${e.name}`)
+    }
+    case 'overrideref': {
+      const v = ctx.overrides.get(e.name)
+      if (v === undefined) throw new Error(`shader-dsl/debug: unknown override ${e.name}`)
+      return v
+    }
+    case 'externref':
+      throw new Error(`shader-dsl/debug: host-provided global '${e.name}' has no CPU value`)
+    case 'param':
+    case 'varref': {
+      if (env.has(e.name)) return env.get(e.name) as CpuValue
+      if (e.name in ctx.bindings) return ctx.bindings[e.name]
+      throw new Error(`shader-dsl/debug: unbound ${e.name}`)
+    }
+    case 'binop': {
+      const av = yield* evalExpr(e.a, env, ctx)
+      const bv = yield* evalExpr(e.b, env, ctx)
+      if (
+        e.bop === '*' &&
+        e.a.type.kind === 'mat' &&
+        (e.b.type.kind === 'vec' || e.b.type.kind === 'vec64')
+      ) {
+        return matVec(av as number[], bv as number[])
+      }
+      if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat') {
+        return matMul(av as number[], bv as number[])
+      }
+      if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
+        throw new Error(
+          'shader-dsl/debug: vec*mat (row-vector form) is not implemented — use mat*vec',
+        )
+      }
+      return applyBin(e.bop, av, bv, numKindOf(e.type))
+    }
+    case 'unop': {
+      const a = yield* evalExpr(e.a, env, ctx)
+      return isArr(a) ? a.map((v) => -(v as number)) : -(a as number)
+    }
+    case 'compare': {
+      const a = (yield* evalExpr(e.a, env, ctx)) as number
+      const b = (yield* evalExpr(e.b, env, ctx)) as number
+      const f32cmp = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
+      switch (e.cop) {
+        case '<':
+          return a < b
+        case '>':
+          return a > b
+        case '<=':
+          return a <= b
+        case '>=':
+          return a >= b
+        case '==':
+          return f32cmp ? Math.fround(a) === Math.fround(b) : a === b
+        default:
+          return f32cmp ? Math.fround(a) !== Math.fround(b) : a !== b
+      }
+    }
+    case 'logical': {
+      const a = (yield* evalExpr(e.a, env, ctx)) as boolean
+      if (e.lop === '&&') return a ? ((yield* evalExpr(e.b, env, ctx)) as boolean) : false
+      return a ? true : ((yield* evalExpr(e.b, env, ctx)) as boolean)
+    }
+    case 'call': {
+      const args: CpuValue[] = []
+      for (const a of e.args) args.push(yield* evalExpr(a, env, ctx))
+      if (e.fn === 'u32' || e.fn === 'i32') {
+        const src = e.args[0]!.type
+        if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
+          return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number)
+        }
+      }
+      const b = BUILTINS[e.fn]
+      if (b) return b(...args)
+      const stub = GPU_STUBS[e.fn]
+      if (stub) {
+        if (!ctx.gpuStubs) {
+          throw new Error(
+            `shader-dsl/debug: '${e.fn}' is GPU-only and not computable here — start the session with gpuStubs: true to accept placeholder values`,
+          )
+        }
+        ctx.stubbed.add(e.fn)
+        return stub(...args)
+      }
+      const decl = ctx.decls.get(e.fn)
+      if (decl) return yield* callFunction(decl, args, e.span, ctx)
+      throw new Error(`shader-dsl/debug: unknown fn ${e.fn}`)
+    }
+    case 'member': {
+      const base = yield* evalExpr(e.base, env, ctx)
+      if (isArr(base)) {
+        if (e.field.length > 1) return [...e.field].map((c) => base[FIELD_IDX[c]!] as number)
+        return base[FIELD_IDX[e.field]] as CpuValue
+      }
+      return (base as Record<string, CpuValue>)[e.field]
+    }
+    case 'construct': {
+      if (e.type.kind === 'array') {
+        const out: CpuValue[] = []
+        for (const a of e.args) out.push(yield* evalExpr(a, env, ctx))
+        return out as CpuValue
+      }
+      if (e.type.kind === 'struct') {
+        const decl = ctx.structs.get(e.type.name)
+        if (decl === undefined)
+          throw new Error(`shader-dsl/debug: struct '${e.type.name}' not declared`)
+        const obj: Record<string, CpuValue> = {}
+        for (let i = 0; i < decl.fields.length; i++) {
+          obj[decl.fields[i]!.name] = yield* evalExpr(e.args[i]!, env, ctx)
+        }
+        return obj as CpuValue
+      }
+      const out: number[] = []
+      for (const a of e.args) {
+        const v = yield* evalExpr(a, env, ctx)
+        if (isArr(v)) out.push(...(v as number[]))
+        else out.push(v as number)
+      }
+      if ((e.type.kind === 'vec' || e.type.kind === 'vec64') && out.length === 1)
+        return new Array(e.type.n as number).fill(out[0])
+      return out
+    }
+    case 'select': {
+      const c = (yield* evalExpr(e.cond, env, ctx)) as boolean
+      return c ? yield* evalExpr(e.ifTrue, env, ctx) : yield* evalExpr(e.ifFalse, env, ctx)
+    }
+    case 'index': {
+      const base = (yield* evalExpr(e.base, env, ctx)) as CpuValue[]
+      const idx = (yield* evalExpr(e.idx, env, ctx)) as number
+      return base[idx]
+    }
+    case 'matchExpr': {
+      const sv = (yield* evalExpr(e.scrutinee, env, ctx)) as number
+      const hit = e.cases.find(([v]) => v === sv)
+      return yield* evalExpr(hit ? hit[1] : e.default, env, ctx)
+    }
+  }
+}
+
+/** Push a frame, run the callee's body with pauses, pop. This is what makes "step into" a
+ *  frame change rather than a jump: the call site's own span rides on the frame, so a stack
+ *  trace can say where each caller stopped. */
+export function* callFunction(
+  decl: FuncDecl,
+  args: readonly CpuValue[],
+  callSpan: SourceSpan | undefined,
+  ctx: StepCtx,
+): Step<CpuValue> {
+  const r = yield* runFunction(decl, args, callSpan, ctx)
+  // A void function invoked as a statement never has its value read, exactly as the oracle
+  // bridges `undefined` here.
+  return r.kind === 'return' ? (r.value as CpuValue) : (undefined as unknown as CpuValue)
+}
+
+/** The same call, handing back the whole {@link Signal} rather than just a value — what an
+ *  entry point needs, because `discard` is an outcome a fragment debugger has to report and a
+ *  returned value cannot express. */
+export function* runFunction(
+  decl: FuncDecl,
+  args: readonly CpuValue[],
+  callSpan: SourceSpan | undefined,
+  ctx: StepCtx,
+): Step<Signal> {
+  const env = new Map<string, CpuValue>()
+  decl.params.forEach((p, i) => env.set(p.name, args[i] as CpuValue))
+  const frame: StepFrame = {
+    fnName: decl.name,
+    fnSpan: decl.span,
+    callSpan,
+    env,
+    current: undefined,
+  }
+  ctx.frames.push(frame)
+  try {
+    return yield* execBody(decl.body, env, ctx)
+  } finally {
+    ctx.frames.pop()
+  }
+}
+
+function* setLValue(
+  target: Expr,
+  value: CpuValue,
+  env: Map<string, CpuValue>,
+  ctx: StepCtx,
+): Step<void> {
+  if (target.op === 'varref' || target.op === 'param') {
+    env.set(target.name, value)
+    return
+  }
+  // The same front-end spelling as the `constref` read above: a write to a `storage` binding
+  // whose whole value is replaced arrives here as a `constref` target.
+  if (target.op === 'constref' && ctx.bindingNames.has(target.name)) {
+    ctx.bindings[target.name] = value
+    return
+  }
+  if (target.op === 'member') {
+    const base = yield* evalExpr(target.base, env, ctx)
+    if (isArr(base)) base[FIELD_IDX[target.field]] = value as number
+    else (base as Record<string, CpuValue>)[target.field] = value
+    return
+  }
+  if (target.op === 'index') {
+    const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[]
+    const idx = (yield* evalExpr(target.idx, env, ctx)) as number
+    base[idx] = value
+    return
+  }
+  throw new Error(`shader-dsl/debug: bad assignment target ${target.op}`)
+}
+
+export function* execBody(
+  body: readonly Stmt[],
+  env: Map<string, CpuValue>,
+  ctx: StepCtx,
+): Step<Signal> {
+  const frame = ctx.frames[ctx.frames.length - 1]
+  for (const s of body) {
+    if (frame) frame.current = s
+    yield { stmt: s, frames: ctx.frames }
+    switch (s.s) {
+      case 'let':
+        env.set(s.name, yield* evalExpr(s.expr, env, ctx))
+        break
+      case 'var':
+        env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type))
+        break
+      case 'assign':
+        yield* setLValue(s.target, yield* evalExpr(s.expr, env, ctx), env, ctx)
+        break
+      case 'assignOp': {
+        const cur = yield* evalExpr(s.target, env, ctx)
+        const kind = numKindOf(s.target.type)
+        const rhs = yield* evalExpr(s.expr, env, ctx)
+        yield* setLValue(s.target, applyBin(s.bop, cur, rhs, kind), env, ctx)
+        break
+      }
+      case 'return':
+        return { kind: 'return', value: s.expr ? yield* evalExpr(s.expr, env, ctx) : undefined }
+      case 'break':
+        return { kind: 'break' }
+      case 'continue':
+        return { kind: 'continue' }
+      case 'discard':
+        return { kind: 'discard' }
+      case 'if': {
+        let taken = false
+        for (const arm of s.arms) {
+          if (yield* evalExpr(arm.cond, env, ctx)) {
+            const r = yield* execBody(arm.body, env, ctx)
+            if (r.kind !== 'normal') return r
+            taken = true
+            break
+          }
+        }
+        if (!taken && s.elseBody) {
+          const r = yield* execBody(s.elseBody, env, ctx)
+          if (r.kind !== 'normal') return r
+        }
+        break
+      }
+      case 'for': {
+        yield* execBody([s.init], env, ctx)
+        while (yield* evalExpr(s.cond, env, ctx)) {
+          const r = yield* execBody(s.body, env, ctx)
+          if (r.kind === 'break') break
+          if (r.kind === 'return' || r.kind === 'discard') return r
+          yield* execBody([s.update], env, ctx)
+        }
+        break
+      }
+      case 'switch': {
+        const v = (yield* evalExpr(s.scrut, env, ctx)) as number
+        const hit = s.cases.find((c) => c.value === v)
+        const chosen = hit ? hit.body : s.defaultBody
+        if (chosen) {
+          const r = yield* execBody(chosen, env, ctx)
+          if (r.kind !== 'normal' && r.kind !== 'break') return r
+        }
+        break
+      }
+      case 'placeholder':
+        throw new Error(
+          `shader-dsl/debug: placeholder Stmt reached the stepping backend — composer forgot to splice tag=${s.tag}`,
+        )
+      case 'raw':
+        throw new Error(
+          'shader-dsl/debug: raw Stmt reached the stepping backend — raw passthrough is GPU-only',
+        )
+    }
+  }
+  return NORMAL
+}
+
+/** Build the evaluation context for `m`, with module constants already evaluated. The consts
+ *  walk is not steppable: a module constant is fixed before any entry point runs, so there is
+ *  no invocation to pause inside. Its pauses are drained rather than reported. */
+export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
+  const ctx: StepCtx = {
+    consts: new Map<string, CpuValue>(),
+    overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
+    decls: new Map(m.funcs.map((f) => [f.name, f])),
+    bindings: {},
+    structs: new Map(m.structs.map((s) => [s.name, s])),
+    bindingNames: new Set(m.bindings.map((b) => b.name)),
+    gpuStubs,
+    frames: [],
+    stubbed: new Set<string>(),
+  }
+  for (const c of m.consts) {
+    ctx.consts.set(c.name, c.valueExpr ? drain(evalExpr(c.valueExpr, new Map(), ctx)) : c.cpuValue)
+  }
+  return ctx
+}
+
+/** Run a generator to completion, discarding its pauses. */
+export function drain<T>(g: Step<T>): T {
+  let r = g.next()
+  while (!r.done) r = g.next()
+  return r.value
+}

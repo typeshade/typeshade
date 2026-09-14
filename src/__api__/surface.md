@@ -457,6 +457,22 @@ StageTiming
 summarize
 ```
 
+## `./debug` — 11 exports
+
+```
+CpuPrecision
+CpuStruct
+CpuValue
+DebugBreakpoint
+DebugPause
+DebugSession
+DebugSessionOptions
+DebugStackFrame
+SourceSpan
+sourceSpanOf
+startDebugSession
+```
+
 ## `./emit-prod` — 19 exports
 
 ```
@@ -758,7 +774,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 485 definitions
+## Shapes — 491 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -806,6 +822,12 @@ src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
 src/core/cpu-runtime.ts#CpuValue  type  number | boolean | number[] | CpuStruct
 src/core/cpu-runtime.ts#ORACLE_BUILTIN_NAMES  const  ReadonlySet<string>
 src/core/cpu-runtime.ts#ORACLE_GPU_STUB_NAMES  const  ReadonlySet<string>
+src/core/debug/session.ts#DebugBreakpoint  interface  { file?: string; line: number }
+src/core/debug/session.ts#DebugPause  interface  { bindings: ReadonlyMap<string, CpuValue>; frames: readonly DebugStackFrame[]; reason: "entry" | "step" | "breakpoint"; span: SourceSpan; stmt: Stmt }
+src/core/debug/session.ts#DebugSession  interface  { continue: () => DebugPause; discarded: boolean; done: boolean; pause: DebugPause; precision: CpuPrecision; result: CpuValue; setBreakpoints: (breakpoints: readonly DebugBreakpoint[]) => void; stepIn: () => DebugPause; stepOut: () => DebugPause; stepOver: () => DebugPause; stubbedIntrinsics: readonly string[] }
+src/core/debug/session.ts#DebugSessionOptions  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; gpuStubs?: boolean; precision?: CpuPrecision }
+src/core/debug/session.ts#DebugStackFrame  interface  { callSpan: SourceSpan; fnName: string; fnSpan: SourceSpan; locals: ReadonlyMap<string, CpuValue>; span: SourceSpan }
+src/core/debug/session.ts#startDebugSession  function  (m: ModuleDecl, entry: string, args?: readonly CpuValue[], opts?: DebugSessionOptions) => DebugSession
 src/core/decode-log.ts#DecodedName  interface  { authored: readonly string[]; emitted: string }
 src/core/decode-log.ts#decodeShaderLog  function  (log: string, renames: ReadonlyMap<string, string>) => string
 src/core/decode-log.ts#invertRenames  function  (renames: ReadonlyMap<string, string>) => ReadonlyMap<string, DecodedName>
@@ -1243,7 +1265,7 @@ src/language-service/types.ts#TypeshadeSemanticTokenModifier  type  "entry" | "d
 src/language-service/types.ts#TypeshadeSemanticTokenType  type  "string" | "number" | "function" | "keyword" | "type" | "struct" | "builtin" | "variable" | "resource" | "parameter" | "property" | "decorator" | "operator"
 src/language-service/types.ts#TypeshadeSeverity  type  "error" | "warning" | "information" | "hint"
 src/language-service/types.ts#TypeshadeSignatureHelp  interface  { activeParameter: number; activeSignature: number; signatures: readonly { readonly label: string; readonly documentation?: string; readonly parameters: readonly { label: string; documentation?: string; }[]; }[] }
-src/language-service/types.ts#TypeshadeSymbolKind  type  "function" | "struct" | "variable" | "field" | "resource" | "constant" | "parameter" | "entry"
+src/language-service/types.ts#TypeshadeSymbolKind  type  "function" | "struct" | "entry" | "variable" | "field" | "resource" | "constant" | "parameter"
 src/language-service/types.ts#TypeshadeTextEdit  interface  { newText: string; range: TypeshadeRange }
 src/language-service/types.ts#TypeshadeTextSpan  interface  { length: number; start: number }
 ```
