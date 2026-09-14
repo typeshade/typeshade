@@ -1,7 +1,7 @@
 // ═══ A breakpoint's path and a span's file name have to land on the same string ═══
 //
 // Two claims. The first is that `normalizeFileName` reproduces what `ts.createSourceFile` does
-// to the name it is handed — checked by running the same spelling through both, so this file
+// to the name it is handed, checked by running the same spelling through both, so this file
 // reports a TypeScript upgrade that changed the rule instead of letting it become a silent
 // mismatch between a breakpoint and a span. The second is that a session built that way
 // actually stops: a breakpoint set in the editor's spelling fires on a module compiled under

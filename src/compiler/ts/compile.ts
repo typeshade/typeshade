@@ -67,13 +67,13 @@ export interface CompileOptions {
    *
    * Defaults to `typeshade-input.ts`, the placeholder `compileTsSource` has always used for a
    * caller that named nothing. That default is fine for a compile whose output is shader
-   * text — nothing reads the name — but not for one whose output is stepped: a
+   * text, since nothing reads the name, but not for one whose output is stepped: a
    * `DebugBreakpoint` carries the path the editor knows the file by, and matches it against
    * `span.file`, so a session compiled under the placeholder silently arms no breakpoint at
    * all. An adapter that has a path should pass it.
    *
    * Nothing resolves or reads it: it is a label carried to the spans, not a path the compiler
-   * opens. It is not carried verbatim, though — it becomes `ts.SourceFile.fileName`, and
+   * opens. It is not carried verbatim, though: it becomes `ts.SourceFile.fileName`, and
    * TypeScript path-normalizes that, so `./a.ts` is stored as `a.ts` and `C:\\shaders\\a.ts`
    * as `C:/shaders/a.ts`. An adapter does not have to care: a `DebugBreakpoint`'s path is
    * normalized the same way before it is compared, so either spelling matches.

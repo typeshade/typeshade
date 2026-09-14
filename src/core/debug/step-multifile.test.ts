@@ -3,9 +3,9 @@
 // A `"use typeshade"` program can import a helper from another file, and once it does, every
 // part of a stepped run that names a location has to name the RIGHT file: the statement the
 // run is stopped on, the frame the call came from, and the breakpoint the author set. Nothing
-// covered that. The machinery turned out to be right already — `compileTsSources` parses each
+// covered that. The machinery turned out to be right already: `compileTsSources` parses each
 // input under its own name, so each statement's span carries the file it was written in, and
-// `stepIn` follows a `declRef` without caring which file it lands in — so this file is a lock
+// `stepIn` follows a `declRef` without caring which file it lands in, so this file is a lock
 // on behaviour rather than a fix. It is worth locking because the failure it prevents is
 // invisible: a breakpoint in the wrong file arms nothing, and a frame naming the wrong file
 // sends an editor to the wrong line of the wrong document.
@@ -115,7 +115,7 @@ describe('stepping across files', () => {
     }
     expect(stops({ file: 'app/main.ts', line: 3 })).toEqual(['app/main.ts:3'])
     expect(stops({ file: 'lib/util.ts', line: 3 })).toEqual(['lib/util.ts:3'])
-    // Unqualified, the same line number is two stops — which is why `file` exists.
+    // Unqualified, the same line number is two stops, which is why `file` exists.
     expect(stops({ line: 3 })).toEqual(['app/main.ts:3', 'lib/util.ts:3'])
     // A file that is in the program but has no statement on that line arms nothing.
     expect(stops({ file: 'lib/util.ts', line: 5 })).toEqual([])

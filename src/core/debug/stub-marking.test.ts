@@ -3,7 +3,7 @@
 // §2.4 decided that milestone 2 "returns the existing stub value and marks it in the variables
 // view as a stand-in rather than a computed value, so no one mistakes `0` for a result". What
 // shipped first was `DebugSession.stubbedIntrinsics`, which is a run-wide list of intrinsic
-// NAMES — it says `dpdx` stood in somewhere, and a variables view cannot mark anything with
+// NAMES: it says `dpdx` stood in somewhere, and a variables view cannot mark anything with
 // that: it does not say which of the six locals on screen is the `0` in question, and it keeps
 // saying `dpdx` long after that value has been overwritten by a real one.
 //
@@ -13,7 +13,7 @@
 // clears it.
 //
 // The modules here are built by hand rather than compiled, because `dpdx` is not reachable
-// from `"use typeshade"` at all yet — the type map has no `texture` or `sampler` spelling and
+// from `"use typeshade"` at all yet: the type map has no `texture` or `sampler` spelling and
 // the derivatives are not in the callable surface (§2.4 says exactly this). `step.test.ts`
 // builds its own stub module the same way and for the same reason.
 

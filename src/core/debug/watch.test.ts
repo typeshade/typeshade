@@ -110,7 +110,7 @@ describe('evaluate answers over the paused frame', () => {
 describe('evaluate refuses what it cannot answer', () => {
   it('reports the front end’s own diagnostic for a type error', () => {
     const s = atEnd()
-    // Not this module's opinion of the text — the compiler's, verbatim, which is what makes a
+    // Not this module's opinion of the text but the compiler's, verbatim, which is what makes a
     // watch error read the same as the squiggle in the editor.
     let err: DebugWatchError | undefined
     try {
@@ -125,7 +125,7 @@ describe('evaluate refuses what it cannot answer', () => {
 
   it('refuses an assignment rather than performing one', () => {
     // A watch that could write would make a debugger's readout a lie. This one is the SOURCE
-    // LANGUAGE's doing, not this module's — `=`, `+=` and `++` are statements in
+    // LANGUAGE's doing, not this module's: `=`, `+=` and `++` are statements in
     // `"use typeshade"` and not values, so there is no expression form of them for a watch to
     // reach. Pinned anyway: it is a property a watch box depends on, whoever enforces it.
     const s = atEnd()
@@ -171,7 +171,7 @@ describe('evaluate refuses what it cannot answer', () => {
 describe('a watch answers the same question the run does', () => {
   it('rounds to f32 when the session does', () => {
     // The point: a watch beside a statement must not quietly answer in a different precision.
-    // 0.1 + 0.2 is the standard witness — f32 and f64 disagree in the 8th digit.
+    // 0.1 + 0.2 is the standard witness: f32 and f64 disagree in the 8th digit.
     const src = `"use typeshade"\nexport function fs(a: f32): f32 {\n  const b = a\n  return b\n}\n`
     const m = compiled(src)
     const f32 = startDebugSession(m, 'fs', [1], { precision: 'f32' })
@@ -195,8 +195,8 @@ describe('a watch answers the same question the run does', () => {
 
 describe('the compile cache', () => {
   it('compiles one watch once across a walk, and recompiles when the frame changes', () => {
-    // The cost §4.5 names — "a compile per distinct expression (cacheable by text and frame
-    // shape)" — is what this keeps paid once. Measured as wall time rather than asserted from
+    // The cost §4.5 names, "a compile per distinct expression (cacheable by text and frame
+    // shape)", is what this keeps paid once. Measured as wall time rather than asserted from
     // the implementation: 200 evaluations of one text must not cost 200 compiles.
     const s = atEnd()
     const once = Date.now()
@@ -257,7 +257,7 @@ describe('a watch sees the bindings and the structs', () => {
     expect(s.evaluate('u.gain').value).toBe(3)
     expect(s.evaluate('u.tint').value).toEqual([1, 0, 0, 1])
     // A struct-typed answer comes back as the CPU value model spells one, with the struct type
-    // beside it — which is what lets a variables view expand it by field name.
+    // beside it, which is what lets a variables view expand it by field name.
     const whole = s.evaluate('u')
     expect(whole.value).toEqual({ tint: [1, 0, 0, 1], gain: 3 })
     expect(whole.type).toEqual({ kind: 'struct', name: 'Uniforms' })
@@ -320,7 +320,7 @@ describe('a watch over a stand-in says so', () => {
   })
 
   it('cannot call a GPU-only intrinsic, because the source language cannot spell one', () => {
-    // Not a policy this module applies — the front end's. `dpdx` is not in the callable
+    // Not a policy this module applies but the front end's. `dpdx` is not in the callable
     // surface of `"use typeshade"` at all (docs/debugging.md §2.4 says the type map has no
     // texture or sampler spelling either), so a watch that names one fails at compile with the
     // compiler's own words rather than reaching the stub table. Pinned because it is the

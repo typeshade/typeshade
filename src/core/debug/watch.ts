@@ -1,7 +1,7 @@
-// ═══ Shader DSL — what is this expression, here, now (docs/debugging.md §4.5) ═══
+// ═══ Shader DSL: what is this expression, here, now (docs/debugging.md §4.5) ═══
 //
 // A DAP `evaluate` request and a Playground watch box ask the same question, so the answer
-// belongs here rather than in either adapter — the same reason the launch configuration does.
+// belongs here rather than in either adapter, for the same reason the launch configuration does.
 //
 // §4.5 chose to REUSE THE FRONT END rather than build a second expression parser, and this is
 // that: the watch text is spliced into a synthesised `"use typeshade"` source whose one
@@ -24,7 +24,7 @@
 // from types that have a `"use typeshade"` spelling, and a name whose type has none is left
 // out, so watching it is a compile error naming it rather than a wrong number. A texture, a
 // sampler and a runtime-sized storage array are the cases today. It also sees only what the
-// frame has a NAME for — never a value mid-expression, which would need the per-expression
+// frame has a NAME for, never a value mid-expression, which would need the per-expression
 // spans §3.3 defers.
 //
 // And it can ask exactly what the language can ask, which is narrower than what the
@@ -63,7 +63,7 @@ export interface CompiledWatch {
    *  the interpreter resolves them against the running module rather than the snippet's
    *  stubs. */
   readonly expr: Expr
-  /** What the compiler decided the expression's type is — the thing a watch box needs in
+  /** What the compiler decided the expression's type is, which is what a watch box needs in
    *  order to render the value as `vec3f(…)` rather than as three loose numbers. */
   readonly type: ShaderType
   /** The scope names the expression actually reads, so a caller can bind only those. */
@@ -142,7 +142,7 @@ function declareStructs(structs: readonly StructDecl[], needed: ReadonlySet<stri
     for (const f of s.fields) {
       const spelling = sourceTypeName(f.type)
       // A struct with one unspellable field is emitted without it. The field is then unknown
-      // to the snippet, so watching it is a compile error naming the field — which is what a
+      // to the snippet, so watching it is a compile error naming the field, which is what a
       // watch box should say, rather than the struct silently not existing at all.
       if (spelling !== undefined) fields.push(`  ${f.name}: ${spelling}`)
     }
@@ -154,7 +154,7 @@ function declareStructs(structs: readonly StructDecl[], needed: ReadonlySet<stri
 /** The module's own helpers, redeclared with a body that is never executed.
  *
  *  The body exists only so the snippet compiles: a call in a watch must resolve to a visible
- *  callee with the right signature, and the source language has no ambient declaration form —
+ *  callee with the right signature, and the source language has no ambient declaration form:
  *  `declare function` is rejected outright with "needs a body (no ambient declarations)". At
  *  evaluation the interpreter resolves a call by NAME against the running module, so the stub
  *  is never entered.
@@ -191,7 +191,7 @@ const VALUE = '__typeshade_watch_value__'
  *
  *  `scope` is every name the expression may use and the type the session recorded for it: a
  *  frame's parameters and locals, and the module's bindings. A name whose type has no
- *  source-language spelling is skipped — see the module header.
+ *  source-language spelling is skipped; see the module header.
  *
  *  Exported from `@xgis/shader-dsl/debug`.
  *
@@ -289,19 +289,19 @@ function childExprs(e: Expr): readonly Expr[] {
  *  Exported from `@xgis/shader-dsl/debug`.
  */
 export interface DebugWatchValue {
-  /** The value, in the CPU value model — a number, a flat array, an object by field name. */
+  /** The value, in the CPU value model: a number, a flat array, an object by field name. */
   readonly value: CpuValue
   /** The type the compiler gave the expression, for rendering it. */
   readonly type: ShaderType
   /** Whether the answer is a stand-in rather than a result: the expression read a name the
    *  frame had marked, or called a helper that reached a GPU stub. The same meaning as
-   *  `DebugStackFrame.stubbedLocals`, applied to a value that has no name — and the only thing
+   *  `DebugStackFrame.stubbedLocals`, applied to a value that has no name, and the only thing
    *  distinguishing `d * 1000.` from `clean * 1000.` when a stub made both of them zero. */
   readonly stubbed: boolean
 }
 
 /** A cache key for one compiled watch: the text, plus the SHAPE of the scope it was compiled
- *  against — the names and their types, never the values.
+ *  against: the names and their types, never the values.
  *
  *  That is what makes stepping with a watch box open cost one compile rather than one per
  *  step: the same text over the same names at the same types lowers to the same expression

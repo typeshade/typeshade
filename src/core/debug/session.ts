@@ -35,7 +35,7 @@ export interface DebugBreakpoint {
    *  Compared against the name the module was COMPILED under (`SourceSpan.file`), and the two
    *  are normalized before comparing: separators, `./` and `../` segments. They have to be,
    *  because the compile side is `ts.SourceFile.fileName` and TypeScript rewrites what it is
-   *  given — `C:\shaders\a.ts` is stored as `C:/shaders/a.ts` — while a breakpoint's path
+   *  given (`C:\shaders\a.ts` is stored as `C:/shaders/a.ts`) while a breakpoint's path
    *  arrives exactly as the editor spelled it. Neither side is resolved against a directory
    *  or looked up on disk, so a relative path and an absolute one are still two files. */
   readonly file?: string
@@ -81,7 +81,7 @@ export interface DebugStackFrame {
    *
    *  This is what a variables view marks so that nobody reads `dx = 0` as the answer
    *  (`docs/debugging.md` §2.4). {@link DebugSession.stubbedIntrinsics} answers the other
-   *  question — WHICH intrinsics stood in anywhere in the run — and neither substitutes for the
+   *  question, WHICH intrinsics stood in anywhere in the run, and neither substitutes for the
    *  other: a run can have stubbed `dpdx` ten statements ago and be showing nothing derived
    *  from it now.
    *
@@ -214,7 +214,7 @@ export interface DebugSession {
   continue(): DebugPause | undefined
   /** Replace the armed breakpoints. */
   setBreakpoints(breakpoints: readonly DebugBreakpoint[]): void
-  /** What is this expression, here, now — a DAP `evaluate`, a watch box, a debug hover.
+  /** What is this expression, here, now: a DAP `evaluate`, a watch box, a debug hover.
    *
    *  The text is compiled by the REAL front end against the frame's own names, so a watch
    *  means what the same text would mean written at that point in the shader, and a type error
@@ -227,7 +227,7 @@ export interface DebugSession {
    *
    *  The scope is the chosen frame's parameters and locals plus the module's bindings, minus
    *  any name whose type the source language cannot yet spell (a texture, a sampler, a
-   *  runtime-sized storage array) — watching one of those is an error naming it, never a wrong
+   *  runtime-sized storage array); watching one of those is an error naming it, never a wrong
    *  number. Compiled watches are cached by text and frame shape, so stepping with a watch
    *  open costs one compile, not one per step.
    *
@@ -419,7 +419,7 @@ class Session implements DebugSession {
   evaluate(expression: string, frameIndex = 0): DebugWatchValue {
     const pause = this.paused
     if (!pause) {
-      throw new Error('shader-dsl/debug: cannot evaluate a watch — the run is not paused')
+      throw new Error('shader-dsl/debug: cannot evaluate a watch; the run is not paused')
     }
     const frame = pause.frames[frameIndex]
     if (!frame) {
