@@ -7,6 +7,7 @@ import { hasUseTypeshadeDirective } from './directive.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
+import { checkRecursion, type RecursionNode } from './recursion.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 export interface TsSourceFileInput {
@@ -195,13 +196,26 @@ export function compileTsSources(
   }
 
   const funcs: FuncDecl[] = []
+  const graph: RecursionNode[] = []
   for (const [name, table] of exports) {
     const callees = fileCallees.get(name)!
     for (const rec of table.values()) {
       fillFunctionBody(rec.node, rec.stub, rec.sf, diagnostics, callees)
       funcs.push(rec.stub)
+      // The graph key is the EMITTED name, not the local one: across files the same function
+      // reaches its callers under whatever name each `import` bound it to, and a cycle is a
+      // cycle in the emitted WGSL. `callees` is already that mapping, per file.
+      graph.push({
+        name: rec.stub.name,
+        decl: rec.node,
+        sourceFile: rec.sf,
+        resolve: (callee: string) => callees.get(callee)?.name,
+      })
     }
   }
+  // A call cycle emits WGSL Tint refuses (#48). Across files it can be spelled through an
+  // import, which is exactly why the resolver above goes through `callees`.
+  checkRecursion(graph, diagnostics)
   void entry
 
   let wgsl: string | undefined

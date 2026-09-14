@@ -157,6 +157,7 @@ export function fs(
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
 | JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
 | Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
+| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright |
 
 ---
 
@@ -209,6 +210,7 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | two resources share `@binding` | name both |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
+| a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 
 ---
 

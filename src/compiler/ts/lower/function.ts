@@ -10,6 +10,7 @@ import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { checkRecursion } from '../recursion.js'
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -50,6 +51,18 @@ export function lowerSourceFunctions(
     fillFunctionBody(stmt, stub, sourceFile, diagnostics, callees, consts, bindings, structs)
     funcs.push(stub)
   }
+  // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
+  // downstream of here was looking for one. In a single file a function is called by the name
+  // it is declared under, so the graph key and the resolver are both just `callees`.
+  checkRecursion(
+    ready.map((stmt) => ({
+      name: stmt.name!.text,
+      decl: stmt,
+      sourceFile,
+      resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+    })),
+    diagnostics,
+  )
   return funcs
 }
 

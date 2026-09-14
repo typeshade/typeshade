@@ -49,6 +49,11 @@ export const TS_CODES = {
   STRUCT_FIELD_MISSING_ATTR: 'TS8029',
   /** A TypeScript parse error (an unclosed parenthesis, a missing brace, an unexpected token) in a `"use typeshade"` file, carried through as a TypeShade diagnostic so a `compile()` caller sees it without running `tsc`. A file with one is not lowered or emitted: before this, `vec4(3.14` compiled to WGSL. The language service drops these in favour of TypeScript's own syntactic diagnostics, which carry the real `TS1005`-style code. */
   SYNTAX: 'TS8030',
+  /** A call cycle: a function that reaches itself, directly or through other functions.
+   *  WGSL has no call stack, so Tint rejects the emitted module
+   *  (`cyclic dependency found: 'a' -> 'b' -> 'a'`); before this the front end accepted it
+   *  and emitted it with zero diagnostics. */
+  RECURSION: 'TS8031',
   UNSUPPORTED: 'TS8099',
 } as const
 
