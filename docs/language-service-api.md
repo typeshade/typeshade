@@ -446,8 +446,10 @@ LSP (VS Code):
 - How it invalidates: the entry is keyed by `dependencyKey(uri)`, the document's own script
   version followed by the version of every document it imports, transitively, each specifier
   resolved through the host's own import rule (`TypeshadeHost.resolveImportUri`, the method
-  `resolveModuleNameLiterals` also uses) over the file's static `import`/`export ... from`
-  declarations. A request whose key differs from the stored one recomputes; `openDocument`,
+  `resolveModuleNameLiterals` also uses) over every module reference in the file: the static
+  `import`/`export ... from` declarations, an `import("...")` type, a dynamic `import("...")`
+  call and an `import x = require("...")`, the same references the TypeScript program
+  resolves. A request whose key differs from the stored one recomputes; `openDocument`,
   `updateDocument` and `closeDocument` also drop the document's own entry directly. So editing
   or closing an imported document refreshes the importing document's diagnostics on its next
   request without that document being touched: an edited import carries a new version, a

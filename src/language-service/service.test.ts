@@ -335,6 +335,26 @@ describe('getDiagnostics: cache invalidation across imports (design doc §8)', (
     expect(tsErrors(service)).toEqual([])
   })
 
+  // Regression: the key was built from the top-level import and export declarations alone,
+  // so a module reached only through an import(...) type never entered it, and A's diagnostics
+  // stayed put while C changed, though the TypeScript program had followed that edge.
+  it('follows a module referenced only through an import("...") type', () => {
+    const service = createTypeshadeLanguageService()
+    const C_OK = '"use typeshade";\nexport function c(): f32 {\n  return 1.\n}\n'
+    const C_BROKEN = '"use typeshade";\nexport function c(): bool {\n  return true\n}\n'
+    const A3 =
+      '"use typeshade";\n' +
+      'type M = typeof import("./c.js")\n' +
+      'export function f(): f32 {\n  const m: M = null as any\n  return m.c()\n}\n'
+    service.openDocument('/c.ts', C_OK, 1)
+    service.openDocument('/a.ts', A3, 1)
+    expect(tsErrors(service)).toEqual([])
+    service.updateDocument('/c.ts', C_BROKEN, 2)
+    expect(tsErrors(service)).toContain(2322)
+    service.updateDocument('/c.ts', C_OK, 3)
+    expect(tsErrors(service)).toEqual([])
+  })
+
   it('follows the import chain transitively: a change two hops away refreshes the root', () => {
     const service = createTypeshadeLanguageService()
     const C_OK = '"use typeshade";\nexport function c(): f32 {\n  return 1.\n}\n'

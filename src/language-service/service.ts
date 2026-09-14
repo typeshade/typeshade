@@ -124,17 +124,39 @@ interface DocumentCacheEntry {
   diagnostics?: readonly TypeshadeDiagnostic[]
 }
 
-/** The module specifier of every static `import ... from '...'` and `export ... from '...'`
- * at the top level of `sourceFile`: the edges the TypeScript program follows through
- * `resolveModuleNameLiterals`, read back off the tree so a cache key can follow the same
- * edges. */
+/**
+ * The module specifier of every module reference in `sourceFile` that the TypeScript program
+ * resolves through `resolveModuleNameLiterals`: the static `import ... from '...'` and
+ * `export ... from '...'` declarations, and, anywhere in the tree, an `import("...")` type
+ * (`typeof import("./c.js")`), a dynamic `import("...")` call and an `import x = require("...")`
+ * reference. Read back off the tree so a cache key can follow the same edges the program does:
+ * a key built from the top-level declarations alone went stale when the referenced module
+ * reached the file only through an `import(...)` type.
+ */
 function importSpecifiersOf(sourceFile: ts.SourceFile): string[] {
   const out: string[] = []
-  for (const stmt of sourceFile.statements) {
-    if (!ts.isImportDeclaration(stmt) && !ts.isExportDeclaration(stmt)) continue
-    const specifier = stmt.moduleSpecifier
-    if (specifier !== undefined && ts.isStringLiteral(specifier)) out.push(specifier.text)
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      const specifier = node.moduleSpecifier
+      if (specifier !== undefined && ts.isStringLiteral(specifier)) out.push(specifier.text)
+    } else if (ts.isImportTypeNode(node)) {
+      const argument = node.argument
+      if (ts.isLiteralTypeNode(argument) && ts.isStringLiteral(argument.literal)) {
+        out.push(argument.literal.text)
+      }
+    } else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[0] !== undefined &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      out.push(node.arguments[0].text)
+    } else if (ts.isExternalModuleReference(node) && ts.isStringLiteral(node.expression)) {
+      out.push(node.expression.text)
+    }
+    ts.forEachChild(node, visit)
   }
+  visit(sourceFile)
   return out
 }
 
