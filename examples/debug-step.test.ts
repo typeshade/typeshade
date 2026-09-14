@@ -14,10 +14,11 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { shadeExamples, SHADE_EXT } from './_shade.js'
+import { examples as allExamples } from './index.js'
 import { compileModule } from '../src/index.js'
 import { startDebugSession, type DebugPause, type SourceSpan } from '../src/debug.js'
 import type { ModuleDecl, Stmt } from '../src/core/ir/index.js'
-import type { CpuValue } from '../src/core/cpu-runtime.js'
+import { zeroOf, type CpuValue } from '../src/core/cpu-runtime.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -253,5 +254,140 @@ describe('compute-reduction-twin.shade.ts — stepping one compute invocation', 
     expect(() => startDebugSession(module, 'reduce_windows', [[0, 0, 0]]).continue()).toThrow(
       /no value supplied for binding 'params'/,
     )
+  })
+})
+
+// ═══ Every registered example, stepped against the oracle ═══
+//
+// The gate `interp.ts`'s header claims: every example through both walks, bit-identical. It
+// did not exist — `src/core/debug/step-differential.test.ts` sweeps only the generated corpus
+// from `random-ir.ts`, whose `construct` arm builds f32 vectors and nothing else, so the
+// element-CONVERTING constructor `vec2u(v)` was never reached by either gate. The review found
+// the divergence by hand in `convert-grid:fs`: the stepper pushed raw components where the
+// oracle saturates, so `f(-3)` answered -3 against the oracle's 0. This is the sweep that
+// would have caught it, over the real corpus rather than a generated one.
+//
+// The registered corpus is what makes it worth having: these are the modules the compile gate
+// hands to Tint, so every language feature that reaches a backend reaches this too, and a
+// feature added to `cpu-runtime.ts` for the oracle and forgotten here fails on the example
+// that uses it.
+
+/** A deterministic value of `t`, small and in range, so the sweep compares walks rather than
+ *  exercising overflow (`step-differential.test.ts` owns the boundary sweep). */
+function sampleOf(
+  t: { kind: string; n?: number; elem?: string; scalar?: string },
+  k: number,
+): CpuValue {
+  const scalar = (s: string | undefined): number => {
+    if (s === 'bool') return k % 2
+    if (s === 'u32') return k
+    if (s === 'i32') return k - 1
+    return k * 0.5 - 1
+  }
+  if (t.kind === 'vec' || t.kind === 'vec64') {
+    return Array.from({ length: t.n ?? 2 }, () => scalar(t.elem)) as CpuValue
+  }
+  if (t.kind === 'scalar') return scalar(t.scalar)
+  return 0
+}
+
+/** Zeros for every binding the module declares, on both sides, so a module with bindings is
+ *  swept rather than skipped. */
+function zeroBindings(m: ModuleDecl): Record<string, CpuValue> {
+  const out: Record<string, CpuValue> = {}
+  for (const b of m.bindings) {
+    // A runtime-sized array has no zero; give it a short one so the two walks index the same
+    // memory and a write on one side is visible on that side only.
+    out[b.name] =
+      b.type.kind === 'array' && b.type.size === undefined
+        ? ([0, 0, 0, 0, 0, 0, 0, 0] as CpuValue)
+        : zeroOf(b.type as { kind: string; n?: number })
+  }
+  return out
+}
+
+describe('every registered example steps to what the oracle computes', () => {
+  it('is bit-identical over every function of every example', () => {
+    const divergences: string[] = []
+    let checks = 0
+    let swept = 0
+    // Both registries: the EDSL-authored examples and the `.shade.ts` ones. Together they are
+    // the 44 modules the compile gate hands to Tint, which is what "every example" means.
+    for (const ex of [...allExamples, ...shadeExamples]) {
+      const m = ex.module
+      for (const f of m.funcs) {
+        for (let k = 0; k < 3; k++) {
+          const args = f.params.map((p) => sampleOf(p.type as never, k))
+          // Fresh binding objects per side: a kernel that WRITES to storage must not have one
+          // side's write seen by the other.
+          const oracleBindings = zeroBindings(m)
+          const stepBindings = zeroBindings(m)
+          const oracle = compileModule(m, { gpuStubs: true, precision: 'f64' })
+          for (const [n, v] of Object.entries(oracleBindings)) oracle.setBinding(n, v)
+
+          let a: CpuValue | string
+          try {
+            a = oracle.fns[f.name]!(...(args as never[]))
+          } catch (e) {
+            a = `throw ${(e as Error).message}`
+          }
+          let b: CpuValue | string | undefined
+          try {
+            const s = startDebugSession(m, f.name, args, {
+              gpuStubs: true,
+              precision: 'f64',
+              bindings: stepBindings,
+            })
+            s.continue()
+            b = s.result
+          } catch (e) {
+            b = `throw ${(e as Error).message}`
+          }
+          checks++
+          const same =
+            typeof a === 'string' || typeof b === 'string'
+              ? a === b
+              : JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+          if (!same && divergences.length < 8) {
+            divergences.push(
+              `${ex.id}:${f.name}(${JSON.stringify(args)}) oracle ${JSON.stringify(a)} != step ${JSON.stringify(b)}`,
+            )
+          }
+          // The storage a kernel wrote has to agree too, not only what it returned.
+          if (
+            JSON.stringify(oracleBindings) !== JSON.stringify(stepBindings) &&
+            divergences.length < 8
+          ) {
+            divergences.push(
+              `${ex.id}:${f.name} bindings after the run: oracle ${JSON.stringify(oracleBindings)} != step ${JSON.stringify(stepBindings)}`,
+            )
+          }
+        }
+      }
+      swept++
+    }
+    console.log(
+      `[debug-examples] ${swept} registered modules, ${checks} oracle-vs-step comparisons`,
+    )
+    // Floors, not exact counts: an example added to the registry widens the sweep rather
+    // than failing it. The point of the floor is that a registry that stopped loading would
+    // otherwise pass silently with nothing swept.
+    expect(swept).toBeGreaterThan(40)
+    expect(checks).toBeGreaterThan(200)
+    expect(divergences).toEqual([])
+  })
+
+  it('reaches the element-converting constructor, which is what the generated corpus misses', () => {
+    // Naming the feature rather than trusting the count: `random-ir.ts` cannot generate
+    // `vecN<T>(v: vecN<S>)`, so without a registered example carrying one this sweep would be
+    // green and blind in exactly the place the review found the bug.
+    const converting = shadeExamples.filter((ex) =>
+      ex.module.funcs.some(
+        (f) =>
+          JSON.stringify(f.body).includes('"op":"construct"') &&
+          /vec[234]u|vec[234]i/.test(readFileSync(join(HERE, `${ex.id}${SHADE_EXT}`), 'utf8')),
+      ),
+    )
+    expect(converting.map((e) => e.id)).toContain('convert-grid')
   })
 })

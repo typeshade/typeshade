@@ -826,8 +826,8 @@ src/core/cpu-runtime.ts#ORACLE_BUILTIN_NAMES  const  ReadonlySet<string>
 src/core/cpu-runtime.ts#ORACLE_GPU_STUB_NAMES  const  ReadonlySet<string>
 src/core/debug/session.ts#DebugBreakpoint  interface  { file?: string; line: number }
 src/core/debug/session.ts#DebugPause  interface  { bindings: ReadonlyMap<string, CpuValue>; frames: readonly DebugStackFrame[]; reason: "entry" | "step" | "breakpoint"; span: SourceSpan; stmt: Stmt }
-src/core/debug/session.ts#DebugSession  interface  { continue: () => DebugPause; discarded: boolean; done: boolean; pause: DebugPause; precision: CpuPrecision; result: CpuValue; setBreakpoints: (breakpoints: readonly DebugBreakpoint[]) => void; stepIn: () => DebugPause; stepOut: () => DebugPause; stepOver: () => DebugPause; stubbedIntrinsics: readonly string[] }
-src/core/debug/session.ts#DebugSessionOptions  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; gpuStubs?: boolean; precision?: CpuPrecision }
+src/core/debug/session.ts#DebugSession  interface  { continue: () => DebugPause; discarded: boolean; done: boolean; pause: DebugPause; precision: CpuPrecision; result: CpuValue; setBreakpoints: (breakpoints: readonly DebugBreakpoint[]) => void; stepIn: () => DebugPause; stepOut: () => DebugPause; stepOver: () => DebugPause; stubbedIntrinsics: readonly string[]; terminate: () => void }
+src/core/debug/session.ts#DebugSessionOptions  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; gpuStubs?: boolean; maxSteps?: number; precision?: CpuPrecision }
 src/core/debug/session.ts#DebugStackFrame  interface  { callSpan: SourceSpan; fnName: string; fnSpan: SourceSpan; locals: ReadonlyMap<string, CpuValue>; span: SourceSpan }
 src/core/debug/session.ts#startDebugSession  function  (m: ModuleDecl, entry: string, args?: readonly CpuValue[], opts?: DebugSessionOptions) => DebugSession
 src/core/decode-log.ts#DecodedName  interface  { authored: readonly string[]; emitted: string }
