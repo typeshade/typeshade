@@ -182,6 +182,7 @@ export function fs(
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
 | JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
 | Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
+| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check is SYNTACTIC, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
 
 ---
 
@@ -234,6 +235,8 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | two resources share `@binding` | name both |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
+| a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
+| `.length` on an `array<T>` with no `N`, anywhere | `TS8032`. For a `storage` array the length is the bound buffer's and needs `arrayLength` (unspelled today); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 
 ---
 
@@ -266,5 +269,46 @@ export function paint(
 yet — stays in this document, is labelled *(target)*, and is never copied into `README.md`,
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
+
+**Numbering:** §§9 and 10 are reserved for issue #8's A2 (member and component assignment)
+and A6 (`discard`, the missing builtins, `**`), which are in flight on their own branches and
+append here in issue order. This section is §11 so the six A-item branches do not all claim
+§9 and collide on merge.
+
+---
+
+## 11. Vector constructors
+
+A `vecN` constructor either **composes** a vector out of parts of its own element type, or
+**converts** one whole vector of the same size:
+
+```ts
+vec3(a, b, c)        // compose: three f32
+vec3(0.5)            // splat
+vec4(v3, 1.)         // compose from a vec3 and a scalar
+vec4(v2, v2)         // compose from two vec2
+vec3f(v)             // convert: v is a vec3u, every component becomes an f32
+vec3u(v)             // convert the other way
+vec2(gid.xy)         // convert a vec2<u32> swizzle to vec2<f32>
+```
+
+The converting form is WGSL's `vecN<T>(e: vecN<S>)` and GLSL ES 3.00's `vec3(uv)`, and the
+EDSL's `vec3(v)` builds the same node. It needs exactly one argument, a vector of the
+constructor's own size; a vector of another size and a mixed list such as `vec3(v2u, 1.)`
+stay rejected, as WGSL rejects them.
+
+The conversion follows **WGSL's** scalar conversion, which is what WebGPU and the CPU oracle
+both give you: a float source saturates into an integer target (`vec3u(vec3(-3.2, …))` is
+`0`, not `-3`), and `i32` and `u32` are reinterpreted two's-complement. An emulated-double
+vector is not converted this way.
+
+**GLSL ES 3.00 does not promise that.** It leaves an out-of-range or NaN float→int conversion
+undefined, and the WebGL2 context the compile gate uses disagrees with WGSL on exactly those
+inputs — measured against an RGBA32UI target, `uvec3(vec3(1e30)).x` reads back `0` where the
+oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the oracle gives
+`2147483520`, and `uvec3(vec3(NaN)).x` reads `2147483648` where the oracle gives `0`. The
+`-3.2` above happens to agree, and an in-range source always does. So the cross-backend
+ground a portable shader can stand on is **in-range values**; clamp before you convert if the
+source might not be.
 
 Last updated: 2026-09-14
