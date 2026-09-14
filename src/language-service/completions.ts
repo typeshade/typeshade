@@ -172,18 +172,49 @@ function isInCommentAt(text: string, triviaStart: number, pos: number): boolean 
 }
 
 /**
+ * Where the trivia that holds `pos` begins within `slot`: the end of the last token of `slot`
+ * that ends at or before `pos` (tokens included through `getChildren`, descending into the
+ * child, a `SyntaxList` of arguments say, whose span holds the cursor), or the slot's own full
+ * start when the cursor is in its leading trivia. Every comment lies in trivia, and every run
+ * of trivia starts at the end of the token before it, so scanning comments from here finds the
+ * one holding `pos` wherever it sits: before a statement, after the last statement of a block,
+ * between two arguments, before a closing `)` or `}`, on the line of the token before it.
+ */
+function triviaStartAt(slot: ts.Node, sourceFile: ts.SourceFile, pos: number): number {
+  let start = slot.getFullStart()
+  let node = slot
+  for (;;) {
+    let holder: ts.Node | undefined
+    for (const child of node.getChildren(sourceFile)) {
+      // A JSDoc comment is exposed as a child node of its declaration, but it is trivia: the
+      // scan from the token before it must see it as a comment, not as tokens to walk into.
+      if (ts.isJSDoc(child)) continue
+      if (child.getEnd() <= pos) start = child.getEnd()
+      else if (child.getFullStart() <= pos) {
+        holder = child
+        break
+      }
+    }
+    if (holder === undefined) return start
+    node = holder
+  }
+}
+
+/**
  * Classifies `offset` in `sourceFile` from the tree: inside a comment, inside a string or
- * template literal (an unterminated one included, since that is what `@builtin("ver` is
- * while it is being typed), or in code at some slot. The TypeShade triggers used to be regexes
- * over the raw text before the cursor, which fired on `@ver` in a comment and `"vec"` in a
- * string alike.
+ * template literal (an unterminated one included, since that is what
+ * `@builtin("ver` is while it is being typed), or in code at some slot. The TypeShade triggers
+ * used to be regexes over the raw text before the cursor, which fired on `@ver` in a comment
+ * and `"vec"` in a string alike; the comment check then only looked at the leading trivia of
+ * the slot, which missed a comment after the last statement of a body, before a closing
+ * bracket, or on the line of the token before it.
  */
 function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext {
   const slot = slotAt(sourceFile, offset)
-  const start = slot.getStart(sourceFile)
-  if (offset <= start && isInCommentAt(sourceFile.text, slot.getFullStart(), offset)) {
+  if (isInCommentAt(sourceFile.text, triviaStartAt(slot, sourceFile, offset), offset)) {
     return { kind: 'comment' }
   }
+  const start = slot.getStart(sourceFile)
   if ((ts.isStringLiteralLike(slot) || ts.isTemplateLiteralToken(slot)) && start < offset) {
     const inside = offset < slot.getEnd() || slot.isUnterminated === true
     if (inside) return { kind: 'string', literal: slot }

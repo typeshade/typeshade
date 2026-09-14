@@ -195,3 +195,64 @@ describe('getCompletions: context is decided by the syntax tree, not the raw tex
     }
   })
 })
+
+// Regression: the comment check only looked at the leading trivia of the slot the cursor
+// resolved to, so a comment with no following sibling (after the last statement of a body, on
+// the line of the last return, in an empty argument list or block, before a closing bracket or
+// semicolon) resolved to the enclosing node, whose start is before the cursor, and was
+// classified as code: the editor popped the vec list inside the comment.
+describe('getCompletions: a comment anywhere in the trivia before the cursor', () => {
+  const cases: readonly [name: string, source: string, cursor: string][] = [
+    [
+      'after the last statement of a body',
+      '"use typeshade";\nexport function vs(): vec4 {\n  let x = -0.8\n  return vec4(x, 0., 0., 1.)\n  // TODO vec\n}\n',
+      '// TODO vec',
+    ],
+    [
+      'on the line of the last return',
+      '"use typeshade";\nexport function f(): f32 {\n  return 1 // vec\n}\n',
+      '// vec',
+    ],
+    [
+      'in an empty if body',
+      '"use typeshade";\nexport function f(i: i32): f32 {\n  if (i === 1) {\n    // @ver\n  }\n  return 1\n}\n',
+      '// @ver',
+    ],
+    ['in an empty argument list', '"use typeshade";\nconst d = dot(/* vec */)\n', '/* vec'],
+    ['between two arguments', '"use typeshade";\nconst d = dot(a /* vec */, b)\n', '/* vec'],
+    ['in an empty object literal', '"use typeshade";\nconst o = { /* vec */ }\n', '/* vec'],
+    ['in an empty array literal', '"use typeshade";\nconst a = [/* vec */]\n', '/* vec'],
+    ['in an empty parameter list', '"use typeshade";\nfunction f(/* @ */) {}\n', '/* @'],
+    [
+      'as the whole body of a function',
+      '"use typeshade";\nfunction f(): void {\n  /* vec */\n}\n',
+      '/* vec',
+    ],
+    [
+      'before a closing paren, @builtin(" included',
+      '"use typeshade";\nconst a = abs(1, /* @builtin("ver */)\n',
+      '/* @builtin("ver',
+    ],
+    ['before a semicolon', '"use typeshade";\nconst a = 1 /* vec */;\n', '/* vec'],
+    [
+      'in a JSDoc comment on a plain function',
+      '"use typeshade";\n/**\n * @param vec\n */\nfunction f(): f32 {\n  return 1\n}\n',
+      '@param vec',
+    ],
+  ]
+  for (const [name, source, cursor] of cases) {
+    it(`offers nothing TypeShade-specific in a comment ${name}`, () => {
+      const service = createTypeshadeLanguageService()
+      service.openDocument('cm.ts', source)
+      expect(typeshadeSpecific(completionsAt(service, 'cm.ts', source, cursor))).toEqual([])
+    })
+  }
+
+  it('still offers completions in the code right after a closed block comment', () => {
+    const service = createTypeshadeLanguageService()
+    const source = '"use typeshade";\nexport function f(): vec4 {\n  return /* c */ \n}\n'
+    service.openDocument('cm2.ts', source)
+    const items = completionsAt(service, 'cm2.ts', source, '/* c */ ')
+    expect(items.find((i) => i.label === 'vec4')?.kind).toBe('snippet')
+  })
+})
