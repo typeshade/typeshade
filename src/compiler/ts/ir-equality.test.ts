@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
 import { uniformStruct } from '../../core/sot.js'
-import { f32, vec3 } from '../../core/ir/node.js'
-import { f32T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import { f32, member, vec3 } from '../../core/ir/node.js'
+import { f32T, mat4x4fT, structT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -74,6 +74,19 @@ function normalizeExpr(e: Expr): unknown {
         bop: e.bop,
         a: normalizeExpr(e.a),
         b: normalizeExpr(e.b),
+      }
+    case 'member':
+      return {
+        op: 'member',
+        type: typeKey(e.type),
+        field: e.field,
+        base: normalizeExpr(e.base),
+      }
+    case 'construct':
+      return {
+        op: 'construct',
+        type: typeKey(e.type),
+        args: e.args.map(normalizeExpr),
       }
     case 'unop':
       return { op: 'unop', type: typeKey(e.type), a: normalizeExpr(e.a) }
@@ -163,6 +176,46 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a component assignment matches the EDSL v.x.assign(a)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function paint(a: f32): vec3 {
+        let v = vec3(0., 0., 0.);
+        v.x = a;
+        return v;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('paint', { a: f32T }, vec3fT, ({ a }, bld) => {
+      const v = bld.var('v', vec3fT, vec3(0, 0, 0))
+      v.x.assign(a)
+      return v
+    })
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a struct-field assignment matches the EDSL o.a.assign(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      class P {
+        a: f32
+      }
+      export function put(p: P, x: f32): f32 {
+        let o: P = p;
+        o.a = x;
+        return o.a;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const P = structT('P')
+    const edsl = fn('put', { p: P, x: f32T }, f32T, ({ p, x }, bld) => {
+      const o = bld.var('o', P, p)
+      member(o, 'a', f32T).assign(x)
+      return member(o, 'a', f32T)
+    })
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

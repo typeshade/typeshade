@@ -363,35 +363,24 @@ function lowerAssignOp(
   return { s: 'assignOp', target, bop, expr: value }
 }
 
-function lowerLValue(
-  node: ts.Expression,
+export function lowerLValue(
+  expression: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // `(v) = a` and `(v).x = a` name the same targets `v = a` and `v.x = a` do, so the
+  // parentheses come off once, here, rather than in each branch below (where only the member
+  // walk looked through them, and the fallback message then denied its own input).
+  const node = ts.isParenthesizedExpression(expression) ? unwrapParens(expression) : expression
+  if (ts.isPropertyAccessExpression(node)) {
+    return lowerMemberLValue(node, sourceFile, scope, diagnostics)
+  }
   if (ts.isElementAccessExpression(node)) {
-    const baseName = ts.isIdentifier(node.expression) ? node.expression.text : undefined
-    const binding = baseName ? scope.resolve(baseName) : undefined
-    if (binding?.kind === 'param') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Cannot write through parameter "${baseName}" — parameters are not writable. Use a local or storage.`,
-        TS_CODES.ASSIGN_TARGET,
-      )
-      return undefined
-    }
-    if (binding && !binding.mutable) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Cannot assign to "${baseName}" — it is ${readOnlyPhrase(binding.kind)}.`,
-        TS_CODES.CONST_ASSIGN,
-      )
-      return undefined
-    }
+    // The root of the chain decides writability, exactly as it does for a member target:
+    // `cam.xs[i] = 1.` on a uniform and `p.xs[i] = 1.` on a parameter used to reach the
+    // backend, because the binding was resolved only when the base was a bare identifier.
+    if (!checkRootWritable(node, sourceFile, scope, diagnostics)) return undefined
     const idx = lowerExpression(node, sourceFile, scope, diagnostics)
     if (!idx || idx.op !== 'index') return undefined
     // The lvalue carries its own span (docs/debugging.md §5 decision 3): a debugger stopped on
@@ -403,7 +392,7 @@ function lowerLValue(
       diagnostics,
       sourceFile,
       node,
-      'Assignment target must be a simple identifier.',
+      'Assignment target must be a name, or a field, component or element of one.',
       TS_CODES.ASSIGN_TARGET,
     )
     return undefined
@@ -446,6 +435,128 @@ function lowerLValue(
     sourceFile,
     node,
   )
+}
+
+/** A write through `v.x`, `ps[i].a` or `o.pos` lands on the binding at the root of the
+ *  chain, so that is the binding whose writability decides it: the same parameter and const
+ *  checks the identifier and element-access targets already make, made on the root instead
+ *  of on the chain. Returns the root identifier, or undefined for a chain rooted in
+ *  something that is not a name (a call result, a constructor). */
+function rootLValueName(node: ts.Expression): ts.Identifier | undefined {
+  if (ts.isIdentifier(node)) return node
+  if (ts.isParenthesizedExpression(node)) return rootLValueName(node.expression)
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return rootLValueName(node.expression)
+  }
+  return undefined
+}
+
+/** Lowers `v.x`, `o.pos`, `ps[i].a` and `o.pos.x` as an assignment target. The IR `assign`
+ *  target already takes a `member` — the EDSL spells the same write `o.pos.assign(v)`, and
+ *  WGSL, GLSL ES 3.00 and the CPU oracle all assign a struct field or a single vector
+ *  component in place — so the member expression `lowerExpression` already builds for the
+ *  read is the target verbatim. Two things are checked that a read does not care about: the
+ *  root binding must be writable, and a swizzle target must name exactly one component,
+ *  which is what WGSL allows (`v.xy = …` is rejected there too). */
+function unwrapParens(node: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(node) ? unwrapParens(node.expression) : node
+}
+
+/** The writability of the binding at the root of a member or element chain, diagnosed. Shared
+ *  by both branches of {@link lowerLValue} so a write through a field and a write through an
+ *  element answer the same way: a write lands on the root, so the root is what has to accept
+ *  it. Returns false having pushed a diagnostic. */
+function checkRootWritable(
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const root = rootLValueName(node)
+  if (!root) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Assignment target must be a name, or a field, component or element of one.',
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return false
+  }
+  const binding = scope.resolve(root.text)
+  if (!binding) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to unknown name "${root.text}".`,
+      // The same code as the bare-identifier arm above, for the same sentence: the root of a
+      // chain that names nothing is an unresolved identifier, not a target of the wrong shape.
+      TS_CODES.UNKNOWN_NAME,
+    )
+    return false
+  }
+  if (binding.kind === 'param') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot write through parameter "${root.text}" — parameters are not writable. Use a local or storage.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return false
+  }
+  if (!binding.mutable) {
+    // readOnlyPhrase, not a local ternary: #18 gave a binding its own BindingKind, so the
+    // message can say WHICH of the two a name is — and the root of a chain deserves the same
+    // sentence a bare name gets.
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${root.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+      TS_CODES.CONST_ASSIGN,
+    )
+    return false
+  }
+  return true
+}
+
+function lowerMemberLValue(
+  node: ts.PropertyAccessExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (!checkRootWritable(node.expression, sourceFile, scope, diagnostics)) return undefined
+  const target = lowerExpression(node, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  if (target.op !== 'member') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${truncate(node.getText(sourceFile))}" — it is not a field, component or element.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  // Only a `vec` base reaches here with a multi-character field: parseSwizzle rejects every
+  // other base (a vec64 included) before a member is built, and a struct field name of more
+  // than one character is a field, not a swizzle.
+  const base = target.base.type
+  if (isVec(base) && target.field.length > 1) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to the swizzle ".${target.field}" — WGSL writes one component at a time. ` +
+        `Assign each component (e.g. v.x = …; v.y = …), or build a whole ${typeKey(base)} and assign that.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  return target
 }
 
 function lowerIf(

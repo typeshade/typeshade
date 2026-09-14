@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { typeKey } from '../../../core/ir/types.js'
+import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { readOnlyPhrase } from '../context.js'
@@ -11,7 +11,7 @@ import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { lowerExpression } from './expression.js'
-import { lowerStatement, lowerStatements } from './statement.js'
+import { lowerLValue, lowerStatement, lowerStatements } from './statement.js'
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -261,61 +261,78 @@ export function lowerUpdate(
       return undefined
     }
     const targetExpr = expr.operand
-    if (!ts.isIdentifier(targetExpr)) {
+    // A member or element target (`v.x++`, `ps[i].a++`) goes through lowerLValue, which owns
+    // the writability and single-component-swizzle rules; a bare identifier keeps its own
+    // path so its wording is unchanged.
+    const viaName = ts.isIdentifier(targetExpr)
+    let target: Expr | undefined
+    if (viaName && ts.isIdentifier(targetExpr)) {
+      const binding = scope.resolve(targetExpr.text)
+      // Two different failures, kept apart as origin/main split them: an UNKNOWN name reported
+      // "it is declared with const", a statement about a declaration that does not exist.
+      if (!binding) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr,
+          `Cannot assign to unknown name "${targetExpr.text}".`,
+          TS_CODES.UNKNOWN_NAME,
+        )
+        return undefined
+      }
+      if (!binding.mutable) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr,
+          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+          TS_CODES.CONST_ASSIGN,
+        )
+        return undefined
+      }
+      // withSpan, as origin/main's #32 gives every authored lvalue: the write position is
+      // what a stepped run and a diagnostic point at, and this branch builds the target
+      // itself rather than going through lowerLValue, which carries its own.
+      target = withSpan(
+        binding.kind === 'param'
+          ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
+          : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+        sourceFile,
+        targetExpr,
+      )
+    } else {
+      target = lowerLValue(targetExpr, sourceFile, scope, diagnostics)
+    }
+    if (!target) return undefined
+    const token = op === ts.SyntaxKind.PlusPlusToken ? '++' : '--'
+    if (!isSteppable(target.type)) {
       pushDiag(
         diagnostics,
         sourceFile,
         expr,
-        '++/-- target must be an identifier.',
+        isVec(target.type) || isVec64(target.type)
+          ? `Cannot apply ${token} to ${typeKey(target.type)} — a vector has no literal to step by. Write the addition out, e.g. v = v + ${vecCtorHint(target.type)}.`
+          : `Cannot apply ${token} to ${typeKey(target.type)} — ${token} steps a numeric scalar.`,
         TS_CODES.ASSIGN_TARGET,
       )
       return undefined
     }
-    const binding = scope.resolve(targetExpr.text)
-    // Two different failures, and they were one branch until now: an UNKNOWN name reported
-    // "it is declared with const", which is a statement about a declaration that does not
-    // exist. `lowerAssign` already separates them (statement.ts) and this is the same split,
-    // down to the wording, so the two assignment paths say the same thing about `nope++` and
-    // `nope = 1`.
-    if (!binding) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        expr,
-        `Cannot assign to unknown name "${targetExpr.text}".`,
-        TS_CODES.UNKNOWN_NAME,
-      )
-      return undefined
+    const bop = op === ts.SyntaxKind.PlusPlusToken ? '+' : '-'
+    const one: Expr = { op: 'lit', type: target.type, value: 1 }
+    // A bare name keeps the assign-of-binop it has always lowered to, so its emitted text does
+    // not move. A member or element target becomes an assignOp instead, so the lvalue is
+    // written ONCE: `ps[i].a = (ps[i].a + 1.0)` repeats the storage load, and CSE hoisting
+    // that repeated read into an immutable `let` is what made such an emit invalid. An
+    // emulated-double target keeps the binop form, since the fp64 pass lowers an assignOp on
+    // a vec64 target only when the value is a vec64 too (SD0041).
+    if (viaName || isVec64(target.type)) {
+      return {
+        s: 'assign',
+        target,
+        expr: { op: 'binop', type: target.type, bop, a: target, b: one },
+      }
     }
-    if (!binding.mutable) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        expr,
-        `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
-        TS_CODES.CONST_ASSIGN,
-      )
-      return undefined
-    }
-    // `i++` writes `i`, so the operand is the lvalue whose span the target carries.
-    const target: Expr = withSpan(
-      binding.kind === 'param'
-        ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
-        : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
-      sourceFile,
-      targetExpr,
-    )
-    return {
-      s: 'assign',
-      target,
-      expr: {
-        op: 'binop',
-        type: binding.type,
-        bop: op === ts.SyntaxKind.PlusPlusToken ? '+' : '-',
-        a: target,
-        b: { op: 'lit', type: binding.type, value: 1 },
-      },
-    }
+    return { s: 'assignOp', target, bop, expr: one }
   }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
     const left = expr.left
@@ -338,6 +355,36 @@ export function lowerUpdate(
   }
   pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)
   return undefined
+}
+
+/** The types `++` and `--` can step. A numeric scalar and a native vector are what both
+ *  backends add `1` to component-wise, and an emulated-double vector goes through the fp64
+ *  pass. A bool, a struct, an array and a matrix cannot: `p.q++` on a struct-typed field
+ *  emitted `p.q = (p.q + 1.0)`, which Tint and ANGLE both reject and the CPU oracle
+ *  evaluates to undefined. The identifier arm shares the check, which closes the same hole
+ *  it has always had for a bare `q++`. */
+/** The constructor an author would write to add one to a vector of this type, for the `++`
+ *  refusal's message: `vec3(1., 1., 1.)`, `vec3f64(...)` for an emulated double. */
+function vecCtorHint(t: ShaderType): string {
+  if (isVec64(t)) return `vec${t.n}f64(...)`
+  if (!isVec(t)) return 'vec3(1., 1., 1.)'
+  const suffix = t.elem === 'f32' ? '' : t.elem === 'i32' ? 'i' : 'u'
+  const one = t.elem === 'f32' ? '1.' : '1'
+  return `vec${t.n}${suffix}(${Array.from({ length: t.n }, () => one).join(', ')})`
+}
+
+function isSteppable(t: ShaderType): boolean {
+  // A numeric SCALAR only, vectors included out. `++` builds its step as one literal of the
+  // target's type, and no vector literal has a spelling: `v++` on a `vec3` and on a `vec3f64`
+  // alike fails closed at emit with SD0017 ("vec constant with no valueExpr"), on `main` and on
+  // this branch, for the bare name as well as for the member and element forms this item adds.
+  // Measured against origin/main before narrowing this, so it refuses nothing that compiles —
+  // it moves a backend failure to the source, where the message can name the fix.
+  const k = typeKey(t)
+  // f64 belongs here: an emulated double is a numeric scalar the fp64 pass lowers, and `s++`
+  // on one emitted `s = df64_add(s, vec2<f32>(1.0, 0.0))` before this check existed. Leaving
+  // it out made the check reject a program that compiled — the one thing it must not do.
+  return k === 'f32' || k === 'i32' || k === 'u32' || k === 'f64'
 }
 
 function lowerBody(
