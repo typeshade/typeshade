@@ -691,7 +691,43 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 437 definitions
+## `./language-service` — 31 exports
+
+```
+AMBIENT_LIB_URI
+ATTRIBUTE_DOCS
+ATTRIBUTE_NAMES
+BUILTIN_DOCS
+createTypeshadeLanguageService
+offsetAt
+positionAt
+rangeForSpan
+SHADE_DTS
+spanForRange
+TYPE_DOCS
+TypeshadeCompiledOutput
+TypeshadeCompletionItem
+TypeshadeCompletionKind
+TypeshadeDiagnostic
+TypeshadeDocumentSymbol
+TypeshadeHover
+TypeshadeLanguageService
+TypeshadeLanguageServiceHost
+TypeshadeLocation
+TypeshadePosition
+TypeshadeRange
+TypeshadeSemanticToken
+TypeshadeSemanticTokenModifier
+TypeshadeSemanticTokenType
+TypeshadeSeverity
+TypeshadeSignatureHelp
+TypeshadeSymbolKind
+TypeshadeTextEdit
+TypeshadeTextSpan
+WGSL_BUILTIN_NAMES
+```
+
+## Shapes — 468 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -699,7 +735,7 @@ src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
 src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: SourceFile) => ExpressionStatement
 src/compiler/ts/directive.ts#hasUseTypeshadeDirective  function  (sourceFile: SourceFile) => boolean
 src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => boolean
-src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { fileName?: string; requireDirective?: boolean }
+src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
 src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; sourceFile: SourceFile; structs: readonly CollectedStruct[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
@@ -1126,9 +1162,40 @@ src/emit-prod.ts#prune  function  () => EmitPlugin
 src/language-service.ts#TypeshadeCompletionItem  interface  { detail: string; insertText?: string; kind: "function" | "keyword" | "type" | "attribute" | "value"; label: string }
 src/language-service.ts#TypeshadeDiagnostic  interface  { category: "error" | "warning" | "message"; code?: string; fileName: string; message: string; range: TypeshadeRange; span: TypeshadeTextSpan }
 src/language-service.ts#TypeshadeHover  interface  { contents: readonly string[]; range: TypeshadeRange; span: TypeshadeTextSpan }
-src/language-service.ts#TypeshadeLanguageService  class  { fileName: string; getCompletions: (source: string, position: TypeshadePosition) => readonly TypeshadeCompletionItem[]; getDiagnostics: (source: string) => readonly TypeshadeDiagnostic[]; getHover: (source: string, position: TypeshadePosition) => TypeshadeHover; getOffset: (source: string, position: TypeshadePosition) => number; getPosition: (source: string, offset: number) => TypeshadePosition }
+src/language-service.ts#TypeshadeLanguageService  class  { #service: TypeshadeLanguageService; #withDocument: <T>(source: string, fn: (uri: string) => T) => T; fileName: string; getCompletions: (source: string, position: TypeshadePosition) => readonly TypeshadeCompletionItem[]; getDiagnostics: (source: string) => readonly TypeshadeDiagnostic[]; getHover: (source: string, position: TypeshadePosition) => TypeshadeHover; getOffset: (source: string, position: TypeshadePosition) => number; getPosition: (source: string, offset: number) => TypeshadePosition }
 src/language-service.ts#TypeshadeLanguageServiceOptions  interface  { fileName?: string }
 src/language-service.ts#TypeshadePosition  interface  { character: number; line: number }
 src/language-service.ts#TypeshadeRange  interface  { end: TypeshadePosition; start: TypeshadePosition }
 src/language-service.ts#TypeshadeTextSpan  interface  { length: number; start: number }
+src/language-service/ambient.ts#ATTRIBUTE_NAMES  const  readonly string[]
+src/language-service/ambient.ts#SHADE_DTS  const  string
+src/language-service/ambient.ts#WGSL_BUILTIN_NAMES  const  readonly string[]
+src/language-service/docs.ts#ATTRIBUTE_DOCS  const  Readonly<Record<string, string>>
+src/language-service/docs.ts#BUILTIN_DOCS  const  Readonly<Record<string, string>>
+src/language-service/docs.ts#TYPE_DOCS  const  Readonly<Record<string, string>>
+src/language-service/host.ts#AMBIENT_LIB_URI  const  "typeshade:shade.d.ts"
+src/language-service/host.ts#TypeshadeLanguageServiceHost  interface  { ambientLib?: string; readDocument?: (uri: string) => string; resolveImport?: (fromUri: string, specifier: string) => string }
+src/language-service/positions.ts#offsetAt  function  (sourceFile: SourceFile, position: TypeshadePosition) => number
+src/language-service/positions.ts#positionAt  function  (sourceFile: SourceFile, offset: number) => TypeshadePosition
+src/language-service/positions.ts#rangeForSpan  function  (sourceFile: SourceFile, span: TypeshadeTextSpan) => TypeshadeRange
+src/language-service/positions.ts#spanForRange  function  (sourceFile: SourceFile, range: TypeshadeRange) => TypeshadeTextSpan
+src/language-service/service.ts#TypeshadeLanguageService  interface  { closeDocument: (uri: string) => void; getCompiledOutput: (uri: string, target: "wgsl" | "glsl-vertex" | "glsl-fragment") => TypeshadeCompiledOutput; getCompletions: (uri: string, position: TypeshadePosition) => readonly TypeshadeCompletionItem[]; getDefinition: (uri: string, position: TypeshadePosition) => readonly TypeshadeLocation[]; getDiagnostics: (uri: string) => readonly TypeshadeDiagnostic[]; getDocumentSymbols: (uri: string) => readonly TypeshadeDocumentSymbol[]; getHover: (uri: string, position: TypeshadePosition) => TypeshadeHover; getReferences: (uri: string, position: TypeshadePosition, options?: { includeDeclaration?: boolean; }) => readonly TypeshadeLocation[]; getSemanticTokens: (uri: string, range?: TypeshadeRange) => readonly TypeshadeSemanticToken[]; getSignatureHelp: (uri: string, position: TypeshadePosition) => TypeshadeSignatureHelp; offsetAt: (uri: string, position: TypeshadePosition) => number; openDocument: (uri: string, text: string, version?: number) => void; positionAt: (uri: string, offset: number) => TypeshadePosition; prepareRename: (uri: string, position: TypeshadePosition) => { range: TypeshadeRange; placeholder: string; }; rename: (uri: string, position: TypeshadePosition, newName: string) => Readonly<Record<string, readonly TypeshadeTextEdit[]>>; updateDocument: (uri: string, text: string, version?: number) => void }
+src/language-service/service.ts#createTypeshadeLanguageService  function  (host?: TypeshadeLanguageServiceHost) => TypeshadeLanguageService
+src/language-service/types.ts#TypeshadeCompiledOutput  interface  { diagnostics: readonly TypeshadeDiagnostic[]; target: "wgsl" | "glsl-vertex" | "glsl-fragment"; text: string }
+src/language-service/types.ts#TypeshadeCompletionItem  interface  { detail?: string; documentation?: string; filterText?: string; insertText?: string; insertTextFormat?: "snippet" | "plain"; kind: TypeshadeCompletionKind; label: string; sortText?: string; textEdit?: TypeshadeTextEdit }
+src/language-service/types.ts#TypeshadeCompletionKind  type  "function" | "keyword" | "type" | "attribute" | "struct" | "builtin" | "variable" | "field" | "resource" | "snippet"
+src/language-service/types.ts#TypeshadeDiagnostic  interface  { code: string | number; message: string; range: TypeshadeRange; relatedInformation?: readonly { location: TypeshadeLocation; message: string; }[]; severity: TypeshadeSeverity; source: "typeshade" | "typescript"; span: TypeshadeTextSpan; uri: string }
+src/language-service/types.ts#TypeshadeDocumentSymbol  interface  { children?: readonly TypeshadeDocumentSymbol[]; detail?: string; kind: TypeshadeSymbolKind; name: string; range: TypeshadeRange; selectionRange: TypeshadeRange }
+src/language-service/types.ts#TypeshadeHover  interface  { contents: string; range: TypeshadeRange }
+src/language-service/types.ts#TypeshadeLocation  interface  { range: TypeshadeRange; uri: string }
+src/language-service/types.ts#TypeshadePosition  interface  { character: number; line: number }
+src/language-service/types.ts#TypeshadeRange  interface  { end: TypeshadePosition; start: TypeshadePosition }
+src/language-service/types.ts#TypeshadeSemanticToken  interface  { character: number; length: number; line: number; modifiers: readonly TypeshadeSemanticTokenModifier[]; type: TypeshadeSemanticTokenType }
+src/language-service/types.ts#TypeshadeSemanticTokenModifier  type  "entry" | "declaration" | "readonly" | "gpu" | "defaultLibrary"
+src/language-service/types.ts#TypeshadeSemanticTokenType  type  "string" | "number" | "function" | "keyword" | "type" | "struct" | "builtin" | "variable" | "resource" | "parameter" | "property" | "decorator" | "operator"
+src/language-service/types.ts#TypeshadeSeverity  type  "error" | "warning" | "information" | "hint"
+src/language-service/types.ts#TypeshadeSignatureHelp  interface  { activeParameter: number; activeSignature: number; signatures: readonly { readonly label: string; readonly documentation?: string; readonly parameters: readonly { label: string; documentation?: string; }[]; }[] }
+src/language-service/types.ts#TypeshadeSymbolKind  type  "function" | "struct" | "variable" | "field" | "resource" | "constant" | "parameter" | "entry"
+src/language-service/types.ts#TypeshadeTextEdit  interface  { newText: string; range: TypeshadeRange }
+src/language-service/types.ts#TypeshadeTextSpan  interface  { length: number; start: number }
 ```

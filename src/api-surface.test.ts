@@ -66,7 +66,7 @@ const REBAKE = 'bun run bake:api-surface'
 /** The subpaths that ARE the public API. Mirrors api-doc-coverage.test.ts's list, and arm S4
  *  there already pins it against `package.json` — so a new subpath cannot appear unnoticed in
  *  one file and not the other. */
-const API_SUBPATHS = ['.', './dev', './emit-prod', './core/ir'] as const
+const API_SUBPATHS = ['.', './dev', './emit-prod', './core/ir', './language-service'] as const
 
 /** Floors for the "did the reader read anything" arm. DELIBERATELY well under the real counts,
  *  which this reader measured at 355 / 33 / 17 / 222 when it landed. (Do not read those as
@@ -81,6 +81,7 @@ const FLOOR: Readonly<Record<string, number>> = {
   './dev': 20,
   './emit-prod': 10,
   './core/ir': 120,
+  './language-service': 15,
 }
 
 // ── the reader ──────────────────────────────────────────────────────────────────────────
