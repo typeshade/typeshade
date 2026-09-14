@@ -48,8 +48,9 @@ Where the two disagree with intuition, the probe wins. Three results came out th
 way from what reading the feature list suggested: **A2** (member assignment), which ranks
 second in issue #8, blocks nothing here; f64 **arithmetic** already works, so the fp64
 family is held up by the cast and the literal rather than by the emulation; and `.length`
-on an unsized storage array is accepted and emits `0u`, which is worse than the rejection
-it was assumed to be.
+on an unsized storage array **was** accepted and emitted `0u`, which is worse than the
+rejection it was assumed to be — see the hazards entry below, which records that it is a
+diagnostic now.
 
 The classification is then "does every feature this example demands have a probe that
 passes". For seven examples the whole shader was additionally written out as a `.shade.ts`
@@ -294,9 +295,12 @@ for them and the language session should weigh them accordingly.
   integer varying is then invalid on the GPU, and nothing before the driver says so.
   (Issue #8 A5 predicts this; confirmed here.) No current example uses it — but any twin
   that needs a flat varying would be silently broken.
-- **`xs.length` on an unsized storage array emits `0u`.** Probed: the guard
-  `if (gid.x >= u32(src.length))` compiles and emits `if ((gid.x >= 0u))`. Wrong output,
-  no diagnostic. (Issue #8 S5.)
+- **`xs.length` on an unsized storage array emitted `0u`.** Probed: the guard
+  `if (gid.x >= u32(src.length))` compiled and emitted `if ((gid.x >= 0u))` — true for every
+  unsigned invocation, so the kernel returned at once and wrote nothing. Wrong output, no
+  diagnostic, valid WGSL, accepted by Tint. (Issue #8 S5, filed as
+  [#46](https://github.com/typeshade/typeshade/issues/46).) **It is a diagnostic now**
+  (`TS8032`); the `arrayLength` spelling that would let it work is #46's second half.
 - **Assignment to a parameter is accepted.** `function fs(x: f32) { x = x + 1. }` compiles.
   WGSL parameters are immutable. (Issue #8 "later", M13·S32.)
 - **A `.shade.ts` file cannot import.** `import { VsOut } from './_fullscreen.js'` parses
