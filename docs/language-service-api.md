@@ -447,15 +447,16 @@ One false negative is left and is not otherwise visible: an argument AFTER the o
 dropped, wrong in a way that is not a vector shape (a string, a scalar of the wrong kind), is
 still hidden, since TypeScript never reported it in the first place. For a user function and the
 vector constructors the front end's own argument check (`TS8003`, `TS8019`) says it anyway; for
-the ambient math functions nothing does, and a front-end argument check for them is the fix.
+the ambient math functions nothing does, and a front-end argument check for them is the fix (#57).
 
 What stays open, measured by running the service over the 17 `.shade.ts` files on
-`feat/porting-twins` (the corpus in issue #43, which carries the gradient twin too, and whose
-copy of `hello-uniform-struct.shade.ts` is the un-annotated form): the TS2345 rule clears 12 of
-that corpus's 58 diagnostics and the TS2365 spanned-operation fix 2 more, which takes
-`hello-uniform-struct.shade.ts` to zero and leaves 44. `main`'s own `examples/` gate was already green before either rule, because #18
-annotated the one local that failed it (`const rgb: vec3 = ...`); what these rules buy is the
-twins, which cannot take that workaround, and the reason #18 needed it.
+`feat/porting-twins` (the corpus in issue #43, which carries the gradient twin too, and whose copy
+of `hello-uniform-struct.shade.ts` is the un-annotated form): the TS2345 rule clears 12 of that
+corpus's 58 diagnostics and the TS2365 spanned-operation fix 2 more, which takes
+`hello-uniform-struct.shade.ts` to zero and leaves 44. `main`'s own `examples/` gate was already
+green before either rule, because #18 annotated the one local that failed it (`const rgb: vec3 =
+...`); what these rules buy is the twins, which cannot take that workaround, and the reason #18
+needed it.
 
 The 44 are two causes. 28 of them come from a product assigned to an un-annotated local: the local
 is declared `number`, the brand is gone at the declaration, and every later use of it reports:

@@ -105,11 +105,12 @@ describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issu
   }
 
   it('a rest parameter is measured by its element type, and the compiler still speaks', () => {
-    // `hypot(...args: T[])` is one of the five variadic math aliases (`MATH_EXPAND_ALIAS`:
-    // `log10`, `log1p`, `expm1`, `cbrt`, `hypot`), which together with `array(...values)` are
-    // the ambient lib's only rest parameters. This program is NOT valid: hypot takes scalars. TypeScript's complaint about it is the
-    // poisoned-inference one (`w` measured against the `number` the product inferred), so it
-    // goes, and what is left is the compiler saying the thing that is actually wrong.
+    // `hypot(...args: T[])` is one of the five variadic math aliases (`MATH_EXPAND_ALIAS`: `log10`,
+    // `log1p`, `expm1`, `cbrt`, `hypot`), which together with `array(...values)` are the ambient
+    // lib's only rest parameters. This program is NOT valid: hypot takes scalars. TypeScript's
+    // complaint about it is the poisoned-inference one (`w` measured against the `number` the
+    // product inferred), so it goes, and what is left is the compiler saying the thing that is
+    // actually wrong.
     const source =
       '"use typeshade"\nexport function f(v: vec3, w: vec3, s: f32): vec3 {\n  return hypot(v * s, w)\n}\n'
     expect(typeScriptDiagnosticsOf(source)).toEqual([])
