@@ -37,13 +37,16 @@ function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
   return found
 }
 
-function isExportedFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclaration {
-  return (
-    ts.isFunctionDeclaration(node) &&
-    node.parent !== undefined &&
-    ts.isSourceFile(node.parent) &&
-    (node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false)
-  )
+/**
+ * A top-level function declaration, exported or not. `lower/function.ts`'s
+ * `lowerSourceFunctions` is the authority on what counts as a `"use typeshade"` entry point —
+ * it collects every `sourceFile.statements.filter(ts.isFunctionDeclaration)` with no `export`
+ * requirement at all, so `@vertex`/`@fragment`/`@compute` on a non-exported top-level function
+ * compiles and emits today. The old `export`-only predicate here disagreed with that and left
+ * TS1206 red on a program the compiler accepts outright.
+ */
+function isTopLevelFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclaration {
+  return ts.isFunctionDeclaration(node) && node.parent !== undefined && ts.isSourceFile(node.parent)
 }
 
 /**
@@ -51,12 +54,13 @@ function isExportedFunctionDeclaration(node: ts.Node): node is ts.FunctionDeclar
  * (`@vertex`) and on a parameter decorator (`@builtin("vertex_index")`) alike, because legacy
  * decorators are grammatically valid only on a class, its members, or their parameters — never
  * on a plain function declaration. `"use typeshade"` deliberately puts `@vertex`/`@fragment`/
- * `@compute` on a top-level exported function and `@builtin`/`@location` on that function's
- * parameters, so this is the one syntax-level restriction no ambient `.d.ts` can configure away
- * (§6); this predicate recognizes exactly that shape, on the entry function itself or on one of
- * its parameters, so any other TS1206 (a decorator TypeShade does not define) still surfaces.
+ * `@compute` on a top-level function (exported or not — see `isTopLevelFunctionDeclaration`)
+ * and `@builtin`/`@location` on that function's parameters, so this is the one syntax-level
+ * restriction no ambient `.d.ts` can configure away (§6); this predicate recognizes exactly
+ * that shape, on the entry function itself or on one of its parameters, so any other TS1206
+ * (a decorator TypeShade does not define) still surfaces.
  */
-function isDecoratorOnTopLevelExportedFunction(
+function isDecoratorOnTopLevelFunction(
   sourceFile: ts.SourceFile,
   diagnostic: ts.Diagnostic,
 ): boolean {
@@ -66,9 +70,9 @@ function isDecoratorOnTopLevelExportedFunction(
   if (node === undefined) return false
   const decorated = node.parent
   if (decorated === undefined) return false
-  if (isExportedFunctionDeclaration(decorated)) return true
+  if (isTopLevelFunctionDeclaration(decorated)) return true
   if (ts.isParameter(decorated) && decorated.parent !== undefined) {
-    return isExportedFunctionDeclaration(decorated.parent)
+    return isTopLevelFunctionDeclaration(decorated.parent)
   }
   return false
 }
@@ -77,11 +81,12 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
     reason:
-      '@vertex/@fragment/@compute on a top-level exported function, and @builtin/@location on ' +
-      'that function\'s parameters, are exactly the grammar "use typeshade" defines — legacy ' +
-      'decorators otherwise forbid a function declaration or its parameters as a target, and no ' +
-      'compiler option relaxes that. See design doc §6.',
-    when: isDecoratorOnTopLevelExportedFunction,
+      '@vertex/@fragment/@compute on a top-level function, and @builtin/@location on that ' +
+      'function\'s parameters, are exactly the grammar "use typeshade" defines (the compiler ' +
+      'does not require export either — see lower/function.ts) — legacy decorators otherwise ' +
+      'forbid a function declaration or its parameters as a target, and no compiler option ' +
+      'relaxes that. See design doc §6.',
+    when: isDecoratorOnTopLevelFunction,
   },
 ]
 

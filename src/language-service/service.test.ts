@@ -79,6 +79,29 @@ describe('getDiagnostics: a broken program', () => {
       .filter((d) => d.source === 'typescript' && d.code === 1206)
     expect(ts1206).toEqual([])
   })
+
+  // Regression: the compiler's own `lowerSourceFunctions` collects every top-level function
+  // declaration (`sourceFile.statements.filter(ts.isFunctionDeclaration)`), with no `export`
+  // requirement at all, so `@vertex` on a non-exported function compiles and emits today. The
+  // TS1206 filter used to require `export` on the decorated function, which disagreed with that
+  // and left a real TS1206 red on a program the compiler accepts outright.
+  it('never reports TS1206 for @vertex/@fragment on a non-exported top-level function either', () => {
+    const service = createTypeshadeLanguageService()
+    const text =
+      '"use typeshade";\n' +
+      'class Clip {\n' +
+      '  @builtin("position") pos: vec4\n' +
+      '}\n' +
+      '@vertex\n' +
+      'function vs(@builtin("vertex_index") i: u32): Clip {\n' +
+      '  return { pos: vec4(0., 0., 0., 1.) }\n' +
+      '}\n'
+    service.openDocument('unexported.ts', text)
+    const ts1206 = service
+      .getDiagnostics('unexported.ts')
+      .filter((d) => d.source === 'typescript' && d.code === 1206)
+    expect(ts1206).toEqual([])
+  })
 })
 
 describe('getCompiledOutput', () => {
