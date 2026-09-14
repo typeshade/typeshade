@@ -242,4 +242,31 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+---
+
+## 9. Vector constructors
+
+A `vecN` constructor either **composes** a vector out of parts of its own element type, or
+**converts** one whole vector of the same size:
+
+```ts
+vec3(a, b, c)        // compose: three f32
+vec3(0.5)            // splat
+vec4(v3, 1.)         // compose from a vec3 and a scalar
+vec4(v2, v2)         // compose from two vec2
+vec3f(v)             // convert: v is a vec3u, every component becomes an f32
+vec3u(v)             // convert the other way
+vec2(gid.xy)         // convert a vec2<u32> swizzle to vec2<f32>
+```
+
+The converting form is WGSL's `vecN<T>(e: vecN<S>)` and GLSL ES 3.00's `vec3(uv)`, and the
+EDSL's `vec3(v)` builds the same node. It needs exactly one argument, a vector of the
+constructor's own size; a vector of another size and a mixed list such as `vec3(v2u, 1.)`
+stay rejected, as WGSL rejects them.
+
+The conversion follows WGSL's scalar conversion, on the GPU and in the CPU oracle alike: a
+float source saturates into an integer target (`vec3u(vec3(-3.2, …))` is `0`, not `-3`), and
+`i32` and `u32` are reinterpreted two's-complement. An emulated-double vector is not
+converted this way.
+
 Last updated: 2026-09-14
