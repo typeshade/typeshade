@@ -5,7 +5,7 @@
 //
 //   • MANGLE INVARIANCE — renaming every internal identifier changes nothing
 //     semanticDiff reports. `obfuscate()`'s only IR-stage plugin is `mangle` (the rest
-//     transform text), so this is the assertion behind #1715's "the production emit is
+//     transform text), so this is the assertion behind X-GIS #1715's "the production emit is
 //     the dev emit, optimized".
 //   • NON-VACUITY — two DIFFERENT examples must differ. Without this arm a comparator
 //     that returned four empty arrays unconditionally would pass the invariant above

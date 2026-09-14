@@ -10,7 +10,7 @@
 // it, but `emitGlslModule` → `assembleGlsl` builds its OWN header parts array
 // (glsl.ts:1210-1216) and never calls it.
 //
-// #1670 closes that: ONE `capProfile` table per backend (neutral id → { directive?,
+// X-GIS #1670 closes that: ONE `capProfile` table per backend (neutral id → { directive?,
 // hostFeature? }) from whose keys `Capabilities` derives — collapsing the existing
 // two-authorities pair `wgslBackend.caps` (wgsl.ts:141-143) + `WGSL_ENABLE`
 // (wgsl.ts:105-108) rather than adding a third list — plus a `reflect()`
@@ -21,7 +21,7 @@
 // `float32Blend` / `float32Filterable` / `multiview`) were not in the `Capability` union
 // at 9b8253bc, so the red run recorded below spelled each through a `futureCap()`
 // (`as unknown as Capability`) scaffold: the only thing that stood between "the test is
-// red for the right reason" and "the test does not compile". #1670 IS this commit, the
+// red for the right reason" and "the test does not compile". X-GIS #1670 IS this commit, the
 // union now admits all four, and the scaffold is gone — every id here is a BARE LITERAL,
 // which makes each call site a positive TYPE-level probe as well as a value one
 // (tsconfig.tests.json type-checks this file as the second half of `bun run build`, so a
@@ -97,7 +97,7 @@
 //     existing test drives an f64 module that also declares enables.
 //
 //  6. f16 STILL fails closed on GLSL  (GREEN-PIN)
-//     GREEN today; must stay green. The single most likely #1670 regression is a
+//     GREEN today; must stay green. The single most likely X-GIS #1670 regression is a
 //     capProfile refactor that hands the GLSL backend a row it must not have. Pins
 //     the same invariant as passes/required-caps.test.ts:95-97 and
 //     backends/enable-directives.test.ts:54-56, locally, next to the new profile.
@@ -148,7 +148,7 @@ const fragMod = (enables?: readonly DeclarableCapability[]): ModuleDecl =>
 
 const requiredFeaturesOf = (m: ModuleDecl): readonly Capability[] => reflect(m).requiredFeatures
 
-describe('#1670 — WebGL2 extension profile surface (fail-before)', () => {
+describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () => {
   // ── 1. RED — the host-side trio is legal on GLSL and costs zero bytes ──
   // EXT_color_buffer_float / EXT_float_blend / OES_texture_float_linear are activated
   // by the HOST (`gl.getExtension`), never by a token in the shader source. So the
@@ -226,7 +226,7 @@ describe('#1670 — WebGL2 extension profile surface (fail-before)', () => {
   // ── 5. RED — fp64Lower must not swallow `enables` ──
   // The pass rebuilds the module literal and re-attaches only `overrides`, so an f64
   // module's declared caps vanish. Invisible to tsc (`enables` is optional) and to
-  // every emit path that reads the AUTHORED module — but any #1670 consumer deriving
+  // every emit path that reads the AUTHORED module — but any X-GIS #1670 consumer deriving
   // from the LOWERED module (reflection of a lowered module, a GLSL header built
   // inside assembleGlsl, which sees ONLY the lowered module) loses them silently, on
   // f64 modules only. Uses the REAL cap 'f16' so no cast is needed here.

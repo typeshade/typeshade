@@ -7,7 +7,7 @@
 // offers is a hatch that shuts the WebGL2 backend off entirely: a module that
 // needs a hand-written fragment on WGSL cannot ship a GLSL twin of it at all.
 //
-// #1671 pairs them: the node becomes an AT-LEAST-ONE union of
+// X-GIS #1671 pairs them: the node becomes an AT-LEAST-ONE union of
 // `{ wgsl; glsl? }` | `{ wgsl?; glsl }`, each side emitted VERBATIM by its own
 // backend, each backend still failing closed when ITS payload is missing.
 //
@@ -50,7 +50,7 @@
 //     still throws. deadFnElim (passes/opt/dce-fns.ts) does not save it either: it
 //     bails out of whole-module tree-shaking on any raw for the same reason (a raw
 //     may call a helper textually). Pinned because it is the documented consequence
-//     of 987 and because #1671 must not silently "fix" it by dropping the helper.
+//     of 987 and because X-GIS #1671 must not silently "fix" it by dropping the helper.
 //
 //  5. glsl-only raw must fail closed on WGSL (the symmetric arm)
 //     RED. Today NOTHING throws. wgsl.ts:159 is `rawStmt: (wgsl) => wgsl`, so an
@@ -58,7 +58,7 @@
 //     it into the module body. Pre-implementation emit, verbatim:
 //       "@fragment\nfn fs_glsl_only() -> @location(0) vec4<f32> {\n  undefined\n}\n"
 //     That is not WGSL; it fails at naga with no line back to the authoring site —
-//     the exact failure mode #1672 closed on the builtin surface. The assertion
+//     the exact failure mode X-GIS #1672 closed on the builtin surface. The assertion
 //     below is the FUTURE contract (throw, message naming the missing wgsl side).
 //
 //  6. multi-line paired raw → indent prefix on the FIRST line only
@@ -104,7 +104,7 @@ const fragEntry = (name: string, body: readonly Stmt[]): ModuleDecl => ({
   ],
 })
 
-// ── #1671's shape: both payloads on one Stmt ──
+// ── X-GIS #1671's shape: both payloads on one Stmt ──
 const pairedMod = (): ModuleDecl =>
   fragEntry('fs_paired', [{ s: 'raw', wgsl: WGSL_PAYLOAD, glsl: GLSL_PAYLOAD }])
 

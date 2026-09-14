@@ -3,7 +3,7 @@ import { fn, module, f32T, vec2fT } from './index.js'
 import { structDecl, ioStruct, location } from '../sot.js'
 import { emitModule } from '../backends/wgsl.js'
 
-// ═══ #740 R6 — struct/IO handles as fn param specs ═══
+// ═══ X-GIS #740 R6 — struct/IO handles as fn param specs ═══
 //
 // `fn({ s: Seg }, ({ s }) => s.k …)` must emit BYTE-IDENTICALLY to the retired
 // `fn({ s: Seg.type }, (p) => Seg.of(p.s).k …)` re-assertion — the handle path

@@ -208,7 +208,7 @@ const BUILT_ARTIFACTS: Readonly<Record<string, string>> = {}
 /** How many tracked paths a `files`-style pathspec expands to, asked from the package dir. */
 const trackedBehind = (entry: string): number => git(PKG_DIR, 'ls-files', '--', entry).length
 
-describe('#1681 C — the mirror invariant (F5) + the manifest hygiene it rests on', () => {
+describe('X-GIS #1681 C — the mirror invariant (F5) + the manifest hygiene it rests on', () => {
   // ── S1 ────────────────────────────────────────────────────────────────────────────────
 
   it('scan sanity — the import scanner SAW the package source', () => {

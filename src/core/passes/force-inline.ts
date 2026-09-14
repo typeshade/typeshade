@@ -128,7 +128,7 @@ function countCalls(m: ModuleDecl, name: string): number {
  *  (module -> module); `typeshade/emit-prod`'s `forceInline()` plugin.
  *
  *  Opacity is re-applied from a set captured BEFORE the first round, never from a
- *  `df64_` NAME test — a name test is exactly what #1926 removed, because `mangle`
+ *  `df64_` NAME test — a name test is exactly what X-GIS #1926 removed, because `mangle`
  *  renames the library and the invariant then held or not depending on plugin order. */
 /** Every Expr node in the module, counted through the SAME walker the passes
  *  rewrite with (`mapModuleExprs`), so the budget cannot drift from what the

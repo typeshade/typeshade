@@ -4,7 +4,7 @@ import { uniformStruct, ioStruct, location, builtin } from './sot.js'
 import { reflect } from './reflect.js'
 import { emitGlslModule } from './backends/glsl.js'
 
-// ═══ #1906 — `BindEntry.stages`: reflection reports which stages reach a binding ═══
+// ═══ X-GIS #1906 — `BindEntry.stages`: reflection reports which stages reach a binding ═══
 //
 // A host cannot build a bind group layout from a reflection that omits this:
 // `GPUBindGroupLayoutEntry.visibility` is a REQUIRED stage mask, and a WebGL2 host
@@ -53,7 +53,7 @@ const pair = () =>
     ],
   })
 
-describe('#1906 — BindEntry.stages', () => {
+describe('X-GIS #1906 — BindEntry.stages', () => {
   it('reports the stage that actually reaches each binding, not every stage', () => {
     const r = reflect(pair())
     // fail-before: the field did not exist, and a host had to author all four by hand.

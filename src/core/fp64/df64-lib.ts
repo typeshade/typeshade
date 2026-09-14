@@ -593,7 +593,7 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   // always the true vT carried by the param/member exprs.
   type V = ReadonlyNode<'vec2<f32>'>
   const asV = (x: ReadonlyNode): V => x as unknown as V
-  // No `: Node` return annotation on these three: since #2456 `construct` carries the
+  // No `: Node` return annotation on these three: since X-GIS #2456 `construct` carries the
   // struct key, and annotating widens it straight back to `Node<string>` — which is what
   // the sibling fns' now-precise struct params reject.
   const pair = (hi: ReadonlyNode, lo: ReadonlyNode) => construct(sT, [hi, lo])

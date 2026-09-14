@@ -211,7 +211,7 @@ describe('glsl-es300 — @vertex / @fragment entry-IO lowering', () => {
     expect(vs).toMatch(/^out vec2 uv;$/m)
     expect(vs).not.toMatch(/layout\(location = \d+\) out/)
     // @builtin(position) → gl_Position (vertex output), not a varying. The body assembles
-    // its output with `var o` + field assigns, which #1867's structCtor collapses to the
+    // its output with `var o` + field assigns, which X-GIS #1867's structCtor collapses to the
     // constructor the scatter then reads field-by-field — so the builtin is written from
     // the field's own expression, with no aggregate in between.
     // …and the input struct is substituted away too, so the whole entry is two lines.
@@ -227,7 +227,7 @@ describe('glsl-es300 — @vertex / @fragment entry-IO lowering', () => {
   })
 
   it('maps a readable @builtin(position) fragment input to gl_FragCoord (not gl_Position)', () => {
-    // The shared fixture's fragment never READS the position field, and since #1867 the
+    // The shared fixture's fragment never READS the position field, and since X-GIS #1867 the
     // gather no longer copies a field nothing reads — so the claim needs a body that
     // actually reads it, or the gate is about a line that is simply absent.
     const readsPos: ModuleDecl = {
@@ -294,7 +294,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
     fields: [{ name: 'uv', type: vec2fT, attr: '@location(0)' }],
   }
   // A helper that takes the IO struct WHOLE. Load-bearing for this whole suite since
-  // #1867: an entry param read only field-wise is substituted away entirely — its
+  // X-GIS #1867: an entry param read only field-wise is substituted away entirely — its
   // identifier never reaches the emit — so a rename gate on it would pass vacuously and
   // the derived sampler probe below would report a miss for EVERY spelling. Handing the
   // struct to a helper is what keeps a real param in the output, and it is the shape real
@@ -367,7 +367,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
     expect(fs).toMatch(/\.uv\b/) // the `uv` field is still accessed as `.uv`, not renamed
   })
 
-  // #1703 — the reserved set and glslType() are two lists of the SAME language's type
+  // X-GIS #1703 — the reserved set and glslType() are two lists of the SAME language's type
   // spellings, and nothing tied them together. The set carried only the ES-1.00-era
   // float trio (sampler2D/3D/Cube), so `sampler2DArray` (X-GIS #1651) and every integer
   // sampler were DECLARABLE by the backend while absent from it — a DSL local named
@@ -393,7 +393,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
     // away by the optimizer, so the identifier would vanish rather than be renamed and
     // the probe would report a reserved-word miss for every spelling, including the ones
     // already in the set. For the SAME reason it is handed WHOLE to `keep_whole`: a
-    // field-read-only param is substituted away by #1867, which vanishes it just as
+    // field-read-only param is substituted away by X-GIS #1867, which vanishes it just as
     // thoroughly as copy-propagation would.
     const paramNamed = (name: string): ModuleDecl => ({
       consts: [],
@@ -578,7 +578,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
   it('the storage lowering turns a storage array<f32> into a sampler2D + texelFetch (no SSBO)', () => {
     const fs = emitGlslModule(storageMod, 'fragment')
     expect(fs).toContain('uniform sampler2D data;') // storage binding → data texture
-    // data[i] → 2D-tiled fetch. Since #1878 the tiling lives in a HELPER the writer emits
+    // data[i] → 2D-tiled fetch. Since X-GIS #1878 the tiling lives in a HELPER the writer emits
     // rather than inline at each site, so the claim needs both halves — the math, and the
     // call that reaches it. Asserting only the call would pass on a helper doing anything.
     expect(fs).toContain(
@@ -588,7 +588,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(fs).not.toContain('data[') // no raw array indexing survives
   })
 
-  // #1647/#1649/#1681 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so
+  // X-GIS #1647/#1649/#1681 — WebGL2 having no SSBO is a PLATFORM fact, not a caller choice, so
   // the lowering is default-on for any module carrying a storage binding. The
   // `emulateStorage` opt-in that used to force it is GONE from GlslEmitOptions (X-GIS #1681 A1);
   // the byte-identity test that pinned "setting it changes nothing" died with the flag,
@@ -600,7 +600,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(fs).toContain('_sfetch(data,')
   })
 
-  // #823 — the retained-icon tint buffer shape: a top-level array<vec4<f32>> element
+  // X-GIS #823 — the retained-icon tint buffer shape: a top-level array<vec4<f32>> element
   // reads its 4 consecutive std430 lanes (i*4 .. i*4+3) recombined with a vec4 ctor.
   it('the storage lowering turns a storage array<vec4f> into 4 texelFetch lanes + a vec4 ctor', () => {
     const arrVec4 = { kind: 'array', elem: vec4fT } as ShaderType
@@ -692,7 +692,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
     expect(() => emitGlslModule(m, 'fragment')).toThrow(/'blob'[\s\S]*array<f32>/)
   })
 
-  // ── #1703 — the two shapes that USED to be the residual now lower, typed ──
+  // ── X-GIS #1703 — the two shapes that USED to be the residual now lower, typed ──
   //
   // The choice under test is the data texture's ELEMENT, not the index math (that is
   // shared with the f32 path and pinned above). An integer array must land on
@@ -930,7 +930,7 @@ describe('glsl-es300 — storage → data-texture emulation (default-on)', () =>
   })
 })
 
-// ── #1878 — the fetch is a CALL, and the writer owes its definition ──
+// ── X-GIS #1878 — the fetch is a CALL, and the writer owes its definition ──
 //
 // The storage lowering's GLSL spelling used to expand the tiled-index math inline at every
 // site, substituting the sampler three times and the index twice. That expansion happens in
@@ -1097,7 +1097,7 @@ describe('glsl-es300 — storage fetch spells a helper call (X-GIS #1878)', () =
   })
 
   it('casts the index AT THE CALL, so a non-integer index still compiles', () => {
-    // Paid for by a real WebGL2 run (_webgl2-render-gate): the first cut of #1878 gave the
+    // Paid for by a real WebGL2 run (_webgl2-render-gate): the first cut of X-GIS #1878 gave the
     // helper a `uint i` parameter, reasoning that every lane the storage lowering builds is
     // u32T. True of the lanes — but the writer is handed whatever Expr the CALLER indexed
     // with, and `data[uv.x * 3.0]` is a float. GLSL ES 3.00 §4.1.10 has no implicit
@@ -1167,7 +1167,7 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
     expect(() => emitGlslModule(badMod, 'vertex')).toThrow(UnsupportedFeatureError)
   })
 
-  // #1672 — the point_size SYMMETRY pin. This writer already rejected it (no
+  // X-GIS #1672 — the point_size SYMMETRY pin. This writer already rejected it (no
   // gl_PointSize entry in BUILTIN_OUT); the WGSL writer used to spell it verbatim and
   // let naga find it. Both rejections now live one grep apart — the WGSL twin is
   // backends/wgsl-absent-builtins.test.ts. The mechanisms stay SEPARATE on purpose:
@@ -1469,7 +1469,7 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (X-GIS #1651)', () => {
 // The element axis needs NO new neutral id: texelFetch / textureSize / the .z layer
 // read are already generic over the sampler type, so only the DECLARED type and the
 // RESULT type move. Both spellings of the same module are asserted side by side, same
-// as the #1651 block above, so a divergence lands in one diff.
+// as the X-GIS #1651 block above, so a divergence lands in one diff.
 describe('glsl-es300 / wgsl — integer texture reads (X-GIS #1703)', () => {
   const IntOut = ioStruct('IntOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
   const uTex = resource('u_ids', texture2duT, { group: 0, binding: 0 })
@@ -1536,7 +1536,7 @@ describe('glsl-es300 / wgsl — integer texture reads (X-GIS #1703)', () => {
   })
 
   it('the precision lines stay keyed to the STAGE, and a float-only module emits none', () => {
-    // Same negative shape as #1651's: the vertex stage here touches no texture, so a
+    // Same negative shape as X-GIS #1651's: the vertex stage here touches no texture, so a
     // check that degenerated to `kind === 'texture'` (module-wide instead of
     // stage-scoped) goes red. A stray precision line is legal GLSL, so no driver
     // catches this — only the assertion does.
@@ -1556,7 +1556,7 @@ describe('glsl-es300 / wgsl — integer texture reads (X-GIS #1703)', () => {
   })
 })
 
-// ── #1673 default FLOAT precision — a build-time emit knob, float line ONLY ──
+// ── X-GIS #1673 default FLOAT precision — a build-time emit knob, float line ONLY ──
 //
 // Mobile GPUs pay bandwidth/power for highp where mediump suffices, so the GLSL backend
 // takes a build-time `floatPrecision` emit option. Two properties carry the whole
@@ -1565,7 +1565,7 @@ describe('glsl-es300 / wgsl — integer texture reads (X-GIS #1703)', () => {
 //   1. `'highp'` (the default) is BYTE-NEUTRAL — an emit that omits the option is
 //      identical to every emit produced before the option existed.
 //   2. `'mediump'` moves EXACTLY ONE TOKEN. `precision highp int;` is load-bearing
-//      (storage-emulation index math, bitcast lanes) and the #1651
+//      (storage-emulation index math, bitcast lanes) and the X-GIS #1651
 //      `precision highp sampler2DArray;` line is a separate GLSL ES 3.00 §4.5.4
 //      requirement — sweeping either into the knob turns a bandwidth optimisation into
 //      a correctness bug.
@@ -1619,7 +1619,7 @@ describe('glsl-es300 — GlslEmitOptions.floatPrecision (X-GIS #1673)', () => {
     }
   })
 
-  // The #1651 line is a DIFFERENT requirement from the float default: GLSL ES 3.00
+  // The X-GIS #1651 line is a DIFFERENT requirement from the float default: GLSL ES 3.00
   // §4.5.4 predeclares a default precision for sampler2D / samplerCube only, so a
   // sampler2DArray needs its own qualifier or the shader does not compile at all.
   // It stays highp under the knob.
@@ -1648,7 +1648,7 @@ describe('glsl-es300 — GlslEmitOptions.floatPrecision (X-GIS #1673)', () => {
   )
   const pArrMod = dslModule({ uses: [PArrOut, pArrTex, pArrSmp], funcs: [pArrVs, pArrFs] })
 
-  it('the #1651 sampler2DArray line stays highp under mediump (it is not part of the knob)', () => {
+  it('the X-GIS #1651 sampler2DArray line stays highp under mediump (it is not part of the knob)', () => {
     const HIGHP_ARR =
       '#version 300 es\nprecision highp float;\nprecision highp int;\n' +
       'precision highp sampler2DArray;\n\n'

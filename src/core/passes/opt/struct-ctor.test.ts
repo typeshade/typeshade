@@ -17,7 +17,7 @@ import { emitModule } from '../../backends/wgsl.js'
 import { emitGlslModule } from '../../backends/glsl.js'
 import { compileModule } from '../../oracle.js'
 
-// #1867 — a write-once struct local is a VALUE being assembled, not a variable. The
+// X-GIS #1867 — a write-once struct local is a VALUE being assembled, not a variable. The
 // `Out.var()` + field-assign + `return o.$` shape is what ioStruct bodies author, and it
 // reached BOTH writers verbatim: `var out: FragmentOutput` in the WGSL, `VsOut _v1;` plus
 // a gather-shaped scatter in the GLSL. Collapsing it to the constructor is an IR fact, so

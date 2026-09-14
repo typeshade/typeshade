@@ -94,7 +94,7 @@ describe('oracle — vecN(scalar) splat matches WGSL', () => {
   })
 })
 
-// #839 — mod is FLOOR-mod on both targets; the oracle must match on the
+// X-GIS #839 — mod is FLOOR-mod on both targets; the oracle must match on the
 // negative operands where floor-mod and JS/WGSL trunc-mod disagree.
 describe('oracle — mod floor-mod semantics (X-GIS #839)', () => {
   it('negative x wraps into [0, y) (trunc-mod would return a negative)', () => {

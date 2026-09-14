@@ -15,10 +15,10 @@ const DERIVATIVE_FIX =
  *  the explicit-LOD texture form, its array form (whose fix must name the layer
  *  argument), and the derivatives (no same-shape alternative exists at all) — so the
  *  SD0109 catalogue hint (codes.ts) is deliberately GENERIC and points the reader at
- *  the diagnostic's own message; it is NOT a copy of any row. That replaces #1650's
+ *  the diagnostic's own message; it is NOT a copy of any row. That replaces X-GIS #1650's
  *  "first row byte-identical to the catalogue hint / one string, two surfaces"
  *  convention, which nothing ever enforced (no test compared the two) and which
- *  #1651's array row had already broken. Per-id hints are pinned where they are
+ *  X-GIS #1651's array row had already broken. Per-id hints are pinned where they are
  *  authored: this rule's tests. */
 const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [

@@ -346,7 +346,7 @@ export const BUILTINS: Record<string, Builtin> = {
   // i32(0xFFFFFFFFu) is -1 and u32(-1) is 0xFFFFFFFF (X-GIS #2274).
   i32: (x) => Math.trunc(x as number) | 0,
   u32: (x) => Math.trunc(x as number) >>> 0,
-  // #763 O1 — pure-math builtins the catalogue claims portable but the oracle
+  // X-GIS #763 O1 — pure-math builtins the catalogue claims portable but the oracle
   // lacked (a shader using them compiled + emitted on both GPU targets, then
   // threw `unknown fn` at first CPU use — and compileModule is production-used).
   pow: (a, b) =>

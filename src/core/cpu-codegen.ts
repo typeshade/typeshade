@@ -149,7 +149,7 @@ function emitExpr(e: Expr, S: FnCtx): string {
       if (id === undefined) throw new CodegenUnsupported(`unknown override ${e.name}`)
       return id
     }
-    // #1713 — a HOST-provided global has no CPU value: there is no host here. Refusing is
+    // X-GIS #1713 — a HOST-provided global has no CPU value: there is no host here. Refusing is
     // the honest answer; substituting 0 would make the oracle silently disagree with the
     // GPU, which is the one thing a reference implementation must never do.
     case 'externref':

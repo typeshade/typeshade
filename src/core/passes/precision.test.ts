@@ -5,7 +5,7 @@ import { compileModule } from '../oracle.js'
 import { compileModuleJs } from '../cpu-codegen.js'
 import { froundF32 } from './precision.js'
 
-// #2426 — the f32 oracle mode. The default oracle is f64 BY DESIGN (it is the algebra
+// X-GIS #2426 — the f32 oracle mode. The default oracle is f64 BY DESIGN (it is the algebra
 // reference); this pass makes the same IR evaluate as a correctly-rounding f32 machine, so a
 // parity gate can compare at ulp scale instead of a tolerance wide enough to hide a real error.
 

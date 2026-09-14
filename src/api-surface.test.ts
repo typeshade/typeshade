@@ -13,12 +13,12 @@
 // TREE, so it exists at PR time and changes visibly in the diff: an export cannot join,
 // leave, or change shape without the author updating this file and a reviewer seeing it.
 //
-// WHY THIS IS NOT #1653's REJECTED STALENESS GATE. That rejection (emit-changelog.ts:26-31)
+// WHY THIS IS NOT X-GIS #1653's REJECTED STALENESS GATE. That rejection (emit-changelog.ts:26-31)
 // is about the CHANGELOG: an entry's text is the squash subject, which does not exist until
 // the merge happens, so a PR-time check has nothing to check. It is exactly right, and it
 // does not reach this file — nothing here reads a commit, a subject, or a history.
 //
-// WHAT IT DOES NOT DO. It is not semver and does not try to be: #1681 dropped the version
+// WHAT IT DOES NOT DO. It is not semver and does not try to be: X-GIS #1681 dropped the version
 // story when increment C re-scoped to the subtree mirror, and a submodule pins a SHA. What a
 // consumer gets instead is strictly more precise than a version number — `git diff` over two
 // mirror SHAs of THIS FILE is the exact list of what changed for them.
@@ -35,7 +35,7 @@
 // `moduleResolution: 'classic'` as a silent kill switch that dropped `.` from 284 exports to
 // 91 with zero diagnostics. Re-measured on THIS tree while building this file, that no longer
 // reproduces: Bundler, Classic and Node10 all resolve identically — 355 / 33 / 17 / 222 —
-// because #1825 gave every relative import an explicit `.js` specifier, which is exactly what
+// because X-GIS #1825 gave every relative import an explicit `.js` specifier, which is exactly what
 // classic resolution needed. The options stay hardcoded anyway: the property worth having is
 // that the measured surface cannot move because a tsconfig moved, and that must not depend on
 // the specifier migration staying complete. So do not reach for `moduleResolution` when this
@@ -136,7 +136,7 @@ function memberText(prop: ts.Symbol): string {
     decl === undefined
       ? '<no-declaration>'
       : checker.typeToString(checker.getTypeOfSymbolAtLocation(prop, decl), undefined, FORMAT)
-  // The `?` is load-bearing: #1670 made `Reflection.requiredFeatures` REQUIRED, which broke
+  // The `?` is load-bearing: X-GIS #1670 made `Reflection.requiredFeatures` REQUIRED, which broke
   // every hand-built literal. That change is invisible in a name-only snapshot.
   const optional = prop.getFlags() & ts.SymbolFlags.Optional ? '?' : ''
   return `${memberName(prop.getName())}${optional}: ${type}`
@@ -147,7 +147,7 @@ function memberText(prop: ts.Symbol): string {
  *
  *  MEMBERS ARE EXPANDED ONLY FOR AN OBJECT TYPE, and that guard is not defensive coding — it
  *  is a measured bug. `getPropertiesOfType` on a union of string literals returns the APPARENT
- *  members of `String`, so `DeclarableCapability` — the #1681 A2 type whose entire purpose is
+ *  members of `String`, so `DeclarableCapability` — the X-GIS #1681 A2 type whose entire purpose is
  *  which capabilities it admits — rendered as 3 KB of `anchor`/`at`/`charAt`, with its actual
  *  members nowhere in the line. Worse for a snapshot, that junk carried `__@iterator@173`,
  *  whose number is a compiler-internal symbol id: it moves with the TypeScript version and

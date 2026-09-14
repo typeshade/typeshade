@@ -26,9 +26,9 @@
 // algebra does once it is rounded to 32-bit floats per-vertex on a real driver.
 //
 // Concretely, it CANNOT catch:
-//   • #392 (polygon fill displaced from outline) — fill arm fed f32 abs-degree
+//   • X-GIS #392 (polygon fill displaced from outline) — fill arm fed f32 abs-degree
 //     positions; the displacement is purely an f32-rounding artifact, invisible in f64.
-//   • #360 (globe polar-cap black hole) — tail slot read as f32 garbage; the cull
+//   • X-GIS #360 (globe polar-cap black hole) — tail slot read as f32 garbage; the cull
 //     fires only under f32 truncation, never in this interpreter.
 // A CPU↔CPU pass here is therefore NOT evidence of GPU precision parity. The only
 // real f32 differential is a headless-GPU gate that runs the EXECUTED shader and
@@ -111,7 +111,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (v === undefined) throw new Error(`shader-dsl/cpu: unknown override ${e.name}`)
       return v
     }
-    // #1713 — see cpu-codegen: no host here, so no value. Throw rather than fabricate.
+    // X-GIS #1713 — see cpu-codegen: no host here, so no value. Throw rather than fabricate.
     case 'externref':
       throw new Error(`shader-dsl/cpu: host-provided global '${e.name}' has no CPU value`)
     case 'param':
@@ -308,7 +308,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         break
       case 'assignOp': {
         const cur = evalExpr(s.target, env, ctx)
-        // #763 O6 — thread the numeric kind exactly as the binop path does
+        // X-GIS #763 O6 — thread the numeric kind exactly as the binop path does
         // (oracle.ts binop case): `x >>= y` on an i32 target is an ARITHMETIC
         // shift; the flag was once applied to one of the two eval sites only.
         const kind = numKindOf(s.target.type)
@@ -468,7 +468,7 @@ export function compileModule(
   if (opts?.precision === 'f32') m = froundF32(m)
   const ctx: Ctx = {
     consts: new Map<string, CpuValue>(),
-    // #923 — an override reads as its default on the CPU mirror.
+    // X-GIS #923 — an override reads as its default on the CPU mirror.
     overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
     fns: {},
     bindings: {},

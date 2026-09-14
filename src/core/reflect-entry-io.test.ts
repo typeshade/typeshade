@@ -4,7 +4,7 @@ import { ioStruct, location, builtin } from './sot.js'
 import { reflect, type EntryIoField } from './reflect.js'
 import { emitGlslModule } from './backends/glsl.js'
 
-// ═══ #1905 — `EntryInfo.io`: the entry's @location/@builtin INTERFACE ═══
+// ═══ X-GIS #1905 — `EntryInfo.io`: the entry's @location/@builtin INTERFACE ═══
 //
 // `inputs`/`output` report TYPE KEYS, which is what semanticDiff fingerprints a module
 // with — and nothing else. A host validating a vertex/fragment pair needs the LOCATION
@@ -42,7 +42,7 @@ const pair = () => module({ structs: [VOut.decl], funcs: [vs, fs] })
 
 const ioOf = (name: string) => reflect(pair()).entries.find((e) => e.name === name)!.io
 
-describe('#1905 — EntryInfo.io', () => {
+describe('X-GIS #1905 — EntryInfo.io', () => {
   it('reports each entry param with its own location/builtin', () => {
     // fail-before: `inputs` was ['vec4<f32>', 'u32'] — type keys, no names, no locations.
     expect(ioOf('vs').inputs).toEqual<EntryIoField[]>([
@@ -84,7 +84,7 @@ describe('#1905 — EntryInfo.io', () => {
 
   it("reports a bare return's @builtin from the STRUCTURED field (X-GIS #1672)", () => {
     // The FieldSpec authoring form: `retBuiltin` carries the semantic id, `retAttr` the
-    // spelling. Reading the structured field first is what #1672 preserved it for.
+    // spelling. Reading the structured field first is what X-GIS #1672 preserved it for.
     const depth = fn('fs_depth', {}, () => f32(0.5), {
       stage: 'fragment',
       retAttr: builtin('frag_depth', f32T),

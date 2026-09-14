@@ -27,7 +27,7 @@ import { fragmentOnlyBuiltin } from './fragment-only-builtin.js'
 
 const FIX =
   'textureSample is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives'
-// #1651 — the ARRAY row names the array-shaped fix (the layer argument is part of it).
+// X-GIS #1651 — the ARRAY row names the array-shaped fix (the layer argument is part of it).
 const ARRAY_FIX =
   'textureSampleArray is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, layer, level) — an explicit LOD needs no derivatives'
 
@@ -99,7 +99,7 @@ describe('fragment-only-builtin (X-GIS #1650)', () => {
     expect(run(m)).toEqual([])
   })
 
-  it('#1651: flags the ARRAY sample from a vertex entry, naming the ARRAY fix', () => {
+  it('X-GIS #1651: flags the ARRAY sample from a vertex entry, naming the ARRAY fix', () => {
     const m = module({
       bindings: [arr.binding, smp.binding],
       funcs: [vsCalling(leafArray), leafArray],
@@ -111,7 +111,7 @@ describe('fragment-only-builtin (X-GIS #1650)', () => {
     expect(ds[0]?.hint).toContain('uv, layer, level')
   })
 
-  it('#1651: stays silent for the array explicit-LOD form in a vertex entry', () => {
+  it('X-GIS #1651: stays silent for the array explicit-LOD form in a vertex entry', () => {
     const m = module({
       bindings: [arr.binding, smp.binding],
       funcs: [vsCalling(leafArrayLevel), leafArrayLevel],
@@ -141,7 +141,7 @@ describe('fragment-only-builtin (X-GIS #1650)', () => {
     expect(run(m)).toEqual([])
   })
 
-  it('#1654: flags a helper reachable from BOTH a vertex and a fragment entry', () => {
+  it('X-GIS #1654: flags a helper reachable from BOTH a vertex and a fragment entry', () => {
     // Pins the rule docstring's "one reachable from BOTH is flagged, because it is
     // emitted into the vertex/compute stage as well" — previously true only by
     // construction (the closure never subtracts fragment-reachable fns), untested.
@@ -181,8 +181,8 @@ describe('fragment-only-builtin (X-GIS #1650)', () => {
   })
 })
 
-// ── #1654: the DERIVATIVE rows (dpdx / dpdy / fwidth) ──────────────────────────
-// These three ids were ABSENT from FRAGMENT_ONLY_IDS before #1654, so the rule was
+// ── X-GIS #1654: the DERIVATIVE rows (dpdx / dpdy / fwidth) ──────────────────────────
+// These three ids were ABSENT from FRAGMENT_ONLY_IDS before X-GIS #1654, so the rule was
 // silent on every case below: the positives here are the fail-before witness (on the
 // pre-#1654 table each `run(...)` returned [] — green-by-silence — and only the new
 // rows turn them red-then-green). Their fix is shared and shape-free: no drop-in

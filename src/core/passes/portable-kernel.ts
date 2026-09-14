@@ -46,7 +46,7 @@ type ParamDecl = FuncDecl['params'][number]
 const BUILTIN_ATTR_RE = /@builtin\((\w+)\)/
 
 /** The builtin a param carries, structured field first and the `attr` string only as the
- *  hand-built-literal fallback — the #740 R3 contract `stageOf` codifies for stages. */
+ *  hand-built-literal fallback — the X-GIS #740 R3 contract `stageOf` codifies for stages. */
 const builtinOf = (p: ParamDecl): string | undefined =>
   p.builtin ?? p.attr?.match(BUILTIN_ATTR_RE)?.[1]
 

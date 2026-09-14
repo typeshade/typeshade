@@ -3,7 +3,7 @@
 // Before this layer, a vertex/uniform layout was declared in up to FOUR places that
 // had to agree by hand: the StructDecl (fields + @location/@builtin attrs), the
 // binding decl ({group,binding,name,space,type}), the bindingRef node, and every
-// stringly member access (the since-removed `node.field('name', type)` — #763 H5).
+// stringly member access (the since-removed `node.field('name', type)` — X-GIS #763 H5).
 // Drift between them is a whole class of bug (the polygon slot-drift family,
 // OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
@@ -568,7 +568,7 @@ export function structDecl<F extends Record<string, ShaderType>, N extends strin
           if (typeof prop !== 'string') return undefined // symbol probes (X-GIS #763 D1) — never fields
           if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13)
           if (prop === '$') return node // raw struct-value Node (X-GIS #740 R6, forwardable)
-          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop] // #763 X14
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop] // X-GIS #763 X14
           const t = fields[prop as string]
           if (t === undefined)
             throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
