@@ -76,8 +76,26 @@ export type Expr =
   // to report it under `requires` rather than as a binding. Emits as the bare name, or as
   // the per-target spelling when the host spells it differently on each backend.
   | { readonly op: 'externref'; readonly type: ShaderType; readonly name: string }
-  | { readonly op: 'param'; readonly type: ShaderType; readonly name: string }
-  | { readonly op: 'varref'; readonly type: ShaderType; readonly name: string }
+  | {
+      readonly op: 'param'
+      readonly type: ShaderType
+      readonly name: string
+      /** Where this was written, when it is the TARGET of an assignment — the lvalue a
+       *  statement is about to write, so a debugger can highlight what changes rather than the
+       *  whole line. A read of the same name carries none in this increment. Read it with
+       *  {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
+  | {
+      readonly op: 'varref'
+      readonly type: ShaderType
+      readonly name: string
+      /** Where this was written, when it is the TARGET of an assignment — the lvalue a
+       *  statement is about to write, so a debugger can highlight what changes rather than the
+       *  whole line. A read of the same name carries none in this increment. Read it with
+       *  {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
   | {
       readonly op: 'binop'
       readonly type: ShaderType
@@ -131,7 +149,17 @@ export type Expr =
       readonly ifTrue: Expr
       readonly ifFalse: Expr
     }
-  | { readonly op: 'index'; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr }
+  | {
+      readonly op: 'index'
+      readonly type: ShaderType
+      readonly base: Expr
+      readonly idx: Expr
+      /** Where this was written, when it is the TARGET of an assignment — the lvalue a
+       *  statement is about to write, so a debugger can highlight what changes rather than the
+       *  whole line. A read of the same name carries none in this increment. Read it with
+       *  {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
   // `match (scrutinee) { case v0: e0; ...; default: dflt }`. The WGSL backend
   // pre-emit pass (core/passes/match-lower.ts) lowers every matchExpr inside
   // an fn body into a hoisted `{ Stmt.var slot, Stmt.switch }` pair + a

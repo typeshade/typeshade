@@ -280,10 +280,14 @@ export function lowerUpdate(
       )
       return undefined
     }
-    const target: Expr =
+    // `i++` writes `i`, so the operand is the lvalue whose span the target carries.
+    const target: Expr = withSpan(
       binding.kind === 'param'
-        ? { op: 'param', type: binding.type, name: binding.name }
-        : { op: 'varref', type: binding.type, name: binding.name }
+        ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
+        : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+      sourceFile,
+      targetExpr,
+    )
     return {
       s: 'assign',
       target,
@@ -306,10 +310,13 @@ export function lowerUpdate(
     if (rhs.op === 'lit' && typeof rhs.value === 'number') {
       rhs = { op: 'lit', type: binding.type, value: rhs.value }
     }
-    const target: Expr =
+    const target: Expr = withSpan(
       binding.kind === 'param'
-        ? { op: 'param', type: binding.type, name: binding.name }
-        : { op: 'varref', type: binding.type, name: binding.name }
+        ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
+        : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+      sourceFile,
+      left,
+    )
     return { s: 'assignOp', target, bop: '+', expr: rhs }
   }
   pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)
