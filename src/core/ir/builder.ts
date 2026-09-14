@@ -404,7 +404,7 @@ export class IfChain {
 // globalThis-backed (X-GIS #763 D2): a dual-loaded package copy used to get its OWN
 // empty stack — `Let` imported from copy B inside a body authored by copy A's
 // `fn` threw SD0013 at module load. Sharing the ambient state across copies
-// makes the duplication harmless (same pattern as map's __XGIS_PROJECTIONS__).
+// makes the duplication harmless.
 const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[
   Symbol.for('xgis.shader-dsl.scopeStack')
 ] ??= []) as Builder[]
