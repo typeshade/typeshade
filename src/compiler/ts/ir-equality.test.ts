@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
 import { uniformStruct } from '../../core/sot.js'
-import { f32, vec3 } from '../../core/ir/node.js'
-import { f32T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import { construct, f32, vec3 } from '../../core/ir/node.js'
+import { arrayT, f32T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -196,6 +196,25 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('widen', { v: vec3uT }, vec3fT, ({ v }) => vec3(v))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a list initializer matches the EDSL construct over an array type', () => {
+    // #8 A16. `[1., 2., 3.]` is the same construct the `array<f32, 3>(...)` call builds, which
+    // is the same one the EDSL's `construct(arrayT(f32T, 3), …)` builds.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function head(): f32 {
+        const xs: array<f32, 3> = [1., 2., 3.];
+        return xs[0];
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const A = arrayT(f32T, 3)
+    const edsl = fn('head', {}, f32T, (_, bld) => {
+      const xs = bld.let('xs', construct(A, [f32(1), f32(2), f32(3)]))
+      return xs.at(0)
+    })
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

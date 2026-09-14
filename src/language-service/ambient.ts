@@ -293,7 +293,13 @@ declare const arrayTag: unique symbol
 // (examples/compute-reduction-twin.shade.ts), and the compiler lowers it to a storage store, so a
 // \`readonly\` here reported TS2542 ("Index signature ... only permits reading") on a program that
 // compiles. The tag and \`length\` stay readonly: neither is assignable in the source language.
-type array<T, N extends number = number> = { readonly [arrayTag]: readonly [T, N]; readonly length: N } & {
+//
+// The tag is OPTIONAL so a list can initialize an array (#8 A16): \`const xs: array<f32, 3> =
+// [1., 2., 3.]\` compiles, and with a required tag the editor reported TS2322 ("Property
+// '[arrayTag]' is missing") on a program the compiler accepts. \`length\` stays required and
+// stays \`N\`, which is what still separates the sizes — a three-element list is not an
+// \`array<f32, 2>\` in the editor either.
+type array<T, N extends number = number> = { readonly [arrayTag]?: readonly [T, N]; readonly length: N } & {
   [index: number]: T
 }
 declare function array<T, N extends number>(...values: readonly T[]): array<T, N>

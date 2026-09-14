@@ -9,6 +9,7 @@ import { LoweringScope, readOnlyPhrase } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { lowerExpression } from './expression.js'
+import { lowerArrayLiteral } from './expression-array.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
@@ -217,7 +218,27 @@ function lowerVariableDeclaration(
     )
     return undefined
   }
-  let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+  // `const xs: array<f32, 3> = [1., 2., 3.]` (#8 A16). A list carries no type of its own, so it
+  // is lowered AGAINST the annotation instead of on its own, and refused where there is none.
+  // From here it is the ordinary `construct` the `array<f32, 3>(...)` call builds, so the rest
+  // of this function — the type check, the binding, the span — does not know the difference.
+  let init: Expr | undefined
+  if (ts.isArrayLiteralExpression(decl.initializer)) {
+    if (!annotated) {
+      const kw = isConst ? 'const' : 'let'
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl,
+        `"${kw} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
+        TS_CODES.UNKNOWN_TYPE,
+      )
+      return undefined
+    }
+    init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics)
+  } else {
+    init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+  }
   if (!init) return undefined
   if (annotated && init.op === 'lit') {
     if (typeof init.value === 'number' && isNumericScalar(annotated)) {
