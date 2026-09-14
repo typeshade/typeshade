@@ -9,6 +9,7 @@ import { compileTsSource } from './source-file.js'
 import { f32T, typeKey } from '../../core/ir/types.js'
 import type { Expr } from '../../core/ir/nodes.js'
 import { MATH_CONST_ALIAS, resolveMathFn } from './math-alias.js'
+import { stripSpans } from '../../core/testing/strip-spans.js'
 
 function parseExpr(source: string): { expr: ts.Expression; sourceFile: ts.SourceFile } {
   const text = `const __e = ${source}`
@@ -46,7 +47,9 @@ describe('Phase 7 - Math aliases', () => {
     const free = lower('sin(a)')
     expect(math.diagnostics).toEqual([])
     expect(free.diagnostics).toEqual([])
-    expect(math.expr).toEqual(free.expr)
+    // Same IR, different offsets: `Math.sin(a)` and `sin(a)` are written in different
+    // places, so the call spans differ and the claim is about everything else.
+    expect(stripSpans(math.expr)).toEqual(stripSpans(free.expr))
     expect(math.expr!.op).toBe('call')
     if (math.expr!.op === 'call') {
       expect(math.expr.fn).toBe('sin')
