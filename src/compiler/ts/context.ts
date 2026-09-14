@@ -3,7 +3,41 @@
 import type { ShaderType } from '../../core/ir/types.js'
 import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
 
-export type BindingKind = 'param' | 'local' | 'module'
+/** What a name in scope refers to.
+ *
+ *  `module` and `binding` were one kind until #14, and conflating them is what broke stage
+ *  reachability: a resource binding lowered to `Expr.constref`, the shape the IR reserves for
+ *  a module-scope CONSTANT, and every consumer that asks "which bindings does this stage
+ *  reach" looks for `Expr.varref`. So no stage reached any binding in a source-compiled
+ *  module — the GLSL writer dropped the uniform block while keeping the uses, and
+ *  `reflect()` reported no stages for anything. A binding is a module-scope `var`, not a
+ *  const, and it now says so. */
+export type BindingKind = 'param' | 'local' | 'module' | 'binding'
+
+/** How a "cannot assign" diagnostic names what the target is. One helper because the three
+ *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
+ *  is not what a `declare const input: storage<…>` is.
+ *
+ *  The parameter is a `BindingKind`, not `BindingKind | undefined`. An absent binding is not a
+ *  read-only one — it is an unknown name, a different diagnostic — and while this accepted
+ *  `undefined` it answered "declared with const" for a name that was never declared at all.
+ *  Every caller now resolves that case first. The switch is exhaustive so that a NEW kind is a
+ *  type error here rather than silently taking a default phrase that may not describe it. */
+export function readOnlyPhrase(kind: BindingKind): string {
+  switch (kind) {
+    case 'binding':
+      return 'a read-only resource'
+    case 'module':
+      return 'a module const'
+    case 'param':
+    case 'local':
+      return 'declared with const'
+    default: {
+      const never: never = kind
+      throw new Error(`unhandled binding kind ${String(never)}`)
+    }
+  }
+}
 
 export interface Binding {
   readonly kind: BindingKind

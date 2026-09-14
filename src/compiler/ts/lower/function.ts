@@ -269,7 +269,12 @@ export function fillFunctionBody(
     })
   }
   for (const b of bindings) {
-    scope.define({ kind: 'module', name: b.name, type: b.type, mutable: b.access === 'read_write' })
+    scope.define({
+      kind: 'binding',
+      name: b.name,
+      type: b.type,
+      mutable: b.access === 'read_write',
+    })
   }
   for (const p of stub.params) {
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })
