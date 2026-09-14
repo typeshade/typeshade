@@ -66,6 +66,22 @@ export interface DebugStackFrame {
    *  a local the way its author spelled it. A name absent from `locals` but present here has
    *  not been declared yet at this pause. */
   readonly localTypes: ReadonlyMap<string, ShaderType>
+  /** The names in {@link locals} whose value is a **stand-in**, not a computed result: it came
+   *  from a GPU-only intrinsic that `gpuStubs` let stand in, or from arithmetic on one. Empty
+   *  unless the session was started with `gpuStubs: true`, since without it a stub throws
+   *  instead of returning.
+   *
+   *  This is what a variables view marks so that nobody reads `dx = 0` as the answer
+   *  (`docs/debugging.md` §2.4). {@link DebugSession.stubbedIntrinsics} answers the other
+   *  question — WHICH intrinsics stood in anywhere in the run — and neither substitutes for the
+   *  other: a run can have stubbed `dpdx` ten statements ago and be showing nothing derived
+   *  from it now.
+   *
+   *  Conservative in the one direction that cannot mislead. It over-reports rather than
+   *  under-reports: a helper that calls `dpdx` and does not use the result still marks what
+   *  the call returned, and writing one clean component of a marked vector leaves the vector
+   *  marked. Assigning a whole name something clean clears it. */
+  readonly stubbedLocals: ReadonlySet<string>
 }
 
 /** A stopped run: where it is, and everything visible from there.
@@ -104,7 +120,9 @@ export interface DebugSessionOptions {
   /** Accept placeholder values at the GPU-only intrinsics (a texture read, a screen-space
    *  derivative) instead of throwing. Off by default, as on the oracle, because a plausible
    *  wrong number is the worst failure mode for a reference. When on,
-   *  {@link DebugSession.stubbedIntrinsics} names every one that stood in. */
+   *  {@link DebugSession.stubbedIntrinsics} names every one that stood in, and
+   *  {@link DebugStackFrame.stubbedLocals} names the values each pause is showing that came
+   *  from one. */
   readonly gpuStubs?: boolean
   /** Uniform and storage values by declared name, in the CPU value model: a number for a
    *  scalar, a flat array for a vector or matrix, an object keyed by field name for a
@@ -135,8 +153,14 @@ export interface DebugSession {
   readonly result: CpuValue | undefined
   /** Whether the run ended at a `discard`. */
   readonly discarded: boolean
-  /** The GPU-only intrinsics that returned a placeholder rather than a computed value during
-   *  this run, so a UI can mark those values as stand-ins. Empty unless `gpuStubs` is on. */
+  /** The GPU-only intrinsics that returned a placeholder rather than a computed value at some
+   *  point during this run, by name. Empty unless `gpuStubs` is on.
+   *
+   *  A property of the whole run, and cumulative: once `dpdx` appears here it stays, however
+   *  far the run has moved on. It answers "did anything in this session stand in, and what" —
+   *  a banner on the session, a warning in a test. It does NOT say which of the values on
+   *  screen right now are stand-ins, because a name is not a value; that is
+   *  {@link DebugStackFrame.stubbedLocals}, which is what a variables view marks. */
   readonly stubbedIntrinsics: readonly string[]
   /** The precision this run is evaluating at, so a UI can say which question it is answering. */
   readonly precision: CpuPrecision
@@ -355,6 +379,7 @@ function snapshot(
         span: f.current ? sourceSpanOf(f.current) : undefined,
         locals: new Map(f.env),
         localTypes: f.types,
+        stubbedLocals: new Set(f.stubbed),
       }))
       .reverse(),
     bindings: new Map(Object.entries(bindings)),
