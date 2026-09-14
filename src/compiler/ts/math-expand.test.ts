@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { resolveMathExpand, isCanonicalMathFn } from './math-alias.js'
+import { stripSpans } from '../../core/testing/strip-spans.js'
 
 describe('missing Math + shader free math', () => {
   it('classifies expansions and free names', () => {
@@ -26,11 +27,15 @@ describe('missing Math + shader free math', () => {
   })
 
   it('Math.log10 === log10', () => {
-    const a = compileTsSource(`"use typeshade"; export function f(x: f32): f32 { return log10(x); }`)
-    const b = compileTsSource(`"use typeshade"; export function f(x: f32): f32 { return Math.log10(x); }`)
+    const a = compileTsSource(
+      `"use typeshade"; export function f(x: f32): f32 { return log10(x); }`,
+    )
+    const b = compileTsSource(
+      `"use typeshade"; export function f(x: f32): f32 { return Math.log10(x); }`,
+    )
     expect(a.diagnostics).toEqual([])
     expect(b.diagnostics).toEqual([])
-    expect(a.funcs[0]!.body).toEqual(b.funcs[0]!.body)
+    expect(stripSpans(a.funcs[0]!.body)).toEqual(stripSpans(b.funcs[0]!.body))
   })
 
   it('cbrt(x) expands to pow(x, 1/3)', () => {
@@ -50,7 +55,8 @@ describe('missing Math + shader free math', () => {
     `)
     expect(r.diagnostics).toEqual([])
     const ret = r.funcs[0]!.body[0]
-    if (ret!.s === 'return' && ret.expr && ret.expr.op === 'call') expect(ret.expr.fn).toBe('length')
+    if (ret!.s === 'return' && ret.expr && ret.expr.op === 'call')
+      expect(ret.expr.fn).toBe('length')
   })
 
   it('clamp / mix / length are free functions', () => {

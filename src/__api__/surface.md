@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 398 exports
+## `.` — 400 exports
 
 ```
 abs
@@ -297,6 +297,8 @@ sign
 sin
 sinh
 smoothstep
+SourceSpan
+sourceSpanOf
 spellIntrinsic
 splitF64
 sqrt
@@ -479,7 +481,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 234 exports
+## `./core/ir` — 236 exports
 
 ```
 abs
@@ -642,6 +644,8 @@ sign
 sin
 sinh
 smoothstep
+SourceSpan
+sourceSpanOf
 sqrt
 stageOf
 step
@@ -754,7 +758,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 483 definitions
+## Shapes — 485 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -1021,19 +1025,21 @@ src/core/ir/nodes.ts#CmpOp  type  "<" | ">" | "<=" | ">=" | "==" | "!="
 src/core/ir/nodes.ts#ConstDecl  interface  { cpuValue: number; name: string; type: ShaderType; valueExpr?: Expr; wgslValue: number }
 src/core/ir/nodes.ts#DeclarableCapability  type  "f16" | "subgroups" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview"
 src/core/ir/nodes.ts#EntryParam  interface  { builtin?: string; location?: number; name: string; type: ShaderType }
-src/core/ir/nodes.ts#Expr  type  { readonly op: "lit"; readonly type: ShaderType; readonly value: number | boolean; } | { readonly op: "constref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "overrideref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "externref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "param"; readonly type: ShaderType; readonly name: string; } | { readonly op: "varref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "binop"; readonly type: ShaderType; readonly bop: BinOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "unop"; readonly type: ShaderType; readonly a: Expr; } | { readonly op: "compare"; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "logical"; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "call"; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[]; readonly declRef?: FuncDecl; } | { readonly op: "member"; readonly type: ShaderType; readonly base: Expr; readonly field: string; } | { readonly op: "construct"; readonly type: ShaderType; readonly args: readonly Expr[]; } | { readonly op: "select"; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr; } | { readonly op: "index"; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr; } | { readonly op: "matchExpr"; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: readonly (readonly [number, Expr])[]; readonly default: Expr; }
+src/core/ir/nodes.ts#Expr  type  { readonly op: "lit"; readonly type: ShaderType; readonly value: number | boolean; } | { readonly op: "constref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "overrideref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "externref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "param"; readonly type: ShaderType; readonly name: string; } | { readonly op: "varref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "binop"; readonly type: ShaderType; readonly bop: BinOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "unop"; readonly type: ShaderType; readonly a: Expr; } | { readonly op: "compare"; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "logical"; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "call"; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[]; readonly declRef?: FuncDecl; readonly span?: SourceSpan; } | { readonly op: "member"; readonly type: ShaderType; readonly base: Expr; readonly field: string; } | { readonly op: "construct"; readonly type: ShaderType; readonly args: readonly Expr[]; } | { readonly op: "select"; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr; } | { readonly op: "index"; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr; } | { readonly op: "matchExpr"; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: readonly (readonly [number, Expr])[]; readonly default: Expr; }
 src/core/ir/nodes.ts#ExternVarDecl  interface  { name: string; spelling?: { readonly wgsl?: string; readonly glsl?: string; }; stage?: "vertex" | "fragment" | "compute"; type: ShaderType }
-src/core/ir/nodes.ts#FuncDecl  interface  { [ASSEMBLED_AS]?: string; allowEarlyReturn?: boolean; attrs?: readonly string[]; body: readonly Stmt[]; lintDisable?: readonly string[]; name: string; opaque?: boolean; params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; }[]; portable?: boolean; ret: ShaderType; retAttr?: string; retBuiltin?: string; stage?: "vertex" | "fragment" | "compute"; workgroupSize?: number }
+src/core/ir/nodes.ts#FuncDecl  interface  { [ASSEMBLED_AS]?: string; allowEarlyReturn?: boolean; attrs?: readonly string[]; body: readonly Stmt[]; lintDisable?: readonly string[]; name: string; nameSpan?: SourceSpan; opaque?: boolean; params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; }[]; portable?: boolean; ret: ShaderType; retAttr?: string; retBuiltin?: string; span?: SourceSpan; stage?: "vertex" | "fragment" | "compute"; workgroupSize?: number }
 src/core/ir/nodes.ts#LogOp  type  "&&" | "||"
 src/core/ir/nodes.ts#ModuleDecl  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs: readonly FuncDecl[]; overrides?: readonly OverrideDecl[]; structs: readonly StructDecl[] }
 src/core/ir/nodes.ts#OverrideDecl  interface  { default: number | boolean; name: string; type: ShaderType }
 src/core/ir/nodes.ts#RawPayload  type  { readonly wgsl: string; readonly glsl?: string; } | { readonly wgsl?: string; readonly glsl: string; }
-src/core/ir/nodes.ts#RawStmt  type  { readonly s: "raw"; readonly wgsl: string; readonly glsl?: string; } | { readonly s: "raw"; readonly wgsl?: string; readonly glsl: string; }
-src/core/ir/nodes.ts#Stmt  type  { readonly s: "let"; readonly name: string; readonly expr: Expr; } | { readonly s: "var"; readonly name: string; readonly type: ShaderType; readonly init?: Expr; } | { readonly s: "assign"; readonly target: Expr; readonly expr: Expr; } | { readonly s: "assignOp"; readonly target: Expr; readonly bop: BinOp; readonly expr: Expr; } | { readonly s: "if"; readonly arms: readonly { readonly cond: Expr; readonly body: readonly Stmt[]; }[]; readonly elseBody?: readonly Stmt[]; } | { readonly s: "return"; readonly expr?: Expr; } | { readonly s: "for"; readonly init: Stmt; readonly cond: Expr; readonly update: Stmt; readonly body: readonly Stmt[]; } | { readonly s: "switch"; readonly scrut: Expr; readonly cases: readonly { readonly value: number; readonly body: readonly Stmt[]; }[]; readonly defaultBody?: readonly Stmt[]; } | { readonly s: "break"; } | { readonly s: "continue"; } | { readonly s: "discard"; } | { readonly s: "placeholder"; readonly tag: string; } | { readonly s: "raw"; readonly wgsl: string; readonly glsl?: string; } | { readonly s: "raw"; readonly wgsl?: string; readonly glsl: string; }
+src/core/ir/nodes.ts#RawStmt  type  { readonly s: "raw"; readonly wgsl: string; readonly glsl?: string; readonly span?: SourceSpan; } | { readonly s: "raw"; readonly wgsl?: string; readonly glsl: string; readonly span?: SourceSpan; }
+src/core/ir/nodes.ts#Stmt  type  { readonly s: "let"; readonly name: string; readonly expr: Expr; readonly span?: SourceSpan; } | { readonly s: "var"; readonly name: string; readonly type: ShaderType; readonly init?: Expr; readonly span?: SourceSpan; } | { readonly s: "assign"; readonly target: Expr; readonly expr: Expr; readonly span?: SourceSpan; } | { readonly s: "assignOp"; readonly target: Expr; readonly bop: BinOp; readonly expr: Expr; readonly span?: SourceSpan; } | { readonly s: "if"; readonly arms: readonly { readonly cond: Expr; readonly body: readonly Stmt[]; }[]; readonly elseBody?: readonly Stmt[]; readonly span?: SourceSpan; } | { readonly s: "return"; readonly expr?: Expr; readonly span?: SourceSpan; } | { readonly s: "for"; readonly init: Stmt; readonly cond: Expr; readonly update: Stmt; readonly body: readonly Stmt[]; readonly span?: SourceSpan; } | { readonly s: "switch"; readonly scrut: Expr; readonly cases: readonly { readonly value: number; readonly body: readonly Stmt[]; }[]; readonly defaultBody?: readonly Stmt[]; readonly span?: SourceSpan; } | { readonly s: "break"; readonly span?: SourceSpan; } | { readonly s: "continue"; readonly span?: SourceSpan; } | { readonly s: "discard"; readonly span?: SourceSpan; } | { readonly s: "placeholder"; readonly tag: string; readonly span?: SourceSpan; } | { readonly s: "raw"; readonly wgsl: string; readonly glsl?: string; readonly span?: SourceSpan; } | { readonly s: "raw"; readonly wgsl?: string; readonly glsl: string; readonly span?: SourceSpan; }
 src/core/ir/nodes.ts#StructDecl  interface  { fields: readonly StructField[]; name: string }
 src/core/ir/nodes.ts#StructField  interface  { attr?: string; builtin?: string; interpolate?: string; location?: number; name: string; type: ShaderType }
 src/core/ir/nodes.ts#stageOf  const  (f: Pick<FuncDecl, "stage" | "attrs">) => "vertex" | "fragment" | "compute"
 src/core/ir/nodes.ts#workgroupSizeOf  const  (f: Pick<FuncDecl, "attrs" | "workgroupSize">) => number
+src/core/ir/span.ts#SourceSpan  interface  { character: number; endCharacter: number; endLine: number; file: string; length: number; line: number; start: number }
+src/core/ir/span.ts#sourceSpanOf  function  (node: FuncDecl | Stmt | Expr) => SourceSpan
 src/core/ir/types.ts#ArrayElemKey  type  K extends `array<${infer Inner}>` ? DropArraySize<Inner> : never
 src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
 src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string

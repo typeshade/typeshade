@@ -11,6 +11,7 @@ import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js
 import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
+import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -37,7 +38,28 @@ export function lowerStatements(
   return out
 }
 
+/** Lowers one TypeScript statement, then stamps every IR statement it produced with `node`'s
+ *  source span unless a finer capture site already stamped one (`withSpan` keeps the first).
+ *  Doing it here, at the one place every statement kind passes through, is what makes span
+ *  capture total: a new statement kind inherits it by being lowered, not by remembering to
+ *  call something. A `ts.Block` lowers to its own inner statements, each of which already
+ *  carries its own span, so the blanket stamp is a no-op there. */
 export function lowerStatement(
+  node: ts.Statement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | Stmt[] | undefined {
+  const lowered = lowerStatementNode(node, sourceFile, scope, diagnostics)
+  if (lowered === undefined) return undefined
+  if (Array.isArray(lowered)) {
+    for (const s of lowered) withSpan(s, sourceFile, node)
+    return lowered
+  }
+  return withSpan(lowered, sourceFile, node)
+}
+
+function lowerStatementNode(
   node: ts.Statement,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
@@ -212,8 +234,11 @@ function lowerVariableDeclaration(
     )
     return undefined
   }
-  if (isConst) return { s: 'let', name, expr: init }
-  return { s: 'var', name, type: bindingType, init }
+  // The declarator's own span, not the whole `let a = 1, b = 2` statement's: one TypeScript
+  // variable statement lowers to one IR statement per declarator, and a debugger stepping
+  // through them should highlight the one it is on.
+  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, decl)
+  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, decl)
 }
 
 function lowerExpressionStatement(
