@@ -97,8 +97,8 @@ softening them.
 - **`precision: 'f32'` is a correctly-rounding f32 machine** over the same IR: `froundF32`
   (`src/core/passes/precision.ts`) rounds after every f32-typed operation, with infinities on
   overflow. This is the mode a debugger should default to, because the author's question is
-  almost always "what does the GPU compute", not "what does the mathematics say". §5 lists
-  this as an open question with that as the suggested answer.
+  almost always "what does the GPU compute", not "what does the mathematics say". §5
+  decision 6 makes this the default, with the mode visible in the UI.
 - **Neither mode is a driver.** Fused multiply-add, a driver's own reassociation, a
   vendor-specific `fast-math`, undefined-behaviour corners, and anything about rasterization,
   interpolation of varyings across a triangle, or depth and blend state are outside what any
@@ -335,8 +335,7 @@ Neither approach changes what the CPU can compute, so both need the same policy.
   which a sequential re-evaluation does not reproduce. **Proposal:** milestone 2 returns the
   existing stub value and marks it in the variables view as a stand-in rather than a computed
   value, so no one mistakes `0` for a result; quad evaluation becomes an opt-in
-  `derivatives: "quad"` when someone has a derivative bug to chase. §5 carries this as an open
-  question.
+  `derivatives: "quad"` when someone has a derivative bug to chase. This is §5 decision 4.
 - **Texture sampling.** There is no texture memory in a CPU run, and — worth noting, because
   it decides the milestone — the `"use typeshade"` type map (`src/compiler/ts/type-map.ts`)
   has no `texture` or `sampler` spelling at all today, so no `"use typeshade"` shader can
@@ -372,7 +371,7 @@ measurement either way.
 | M1  | Source spans on the IR (§3): `SourceSpan`, a `span?` field on every `Stmt` and `FuncDecl` and on `call` expressions, capture in the source compiler, propagation through the passes, a public `sourceSpanOf` read API.             | Every approach needs it. It moves no emitted byte and nothing depends on the debugger. |
 | M2  | The stepping mode of the CPU oracle (§2.1), on a `./debug` subpath: pauses at statement boundaries with the span, the frame environment as a readable snapshot, step over / in / out / continue, breakpoints by span.              | Usable headlessly the day it lands; no editor work required to test it.                |
 | M3  | The launch configuration (§4) as a published TypeScript type plus a baked JSON Schema, the invocation builder for the three stages, binding defaults from `zeroOf`, and a value formatter that renders `CpuValue` in shader types. | This is what the two adapters share; baking it here is what stops them diverging.      |
-| M4  | Derivative policy (`derivatives: "zero" \| "quad"`) and, once the grammar has textures, the texture value shapes of §4.4.                                                                                                          | Both wait on a decision (§5) or on the language surface.                               |
+| M4  | Derivative policy (`derivatives: "zero" \| "quad"`) and, once the grammar has textures, the texture value shapes of §4.4.                                                                                                          | §5 decision 4 sets the first; the second waits on the language surface.                |
 
 **In `typeshade/vscode-typeshade`** (not created by this work; it is the repository
 `docs/language-service-api.md` §1 already names for the language server):
@@ -430,7 +429,7 @@ re-parse the file to display it.
 `TsCompilerDiagnostic`, whose `line` / `character` are one-based. That inconsistency is real
 and this document does not hide it: the two conventions already coexist in the tree, the
 language service already converts between them, and changing the diagnostic shape is a
-breaking change that has nothing to do with debugging. §5 carries it as an open question.
+breaking change that has nothing to do with debugging. This is §5 decision 1.
 
 ### 3.2 A field on the node, not a side table
 
@@ -474,10 +473,13 @@ is exactly the collision worth avoiding.
   covers the identifier, for a stack-frame label that highlights the name rather than the body.
 - **`call` expressions.** Needed for step-into, where a statement contains more than one call,
   and for a stack frame that says _where_ the call was made.
+- **An assignment's target.** The lvalue a statement writes, so a debugger can highlight what
+  is about to change rather than the whole line. It is the one other expression position an
+  author points at while stepping.
 - **Nothing else, in milestone 1.** A span on every `Expr` would roughly double the field count
   of the IR's most numerous objects to serve hover and expression-level stepping, neither of
-  which the first milestone promises. It is additive later, at the same capture sites, and §5
-  carries it as an open question.
+  which the first milestone promises. It is additive later, at the same capture sites. This is
+  §5 decision 3.
 
 Statement spans use the TypeScript node's `getStart(sourceFile)` through `getEnd()` — the same
 pair `makeDiagnostic` uses — so a span never covers leading trivia and a breakpoint on a
@@ -642,45 +644,57 @@ costs: a compile per distinct expression (cacheable by text and frame shape), an
 sees only what the frame has names for — not a value mid-expression, which would need the
 expression spans §3.3 defers.
 
-## 5. Open questions
+## 5. Decisions
 
-Each with the answer this document suggests.
+These were the document's open questions. The owner answered all eleven, through the
+orchestrating session, on 2026-09-14, taking the suggested answer in every case. They are
+recorded here as decisions rather than proposals, and the sections above follow them.
 
-1. **Zero-based or one-based line and character on `SourceSpan`?** The language service is
-   zero-based (LSP); `TsCompilerDiagnostic` is one-based. _Suggested: zero-based on
-   `SourceSpan`, leave the diagnostic shape alone, document both, and converge only when
-   diagnostics take a breaking change for some other reason._
-2. **Are spans always captured, or behind a compile option?** _Suggested: always. An IDE
-   cannot set a flag retroactively, and the cost is one object per statement with no stack
-   walk. Revisit only against a measurement._
-3. **Which expressions carry a span in milestone 1?** _Suggested: `call` only, plus an
-   assignment's target. Hover and expression-level stepping want more; they are additive at the
-   same capture sites and should wait until something needs them._
-4. **Derivatives: stub zero, or 2×2 quad evaluation?** _Suggested: stub zero in milestone 2,
-   visibly marked in the variables view as a stand-in; `derivatives: "quad"` as an opt-in when
-   someone has a derivative bug, with the divergence caveat of §2.4 documented._
-5. **Does the debugger run the module before or after the optimizer?** _Suggested: before —
-   `validate` + `autoVars`, exactly what `compileModule` does today — because the author is
-   debugging the program they wrote. "Debug the optimized module" is a separate, honestly
-   labelled mode for chasing optimizer bugs._
-6. **`f32` or `f64` by default when stepping?** _Suggested: `f32`, because the author's
-   question is what the GPU computes. The mode must be visible in the UI, since `f64` answers a
-   different question and the two disagree exactly where the interesting bugs are._
-7. **`./debug` subpath, or fold it into `./dev`?** _Suggested: `./debug`. `./dev` is lint,
+1. **Line and character on `SourceSpan` are zero-based.** The language service is zero-based
+   (LSP); `TsCompilerDiagnostic` is one-based. `SourceSpan` follows the editor-facing
+   convention, the diagnostic shape is left alone, both are documented, and the two converge
+   only when diagnostics take a breaking change for some other reason.
+2. **Spans are always captured, never behind a compile option.** An IDE cannot set a flag
+   retroactively, and the cost is one object per statement with no stack walk. Revisit only
+   against a measurement.
+3. **In milestone 1, a span goes on `call` expressions and on an assignment's target, and on
+   no other expression.** Hover and expression-level stepping want more; they are additive at
+   the same capture sites and wait until something needs them.
+4. **A derivative reads as the existing stub value, visibly marked in the variables view as a
+   stand-in rather than a computed value**, so no one mistakes `0` for a result.
+   `derivatives: "quad"` is an opt-in for later, when someone has a derivative bug, carrying
+   the divergence caveat of §2.4.
+5. **The debugger runs the module before the optimizer** — `validate` + `autoVars`, exactly
+   what `compileModule` does today — because the author is debugging the program they wrote.
+   "Debug the optimized module" is a separate, honestly labelled mode for chasing optimizer
+   bugs.
+6. **Stepping evaluates at `f32` by default**, because the author's question is what the GPU
+   computes, and the mode is visible in the UI: `f64` answers a different question, and the two
+   disagree exactly where the interesting bugs are.
+7. **The engine ships on its own `./debug` subpath, not folded into `./dev`.** `./dev` is lint,
    diagnostics and optimizer measurement, consumed by tests; the debugger's consumer is an IDE,
-   and a subpath is the cheapest way to keep the two dependency graphs apart._
-8. **Which repository hosts the DAP server?** _Suggested: `typeshade/vscode-typeshade`, beside
-   the LSP server that `docs/language-service-api.md` §1 and §10 already place there. This
-   repository ships the engine and the schema and nothing editor-shaped._
-9. **Compute: one invocation, or a workgroup scheduler?** _Suggested: one invocation. There is
-   no barrier or workgroup-shared spelling in the grammar yet, so there is nothing to schedule;
-   the generator design of §2.1 is what keeps the scheduler possible later._
-10. **Does approach B get built at all?** _Suggested: not now, and not rejected. Milestone 1's
-    spans are exactly what a V3 map consumes, so the decision can be made later against a
-    measurement of the stepping engine rather than a guess about it._
-11. **Should a debug session be shareable as a file?** A `.typeshade-debug.json` beside the
-    shader, so a bug report carries the invocation and the bindings that reproduce it.
-    _Suggested: yes, and it is nearly free — it is the §4 object with no `launch.json`
-    wrapper — but it should wait for milestone 3, where the schema is baked._
+   and a subpath is the cheapest way to keep the two dependency graphs apart.
+8. **The DAP server lives in `typeshade/vscode-typeshade`**, beside the LSP server that
+   `docs/language-service-api.md` §1 and §10 already place there. This repository ships the
+   engine and the schema and nothing editor-shaped.
+9. **Compute steps one invocation; there is no workgroup scheduler yet.** No barrier or
+   workgroup-shared spelling exists in the grammar, so there is nothing to schedule; the
+   generator design of §2.1 is what keeps the scheduler possible later.
+10. **Approach B is not built now, and is not rejected.** Milestone 1's spans are exactly what
+    a V3 map consumes, so the decision can be made later against a measurement of the stepping
+    engine rather than a guess about it.
+11. **A debug session becomes shareable as a file in milestone 3**, where the schema is baked:
+    a `.typeshade-debug.json` beside the shader, so a bug report carries the invocation and the
+    bindings that reproduce it. It is the §4 object with no `launch.json` wrapper.
+
+## 6. Still open
+
+Nothing about the design. Two things this document deliberately leaves to the milestone that
+meets them, so they are not questions waiting on an answer but work waiting on a reason:
+
+- **When quad derivative evaluation is worth its four evaluations** (decision 4 defers it, §2.4
+  says what it would cost).
+- **Whether the stepping engine's performance ever justifies approach B** (decision 10 keeps
+  the door open, §2.2 says what it would buy and what it would give up).
 
 Last updated: 2026-09-14
