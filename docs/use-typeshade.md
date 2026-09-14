@@ -61,6 +61,26 @@ binding the GLSL emulation cannot spell) is a `TS8015` warning: the module compi
 stays and only `glsl` is `undefined`. `module` is always present,
 but it is partial when there is an error.
 
+Every statement and every function in `module` carries the span of the source it was lowered
+from, read with `sourceSpanOf(node)`:
+
+<!-- doc-snippets: skip — a host-side snippet, not a compilation unit -->
+
+```ts
+import { compile, sourceSpanOf } from 'typeshade'
+
+const { module } = compile(appSrc)
+const span = sourceSpanOf(module.funcs[0]!.body[0]!)
+// { file, start, length, line, character, endLine, endCharacter }
+// lines and characters zero-based, offsets in UTF-16 code units
+```
+
+A call the author wrote and an assignment's target carry one too. It is `undefined` for a node
+the `fn()` EDSL authored, which has no source to point at, and for one the compiler synthesised
+rather than lowered: the counter a `while` becomes, a value `autoVars` materialises, a call the
+front end expands a shorthand into. That is what a debugger reads to stop on the line an author
+wrote; `docs/debugging.md` is the design.
+
 A file without `"use typeshade"` is a `TS8001` error from both entry points. Pass
 `requireDirective: false` to `compileTsSource` to get the silently empty result instead, for a
 probe that only reads `hasDirective`.

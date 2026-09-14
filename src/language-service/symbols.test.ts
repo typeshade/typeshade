@@ -28,6 +28,42 @@ describe("getDocumentSymbols: re-labelled with the front end's own declarations"
   })
 })
 
+describe('getDocumentSymbols: all three struct spellings appear in the outline (#8 A4)', () => {
+  const body =
+    'declare const cam: uniform<Camera>\n' +
+    'export function f(p: Pt): vec3 {\n' +
+    '  return cam.pos\n' +
+    '}\n'
+
+  it.each([
+    ['a class', 'class Camera {\n  pos: vec3\n}\n'],
+    ['an interface', 'interface Camera {\n  pos: vec3\n}\n'],
+    ['a type alias', 'type Camera = {\n  pos: vec3\n}\n'],
+  ])('labels %s as a struct, with its fields as children', (_label, decl) => {
+    const source = '"use typeshade";\n' + decl + 'type Pt = {\n  x: f32\n}\n' + body
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', source)
+    const byName = new Map(service.getDocumentSymbols('a.ts').map((sym) => [sym.name, sym]))
+    expect(byName.get('Camera')?.kind).toBe('struct')
+    expect(byName.get('Camera')?.children?.map((c) => c.name)).toEqual(['pos'])
+    // …and one reached through a parameter annotation, not only through a binding.
+    expect(byName.get('Pt')?.kind).toBe('struct')
+  })
+
+  it('leaves an object type nothing uses out of the outline, as it is out of the emit', () => {
+    const source =
+      '"use typeshade";\n' +
+      'type Opts = {\n  seed: number\n}\n' +
+      'class Camera {\n  pos: vec3\n}\n' +
+      body.replace('p: Pt', 'x: f32')
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', source)
+    const byName = new Map(service.getDocumentSymbols('a.ts').map((sym) => [sym.name, sym]))
+    expect(byName.get('Camera')?.kind).toBe('struct')
+    expect(byName.has('Opts')).toBe(false)
+  })
+})
+
 describe('getDefinition / getReferences', () => {
   it('finds the definition of a resource used inside a function body', () => {
     const service = createTypeshadeLanguageService()

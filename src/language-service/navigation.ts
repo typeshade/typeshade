@@ -136,6 +136,18 @@ export function getReferences(
   return locationsFrom(program, entries)
 }
 
+/** The name and members of an `interface X { … }` or a `type X = { … }`, or undefined for any
+ *  other statement — the two struct spellings that are not a class. */
+function interfaceOrAliasMembers(
+  stmt: ts.Statement,
+): { nameNode: ts.Identifier; members: readonly ts.TypeElement[] } | undefined {
+  if (ts.isInterfaceDeclaration(stmt)) return { nameNode: stmt.name, members: stmt.members }
+  if (ts.isTypeAliasDeclaration(stmt) && ts.isTypeLiteralNode(stmt.type)) {
+    return { nameNode: stmt.name, members: stmt.type.members }
+  }
+  return undefined
+}
+
 /** The outline of `sourceFile`: its structs, entries, functions, resources and constants,
  * re-labelled from the front end's own collected declarations (`analysis`, the service's one
  * cached `compileTsSource` run for this document version, §8) rather than TypeScript's generic
@@ -170,6 +182,32 @@ export function getDocumentSymbols(
         selectionRange: rangeForSpan(sourceFile, spanOfNode(stmt.name)),
         ...(children.length ? { children } : {}),
       })
+    } else if (interfaceOrAliasMembers(stmt)) {
+      // A struct written as `interface X { … }` or `type X = { … }` (#8 A4). Only the names
+      // the analysis actually collected are structs: an object type nothing refers to is a
+      // host-shaped declaration, not a shader type, and is left out of the outline as it is
+      // left out of the emit.
+      const { nameNode, members } = interfaceOrAliasMembers(stmt)!
+      if (structNames.has(nameNode.text)) {
+        const children: TypeshadeDocumentSymbol[] = []
+        for (const member of members) {
+          if (ts.isPropertySignature(member) && ts.isIdentifier(member.name)) {
+            children.push({
+              name: member.name.text,
+              kind: 'field',
+              range: rangeForSpan(sourceFile, spanOfNode(member)),
+              selectionRange: rangeForSpan(sourceFile, spanOfNode(member.name)),
+            })
+          }
+        }
+        symbols.push({
+          name: nameNode.text,
+          kind: 'struct',
+          range: rangeForSpan(sourceFile, spanOfNode(stmt)),
+          selectionRange: rangeForSpan(sourceFile, spanOfNode(nameNode)),
+          ...(children.length ? { children } : {}),
+        })
+      }
     } else if (ts.isFunctionDeclaration(stmt) && stmt.name) {
       const stage = stageOf(stmt, sourceFile)
       const children: TypeshadeDocumentSymbol[] = []

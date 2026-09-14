@@ -35,10 +35,11 @@ export function vs(@builtin("vertex_index") idx: u32): VsOut {
 
 @fragment
 export function fs(vo: VsOut): vec4 {
-  // The `vec3` annotation is not decoration. TypeScript types `v * s` as `number`, so the
-  // product cannot be handed straight to `vec4(v: vec3, w: number)` without the editor
-  // reporting TS2345 on a program that compiles — issue #43. Naming the type restores it.
-  // This example pays that cost because it has no EDSL twin whose emit it must match.
+  // TypeScript types `v * s` as `number`, so handing the product straight to
+  // `vec4(v: vec3, w: number)` used to draw TS2345 in the editor on a program that compiles,
+  // which is why this local is annotated (issue #43). The language service now filters that
+  // diagnostic, so the one-line form reads clean too; the annotated local stays because the
+  // emitted WGSL and GLSL goldens are pinned to this shape.
   const rgb: vec3 = u.tint.rgb * vo.uv.y
   return vec4(rgb, u.tint.a)
 }
