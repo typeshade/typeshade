@@ -6,6 +6,7 @@ import type { ShaderType } from '../../core/ir/types.js'
 import { typeKey } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { LoweringScope } from './context.js'
+import type { DeclaredSymbolSink } from './symbols.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { foldConstNumber, foldConstValue } from './loop-bound.js'
 import { lowerExpression } from './lower/expression.js'
@@ -20,8 +21,9 @@ function isTopLevelConst(stmt: ts.Statement): stmt is ts.VariableStatement {
 export function collectModuleConsts(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  symbols?: DeclaredSymbolSink,
 ): ConstDecl[] {
-  const scope = new LoweringScope()
+  const scope = new LoweringScope(undefined, symbols)
   const out: ConstDecl[] = []
   for (const stmt of sourceFile.statements) {
     if (!isTopLevelConst(stmt)) continue
@@ -221,5 +223,6 @@ function lowerOne(
     mutable: false,
     constValue: typeof folded === 'boolean' ? folded : value,
   })
+  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'const', type })
   return { name, type, wgslValue: value, cpuValue: value }
 }

@@ -254,9 +254,9 @@ describe('what a module constant still is not', () => {
 
   it('rejects a write to it', () => {
     // Asserted as the code plus the part of the sentence that identifies the name and the
-    // reason. The tail ("read-only resource or const") is a hedge #18 removes — a binding and
-    // a module const share one BindingKind today, so the message cannot say which — and
-    // pinning it here would turn that fix red on this branch for no reason.
+    // reason. The tail was a hedge ("read-only resource or const") while a binding and a
+    // module const shared one BindingKind; #18 has since given a binding its own, and the
+    // message now says WHICH — asserted here, since that is the wording a reader will see.
     const d = diagnoseFull(`
       const UP = vec3(0., 1., 0.)
       export function f(): vec3 {
@@ -266,7 +266,7 @@ describe('what a module constant still is not', () => {
     `)
     expect(d.code).toBe('TS8005')
     expect(d.message).toContain('Cannot assign to "UP"')
-    expect(d.message).toContain('read-only')
+    expect(d.message).toContain('a module const')
   })
 
   it('leaves a scalar module const exactly as it was', () => {
