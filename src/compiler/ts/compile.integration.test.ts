@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
+import { TS_CODES } from './codes.js'
 import { typeKey } from '../../core/ir/types.js'
 
 describe('compileTsSource integration', () => {
@@ -67,10 +68,19 @@ describe('compileTsSource integration', () => {
     expect(result.diagnostics.length).toBeGreaterThan(0)
   })
 
-  it('returns empty funcs when directive is absent', () => {
+  it('returns empty funcs and a MISSING_DIRECTIVE error when directive is absent', () => {
     const result = compileTsSource('export function f(): void {}')
     expect(result.hasDirective).toBe(false)
     expect(result.funcs).toEqual([])
+    expect(result.wgsl).toBeUndefined()
+    expect(result.diagnostics.map((d) => d.code)).toEqual([TS_CODES.MISSING_DIRECTIVE])
+  })
+
+  it('returns empty funcs and no diagnostic when the directive is absent and not required', () => {
+    const result = compileTsSource('export function f(): void {}', { requireDirective: false })
+    expect(result.hasDirective).toBe(false)
+    expect(result.funcs).toEqual([])
+    expect(result.diagnostics).toEqual([])
   })
 
   it('collects multiple top-level functions', () => {
