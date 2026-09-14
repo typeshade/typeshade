@@ -17,11 +17,11 @@ declare let pixels: storage<T>      resource slot, writable
 
 GPU has three things. The grammar has three places.
 
-| GPU          | TypeShade                                         | `@` allowed?                      |
-| ------------ | ------------------------------------------------- | --------------------------------- |
-| Buffer / UBO | `declare const/let` + `uniform<T>` / `storage<T>` | No (const cannot take decorators) |
-| Value layout | `class` fields or `type` alias                    | Yes, on **class fields only**     |
-| Shader stage | top-level `export function`                       | `@compute` `@vertex` `@fragment`  |
+| GPU              | TypeShade                                      | `@` allowed?                          |
+|------------------|------------------------------------------------|---------------------------------------|
+| Buffer / UBO     | `declare const/let` + `uniform<T>` / `storage<T>` | No (const cannot take decorators)     |
+| Value layout     | `class` fields or `type` alias                 | Yes, on **class fields only**         |
+| Shader stage     | top-level `export function`                    | `@compute` `@vertex` `@fragment`      |
 
 Do not put an entry method on a class. Do not use a class as a bind group.
 
@@ -32,20 +32,20 @@ Do not put an entry method on a class. Do not use a class as a bind group.
 Host-owned. No initializer. Slot index = source order of `declare` in the file.
 
 ```ts
-'use typeshade'
+"use typeshade"
 
 declare const camera: uniform<Camera>
 declare const src: storage<f32>
 declare let pixels: storage<f32>
 ```
 
-| Declaration                   | Space   | Access           |
-| ----------------------------- | ------- | ---------------- |
-| `declare const x: uniform<T>` | uniform | read             |
-| `declare const x: storage<T>` | storage | read             |
-| `declare let x: storage<T>`   | storage | read_write       |
-| `declare const x: T`          | illegal | space required   |
-| `declare let x: uniform<T>`   | illegal | uniform is const |
+| Declaration | Space | Access |
+|-------------|-------|--------|
+| `declare const x: uniform<T>` | uniform | read |
+| `declare const x: storage<T>` | storage | read |
+| `declare let x: storage<T>` | storage | read_write |
+| `declare const x: T` | illegal | space required |
+| `declare let x: uniform<T>` | illegal | uniform is const |
 
 Writes to a read-only resource are a compile error.
 
@@ -95,12 +95,12 @@ class Camera {
 
 class VsIn {
   @location(0) position: vec3
-  @location(1) @interpolate('linear') uv: vec2
+  @location(1) @interpolate("linear") uv: vec2
 }
 ```
 
 Of that list the compiler applies `@location` and `@builtin` today. `@align` on a field is
-an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is _(target)_.
+an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(target)*.
 `@size`, `@offset`, `@interpolate` and `@ignore` parse but do not reach the emitted struct yet.
 
 `class` here is a struct with attributes, not an object.
@@ -174,15 +174,15 @@ export function fs(
 
 ## 4. What we will not do
 
-| Idea                                          | Why not                                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@uniform const scale`                        | TS does not parse decorators on `const`                                                                                                                                                                                                                                                                                                                                                                |
-| `class Scene { @compute paint() {} }`         | `this` is not a GPU instance                                                                                                                                                                                                                                                                                                                                                                           |
-| Static class as bind group                    | Extra ban list; emit `.d.ts` instead                                                                                                                                                                                                                                                                                                                                                                   |
-| Per-decl binding numbers as the happy path    | Host mismatch is silent on GPU                                                                                                                                                                                                                                                                                                                                                                         |
-| JS `Array` / lambdas / `filter` length change | IR + WGSL constraints                                                                                                                                                                                                                                                                                                                                                                                  |
-| Implicit `gid` / `vid` / `pid` globals        | Hidden stage inputs make dependencies less explicit                                                                                                                                                                                                                                                                                                                                                    |
-| Recursion, direct or mutual                   | WGSL has no call stack; Tint rejects the module outright. The check is SYNTACTIC, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
+| Idea | Why not |
+|------|--------|
+| `@uniform const scale` | TS does not parse decorators on `const` |
+| `class Scene { @compute paint() {} }` | `this` is not a GPU instance |
+| Static class as bind group | Extra ban list; emit `.d.ts` instead |
+| Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
+| JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
+| Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
+| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check is SYNTACTIC, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
 
 ---
 
@@ -227,16 +227,16 @@ Do not start Execution Graph or class methods before 2–4 are green.
 
 ## 7. Diagnostics (required)
 
-| Situation                                                           | Error                                                                                                                                                                                                      |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `declare const x: f32`                                              | need `uniform<T>` or `storage<T>`                                                                                                                                                                          |
-| `declare let x: uniform<T>`                                         | uniform must be `declare const`                                                                                                                                                                            |
-| assign to `declare const` resource                                  | read-only                                                                                                                                                                                                  |
-| two resources share `@binding`                                      | name both                                                                                                                                                                                                  |
-| builtin parameter on an incompatible stage                          | stage mismatch                                                                                                                                                                                             |
-| `@compute` method on a class                                        | entries are top-level functions                                                                                                                                                                            |
-| a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle                                                                                                                                         |
-| `.length` on an `array<T>` with no `N`, anywhere                    | `TS8032`. For a `storage` array the length is the bound buffer's and needs `arrayLength` (unspelled today); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
+| Situation | Error |
+|-----------|-------|
+| `declare const x: f32` | need `uniform<T>` or `storage<T>` |
+| `declare let x: uniform<T>` | uniform must be `declare const` |
+| assign to `declare const` resource | read-only |
+| two resources share `@binding` | name both |
+| builtin parameter on an incompatible stage | stage mismatch |
+| `@compute` method on a class | entries are top-level functions |
+| a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
+| `.length` on an `array<T>` with no `N`, anywhere | `TS8032`. For a `storage` array the length is the bound buffer's and needs `arrayLength` (unspelled today); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 
 ---
 
@@ -266,7 +266,7 @@ export function paint(
 ```
 
 **Rule:** a target example — grammar this document freezes but the compiler does not accept
-yet — stays in this document, is labelled _(target)_, and is never copied into `README.md`,
+yet — stays in this document, is labelled *(target)*, and is never copied into `README.md`,
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
@@ -288,15 +288,15 @@ carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoot
 `length`, `dot`, `cross`, `distance`, `normalize`, `mod`, `fract`, `degrees`, `radians`,
 `inverseSqrt`):
 
-| Spelling                          | Meaning                                                                              |
-| --------------------------------- | ------------------------------------------------------------------------------------ |
-| `exp2(x)`                         | 2ˣ                                                                                   |
-| `saturate(x)`                     | `clamp(x, 0., 1.)`; GLSL ES 3.00 has no `saturate`, so it is inlined there           |
-| `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL)                                   |
-| `fma(a, b, c)`                    | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there                         |
-| `atan(y, x)`                      | the two-argument arctangent (`atan2` in WGSL) — `atan(x)` is still one argument      |
-| `select(f, t, c)`                 | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
-| `a ** b`                          | `pow(a, b)`. Both operands must have one type; splat a scalar exponent               |
+| Spelling | Meaning |
+|----------|---------|
+| `exp2(x)` | 2ˣ |
+| `saturate(x)` | `clamp(x, 0., 1.)`; GLSL ES 3.00 has no `saturate`, so it is inlined there |
+| `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL) |
+| `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
+| `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL) — `atan(x)` is still one argument |
+| `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
+| `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
 
 A function the file declares wins over any name in the table above, and over `bool` and
 `f64`: those names meant the author's function before they were builtins, and an addition
@@ -332,6 +332,7 @@ as `pow(i32, i32)`, which neither compiler accepts.
 
 `transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
 emulated-double matrix, so there is nothing to expose yet.
+
 ---
 
 ## 11. Vector constructors
@@ -340,13 +341,13 @@ A `vecN` constructor either **composes** a vector out of parts of its own elemen
 **converts** one whole vector of the same size:
 
 ```ts
-vec3(a, b, c) // compose: three f32
-vec3(0.5) // splat
-vec4(v3, 1) // compose from a vec3 and a scalar
-vec4(v2, v2) // compose from two vec2
-vec3f(v) // convert: v is a vec3u, every component becomes an f32
-vec3u(v) // convert the other way
-vec2(gid.xy) // convert a vec2<u32> swizzle to vec2<f32>
+vec3(a, b, c)        // compose: three f32
+vec3(0.5)            // splat
+vec4(v3, 1.)         // compose from a vec3 and a scalar
+vec4(v2, v2)         // compose from two vec2
+vec3f(v)             // convert: v is a vec3u, every component becomes an f32
+vec3u(v)             // convert the other way
+vec2(gid.xy)         // convert a vec2<u32> swizzle to vec2<f32>
 ```
 
 The converting form is WGSL's `vecN<T>(e: vecN<S>)` and GLSL ES 3.00's `vec3(uv)`, and the
