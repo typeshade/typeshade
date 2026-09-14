@@ -37,12 +37,12 @@ export interface CompileResult {
    */
   readonly wgsl?: string
   /**
-   * The module's GLSL ES 3.00 vertex and fragment programs. Present only when the module has
-   * both a `@vertex` and a `@fragment` entry, no diagnostic has category `error`, and the GLSL
-   * emitter took the module; a compute-only, vertex-only or fragment-only module gets
-   * `undefined` here while `wgsl` is still present (the same guard `packModule` applies), and
-   * so does a vertex+fragment module the GLSL backend threw on, with the throw recorded as a
-   * `BACKEND` warning and `wgsl` still present.
+   * The module's GLSL ES 3.00 vertex and fragment programs. Present when no diagnostic has
+   * category `error` and the GLSL emitter took the module; a module with only one render
+   * stage still gets both programs (the missing stage is a header-only program). A module the
+   * GLSL backend refuses gets `undefined` here while `wgsl` is still present: silently for a
+   * compute-only module, which GLSL ES 3.00 has no stage for, and with the throw recorded as a
+   * `BACKEND` warning for a module with a `@vertex` or `@fragment` entry.
    */
   readonly glsl?: { readonly vertex: string; readonly fragment: string }
   /**
@@ -65,11 +65,12 @@ export interface CompileResult {
  * shader text. When the front end reports no error, a WGSL emitter that throws anyway (a
  * literal the target cannot spell, an IR the emitter rejects) is reported as one `BACKEND`
  * error diagnostic rather than an exception, and `wgsl` and `glsl` are again `undefined`.
- * GLSL is emitted only for a module with both a vertex and a fragment entry; when the GLSL
- * emitter throws on such a module (a compute entry beside the render pair, a binding the
- * GLSL emulation cannot spell) the module has still compiled: `wgsl` stays, `glsl` is
- * `undefined`, and the throw is one `BACKEND` diagnostic with category `warning`. See
- * `CompileResult` for each field.
+ * GLSL is attempted for every module whose WGSL exists; when the GLSL emitter throws on a
+ * module with a render entry (a compute entry beside the render pair, a binding the GLSL
+ * emulation cannot spell) the module has still compiled: `wgsl` stays, `glsl` is `undefined`,
+ * and the throw is one `BACKEND` diagnostic with category `warning`. A compute-only module
+ * gets `glsl: undefined` with no diagnostic, since GLSL ES 3.00 has no compute stage to
+ * miss. See `CompileResult` for each field.
  */
 export function compile(source: string): CompileResult {
   const r = compileTsSource(source)
@@ -93,17 +94,16 @@ export function compile(source: string): CompileResult {
     }
   }
   // GLSL is a second target of a module whose WGSL exists. Its emitter has no compute stage
-  // and a narrower storage emulation, so it can refuse a module that compiled; that shortfall
-  // is a warning that leaves `wgsl` in place, not an error that would unsay the compile.
+  // and a narrower storage emulation, so it can refuse a module that compiled; for a module
+  // with a render entry that shortfall is a warning that leaves `wgsl` in place, not an error
+  // that would unsay the compile. A compute-only module has nothing GLSL ES 3.00 could serve,
+  // so its refusal is not news and gets no diagnostic.
   if (wgsl !== undefined) {
-    const hasVs = module.funcs.some((f) => f.stage === 'vertex')
-    const hasFs = module.funcs.some((f) => f.stage === 'fragment')
-    if (hasVs && hasFs) {
-      try {
-        glsl = emitGlslStages(module)
-      } catch (e) {
-        diagnostics.push(backendDiagnostic(r.sourceFile, e, 'warning'))
-      }
+    const hasRenderEntry = module.funcs.some((f) => f.stage === 'vertex' || f.stage === 'fragment')
+    try {
+      glsl = emitGlslStages(module)
+    } catch (e) {
+      if (hasRenderEntry) diagnostics.push(backendDiagnostic(r.sourceFile, e, 'warning'))
     }
   }
 

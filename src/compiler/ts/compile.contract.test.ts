@@ -142,25 +142,26 @@ describe('compile() contract', () => {
     expect((s.eval('fs') as { color: number[] }).color).toEqual([1, 0, 0, 1])
   })
 
-  it('yields wgsl but no glsl for a compute-only module', () => {
+  it('yields wgsl but no glsl and no warning for a compute-only module', () => {
     const s = compile(COMPUTE_ONLY)
-    expect(errorsOf(s)).toEqual([])
+    expect(s.diagnostics).toEqual([])
     expect(s.wgsl).toMatch(/@compute/)
     expect(s.glsl).toBeUndefined()
   })
 
-  it('yields wgsl but no glsl for a vertex-only module', () => {
+  it('yields wgsl and glsl for a vertex-only module', () => {
     const s = compile(VERTEX_ONLY)
-    expect(errorsOf(s)).toEqual([])
+    expect(s.diagnostics).toEqual([])
     expect(s.wgsl).toMatch(/@vertex/)
-    expect(s.glsl).toBeUndefined()
+    expect(s.glsl?.vertex).toMatch(/#version 300 es/)
+    expect(s.glsl?.fragment).toMatch(/#version 300 es/)
   })
 
-  it('yields wgsl but no glsl for a fragment-only module, and eval runs', () => {
+  it('yields wgsl and glsl for a fragment-only module, and eval runs', () => {
     const s = compile(FRAGMENT_ONLY)
-    expect(errorsOf(s)).toEqual([])
+    expect(s.diagnostics).toEqual([])
     expect(s.wgsl).toMatch(/@fragment/)
-    expect(s.glsl).toBeUndefined()
+    expect(s.glsl?.fragment).toMatch(/#version 300 es/)
     expect((s.eval('fs') as { color: number[] }).color).toEqual([1, 0, 0, 1])
   })
 
