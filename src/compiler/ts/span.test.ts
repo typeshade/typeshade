@@ -347,8 +347,9 @@ export function f(a: f32, b: f32): f32 {
     // `random(seed)` is not a call in the IR: the front end expands it into a
     // `fract(sin(dot(...)))` tree. The node lowered FROM the `ts.CallExpression` takes its
     // span, which is the text the author wrote; the nodes the expansion invents take none,
-    // because there is nowhere to point at. Same for the array higher-order functions, the
-    // `Math.*` expansions and a numeric cast.
+    // because there is nowhere to point at. Same for the array higher-order functions and the
+    // `Math.*` expansions. NOT the same for a numeric cast, which the review found this
+    // comment had wrong — see the test below.
     const { module, text } = compiled(`"use typeshade"
 export function f(x: f32): f32 {
   return random(x)
@@ -358,6 +359,35 @@ export function f(x: f32): f32 {
     expect(calls.length).toBeGreaterThan(1)
     expect(textAt(text, sourceSpanOf(calls[0]!)!)).toBe('random(x)')
     expect(calls.slice(1).every((c) => sourceSpanOf(c) === undefined)).toBe(true)
+  })
+
+  it('a numeric cast carries one, but a folded literal coercion has nowhere to carry it', () => {
+    // The review caught this stated backwards. A cast of a VALUE is an ordinary call node
+    // lowered from a `ts.CallExpression` the author wrote, so it takes that text's span like
+    // any other call. Only a cast of a LITERAL loses one, and not by being spanless: it folds
+    // to a `lit`, and `lit` has no span field at all — which is the honest outcome, since
+    // `f32(3)` and `3.` are the same IR and the second was never written.
+    const { module, text } = compiled(`"use typeshade"
+export function f(n: i32, x: f32): f32 {
+  const a = f32(n)
+  const b = f32(3)
+  const c = u32(x)
+  return a + b + f32(c)
+}
+`)
+    const body = byName(module, 'f').body
+    const casts = allExpressions(body).filter((e) => e.op === 'call')
+    expect(casts.map((c) => textAt(text, sourceSpanOf(c)!)).sort()).toEqual([
+      'f32(c)',
+      'f32(n)',
+      'u32(x)',
+    ])
+    const folded = body[1]
+    expect(folded!.s).toBe('let')
+    if (folded!.s === 'let') {
+      expect(folded.expr.op).toBe('lit')
+      expect(sourceSpanOf(folded.expr)).toBeUndefined()
+    }
   })
 
   it('an intrinsic call carries one too', () => {
