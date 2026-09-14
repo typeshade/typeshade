@@ -785,7 +785,7 @@ src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: S
 src/compiler/ts/directive.ts#hasUseTypeshadeDirective  function  (sourceFile: SourceFile) => boolean
 src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => boolean
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
-src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; sourceFile: SourceFile; structs: readonly CollectedStruct[]; wgsl?: string }
+src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
