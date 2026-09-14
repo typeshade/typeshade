@@ -203,7 +203,7 @@ line 31 on invocation 3.
 
 **Helpers and loops.** Loops fall out: the `for` case already re-enters `execBody`, so each
 iteration pauses at each statement. Helpers are the interesting case, because a call is an
-an expression: `return f(x) + g(y)` contains two calls inside one statement.
+expression: `return f(x) + g(y)` contains two calls inside one statement.
 **Decision:** pauses are at statement boundaries, and a call pushes a frame, so `stepIn` on that
 statement enters `f`, `stepOut` returns to the same statement with `f`'s frame gone, and
 `stepIn` again enters `g`. That is the model every JavaScript debugger uses for the same
@@ -445,12 +445,15 @@ should have to re-read the source to answer "which line". The compiler does hold
 
 Lines and characters are **zero-based**, matching `docs/language-service-api.md` §2 and LSP.
 `TsCompilerDiagnostic`'s own `line` and `character` are one-based, which looks like an
-inconsistency and is better described as a vestige: nothing reads them. The language service
-re-derives zero-based positions from the same `start` and `length` this type carries, so the
-one-based pair is a field the front end fills and no consumer consults. A new type should
-therefore follow the convention its readers use rather than the one a dead field happens to
-have. Changing the diagnostic shape is a breaking change with nothing to do with debugging, so
-it stays as it is. This is §5 decision 1.
+inconsistency and is better described as two conventions answering to two different readers.
+The one-based pair IS read, by three places, and all three format it into a human-readable
+`file:line:col` string: `compile()`'s "cannot evaluate" error (`src/compiler/ts/compile.ts`),
+the Vite plugin's build failure (`src/compiler/ts/vite.ts`) and the example gate's report
+(`examples/_shade.ts`). What no reader does is consume it as a POSITION — the language service
+re-derives zero-based positions from the same `start` and `length` this type carries, and never
+from the pair. So one-based is the convention a person reading a terminal line expects, and a
+type meant for an editor should follow the editor's. Changing the diagnostic shape is a
+breaking change with nothing to do with debugging, so it stays as it is. This is §5 decision 1.
 
 `SourceSpan` is a third position shape beside the language service's `TypeshadeTextSpan` and
 `TypeshadeRange`, and it does not compose from them on purpose: `src/core/` cannot import
@@ -488,8 +491,8 @@ equal trees compare unequal, which costs an extra iteration rather than a wrong 
 on a registered example while milestone 1 was reviewed, the span doubled the fixpoint's
 iterations. `irEqual` therefore filters `span` and `nameSpan`, which is the correct reading of
 what it is for: it asks whether a pass changed the PROGRAM, and where a statement was written
-is not part of the program. Two lint rules compare nodes the same way and take the same filter
-(§3.4).
+is not part of the program. The `no-self-assign` lint rule compares two nodes the same way, and
+takes the same filter.
 
 **Why the IR-equality suites cannot break.** `src/compiler/ts/ir-equality.test.ts` and
 `src/core/ir/seam-ir-equality.test.ts` both normalise field by field before comparing:
@@ -641,9 +644,13 @@ entry actually declares.
 | `@fragment` | `position` (a `vec4`: x, y in pixels with the half-pixel centre the author must supply themselves, then z, w), `front_facing`, `sample_index`; `inputs` for each interpolated `@location(n)`, by field name | `[0,0,0,1]`, `true`, `0`, zeros  |
 | `@compute`  | `global_invocation_id`, `local_invocation_id`, `workgroup_id`, `local_invocation_index`, `num_workgroups`, and `dispatch`                                                                                   | all zeros, with derivation below |
 
-Every builtin the front end accepts as an entry input has a row above. One the front end
-accepts and this table does not name reads as the zero of its type in this milestone, which is
-the same default every other omitted input gets.
+Four builtins the front end accepts as an entry input have no row above: `sample_mask`
+(fragment), `subgroup_invocation_id` and `subgroup_size` (compute), and `clip_distances`, which
+`builtin-check.ts` leaves unconstrained. Nothing special happens to them. The resolver is keyed
+by the entry's OWN declarations rather than by this table, so each of the four is namable where
+an entry declares it, and each reads as the zero of its type when omitted — the same default
+every other omitted input gets. The table is what a reader needs, not what the resolver
+consults.
 
 For compute, supplying `global_invocation_id` alone is the common case, so three of the others
 are **derived** from it and the entry's workgroup size rather than left at zero:
