@@ -595,7 +595,7 @@ Document versions, for either adapter:
   `src/index.ts` re-exports `compile` from it, so a bare `import { emitModule } from 'typeshade'`
   loads the parser too. Measured on an installed tarball with no `typescript` present:
   `ERR_MODULE_NOT_FOUND: Cannot find package 'typescript' imported from
-  dist/src/compiler/ts/source-file.js`. npm installs a required peer automatically, so
+dist/src/compiler/ts/source-file.js`. npm installs a required peer automatically, so
   `npm install typeshade` now yields a working package. The upper bound is measured as well —
   npm resolved `>=5.0.0` to TypeScript 7.0.2, whose default export carries no `SyntaxKind`, and
   the package threw `Cannot read properties of undefined (reading 'PlusToken')` at module load.
