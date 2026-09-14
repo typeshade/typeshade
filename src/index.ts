@@ -20,6 +20,17 @@ export {
   findUseTypeshadeDirective,
 } from './compiler/ts/directive.js'
 
+// Editor intelligence shared by the Playground, VS Code adapter, and future LSP.
+export {
+  TypeshadeLanguageService,
+  type TypeshadeCompletionItem,
+  type TypeshadeDiagnostic,
+  type TypeshadeHover,
+  type TypeshadeLanguageServiceOptions,
+  type TypeshadePosition,
+  type TypeshadeTextSpan,
+} from './language-service.js'
+
 // IR authoring layer (types, nodes, node wrapper, builder/assemblers).
 export * from './core/ir/index.js'
 export * from './core/sot.js'
