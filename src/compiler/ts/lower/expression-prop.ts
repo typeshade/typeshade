@@ -111,6 +111,16 @@ export function lowerObjectLiteral(
 ): Expr | undefined {
   const given: { name: string; expr: Expr }[] = []
   for (const prop of node.properties) {
+    // `{ pos, uv }` is `{ pos: pos, uv: uv }` — the shorthand TypeScript gives a property
+    // whose value is its own name, and the shape `return { pos, uv }` is written in (#8 A10).
+    // The name is the field and the same identifier is the value, so it lowers through the
+    // ordinary identifier path and reaches matchStruct exactly as the long form does.
+    if (ts.isShorthandPropertyAssignment(prop)) {
+      const expr = lowerExpression(prop.name, sourceFile, scope, diagnostics)
+      if (!expr) return undefined
+      given.push({ name: prop.name.text, expr })
+      continue
+    }
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) {
       pushDiag(
         diagnostics,

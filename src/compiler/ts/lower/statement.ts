@@ -21,6 +21,19 @@ const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PercentEqualsToken]: '%',
 }
 
+/** The bitwise compound assignments (#8 A10). Separate from {@link ASSIGN_OP} because they
+ *  carry a rule the arithmetic five do not: the target must be an integer scalar. The
+ *  `assignOp` IR node and both CPU backends have always taken them — the oracle's own
+ *  comment names `x >>= y` on an i32 target — so this is the spelling catching up, not a
+ *  new operation. */
+const BITWISE_ASSIGN_OP: Readonly<Record<number, BinOp>> = {
+  [ts.SyntaxKind.AmpersandEqualsToken]: '&',
+  [ts.SyntaxKind.BarEqualsToken]: '|',
+  [ts.SyntaxKind.CaretEqualsToken]: '^',
+  [ts.SyntaxKind.LessThanLessThanEqualsToken]: '<<',
+  [ts.SyntaxKind.GreaterThanGreaterThanEqualsToken]: '>>',
+}
+
 export function lowerStatements(
   statements: readonly ts.Statement[],
   sourceFile: ts.SourceFile,
@@ -55,7 +68,12 @@ export function lowerStatement(
   if (ts.isWhileStatement(node)) return lowerWhile(node, sourceFile, scope, diagnostics)
   if (ts.isSwitchStatement(node)) return lowerSwitch(node, sourceFile, scope, diagnostics)
   if (ts.isBreakStatement(node)) {
-    if (!scope.inLoop()) {
+    // The message has always said "loop or switch"; only the loop half was checked, so the
+    // `break` every TypeScript author ends a `case` with was rejected by the very sentence
+    // that said it was allowed (#8 A10). lowerSwitch drops a TRAILING break — the IR switch
+    // has no fall-through and each backend writes its own case terminator — so this reaches
+    // the IR only for a break that leaves the switch early, which is a real statement.
+    if (!scope.inLoop() && !scope.inSwitch()) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -170,14 +188,35 @@ function lowerVariableDeclaration(
     if (!annotated) return undefined
   }
   if (!decl.initializer) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl,
-      `"${isConst ? 'const' : 'let'} ${name}" requires an initializer.`,
-      TS_CODES.UNSUPPORTED,
-    )
-    return undefined
+    // `let x: f32;` — declare now, assign later (#8 A10). WGSL's `var x: f32;` and GLSL's
+    // `float x;` are the same statement, `Stmt.var.init` has always been optional, and the
+    // EDSL spells it `Var(f32T)`; only this surface insisted on a value. A `const` has
+    // nothing to assign later, and an unannotated `let` has no type to declare, so both
+    // keep a refusal — now one that says which of the two is missing.
+    if (isConst) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl,
+        `"const ${name}" requires an initializer.`,
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
+    if (!annotated) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl,
+        `"let ${name}" without an initializer needs a type annotation, e.g. let ${name}: f32;`,
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
+    if (!defineLocal(name, annotated, true, undefined, decl, sourceFile, scope, diagnostics)) {
+      return undefined
+    }
+    return { s: 'var', name, type: annotated }
   }
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
@@ -200,8 +239,30 @@ function lowerVariableDeclaration(
   }
   const bindingType = annotated ?? init.type
   const constValue = init.op === 'lit' ? init.value : undefined
+  if (!defineLocal(name, bindingType, !isConst, constValue, decl, sourceFile, scope, diagnostics)) {
+    return undefined
+  }
+  if (isConst) return { s: 'let', name, expr: init }
+  return { s: 'var', name, type: bindingType, init }
+}
+
+/** Register a local binding, turning the scope's throw into a diagnostic on the declaration.
+ *  Shared by the two declaration shapes — with an initializer and without.
+ *
+ *  @returns `true` when the binding was defined, `false` after pushing a diagnostic. */
+function defineLocal(
+  name: string,
+  type: ShaderType,
+  mutable: boolean,
+  constValue: number | boolean | undefined,
+  decl: ts.VariableDeclaration,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
   try {
-    scope.define({ kind: 'local', name, type: bindingType, mutable: !isConst, constValue })
+    scope.define({ kind: 'local', name, type, mutable, constValue })
+    return true
   } catch (e) {
     pushDiag(
       diagnostics,
@@ -210,10 +271,8 @@ function lowerVariableDeclaration(
       e instanceof Error ? e.message : String(e),
       TS_CODES.DUPLICATE_SYMBOL,
     )
-    return undefined
+    return false
   }
-  if (isConst) return { s: 'let', name, expr: init }
-  return { s: 'var', name, type: bindingType, init }
 }
 
 function lowerExpressionStatement(
@@ -233,6 +292,21 @@ function lowerExpressionStatement(
     const bop = ASSIGN_OP[expr.operatorToken.kind]
     if (bop !== undefined)
       return lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics)
+    const bit = BITWISE_ASSIGN_OP[expr.operatorToken.kind]
+    if (bit !== undefined)
+      return lowerBitwiseAssignOp(expr.left, bit, expr.right, sourceFile, scope, diagnostics)
+    if (expr.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken) {
+      // The same refusal `a >>> b` gets in lowerBinary, so the two spellings of an
+      // unsupported operator do not disagree about why they are unsupported.
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        'Unsigned right shift >>>= is not supported.',
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
   }
   pushDiag(
     diagnostics,
@@ -266,6 +340,56 @@ function lowerAssign(
     return undefined
   }
   return { s: 'assign', target, expr: value }
+}
+
+/**
+ * Lower `y <<= 1` and its four siblings (`>>=`, `&=`, `|=`, `^=`) — #8 A10.
+ *
+ * Kept apart from {@link lowerAssignOp} for one reason: the bitwise operators are defined
+ * on integers only, and this is a form nothing accepted before, so refusing a float target
+ * here rejects no source that compiles today. (`a & b` as an EXPRESSION has no such guard
+ * and emits `(a & b)` for two `f32`s, which is not valid WGSL — a pre-existing hole that
+ * tightening would break passing source, so it is left for its own change.)
+ *
+ * @returns the `assignOp` statement, or `undefined` after pushing a diagnostic.
+ */
+function lowerBitwiseAssignOp(
+  left: ts.Expression,
+  bop: BinOp,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  const k = typeKey(target.type)
+  if (k !== 'i32' && k !== 'u32') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      left,
+      `Bitwise "${bop}=" needs an i32 or u32 target, got ${k}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  let value = lowerExpression(right, sourceFile, scope, diagnostics)
+  if (!value) return undefined
+  if (value.op === 'lit' && typeof value.value === 'number' && Number.isInteger(value.value)) {
+    value = { op: 'lit', type: target.type, value: value.value }
+  }
+  if (typeKey(value.type) !== k) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      numericMismatch(`${bop}=`, target.type, value.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return { s: 'assignOp', target, bop, expr: value }
 }
 
 function lowerAssignOp(

@@ -242,4 +242,65 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+## 14. TypeScript shapes the parser already had
+
+Four ordinary TypeScript statements that the grammar admits and the language now lowers.
+None of them is a new operation: `Stmt.var.init` has always been optional, `assignOp` has
+always taken any `BinOp`, `construct` does not record how a field was spelled, and `switch`
+was already lowered — only the source language refused them.
+
+```ts
+"use typeshade"
+
+const PALETTE_WARM = 1.
+
+export function band(seed: i32, t: f32): vec3 {
+  let bits: i32 = seed
+  bits <<= 1
+  bits &= 3
+  bits |= 0
+  bits ^= 0
+  bits >>= 0
+
+  let rgb: vec3
+  rgb = vec3(0., 0., 0.)
+  switch (bits) {
+    case 0:
+      rgb = vec3(0.1, 0.1, 0.12)
+      break
+    case 1: {
+      if (t > 0.5) {
+        rgb = vec3(PALETTE_WARM, 0.55, 0.2)
+        break
+      }
+      rgb = vec3(0.5, 0.3, 0.1)
+    }
+    default:
+      rgb = vec3(0.85, 0.85, 0.9)
+  }
+  return rgb
+}
+```
+
+**`let x: f32` with no initializer** declares a mutable local and leaves the value for a
+later assignment — WGSL's `var x: f32;`, GLSL's `float x;`, and the EDSL's `Var(f32T)`. The
+annotation is what carries the type, so it is required; a `const` still needs its value.
+Note what the two targets do with a read that happens _before_ the first assignment: WGSL
+zero-initialises, GLSL ES 3.00 leaves it undefined. That divergence is the EDSL's today as
+well — assign before you read.
+
+**`&=`, `|=`, `^=`, `<<=`, `>>=`** compound the bitwise operators onto an `i32` or `u32`
+target, and the right-hand literal takes the target's type (`y &= 3` on a `u32` is
+`y &= 3u`). A float target is refused here; `>>>=`, like `>>>`, is not supported.
+
+**`{ pos, uv }`** is the shorthand for `{ pos: pos, uv: uv }` and builds the identical
+struct — the shape `return { pos, uv }` is naturally written in.
+
+**`switch`** takes the `break` TypeScript requires at the end of a case. It is dropped in
+lowering, because the IR switch does not fall through and each backend writes its own case
+terminator; a `break` that leaves a case _early_ is kept and emitted. A case label is an
+integer constant: a literal, a negative literal, or a module `const`. Two labels on one body
+(`case 0: case 1:`) is still refused, and so is `continue` in a `switch` that no loop
+encloses.
+
 Last updated: 2026-09-14

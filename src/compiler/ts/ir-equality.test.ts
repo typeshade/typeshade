@@ -2,9 +2,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
-import { fn } from '../../core/ir/builder.js'
-import { f32 } from '../../core/ir/node.js'
-import { f32T, vec3fT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import { Switch, Var, fn } from '../../core/ir/builder.js'
+import { f32, i32 } from '../../core/ir/node.js'
+import { f32T, i32T, vec3fT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -50,6 +50,13 @@ function normalizeStmt(s: Stmt): unknown {
           body: normalizeBody(arm.body),
         })),
         elseBody: s.elseBody ? normalizeBody(s.elseBody) : undefined,
+      }
+    case 'switch':
+      return {
+        s: 'switch',
+        scrut: normalizeExpr(s.scrut),
+        cases: s.cases.map((c) => ({ value: c.value, body: normalizeBody(c.body) })),
+        defaultBody: s.defaultBody ? normalizeBody(s.defaultBody) : undefined,
       }
     default:
       return { s: s.s }
@@ -160,6 +167,89 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a let with no initializer matches EDSL Var(name, type)', () => {
+    // #8 A10. `Var('x', f32T)` is the EDSL's declare-then-assign, and it builds the same
+    // init-less `Stmt.var` the source language now builds.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32): f32 {
+        let x: f32;
+        x = a;
+        return x;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const edsl = fn('f', { a: f32T }, f32T, ({ a }, bld) => {
+      const x = Var('x', f32T)
+      bld.assign(x, a)
+      return x
+    })
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a bitwise compound assignment matches EDSL assignOp', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(i: i32): i32 {
+        let y: i32 = i;
+        y <<= 2;
+        return y;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const edsl = fn('f', { i: i32T }, i32T, ({ i }, bld) => {
+      const y = Var('y', i32T, i)
+      // `i32(2)`, not a bare `2`: the EDSL's own literal lift gives a number f32 and does not
+      // consult the target of an assignOp, while the source language types the right-hand
+      // literal from the target it is assigning into. The written-out cast is what makes the
+      // two sides the same IR here.
+      bld.assignOp(y, '<<', i32(2))
+      return y
+    })
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a switch whose cases end in break matches EDSL Switch().case().default()', () => {
+    // The trailing `break` the source language requires is dropped in lowering, so the two
+    // surfaces build the same case bodies — which is the point of accepting it at all.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(x: i32): f32 {
+        let r: f32 = 0.;
+        switch (x) {
+          case 0: r = 1.; break;
+          case 1: r = 2.; break;
+          default: r = 3.;
+        }
+        return r;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const edsl = fn('f', { x: i32T }, f32T, ({ x }) => {
+      const r = Var('r', f32T, f32(0))
+      // `r.assign(...)` rather than the outer builder's: a case body runs inside the switch's
+      // own builder, and the outer handle would push the statement next to the switch.
+      Switch(x)
+        .case(0, () => {
+          r.assign(f32(1))
+        })
+        .case(1, () => {
+          r.assign(f32(2))
+        })
+        .default(() => {
+          r.assign(f32(3))
+        })
+      return r
+    })
+
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

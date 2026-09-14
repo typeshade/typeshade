@@ -112,6 +112,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: false,
   },
   {
+    id: 'bitfield-bands',
+    title: 'Bitfield bands',
+    blurb:
+      'A fullscreen triangle whose colour is chosen by a `switch` over a band index built with `&=`, `|=`, `<<=`, `>>=` and `^=` — with `let x: f32` declared before it is assigned and the varyings returned as `{ pos, uv }` shorthand.',
+    renderable: true,
+  },
+  {
     id: 'compute-reduction-twin',
     title: 'Compute reduction (source twin)',
     blurb:
