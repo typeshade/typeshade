@@ -279,6 +279,174 @@ function isGpuArithmeticAssignment(
   return isGpuExpression(context, value) || hasGpuArithmetic(context, value)
 }
 
+/**
+ * The argument of a call expression one diagnostic is reported on, with the call and the
+ * argument's index, so a rule can ask what the callee wanted in that position.
+ */
+interface ArgumentPosition {
+  readonly call: ts.CallExpression
+  readonly index: number
+  readonly argument: ts.Expression
+}
+
+/**
+ * The argument `diagnostic` covers exactly, if it is reported on one. TS2345 spans the whole
+ * argument expression, so the walk up from the diagnostic's position takes the first ancestor
+ * that is an argument of a call AND has exactly the diagnostic's span: without that span check,
+ * a diagnostic reported on a callee (`inner` in `outer(inner(x))`, which starts at the same
+ * offset as the argument `inner(x)`) would be attributed to the outer call's parameter.
+ */
+function argumentAt(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): ArgumentPosition | undefined {
+  const pos = diagnostic.start ?? 0
+  const end = pos + (diagnostic.length ?? 0)
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
+  while (node !== undefined) {
+    const parent: ts.Node | undefined = node.parent
+    if (parent !== undefined && ts.isCallExpression(parent) && node.getStart() === pos) {
+      const index = parent.arguments.indexOf(node as ts.Expression)
+      if (index >= 0 && node.getEnd() === end) {
+        return { call: parent, index, argument: node as ts.Expression }
+      }
+    }
+    node = parent
+  }
+  return undefined
+}
+
+/** Whether `symbol` is a signature's rest parameter (`...args: T[]`), read from its own
+ * declaration rather than from the parameter's position in the list. */
+function isRestParameter(symbol: ts.Symbol): boolean {
+  const declaration = symbol.valueDeclaration
+  return (
+    declaration !== undefined &&
+    ts.isParameter(declaration) &&
+    declaration.dotDotDotToken !== undefined
+  )
+}
+
+/**
+ * The type `signature` declares for the argument at `index`, or `undefined` when the signature
+ * has no parameter there (a call with too many arguments, which is TS2554's business, not this
+ * file's). A rest parameter covers every index from its own onwards and is unwrapped to its
+ * element type, so `hypot(v * s, w)`'s second argument is measured against `T`, not `T[]`.
+ */
+function parameterTypeOfSignature(
+  checker: ts.TypeChecker,
+  signature: ts.Signature,
+  index: number,
+  location: ts.Node,
+): ts.Type | undefined {
+  const parameters = signature.getParameters()
+  const last = parameters[parameters.length - 1]
+  const symbol =
+    parameters[index] ?? (last !== undefined && isRestParameter(last) ? last : undefined)
+  if (symbol === undefined) return undefined
+  const type = checker.getTypeOfSymbolAtLocation(symbol, location)
+  if (!isRestParameter(symbol)) return type
+  return checker.getIndexTypeOfType(type, ts.IndexKind.Number) ?? type
+}
+
+/**
+ * Every parameter type the argument at `position` could be measured against: the one from the
+ * signature the checker resolved, plus, when the callee is overloaded and the checker resolved
+ * none of its declared overloads, the parameter type each overload declares at that index. The
+ * ambient vector constructors are the overloaded callees that matter here (`vec4` has four
+ * overloads), and a TS2345 on one of them usually MEANS no overload matched, so there is no
+ * single picked signature to ask; "some overload wants a vector in this position" is then the
+ * honest question, and the argument side of the rule is what keeps `vec4(1., 1.)` reported.
+ */
+function parameterTypesAt(
+  checker: ts.TypeChecker,
+  position: ArgumentPosition,
+  resolved: ts.Signature | undefined,
+): ts.Type[] {
+  const { call, index } = position
+  const types: ts.Type[] = []
+  if (resolved !== undefined) {
+    const type = parameterTypeOfSignature(checker, resolved, index, call)
+    if (type !== undefined) types.push(type)
+  }
+  const overloads = checker.getTypeAtLocation(call.expression).getCallSignatures()
+  if (overloads.length > 1 && (resolved === undefined || !overloads.includes(resolved))) {
+    for (const overload of overloads) {
+      const type = parameterTypeOfSignature(checker, overload, index, call)
+      if (type !== undefined) types.push(type)
+    }
+  }
+  return types
+}
+
+/**
+ * Whether the parameter `position` lands on is INFERRED from the call's own arguments, that is,
+ * whether the signature declares it as one of its own type parameters (`dot<T extends Numeric>`,
+ * `hypot<T>(...args: T[])`). Such a position has no fixed type to compare against: it is
+ * whatever the checker inferred from the arguments, so one argument's type decides the type
+ * every other argument is then checked against.
+ */
+function isInferredParameter(
+  checker: ts.TypeChecker,
+  position: ArgumentPosition,
+  signature: ts.Signature,
+): boolean {
+  const declaration = signature.getDeclaration() as ts.SignatureDeclaration | undefined
+  if (declaration === undefined) return false
+  const parameters = declaration.parameters
+  const last = parameters[parameters.length - 1]
+  const parameter =
+    parameters[position.index] ??
+    (last !== undefined && last.dotDotDotToken !== undefined ? last : undefined)
+  const declared = parameter?.type
+  if (declared === undefined) return false
+  const node =
+    parameter.dotDotDotToken !== undefined && ts.isArrayTypeNode(declared)
+      ? declared.elementType
+      : declared
+  return (checker.getTypeAtLocation(node).flags & ts.TypeFlags.TypeParameter) !== 0
+}
+
+/**
+ * TS2345 ("Argument of type 'number' is not assignable to parameter of type 'vec3'"), the same
+ * lost brand as TS2322 seen at a call instead of at an assignment: `vec4(u.tint.rgb * k, ...)`,
+ * `normalize(v * s)`, `mix(a, b * 0.5, t)` and a user function's `f(v * s)` all hand a vector
+ * position a value TypeScript has already typed `number`. Two shapes, because vector arithmetic
+ * reaches a call from two directions (issue #43):
+ *
+ * - the argument itself does vector or matrix arithmetic and the parameter there is a branded
+ *   vector or matrix;
+ * - the parameter's type is INFERRED from the arguments and another argument does that
+ *   arithmetic, which poisons the inference: in `dot(a * 2., b)` the first argument is already
+ *   `number`, so `T` infers `number` and TypeScript reports the perfectly good `b` instead.
+ *
+ * Arithmetic on a branded operand is required in both, never "the argument is branded" on its
+ * own, because a branded argument that reached a branded parameter without any arithmetic is a
+ * real mismatch TypeScript is the only one to catch: the compiler front end reports nothing at
+ * all for `dot(vec3, vec2)`, and `ambient.test.ts` pins that a `vec2` still fails a `vec4`
+ * parameter. That is the one way this rule is narrower than the TS2322 rule it mirrors, where
+ * the compiler's own TYPE_MISMATCH does cover the both-branded case.
+ */
+function isGpuArithmeticArgument(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const checker = context.checker
+  if (checker === undefined) return false
+  const position = argumentAt(context, diagnostic)
+  if (position === undefined) return false
+  const resolved = checker.getResolvedSignature(position.call)
+  if (
+    hasGpuArithmetic(context, position.argument) &&
+    parameterTypesAt(checker, position, resolved).some(isGpuBrandedType)
+  ) {
+    return true
+  }
+  if (!isGpuExpression(context, position.argument)) return false
+  if (resolved === undefined || !isInferredParameter(checker, position, resolved)) return false
+  return position.call.arguments.some((argument) => hasGpuArithmetic(context, argument))
+}
+
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
@@ -323,6 +491,19 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       'only when the target is a branded vector or matrix AND the value is one too or does ' +
       'vector or matrix arithmetic, so `let n: f32 = v` (a scalar target) still reports.',
     when: isGpuArithmeticAssignment,
+  },
+  {
+    code: 2345,
+    reason:
+      'The TS2322 case at a call: an argument position that wants a vector or matrix, handed ' +
+      'the `number` vector arithmetic produces. Dropped when the argument does that arithmetic ' +
+      'and the parameter there is branded (resolved through the checker; when an overloaded ' +
+      'ambient constructor matched no overload, when SOME overload wants a branded type ' +
+      'there), or when the parameter type is inferred from the arguments and another ' +
+      'argument poisoned that inference (`dot(a * 2., b)` reports `b`). Arithmetic is required ' +
+      'either way, so `vec4(1., a)`, `f(1.)` and `f(x)` with `x: f32` still report, as does a ' +
+      'branded argument of the wrong shape, which nothing else reports. Issue #43.',
+    when: isGpuArithmeticArgument,
   },
 ]
 

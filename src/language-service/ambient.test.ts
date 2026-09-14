@@ -32,6 +32,9 @@ const SHADE_EXAMPLES = readdirSync(EXAMPLES_DIR)
 const REQUIRED_EXAMPLES = [
   'compute-reduction-twin.shade.ts',
   'hello-camera.shade.ts',
+  // #18's uniform struct: the first example in this corpus whose fragment multiplies a vector
+  // and hands the product to `vec4(...)`, which is the shape issue #43 is about.
+  'hello-uniform-struct.shade.ts',
   'hello-uniform.shade.ts',
   'hello-vsin.shade.ts',
   'hello-vsout.shade.ts',
@@ -90,6 +93,50 @@ describe('a storage array is writable in the editor, as it is in the compiler', 
     service.openDocument('a.ts', kernel('out.length = 2'))
     const diagnostics = service.getDiagnostics('a.ts')
     expect(diagnostics.some((d) => d.source === 'typescript' && d.code === 2540)).toBe(true)
+  })
+})
+
+// Issue #43: `v * s` is typed `number`, so using the product AS a vector was rejected at every
+// call, and 11 of the 17 `.shade.ts` files in the project (this corpus plus the twins on
+// `feat/gradient-twin` and `feat/porting-twins`) failed the gate above on that one shape while
+// every one of them compiled and linked on Tint and WebGL2. `hello-uniform-struct.shade.ts` is
+// in the corpus above, but it pays for the gate with an annotated local (`const rgb: vec3 = ...`,
+// see the comment in that file), so the line it actually wanted is pinned here instead: the
+// twins cannot take that workaround, since a twin is supposed to mirror its EDSL original.
+describe('a vector product used as a vector is clean in the editor (issue #43)', () => {
+  const uniformStructFragment =
+    '"use typeshade"\n' +
+    'class Uniforms {\n' +
+    '  tint: vec4\n' +
+    '  gain: f32\n' +
+    '}\n' +
+    'declare const u: uniform<Uniforms>\n' +
+    'class VsOut {\n' +
+    '  @builtin("position") pos: vec4\n' +
+    '  @location(0) uv: vec2\n' +
+    '}\n' +
+    '@fragment\n' +
+    'export function fs(vo: VsOut): vec4 {\n' +
+    '  return vec4(u.tint.rgb * (vo.uv.y * u.gain), u.tint.a)\n' +
+    '}\n'
+
+  it('hello-uniform-struct.shade.ts (#18) without its annotated local has zero diagnostics', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', uniformStructFragment)
+    expect(
+      service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
+    ).toEqual([])
+  })
+
+  it('still type-checks the constructor itself (two scalars are not a vec3 and a scalar)', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument(
+      'a.ts',
+      '"use typeshade"\nexport function f(c: vec4): vec4 {\n  return vec4(1., c.a)\n}\n',
+    )
+    expect(
+      service.getDiagnostics('a.ts').some((d) => d.source === 'typescript' && d.code === 2345),
+    ).toBe(true)
   })
 })
 

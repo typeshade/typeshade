@@ -53,6 +53,110 @@ describe('vector and matrix arithmetic draws no TypeScript diagnostic (issue #21
   }
 })
 
+// Issue #43: the knock-on of #21 at a CALL. `v * s` is typed `number`, so every vector
+// position a product reaches rejects it. `vec4(u.tint.rgb * k, u.tint.a)` is close to the most
+// common line in a fragment shader, and 11 of the 17 `.shade.ts` examples across `main` and the
+// twin branches failed `ambient.test.ts`'s zero-diagnostics gate on this one shape. Each of
+// these compiles, emits WGSL and links on WebGL2; only the editor surface rejected them.
+describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issue #43)', () => {
+  const cases: Readonly<Record<string, string>> = {
+    // hello-uniform-struct.shade.ts (#18), the whole reason that example carried an annotated
+    // local instead of the line its twin wanted.
+    'a constructor over a swizzle times a scalar':
+      '"use typeshade"\nexport function f(c: vec4, k: f32): vec4 {\n  return vec4(c.rgb * k, c.a)\n}\n',
+    // The argument TypeScript reports here is `b`, which is a perfectly good vec3: the product
+    // in the FIRST argument infers `number` for `T`, and `b` is then measured against that.
+    'dot of a scaled vector, reported on the other argument':
+      '"use typeshade"\nexport function f(a: vec3, b: vec3): f32 {\n  return dot(a * 2., b)\n}\n',
+    'normalize of a vector times a scalar':
+      '"use typeshade"\nexport function f(v: vec3, s: f32): vec3 {\n  return normalize(v * s)\n}\n',
+    'a user function with a vector parameter':
+      '"use typeshade"\nfunction g(p: vec3): vec3 {\n  return p\n}\nexport function f(v: vec3, s: f32): vec3 {\n  return g(v * s)\n}\n',
+    // TypeScript stops at the first argument that fails, so dropping this one leaves nothing
+    // behind on `t` either.
+    'mix with a scaled vector in the middle':
+      '"use typeshade"\nexport function f(a: vec3, b: vec3, t: f32): vec3 {\n  return mix(a, b * 0.5, t)\n}\n',
+    'a product nested inside another call':
+      '"use typeshade"\nexport function f(v: vec3, s: f32): vec4 {\n  return vec4(normalize(v * s), 1.)\n}\n',
+  }
+  for (const [name, source] of Object.entries(cases)) {
+    it(`${name}: no diagnostic at all, from TypeScript or the compiler`, () => {
+      // Every one of these is a valid program, so "exactly the compiler's diagnostics" is the
+      // empty list: the filter must not be covering for a front end that disagrees.
+      expect(typeScriptDiagnosticsOf(source), source).toEqual([])
+      expect(diagnosticsOf(source), source).toEqual([])
+    })
+  }
+
+  it('a rest parameter is measured by its element type, and the compiler still speaks', () => {
+    // `hypot(...args: T[])` is the one ambient shape whose parameter is a rest parameter, and
+    // this program is NOT valid: hypot takes scalars. TypeScript's complaint about it is the
+    // poisoned-inference one (`w` measured against the `number` the product inferred), so it
+    // goes, and what is left is the compiler saying the thing that is actually wrong.
+    const source =
+      '"use typeshade"\nexport function f(v: vec3, w: vec3, s: f32): vec3 {\n  return hypot(v * s, w)\n}\n'
+    expect(typeScriptDiagnosticsOf(source)).toEqual([])
+    expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}`)).toEqual(['typeshade TS8003'])
+  })
+})
+
+describe('an argument that is not vector arithmetic still reports (issue #43)', () => {
+  const stillReports = (source: string, code: number): void => {
+    expect(
+      diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === code),
+      source,
+    ).toBe(true)
+  }
+
+  it('vec4(1., c.a) keeps TS2345: two scalars are not a vec3 and a scalar', () => {
+    stillReports(
+      '"use typeshade"\nexport function f(c: vec4): vec4 {\n  return vec4(1., c.a)\n}\n',
+      2345,
+    )
+  })
+
+  it('a float literal handed a vector parameter keeps TS2345', () => {
+    stillReports(
+      '"use typeshade"\nfunction g(p: vec3): vec3 {\n  return p\n}\nexport function f(): vec3 {\n  return g(1.)\n}\n',
+      2345,
+    )
+  })
+
+  it('an f32 handed a vector parameter keeps TS2345', () => {
+    stillReports(
+      '"use typeshade"\nfunction g(p: vec3): vec3 {\n  return p\n}\nexport function f(x: f32): vec3 {\n  return g(x)\n}\n',
+      2345,
+    )
+  })
+
+  it('a vector of the wrong size keeps TS2345, since nothing else reports it', () => {
+    // The narrowing this rule makes against the TS2322 rule it mirrors: a branded argument that
+    // reached a branded parameter without any arithmetic is a real mismatch, and `dot` is where
+    // it shows, since the compiler front end has no argument check for the ambient math
+    // functions.
+    stillReports(
+      '"use typeshade"\nexport function f(a: vec3, b: vec2): f32 {\n  return dot(a, b)\n}\n',
+      2345,
+    )
+  })
+
+  it('a wrong-arity call still reports its own TS2554, not a filtered TS2345', () => {
+    const source =
+      '"use typeshade"\nfunction g(p: vec3): vec3 {\n  return p\n}\nexport function f(a: vec3, b: vec3): vec3 {\n  return g(a, b)\n}\n'
+    stillReports(source, 2554)
+    expect(typeScriptDiagnosticsOf(source).map((d) => d.split(':')[0])).toEqual(['TS2554'])
+  })
+
+  it('a vector handed a scalar parameter reports, even when another argument is a product', () => {
+    // The inferred-parameter arm must not reach a signature whose parameter type is FIXED:
+    // `h`'s parameters are `f32` whatever the arguments do, so passing a vec3 is a real error.
+    stillReports(
+      '"use typeshade"\nfunction h(a: f32, b: f32): f32 {\n  return a + b\n}\nexport function f(v: vec3, w: vec3, s: f32): f32 {\n  return h(v * s, w)\n}\n',
+      2345,
+    )
+  })
+})
+
 describe('a program that is genuinely wrong still reports', () => {
   it('v * "x" keeps the TypeScript diagnostic about the string operand', () => {
     const source = '"use typeshade"\nexport function f(v: vec3): vec3 {\n  return v * "x"\n}\n'
