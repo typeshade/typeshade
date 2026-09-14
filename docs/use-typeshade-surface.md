@@ -75,7 +75,17 @@ type Camera = {
 }
 ```
 
-Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators.
+`interface Camera { view: mat4; pos: vec3 }` is the same struct written a third way. A class,
+a type alias over an object type, and an interface all produce one `StructDecl`; the compiler
+accepts all three. One name may only be declared once — a class and an interface of the same
+name do **not** merge here.
+
+A `type`/`interface` struct is the members written in it: a method or call signature, an
+index signature, an optional (`a?: f32`) member, and an `interface … extends …` are each
+rejected, since a WGSL struct has no form for them and silently dropping one would change
+the buffer layout the host fills.
+
+Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
 
 ```ts
 class Camera {

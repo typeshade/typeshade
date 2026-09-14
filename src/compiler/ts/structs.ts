@@ -12,12 +12,59 @@ export type CollectedStruct = {
   readonly packing: 'wgsl'
 }
 
+/** Every struct the file declares, in source order, whichever of the three spellings the
+ *  author used. A `class` is the only one that can carry per-field metadata, because
+ *  TypeScript decorators cannot appear on a type-literal or interface member; `type X = { … }`
+ *  and `interface X { … }` are the plain-data spellings §2 of the surface document names, and
+ *  produce the same {@link StructDecl} a class with no field decorators does. */
 export function collectStructs(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): CollectedStruct[] {
   const out: CollectedStruct[] = []
+  const declared = new Set<string>()
+  const add = (name: string, node: ts.Node, fields: StructField[]): void => {
+    if (declared.has(name)) {
+      diagnostics.push(
+        diag(
+          sourceFile,
+          node,
+          `Struct "${name}" is declared more than once. A class, a type alias and an interface ` +
+            `are three spellings of one struct, not declarations that merge.`,
+        ),
+      )
+      return
+    }
+    declared.add(name)
+    out.push({ decl: { name, fields }, packing: 'wgsl' })
+  }
   for (const stmt of sourceFile.statements) {
+    if (ts.isInterfaceDeclaration(stmt)) {
+      if (stmt.heritageClauses?.length) {
+        diagnostics.push(
+          diag(
+            sourceFile,
+            stmt.heritageClauses[0]!,
+            `interface "${stmt.name.text}" extends another type. A TypeShade struct is exactly ` +
+              `the members written here, so the inherited ones would be dropped; write them out.`,
+          ),
+        )
+      }
+      add(
+        stmt.name.text,
+        stmt.name,
+        signatureFields(stmt.members, stmt.name.text, sourceFile, diagnostics),
+      )
+      continue
+    }
+    if (ts.isTypeAliasDeclaration(stmt) && ts.isTypeLiteralNode(stmt.type)) {
+      add(
+        stmt.name.text,
+        stmt.name,
+        signatureFields(stmt.type.members, stmt.name.text, sourceFile, diagnostics),
+      )
+      continue
+    }
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue
     for (const d of stmt.modifiers ?? []) {
       if (!ts.isDecorator(d)) continue
@@ -66,9 +113,63 @@ export function collectStructs(
       else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
       fields.push(field)
     }
-    out.push({ decl: { name: stmt.name.text, fields }, packing: 'wgsl' })
+    add(stmt.name.text, stmt.name, fields)
   }
   return out
+}
+
+/** The fields of a `type X = { … }` or an `interface X { … }`. The member list is the field
+ *  list: no decorator can reach a type-literal or interface member, so there is no
+ *  `@location` / `@builtin` / `@align` handling here and a struct that needs per-field
+ *  metadata (entry I/O in particular) stays a class. The shapes that would otherwise lose
+ *  meaning on the way to a WGSL struct — a method, a call or index signature, an optional
+ *  member — are named rather than dropped. */
+function signatureFields(
+  members: readonly ts.TypeElement[],
+  owner: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): StructField[] {
+  const fields: StructField[] = []
+  for (const member of members) {
+    if (
+      ts.isMethodSignature(member) ||
+      ts.isCallSignatureDeclaration(member) ||
+      ts.isConstructSignatureDeclaration(member)
+    ) {
+      diagnostics.push(diag(sourceFile, member, `Data type "${owner}" cannot have methods.`))
+      continue
+    }
+    if (ts.isIndexSignatureDeclaration(member)) {
+      diagnostics.push(
+        diag(
+          sourceFile,
+          member,
+          `Data type "${owner}" cannot have an index signature. Use array<T, N> for a field of many.`,
+        ),
+      )
+      continue
+    }
+    if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue
+    if (member.questionToken) {
+      diagnostics.push(
+        diag(
+          sourceFile,
+          member,
+          `Optional field "${member.name.text}?" on "${owner}" is not supported: a struct field ` +
+            `is always present in the buffer the host fills.`,
+        ),
+      )
+      continue
+    }
+    const type = member.type
+      ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
+        structT(member.type.getText(sourceFile)))
+      : undefined
+    if (!type) continue
+    fields.push({ name: member.name.text, type })
+  }
+  return fields
 }
 
 function numberDecorator(node: ts.Node, name: string): number | undefined {
