@@ -24,6 +24,7 @@ import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
 import { SCALAR_CAST } from '../compiler/ts/numeric.js'
 import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js'
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
+import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js'
 
 type VecElem = 'f32' | 'i32' | 'u32' | 'f64'
 
@@ -68,15 +69,13 @@ export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES
  * `@align` (`"@align on a field is not applied"`) and neither the struct nor the function
  * lowering recognizes `interpolate`, `size`, or `ignore` at all — grepping the lowering
  * confirms only these five are load-bearing today. See the phase report for this deviation
- * from the design doc's speculative list.
+ * from the design doc's speculative list. Re-exported from `compiler/ts/builtin-check.ts`
+ * rather than retyped here, the same way `WGSL_BUILTIN_NAMES` below re-exports `core/sot.ts`'s
+ * array: that module also uses this exact list to flag a misspelled attribute (`checkAttributeName`),
+ * so the language service and the compiler's own diagnostics can never name two different
+ * vocabularies.
  */
-export const ATTRIBUTE_NAMES: readonly string[] = [
-  'vertex',
-  'fragment',
-  'compute',
-  'builtin',
-  'location',
-]
+export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES
 
 const vecCtorOverloads = (name: string, elem: VecElem): string => {
   const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4
@@ -139,10 +138,18 @@ const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS)
 const LANG_CONST_NAMES = Object.keys(LANG_CONST)
 const SCALAR_CAST_NAMES = Object.keys(SCALAR_CAST)
 
+// The brand property is OPTIONAL, not required: a required unique-symbol brand made a bare
+// number literal (returned from an `f32`-annotated function, assigned to an `f32`-typed local,
+// passed to a `dot`/`length` result typed `number`) a TS2322 false positive on ordinary valid
+// "use typeshade" programs, because nothing in the authoring surface ever produces a literal
+// value already carrying the brand. An optional brand keeps `f32`/`u32`/... mutually
+// unassignable (the tradeoff §6 already makes for swizzles: false negatives over false
+// positives) while letting a plain `number` widen into any scalar type, matching how these
+// values actually flow through a real program.
 const scalarBrands = ['f32', 'i32', 'u32', 'f64']
   .map(
     (name) =>
-      `declare const ${name}Tag: unique symbol\ntype ${name} = number & { readonly [${name}Tag]: true }`,
+      `declare const ${name}Tag: unique symbol\ntype ${name} = number & { readonly [${name}Tag]?: true }`,
   )
   .join('\n')
 
@@ -189,6 +196,12 @@ export const SHADE_DTS = `// Generated ambient declarations for TypeShade author
 
 ${scalarBrands}
 type bool = boolean
+
+// A local stand-in for the standard-lib \`Pick\` helper: this program is compiled with \`lib: []\`
+// (design doc §6), so \`lib.es5.d.ts\` — and every helper it declares, \`Pick\` included — is never
+// part of the program. Without this, \`VecOf\` below silently resolved to an error type and every
+// vector type collapsed to \`any\` (no false positives, but no real checking either).
+type Pick<T, K extends keyof T> = { [P in K]: T[P] }
 
 declare const vecTag: unique symbol
 type ScalarOf<S extends 'f32' | 'i32' | 'u32'> = S extends 'f32' ? f32 : S extends 'i32' ? i32 : u32
