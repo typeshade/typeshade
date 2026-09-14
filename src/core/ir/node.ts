@@ -146,7 +146,7 @@ function liftAgainst(t: ShaderType, o: NodeLike): ReadonlyNode {
  *  registry, so when a bundler loads two copies of this package a node built by one copy still
  *  carries the brand the other copy checks for. `instanceof Node` gives no such guarantee,
  *  because prototype identity differs per copy. {@link isNodeValue} reads this slot. */
-export const NODE_BRAND: unique symbol = Symbol.for('xgis.shader-dsl.node') as never
+export const NODE_BRAND: unique symbol = Symbol.for('typeshade.node') as never
 /** Runtime type guard for "is this value a node". It reads the {@link NODE_BRAND} slot instead
  *  of using `instanceof Node`, so it also recognizes a node built by a different loaded copy of
  *  this package, which `instanceof` would miss because a dual-loaded dependency splits
@@ -295,7 +295,7 @@ export type SwizzleKey<K extends string, S extends string> =
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  *
- *  @throws {ShaderDslError} `SD0004` from an arithmetic or comparison method whose two operands
+ *  @throws {TypeShadeError} `SD0004` from an arithmetic or comparison method whose two operands
  *    have incompatible types (`vec3<f32>` against `vec2<f32>`, say). The `Node<K>` phantom key
  *    catches most of these at `tsc` time; this is the runtime check for an operand typed
  *    `ReadonlyNode<string>` or built dynamically.
@@ -869,7 +869,7 @@ const scalarCast = (x: ReadonlyNode<string>, fn: string, t: ShaderType): Node =>
   // `.type` here), with the GPU compiler as the first reader.
   if (!isNodeValue(x)) {
     throw new TypeError(
-      `shader-dsl: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof x}`,
+      `typeshade: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof x}`,
     )
   }
   if (x.type.kind !== 'scalar' && !isF64(x.type)) {
@@ -886,7 +886,7 @@ const scalarCast = (x: ReadonlyNode<string>, fn: string, t: ShaderType): Node =>
 const litNum = (v: number, fn: string): number => {
   if (typeof v !== 'number') {
     throw new TypeError(
-      `shader-dsl: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof v}`,
+      `typeshade: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof v}`,
     )
   }
   // Neither WGSL nor GLSL has an Infinity/NaN literal, so a non-finite value here
@@ -895,7 +895,7 @@ const litNum = (v: number, fn: string): number => {
   // authoring site — fail loud at construction instead.
   if (!Number.isFinite(v)) {
     throw new TypeError(
-      `shader-dsl: ${fn}(${v}) — a shader literal must be finite (no Infinity/NaN spelling exists on either target); clamp or guard the host-side value first`,
+      `typeshade: ${fn}(${v}) — a shader literal must be finite (no Infinity/NaN spelling exists on either target); clamp or guard the host-side value first`,
     )
   }
   return v
@@ -1024,7 +1024,7 @@ export function f64(v: number | ReadonlyNode<string>): Node<'f64'> {
  */
 export const bool = (v: boolean): Node<'bool'> => {
   if (typeof v !== 'boolean')
-    throw new TypeError(`shader-dsl: bool() takes a boolean literal, got ${typeof v}`)
+    throw new TypeError(`typeshade: bool() takes a boolean literal, got ${typeof v}`)
   return new Node<'bool'>({ op: 'lit', type: boolT, value: v })
 }
 
@@ -1081,7 +1081,7 @@ export function bindingRef<T extends ShaderType>(name: string, type: T): Node<Ke
 const freeBin = (bop: BinOp, name: string, a: NodeLike, b: NodeLike): Node => {
   if (typeof a === 'number' && typeof b === 'number') {
     throw new TypeError(
-      `shader-dsl: ${name}(${a}, ${b}) — at least one operand must be a Node; fold two host numbers before they reach the shader`,
+      `typeshade: ${name}(${a}, ${b}) — at least one operand must be a Node; fold two host numbers before they reach the shader`,
     )
   }
   const an = typeof a === 'number' ? liftAgainst((b as ReadonlyNode).type, a) : a
@@ -2216,7 +2216,7 @@ export function select<R extends string>(
  *
  * Exported from `typeshade`, `typeshade/core/ir`.
  *
- * @throws {ShaderDslError} `SD0011` when an arm's type differs from the default's.
+ * @throws {TypeShadeError} `SD0011` when an arm's type differs from the default's.
  *
  * @example
  * ```ts
@@ -2293,7 +2293,7 @@ export function matchEnum<M extends Record<string, number>, R extends string>(
   arms: { readonly [K in keyof M]: () => ReadonlyNode<R> },
 ): Node<R> {
   const keys = Object.keys(e.values) as (keyof M & string)[]
-  if (keys.length === 0) throw new Error('shader-dsl: matchEnum needs at least one member')
+  if (keys.length === 0) throw new Error('typeshade: matchEnum needs at least one member')
   const last = keys[keys.length - 1]!
   const cases = keys.slice(0, -1).map((k) => [e.values[k], arms[k]()] as const)
   return matchExpr(scrutinee, cases, arms[last]())

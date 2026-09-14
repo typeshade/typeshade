@@ -578,12 +578,12 @@ export function compileModuleJs(
     gpuStub: (name, ...args) => {
       if (!gpuStubs)
         throw new Error(
-          `shader-dsl/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
+          `typeshade/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
         )
       return GPU_STUBS[name]!(...args)
     },
     vecMatThrow: () => {
-      throw new Error('shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
+      throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
     },
   }
 

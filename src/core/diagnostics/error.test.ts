@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { ShaderDslError, dslError, formatLoc } from './error.js'
+import { TypeShadeError, dslError, formatLoc } from './error.js'
 import { ValidationError } from '../passes/validate.js'
 import { UnsupportedFeatureError } from '../backend.js'
 
-describe('dslError / ShaderDslError', () => {
+describe('dslError / TypeShadeError', () => {
   it('composes a coded message with the catalogue summary', () => {
     const e = dslError('SD0002', 'add: vec3<f32> vs vec2<f32>')
-    expect(e).toBeInstanceOf(ShaderDslError)
+    expect(e).toBeInstanceOf(TypeShadeError)
     expect(e.code).toBe('SD0002')
-    expect(e.message).toContain('shader-dsl [SD0002]:')
+    expect(e.message).toContain('typeshade [SD0002]:')
     expect(e.message).toContain('binary op on mismatched vectors')
     expect(e.message).toContain('add: vec3<f32> vs vec2<f32>')
   })
@@ -29,19 +29,19 @@ describe('dslError / ShaderDslError', () => {
 })
 
 describe('error subclasses preserve identity', () => {
-  it('ValidationError is a ShaderDslError and keeps its name + diagnostics', () => {
+  it('ValidationError is a TypeShadeError and keeps its name + diagnostics', () => {
     const diags = [{ ruleId: 'r', severity: 'error' as const, message: 'm', code: 'SD0020' }]
     const e = new ValidationError(diags)
-    expect(e).toBeInstanceOf(ShaderDslError)
+    expect(e).toBeInstanceOf(TypeShadeError)
     expect(e).toBeInstanceOf(ValidationError)
     expect(e.name).toBe('ValidationError')
     expect(e.code).toBe('SD0020')
     expect(e.diagnostics).toBe(diags)
   })
 
-  it('UnsupportedFeatureError is a ShaderDslError carrying SD0030, message verbatim', () => {
+  it('UnsupportedFeatureError is a TypeShadeError carrying SD0030, message verbatim', () => {
     const e = new UnsupportedFeatureError('glsl-es300: storage buffer (SSBO) — fail-closed')
-    expect(e).toBeInstanceOf(ShaderDslError)
+    expect(e).toBeInstanceOf(TypeShadeError)
     expect(e).toBeInstanceOf(UnsupportedFeatureError)
     expect(e.name).toBe('UnsupportedFeatureError')
     expect(e.code).toBe('SD0030')

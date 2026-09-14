@@ -7,9 +7,9 @@
 //
 // Reads the filesystem, so it is NOT importable from the browser build — hence the leading
 // underscore, which also keeps it out of its own discovery (the `_` files are helpers, not
-// examples). It stays inside `shader-dsl/` rather than moving to root `scripts/` because
-// `registry-drift.test.ts` imports it, and nothing tracked under `shader-dsl/` may reference
-// a path outside the package (`src/self-contained.test.ts`).
+// examples). It stays here rather than under `scripts/` because `registry-drift.test.ts`
+// imports it, and nothing tracked in this package may reference a path outside it
+// (`src/self-contained.test.ts`).
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'

@@ -81,7 +81,7 @@ export {
   type ClassifiedSemanticDiff,
 } from './core/semantic-diff.js'
 export { type OptLevel } from './core/passes/opt/index.js'
-export { ShaderDslError } from './core/diagnostics/error.js'
+export { TypeShadeError, ShaderDslError } from './core/diagnostics/error.js'
 export { validate, ValidationError } from './core/passes/validate.js'
 export { type Diagnostic } from './core/passes/lint/engine.js'
 export { composeModule, type ComposeOptions } from './core/passes/compose.js'
@@ -92,4 +92,8 @@ export { autoVars } from './core/passes/opt/auto-vars.js'
 export { reachFrom, type EntryReach } from './core/passes/stage-bindings.js'
 export { splitF64, fp64Guard, FP64_GUARD_NAME, type Fp64GuardHandle } from './core/fp64/df64-lib.js'
 export { fp64Lower, type Fp64Flavor, type Fp64LowerOptions } from './core/passes/fp64-lower.js'
-export { recommendFp64Flavor, isAppleGpu, type Fp64FlavorSignals } from './core/fp64/flavor-select.js'
+export {
+  recommendFp64Flavor,
+  isAppleGpu,
+  type Fp64FlavorSignals,
+} from './core/fp64/flavor-select.js'

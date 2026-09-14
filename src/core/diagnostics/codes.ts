@@ -13,7 +13,7 @@
 /** One entry of the diagnostic catalogue: the `SD####` code, the INVARIANT half of its message,
  *  and an optional one-line remedy. The dynamic half of a real error (the offending types, the
  *  field name) is not here — it is supplied at the throw site and composed into
- *  {@link ShaderDslError}'s `.message`, which is why the summary can be relied on as a category
+ *  {@link TypeShadeError}'s `.message`, which is why the summary can be relied on as a category
  *  while the message cannot.
  *
  *  Exported from `typeshade`, `typeshade/dev`.
@@ -256,7 +256,7 @@ export const CODES = {
  *  over it will fail to compile when a new code is added.
  *
  *  Note this is the type of a code the package CAN throw, not a promise about
- *  {@link ShaderDslError}'s `.code` field, which is a plain `string` — a subclass or a future
+ *  {@link TypeShadeError}'s `.code` field, which is a plain `string` — a subclass or a future
  *  version may carry a code this union does not have, so narrow rather than assume.
  *
  *  Exported from `typeshade`, `typeshade/dev`.

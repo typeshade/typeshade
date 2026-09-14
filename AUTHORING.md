@@ -1387,7 +1387,7 @@ which is the `as` name for a uniform struct and the declared name for a storage 
 lowering injects. The oracle asks only for the ones a function it runs actually reads, so a
 module with f64 arithmetic needs no value for the injected `_fp64` guard texture that
 [fp64](/guide/authoring/fp64/) describes. A binding a function reads and nothing set throws
-`shader-dsl/cpu: unbound <name>`.
+`typeshade/cpu: unbound <name>`.
 
 ```ts
 import { module, fn, uniformStruct, storageBuffer, f32T, u32T, compileModule } from 'typeshade'
@@ -1506,18 +1506,18 @@ the function it sits in.
 
 ### Coded errors
 
-Every coded failure this package raises is a `ShaderDslError`. It carries a `code` from a
+Every coded failure this package raises is a `TypeShadeError`. It carries a `code` from a
 frozen catalogue, a composed `message`, and a `hint` where the catalogue has a one-line
-remedy for that code. `ValidationError` is a subclass, so one `instanceof ShaderDslError`
+remedy for that code. `ValidationError` is a subclass, so one `instanceof TypeShadeError`
 handler catches every coded failure.
 
 ```ts
-import { ShaderDslError, emitModule } from 'typeshade'
+import { TypeShadeError, emitModule } from 'typeshade'
 
 try {
   emitModule(buildModule())
 } catch (e) {
-  if (e instanceof ShaderDslError) console.error(e.code, e.message, e.hint)
+  if (e instanceof TypeShadeError) console.error(e.code, e.message, e.hint)
   throw e
 }
 ```
@@ -1525,7 +1525,7 @@ try {
 Type mismatches surface while you build the module, before any emit call, because the
 builders check their operands as they run. Adding a `vec2f` to a `vec3f` throws `SD0002`.
 The message opens with the code and the catalogue summary,
-`shader-dsl [SD0002]: binary op on mismatched vectors`, then carries the operator and the
+`typeshade [SD0002]: binary op on mismatched vectors`, then carries the operator and the
 two types it was given, `+: vec2<f32> vs vec3<f32>`. Under it comes the hint line,
 `both operands must be the same vector type, or one must be a scalar`.
 
@@ -1540,7 +1540,7 @@ and are free to be reworded, so a branch on message text does not.
 try {
   buildModule()
 } catch (e) {
-  if (e instanceof ShaderDslError && e.code === 'SD0002') {
+  if (e instanceof TypeShadeError && e.code === 'SD0002') {
     // a binary op on mismatched vectors: report it against the author's own source
     console.error(e.message, e.loc)
   } else throw e
@@ -1577,7 +1577,7 @@ A module that declares `ramp` twice and has a `band` function falling out of an 
 without returning reports both problems in one throw:
 
 ```
-shader-dsl [SD0020]: module validation failed (2 errors):
+typeshade [SD0020]: module validation failed (2 errors):
   - dup-func: duplicate function 'ramp'
   - all-paths-return (fn band): fn 'band' returns non-void but a code path falls through without return
 ```

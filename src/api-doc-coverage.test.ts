@@ -46,7 +46,7 @@
 // QUESTION rather than on effort: its own stated reason was that "documented by its TSDoc
 // only" needed to be chosen rather than defaulted into. The answer — `./dev` is in
 // package.json `exports`, so its diagnostic surface is public — is what unblocked it.
-// `ShaderDslError` is the class every thrown error in the package instantiates and
+// `TypeShadeError` is the class every thrown error in the package instantiates and
 // `ErrorCode`/`CODES` are what a consumer branches on, so calling them internal would have
 // been false. Two genuine pass-internals took the `@internal` route instead.
 //

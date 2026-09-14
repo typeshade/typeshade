@@ -17,7 +17,7 @@
 import type { ModuleDecl } from '../ir/index.js'
 import { lint, type Diagnostic, type LintConfig } from './lint/engine.js'
 import { RULES, CORE_RULES } from './lint/rules/index.js'
-import { ShaderDslError, formatLoc } from '../diagnostics/error.js'
+import { TypeShadeError, formatLoc } from '../diagnostics/error.js'
 
 /** Render every error diagnostic on its own line — `[SD####] (fn X) message @ file:line:col`
  *  — so an aggregated validation failure shows ALL problems, not just the first. */
@@ -33,8 +33,8 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
 }
 
 /** Thrown by {@link validate} when a module fails one of the structural rules every emit
- *  depends on. Subclasses {@link ShaderDslError} and carries code `SD0020`, so an
- *  `instanceof ShaderDslError` handler catches it and a handler that switches on `code`
+ *  depends on. Subclasses {@link TypeShadeError} and carries code `SD0020`, so an
+ *  `instanceof TypeShadeError` handler catches it and a handler that switches on `code`
  *  routes it.
  *
  *  Catch this class for {@link ValidationError.diagnostics}: `validate()` collects every
@@ -56,7 +56,7 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
  *  }
  *  ```
  */
-export class ValidationError extends ShaderDslError {
+export class ValidationError extends TypeShadeError {
   /** Every error-severity diagnostic that caused the failure, in the order the rules
    *  reported them. */
   readonly diagnostics: readonly Diagnostic[]

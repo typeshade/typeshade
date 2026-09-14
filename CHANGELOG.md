@@ -41,6 +41,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 - Every comment reference to an X-GIS issue or pull request reads `(X-GIS #1234)`, so it cannot
   be mistaken for an issue in this repository.
 - The generated monorepo-era changelog moved to `docs/HISTORY.md`; this file replaces it.
+- **`ShaderDslError` is now `TypeShadeError`.** `ShaderDslError` stays exported as a
+  `@deprecated` alias of the same class, so `instanceof` keeps working; what it cannot preserve
+  is `error.name`, which reads `TypeShadeError` on every instance.
+- **Error messages are prefixed `typeshade`, not `shader-dsl`** — the coded head
+  `typeshade [SD0002]: …` from `formatMessage`, and the uncoded `typeshade: …` /
+  `typeshade/cpu: …` throws. The `SD####` codes themselves are unchanged: they are documented
+  and tested everywhere, and a new letter pair would collide with TypeScript's `TS####`.
+- The cross-instance registry keys are `Symbol.for('typeshade.*')` rather than
+  `Symbol.for('xgis.shader-dsl.*')`, and the GLSL compute-emulation path injects a fragment
+  position parameter named `typeshade_frag_pos`.
 
 ### Fixed
 

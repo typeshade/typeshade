@@ -24,7 +24,7 @@ import {
   emitModuleAt,
   emitGlslModule,
   reflect,
-  ShaderDslError,
+  TypeShadeError,
 } from '../src/index.js'
 import { overrideQuality } from './override-quality.js'
 
@@ -168,12 +168,12 @@ describe('X-GIS #923 — specialization constants (WGSL override ↔ GLSL #defin
 
   // ── 4 (constraint): reject vec/matrix overrides at authoring (SD0014) ──
   it('rejects a non-scalar (vec) override at authoring with SD0014', () => {
-    expect(() => overrideConst('tint', vec4fT, 0)).toThrow(ShaderDslError)
+    expect(() => overrideConst('tint', vec4fT, 0)).toThrow(TypeShadeError)
     try {
       overrideConst('tint', vec4fT, 0)
       expect.unreachable('vec override should throw')
     } catch (e) {
-      expect((e as ShaderDslError).code).toBe('SD0014')
+      expect((e as TypeShadeError).code).toBe('SD0014')
     }
   })
 })

@@ -24,7 +24,7 @@ export { checkSingleExit } from './core/passes/single-exit.js'
 export { requiredCaps, assertCaps } from './core/passes/required-caps.js'
 
 // Unified diagnose()/formatReport() report + the error-code catalogue + coded-error
-// authoring helpers. (ShaderDslError itself stays on the main barrel — it is the
+// authoring helpers. (TypeShadeError itself stays on the main barrel — it is the
 // public base class of ValidationError.)
 export {
   diagnose,
