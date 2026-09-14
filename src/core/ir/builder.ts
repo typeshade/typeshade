@@ -4,7 +4,7 @@
 // let/var/assign/if/for/switch/ret/…), the IfChain helper, and the fn /
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
-import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types.js'
+import { type ShaderType, type KeyOf, type ScalarKey, voidT, typeKey } from './types.js'
 import {
   type Stmt,
   type Expr,
@@ -30,6 +30,7 @@ import {
   f32,
   i32,
   u32,
+  constRef,
   overrideRef,
   externRef,
   installStmtSink,
@@ -269,10 +270,14 @@ export class Builder {
 
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
    *  top-to-bottom. The If stmt is pushed on the first call and mutated in
-   *  place by subsequent .elif/.else. */
+   *  place by subsequent .elif/.else.
+   *
+   *  A branch is a statement block, so a body that RETURNS a value is rejected with `SD0115`
+   *  rather than having that value quietly dropped. Write `Return(value)` for an early return,
+   *  {@link when} for a value, or assign to a `Var`. */
   if(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
     const arms: Array<{ cond: Expr; body: Stmt[] }> = [
-      { cond: cond.expr, body: subBody(this, body, 'If body') },
+      { cond: cond.expr, body: subBody(this, body, 'If body', 'If') },
     ]
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
@@ -376,14 +381,16 @@ export class IfChain {
     private readonly arms: Array<{ cond: Expr; body: Stmt[] }>,
     private readonly setElse: (body: Stmt[]) => void,
   ) {}
-  /** Add an `else if (cond) { body }` arm. Returns the chain. */
+  /** Add an `else if (cond) { body }` arm. Returns the chain. A body that returns a value is
+   *  rejected with `SD0115`, as for {@link Builder.if}. */
   elif(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
-    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body, 'elif body') })
+    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body, 'elif body', 'elif') })
     return this
   }
-  /** Add the `else { body }` block and end the chain. */
+  /** Add the `else { body }` block and end the chain. A body that returns a value is rejected
+   *  with `SD0115`, as for {@link Builder.if}. */
   else(body: (b: Builder) => ReadonlyNode | void): void {
-    this.setElse(subBody(this.parent, body, 'else body'))
+    this.setElse(subBody(this.parent, body, 'else body', 'else'))
   }
 }
 
@@ -432,10 +439,11 @@ function withScope<T>(b: Builder, run: () => T): T {
   }
 }
 
-// Wire the Node lvalue method (`x.assign(v)`) to the current scope — installed here so node.ts stays free
-// of a builder import.
+// Wire the Node lvalue methods (`x.assign(v)`, and `x.addAssign(v)` and its siblings — #8 S2)
+// to the current scope — installed here so node.ts stays free of a builder import.
 installStmtSink({
   assign: (target, value) => currentBuilder().assign(target, value),
+  assignOp: (target, bop, value) => currentBuilder().assignOp(target, bop, value),
 })
 
 // ═══ #843 — authoring-error context ═══
@@ -454,14 +462,21 @@ function tagAuthoringError(e: unknown, tag: symbol, prefix: string): void {
   }
 }
 
-function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void, kind?: string): Stmt[] {
+function subBody(
+  parent: Builder,
+  fn: (b: Builder) => ReadonlyNode | void,
+  kind?: string,
+  // #8 B4 — the branch spelling this body belongs to (`If`, `elif`, `else`). Present means
+  // a returned value is REPORTED rather than dropped; see the throw below.
+  branch?: string,
+): Stmt[] {
   // child() shares the parent's auto-name counter, so an omitted binding name inside this
   // nested scope keeps incrementing the same `_v{n}` sequence (no inner-shadows-outer).
   const b = parent.child()
   // A control-flow body does NOT capture a native `return value`: `If(c, () => x)` would
   // then be an INVISIBLE early return that reads as fall-through. Early returns are
   // explicit — `ReturnIf(cond, value)` (a guard clause) or `Return()` inside the branch.
-  withScope(b, () => {
+  const result = withScope(b, () => {
     try {
       return fn(b)
     } catch (e) {
@@ -470,6 +485,17 @@ function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void, kind?
       throw e
     }
   })
+  // #8 B4 — dropping that value SILENTLY is the part worth fixing. `If(c, () => Return(f32(1)))`
+  // and `If(c, () => f32(1))` differ by three characters and by everything else: the second
+  // computes a value nothing reads, and emits an empty `if` block. Nothing downstream can
+  // report it — by the time the module exists the value is gone — so it is reported here,
+  // where the callback's return is still in hand.
+  if (branch !== undefined && isNodeValue(result)) {
+    throw dslError(
+      'SD0115',
+      `the ${branch} body returned a ${typeKey(result.type)} value, which is dropped — a branch is a statement block, not an expression`,
+    )
+  }
   return b.stmts
 }
 
@@ -635,6 +661,27 @@ type FnBodyValue<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R>
+// #8 B1 — the body shape the VOID-INFERRING overloads accept. It is the same `void` TS sees
+// for the guard-style body #2458 turned away, so the separation cannot be made at the type
+// level; it is made at run time instead, by `assertInferredVoid` below. The declared
+// parameter type is `undefined` rather than `void` so a body that DOES return a node keeps
+// matching the value overloads first — `void` as a return type accepts any value.
+type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undefined | void
+
+// #8 B1 — the runtime half of the void-inferring overloads. Those overloads pin the handle's
+// key to `'void'` without a `voidT` token, and #2458 is right that a key which LIES is worse
+// than `string`: TypeScript reads `(p) => { If(c, () => Return(x)); Return(f32(0)) }` as
+// returning nothing too, and that body returns f32. So the claim is checked where the answer
+// exists — after the body has run, against what `inferReturnType` actually found. A body that
+// returns a value through an ambient Return() is turned away here, naming the token to pass,
+// instead of being handed a false key.
+function assertInferredVoid(name: string, ret: ShaderType): void {
+  if (ret.kind === 'void') return
+  throw dslError(
+    'SD0113',
+    `fn '${name}' was authored without a return type, but its body returns ${typeKey(ret)} through an ambient Return() — write fn('${name}', params, <the type token>, body)`,
+  )
+}
 
 /** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
  *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
@@ -714,11 +761,15 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[
  *  destructuring pattern, so give it a local name there: `({ in: inp }) => inp.uv`.
  *
  *  The return-type token `ret` is optional when the body returns a value TypeScript can see,
- *  `(p) => expr` or a struct field proxy, since the handle takes that value's key. Pass the
- *  token when the body sends its value out through an ambient {@link Return} inside a nested
- *  closure: TypeScript reads such a body as returning nothing, and without the token the
- *  handle widens to `FnHandle<P, string>`, which puts every call site outside the key check.
- *  A function that returns nothing passes `voidT` and lands on `'void'`.
+ *  `(p) => expr` or a struct field proxy, since the handle takes that value's key. It is
+ *  optional again for a function that returns nothing, the shape of a compute entry: such a
+ *  body may drop `voidT` and the handle lands on `'void'`.
+ *
+ *  Pass the token when the body sends its value out through an ambient {@link Return} inside a
+ *  nested closure. TypeScript reads such a body as returning nothing — the same shape as the
+ *  genuinely void one — so the two are separated once the body has run: a body that took the
+ *  void form and returned a value is rejected with `SD0113` naming the token to write, rather
+ *  than handed a `'void'` key its call sites would believe.
  *
  *  The body is `(p, b) => …`: the typed param nodes first, the {@link Builder} second. Most
  *  bodies need only `p` and the ambient statement surface ({@link Let}, {@link Var},
@@ -757,12 +808,15 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[
  *  @param name - the emitted function name. Omit it to let a `funcs` key record name the
  *    function at module assembly.
  *  @param params - the parameter record, in declaration order, as described above.
- *  @param ret - the return type to pin. Omit it when the body's own `return` carries the type.
+ *  @param ret - the return type to pin. Omit it when the body's own `return` carries the type,
+ *    or when the body returns nothing at all.
  *  @param body - the function body, receiving the typed params and the builder.
  *  @param opts - the stage, the workgroup size, the return attribute, and the lint deviations
  *    listed above.
  *  @returns a callable handle that is also the function declaration.
  *  @throws `SD0110` when `portable` is declared without `stage: 'compute'`.
+ *  @throws `SD0113` when a body authored without a return type returns a value through an
+ *    ambient {@link Return}.
  *
  *  @example
  *  ```ts
@@ -790,6 +844,24 @@ export function fn<P extends FnParamSpec, R extends string>(
   body: FnBodyValue<P, R>,
   opts?: FnOpts,
 ): FnHandle<P, R>
+// #8 B1 — the void-body overloads. They sit AFTER the value overloads, so a body that returns
+// a value still matches those first and only a body TypeScript reads as returning nothing
+// falls through to here, where the handle lands on `'void'` with no `voidT` token written. The
+// guard-style body that shares that TypeScript shape is separated at run time (SD0113).
+// They sit BEFORE the explicit-`ret` overloads so the LAST signature stays the one it has
+// always been: `ReturnType<typeof fn>` reads the last overload, and moving it would retype
+// every `ReturnType<typeof fn>` annotation in the tree.
+export function fn<P extends FnParamSpec>(
+  params: P,
+  body: FnBodyVoid<P>,
+  opts?: FnOpts,
+): FnHandle<P, 'void'>
+export function fn<P extends FnParamSpec>(
+  name: string,
+  params: P,
+  body: FnBodyVoid<P>,
+  opts?: FnOpts,
+): FnHandle<P, 'void'>
 export function fn<P extends FnParamSpec, T extends ShaderType>(
   params: P,
   ret: T,
@@ -884,6 +956,9 @@ export function fn(
   if (result !== undefined) bld.ret(result)
   // Return type: explicit token if given, else inferred from what the body returns.
   const ret = explicitRet ?? inferReturnType(result, bld.stmts)
+  // #8 B1 — a body that produced no TS-level value took one of the void-inferring overloads,
+  // whose handle says `'void'`. Hold it to that, or say which token to write.
+  if (inferred && result === undefined) assertInferredVoid(name, ret)
   // stage → pipeline attrs (@vertex / @fragment / @compute @workgroup_size(N)).
   const attrs =
     opts?.stage === 'compute'
@@ -1233,6 +1308,23 @@ export function module(parts: ModuleParts): ModuleDecl {
   return parts.enables ? { ...decl, enables: parts.enables } : decl
 }
 
+/** What {@link constExpr} returns: the `ConstDecl` itself, so it drops straight into
+ *  `module({ consts })`, carrying `node` — the typed reference to read the constant through at
+ *  call sites. Reading through `.node` is what makes a rename or a retype of the constant a
+ *  `tsc` error rather than a `constRef('NAME', someType)` string that agrees with nothing.
+ *
+ *  `node` is non-enumerable: the declaration is spread, compared and serialized on its way to
+ *  the emitted module, and it stays exactly the object it was.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @typeParam T The constant's `ShaderType`, which types `node`'s key.
+ */
+export interface ConstExprDecl<T extends ShaderType> extends ConstDecl {
+  /** The typed reference to read the constant through at call sites. */
+  readonly node: ReadonlyNode<KeyOf<T>>
+}
+
 /** Author a module-level constant from an IR value expression: the form for a constant that
  *  is not a plain scalar. `value` is any constant-foldable literal node, a `vec4(...)`, an
  *  `arrayLit(...)`, a struct constructor. It emits `const <name>: <type> = <value>;` on both
@@ -1247,10 +1339,17 @@ export function module(parts: ModuleParts): ModuleDecl {
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
+ *  The declaration carries `.node`, the typed reference to read it through, so the name is
+ *  written once. Without it a reader is spelled `constRef('SKY', vec4fT)` — a string the type
+ *  checker never compares against the declaration, and a second copy of the type, so a rename
+ *  or a retype is silent at every call site until the GPU compiler sees it.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
  *  @param name - the emitted constant name, and the name every reference spells.
  *  @param type - the constant's shader type, emitted as its declared type.
  *  @param value - a constant-foldable literal node holding the value.
- *  @returns the `ConstDecl` to put in `module({ consts })`.
+ *  @returns the `ConstDecl` to put in `module({ consts })`, carrying `.node`.
  *
  *  @example
  *  ```ts
@@ -1258,13 +1357,31 @@ export function module(parts: ModuleParts): ModuleDecl {
  *
  *  const SKY = constExpr('SKY', vec4fT, vec4(0.4, 0.6, 0.9, 1))
  *  const PALETTE = constExpr('PALETTE', arrayT(vec4fT, 2), arrayLit(vec4fT, c0, c1))
+ *
+ *  const bg = fn('bg', {}, () => SKY.node) // no constRef('SKY', vec4fT)
+ *  const m = module({ consts: [SKY], funcs: [bg] })
  *  ```
  *
  *  @see {@link constDecl} for a scalar constant with a separate CPU value.
  *  @see {@link module} for where the returned declaration goes.
  */
-export function constExpr(name: string, type: ShaderType, value: Node): ConstDecl {
-  return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
+export function constExpr<T extends ShaderType>(
+  name: string,
+  type: T,
+  value: Node,
+): ConstExprDecl<T> {
+  const decl = { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
+  // #8 B6 — `node` is NON-ENUMERABLE on purpose. The returned object IS the ConstDecl that
+  // goes into `module({ consts })` and from there into the emitted module, where it is spread,
+  // compared and serialized; an enumerable extra field carrying a whole Expr would show up in
+  // every one of those. Non-enumerable keeps the declaration byte-for-byte the object it was
+  // while still answering `SKY.node`.
+  Object.defineProperty(decl, 'node', {
+    value: constRef(name, type),
+    enumerable: false,
+    configurable: true,
+  })
+  return decl as unknown as ConstExprDecl<T>
 }
 
 /** Author a raw statement, the escape hatch that splices verbatim text into a function body.
@@ -1637,11 +1754,17 @@ export const Discard = (): void => currentBuilder().discard()
  *  callback only exits that closure; for an early return from the branch write
  *  {@link Return} or {@link ReturnIf}.
  *
+ *  Because that value goes nowhere, a body that returns one is rejected with `SD0115` instead
+ *  of being accepted as an empty branch: `If(c, () => f32(1))` differs from
+ *  `If(c, () => Return(f32(1)))` by three characters and by everything else. For a value,
+ *  reach for {@link when}.
+ *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
  *  @param cond - the branch condition.
  *  @param body - the statements of the branch, authored through the ambient functions.
  *  @returns the chain, for `.elif` and `.else`.
+ *  @throws `SD0115` when the body returns a value.
  *
  *  @example
  *  ```ts
@@ -1657,6 +1780,12 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
 
 /** Author a C-style `for` loop over the innermost active scope. The counter starts at `init`,
  *  runs while `cond` holds, and advances by `step` after each iteration.
+ *
+ *  A fixed trip count is the short form: `Loop(96, (i) => { ... })` is the whole loop, and
+ *  emits the same `for (var i = 0u; i < 96u; i = i + 1u)` the three-part call spells out. Use
+ *  it wherever the bound is a constant, which is most loops; reach for the three-part form
+ *  when the counter starts somewhere other than zero, counts down, or is tested against
+ *  something that is not a literal.
  *
  *  The leading name is optional and pins the emitted counter identifier; omit it and the
  *  builder generates one. `step` is optional too and defaults to `+1`, so an ascending loop
@@ -1676,8 +1805,9 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
  *  @param name - the emitted counter identifier. Omit it and one is generated.
- *  @param init - the counter's initial value, which also fixes its type.
- *  @param cond - the continue test, receiving the counter.
+ *  @param init - the counter's initial value, which also fixes its type. A plain number is
+ *    the TRIP COUNT instead: the counter runs `0u` up to it, and no `cond` is written.
+ *  @param cond - the continue test, receiving the counter. Omitted by the trip-count form.
  *  @param body - the loop body, receiving the counter.
  *  @param step - the per-iteration increment. Defaults to `+1`.
  *
@@ -1685,6 +1815,11 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  ```ts
  *  import { Loop, toF32, u32 } from '@xgis/shader-dsl'
  *
+ *  Loop(64, (i) => {
+ *    acc.assign(acc.add(toF32(i)))
+ *  })
+ *
+ *  // the same loop, spelled out
  *  Loop(
  *    u32(0),
  *    (i) => i.lt(u32(64)),
@@ -1697,6 +1832,14 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  @see {@link reduce} for the value-returning fold.
  *  @see {@link Break} and {@link Continue} for the terminators.
  */
+// #8 B1/B2 — the TRIP-COUNT overloads come first: a `number` in the init slot is a count,
+// never an init node, so there is nothing for them to steal from the three-part form below.
+export function Loop(count: number, body: (i: Node<'u32'>) => ReadonlyNode | void): void
+export function Loop(
+  name: string,
+  count: number,
+  body: (i: Node<'u32'>) => ReadonlyNode | void,
+): void
 export function Loop<K extends string>(
   init: ReadonlyNode<K>,
   cond: (i: Node<K>) => ReadonlyNode<'bool'>,
@@ -1711,13 +1854,33 @@ export function Loop<K extends string>(
   step?: ReadonlyNode<ScalarKey> | number,
 ): void
 export function Loop<K extends string>(
-  a: string | ReadonlyNode<K>,
-  b: ReadonlyNode<K> | ((i: Node<K>) => ReadonlyNode<'bool'>),
-  c: ((i: Node<K>) => ReadonlyNode<'bool'>) | ((i: Node<K>) => ReadonlyNode | void),
+  a: string | number | ReadonlyNode<K>,
+  b:
+    | number
+    | ReadonlyNode<K>
+    | ((i: Node<K>) => ReadonlyNode<'bool'>)
+    | ((i: Node<'u32'>) => ReadonlyNode | void),
+  c?:
+    | ((i: Node<K>) => ReadonlyNode<'bool'>)
+    | ((i: Node<K>) => ReadonlyNode | void)
+    | ((i: Node<'u32'>) => ReadonlyNode | void),
   d?: ((i: Node<K>) => ReadonlyNode | void) | ReadonlyNode<ScalarKey> | number,
   e?: ReadonlyNode<ScalarKey> | number,
 ): void {
   const named = typeof a === 'string'
+  // #8 B2 — the trip-count form. `Loop(96, body)` is `Loop(u32(0), (i) => i.lt(u32(96)), body)`
+  // built here rather than at the call site, so it goes down the same `forRange` path and
+  // reaches the same `for` statement. The counter is u32 because `u32(0)` is what 19 of the
+  // corpus's 21 loops already start from, and because a WGSL index wants to be unsigned.
+  const countSlot = named ? b : a
+  if (typeof countSlot === 'number') {
+    const count = countSlot
+    const body = (named ? c : b) as (i: Node<'u32'>) => ReadonlyNode | void
+    const cond = (i: Node<'u32'>): ReadonlyNode<'bool'> => i.lt(u32(count))
+    if (named) currentBuilder().forRange(a as string, u32(0), cond, (_b, i) => body(i))
+    else currentBuilder().forRange(u32(0), cond, (_b, i) => body(i))
+    return
+  }
   const init = (named ? b : a) as ReadonlyNode<K>
   const cond = (named ? c : b) as (i: Node<K>) => ReadonlyNode<'bool'>
   const body = (named ? d : c) as (i: Node<K>) => ReadonlyNode | void

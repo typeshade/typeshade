@@ -10,15 +10,17 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 375 exports
+## `.` — 389 exports
 
 ```
 abs
 acos
 acosh
+add
 AddressSpace
 ALL_CAPABILITIES
 ArithArg
+ArrayElemKey
 arrayLit
 arrayOf
 arrayT
@@ -70,6 +72,7 @@ condExpr
 constDecl
 ConstDecl
 constExpr
+ConstExprDecl
 ConstHandle
 constRef
 construct
@@ -87,6 +90,7 @@ degrees
 Diagnostic
 Discard
 distance
+div
 dot
 dpdx
 dpdy
@@ -139,6 +143,7 @@ f64T
 FieldLayout
 FieldSpec
 findUseTypeshadeDirective
+FixedTypeBuiltinName
 Float64Key
 FloatKey
 floor
@@ -227,6 +232,7 @@ mod
 module
 ModuleDecl
 ModuleParts
+mul
 mulMat64
 Node
 NODE_BRAND
@@ -276,6 +282,7 @@ round
 samplerT
 saturate
 Scalar
+ScalarCastSource
 ScalarKey
 select
 selectGuardedArm
@@ -303,6 +310,7 @@ StructDecl
 StructField
 StructLayout
 structT
+sub
 Switch
 SwitchChain
 SwizzleKey
@@ -369,16 +377,22 @@ vec3
 vec3f64
 vec3f64T
 vec3fT
+vec3i
+vec3iT
+vec3u
 vec3uT
 vec4
 vec4f64
 vec4f64T
 vec4fT
+vec4i
 vec4iT
+vec4u
 vec4uT
 VertexAttr
 VertexLayout
 voidT
+WGSL_BUILTIN_TYPES
 wgslBackend
 WgslBuiltinName
 WgslCompiled
@@ -456,15 +470,17 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 222 exports
+## `./core/ir` — 234 exports
 
 ```
 abs
 acos
 acosh
+add
 AddressSpace
 ALL_CAPABILITIES
 ArithArg
+ArrayElemKey
 arrayLit
 arrayT
 asin
@@ -490,6 +506,7 @@ CmpOp
 condExpr
 ConstDecl
 constExpr
+ConstExprDecl
 constRef
 construct
 Continue
@@ -500,6 +517,7 @@ DeclarableCapability
 degrees
 Discard
 distance
+div
 dot
 dpdx
 dpdy
@@ -575,6 +593,7 @@ mod
 module
 ModuleDecl
 ModuleParts
+mul
 mulMat64
 Node
 NODE_BRAND
@@ -606,6 +625,7 @@ round
 samplerT
 saturate
 Scalar
+ScalarCastSource
 ScalarKey
 select
 ShaderType
@@ -620,6 +640,7 @@ Stmt
 StructDecl
 StructField
 structT
+sub
 Switch
 SwitchChain
 SwizzleKey
@@ -671,19 +692,24 @@ vec3
 vec3f64
 vec3f64T
 vec3fT
+vec3i
+vec3iT
+vec3u
 vec3uT
 vec4
 vec4f64
 vec4f64T
 vec4fT
+vec4i
 vec4iT
+vec4u
 vec4uT
 voidT
 when
 workgroupSizeOf
 ```
 
-## Shapes — 429 definitions
+## Shapes — 443 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -734,12 +760,12 @@ src/core/cpu-runtime.ts#ORACLE_GPU_STUB_NAMES  const  ReadonlySet<string>
 src/core/decode-log.ts#DecodedName  interface  { authored: readonly string[]; emitted: string }
 src/core/decode-log.ts#decodeShaderLog  function  (log: string, renames: ReadonlyMap<string, string>) => string
 src/core/decode-log.ts#invertRenames  function  (renames: ReadonlyMap<string, string>) => ReadonlyMap<string, DecodedName>
-src/core/diagnostics/codes.ts#CODES  const  { readonly SD0001: { readonly code: "SD0001"; readonly summary: "matrix × vector size mismatch"; readonly hint: "a matN can only multiply a vecN of the same N"; }; readonly SD0002: { readonly code: "SD0002"; readonly summary: "binary op on mismatched vectors"; readonly hint: "both operands must be the same vector type, or one must be a scalar"; }; readonly SD0003: { readonly code: "SD0003"; readonly summary: "arithmetic op on a bool operand"; readonly hint: "bool is not a numeric type — use a comparison/logical op, or cast first"; }; readonly SD0004: { readonly code: "SD0004"; readonly summary: "binary op on incompatible types"; }; readonly SD0005: { readonly code: "SD0005"; readonly summary: "bitwise op requires a u32/i32 left operand"; readonly hint: "cast the operand with toU32()/toI32() before a bitwise op"; }; readonly SD0006: { readonly code: "SD0006"; readonly summary: "component access on a non-vector"; }; readonly SD0007: { readonly code: "SD0007"; readonly summary: "vector component out of range"; readonly hint: ".z/.w need a vec3/vec4 respectively"; }; readonly SD0008: { readonly code: "SD0008"; readonly summary: "swizzle on a non-vector"; }; readonly SD0009: { readonly code: "SD0009"; readonly summary: ".select() on a non-bool condition"; readonly hint: "the receiver of .select(a, b) must be a Node<bool>"; }; readonly SD0010: { readonly code: "SD0010"; readonly summary: "select branches have differing types"; readonly hint: "both branches of a select/ifExpr must share a type"; }; readonly SD0011: { readonly code: "SD0011"; readonly summary: "matchExpr case type does not match the default"; readonly hint: "every case value and the default must share one type"; }; readonly SD0012: { readonly code: "SD0012"; readonly summary: "statement sink not installed"; readonly hint: "import @xgis/shader-dsl from its entry, not a deep path"; }; readonly SD0013: { readonly code: "SD0013"; readonly summary: "no active builder"; readonly hint: "call Let/Var/If/Loop/… inside an fn / If / Loop body"; }; readonly SD0014: { readonly code: "SD0014"; readonly summary: "override (specialization constant) must be a WGSL scalar type"; readonly hint: "overrideConst supports bool/i32/u32/f32 only — WGSL forbids vec/matrix/array/struct overrides; decompose into per-component scalar overrides"; }; readonly SD0015: { readonly code: "SD0015"; readonly summary: "array-texture layer must be an integer"; readonly hint: "a fractional layer literal is a naga compile error in WGSL but silently rounds in GLSL (layer = floor(z + 0.5), so 1.5 reads layer 2) — the backends would diverge; pass an integer, or an i32/u32 node"; }; readonly SD0016: { readonly code: "SD0016"; readonly summary: "host-owned resource has a shape the target cannot spell"; readonly hint: "hostUniform takes a scalar/vector/matrix — a host-owned STRUCT is hostBlock, which chooses its GLSL spelling with `glsl: \"loose\" | \"std140-block\"`; a loose block flattens to one uniform per member, so its members must themselves be scalar/vector/matrix"; }; readonly SD0017: { readonly code: "SD0017"; readonly summary: "literal cannot be spelled by the target"; readonly hint: "an i32/u32 literal must be an integer inside its 32-bit range and a float literal must be finite — neither WGSL nor GLSL has a NaN/Infinity spelling, and an out-of-range integer literal is a driver compile error; clamp or wrap the host-side value before it becomes a literal (#2276)"; }; readonly SD0020: { readonly code: "SD0020"; readonly summary: "module validation failed"; }; readonly SD0030: { readonly code: "SD0030"; readonly summary: "unsupported feature for this backend"; readonly hint: "see AUTHORING.md §10 (Capabilities & extensions) for the per-backend support table; a capability the target has no capProfile row for fails closed by design"; }; readonly SD0040: { readonly code: "SD0040"; readonly summary: "f64 type leaked past fp64Lower into a backend emitter"; readonly hint: "internal invariant — the fp64 lowering pass must rewrite every f64 before emit; report a shader-dsl bug"; }; readonly SD0041: { readonly code: "SD0041"; readonly summary: "unsupported operation on f64 operands"; readonly hint: "only + - * / compare, abs, min, max, sqrt, mix, floor, fract (and on vectors dot, length, distance, normalize) are emulated — narrow explicitly with toF32(x) first"; }; readonly SD0042: { readonly code: "SD0042"; readonly summary: "conflicting fp64 guard declaration"; readonly hint: "the '_fp64' binding is reserved for the auto-injected guard texture (texture_2d<f32>) — remove the conflicting declaration, or pin the slot with fp64Guard({ group, binding })"; }; readonly SD0043: { readonly code: "SD0043"; readonly summary: "reserved fp64 name"; readonly hint: "fp64Lower injects df64_* emulation fns and DF64VecN structs under those names — rename the colliding declaration"; }; readonly SD0044: { readonly code: "SD0044"; readonly summary: "f64 in an interpolated @location IO field"; readonly hint: "interpolating hi/lo pairs is numerically wrong — narrow with toF32, or carry two f32 varyings explicitly"; }; readonly SD0107: { readonly code: "SD0107"; readonly summary: "assignment to an immutable 'let' binding"; readonly hint: "declare the binding with Var() instead of Let() to mutate it"; }; readonly SD0108: { readonly code: "SD0108"; readonly summary: "smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)"; readonly hint: "write 1 − smoothstep(lo, hi, x) instead of reversing the edges"; }; readonly SD0109: { readonly code: "SD0109"; readonly summary: "a fragment-only builtin is reachable from a vertex or compute entry"; readonly hint: "the fix is per-builtin and named in the diagnostic message itself — the fragment-only-builtin rule table (FRAGMENT_ONLY_IDS) is the single fix-authority"; }; readonly SD0110: { readonly code: "SD0110"; readonly summary: "portable declared on a non-compute entry"; readonly hint: "portable is the compute-tier declaration — it needs stage: 'compute'"; }; readonly SD0111: { readonly code: "SD0111"; readonly summary: "portable kernel outside the gather-only tier"; readonly hint: "the portable tier is out[gid.x] = f(reads): 1-D gid, one u32 storage output written once at the invocation index, a vec4<u32> dispatch uniform, no raw statements — restructure or drop `portable` to keep the kernel WebGPU-only"; }; readonly SD0112: { readonly code: "SD0112"; readonly summary: "a local name is declared twice in one function"; readonly hint: "rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (#2341)"; }; }
-src/core/diagnostics/codes.ts#ErrorCode  type  "SD0001" | "SD0002" | "SD0003" | "SD0004" | "SD0005" | "SD0006" | "SD0007" | "SD0008" | "SD0009" | "SD0010" | "SD0011" | "SD0012" | "SD0013" | "SD0014" | "SD0015" | "SD0016" | "SD0017" | "SD0020" | "SD0030" | "SD0040" | "SD0041" | "SD0042" | "SD0043" | "SD0044" | "SD0107" | "SD0108" | "SD0109" | "SD0110" | "SD0111" | "SD0112"
+src/core/diagnostics/codes.ts#CODES  const  { readonly SD0001: { readonly code: "SD0001"; readonly summary: "matrix × vector size mismatch"; readonly hint: "a matN can only multiply a vecN of the same N"; }; readonly SD0002: { readonly code: "SD0002"; readonly summary: "binary op on mismatched vectors"; readonly hint: "both operands must be the same vector type, or one must be a scalar"; }; readonly SD0003: { readonly code: "SD0003"; readonly summary: "arithmetic op on a bool operand"; readonly hint: "bool is not a numeric type — use a comparison/logical op, or cast first"; }; readonly SD0004: { readonly code: "SD0004"; readonly summary: "binary op on incompatible types"; }; readonly SD0005: { readonly code: "SD0005"; readonly summary: "bitwise op requires a u32/i32 left operand"; readonly hint: "cast the operand with toU32()/toI32() before a bitwise op"; }; readonly SD0006: { readonly code: "SD0006"; readonly summary: "component access on a non-vector"; }; readonly SD0007: { readonly code: "SD0007"; readonly summary: "vector component out of range"; readonly hint: ".z/.w need a vec3/vec4 respectively"; }; readonly SD0008: { readonly code: "SD0008"; readonly summary: "swizzle on a non-vector"; }; readonly SD0009: { readonly code: "SD0009"; readonly summary: ".select() on a non-bool condition"; readonly hint: "the receiver of .select(a, b) must be a Node<bool>"; }; readonly SD0010: { readonly code: "SD0010"; readonly summary: "select branches have differing types"; readonly hint: "both branches of a select/ifExpr must share a type"; }; readonly SD0011: { readonly code: "SD0011"; readonly summary: "matchExpr case type does not match the default"; readonly hint: "every case value and the default must share one type"; }; readonly SD0012: { readonly code: "SD0012"; readonly summary: "statement sink not installed"; readonly hint: "import @xgis/shader-dsl from its entry, not a deep path"; }; readonly SD0013: { readonly code: "SD0013"; readonly summary: "no active builder"; readonly hint: "call Let/Var/If/Loop/… inside an fn / If / Loop body"; }; readonly SD0014: { readonly code: "SD0014"; readonly summary: "override (specialization constant) must be a WGSL scalar type"; readonly hint: "overrideConst supports bool/i32/u32/f32 only — WGSL forbids vec/matrix/array/struct overrides; decompose into per-component scalar overrides"; }; readonly SD0015: { readonly code: "SD0015"; readonly summary: "array-texture layer must be an integer"; readonly hint: "a fractional layer literal is a naga compile error in WGSL but silently rounds in GLSL (layer = floor(z + 0.5), so 1.5 reads layer 2) — the backends would diverge; pass an integer, or an i32/u32 node"; }; readonly SD0016: { readonly code: "SD0016"; readonly summary: "host-owned resource has a shape the target cannot spell"; readonly hint: "hostUniform takes a scalar/vector/matrix — a host-owned STRUCT is hostBlock, which chooses its GLSL spelling with `glsl: \"loose\" | \"std140-block\"`; a loose block flattens to one uniform per member, so its members must themselves be scalar/vector/matrix"; }; readonly SD0017: { readonly code: "SD0017"; readonly summary: "literal cannot be spelled by the target"; readonly hint: "an i32/u32 literal must be an integer inside its 32-bit range and a float literal must be finite — neither WGSL nor GLSL has a NaN/Infinity spelling, and an out-of-range integer literal is a driver compile error; clamp or wrap the host-side value before it becomes a literal (#2276)"; }; readonly SD0020: { readonly code: "SD0020"; readonly summary: "module validation failed"; }; readonly SD0030: { readonly code: "SD0030"; readonly summary: "unsupported feature for this backend"; readonly hint: "see AUTHORING.md §10 (Capabilities & extensions) for the per-backend support table; a capability the target has no capProfile row for fails closed by design"; }; readonly SD0040: { readonly code: "SD0040"; readonly summary: "f64 type leaked past fp64Lower into a backend emitter"; readonly hint: "internal invariant — the fp64 lowering pass must rewrite every f64 before emit; report a shader-dsl bug"; }; readonly SD0041: { readonly code: "SD0041"; readonly summary: "unsupported operation on f64 operands"; readonly hint: "only + - * / compare, abs, min, max, sqrt, mix, floor, fract (and on vectors dot, length, distance, normalize) are emulated — narrow explicitly with toF32(x) first"; }; readonly SD0042: { readonly code: "SD0042"; readonly summary: "conflicting fp64 guard declaration"; readonly hint: "the '_fp64' binding is reserved for the auto-injected guard texture (texture_2d<f32>) — remove the conflicting declaration, or pin the slot with fp64Guard({ group, binding })"; }; readonly SD0043: { readonly code: "SD0043"; readonly summary: "reserved fp64 name"; readonly hint: "fp64Lower injects df64_* emulation fns and DF64VecN structs under those names — rename the colliding declaration"; }; readonly SD0044: { readonly code: "SD0044"; readonly summary: "f64 in an interpolated @location IO field"; readonly hint: "interpolating hi/lo pairs is numerically wrong — narrow with toF32, or carry two f32 varyings explicitly"; }; readonly SD0107: { readonly code: "SD0107"; readonly summary: "assignment to an immutable 'let' binding"; readonly hint: "declare the binding with Var() instead of Let() to mutate it"; }; readonly SD0108: { readonly code: "SD0108"; readonly summary: "smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)"; readonly hint: "write 1 − smoothstep(lo, hi, x) instead of reversing the edges"; }; readonly SD0109: { readonly code: "SD0109"; readonly summary: "a fragment-only builtin is reachable from a vertex or compute entry"; readonly hint: "the fix is per-builtin and named in the diagnostic message itself — the fragment-only-builtin rule table (FRAGMENT_ONLY_IDS) is the single fix-authority"; }; readonly SD0110: { readonly code: "SD0110"; readonly summary: "portable declared on a non-compute entry"; readonly hint: "portable is the compute-tier declaration — it needs stage: 'compute'"; }; readonly SD0111: { readonly code: "SD0111"; readonly summary: "portable kernel outside the gather-only tier"; readonly hint: "the portable tier is out[gid.x] = f(reads): 1-D gid, one u32 storage output written once at the invocation index, a vec4<u32> dispatch uniform, no raw statements — restructure or drop `portable` to keep the kernel WebGPU-only"; }; readonly SD0112: { readonly code: "SD0112"; readonly summary: "a local name is declared twice in one function"; readonly hint: "rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (#2341)"; }; readonly SD0113: { readonly code: "SD0113"; readonly summary: "a fn whose body returns nothing at the TypeScript level returns a value at run time"; readonly hint: "name the return type in the fn() call — fn(name, params, <type>, body) — so the handle carries the key its callers need"; }; readonly SD0114: { readonly code: "SD0114"; readonly summary: "a variable a function reads has no declaration in the module"; readonly hint: "add the handle that owns it to module({ uses: [...] }) — a uniformStruct or storageBuffer left out of `uses` emits no var declaration, and the module is rejected at pipeline creation"; }; readonly SD0115: { readonly code: "SD0115"; readonly summary: "a branch body returned a value, which a branch cannot carry out"; readonly hint: "an If/elif/else body is a statement block: write Return(value) for an early return, when(cond, () => a, () => b) for a value, or assign to a Var"; }; readonly SD0116: { readonly code: "SD0116"; readonly summary: "a scalar cast applied to a non-scalar value"; readonly hint: "f32/i32/u32/f64 and the .f32()/.i32()/.u32()/.f64() methods convert one scalar — convert per component, or rebuild the vector with vec3(a.f32(), b.f32(), c.f32())"; }; readonly SD0117: { readonly code: "SD0117"; readonly summary: "a one-argument .at(i) on a node that is not an array"; readonly hint: "only an array node carries its element type — pass the element explicitly as .at(i, elemType)"; }; }
+src/core/diagnostics/codes.ts#ErrorCode  type  "SD0001" | "SD0002" | "SD0003" | "SD0004" | "SD0005" | "SD0006" | "SD0007" | "SD0008" | "SD0009" | "SD0010" | "SD0011" | "SD0012" | "SD0013" | "SD0014" | "SD0015" | "SD0016" | "SD0017" | "SD0020" | "SD0030" | "SD0040" | "SD0041" | "SD0042" | "SD0043" | "SD0044" | "SD0107" | "SD0108" | "SD0109" | "SD0110" | "SD0111" | "SD0112" | "SD0113" | "SD0114" | "SD0115" | "SD0116" | "SD0117"
 src/core/diagnostics/codes.ts#ErrorCodeDef  interface  { code: string; hint?: string; summary: string }
 src/core/diagnostics/error.ts#ShaderDslError  class  { cause?: unknown; code: string; hint?: string; loc?: SourceLoc; message: string; name: string; stack?: string }
 src/core/diagnostics/error.ts#SourceLoc  interface  { col: number; file: string; line: number }
-src/core/diagnostics/error.ts#dslError  function  (code: "SD0001" | "SD0002" | "SD0003" | "SD0004" | "SD0005" | "SD0006" | "SD0007" | "SD0008" | "SD0009" | "SD0010" | "SD0011" | "SD0012" | "SD0013" | "SD0014" | "SD0015" | "SD0016" | "SD0017" | "SD0020" | "SD0030" | "SD0040" | "SD0041" | "SD0042" | "SD0043" | "SD0044" | "SD0107" | "SD0108" | "SD0109" | "SD0110" | "SD0111" | "SD0112", detail?: string, opts?: { hint?: string; loc?: SourceLoc; }) => ShaderDslError
+src/core/diagnostics/error.ts#dslError  function  (code: "SD0001" | "SD0002" | "SD0003" | "SD0004" | "SD0005" | "SD0006" | "SD0007" | "SD0008" | "SD0009" | "SD0010" | "SD0011" | "SD0012" | "SD0013" | "SD0014" | "SD0015" | "SD0016" | "SD0017" | "SD0020" | "SD0030" | "SD0040" | "SD0041" | "SD0042" | "SD0043" | "SD0044" | "SD0107" | "SD0108" | "SD0109" | "SD0110" | "SD0111" | "SD0112" | "SD0113" | "SD0114" | "SD0115" | "SD0116" | "SD0117", detail?: string, opts?: { hint?: string; loc?: SourceLoc; }) => ShaderDslError
 src/core/diagnostics/error.ts#formatLoc  const  (loc: SourceLoc) => string
 src/core/diagnostics/loc.ts#isSourceTracing  const  () => boolean
 src/core/diagnostics/loc.ts#setSourceTracing  const  (on: boolean) => void
@@ -778,6 +804,7 @@ src/core/intrinsics.ts#isKnownIntrinsic  const  (name: string) => boolean
 src/core/intrinsics.ts#spellIntrinsic  function  (target: IntrinsicTarget, name: string, args: readonly string[]) => string
 src/core/ir/builder.ts#Break  const  () => void
 src/core/ir/builder.ts#Builder  class  { addAssign: <K extends string>(target: Node<K>, value: ArithArg<K>) => void; assign: <K extends string>(target: ReadonlyNode<K>, value: ReadonlyNode<K>) => void; assignOp: <K extends string>(target: ReadonlyNode<K>, bop: BinOp, value: ArithArg<K>) => void; autoName: () => string; autoNames: { n: number; }; break: () => void; child: () => Builder; continue: () => void; discard: () => void; forRange: { <K extends string>(init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (b: Builder, i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; <K extends string>(name: string, init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (b: Builder, i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; }; if: (cond: ReadonlyNode<"bool">, body: (b: Builder) => void | ReadonlyNode<string>) => IfChain; inferredVar: () => { ref: (type: ShaderType) => Node<string>; commit: (type: ShaderType) => void; cancel: () => void; }; let: { <K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>; <K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>; }; placeholder: (tag: string) => void; push: (s: Stmt) => void; raw: (payload: RawPayload) => void; ret: (value?: ReadonlyNode<string>) => void; stmts: Stmt[]; switch: (scrut: ReadonlyNode<"i32" | "u32">, cases: [number, (b: Builder) => void | ReadonlyNode<string>][], defaultBody?: (b: Builder) => void | ReadonlyNode<string>) => void; var: { <T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>; <T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>; } }
+src/core/ir/builder.ts#ConstExprDecl  interface  { cpuValue: number; name: string; node: ReadonlyNode<KeyOf<T>>; type: ShaderType; valueExpr?: Expr; wgslValue: number }
 src/core/ir/builder.ts#Continue  const  () => void
 src/core/ir/builder.ts#Discard  const  () => void
 src/core/ir/builder.ts#ExternFn  type  { (args: { readonly [K in keyof P]: number | ReadonlyNode<KeyOf<P[K]>>; }): Node<KeyOf<R>>; (...args: NodeLike[]): Node<KeyOf<R>>; }
@@ -787,7 +814,7 @@ src/core/ir/builder.ts#FnParamSpec  type  { [x: string]: ShaderType | ParamAttr 
 src/core/ir/builder.ts#If  const  (cond: ReadonlyNode<"bool">, body: () => void | ReadonlyNode<string>) => IfChain
 src/core/ir/builder.ts#IfChain  class  { arms: { cond: Expr; body: Stmt[]; }[]; elif: (cond: ReadonlyNode<"bool">, body: (b: Builder) => void | ReadonlyNode<string>) => IfChain; else: (body: (b: Builder) => void | ReadonlyNode<string>) => void; parent: Builder; setElse: (body: Stmt[]) => void }
 src/core/ir/builder.ts#Let  function  { <K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>; <K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>; }
-src/core/ir/builder.ts#Loop  function  { <K extends string>(init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; <K extends string>(name: string, init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; }
+src/core/ir/builder.ts#Loop  function  { (count: number, body: (i: Node<"u32">) => void | ReadonlyNode<string>): void; (name: string, count: number, body: (i: Node<"u32">) => void | ReadonlyNode<string>): void; <K extends string>(init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; <K extends string>(name: string, init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; }
 src/core/ir/builder.ts#ModuleParts  interface  { bindings?: readonly BindingDecl[]; consts?: readonly ConstDecl[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>; overrides?: readonly OverrideDecl[]; structs?: readonly StructDecl[]; uses?: readonly UsesHandle[] }
 src/core/ir/builder.ts#OverrideHandle  interface  { decl: OverrideDecl; node: ReadonlyNode<K> }
 src/core/ir/builder.ts#ParamSpec  type  { [x: string]: ShaderType; }
@@ -798,10 +825,10 @@ src/core/ir/builder.ts#SwitchChain  class  { case: (value: number, body: () => v
 src/core/ir/builder.ts#UsesHandle  type  { readonly struct: StructDecl; readonly binding: BindingDecl; } | { readonly decl: ConstDecl | StructDecl; } | { readonly binding: BindingDecl; readonly elementDecl?: StructDecl; }
 src/core/ir/builder.ts#Var  function  { <K extends string>(init: ReadonlyNode<K>): Node<K>; <T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>; <T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>; <K extends string>(name: string, init: ReadonlyNode<K>): Node<K>; }
 src/core/ir/builder.ts#condExpr  function  <K extends string>(arms: readonly (readonly [ReadonlyNode<"bool">, () => ReadonlyNode<K>])[], elseVal: () => ReadonlyNode<K>) => Node<K>
-src/core/ir/builder.ts#constExpr  function  (name: string, type: ShaderType, value: Node<string>) => ConstDecl
+src/core/ir/builder.ts#constExpr  function  <T extends ShaderType>(name: string, type: T, value: Node<string>) => ConstExprDecl<T>
 src/core/ir/builder.ts#externFn  function  <P extends ParamSpec, R extends ShaderType>(name: string, params: P, ret: R) => ExternFn<P, R>
 src/core/ir/builder.ts#externVar  function  <T extends ShaderType>(name: string, type: T, opts?: { spelling?: { wgsl?: string; glsl?: string; }; stage?: "vertex" | "fragment" | "compute"; }) => ExternVarHandle<KeyOf<T>>
-src/core/ir/builder.ts#fn  function  { <P extends FnParamSpec, R extends string>(params: P, body: FnBodyValue<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec, R extends string>(name: string, params: P, body: FnBodyValue<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec, T extends ShaderType>(params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; <P extends FnParamSpec, T extends ShaderType>(name: string, params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; }
+src/core/ir/builder.ts#fn  function  { <P extends FnParamSpec, R extends string>(params: P, body: FnBodyValue<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec, R extends string>(name: string, params: P, body: FnBodyValue<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec>(params: P, body: FnBodyVoid<P>, opts?: FnOpts): FnHandle<P, "void">; <P extends FnParamSpec>(name: string, params: P, body: FnBodyVoid<P>, opts?: FnOpts): FnHandle<P, "void">; <P extends FnParamSpec, T extends ShaderType>(params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; <P extends FnParamSpec, T extends ShaderType>(name: string, params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; }
 src/core/ir/builder.ts#ifExpr  function  <K extends string>(cond: ReadonlyNode<"bool">, thenVal: () => ReadonlyNode<K>, elseVal: () => ReadonlyNode<K>) => Node<K>
 src/core/ir/builder.ts#module  function  (parts: ModuleParts) => ModuleDecl
 src/core/ir/builder.ts#overrideConst  function  <T extends ShaderType>(name: string, type: T, defaultValue: number | boolean) => OverrideHandle<KeyOf<T>>
@@ -815,10 +842,11 @@ src/core/ir/node.ts#Float64Key  type  "f64" | `vec${number}<f64>`
 src/core/ir/node.ts#FloatKey  type  "f32" | `vec${number}<f32>`
 src/core/ir/node.ts#IntKey  type  "i32" | "u32" | `vec${number}<i32>` | `vec${number}<u32>`
 src/core/ir/node.ts#NODE_BRAND  const  typeof NODE_BRAND
-src/core/ir/node.ts#Node  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; and: (o: ReadonlyNode<"bool">) => Node<"bool">; assign: (value: ArithArg<K>) => void; at: <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T) => Node<KeyOf<T>>; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; swizzle: <S extends string>(comps: S) => Node<SwizzleKey<K, S>>; type: ShaderType; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
+src/core/ir/node.ts#Node  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; addAssign: (value: ArithArg<K>) => void; and: (o: ReadonlyNode<"bool">) => Node<"bool">; assign: (value: ArithArg<K>) => void; at: { <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T): Node<KeyOf<T>>; (this: ReadonlyNode<`array<${string}>`>, idx: number | ReadonlyNode<ScalarKey>): Node<ArrayElemKey<K>>; }; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; compound: (bop: BinOp, value: ArithArg<K>) => void; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; divAssign: (value: ArithArg<K>) => void; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; f32: (this: ReadonlyNode<NonComposite<K>>) => Node<"f32">; f64: (this: ReadonlyNode<"f32">) => Node<"f64">; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; i32: (this: ReadonlyNode<NonComposite<K>>) => Node<"i32">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; mulAssign: (value: ArithArg<K>) => void; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; not: (this: ReadonlyNode<"bool">) => Node<"bool">; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; subAssign: (value: ArithArg<K>) => void; swizzle: <S extends string>(comps: S) => Node<SwizzleKey<K, S>>; type: ShaderType; u32: (this: ReadonlyNode<NonComposite<K>>) => Node<"u32">; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
 src/core/ir/node.ts#NodeLike  type  number | ReadonlyNode<any>
 src/core/ir/node.ts#NonComposite  type  K extends `vec${string}` | `mat${string}` ? never : K
-src/core/ir/node.ts#ReadonlyNode  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; and: (o: ReadonlyNode<"bool">) => Node<"bool">; at: <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T) => Node<KeyOf<T>>; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; swizzle: <S extends string>(comps: S) => Node<SwizzleKey<K, S>>; type: ShaderType; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
+src/core/ir/node.ts#ReadonlyNode  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; and: (o: ReadonlyNode<"bool">) => Node<"bool">; at: { <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T): Node<KeyOf<T>>; (this: ReadonlyNode<`array<${string}>`>, idx: number | ReadonlyNode<ScalarKey>): Node<ArrayElemKey<K>>; }; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; f32: (this: ReadonlyNode<NonComposite<K>>) => Node<"f32">; f64: (this: ReadonlyNode<"f32">) => Node<"f64">; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; i32: (this: ReadonlyNode<NonComposite<K>>) => Node<"i32">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; not: (this: ReadonlyNode<"bool">) => Node<"bool">; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; swizzle: <S extends string>(comps: S) => Node<SwizzleKey<K, S>>; type: ShaderType; u32: (this: ReadonlyNode<NonComposite<K>>) => Node<"u32">; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
+src/core/ir/node.ts#ScalarCastSource  type  "f64" | "f32" | "i32" | "u32" | "bool"
 src/core/ir/node.ts#SwizzleKey  type  StrLen<S, []> extends 1 ? ElemKey<K> : `vec${StrLen<S, []> & number}<${ElemKey<K>}>`
 src/core/ir/node.ts#TexelKey  type  K extends `${string}<${infer E}>` ? `vec4<${E}>` : never
 src/core/ir/node.ts#TextureLoad2dKey  type  "texture_multisampled_2d<f32>" | "texture_2d<f32>" | "texture_2d<u32>" | "texture_2d<i32>"
@@ -826,11 +854,12 @@ src/core/ir/node.ts#TextureLoadArrayKey  type  "texture_2d_array<f32>" | "textur
 src/core/ir/node.ts#abs  const  <K extends FloatKey | Float64Key | IntKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#acos  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#acosh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
+src/core/ir/node.ts#add  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
 src/core/ir/node.ts#arrayLit  const  <E extends ShaderType, const I extends readonly ReadonlyNode[]>(elem: E, ...items: I) => Node<`array<${KeyOf<E>},${I["length"]}>`>
 src/core/ir/node.ts#asin  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#asinh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#atan  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
-src/core/ir/node.ts#atan2  const  <K extends FloatKey>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<K>>) => Node<K>
+src/core/ir/node.ts#atan2  function  { <K extends FloatKey>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<K>>): Node<K>; (y: number, x: ReadonlyNode<"f32">): Node<"f32">; }
 src/core/ir/node.ts#atanh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#bindingRef  function  <T extends ShaderType>(name: string, type: T) => Node<KeyOf<T>>
 src/core/ir/node.ts#bitcastF32  const  (v: ReadonlyNode<"u32">) => Node<"f32">
@@ -845,6 +874,7 @@ src/core/ir/node.ts#cosh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Nod
 src/core/ir/node.ts#cross  const  (a: ReadonlyNode<"vec3<f32>">, b: ReadonlyNode<"vec3<f32>">) => Node<"vec3<f32>">
 src/core/ir/node.ts#degrees  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#distance  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
+src/core/ir/node.ts#div  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
 src/core/ir/node.ts#dot  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
 src/core/ir/node.ts#dpdx  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#dpdy  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
@@ -852,8 +882,8 @@ src/core/ir/node.ts#enumU32  function  <const M extends Record<string, number>>(
 src/core/ir/node.ts#exp  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#exp2  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#externRef  function  <T extends ShaderType>(name: string, type: T) => ReadonlyNode<KeyOf<T>>
-src/core/ir/node.ts#f32  const  (v: number) => Node<"f32">
-src/core/ir/node.ts#f64  const  (v: number) => Node<"f64">
+src/core/ir/node.ts#f32  function  { (v: number): Node<"f32">; (x: ReadonlyNode<ScalarCastSource>): Node<"f32">; }
+src/core/ir/node.ts#f64  function  { (v: number): Node<"f64">; (x: ReadonlyNode<"f32">): Node<"f64">; }
 src/core/ir/node.ts#f64FromParts  const  (hi: number | ReadonlyNode<"f32">, lo: number | ReadonlyNode<"f32">) => Node<"f64">
 src/core/ir/node.ts#f64GuardOne  const  () => Node<"f32">
 src/core/ir/node.ts#f64Parts  const  (x: ReadonlyNode<"f64">) => Node<"vec2<f32>">
@@ -861,7 +891,7 @@ src/core/ir/node.ts#floor  const  <K extends FloatKey | Float64Key>(x: ReadonlyN
 src/core/ir/node.ts#fma  const  <K extends FloatKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>, c: NoInfer<ArithArg<K>>) => Node<K>
 src/core/ir/node.ts#fract  const  <K extends FloatKey | Float64Key>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#fwidth  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
-src/core/ir/node.ts#i32  const  (v: number) => Node<"i32">
+src/core/ir/node.ts#i32  function  { (v: number): Node<"i32">; (x: ReadonlyNode<ScalarCastSource>): Node<"i32">; }
 src/core/ir/node.ts#insideRange  const  (x: ReadonlyNode<ScalarKey>, lo: number | ReadonlyNode<ScalarKey>, hi: number | ReadonlyNode<ScalarKey>) => Node<"bool">
 src/core/ir/node.ts#installStmtSink  const  (s: StmtSink) => void
 src/core/ir/node.ts#inverseSqrt  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
@@ -879,8 +909,9 @@ src/core/ir/node.ts#matchExpr  function  <S extends ScalarKey, R extends string>
 src/core/ir/node.ts#max  const  <K extends FloatKey | Float64Key | IntKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>) => Node<K>
 src/core/ir/node.ts#member  const  <T extends ShaderType>(base: ReadonlyNode<string>, name: string, type: T) => Node<KeyOf<T>>
 src/core/ir/node.ts#min  const  <K extends FloatKey | Float64Key | IntKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>) => Node<K>
-src/core/ir/node.ts#mix  const  <K extends FloatKey | Float64Key>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>, t: number | ReadonlyNode<"f32">) => Node<K>
+src/core/ir/node.ts#mix  function  { <K extends FloatKey | Float64Key>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>, t: number | ReadonlyNode<"f32">): Node<K>; (a: number, b: number | ReadonlyNode<"f32">, t: number | ReadonlyNode<"f32">): Node<"f32">; }
 src/core/ir/node.ts#mod  const  <K extends FloatKey>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>>) => Node<K>
+src/core/ir/node.ts#mul  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
 src/core/ir/node.ts#mulMat64  const  <N extends 2 | 3 | 4>(a: ReadonlyNode<`mat${N}x${N}<f64>`>, b: ReadonlyNode<`mat${N}x${N}<f64>`>) => Node<`mat${N}x${N}<f64>`>
 src/core/ir/node.ts#normalize  const  <K extends `vec${number}<f32>` | `vec${number}<f64>`>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#optBarrier  const  (v: number | ReadonlyNode<"f32">) => Node<"f32">
@@ -891,7 +922,7 @@ src/core/ir/node.ts#pack2x16snorm  const  (v: ReadonlyNode<"vec2<f32>">) => Node
 src/core/ir/node.ts#pack2x16unorm  const  (v: ReadonlyNode<"vec2<f32>">) => Node<"u32">
 src/core/ir/node.ts#pack4x8unorm  const  (v: ReadonlyNode<"vec4<f32>">) => Node<"u32">
 src/core/ir/node.ts#param  function  <T extends ShaderType>(name: string, type: T) => ReadonlyNode<KeyOf<T>>
-src/core/ir/node.ts#pow  const  <K extends FloatKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>) => Node<K>
+src/core/ir/node.ts#pow  function  { <K extends FloatKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K>; (a: number, b: ReadonlyNode<"f32">): Node<"f32">; }
 src/core/ir/node.ts#radians  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#round  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#saturate  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
@@ -902,6 +933,7 @@ src/core/ir/node.ts#sinh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Nod
 src/core/ir/node.ts#smoothstep  function  { <K extends `vec${number}<f32>`>(e0: ReadonlyNode<K>, e1: ReadonlyNode<K>, x: ReadonlyNode<K>): Node<K>; (e0: number | ReadonlyNode<"f32">, e1: number | ReadonlyNode<"f32">, x: number | ReadonlyNode<"f32">): Node<"f32">; }
 src/core/ir/node.ts#sqrt  const  <K extends "f64" | FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#step  const  <K extends FloatKey>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNode<K>) => Node<K>
+src/core/ir/node.ts#sub  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
 src/core/ir/node.ts#tan  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#tanh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#textureDimensions  const  (tex: ReadonlyNode<TextureLoad2dKey | TextureLoadArrayKey>) => Node<"vec2<u32>">
@@ -917,7 +949,7 @@ src/core/ir/node.ts#transformMat4  const  (m: ReadonlyNode<"mat4x4<f32>">, v: Re
 src/core/ir/node.ts#transformMat64  const  <N extends 2 | 3 | 4>(m: ReadonlyNode<`mat${N}x${N}<f64>`>, v: ReadonlyNode<`vec${N}<f64>`>) => Node<`vec${N}<f64>`>
 src/core/ir/node.ts#transpose64  const  <N extends 2 | 3 | 4>(m: ReadonlyNode<`mat${N}x${N}<f64>`>) => Node<`mat${N}x${N}<f64>`>
 src/core/ir/node.ts#trunc  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
-src/core/ir/node.ts#u32  const  (v: number) => Node<"u32">
+src/core/ir/node.ts#u32  function  { (v: number): Node<"u32">; (x: ReadonlyNode<ScalarCastSource>): Node<"u32">; }
 src/core/ir/node.ts#unpack2x16float  const  (v: ReadonlyNode<"u32">) => Node<"vec2<f32>">
 src/core/ir/node.ts#unpack2x16snorm  const  (v: ReadonlyNode<"u32">) => Node<"vec2<f32>">
 src/core/ir/node.ts#unpack2x16unorm  const  (v: ReadonlyNode<"u32">) => Node<"vec2<f32>">
@@ -928,8 +960,12 @@ src/core/ir/node.ts#vec2i  const  (...a: NodeLike[]) => Node<"vec2<i32>">
 src/core/ir/node.ts#vec2u  const  (...a: NodeLike[]) => Node<"vec2<u32>">
 src/core/ir/node.ts#vec3  const  (...a: NodeLike[]) => Node<"vec3<f32>">
 src/core/ir/node.ts#vec3f64  const  (...a: Vec64Arg[]) => Node<"vec3<f64>">
+src/core/ir/node.ts#vec3i  const  (...a: NodeLike[]) => Node<"vec3<i32>">
+src/core/ir/node.ts#vec3u  const  (...a: NodeLike[]) => Node<"vec3<u32>">
 src/core/ir/node.ts#vec4  const  (...a: NodeLike[]) => Node<"vec4<f32>">
 src/core/ir/node.ts#vec4f64  const  (...a: Vec64Arg[]) => Node<"vec4<f64>">
+src/core/ir/node.ts#vec4i  const  (...a: NodeLike[]) => Node<"vec4<i32>">
+src/core/ir/node.ts#vec4u  const  (...a: NodeLike[]) => Node<"vec4<u32>">
 src/core/ir/nodes.ts#ALL_CAPABILITIES  const  readonly ["storageBuffer", "compute", "msaaTextureLoad", "f16", "subgroups", "floatRenderTarget", "float32Blend", "float32Filterable", "multiview"]
 src/core/ir/nodes.ts#ASSEMBLED_AS  const  typeof ASSEMBLED_AS
 src/core/ir/nodes.ts#AddressSpace  type  "uniform" | "storage"
@@ -953,6 +989,7 @@ src/core/ir/nodes.ts#StructDecl  interface  { fields: readonly StructField[]; na
 src/core/ir/nodes.ts#StructField  interface  { attr?: string; builtin?: string; interpolate?: string; location?: number; name: string; type: ShaderType }
 src/core/ir/nodes.ts#stageOf  const  (f: Pick<FuncDecl, "stage" | "attrs">) => "vertex" | "fragment" | "compute"
 src/core/ir/nodes.ts#workgroupSizeOf  const  (f: Pick<FuncDecl, "attrs" | "workgroupSize">) => number
+src/core/ir/types.ts#ArrayElemKey  type  K extends `array<${infer Inner}>` ? DropArraySize<Inner> : never
 src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
 src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
@@ -992,6 +1029,7 @@ src/core/ir/types.ts#vec2iT  const  { readonly kind: "vec"; readonly n: 2; reado
 src/core/ir/types.ts#vec2uT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "u32"; }
 src/core/ir/types.ts#vec3f64T  const  { readonly kind: "vec64"; readonly n: 3; }
 src/core/ir/types.ts#vec3fT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "f32"; }
+src/core/ir/types.ts#vec3iT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "i32"; }
 src/core/ir/types.ts#vec3uT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }
 src/core/ir/types.ts#vec4f64T  const  { readonly kind: "vec64"; readonly n: 4; }
 src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }
@@ -1075,6 +1113,7 @@ src/core/semantic-diff.ts#isSemanticallyEqual  const  (d: SemanticDiff) => boole
 src/core/semantic-diff.ts#semanticDiff  function  { (a: ModuleDecl, b: ModuleDecl, opts: SemanticDiffOptions & { readonly transforms: readonly EmitPlugin[]; }): ClassifiedSemanticDiff; (a: ModuleDecl, b: ModuleDecl, opts?: SemanticDiffOptions): SemanticDiff; }
 src/core/sot.ts#ConstHandle  interface  { decl: ConstDecl; node: ReadonlyNode<KeyOf<T>> }
 src/core/sot.ts#FieldSpec  interface  { attr: string; builtin?: string; interpolate?: string; location?: number; type: T }
+src/core/sot.ts#FixedTypeBuiltinName  type  "vertex_index" | "instance_index" | "position" | "front_facing" | "frag_depth" | "sample_index" | "sample_mask" | "local_invocation_id" | "local_invocation_index" | "global_invocation_id" | "workgroup_id" | "num_workgroups" | "subgroup_invocation_id" | "subgroup_size"
 src/core/sot.ts#HandleArray  interface  { count: number; element: H }
 src/core/sot.ts#IoStruct  interface  { construct: (values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>["type"]>>; }) => Node<`struct:${N}`>; decl: StructDecl; of: { (node: Node<string>): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; (node: ReadonlyNode<string>): { readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; }; type: { readonly kind: "struct"; readonly name: N; }; var: (name?: string) => { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; } }
 src/core/sot.ts#PlainStruct  interface  { construct: (values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>>; }) => Node<`struct:${N}`>; decl: StructDecl; get: <K extends keyof F & string>(node: ReadonlyNode<string>, field: K) => ReadonlyNode<KeyOf<F[K]>>; of: { (node: Node<string>): { readonly [K in keyof F]: Node<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; (node: ReadonlyNode<string>): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; }; type: { readonly kind: "struct"; readonly name: N; }; var: (name?: string) => { readonly [K in keyof F]: Node<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; } }
@@ -1082,9 +1121,10 @@ src/core/sot.ts#Resource  interface  { binding: BindingDecl; node: Node<KeyOf<T>
 src/core/sot.ts#StorageBuffer  interface  { at: (i: number | ReadonlyNode<ScalarKey>) => A; binding: BindingDecl; elementDecl?: StructDecl; node: Node<string> }
 src/core/sot.ts#TypeArray  interface  { count: number; elemType: T }
 src/core/sot.ts#UniformStruct  interface  { binding: BindingDecl; decl: StructDecl; field: { readonly [K in keyof F]: UniformFieldNode<F[K]>; }; node: Node<string>; struct: StructDecl; type: ShaderType }
+src/core/sot.ts#WGSL_BUILTIN_TYPES  const  { readonly vertex_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly instance_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly position: { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }; readonly front_facing: { readonly kind: "scalar"; readonly scalar: "bool"; }; readonly frag_depth: { readonly kind: "scalar"; readonly scalar: "f32"; }; readonly sample_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly sample_mask: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly local_invocation_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly local_invocation_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly global_invocation_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly workgroup_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly num_workgroups: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly subgroup_invocation_id: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly subgroup_size: { readonly kind: "scalar"; readonly scalar: "u32"; }; }
 src/core/sot.ts#WgslBuiltinName  type  "vertex_index" | "instance_index" | "position" | "front_facing" | "frag_depth" | "sample_index" | "sample_mask" | "local_invocation_id" | "local_invocation_index" | "global_invocation_id" | "workgroup_id" | "num_workgroups" | "subgroup_invocation_id" | "subgroup_size" | "clip_distances"
 src/core/sot.ts#arrayOf  function  { <H extends StructHandle>(element: H, count: number): HandleArray<H>; <T extends ShaderType>(element: T, count: number): TypeArray<T>; }
-src/core/sot.ts#builtin  const  <T extends ShaderType>(name: WgslBuiltinName, type: T) => FieldSpec<T>
+src/core/sot.ts#builtin  function  { <N extends FixedTypeBuiltinName>(name: N): FieldSpec<{ readonly vertex_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly instance_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly position: { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }; readonly front_facing: { readonly kind: "scalar"; readonly scalar: "bool"; }; readonly frag_depth: { readonly kind: "scalar"; readonly scalar: "f32"; }; readonly sample_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly sample_mask: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly local_invocation_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly local_invocation_index: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly global_invocation_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly workgroup_id: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly num_workgroups: { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }; readonly subgroup_invocation_id: { readonly kind: "scalar"; readonly scalar: "u32"; }; readonly subgroup_size: { readonly kind: "scalar"; readonly scalar: "u32"; }; }[N]>; <T extends ShaderType>(name: WgslBuiltinName, type: T): FieldSpec<T>; }
 src/core/sot.ts#constDecl  function  <T extends ShaderType>(name: string, type: T, values: { readonly wgsl: number; readonly cpu: number; }) => ConstHandle<T>
 src/core/sot.ts#hostBlock  function  <F extends Record<string, UniformFieldSpec>>(typeName: string, at: { group: number; binding: number; as: string; }, fields: F, opts?: { glsl?: "std140-block" | "loose"; precision?: "highp" | "mediump" | "lowp"; }) => UniformStruct<F>
 src/core/sot.ts#hostUniform  function  <T extends ShaderType>(name: string, type: T, at: { group: number; binding: number; }, opts?: { precision?: "highp" | "mediump" | "lowp"; }) => Resource<T>
