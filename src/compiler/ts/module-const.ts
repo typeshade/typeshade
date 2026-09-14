@@ -107,6 +107,38 @@ function lowerOne(
     return undefined
   }
   const numeric = typeof folded === 'boolean' ? (folded ? 1 : 0) : folded
+  // An integer const is range- and integrality-checked HERE rather than left to the
+  // backend's `intLit`. Two reasons. Truncating silently (`const K: i32 = 1.5` became 1) hid
+  // an author error; and once `emitConst` spells an integer const through `intLit`, an
+  // out-of-range value throws SD0017 from inside `emitModule` — which the caller cannot
+  // attribute to a line, and which leaves `compile()` reporting no diagnostic at all. A
+  // diagnostic here keeps `wgsl` undefined and names the cause.
+  if (k === 'i32' || k === 'u32') {
+    const lo = k === 'i32' ? -2147483648 : 0
+    const hi = k === 'i32' ? 2147483647 : 4294967295
+    if (!Number.isInteger(numeric)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          decl,
+          `Module const "${name}" is ${k}, but ${numeric} is not an integer.`,
+          TS_CODES.TYPE_MISMATCH,
+        ),
+      )
+      return undefined
+    }
+    if (numeric < lo || numeric > hi) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          decl,
+          `Module const "${name}" is ${k}, but ${numeric} is outside [${lo}, ${hi}].`,
+          TS_CODES.TYPE_MISMATCH,
+        ),
+      )
+      return undefined
+    }
+  }
   const value = k === 'f32' ? numeric : k === 'bool' ? numeric : Math.trunc(numeric)
   scope.define({
     kind: 'module',

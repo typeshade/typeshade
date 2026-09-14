@@ -2,6 +2,7 @@
 
 import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
+import type { AddressSpace } from '../../core/ir/nodes.js'
 import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
 
@@ -47,6 +48,12 @@ export interface Binding {
   readonly type: ShaderType
   readonly mutable: boolean
   readonly constValue?: number | boolean
+  /** The address space, for `kind: 'binding'` only. Carried because a diagnostic about a
+   *  runtime-sized array has to say something different for `storage` than for `uniform`:
+   *  `arrayLength(&x)` is spelled `ptr<storage, array<E>, AM>` and exists for nothing else,
+   *  so pointing a `uniform<array<f32>>` author at it sends them to an intrinsic Tint would
+   *  refuse on their program (#46). Absent for a local, a param or a module const. */
+  readonly space?: AddressSpace
 }
 
 export class LoweringScope {

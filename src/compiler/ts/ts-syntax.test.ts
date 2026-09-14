@@ -11,6 +11,7 @@ import { compileTsSource } from './source-file.js'
 import { compile } from './compile.js'
 import { typeKey } from '../../core/ir/types.js'
 import type { Stmt } from '../../core/ir/nodes.js'
+import { stripSpans } from '../../core/testing/strip-spans.js'
 
 function wgslOf(source: string): string {
   const r = compileTsSource(`"use typeshade";\n${source}`)
@@ -185,7 +186,10 @@ describe('the object-literal shorthand', () => {
   `
 
   it('builds exactly what the long form builds', () => {
-    expect(bodyOf(SHORT)).toEqual(bodyOf(LONG))
+    // Spans stripped: the two spellings ARE two spellings, so `return { a, b }` and
+    // `return { a: a, b: b }` carry different source extents (#32). The claim is that the IR
+    // is the same, which is what stripSpans lets the comparison say.
+    expect(stripSpans(bodyOf(SHORT))).toEqual(stripSpans(bodyOf(LONG)))
     expect(wgslOf(SHORT)).toBe(wgslOf(LONG))
     expect(wgslOf(SHORT)).toContain('return P(a, b);')
   })
