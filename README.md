@@ -46,14 +46,22 @@ Start with the [Quick start](https://typeshade.dev/guide/quick-start/) and then 
 6. Complete examples
 7. API reference when you need compiler details
 
-For repository development, add TypeShade as a git submodule and compile it in place:
+Install it from npm:
+
+```bash
+npm install typeshade
+```
+
+The tarball ships compiled ESM with type declarations — `import { compile } from 'typeshade'` needs no TypeScript toolchain — alongside the `.ts` sources the declaration maps point at, so "go to definition" lands on real source. The public subpaths are `typeshade`, `typeshade/dev`, `typeshade/compute`, `typeshade/emit-prod`, `typeshade/core/ir`, `typeshade/examples` and `typeshade/language-service`. `typescript` is an optional peer dependency, needed only by `typeshade/language-service`.
+
+For repository development, or to pin a commit rather than a version, add TypeShade as a git submodule and compile it in place:
 
 ```bash
 git submodule add https://github.com/typeshade/typeshade vendor/typeshade
 tsc -p vendor/typeshade
 ```
 
-The package ships TypeScript source. The consuming build needs a toolchain that compiles TypeScript (Vite, `tsc`, esbuild). Every relative specifier carries an explicit `.js`.
+Used that way the package resolves to TypeScript source, so the consuming build needs a toolchain that compiles it (Vite, `tsc`, esbuild). Every relative specifier carries an explicit `.js`.
 
 ## Language example
 
@@ -113,7 +121,7 @@ bun run test
 bun run gate:compile
 ```
 
-`dist/` is gitignored.
+`dist/` is gitignored. `bun run build` writes it: `dist/src/…` and `dist/examples/…`, mirroring the source tree. `bun run manifest:publish` prints the manifest the npm tarball carries — the same `exports` map rewritten onto those paths — and reports any entry point the build did not produce.
 
 The compile gate hands emitted shader code to the real target compilers and browser contexts used by the project. [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the build, tests and compile gate on pushes and pull requests.
 

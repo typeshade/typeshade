@@ -37,6 +37,7 @@
     "./language-service": "./src/language-service/index.ts"
   },
   "files": [
+    "dist",
     "src",
     "examples",
     "tsconfig.json",
@@ -60,6 +61,7 @@
     "test": "vitest run",
     "gate:compile": "bun scripts/compile-gate.ts",
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
+    "manifest:publish": "bun scripts/publish-manifest.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "format:compiler": "prettier --write src/compiler/**/*.ts"

@@ -449,7 +449,10 @@ LSP (VS Code):
 ## 9. Packaging
 
 - `package.json` `exports` has the `"./language-service": "./src/language-service/index.ts"`
-  subpath now; the built `.js`/`.d.ts` under it still waits on the package publishing a `dist/`.
+  subpath, and it now has built `.js`/`.d.ts` behind it: `tsc --build` emits
+  `dist/src/language-service/index.js` + `.d.ts`, and the manifest inside the npm tarball —
+  derived from this same `exports` map by `scripts/publish-manifest.ts` — points the subpath
+  there. In the repository and for a submodule consumer the subpath still resolves to source.
 - `typescript` is a `peerDependencies` entry (`>=5.0.0`), marked optional in
   `peerDependenciesMeta` rather than a plain `dependencies` entry: a consumer that never touches
   `./language-service` installs nothing extra, and one that does supplies its own `typescript`.

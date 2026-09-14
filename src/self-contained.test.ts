@@ -213,11 +213,14 @@ const NPM_HONOURED_PUBLISH_CONFIG = new Set(['access', 'tag', 'registry', 'prove
  *  The value is the package script that produces it, and the arm below requires that script
  *  to be a real key of `scripts` — an allowlist whose promise nothing checks is prose.
  *
- *  EMPTY TODAY, deliberately. This package ships SOURCE: `exports` names ./src/*.ts (F10)
- *  and the mirror consumer compiles it, so nothing built needs naming. The record exists so
- *  that a future decision to ship compiled output is ONE ENTRY plus its script, rather than
- *  a rewrite of the gate — and so that the decision is visible in a diff. */
-const BUILT_ARTIFACTS: Readonly<Record<string, string>> = {}
+ *  ONE ENTRY, which is the decision this record was built to make visible: the package now
+ *  also ships COMPILED output. `exports` still names ./src/*.ts and still resolves to source
+ *  here (F10 holds — the test files import themselves through that map, and
+ *  `api-surface.test.ts` parses its targets as TypeScript); what changed is that the tarball
+ *  additionally carries dist/, and the manifest npm publishes points at it. That manifest is
+ *  DERIVED from `exports` by `scripts/publish-manifest.ts`, not written out a second time —
+ *  see S5 below, which is why it is not a `publishConfig.exports` block. */
+const BUILT_ARTIFACTS: Readonly<Record<string, string>> = { dist: 'build' }
 
 /** How many tracked paths a `files`-style pathspec expands to, asked from the package dir. */
 const trackedBehind = (entry: string): number => git(PKG_DIR, 'ls-files', '--', entry).length
