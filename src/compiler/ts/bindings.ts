@@ -42,6 +42,7 @@ export function collectBindings(
             name: b.name,
             kind: 'binding',
             type: b.type,
+            mutable: !isConst,
           })
           next = Math.max(next, b.binding + 1)
         }
@@ -55,6 +56,7 @@ export function collectBindings(
             name: b.name,
             kind: 'binding',
             type: b.type,
+            mutable: !isConst,
           })
           next = Math.max(next, b.binding + 1)
         }

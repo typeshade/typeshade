@@ -51,7 +51,8 @@ export interface DeclaredSymbol {
   readonly type: ShaderType
   /** A `function`'s parameters, in declaration order. Absent for every other kind. */
   readonly params?: readonly DeclaredParam[]
-  /** Whether a `local` was declared `let` (`true`) or `const` (`false`). Absent otherwise. */
+  /** Whether a `local` or a `binding` was declared `let` (`true`) or `const` (`false`), which
+   *  is also what decides a storage binding's access mode. Absent for every other kind. */
   readonly mutable?: boolean
   /** The name of the struct that owns a `field`. Absent for every other kind. */
   readonly struct?: string

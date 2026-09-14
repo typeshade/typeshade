@@ -199,6 +199,41 @@ describe("getHover: the compiler's type for a symbol declared in this document",
   })
 })
 
+describe('getHover: a resource binding declared let', () => {
+  // `declare let` is how a storage buffer asks for `read_write`, and the hover has to keep
+  // saying `let`: the source says it, the access mode depends on it, and the line below is
+  // about to be written to.
+  const source = [
+    '"use typeshade";',
+    'declare const ro: storage<array<f32>>',
+    'declare let rw: storage<array<f32>>',
+    '@compute([64, 1, 1])',
+    'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+    '  rw[gid.x] = ro[gid.x];',
+    '}',
+  ].join('\n')
+
+  function hoverAt(offset: number): string | undefined {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('w.ts', source)
+    return service.getHover('w.ts', service.positionAt('w.ts', offset))?.contents
+  }
+
+  it('keeps the declaration keyword of each binding', () => {
+    expect(hoverAt(source.indexOf('rw[gid.x]'))).toContain('let rw: array<f32>')
+    expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain('const ro: array<f32>')
+  })
+
+  it('still adds the resource line under both', () => {
+    expect(hoverAt(source.indexOf('rw[gid.x]'))).toContain(
+      'storage resource at @group(0) @binding(1)',
+    )
+    expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain(
+      'storage resource at @group(0) @binding(0)',
+    )
+  })
+})
+
 describe('getHover: a symbol declared in another document', () => {
   it("keeps TypeScript's quick info, since the compiler's table is this document's", () => {
     const service = createTypeshadeLanguageService()

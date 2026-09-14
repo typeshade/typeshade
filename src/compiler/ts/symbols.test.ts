@@ -107,6 +107,7 @@ describe('DeclaredSymbol table', () => {
     const camera = only(result.symbols, 'camera')
     expect(camera.kind).toBe('binding')
     expect(typeKey(camera.type)).toBe('struct:Camera')
+    expect(camera.mutable).toBe(false)
   })
 
   it("records a helper function's return type and parameters", () => {
@@ -161,6 +162,29 @@ describe('DeclaredSymbol table', () => {
       'local vv',
       'local i',
     ])
+  })
+})
+
+describe('DeclaredSymbol table: a binding declared let', () => {
+  // `collectBindings` accepts `let` as well as `const`, and the keyword is not decoration: a
+  // `let` storage buffer is the `read_write` one. A reader of the table has to be able to tell
+  // the two apart, so `mutable` follows the declaration the same way it does for a local.
+  const source = [
+    '"use typeshade";',
+    'declare const ro: storage<array<f32>>',
+    'declare let rw: storage<array<f32>>',
+    '@compute([64, 1, 1])',
+    'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
+    '  rw[gid.x] = ro[gid.x];',
+    '}',
+  ].join('\n')
+
+  it('records the declaration keyword of each binding', () => {
+    const r = compileTsSource(source)
+    expect(errorsOf(r.diagnostics)).toEqual([])
+    expect(only(r.symbols, 'ro').mutable).toBe(false)
+    expect(only(r.symbols, 'rw').mutable).toBe(true)
+    expect(r.bindings.find((b) => b.name === 'rw')?.access).toBe('read_write')
   })
 })
 

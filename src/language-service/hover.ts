@@ -139,11 +139,15 @@ function declarationLine(symbol: DeclaredSymbol): string | undefined {
       return `${symbol.mutable === false ? 'const' : 'let'} ${symbol.name}: ${type}`
     case 'param':
       return `(parameter) ${symbol.name}: ${type}`
-    // A binding keeps `const name: T`, the shape TypeScript already uses for it: the address
-    // space is on the resource line below, so spelling it `uniform<T>` here would say it twice.
     case 'const':
-    case 'binding':
       return `const ${symbol.name}: ${type}`
+    // A binding keeps `const name: T` / `let name: T`, the shape TypeScript already uses for it:
+    // the address space is on the resource line below, so spelling it `uniform<T>` here would
+    // say it twice. The keyword is the declaration's own, since `declare let buf: storage<T>` is
+    // what makes the buffer `read_write` and writing `const` over it would contradict both the
+    // source and the write two lines down.
+    case 'binding':
+      return `${symbol.mutable === true ? 'let' : 'const'} ${symbol.name}: ${type}`
     case 'function': {
       const params = (symbol.params ?? [])
         .map((p) => `${p.name}: ${spellShaderType(p.type)}`)
