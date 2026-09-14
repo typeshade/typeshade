@@ -200,6 +200,28 @@ describe("getHover: the compiler's type for a symbol declared in this document",
   })
 })
 
+describe('getHover: an ambient name this document declares nothing of', () => {
+  // The pre-filter in `getHover` skips the definition query for an identifier whose text is in
+  // neither `analysis.symbols` nor `analysis.bindings`, on the ground that neither answer could
+  // have used it. This is the case that takes that path, and it must still read exactly as it
+  // did when TypeScript was asked: an ambient builtin is TypeScript's to describe.
+  const source = [
+    '"use typeshade";',
+    'export function f(a: f32, b: f32): f32 {',
+    '  return max(a, b);',
+    '}',
+  ].join('\n')
+
+  it("keeps TypeScript's quick info for a builtin, and the compiler's for the args", () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('m.ts', source)
+    const hoverAt = (offset: number) =>
+      service.getHover('m.ts', service.positionAt('m.ts', offset))?.contents
+    expect(hoverAt(source.indexOf('max(a, b)'))).toContain('function max')
+    expect(hoverAt(source.indexOf('a, b'))).toContain('(parameter) a: f32')
+  })
+})
+
 describe('getHover: a function with no return annotation', () => {
   // `parseSignature` defaults an unannotated return to `void` and warns (TS8021), so the IR
   // function really is void and the hover says so, where TypeScript used to infer `f32` from

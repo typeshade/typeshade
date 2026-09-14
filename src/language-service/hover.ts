@@ -220,11 +220,17 @@ export function getHover(
 
   const quickInfo = languageService.getQuickInfoAtPosition(uri, offset)
   if (!quickInfo) return undefined
-  // One definition query per hover, shared by the two answers that need it. Only an identifier
-  // can resolve to a declaration, so nothing else pays for it.
-  const defs = ts.isIdentifier(node)
-    ? (languageService.getDefinitionAtPosition(uri, offset) ?? [])
-    : []
+  // At most one definition query per hover, shared by the two answers that need it, and only
+  // when one of them could use the result. Both key off the identifier's text: a recorded
+  // symbol's span covers the declared name, so a definition that lands on one necessarily has
+  // that name, and a binding is matched by name outright. An identifier this document declares
+  // nothing of that name for (`max`, `vec3`, an imported symbol) therefore cannot change either
+  // answer, and no longer pays TypeScript for a resolution nobody reads.
+  const mayResolve =
+    ts.isIdentifier(node) &&
+    (analysis.symbols.some((s) => s.name === node.text) ||
+      analysis.bindings.some((b) => b.name === node.text))
+  const defs = mayResolve ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : []
   const declared = declaredSymbolAt(analysis, uri, defs)
   const display =
     (declared !== undefined ? declarationLine(declared) : undefined) ??
