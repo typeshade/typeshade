@@ -3,8 +3,19 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
-import { atan2, exp2, f32, fma, fwidth, pow, saturate, select, toF64 } from '../../core/ir/node.js'
-import { boolT, f32T, f64T, vec3fT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import {
+  atan2,
+  exp2,
+  f32,
+  fma,
+  fwidth,
+  pow,
+  saturate,
+  select,
+  toF64,
+  vec3,
+} from '../../core/ir/node.js'
+import { boolT, f32T, f64T, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -64,6 +75,8 @@ function normalizeExpr(e: Expr): unknown {
       return { op: 'param', type: typeKey(e.type), name: e.name }
     case 'varref':
       return { op: 'varref', type: typeKey(e.type), name: e.name }
+    case 'construct':
+      return { op: 'construct', type: typeKey(e.type), args: e.args.map(normalizeExpr) }
     case 'binop':
       return {
         op: 'binop',
@@ -273,6 +286,18 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('f', { a: f32T, b: f32T, c: f32T }, f32T, ({ a, b, c }) => fma(a, b, c))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('vec3f(v) matches the EDSL vec3(v) element-converting constructor', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function widen(v: vec3u): vec3 {
+        return vec3f(v);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('widen', { v: vec3uT }, vec3fT, ({ v }) => vec3(v))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

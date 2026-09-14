@@ -54,6 +54,9 @@ import {
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
+  convertComponent,
+  convertComponents,
+  elemKindOf,
 } from './cpu-runtime.js'
 
 // Preserve the historical `@xgis/shader-dsl` oracle surface: the value-model
@@ -239,12 +242,23 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         })
         return obj as CpuValue
       }
-      // Vector constructor: flatten scalar/vec args into one component list.
+      // Vector constructor: flatten scalar/vec args into one component list, each component
+      // converted to the constructed vector's element kind. For an ordinary composing
+      // constructor every kind already matches and convertComponent(s) returns the value
+      // untouched; for WGSL's element-CONVERTING form, vecN<T>(v: vecN<S>), it applies the
+      // same saturating / reinterpreting rules the scalar cast path applies.
+      const elem = e.type.kind === 'vec' ? e.type.elem : undefined
       const out: number[] = []
       for (const a of e.args) {
         const v = evalExpr(a, env, ctx)
-        if (isArr(v)) out.push(...(v as number[]))
-        else out.push(v as number)
+        const from = elemKindOf(a.type)
+        if (elem === undefined || from === undefined) {
+          if (isArr(v)) out.push(...(v as number[]))
+          else out.push(v as number)
+          continue
+        }
+        if (isArr(v)) out.push(...convertComponents(v as number[], from, elem))
+        else out.push(convertComponent(v as number, from, elem))
       }
       // WGSL splat: vecN<T>(singleScalar) fills all N components (e.g. vec3(0.5) = [0.5,0.5,0.5]).
       if ((e.type.kind === 'vec' || e.type.kind === 'vec64') && out.length === 1)

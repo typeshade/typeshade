@@ -119,6 +119,20 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: false,
   },
   {
+    id: 'convert-grid',
+    title: 'Converting constructors',
+    blurb:
+      'A fullscreen triangle whose corner comes from `vec2(vec2u(...))` and whose colour comes from an `f32`→`u32`→`f32` round trip — the element-converting constructor in both directions and at both ends of the pipeline.',
+    renderable: true,
+  },
+  {
+    id: 'module-const',
+    title: 'Module constants',
+    blurb:
+      'A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands every spelling to Tint and to a real WebGL2 context.',
+    renderable: true,
+  },
+  {
     id: 'cutout',
     title: 'Cutout (source language)',
     blurb:

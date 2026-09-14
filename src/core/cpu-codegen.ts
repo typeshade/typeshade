@@ -55,6 +55,9 @@ import {
   intDiv,
   intRem,
   type NumKind,
+  convertComponent,
+  convertComponents,
+  elemKindOf,
 } from './cpu-runtime.js'
 import { compileModule, type CpuModule } from './oracle.js'
 
@@ -313,13 +316,23 @@ function emitConstruct(e: Extract<Expr, { op: 'construct' }>, S: FnCtx): string 
     return `{ ${fields.join(', ')} }`
   }
   // Vector: WGSL splat (single scalar arg fills all N) vs flatten (scalars +
-  // spread vec args), matching the interpreter's out.length===1 check.
+  // spread vec args), matching the interpreter's out.length===1 check. A component whose
+  // kind differs from the constructed vector's is converted, which is the same
+  // convertComponent(s) the interpreter calls — WGSL's element-CONVERTING constructor,
+  // vecN<T>(v: vecN<S>). Where no kind differs, which is every composing constructor, the
+  // emitted source is exactly what it was before.
+  const elem = e.type.kind === 'vec' ? e.type.elem : undefined
   const n = e.type.kind === 'vec' || e.type.kind === 'vec64' ? e.type.n : 0
+  const cvt = (a: Expr): string => {
+    const src = emitExpr(a, S)
+    const from = elemKindOf(a.type)
+    if (elem === undefined || from === undefined || from === elem) return src
+    const call = isArrayValued(a.type) ? 'cvtVec' : 'cvt'
+    return `$.${call}(${src}, ${q(from)}, ${q(elem)})`
+  }
   if (e.args.length === 1 && !isArrayValued(e.args[0]!.type))
-    return `$.splat(${n}, ${emitExpr(e.args[0]!, S)})`
-  const parts = e.args.map((a) =>
-    isArrayValued(a.type) ? `...(${emitExpr(a, S)})` : emitExpr(a, S),
-  )
+    return `$.splat(${n}, ${cvt(e.args[0]!)})`
+  const parts = e.args.map((a) => (isArrayValued(a.type) ? `...(${cvt(a)})` : cvt(a)))
   return `[${parts.join(', ')}]`
 }
 
@@ -451,6 +464,10 @@ interface CodegenRuntime {
   /** WGSL integer `/` and `%` (#2274) — the SAME helpers `scalarBin` calls. */
   intDiv: typeof intDiv
   intRem: typeof intRem
+  /** Element-converting vector constructor components — the SAME helpers the interpreter's
+   *  `construct` case calls, so the two CPU backends convert identically. */
+  cvt: typeof convertComponent
+  cvtVec: typeof convertComponents
 }
 
 /** Compile a module for the CPU by generating JavaScript, returning the same
@@ -583,6 +600,8 @@ export function compileModuleJs(
     negVec: (a) => a.map((v) => -v),
     u32Sat: f32ToU32Sat,
     i32Sat: f32ToI32Sat,
+    cvt: convertComponent,
+    cvtVec: convertComponents,
     intDiv,
     intRem,
     gpuStub: (name, ...args) => {
