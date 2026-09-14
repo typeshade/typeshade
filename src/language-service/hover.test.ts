@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createTypeshadeLanguageService } from './service.js'
+import { TS_CODES } from '../compiler/ts/codes.js'
 import { spellShaderType } from './hover.js'
 import {
   arrayT,
@@ -196,6 +197,28 @@ describe("getHover: the compiler's type for a symbol declared in this document",
 
   it("leaves TypeScript's quick info for a data class name", () => {
     expect(hoverAt(source.indexOf('class Vertex') + 6)).toContain('class Vertex')
+  })
+})
+
+describe('getHover: a function with no return annotation', () => {
+  // `parseSignature` defaults an unannotated return to `void` and warns (TS8021), so the IR
+  // function really is void and the hover says so, where TypeScript used to infer `f32` from
+  // the body. The two disagree on purpose: the hover shows what was lowered, and the warning on
+  // the same declaration is the thing that asks the author to annotate.
+  const source = [
+    '"use typeshade";',
+    'export function helperNoRet(a: f32) {',
+    '  return a;',
+    '}',
+  ].join('\n')
+
+  it('hovers as the void the front end gave it, alongside its TS8021 warning', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('v.ts', source)
+    const offset = source.indexOf('helperNoRet') + 3
+    const hover = service.getHover('v.ts', service.positionAt('v.ts', offset))
+    expect(hover?.contents).toContain('function helperNoRet(a: f32): void')
+    expect(service.getDiagnostics('v.ts').some((d) => d.code === TS_CODES.RETURN_SHAPE)).toBe(true)
   })
 })
 

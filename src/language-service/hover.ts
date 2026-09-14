@@ -80,10 +80,13 @@ function resourceBindingLine(
  *
  * `wgslType` alone is not enough. `f64`, `vecN<f64>` and `matNxN<f64>` are PRE-LOWERING types,
  * rewritten into `f32` pairs before any backend spells a type, so `wgslType` deliberately
- * throws SD0040 on them rather than emitting an invalid WGSL type. A hover is not emit: it must
- * name the type the author wrote. Those three arms are spelled here, and the array arm recurses
- * through this function so `array<vec3<f64>, 4>` reaches them; everything else is `wgslType`,
- * so there is exactly one place a GPU type is spelled for the editor.
+ * throws SD0040 on them rather than emitting an invalid WGSL type. A hover still has to name
+ * them, and the source spelling is the only one they have, so those three arms are spelled here,
+ * with the array arm recursing through this function so `array<vec3<f64>, 4>` reaches them.
+ * Every other kind takes the WGSL spelling from `wgslType`, which is what the rest of the editor
+ * already shows: a `vec3` hovers as `vec3<f32>` and a `mat4` as `mat4x4<f32>`, not as the
+ * ambient alias the author typed. So there is exactly one place a GPU type is spelled for the
+ * editor.
  */
 export function spellShaderType(t: ShaderType): string {
   switch (t.kind) {
@@ -170,10 +173,11 @@ function declarationLine(symbol: DeclaredSymbol): string | undefined {
  * the declaration TypeScript resolves the identifier to. TypeScript's own inference cannot be
  * trusted for it: the ambient GPU scalars brand `number` optionally, so `let x = 1.` infers
  * plain `number` where the front end lowered an `f32`, and `const half = 0.5` infers the literal
- * type `0.5`. Everything else keeps TypeScript's quick info, including a symbol declared in
- * another document, a host-side declaration and the documentation section of every hover. A
- * resource binding also gains one line from `analysis`: its address space and `@group`/
- * `@binding` slot.
+ * type `0.5`. Everything else keeps TypeScript's quick info: a symbol declared in another
+ * document, a host-side declaration, a data class name (`class Vertex` already says it), a
+ * declaration the front end refused to lower and so never recorded (its own diagnostic on that
+ * line says why), and the documentation section of every hover. A resource binding also gains
+ * one line from `analysis`: its address space and `@group`/`@binding` slot.
  */
 export function getHover(
   languageService: ts.LanguageService,

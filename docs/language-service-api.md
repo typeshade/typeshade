@@ -338,8 +338,20 @@ as `let x: number` while the compiler lowered it as `f32`. The front end records
 declares with the `ShaderType` it gave it and the span of the declared identifier, and
 `getHover` joins the two through `getDefinitionAtPosition`, so the same `let x: f32` shows at the
 declaration and at every use, and two shadowing declarations of one name are told apart by the
-span TypeScript resolved to. A symbol this document does not declare keeps TypeScript's quick
-info, and so do the documentation section and a binding's resource line.
+span TypeScript resolved to. A function with no return annotation hovers as the `void` the front
+end gave it, which is what its TS8021 warning is about, rather than as the return type TypeScript
+infers from the body.
+
+Three kinds of name keep TypeScript's quick info instead. One this document does not declare (an
+imported symbol, a host-side declaration) is not in this document's table at all, since a span
+means nothing without the file it indexes. One the front end could not lower is never recorded
+either, so `for (let j = 0; ...)`, which the loop-induction check rejects, still hovers as
+`let j: number`, and so does `let a = d * 2.` where `d: f64` and the multiplication was refused:
+the front end's own diagnostic on the same line says why. And a data class name keeps
+`class Vertex`, which already says what the compiler would. The documentation section of every
+hover is TypeScript's too. A resource binding is the one place TypeShade adds a line of its own
+under the type: its address space and `@group`/`@binding` slot, read off the front end's
+collected bindings, not off TypeScript.
 
 Syntax errors are their own case, not part of the stage-3 checks above. `compileTsSource`,
 `compileTsSources`, and `compile()` surface TypeScript's own parse errors (an unclosed
