@@ -143,7 +143,7 @@ first. No example in the 36 is waiting on any of them:
 
 A10 has landed even though it blocks nothing here: the 36 EDSL examples were written
 through a surface that spells these differently, so the corpus could not have shown the gap.
-`bitfield-bands.shade.ts` is the coverage instead — a `.shade.ts` example the compile gate
+`bitfield-bands.shade.ts` is the coverage instead: a `.shade.ts` example the compile gate
 hands to Tint and to a real WebGL2 context.
 
 A2 in particular: every `.assign()` in the corpus targets a whole value, never a component.
@@ -396,7 +396,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                             |
 | `m: mat3`                                                                                                       | ✗ `Unknown type "mat3"`                                                                                 |
 | `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                    |
-| `let x: f32;` then `x = 1.`                                                                                     | ✗ `"let x" requires an initializer`                                                                     |
+| `let x: f32;` then `x = 1.`                                                                                     | ✓ since #8 A10; the annotation carries the type, so it is required                                      |
 | `v.x = 1.`                                                                                                      | ✗ `Assignment target must be a simple identifier`                                                       |
 | `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                       |
 | `declare const params: uniform<vec4u>` (non-struct uniform)                                                     | ✓                                                                                                       |

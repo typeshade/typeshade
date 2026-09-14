@@ -110,7 +110,9 @@ describe('the bitwise compound assignments', () => {
         return y;
       }
     `)
-    for (const line of ['y <<= 2;', 'y |= 1;', 'y &= 255;', 'y ^= 3;', 'y >>= 1;']) {
+    // A SHIFT amount is a u32 whatever the target is — WGSL's only scalar overload — so `2`
+    // is spelled `2u` there while `&`, `|` and `^` take the target's own type.
+    for (const line of ['y <<= 2u;', 'y |= 1;', 'y &= 255;', 'y ^= 3;', 'y >>= 1u;']) {
       expect(w).toContain(line)
     }
   })
@@ -119,6 +121,70 @@ describe('the bitwise compound assignments', () => {
     expect(
       wgslOf('export function f(i: u32): u32 {\n  let y: u32 = i;\n  y &= 3;\n  return y;\n}'),
     ).toContain('y &= 3u;')
+  })
+
+  it('takes a u32 shift amount on either target, and casts an i32 one', () => {
+    // The rule the first version of this got wrong. `lowerBitwiseAssignOp` required the
+    // operand type to equal the TARGET, so `y <<= k` with an i32 `k` on an i32 target emitted
+    // `y <<= k;` — which Tint refuses, `no matching overload for 'operator <<= (i32, i32)'` —
+    // while the one spelling WGSL accepts, a u32 amount, was rejected here. Every earlier test
+    // used a literal, which survived only because a bare `2` reads as AbstractInt.
+    expect(
+      wgslOf(
+        'export function f(i: i32, k: u32): i32 {\n  let y: i32 = i;\n  y <<= k;\n  return y;\n}',
+      ),
+    ).toContain('y <<= k;')
+    expect(
+      wgslOf(
+        'export function f(i: i32, k: i32): i32 {\n  let y: i32 = i;\n  y <<= k;\n  return y;\n}',
+      ),
+    ).toContain('y <<= u32(k);')
+    expect(
+      wgslOf(
+        'export function f(i: u32, k: i32): u32 {\n  let y: u32 = i;\n  y >>= k;\n  return y;\n}',
+      ),
+    ).toContain('y >>= u32(k);')
+    // …and GLSL ES 3.00, which allows the mixed signedness that produces.
+    const c = compile(`
+      "use typeshade";
+      class Color {
+        @location(0) color: vec4
+      }
+      @fragment
+      export function fs(@builtin("position") p: vec4): Color {
+        let y: i32 = i32(p.x);
+        let k: i32 = i32(p.y);
+        y <<= k;
+        return { color: vec4(f32(y), 0., 0., 1.) };
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.glsl?.fragment).toContain('y <<= uint(k);')
+    // A shift by a value is not a constant fold on either side: the oracle agrees with JS.
+    const e = compile(`
+      "use typeshade";
+      export function f(i: i32, k: i32): i32 {
+        let y: i32 = i;
+        y <<= k;
+        return y;
+      }
+    `)
+    expect(e.eval('f', [3, 4])).toBe(3 << 4)
+  })
+
+  it('refuses a negative shift amount, and a negative value on a u32 target', () => {
+    // `-1` is a prefix unary, not a literal node, so the retype never saw it and the author
+    // was told their i32 target could not take an f32. Folded first now, which is also what
+    // makes `y |= -2` work on an i32 target.
+    expect(
+      diagnose('export function f(i: i32): i32 {\n  let y: i32 = i;\n  y <<= -1;\n  return y;\n}'),
+    ).toBe('Bitwise "<<=" needs a non-negative shift amount, got -1.')
+    expect(
+      diagnose('export function f(i: u32): u32 {\n  let y: u32 = i;\n  y |= -2;\n  return y;\n}'),
+    ).toBe('Bitwise "|=" on a u32 target needs a non-negative value, got -2.')
+    expect(
+      wgslOf('export function f(i: i32): i32 {\n  let y: i32 = i;\n  y |= -2;\n  return y;\n}'),
+    ).toContain('y |= -2;')
   })
 
   it('agree with the same expression written out long', () => {
@@ -209,6 +275,9 @@ describe('the object-literal shorthand', () => {
   })
 
   it('still reports an unknown name, from the shorthand position', () => {
+    // The whole message, not `.toContain('b')`: that also matched the refusal this form
+    // replaced ("Object literals must use identifier fields, e.g. { pos: vec4(...) }"), so
+    // the assertion passed on the merge base, where the shorthand did not lower at all.
     expect(
       diagnose(`
         class P {
@@ -219,7 +288,24 @@ describe('the object-literal shorthand', () => {
           return { a, b };
         }
       `),
-    ).toContain('b')
+    ).toBe('Unknown identifier "b".')
+  })
+
+  it('refuses a destructuring default, which is not a field value', () => {
+    // `{ a = 1. }` parses as a shorthand with an objectAssignmentInitializer — legal only in
+    // a destructuring pattern. Nothing read that field, so the `= 1.` vanished and `a` was
+    // used as the value.
+    expect(
+      diagnose(`
+        class P {
+          a: f32
+          b: f32
+        }
+        export function f(a: f32, b: f32): P {
+          return { a = 1., b };
+        }
+      `),
+    ).toBe('"a = ..." is a destructuring default, not a field value. Write "a: ..." instead.')
   })
 })
 
@@ -387,5 +473,90 @@ describe('switch, with the break TypeScript requires', () => {
         }
       `),
     ).toBe('switch case fall-through is not allowed.')
+  })
+
+  it('refuses a label the selector cannot hold, and one that repeats', () => {
+    // `caseValue` never compared the folded value against the selector's type, and the emitter
+    // spells every label with the selector's suffix — so `case -1:` on a u32 selector emitted
+    // `case -1u:` and Tint answered `no matching overload for 'operator - (u32)'`. That source
+    // was refused before this item accepted a negative label at all.
+    expect(
+      diagnose(`
+        export function f(x: u32): f32 {
+          switch (x) {
+            case -1: return 1.;
+            default: return 0.;
+          }
+        }
+      `),
+    ).toBe('switch case -1 does not fit a u32 selector.')
+    // …and the same label on an i32 selector is still fine.
+    expect(
+      wgslOf(`
+        export function f(x: i32): f32 {
+          switch (x) {
+            case -1: return 1.;
+            default: return 0.;
+          }
+        }
+      `),
+    ).toContain('case -1:')
+    // A repeat is rejected by both compilers, and this surface makes one easy to write
+    // without seeing it.
+    expect(
+      diagnose(`
+        export function f(x: i32): f32 {
+          switch (x) {
+            case 2: return 1.;
+            case 1 + 1: return 2.;
+            default: return 0.;
+          }
+        }
+      `),
+    ).toBe('Duplicate switch case 2; each label may appear once.')
+  })
+
+  it('reports an unresolvable label once, not twice', () => {
+    const r = compileTsSource(`"use typeshade";
+      export function f(x: i32): f32 {
+        switch (x) {
+          case ZZZ: return 1.;
+          default: return 0.;
+        }
+      }
+    `)
+    expect(r.diagnostics.map((d) => d.message)).toEqual(['Unknown identifier "ZZZ".'])
+  })
+})
+
+describe('an init-less local on the CPU oracle', () => {
+  // `zeroOf` and `zeroLit` had no array arm, so an init-less `var xs: array<f32, 3>` bound the
+  // scalar 0 and the first `xs[0] = 1.` threw "Attempted to assign to readonly property" out of
+  // the oracle — on a program both GPU targets compile. A bool bound 0 where WGSL gives false.
+  // Both are reachable only because this item added the init-less declaration.
+  it('gives an array its elements, so an indexed write works', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(): f32 {
+        let arr: array<f32, 3>;
+        arr[0] = 1.;
+        arr[1] = 2.;
+        return arr[0] + arr[1];
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.eval('f', [])).toBe(3)
+  })
+
+  it('gives a bool `false`, which is what WGSL zero-initialises it to', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(): bool {
+        let b: bool;
+        return b;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.eval('f', [])).toBe(false)
   })
 })

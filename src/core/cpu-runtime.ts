@@ -570,12 +570,24 @@ function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
   return (a as number) + ((b as number) - (a as number)) * (t as number)
 }
 
-export function zeroOf(type: { kind: string; n?: number }): CpuValue {
+export function zeroOf(type: ShaderType): CpuValue {
   // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
-  if (type.kind === 'vec' || type.kind === 'vec64') return new Array(type.n as number).fill(0)
-  if (type.kind === 'mat') return new Array((type.n as number) * (type.n as number)).fill(0)
+  if (type.kind === 'vec' || type.kind === 'vec64') return new Array(type.n).fill(0)
+  if (type.kind === 'mat') return new Array(type.n * type.n).fill(0)
   if (type.kind === 'struct') return {} // fields populated by member assignments
-  if (type.kind === 'scalar') return 0
+  // An ARRAY needs its own elements, not the scalar 0 the fallthrough gave it: an init-less
+  // `var xs: array<f32, 3>` bound the number 0, and the first `xs[0] = 1.` threw
+  // "Attempted to assign to readonly property" out of the oracle on a program both GPU
+  // targets compile. Newly reachable from "use typeshade" with #8 A10, which gave the surface
+  // the init-less declaration. A runtime-sized array has no length to build, so it starts
+  // empty and grows the way a storage binding's does.
+  if (type.kind === 'array') {
+    const n = type.size ?? 0
+    return Array.from({ length: n }, () => zeroOf(type.elem)) as CpuValue
+  }
+  // WGSL zero-initialises a bool to `false`, and the oracle's comparisons take a boolean —
+  // the scalar 0 read back as a number where every other backend has a bool.
+  if (type.kind === 'scalar' && type.scalar === 'bool') return false
   return 0
 }
 

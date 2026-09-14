@@ -3,7 +3,7 @@
 import ts from 'typescript'
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
+import { isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, readOnlyPhrase } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -12,6 +12,7 @@ import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
+import { foldNumericLit } from '../lit-coerce.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -419,15 +420,45 @@ function lowerBitwiseAssignOp(
   }
   let value = lowerExpression(right, sourceFile, scope, diagnostics)
   if (!value) return undefined
-  if (value.op === 'lit' && typeof value.value === 'number' && Number.isInteger(value.value)) {
-    value = { op: 'lit', type: target.type, value: value.value }
+  // A SHIFT amount is a u32 whatever the target is: WGSL's only scalar overload is
+  // `e1 << e2` with `e2: u32`, so `y <<= k` with an i32 `k` on an i32 target emitted
+  // `y <<= k;`, which Tint refuses (`no matching overload for 'operator <<= (i32, i32)'`),
+  // while the one spelling it accepts — a u32 amount — was refused here by the equality rule.
+  // An integer literal takes u32, an i32 amount goes through the `u32(...)` cast the surface
+  // already has, and GLSL ES 3.00 allows the mixed signedness that produces. `&`, `|` and `^`
+  // keep the equality rule: there both operands must be the one type on both targets.
+  const isShift = bop === '<<' || bop === '>>'
+  const want = isShift ? u32T : target.type
+  // Folded first, so a leading minus is part of the number: `y |= -2` reaches here as a unop
+  // over a literal, which the `op === 'lit'` retype below never matched, and the author was
+  // told their i32 target could not take an f32.
+  const folded = foldNumericLit(value)
+  if (folded.op === 'lit' && typeof folded.value === 'number' && Number.isInteger(folded.value)) {
+    if (folded.value < 0 && (isShift || typeKey(want) === 'u32')) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        right,
+        isShift
+          ? `Bitwise "${bop}=" needs a non-negative shift amount, got ${String(folded.value)}.`
+          : `Bitwise "${bop}=" on a u32 target needs a non-negative value, got ${String(folded.value)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    value = { op: 'lit', type: want, value: folded.value }
   }
-  if (typeKey(value.type) !== k) {
+  if (isShift && typeKey(value.type) === 'i32') {
+    value = { op: 'call', type: u32T, fn: 'u32', args: [value] }
+  }
+  if (typeKey(value.type) !== typeKey(want)) {
     pushDiag(
       diagnostics,
       sourceFile,
       right,
-      numericMismatch(`${bop}=`, target.type, value.type),
+      isShift
+        ? `Bitwise "${bop}=" needs an i32 or u32 shift amount, got ${typeKey(value.type)}.`
+        : numericMismatch(`${bop}=`, target.type, value.type),
       TS_CODES.TYPE_MISMATCH,
     )
     return undefined

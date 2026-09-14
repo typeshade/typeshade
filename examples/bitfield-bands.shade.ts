@@ -32,6 +32,11 @@ export function fs(v: VsOut): Color {
   band &= 3
   band |= 0
   let shade: i32 = band
+  // Shifted by a VALUE, not a literal: a literal survives as WGSL's AbstractInt whatever the
+  // rule, so only this reaches Tint and ANGLE with the i32 amount cast to u32.
+  const amount: i32 = i32(v.uv.y * 2.)
+  shade <<= amount
+  shade >>= amount
   shade <<= 1
   shade >>= 1
   shade ^= 0
@@ -51,6 +56,7 @@ export function fs(v: VsOut): Color {
         break
       }
       rgb = vec3(0.15, 0.35, 0.7)
+      break
     }
     default:
       rgb = vec3(0.85, 0.85, 0.9)

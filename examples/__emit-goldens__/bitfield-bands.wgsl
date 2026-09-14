@@ -30,8 +30,12 @@ fn fs(v: VsOut) -> Color {
   band &= 3;
   band |= 0;
   var shade: i32 = band;
-  shade <<= 1;
-  shade >>= 1;
+  let amount = i32((v.uv.y * 2.0));
+  let _gv0 = u32(amount);
+  shade <<= _gv0;
+  shade >>= _gv0;
+  shade <<= 1u;
+  shade >>= 1u;
   shade ^= 0;
   var rgb: vec3<f32>;
   rgb = vec3<f32>(0.0, 0.0, 0.0);

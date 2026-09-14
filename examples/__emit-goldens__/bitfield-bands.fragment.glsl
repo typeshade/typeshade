@@ -10,8 +10,12 @@ void main() {
   band &= 3;
   band |= 0;
   int shade = band;
-  shade <<= 1;
-  shade >>= 1;
+  int amount = int((uv.y * 2.0));
+  uint _gv0 = uint(amount);
+  shade <<= _gv0;
+  shade >>= _gv0;
+  shade <<= 1u;
+  shade >>= 1u;
   shade ^= 0;
   vec3 rgb;
   rgb = vec3(0.0, 0.0, 0.0);

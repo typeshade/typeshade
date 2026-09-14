@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { Switch, Var, fn } from '../../core/ir/builder.js'
 import { uniformStruct } from '../../core/sot.js'
-import { f32, i32, vec3 } from '../../core/ir/node.js'
+import { f32, u32, vec3 } from '../../core/ir/node.js'
 import { f32T, i32T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
@@ -208,11 +208,11 @@ describe('IR equality: use typeshade vs fn()', () => {
 
     const edsl = fn('f', { i: i32T }, i32T, ({ i }, bld) => {
       const y = Var('y', i32T, i)
-      // `i32(2)`, not a bare `2`: the EDSL's own literal lift gives a number f32 and does not
-      // consult the target of an assignOp, while the source language types the right-hand
-      // literal from the target it is assigning into. The written-out cast is what makes the
-      // two sides the same IR here.
-      bld.assignOp(y, '<<', i32(2))
+      // `u32(2)`, not a bare `2` and not `i32(2)`: the EDSL's own literal lift gives a number
+      // f32 and does not consult the target of an assignOp, while the source language types a
+      // SHIFT amount as u32 whatever the target is, which is WGSL's only scalar overload. The
+      // written-out cast is what makes the two sides the same IR here.
+      bld.assignOp(y, '<<', u32(2))
       return y
     })
 
