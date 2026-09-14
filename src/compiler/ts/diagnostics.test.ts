@@ -123,10 +123,10 @@ describe('syntax errors', () => {
     expect(r.wgsl).toBeUndefined()
   })
 
-  it('reports a parse error in a file with no directive only when the directive is required', () => {
+  it('reports only the missing directive, not the parse error, for a file with no directive', () => {
     const broken = 'export function f(): number { return (1; }'
-    expect(compileTsSource(broken).diagnostics).toEqual([])
-    const r = compileTsSource(broken, { requireDirective: true })
+    expect(compileTsSource(broken, { requireDirective: false }).diagnostics).toEqual([])
+    const r = compileTsSource(broken)
     expect(r.diagnostics.map((d) => d.code)).toEqual([TS_CODES.MISSING_DIRECTIVE])
   })
 
