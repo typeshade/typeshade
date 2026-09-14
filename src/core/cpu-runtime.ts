@@ -482,6 +482,7 @@ export const f32ToI32Sat = (v: number): number =>
  *  otherwise. Used by the derivative stubs, which have no real value to give but must not
  *  change the shape the rest of the expression is typed for. */
 const zeroLike = (v: CpuValue): CpuValue => (isArr(v) ? (v as number[]).map(() => 0) : 0)
+
 /** One component of an element-CONVERTING vector constructor, `vecN<T>(v: vecN<S>)`
  *  (`vec3<f32>(v)` in WGSL, `vec3(uv)` in GLSL ES 3.00). WGSL converts every component the
  *  way its scalar conversion does, so this applies exactly the rules the scalar cast path
