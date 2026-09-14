@@ -16,15 +16,26 @@ export type BindingKind = 'param' | 'local' | 'module' | 'binding'
 
 /** How a "cannot assign" diagnostic names what the target is. One helper because the three
  *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
- *  is not what a `declare const input: storage<…>` is. */
-export function readOnlyPhrase(kind: BindingKind | undefined): string {
+ *  is not what a `declare const input: storage<…>` is.
+ *
+ *  The parameter is a `BindingKind`, not `BindingKind | undefined`. An absent binding is not a
+ *  read-only one — it is an unknown name, a different diagnostic — and while this accepted
+ *  `undefined` it answered "declared with const" for a name that was never declared at all.
+ *  Every caller now resolves that case first. The switch is exhaustive so that a NEW kind is a
+ *  type error here rather than silently taking a default phrase that may not describe it. */
+export function readOnlyPhrase(kind: BindingKind): string {
   switch (kind) {
     case 'binding':
       return 'a read-only resource'
     case 'module':
       return 'a module const'
-    default:
+    case 'param':
+    case 'local':
       return 'declared with const'
+    default: {
+      const never: never = kind
+      throw new Error(`unhandled binding kind ${String(never)}`)
+    }
   }
 }
 

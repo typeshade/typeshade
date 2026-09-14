@@ -367,7 +367,12 @@ function lowerLValue(
       sourceFile,
       node,
       `Cannot assign to unknown name "${node.text}".`,
-      TS_CODES.ASSIGN_TARGET,
+      // UNKNOWN_NAME, not ASSIGN_TARGET: the name does not resolve, which is what every
+      // other unresolved-identifier site in the lowerer reports (expression.ts, the property
+      // and call lowerers). ASSIGN_TARGET is about the SHAPE of the target — "must be an
+      // identifier" — and this target is a perfectly good identifier that names nothing.
+      // `lowerUpdate` raises the same message, and now the same code, for `nope++`.
+      TS_CODES.UNKNOWN_NAME,
     )
     return undefined
   }

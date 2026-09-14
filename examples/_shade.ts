@@ -1,6 +1,6 @@
 // ═══ The `.shade.ts` corpus — `"use typeshade"` source, wrapped as registry entries ═══
 //
-// Five example files opened with `"use typeshade"` and shipped in this directory
+// Seven example files opened with `"use typeshade"` and shipped in this directory
 // (`hello.shade.ts` and friends). Until now they were authored and then left dangling: no
 // test emitted them, the compile gate never saw them, and nothing in the package would have
 // noticed if a compiler change turned one into a shader that no longer compiles. This file
