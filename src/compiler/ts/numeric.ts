@@ -1,8 +1,8 @@
 // Scalar numeric policy: NO implicit i32 ↔ u32 ↔ f32 conversion.
 
-import type { Expr } from '../../core/ir/nodes.js'
+import type { BinOp, Expr } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
-import { f32T, i32T, u32T, typeKey } from '../../core/ir/types.js'
+import { f32T, i32T, u32T, isF64, isScalar, isVec, isVec64, typeKey } from '../../core/ir/types.js'
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -14,6 +14,43 @@ export function isNumericScalarType(t: ShaderType): boolean {
   const k = typeKey(t)
   return k === 'f32' || k === 'i32' || k === 'u32'
 }
+
+/** The type a bare numeric literal should take when it meets `peer` in an arithmetic op: the
+ *  element scalar of a native vector (`v * 2` with `v: vec3<u32>` types the `2` as u32), and
+ *  the peer itself otherwise, so the scalar-scalar behaviour of the literal retarget is
+ *  unchanged. */
+export function literalPeerType(peer: ShaderType): ShaderType {
+  if (isVec(peer)) return SCALAR_CAST[peer.elem] ?? peer
+  return peer
+}
+
+const BROADCAST_OPS: ReadonlySet<BinOp> = new Set<BinOp>(['+', '-', '*', '/', '%'])
+
+/** Result type of an arithmetic op (`+ - * / %`) between a vector and a scalar, or undefined
+ *  when the pair does not broadcast. This mirrors binResultType in src/core/ir/node.ts, the
+ *  rule the fn() EDSL applies (`v.mul(s)`, `s.sub(v)`): a native vector takes a scalar of its
+ *  own element kind and the result is the vector's type whichever side it is on, and an
+ *  emulated-double vector (vec64) takes an f64 or f32 scalar, except under `%`, which has no
+ *  f64 emulation. Operand order is the caller's to keep: `s * v` stays scalar-left, which
+ *  both backends emit as written and WGSL and GLSL accept. A same-type pair, a vector against
+ *  a vector, and every non-arithmetic operator are not this helper's business and return
+ *  undefined. */
+export function broadcastResultType(
+  left: ShaderType,
+  right: ShaderType,
+  bop: BinOp,
+): ShaderType | undefined {
+  if (!BROADCAST_OPS.has(bop)) return undefined
+  const [vec, other] = isVec(left) || isVec64(left) ? [left, right] : [right, left]
+  if (isVec(vec)) return isScalar(other) && other.scalar === vec.elem ? vec : undefined
+  if (isVec64(vec)) {
+    if (bop === '%') return undefined
+    return isF64(other) || (isScalar(other) && other.scalar === 'f32') ? vec : undefined
+  }
+  return undefined
+}
+
+const VEC_CTOR_SUFFIX: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u' }
 
 export function numericMismatch(op: string, left: ShaderType, right: ShaderType): string {
   const lk = typeKey(left)
@@ -27,13 +64,44 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
       `Cast one side: ${lk}(…) or ${rk}(…), e.g. a + ${lk === 'i32' ? 'i32' : 'u32'}(b).`
     )
   }
-  if ((lk === 'f32' && (rk === 'i32' || rk === 'u32')) || (rk === 'f32' && (lk === 'i32' || lk === 'u32'))) {
+  if (
+    (lk === 'f32' && (rk === 'i32' || rk === 'u32')) ||
+    (rk === 'f32' && (lk === 'i32' || lk === 'u32'))
+  ) {
     return (
       `Type mismatch: cannot ${op} ${pair} — no implicit int/float conversion. ` +
       `Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).`
     )
   }
-  return `Type mismatch: cannot ${op} ${pair}. Types must match, or cast with f32()/i32()/u32().`
+  if (isVec(left) && isVec(right)) {
+    if (left.n !== right.n) {
+      return `Type mismatch: cannot ${op} ${pair}. Vectors must have the same size.`
+    }
+    const toLeft = `vec${left.n}${VEC_CTOR_SUFFIX[left.elem]}(…)`
+    const toRight = `vec${right.n}${VEC_CTOR_SUFFIX[right.elem]}(…)`
+    return (
+      `Type mismatch: cannot ${op} ${pair}. Vectors must have the same element type. ` +
+      `Convert one side: ${toLeft} or ${toRight}, e.g. a + ${toLeft}.`
+    )
+  }
+  const [vec, scalar] = isVec(left) ? [left, right] : [right, left]
+  if (isVec(vec) && isScalar(scalar) && scalar.scalar in VEC_CTOR_SUFFIX) {
+    if (scalar.scalar === vec.elem) {
+      return (
+        `Type mismatch: cannot ${op} ${pair}. ` +
+        `A vector combines with a scalar of its element type only through + - * / %.`
+      )
+    }
+    const ctor = `vec${vec.n}${VEC_CTOR_SUFFIX[scalar.scalar]}(…)`
+    return (
+      `Type mismatch: cannot ${op} ${pair}. A vector takes a scalar of its own element type. ` +
+      `Cast the scalar: ${vec.elem}(x), or convert the vector: ${ctor}.`
+    )
+  }
+  if (isScalar(left) && isScalar(right)) {
+    return `Type mismatch: cannot ${op} ${pair}. Types must match, or cast with f32()/i32()/u32().`
+  }
+  return `Type mismatch: cannot ${op} ${pair}. Types must match.`
 }
 
 export function lowerScalarCast(name: string, arg: Expr): Expr | string {

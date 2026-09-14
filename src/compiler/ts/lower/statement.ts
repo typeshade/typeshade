@@ -3,11 +3,12 @@
 import ts from 'typescript'
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { typeKey } from '../../../core/ir/types.js'
+import { isVec, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
-import { numericMismatch } from '../numeric.js'
+import { broadcastResultType, literalPeerType, numericMismatch } from '../numeric.js'
+import { retargetIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -282,16 +283,25 @@ function lowerAssignOp(
   if (!value) return undefined
   if (value.op === 'lit' && typeof value.value === 'number' && isNumericScalar(target.type)) {
     value = { op: 'lit', type: target.type, value: value.value }
+  } else if (isVec(target.type)) {
+    // `v *= 2` with an integer vector target types the literal as the element kind; a
+    // non-integer literal stays f32 and is diagnosed below instead of being truncated.
+    value = retargetIntLit(value, right, literalPeerType(target.type))
   }
   if (typeKey(target.type) !== typeKey(value.type)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      right,
-      numericMismatch(`${bop}=`, target.type, value.type),
-      TS_CODES.TYPE_MISMATCH,
-    )
-    return undefined
+    // `v += s` with a vector target and a scalar of its element kind follows the same
+    // broadcast rule as `v + s`; the result must still be the target's own type.
+    const broadcast = broadcastResultType(target.type, value.type, bop)
+    if (!broadcast || typeKey(broadcast) !== typeKey(target.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        right,
+        numericMismatch(`${bop}=`, target.type, value.type),
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
   }
   return { s: 'assignOp', target, bop, expr: value }
 }

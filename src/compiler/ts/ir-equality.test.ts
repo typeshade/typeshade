@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
 import { f32 } from '../../core/ir/node.js'
-import { f32T, typeKey } from '../../core/ir/types.js'
+import { f32T, vec3fT, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -124,6 +124,30 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('add', { a: f32T, b: f32T }, f32T, ({ a, b }) => a.add(b))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('vector times scalar matches EDSL v.mul(s)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function scale(v: vec3, s: f32): vec3 {
+        return v * s;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('scale', { v: vec3fT, s: f32T }, vec3fT, ({ v, s }) => v.mul(s))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('scalar minus vector matches the EDSL scalar-left s.sub(v)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function flip(v: vec3, s: f32): vec3 {
+        return s - v;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('flip', { v: vec3fT, s: f32T }, vec3fT, ({ v, s }) => s.sub(v))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 
