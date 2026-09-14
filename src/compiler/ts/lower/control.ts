@@ -4,6 +4,7 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
+import { readOnlyPhrase } from '../context.js'
 import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -149,6 +150,7 @@ function lowerForInit(
     mutable: true,
     constValue: init.op === 'lit' ? init.value : undefined,
   })
+  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true })
   return { s: 'var', name, type, init }
 }
 
@@ -264,12 +266,27 @@ export function lowerUpdate(
       return undefined
     }
     const binding = scope.resolve(targetExpr.text)
-    if (!binding || !binding.mutable) {
+    // Two different failures, and they were one branch until now: an UNKNOWN name reported
+    // "it is declared with const", which is a statement about a declaration that does not
+    // exist. `lowerAssign` already separates them (statement.ts) and this is the same split,
+    // down to the wording, so the two assignment paths say the same thing about `nope++` and
+    // `nope = 1`.
+    if (!binding) {
       pushDiag(
         diagnostics,
         sourceFile,
         expr,
-        `Cannot assign to "${targetExpr.text}" — it is declared with const.`,
+        `Cannot assign to unknown name "${targetExpr.text}".`,
+        TS_CODES.UNKNOWN_NAME,
+      )
+      return undefined
+    }
+    if (!binding.mutable) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        expr,
+        `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
         TS_CODES.CONST_ASSIGN,
       )
       return undefined

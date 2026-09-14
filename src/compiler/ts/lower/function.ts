@@ -6,6 +6,7 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
+import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
@@ -25,6 +26,7 @@ export function lowerSourceFunctions(
   consts: readonly { name: string; type: ShaderType }[] = [],
   bindings: readonly BindingDecl[] = [],
   structs: readonly StructDecl[] = [],
+  symbols?: DeclaredSymbolSink,
 ): FuncDecl[] {
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
   const callees = new Map<string, FuncDecl>()
@@ -49,7 +51,17 @@ export function lowerSourceFunctions(
   const nodeByName = new Map<string, ts.FunctionDeclaration>()
   for (const stmt of ready) {
     const stub = callees.get(stmt.name!.text)!
-    fillFunctionBody(stmt, stub, sourceFile, diagnostics, callees, consts, bindings, structs)
+    fillFunctionBody(
+      stmt,
+      stub,
+      sourceFile,
+      diagnostics,
+      callees,
+      consts,
+      bindings,
+      structs,
+      symbols,
+    )
     funcs.push(stub)
     nodeByName.set(stub.name, stmt)
   }
@@ -355,8 +367,9 @@ export function fillFunctionBody(
   consts: readonly { name: string; type: ShaderType }[] = [],
   bindings: readonly BindingDecl[] = [],
   structs: readonly StructDecl[] = [],
+  symbols?: DeclaredSymbolSink,
 ): void {
-  const scope = new LoweringScope(callees)
+  const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs)
   for (const c of consts) {
     scope.define({
@@ -368,11 +381,32 @@ export function fillFunctionBody(
     })
   }
   for (const b of bindings) {
-    scope.define({ kind: 'module', name: b.name, type: b.type, mutable: b.access === 'read_write' })
+    scope.define({
+      kind: 'binding',
+      name: b.name,
+      type: b.type,
+      mutable: b.access === 'read_write',
+    })
   }
   for (const p of stub.params) {
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })
   }
+  if (node.name !== undefined) {
+    recordDeclaration(symbols, sourceFile, node.name, {
+      name: stub.name,
+      kind: 'function',
+      type: stub.ret,
+      params: stub.params.map((p) => ({ name: p.name, type: p.type })),
+    })
+  }
+  // The stub's parameters and the declaration's are one to one and in order: `parseSignature`
+  // pushes one entry per parameter and bails out on the first it cannot accept, so it returns a
+  // stub only when it accepted them all.
+  stub.params.forEach((p, i) => {
+    const nameNode = node.parameters[i]?.name
+    if (nameNode === undefined || !ts.isIdentifier(nameNode)) return
+    recordDeclaration(symbols, sourceFile, nameNode, { name: p.name, kind: 'param', type: p.type })
+  })
   const body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
   ;(stub as { body: readonly Stmt[] }).body = body
   if (typeKey(stub.ret) === 'void') {

@@ -80,7 +80,7 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 
 ## `"use typeshade"` source examples
 
-The five `*.shade.ts` files are the OTHER authoring surface. Instead of building a graph with
+The seven `*.shade.ts` files are the OTHER authoring surface. Instead of building a graph with
 `fn()` / `module()` calls, they are TypeScript source that opens with `"use typeshade"` and is
 compiled to the same IR by `compile()` — so `vec4`, `u32` and `uniform<T>` are the shader
 language's own names, and the `@vertex` / `@builtin(...)` decorators are attribute syntax. They
@@ -95,13 +95,15 @@ time and three of its gates fail on a fourth category — the reasoning is writt
 bake the goldens. Forgetting the second step fails `shade-examples.test.ts` rather than leaving
 the file dangling.
 
-| File                     | Renderable | What it shows                                                                                                            |
-| ------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `hello.shade.ts`         | yes        | The smallest complete program — a vertex stage positioning three corners from `vertex_index`, a flat-red fragment stage. |
-| `hello-vsout.shade.ts`   | yes        | The same triangle carrying a `uv` varying through a shared `VsOut` class: the `@builtin("position")` + `@location` pair. |
-| `hello-vsin.shade.ts`    | yes        | Vertex input from a buffer — a `VsIn` class of `@location` attributes becomes GLSL `in` declarations and a WGSL struct.  |
-| `hello-uniform.shade.ts` | no         | A bare `declare const scale: uniform<f32>`. WGSL takes a loose scalar uniform; GLSL ES 3.00 has no std140 block for one. |
-| `hello-camera.shade.ts`  | no         | A `mat4` + `vec3` `Camera` behind `uniform<Camera>`, read by a plain helper — a module with no entry point is a module.  |
+| File                              | Renderable | What it shows                                                                                                                                     |
+| --------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello.shade.ts`                  | yes        | The smallest complete program — a vertex stage positioning three corners from `vertex_index`, a flat-red fragment stage.                          |
+| `hello-vsout.shade.ts`            | yes        | The same triangle carrying a `uv` varying through a shared `VsOut` class: the `@builtin("position")` + `@location` pair.                          |
+| `hello-vsin.shade.ts`             | yes        | Vertex input from a buffer — a `VsIn` class of `@location` attributes becomes GLSL `in` declarations and a WGSL struct.                           |
+| `hello-uniform.shade.ts`          | no         | A bare `declare const scale: uniform<f32>`. WGSL takes a loose scalar uniform; GLSL ES 3.00 has no std140 block for one.                          |
+| `hello-camera.shade.ts`           | no         | A `mat4` + `vec3` `Camera` behind `uniform<Camera>`, read by a plain helper — a module with no entry point is a module.                           |
+| `hello-uniform-struct.shade.ts`   | yes        | The uniform that DOES have a GLSL form: a `Uniforms` class behind `uniform<T>` lays out as a std140 block on both targets, read from BOTH stages. |
+| `compute-reduction-twin.shade.ts` | no         | The source-language twin of `compute-reduction.ts` — a storage `array` reduced by a `for` loop. WGSL-only: GLSL ES 3.00 has no compute stage.     |
 
 ## Run
 
@@ -122,7 +124,7 @@ entry-point signatures).
 - **Source-corpus gate** — `shade-examples.test.ts` compiles every `*.shade.ts` file, pins its
   WGSL (and both GLSL stages, where it has them) in `__emit-goldens__/`, and checks the directory
   against `SHADE_ORDER` in both directions so an unregistered file cannot go quiet.
-- **Compile gate** — `bun run gate:compile` emits all 41 registered examples (both corpora) and
+- **Compile gate** — `bun run gate:compile` emits all 43 registered examples (both corpora) and
   hands the WGSL to Tint and every renderable GLSL pair to a real WebGL2 context.
 - **Render gate** — `playground/e2e/_shader-dsl-examples-render.spec.ts` compiles + links + draws
   each renderable example on a real WebGL2 context (packing the UBO from `reflect()`) and reads
