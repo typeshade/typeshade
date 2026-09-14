@@ -157,6 +157,7 @@ export function fs(
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
 | JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
 | Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
+| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check is SYNTACTIC, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
 
 ---
 
@@ -209,6 +210,7 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | two resources share `@binding` | name both |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
+| a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N`, anywhere | `TS8032`. For a `storage` array the length is the bound buffer's and needs `arrayLength` (unspelled today); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 
 ---
