@@ -233,6 +233,14 @@ export const CODES = {
     summary: 'a branch body returned a value, which a branch cannot carry out',
     hint: 'an If/elif/else body is a statement block: write Return(value) for an early return, when(cond, () => a, () => b) for a value, or assign to a Var',
   },
+  // A scalar cast applied to a vector used to type-check on BOTH authoring surfaces and emit
+  // `f32(v)`, which no target compiles. The cast methods and the node forms of f32/i32/u32/f64
+  // are bounded to a scalar receiver at tsc; this covers a widened or untyped caller (#8 S1).
+  SD0116: {
+    code: 'SD0116',
+    summary: 'a scalar cast applied to a non-scalar value',
+    hint: 'f32/i32/u32/f64 and the .f32()/.i32()/.u32()/.f64() methods convert one scalar — convert per component, or rebuild the vector with vec3(a.f32(), b.f32(), c.f32())',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
 /** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived

@@ -618,6 +618,58 @@ export class ReadonlyNode<K extends string = string> {
     return this.swizzle('bgra')
   }
 
+  // ── Scalar casts, as methods (#8 S1) ──
+  //
+  // The cast belongs where `.sub` and `.mul` are, because that is where it is used:
+  // `vi.bitAnd(1).f32().mul(4).sub(1)` reads in one direction, where
+  // `toF32(vi.bitAnd(u32(1))).mul(4).sub(1)` has to be read from the middle outwards. Each
+  // builds the node its `to*` free function builds, so this is a second spelling and not a
+  // second conversion. The free `f32(node)` / `i32(node)` / `u32(node)` form is the other
+  // spelling, and matches what WGSL and the `"use typeshade"` surface both write.
+  //
+  // The `this:` bound is `.lt`/`.gt`'s NonComposite, which rejects a vec or mat receiver and
+  // passes a widened `ReadonlyNode<string>` through; the SD0116 throw catches the widened case
+  // that only the type checker could have seen.
+
+  /** Convert this scalar to `f32`, the method form of {@link toF32}. Emits `f32(x)` on WGSL and
+   *  `float(x)` on GLSL, and narrows an f64 exactly (the sum of its hi and lo halves).
+   *
+   *  @throws `SD0116` when the receiver is not a scalar. A vec or mat receiver is a `tsc` error.
+   *
+   *  @example
+   *  ```ts
+   *  const x = vi.bitAnd(1).f32().mul(4).sub(1)
+   *  ```
+   */
+  f32(this: ReadonlyNode<NonComposite<K>>): Node<'f32'> {
+    return scalarCast(this, 'f32', f32T) as Node<'f32'>
+  }
+  /** Convert this scalar to `i32`, the method form of {@link toI32}. Emits `i32(x)` on WGSL and
+   *  `int(x)` on GLSL.
+   *
+   *  @throws `SD0116` when the receiver is not a scalar. A vec or mat receiver is a `tsc` error.
+   */
+  i32(this: ReadonlyNode<NonComposite<K>>): Node<'i32'> {
+    return scalarCast(this, 'i32', i32T) as Node<'i32'>
+  }
+  /** Convert this scalar to `u32`, the method form of {@link toU32}. Emits `u32(x)` on WGSL and
+   *  `uint(x)` on GLSL.
+   *
+   *  @throws `SD0116` when the receiver is not a scalar. A vec or mat receiver is a `tsc` error.
+   */
+  u32(this: ReadonlyNode<NonComposite<K>>): Node<'u32'> {
+    return scalarCast(this, 'u32', u32T) as Node<'u32'>
+  }
+  /** Widen this f32 to the emulated double `f64`, exactly — the result is the pair `(x, 0.0)`.
+   *  The method form of {@link toF64}, and bounded to an f32 receiver for the same reason that
+   *  is: no other scalar has an exact widening the fp64 lowering implements.
+   *
+   *  @throws `SD0116` when the receiver is not a scalar.
+   */
+  f64(this: ReadonlyNode<'f32'>): Node<'f64'> {
+    return scalarCast(this, 'f64', f64T) as Node<'f64'>
+  }
+
   /** Array index, `base[idx]`. The result key is inferred from the element `ShaderType`. A JS
    *  number index lifts to a u32 literal, since WGSL indices are integers. */
   at<T extends ShaderType>(idx: ReadonlyNode<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
@@ -689,15 +741,44 @@ export class Node<K extends string = string> extends ReadonlyNode<K> {
   }
 }
 
+// ── Scalar casts ──
+
+/** The scalar keys a cast reads: every native scalar, plus the emulated double. WGSL converts
+ *  between all of them — `f32(true)` is `1.0` — and none of them is a vector, which is the
+ *  point: `f32(someVec3)` used to type-check on both authoring surfaces and emit `f32(v)`,
+ *  which no target compiles.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
+export type ScalarCastSource = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
+
+// The one cast body, shared by the `.f32()` family of methods and by the node forms of the
+// f32/i32/u32/f64 constructors. It builds exactly what toF32/toI32/toU32/toF64 build — one
+// `call` node named for the WGSL spelling — so no spelling of the cast has its own emit.
+const scalarCast = (x: ReadonlyNode<string>, fn: string, t: ShaderType): Node => {
+  // The guard the literal constructors used to own: anything that is neither a number nor a
+  // node would otherwise bake into the module (as `[object Object]`, or as a crash reading
+  // `.type` here), with the GPU compiler as the first reader.
+  if (!isNodeValue(x)) {
+    throw new TypeError(
+      `shader-dsl: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof x}`,
+    )
+  }
+  if (x.type.kind !== 'scalar' && !isF64(x.type)) {
+    throw dslError('SD0116', `${fn}(${typeKey(x.type)})`)
+  }
+  return call(fn, t, x)
+}
+
 // ── Literal / ref constructors ──
 
-// A scalar-literal ctor takes a JS NUMBER/BOOLEAN. Passing a Node (a common slip when you
-// mean to CAST — `f32(intNode)`) would silently bake the object into the lit (emitting
-// `[object Object]`), so guard it with a message that points at the cast helpers.
+// A scalar-literal ctor takes a JS NUMBER/BOOLEAN. A Node argument is a CAST and takes the
+// overload above; anything else (a string, undefined, an object that is not a node) would
+// silently bake into the lit and emit `[object Object]`, so it is turned away here.
 const litNum = (v: number, fn: string): number => {
   if (typeof v !== 'number') {
     throw new TypeError(
-      `shader-dsl: ${fn}() takes a numeric literal, got ${typeof v} — to CONVERT a Node use a cast (toF32/toI32/toU32), not ${fn}(node)`,
+      `shader-dsl: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof v}`,
     )
   }
   // Neither WGSL nor GLSL has an Infinity/NaN literal, so a non-finite value here
@@ -715,10 +796,16 @@ const litNum = (v: number, fn: string): number => {
  *  `+ 1.0` for an f32 `x`), so this is needed only where a standalone f32 value is wanted
  *  outside an operand position: a module-level `const`, a default argument.
  *
+ *  A Node argument is a CAST instead, the spelling WGSL and the `"use typeshade"` surface both
+ *  write: `f32(i)` converts, and is the free-function twin of `i.f32()`. It builds what
+ *  {@link toF32} builds, so the two spellings share one emit. The operand is bounded to a
+ *  scalar, which closes a hole both surfaces had: `f32(someVec3)` type-checked and emitted
+ *  `f32(v)`, which no target compiles.
+ *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
- *  @throws {TypeError} `v` is not a JS number. A common slip is passing a node when you meant
- *    to convert one; use {@link toF32} for that.
+ *  @throws {TypeError} `v` is neither a JS number nor a scalar node.
+ *  @throws `SD0116` when the node operand is not a scalar.
  *
  *  @example
  *  ```ts
@@ -727,16 +814,24 @@ const litNum = (v: number, fn: string): number => {
  *  const half = f32(0.5)  // Node<'f32'>
  *  ```
  */
-export const f32 = (v: number): Node<'f32'> =>
-  new Node<'f32'>({ op: 'lit', type: f32T, value: litNum(v, 'f32') })
+export function f32(v: number): Node<'f32'>
+export function f32(x: ReadonlyNode<ScalarCastSource>): Node<'f32'>
+export function f32(v: number | ReadonlyNode<string>): Node<'f32'> {
+  return typeof v === 'number'
+    ? new Node<'f32'>({ op: 'lit', type: f32T, value: litNum(v, 'f32') })
+    : (scalarCast(v, 'f32', f32T) as Node<'f32'>)
+}
 /** An i32 literal node. Use it over the f32 default wherever a value must type-check as a
  *  signed integer: array and loop indices, `matchExpr` and `matchEnum` scrutinees, texture
  *  layer arguments.
  *
+ *  A Node argument is a CAST instead: `i32(x)` converts, the free-function twin of `x.i32()`.
+ *  It builds what {@link toI32} builds, and its operand is bounded to a scalar.
+ *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
- *  @throws {TypeError} `v` is not a JS number. A common slip is passing a node when you meant
- *    to convert one; use {@link toI32} for that.
+ *  @throws {TypeError} `v` is neither a JS number nor a scalar node.
+ *  @throws `SD0116` when the node operand is not a scalar.
  *
  *  @example
  *  ```ts
@@ -745,15 +840,23 @@ export const f32 = (v: number): Node<'f32'> =>
  *  const zero = i32(0)  // Node<'i32'>
  *  ```
  */
-export const i32 = (v: number): Node<'i32'> =>
-  new Node<'i32'>({ op: 'lit', type: i32T, value: litNum(v, 'i32') })
+export function i32(v: number): Node<'i32'>
+export function i32(x: ReadonlyNode<ScalarCastSource>): Node<'i32'>
+export function i32(v: number | ReadonlyNode<string>): Node<'i32'> {
+  return typeof v === 'number'
+    ? new Node<'i32'>({ op: 'lit', type: i32T, value: litNum(v, 'i32') })
+    : (scalarCast(v, 'i32', i32T) as Node<'i32'>)
+}
 /** A u32 literal node. Use it over the f32 default wherever WGSL demands an unsigned scalar:
  *  buffer strides, vertex and instance indices, bit-flag masks used with `.bitAnd` and `.bitOr`.
  *
+ *  A Node argument is a CAST instead: `u32(x)` converts, the free-function twin of `x.u32()`.
+ *  It builds what {@link toU32} builds, and its operand is bounded to a scalar.
+ *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
- *  @throws {TypeError} `v` is not a JS number. A common slip is passing a node when you meant
- *    to convert one; use {@link toU32} for that.
+ *  @throws {TypeError} `v` is neither a JS number nor a scalar node.
+ *  @throws `SD0116` when the node operand is not a scalar.
  *
  *  @example
  *  ```ts
@@ -762,15 +865,25 @@ export const i32 = (v: number): Node<'i32'> =>
  *  const flags = u32(4)  // Node<'u32'>
  *  ```
  */
-export const u32 = (v: number): Node<'u32'> =>
-  new Node<'u32'>({ op: 'lit', type: u32T, value: litNum(v, 'u32') })
+export function u32(v: number): Node<'u32'>
+export function u32(x: ReadonlyNode<ScalarCastSource>): Node<'u32'>
+export function u32(v: number | ReadonlyNode<string>): Node<'u32'> {
+  return typeof v === 'number'
+    ? new Node<'u32'>({ op: 'lit', type: u32T, value: litNum(v, 'u32') })
+    : (scalarCast(v, 'u32', u32T) as Node<'u32'>)
+}
 /** An f64 (emulated double) literal node. The literal carries the full JS double value and is
  *  split into its (hi, lo) f32 halves when the module is built, so the authored constant
  *  round-trips without loss.
  *
+ *  An f32 Node argument is a CAST instead — the exact widening {@link toF64} performs, and the
+ *  free-function twin of `x.f64()`. Bounded to f32 for the reason `toF64` is: no other scalar
+ *  has an exact widening the fp64 lowering implements.
+ *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
- *  @throws {TypeError} `v` is not a JS number. To convert a node use {@link toF64}.
+ *  @throws {TypeError} `v` is neither a JS number nor an f32 node.
+ *  @throws `SD0116` when the node operand is not a scalar.
  *
  *  @example
  *  ```ts
@@ -779,8 +892,13 @@ export const u32 = (v: number): Node<'u32'> =>
  *  const radius = f64(6378137)  // Node<'f64'>
  *  ```
  */
-export const f64 = (v: number): Node<'f64'> =>
-  new Node<'f64'>({ op: 'lit', type: f64T, value: litNum(v, 'f64') })
+export function f64(v: number): Node<'f64'>
+export function f64(x: ReadonlyNode<'f32'>): Node<'f64'>
+export function f64(v: number | ReadonlyNode<string>): Node<'f64'> {
+  return typeof v === 'number'
+    ? new Node<'f64'>({ op: 'lit', type: f64T, value: litNum(v, 'f64') })
+    : (scalarCast(v, 'f64', f64T) as Node<'f64'>)
+}
 /** A bool literal node, the condition type for `.select()`, `select()` and control flow
  *  (`If`, `While`). Only a JS boolean is accepted, so a stray `bool(someNode)` fails at the
  *  call site instead of coercing to `true`.
