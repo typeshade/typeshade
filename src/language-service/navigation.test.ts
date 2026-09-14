@@ -139,4 +139,48 @@ describe('prepareRename / rename', () => {
     expect(service.prepareRename('a.ts', position)).toBeUndefined()
     expect(service.rename('a.ts', position, 'nope')).toEqual({})
   })
+
+  // Regression: TypeScript's own decorator-resolution machinery (the code path
+  // getDefinitionAtPosition/getRenameInfo/findRenameLocations all go through) `Debug.fail()`s
+  // when the decorated node is a FunctionDeclaration — exactly the shape `@vertex`/`@fragment`
+  // are attached to in "use typeshade". These three methods must return their empty shape
+  // instead of letting that throw escape, at every offset inside either decorator.
+  it('does not throw, and returns an empty result, on every offset inside @vertex', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', SOURCE)
+    const start = SOURCE.indexOf('@vertex')
+    const end = start + '@vertex'.length
+    for (let offset = start; offset <= end; offset++) {
+      const position = service.positionAt('a.ts', offset)
+      expect(() => service.getDefinition('a.ts', position)).not.toThrow()
+      expect(service.getDefinition('a.ts', position)).toEqual([])
+      expect(() => service.prepareRename('a.ts', position)).not.toThrow()
+      expect(service.prepareRename('a.ts', position)).toBeUndefined()
+      expect(() => service.rename('a.ts', position, 'nope')).not.toThrow()
+      expect(service.rename('a.ts', position, 'nope')).toEqual({})
+    }
+  })
+
+  it('does not throw, and returns an empty result, on every offset inside @fragment', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', SOURCE)
+    const start = SOURCE.indexOf('@fragment')
+    const end = start + '@fragment'.length
+    for (let offset = start; offset <= end; offset++) {
+      const position = service.positionAt('a.ts', offset)
+      expect(() => service.getDefinition('a.ts', position)).not.toThrow()
+      expect(() => service.prepareRename('a.ts', position)).not.toThrow()
+      expect(() => service.rename('a.ts', position, 'nope')).not.toThrow()
+    }
+  })
+
+  it('still resolves @builtin/@location parameter decorators normally (not swept up by the guard)', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', SOURCE)
+    const position = service.positionAt('a.ts', SOURCE.indexOf('vertex_index') + 1)
+    // Already covered above as "refuses to rename" (it's a @builtin(...) string), but the point
+    // here is specifically that this offset is NOT caught by the new function-decorator guard —
+    // it is a call-expression decorator on a parameter, a different shape entirely.
+    expect(() => service.getDefinition('a.ts', position)).not.toThrow()
+  })
 })

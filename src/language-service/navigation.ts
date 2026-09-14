@@ -36,6 +36,35 @@ function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
   return found
 }
 
+/**
+ * Whether `offset` in `sourceFile` lands inside a decorator whose decorated node is a
+ * `ts.FunctionDeclaration` (`@vertex`/`@fragment`/`@compute` on a "use typeshade" entry, per
+ * `parseStage` in `lower/function.ts`) — as opposed to a decorator on a class, member or
+ * parameter (`@builtin`/`@location`), which TypeScript's own decorator-resolution machinery
+ * handles fine. `ts.getDefinitionAtPosition`/`getRenameInfo`/`findRenameLocations` all resolve
+ * through `getDiagnosticHeadMessageForDecoratorResolution`-adjacent code that switches on the
+ * decorated node's kind and `Debug.fail()`s on anything other than a class/method/accessor/
+ * property/parameter; a function declaration is exactly that unhandled shape (see
+ * `diagnostics.ts`'s TS1206 filter, which recognizes the same grammar), so these three
+ * navigation methods must refuse the position before ever calling into `ts`.
+ */
+function isDecoratorOnFunctionDeclarationAt(sourceFile: ts.SourceFile, offset: number): boolean {
+  const onDecorator = (pos: number): boolean => {
+    let node: ts.Node | undefined = nodeAtPosition(sourceFile, pos)
+    while (node !== undefined) {
+      if (ts.isDecorator(node)) return ts.isFunctionDeclaration(node.parent)
+      node = node.parent
+    }
+    return false
+  }
+  // `nodeAtPosition`'s span test is `start <= pos < end`, so the position immediately after the
+  // decorator's last character (e.g. right after `@vertex`, before the newline) is already
+  // outside it by that test — yet `ts`'s own position-based APIs still resolve a cursor there as
+  // touching the preceding token (the same "adjacent token" convention every LSP cursor position
+  // follows), and still throw. Checking `offset - 1` as well as `offset` matches that.
+  return onDecorator(offset) || (offset > 0 && onDecorator(offset - 1))
+}
+
 /** `ts.canHaveDecorators` says a function declaration cannot syntactically carry a decorator,
  * but the parser attaches `@vertex` etc. to it anyway (that mismatch is exactly why TS1206
  * fires; see `diagnostics.ts`), so a decorator must be read off `modifiers` directly rather
@@ -83,13 +112,18 @@ function locationsFrom(
   return out
 }
 
-/** Every location `offset` in `uri` is defined at, with any ambient-lib result dropped. */
+/** Every location `offset` in `uri` is defined at, with any ambient-lib result dropped. Returns
+ * `[]` without calling into `ts` when `offset` is on a `@vertex`/`@fragment`/`@compute`
+ * function decorator — TypeScript's own decorator-resolution code cannot handle that target and
+ * throws (`Error: Debug Failure.`) rather than returning `undefined`. */
 export function getDefinition(
   languageService: ts.LanguageService,
   program: ts.Program,
   uri: string,
   offset: number,
 ): TypeshadeLocation[] {
+  const sourceFile = program.getSourceFile(uri)
+  if (sourceFile && isDecoratorOnFunctionDeclarationAt(sourceFile, offset)) return []
   const defs = languageService.getDefinitionAtPosition(uri, offset)
   if (!defs) return []
   return locationsFrom(program, defs)
@@ -218,7 +252,9 @@ function definesInAmbientLib(
 }
 
 /** Whether the symbol at `offset` in `uri` can be renamed, and its current display range —
- * `undefined` for a `@builtin(...)` string or a name defined in the ambient lib. */
+ * `undefined` for a `@builtin(...)` string, a name defined in the ambient lib, or a
+ * `@vertex`/`@fragment`/`@compute` function decorator (see
+ * `isDecoratorOnFunctionDeclarationAt`: `ts.getRenameInfo` throws on that target). */
 export function prepareRename(
   languageService: ts.LanguageService,
   sourceFile: ts.SourceFile,
@@ -226,6 +262,7 @@ export function prepareRename(
   offset: number,
 ): { range: TypeshadeRange; placeholder: string } | undefined {
   if (isBuiltinStringLiteralAt(sourceFile, offset)) return undefined
+  if (isDecoratorOnFunctionDeclarationAt(sourceFile, offset)) return undefined
   if (definesInAmbientLib(languageService, uri, offset)) return undefined
   const info = languageService.getRenameInfo(uri, offset, {})
   if (!info.canRename) return undefined
@@ -233,7 +270,9 @@ export function prepareRename(
 }
 
 /** Every edit, across every affected document, to rename the symbol at `offset` in `uri` to
- * `newName` — empty for a `@builtin(...)` string or a name defined in the ambient lib, and any
+ * `newName` — empty for a `@builtin(...)` string, a name defined in the ambient lib, or a
+ * `@vertex`/`@fragment`/`@compute` function decorator (see
+ * `isDecoratorOnFunctionDeclarationAt`: `ts.findRenameLocations` throws on that target), and any
  * individual edit that would still land in the ambient lib is dropped defensively. */
 export function rename(
   languageService: ts.LanguageService,
@@ -244,6 +283,7 @@ export function rename(
   newName: string,
 ): Readonly<Record<string, readonly TypeshadeTextEdit[]>> {
   if (isBuiltinStringLiteralAt(sourceFile, offset)) return {}
+  if (isDecoratorOnFunctionDeclarationAt(sourceFile, offset)) return {}
   if (definesInAmbientLib(languageService, uri, offset)) return {}
   const locations = languageService.findRenameLocations(uri, offset, false, false, false)
   if (!locations) return {}
