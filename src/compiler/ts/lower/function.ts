@@ -12,6 +12,7 @@ import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import {
   builtinDecoratorArg,
+  checkAttributeName,
   checkBuiltinName,
   checkBuiltinStage,
   type BuiltinStage,
@@ -99,6 +100,7 @@ export function parseSignature(
   const stageInfo = parseStage(node, sourceFile, diagnostics)
   const params: FuncDecl['params'][number][] = []
   for (const p of node.parameters) {
+    for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d)
     if (!ts.isIdentifier(p.name)) {
       pushDiag(
         diagnostics,
@@ -334,6 +336,7 @@ function parseStage(
   let stage: FuncDecl['stage'] | undefined
   let workgroupSize: number | undefined
   for (const d of decos) {
+    checkAttributeName(diagnostics, sourceFile, d)
     const text = d.getText(sourceFile)
     if (/^@vertex\b/.test(text)) stage = 'vertex'
     else if (/^@fragment\b/.test(text)) stage = 'fragment'
@@ -365,11 +368,15 @@ function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
   return mods.filter(ts.isDecorator)
 }
 
-/** Validates every `@builtin(...)` field of the struct named `structName` (a parameter's or a
- *  return type's struct) against `stage`/`direction`, anchoring each diagnostic at `node` (the
- *  parameter or the return type annotation) since a `StructField` carries no source position of
- *  its own — see `structs.ts`'s `collectStructs`, which already validated each field's builtin
- *  *name* independently of how the struct ends up used. */
+/** Validates every field of the struct named `structName` (a parameter's or a return type's
+ *  struct) against `stage`/`direction`: a `@builtin(...)` field is checked with
+ *  `checkBuiltinStage`, and a field with neither `@builtin(...)` nor `@location(...)` is a
+ *  `STRUCT_FIELD_MISSING_ATTR` error — WGSL requires every entry-IO struct member to carry one,
+ *  and the compiler otherwise emits that struct's WGSL text with a member neither backend nor
+ *  Tint accepts, silently. Every diagnostic anchors at `node` (the parameter or the return type
+ *  annotation) since a `StructField` carries no source position of its own — see `structs.ts`'s
+ *  `collectStructs`, which already validated each field's builtin *name* independently of how
+ *  the struct ends up used. */
 function checkStructBuiltinFields(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -382,6 +389,18 @@ function checkStructBuiltinFields(
   const decl = structs.find((s) => s.name === structName)
   if (!decl) return
   for (const field of decl.fields) {
+    if (!field.builtin && field.location === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Struct "${structName}" field "${field.name}" is used as a ${stage} ${direction} but ` +
+          `has neither @builtin(...) nor @location(...): WGSL requires every entry ${direction} ` +
+          `struct member to declare one.`,
+        TS_CODES.STRUCT_FIELD_MISSING_ATTR,
+      )
+      continue
+    }
     if (!field.builtin) continue
     checkBuiltinStage(diagnostics, sourceFile, node, field.builtin, stage, direction)
   }

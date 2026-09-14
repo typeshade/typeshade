@@ -249,3 +249,142 @@ describe('mat2/mat3 rejection (MAT_UNSUPPORTED)', () => {
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
   })
 })
+
+// Regression: a misspelled attribute (`@bogus`, `@vertx`, `@framgent`) used to be silent from
+// both the compiler and the language service — TypeScript never resolves a decorator on an
+// invalid target, so there is no TS2304, and nothing checked the attribute name itself. The
+// practical failure is that the function or field just silently stops being an entry point or
+// an I/O field, with no diagnostic naming the typo.
+describe('attribute name allow-list (ATTRIBUTE_NAME)', () => {
+  it('rejects a misspelled stage decorator on a top-level function, with a suggestion', () => {
+    const r = diag(`
+      "use typeshade";
+      @vertx
+      export function vs(): vec4 {
+        return vec4(0., 0., 0., 1.)
+      }
+    `)
+    const d = r.diagnostics.find((d) => d.code === TS_CODES.ATTRIBUTE_NAME)
+    expect(d, 'expected an ATTRIBUTE_NAME diagnostic').toBeDefined()
+    expect(d!.category).toBe('error')
+    expect(d!.message).toContain('vertx')
+    expect(d!.message).toContain('vertex')
+  })
+
+  it('rejects a misspelled parameter decorator', () => {
+    const r = diag(`
+      "use typeshade";
+      @vertex
+      export function vs(@locaiton(0) x: f32): vec4 {
+        return vec4(x, 0., 0., 1.)
+      }
+    `)
+    expect(r.diagnostics.some((d) => d.code === TS_CODES.ATTRIBUTE_NAME)).toBe(true)
+  })
+
+  it('rejects a misspelled field decorator on a data class', () => {
+    const r = diag(`
+      "use typeshade";
+      class Clip {
+        @buildin("position") pos: vec4
+      }
+      export function f(): f32 { return 0.; }
+    `)
+    expect(r.diagnostics.some((d) => d.code === TS_CODES.ATTRIBUTE_NAME)).toBe(true)
+  })
+
+  it('does not flag any of the five recognized attributes', () => {
+    const r = diag(`
+      "use typeshade";
+      class Clip {
+        @builtin("position") pos: vec4
+        @location(0) uv: vec2
+      }
+      @vertex
+      export function vs(@builtin("vertex_index") i: u32): Clip {
+        return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+      }
+    `)
+    expect(r.diagnostics.filter((d) => d.code === TS_CODES.ATTRIBUTE_NAME)).toEqual([])
+  })
+
+  it('does not double up on @align/@std140, which already get their own "not applied" message', () => {
+    const r = diag(`
+      "use typeshade";
+      @std140
+      class Camera {
+        @align(16) pos: vec3
+      }
+      export function f(): f32 { return 0.; }
+    `)
+    expect(r.diagnostics.filter((d) => d.code === TS_CODES.ATTRIBUTE_NAME)).toEqual([])
+    expect(r.diagnostics.some((d) => /not applied/.test(d.message))).toBe(true)
+  })
+})
+
+// Regression: a struct field with neither @builtin nor @location, used as an entry function's
+// parameter or return type, used to emit invalid WGSL (a member the backend and Tint both
+// reject) with zero diagnostics from either the compiler or the language service.
+describe('entry-IO struct fields need @builtin or @location (STRUCT_FIELD_MISSING_ATTR)', () => {
+  it('rejects an unattributed field in a @vertex return struct', () => {
+    const r = diag(`
+      "use typeshade";
+      class Out {
+        @builtin("position") pos: vec4
+        extra: vec4
+      }
+      @vertex
+      export function vs(): Out {
+        return { pos: vec4(0., 0., 0., 1.), extra: vec4(0., 0., 0., 0.) }
+      }
+    `)
+    const d = r.diagnostics.find((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)
+    expect(d, 'expected a STRUCT_FIELD_MISSING_ATTR diagnostic').toBeDefined()
+    expect(d!.category).toBe('error')
+    expect(d!.message).toContain('extra')
+  })
+
+  it('rejects an unattributed field in a @fragment input struct', () => {
+    const r = diag(`
+      "use typeshade";
+      class In {
+        @location(0) uv: vec2
+        extra: f32
+      }
+      @fragment
+      export function fs(v: In): vec4 {
+        return vec4(v.uv, v.extra, 1.)
+      }
+    `)
+    expect(r.diagnostics.some((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)).toBe(true)
+  })
+
+  it('is silent when every entry-IO field carries @builtin or @location', () => {
+    const r = diag(`
+      "use typeshade";
+      class Out {
+        @builtin("position") pos: vec4
+        @location(0) uv: vec2
+      }
+      @vertex
+      export function vs(): Out {
+        return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+      }
+    `)
+    expect(r.diagnostics.filter((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)).toEqual([])
+  })
+
+  it('is silent for the same struct shape used only as a plain (non-entry) parameter', () => {
+    const r = diag(`
+      "use typeshade";
+      class Data {
+        a: vec4
+        b: vec4
+      }
+      export function f(d: Data): vec4 {
+        return d.a
+      }
+    `)
+    expect(r.diagnostics.filter((d) => d.code === TS_CODES.STRUCT_FIELD_MISSING_ATTR)).toEqual([])
+  })
+})

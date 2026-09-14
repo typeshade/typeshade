@@ -5,7 +5,7 @@ import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
-import { builtinDecoratorArg, checkBuiltinName } from './builtin-check.js'
+import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
 
 export type CollectedStruct = {
   readonly decl: StructDecl
@@ -21,6 +21,7 @@ export function collectStructs(
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue
     for (const d of stmt.modifiers ?? []) {
       if (!ts.isDecorator(d)) continue
+      checkAttributeName(diagnostics, sourceFile, d)
       const text = d.getText(sourceFile)
       if (/@std140/.test(text) || /@align/.test(text)) {
         diagnostics.push(diag(sourceFile, d, `${text.split('(')[0]} on a class is not applied.`))
@@ -40,6 +41,7 @@ export function collectStructs(
       if (!ts.isPropertyDeclaration(member) || !ts.isIdentifier(member.name)) continue
       for (const d of member.modifiers ?? []) {
         if (!ts.isDecorator(d)) continue
+        checkAttributeName(diagnostics, sourceFile, d)
         const text = d.getText(sourceFile)
         if (/@align/.test(text)) {
           diagnostics.push(diag(sourceFile, d, `@align on a field is not applied.`))

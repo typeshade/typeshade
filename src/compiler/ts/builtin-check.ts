@@ -14,6 +14,44 @@ import { TS_CODES } from './codes.js'
 /** The pipeline stage a `@builtin(...)` id is being checked against. */
 export type BuiltinStage = 'vertex' | 'fragment' | 'compute'
 
+/**
+ * Every attribute (decorator) name `"use typeshade"` actually parses and acts on:
+ * `@vertex`/`@fragment`/`@compute` on a top-level function (`lower/function.ts`'s `parseStage`)
+ * and `@builtin`/`@location` on that function's parameters or a struct field (`builtinDecoratorArg`/
+ * `numberDecorator` here and in `structs.ts`). This is the one place this list is spelled out;
+ * `language-service/ambient.ts`'s `ATTRIBUTE_NAMES` re-exports it rather than retyping it, the
+ * same way it already re-exports {@link WGSL_BUILTIN_NAMES} from `core/sot.ts` — the language
+ * service depends on the compiler, never the reverse, so the canonical list lives here.
+ */
+export const ATTRIBUTE_NAMES: readonly string[] = [
+  'vertex',
+  'fragment',
+  'compute',
+  'builtin',
+  'location',
+]
+
+/**
+ * Attribute names the compiler recognizes but always rejects with their own dedicated message
+ * (`structs.ts`'s `"... on a class is not applied"` / `"@align on a field is not applied"`), so
+ * {@link checkAttributeName} must not also call them "unknown" — that would read as two
+ * contradictory diagnostics on the same decorator.
+ */
+const RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES: readonly string[] = ['std140', 'align']
+
+/** The decorator identifier `@name` or `@name(...)` reads off, or `undefined` for a decorator
+ *  shape (anything but a bare identifier or an identifier call) this front end never produces. */
+function attributeNameOf(decorator: ts.Decorator): string | undefined {
+  if (ts.isIdentifier(decorator.expression)) return decorator.expression.text
+  if (
+    ts.isCallExpression(decorator.expression) &&
+    ts.isIdentifier(decorator.expression.expression)
+  ) {
+    return decorator.expression.expression.text
+  }
+  return undefined
+}
+
 /** Whether a `@builtin(...)` id is supplied to the shader (`'input'`, a parameter or a field of
  *  a parameter's struct type) or produced by it (`'output'`, a return type or a field of a
  *  struct return type). */
@@ -63,14 +101,15 @@ function editDistance(a: string, b: string): number {
   return dp[rows - 1]![cols - 1]!
 }
 
-/** The closest {@link WGSL_BUILTIN_NAMES} entry to `name` by edit distance, or `undefined` when
- *  nothing is close enough to be worth suggesting (a threshold that scales a little with the
- *  candidate's own length, so a short id like `"position"` does not suggest itself for an
- *  unrelated short typo). */
-export function suggestBuiltinName(name: string): string | undefined {
+/** The closest entry in `candidates` to `name` by edit distance, or `undefined` when nothing is
+ *  close enough to be worth suggesting (a threshold that scales a little with the candidate's
+ *  own length, so a short id like `"position"` does not suggest itself for an unrelated short
+ *  typo). Shared by {@link suggestBuiltinName} (`WGSL_BUILTIN_NAMES`) and
+ *  {@link checkAttributeName} (`ATTRIBUTE_NAMES`) so both "Did you mean ...?" hints use one rule. */
+function closestName(name: string, candidates: readonly string[]): string | undefined {
   let best: string | undefined
   let bestDistance = Infinity
-  for (const candidate of WGSL_BUILTIN_NAMES) {
+  for (const candidate of candidates) {
     const distance = editDistance(name, candidate)
     if (distance < bestDistance) {
       bestDistance = distance
@@ -80,6 +119,18 @@ export function suggestBuiltinName(name: string): string | undefined {
   if (best === undefined) return undefined
   const threshold = Math.max(3, Math.ceil(best.length / 3))
   return bestDistance <= threshold ? best : undefined
+}
+
+/** The closest {@link WGSL_BUILTIN_NAMES} entry to `name` by edit distance, or `undefined` when
+ *  nothing is close enough to be worth suggesting. */
+export function suggestBuiltinName(name: string): string | undefined {
+  return closestName(name, WGSL_BUILTIN_NAMES)
+}
+
+/** The closest {@link ATTRIBUTE_NAMES} entry to `name` by edit distance, or `undefined` when
+ *  nothing is close enough to be worth suggesting. */
+export function suggestAttributeName(name: string): string | undefined {
+  return closestName(name, ATTRIBUTE_NAMES)
 }
 
 /** Validates a `@builtin("...")` name against {@link WGSL_BUILTIN_NAMES}, pushing a `BUILTIN_NAME`
@@ -154,6 +205,43 @@ export function checkBuiltinStage(
       node,
       `Builtin "${name}" is not a valid ${stage} ${direction}; it is a ${allowed}.`,
       TS_CODES.BUILTIN_STAGE,
+    ),
+  )
+}
+
+/**
+ * Validates one decorator's identifier against {@link ATTRIBUTE_NAMES}, pushing an
+ * `ATTRIBUTE_NAME` error with a "Did you mean ...?" suggestion when one is close — the same
+ * treatment {@link checkBuiltinName} gives a `@builtin("...")` string, but for the decorator
+ * name itself. Without this, a misspelled attribute (`@vertx`, `@framgent`, `@bogus`) is silent
+ * from both the compiler and the language service: TypeScript never resolves a decorator on an
+ * invalid target, so there is no TS2304, and nothing else names the typo — the function or
+ * field just silently stops being an entry point or an I/O field. A name in
+ * {@link RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES} (`@std140`, `@align`) is left alone: those
+ * already get their own "not applied" diagnostic elsewhere, and calling them "unknown" too
+ * would contradict it. A decorator shape this front end never produces (its expression is
+ * neither a bare identifier nor an identifier call) is left alone as well — nothing here can
+ * name it usefully.
+ */
+export function checkAttributeName(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  decorator: ts.Decorator,
+): void {
+  const name = attributeNameOf(decorator)
+  if (name === undefined) return
+  if (ATTRIBUTE_NAMES.includes(name)) return
+  if (RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)) return
+  const suggestion = suggestAttributeName(name)
+  const hint = suggestion
+    ? ` Did you mean "@${suggestion}"?`
+    : ` Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      decorator,
+      `Unknown attribute "@${name}".${hint}`,
+      TS_CODES.ATTRIBUTE_NAME,
     ),
   )
 }

@@ -43,6 +43,10 @@ export const TS_CODES = {
   WORKGROUP_SHAPE: 'TS8026',
   /** `mat2`/`mat3`: not implemented (only `mat4`/`mat4x4` maps to a real WGSL type), so authoring one is rejected instead of silently widening to `mat4x4`. */
   MAT_UNSUPPORTED: 'TS8027',
+  /** A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`), e.g. a misspelled `@vertx`: without this, the decorated function or field just silently stops being an entry point or an I/O field. */
+  ATTRIBUTE_NAME: 'TS8028',
+  /** A field of a struct used as an entry function's parameter or return type carries neither `@builtin(...)` nor `@location(...)`: WGSL rejects an entry-IO struct member with no attribute, so this is caught at the front end instead of reaching the backend as invalid emitted WGSL. */
+  STRUCT_FIELD_MISSING_ATTR: 'TS8029',
   UNSUPPORTED: 'TS8099',
 } as const
 
