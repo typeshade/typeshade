@@ -2,7 +2,7 @@
 
 import ts from 'typescript'
 import type { BindingDecl, ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
-import { emitFuncs, emitModule } from '../../core/backends/wgsl.js'
+import { emitModule } from '../../core/backends/wgsl.js'
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js'
 import { lowerSourceFunctions } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
@@ -10,11 +10,16 @@ import { collectModuleConsts } from './module-const.js'
 import { collectBindings } from './bindings.js'
 import { collectStructs, type CollectedStruct } from './structs.js'
 import { TS_CODES } from './codes.js'
-import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
   readonly fileName?: string
+  /** When `true` (the default), a file without the `"use typeshade"` directive gets one
+   * `MISSING_DIRECTIVE` error diagnostic and an otherwise empty result, so a caller cannot
+   * mistake a file that never opted in for a program that compiled to nothing. Pass `false`
+   * for a probe that only wants `hasDirective` (the language service's navigation and semantic
+   * tokens do): the same empty result comes back with no diagnostic. */
   readonly requireDirective?: boolean
   /** When `false`, skips `packModule`/WGSL emission entirely: the front end still parses,
    * analyzes and lowers to IR, but `CompileTsSourceResult.wgsl` is always `undefined`. The
@@ -71,7 +76,15 @@ export interface CompileTsSourceResult {
   readonly wgsl?: string
 }
 
-/** Compile a TypeScript source string through the TypeShade authoring pipeline. */
+/**
+ * Compile a TypeScript source string through the TypeShade authoring pipeline.
+ *
+ * A source without the `"use typeshade"` directive returns `hasDirective: false`, no
+ * functions and one `MISSING_DIRECTIVE` error (unless `options.requireDirective` is `false`).
+ * `wgsl` is present only when the file lowered at least one function with no error diagnostic
+ * and `options.emit` is not `false`; a backend that throws on such a module is reported as a
+ * `BACKEND` error diagnostic and leaves `wgsl` undefined.
+ */
 export function compileTsSource(
   source: string,
   options: CompileTsSourceOptions = {},
@@ -99,7 +112,7 @@ export function compileTsSource(
   }
 
   if (!hasDirective) {
-    if (options.requireDirective) {
+    if (options.requireDirective ?? true) {
       diagnostics.push(
         makeDiagnostic(
           sourceFile,
@@ -143,19 +156,10 @@ export function compileTsSource(
         bindings: [...bindings],
         funcs: [...funcs],
       })
-    } catch {
-      try {
-        wgsl = emitFuncs(funcs)
-      } catch (e) {
-        diagnostics.push(
-          makeDiagnostic(
-            sourceFile,
-            undefined,
-            `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
-            TS_CODES.BACKEND,
-          ),
-        )
-      }
+    } catch (e) {
+      // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
+      // and bindings they reference, which is not this module's WGSL. The throw is the answer.
+      diagnostics.push(backendDiagnostic(sourceFile, e))
     }
   }
 

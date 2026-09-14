@@ -1,6 +1,6 @@
 // ═══ The `.shade.ts` corpus — `"use typeshade"` source, wrapped as registry entries ═══
 //
-// Five example files opened with `"use typeshade"` and shipped in this directory
+// Seven example files opened with `"use typeshade"` and shipped in this directory
 // (`hello.shade.ts` and friends). Until now they were authored and then left dangling: no
 // test emitted them, the compile gate never saw them, and nothing in the package would have
 // noticed if a compiler change turned one into a shader that no longer compiles. This file
@@ -211,21 +211,25 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
 /**
  * Compile one `.shade.ts` file into the registry shape the EDSL examples use.
  *
- * A compile diagnostic THROWS rather than registering a half-built module. The alternative —
+ * A compile error THROWS rather than registering a half-built module. The alternative —
  * registering whatever came back — is the failure this whole file exists to close: an
  * example that silently stops being a program, with every gate still green because the gate
- * is handed an empty module.
+ * is handed an empty module. A warning is not that: `compile()` reports a GLSL ES 3.00
+ * refusal of a module whose WGSL exists as a `TS8015` warning (hello-uniform's loose scalar
+ * uniform is one), and such an example is still a program, with `renderable: false` saying
+ * which target it lacks.
  *
  * @param spec - the hand-written half of the registration.
  * @returns the example, with `module` compiled from the file's own bytes.
- * @throws when the file is missing, or when `compile()` reports any diagnostic.
+ * @throws when the file is missing, or when `compile()` reports an error diagnostic.
  */
 function shadeExample(spec: ShadeSpec): ShaderExample {
   const file = `${spec.id}${SHADE_EXT}`
   const source = readFileSync(join(HERE, file), 'utf8')
   const { diagnostics, module } = compile(source)
-  if (diagnostics.length > 0) {
-    const lines = diagnostics.map(
+  const errors = diagnostics.filter((d) => d.category === 'error')
+  if (errors.length > 0) {
+    const lines = errors.map(
       (d) => `  ${d.category} ${d.line}:${d.character} ${d.code ?? '—'} ${d.message}`,
     )
     throw new Error(`shader-dsl: ${file} does not compile\n${lines.join('\n')}`)

@@ -7,7 +7,7 @@ import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
-import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 export interface CompileTsSourcesOptions {
   readonly entry?: string
@@ -236,14 +236,7 @@ export function compileTsSources(
           ? emitModule({ consts, structs: [], bindings: [], funcs })
           : emitFuncs(funcs)
     } catch (e) {
-      diagnostics.push(
-        makeDiagnostic(
-          entrySf,
-          undefined,
-          `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
-          TS_CODES.BACKEND,
-        ),
-      )
+      diagnostics.push(backendDiagnostic(entrySf, e))
     }
   }
 

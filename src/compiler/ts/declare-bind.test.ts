@@ -116,3 +116,69 @@ describe('a binding is a module-scope var, not a const (#14)', () => {
     expect(out).toEqual([0, 0, 6, 0])
   })
 })
+
+/** Assigning to something that cannot be assigned to, through BOTH paths that raise it:
+ *  `lowerAssign` (statement.ts) for `x = v`, and `lowerUpdate` (control.ts) for `x++`.
+ *
+ *  Table-driven because the two paths drifted. `readOnlyPhrase` exists because three sites
+ *  disagreed about what a `declare const input: storage<…>` is, and `lowerUpdate` separately
+ *  answered "it is declared with const" for a name that was never declared — it passed
+ *  `binding?.kind` into the phrase helper, and `undefined` took the helper's default. The
+ *  columns are the point: for one target, both paths must say the same thing. */
+describe('cannot assign to — the phrase names what the target actually is', () => {
+  const CASES: readonly { what: string; head: string; target: string; expected: string }[] = [
+    {
+      what: 'a resource binding',
+      head: 'declare const u: uniform<f32>',
+      target: 'u',
+      expected: 'Cannot assign to "u" — it is a read-only resource.',
+    },
+    {
+      what: 'a module const',
+      head: 'const K: f32 = 2.',
+      target: 'K',
+      expected: 'Cannot assign to "K" — it is a module const.',
+    },
+    {
+      what: 'a local const',
+      head: '',
+      target: 'a',
+      expected: 'Cannot assign to "a" — it is declared with const.',
+    },
+    {
+      what: 'a name that does not exist',
+      head: '',
+      target: 'nope',
+      expected: 'Cannot assign to unknown name "nope".',
+    },
+  ]
+
+  /** `x = 1.` and `x++` in the same program shape, so the only variable is the path. */
+  const program = (head: string, stmt: string): string =>
+    `"use typeshade"\n${head}\n\n@fragment\nexport function fs(): vec4 {\n  const a = 1.\n  ${stmt}\n  return vec4(a, 0., 0., 1.)\n}\n`
+
+  for (const c of CASES) {
+    for (const [path, stmt] of [
+      ['assignment', `${c.target} = 1.`],
+      ['increment', `${c.target}++`],
+    ] as const) {
+      it(`${c.what}, by ${path}`, () => {
+        const errors = compileTsSource(program(c.head, stmt)).diagnostics.filter(
+          (d) => d.category === 'error',
+        )
+        expect(errors.map((d) => d.message)).toContain(c.expected)
+      })
+    }
+  }
+
+  it('both paths report an unknown name under the same code', () => {
+    const code = (stmt: string): string | undefined =>
+      compileTsSource(program('', stmt))
+        .diagnostics.filter((d) => d.category === 'error')
+        .find((d) => d.message.includes('unknown name'))?.code
+    // TS8022 (UNKNOWN_NAME) on both. `lowerAssign` used to raise TS8018 (ASSIGN_TARGET),
+    // which is the code for a target of the wrong SHAPE, not for one that names nothing.
+    expect(code('nope = 1.')).toBe('TS8022')
+    expect(code('nope++')).toBe(code('nope = 1.'))
+  })
+})

@@ -110,21 +110,45 @@ const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[]
 describe('every binding a stage mentions is a binding that stage declares', () => {
   it('the sweep examined both halves of the invariant, on both targets', () => {
     expect(corpus.length).toBeGreaterThanOrEqual(10)
-    // Counted per target. Adding them together is the floor that let a zero-GLSL sweep pass.
-    const glsl = seen.filter((s) => s.target === 'glsl')
-    const wgsl = seen.filter((s) => s.target === 'wgsl')
-    expect(wgsl.length, 'WGSL arms').toBeGreaterThanOrEqual(10)
-    expect(glsl.length, 'GLSL arms').toBeGreaterThanOrEqual(50)
-    // Both halves of "mentioned ⇒ declared" must have something to say. A dead `declares()`
-    // greens every arm; so does a dead `mentions()`.
+    // EVERY floor below is per target, and that is the whole point of this arm. A count
+    // summed across targets is what let the first version of this gate report 40 green arms
+    // having read zero GLSL: every example contributes a WGSL arm, so the WGSL side alone
+    // cleared a combined floor and the GLSL side could be empty without anything failing.
+    // The same hole reappears one level down if only the ARM counts are split: with the
+    // `declares()` / `mentions()` floors summed, 39 WGSL sources clear them by themselves,
+    // so a GLSL writer that stopped spelling binding names would leave all 112 arms green.
+    // Measured, not supposed — that is why each of the three is asserted per target.
+    const at = (t: 'wgsl' | 'glsl'): typeof seen => seen.filter((s) => s.target === t)
+    const floors: Record<'wgsl' | 'glsl', number> = { wgsl: 10, glsl: 50 }
+    for (const t of ['wgsl', 'glsl'] as const) {
+      const arms = at(t)
+      expect(arms.length, `${t} arms`).toBeGreaterThanOrEqual(floors[t])
+      // Both halves of "mentioned ⇒ declared" must have something to say ON THIS TARGET. A
+      // dead `declares()` greens every arm; so does a dead `mentions()`.
+      expect(
+        arms.filter((s) => s.names.some((n) => declares(s.src, n, s.target))).length,
+        `${t} sources that declare a binding`,
+      ).toBeGreaterThanOrEqual(10)
+      expect(
+        arms.filter((s) => s.names.some((n) => mentions(s.src, n))).length,
+        `${t} sources that mention a binding`,
+      ).toBeGreaterThanOrEqual(10)
+    }
+    // And one floor finer than per-target, because the GLSL halves are not alike. Measured:
+    // of the 35 glsl:vertex arms, exactly ONE mentions a binding — `hello-uniform-struct`,
+    // whose `vs` reads `u.gain`. Every other vertex stage in both corpora derives its position
+    // from `vertex_index` and reads no resource, so the 10-arm GLSL floor above is carried
+    // entirely by the fragment half and says nothing about the vertex writer.
+    //
+    // A floor of 1 is what is honestly assertable here, and it is not nothing: it is exactly
+    // the arm that #14 would have failed, and it fails again the day that `vs` stops reading
+    // the uniform. A larger floor would need more examples, not a bigger number.
     expect(
-      seen.filter((s) => s.names.some((n) => declares(s.src, n, s.target))).length,
-      'sources that declare a binding',
-    ).toBeGreaterThanOrEqual(10)
-    expect(
-      seen.filter((s) => s.names.some((n) => mentions(s.src, n))).length,
-      'sources that mention a binding',
-    ).toBeGreaterThanOrEqual(10)
+      at('glsl')
+        .filter((s) => s.label === 'glsl:vertex')
+        .filter((s) => s.names.some((n) => mentions(s.src, n))).length,
+      'glsl:vertex sources that mention a binding',
+    ).toBeGreaterThanOrEqual(1)
   })
 
   it('covers both corpora, on both targets', () => {
