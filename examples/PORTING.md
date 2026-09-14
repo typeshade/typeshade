@@ -129,17 +129,17 @@ unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 Worth stating, because these rank high in issue #8 and would be natural things to reach for
 first. No example in the 36 is waiting on any of them:
 
-| Issue #8 item                                     | Blocks |
-| ------------------------------------------------- | ------ |
-| **A2** member / component assignment (`v.x = 0.`) | 0      |
-| **A4** `type` / `interface` structs               | 0      |
-| **A5** `@align` / `@size` field decorators        | 0      |
-| **A8** element-converting constructors            | 0      |
-| **A9** module-level vector constants              | 0      |
-| **A10** uninitialised `let`, `switch`, `<<=`      | 0      |
-| **A11** object-literal contextual typing          | 0      |
-| **S5** `arrayLength`                              | 0      |
-| **S7** `mat2` / `mat3`                            | 0      |
+| Issue #8 item                                       | Blocks |
+| --------------------------------------------------- | ------ |
+| **A2** member / component assignment (`v.x = 0.`)   | 0      |
+| **A4** `type` / `interface` structs                 | 0      |
+| **A5** `@align` / `@size` field decorators          | 0      |
+| ~~**A8** element-converting constructors~~ (landed) | 0      |
+| **A9** module-level vector constants                | 0      |
+| **A10** uninitialised `let`, `switch`, `<<=`        | 0      |
+| **A11** object-literal contextual typing            | 0      |
+| **S5** `arrayLength`                                | 0      |
+| **S7** `mat2` / `mat3`                              | 0      |
 
 A2 in particular: every `.assign()` in the corpus targets a whole value, never a component.
 What reads as member assignment in the IR walk (`construct`, `lit`, `binop` targets) is the
@@ -384,6 +384,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                       |
 | `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                              |
 | `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                       |
+| `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                           |
 | `f32(vi & 1) * 4. - 1.` (the fullscreen-triangle vertex stage)                                                  | ✓                                                                                                       |
 | `1u`                                                                                                            | ✗ TS parse error — `"const u" requires an initializer`                                                  |
 | `type Camera = { view: mat4; pos: vec3 }`                                                                       | ✗ `Unknown field "pos" on struct:Camera`                                                                |
@@ -395,3 +396,10 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                       |
 | `declare const params: uniform<vec4u>` (non-struct uniform)                                                     | ✓                                                                                                       |
 | `@compute([8, 8, 1])`, a struct return by object literal, a helper returning a struct, a helper taking a struct | ✓                                                                                                       |
+
+The command above prints diagnostics, so it measures acceptance and nothing else. One row
+carries a claim it cannot show: the element-converting constructor also changed what the CPU
+oracle **computes** — it used to pass the source components through unchanged, so
+`vec3u(vec3(1.7, 2.9, -3.2))` evaluated to `[1.7, 2.9, -3.2]` where WGSL gives `[1, 2, 0]`.
+That is asserted in `src/core/vec-convert.test.ts`, across both CPU backends, not by the
+probe.
