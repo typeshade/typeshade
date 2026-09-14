@@ -45,12 +45,25 @@ import { compile, compileTsSource } from 'typeshade'
 const { diagnostics, module, wgsl, glsl, eval: run } = compile(appSrc)
 
 // Lower-level: IR + WGSL, no GLSL and no CPU eval.
-const r = compileTsSource(appSrc, { fileName: 'app.ts', requireDirective: true })
+const r = compileTsSource(appSrc, { fileName: 'app.ts' })
 r.diagnostics.filter((d) => d.category === 'error') // must be empty
 ```
 
-`requireDirective: true` turns a missing `"use typeshade"` into a `TS8001` error instead of
-a silently empty result.
+`compile()` never hands back shader text for a program that did not compile. When any
+diagnostic has category `error`, `wgsl` and `glsl` are `undefined` and `run` throws an error
+that names the first error diagnostic. When there is no error, `wgsl` is always present and
+`glsl` is present whenever the GLSL ES 3.00 backend can emit the module, a single render
+stage included; a compute-only module has `wgsl` and no `glsl`, with no diagnostic, since
+GLSL ES 3.00 has no compute stage. A WGSL emitter that throws on a program the front end
+accepted is reported as a `TS8015` error, not an exception. A GLSL emitter that throws on a
+module with a `@vertex` or `@fragment` entry (a `@compute` entry beside them, a storage
+binding the GLSL emulation cannot spell) is a `TS8015` warning: the module compiled, `wgsl`
+stays and only `glsl` is `undefined`. `module` is always present,
+but it is partial when there is an error.
+
+A file without `"use typeshade"` is a `TS8001` error from both entry points. Pass
+`requireDirective: false` to `compileTsSource` to get the silently empty result instead, for a
+probe that only reads `hasDirective`.
 
 Bundling several files into one compilation unit is **not** on the public surface yet.
 `compileTsSources(files, { entry })` in `src/compiler/ts/sources.ts` does it — it takes a
