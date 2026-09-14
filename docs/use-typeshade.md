@@ -35,9 +35,27 @@ export function foo(x: f32): f32 {
 }
 ```
 
+## Compiling
+
+The public entry points take **one** source string:
+
 ```ts
-compileTsSources({ 'math.ts': mathSrc, 'app.ts': appSrc }, { entry: 'app.ts' })
+import { compile, compileTsSource } from '@xgis/shader-dsl'
+
+const { diagnostics, module, wgsl, glsl, eval: run } = compile(appSrc)
+
+// Lower-level: IR + WGSL, no GLSL and no CPU eval.
+const r = compileTsSource(appSrc, { fileName: 'app.ts', requireDirective: true })
+r.diagnostics.filter((d) => d.category === 'error') // must be empty
 ```
+
+`requireDirective: true` turns a missing `"use typeshade"` into a `TS8001` error instead of
+a silently empty result.
+
+Bundling several files into one compilation unit is **not** on the public surface yet.
+`compileTsSources(files, { entry })` in `src/compiler/ts/sources.ts` does it — it takes a
+`Record<fileName, source>` — but it is reachable only by a deep import and is not exported
+from the package entry.
 
 ## Graphics
 
@@ -65,6 +83,10 @@ device.createShaderModule({ code: p.wgsl })
 ```
 
 Vite: `typeshadeVite()` turns `*.shade.ts` into `export default pack`.
+
+`packModule` (`src/compiler/ts/pack.ts`) and `typeshadeVite` (`src/compiler/ts/vite.ts`) are
+in the same state as `compileTsSources`: real, tested, but deep imports rather than package
+entry exports.
 
 ## What this is not
 
