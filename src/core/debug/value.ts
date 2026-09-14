@@ -1,9 +1,9 @@
-// ═══ Shader DSL — shader-typed values, in and out (docs/debugging.md §4.3) ═══
+// ═══ Shader DSL: shader-typed values, in and out (docs/debugging.md §4.3) ═══
 //
 // The CPU value model is deliberately untyped at runtime: a vector is a `number[]`, a matrix
 // is a flat `number[]`, a struct is a plain object, so member mutation aliases the way the
 // GPU's does. That is right for evaluating and wrong for two jobs a debugger has at its
-// edges — taking a value a human wrote and proving it fits the declared type, and showing a
+// edges: taking a value a human wrote and proving it fits the declared type, and showing a
 // value back in the types the author thinks in.
 //
 // Both live here, and both take the declared `ShaderType` rather than guessing from the
@@ -20,8 +20,8 @@ import type { StructDecl } from '../ir/nodes.js'
  *
  *  `zeroOf` in `cpu-runtime.ts` is the evaluator's version and stops where the evaluator can:
  *  a struct starts as `{}` because its fields arrive by assignment, and an array is not a
- *  shape it has to make. A debug session has the opposite need — an omitted uniform must read
- *  as something an author can inspect — so this one descends through struct fields and sized
+ *  shape it has to make. A debug session has the opposite need, since an omitted uniform must
+ *  read as something an author can inspect, so this one descends through struct fields and sized
  *  arrays.
  *
  *  A runtime-sized array (`storage<array<f32>>`) has no zero: its length is the host's
@@ -60,7 +60,7 @@ export function zeroValueOf(type: ShaderType, structs: ReadonlyMap<string, Struc
   }
 }
 
-/** Whether `type` has no zero a debug session can invent — a runtime-sized array, whose
+/** Whether `type` has no zero a debug session can invent: a runtime-sized array, whose
  *  length only the host's buffer knows. */
 export const isUnsized = (type: ShaderType): boolean =>
   type.kind === 'array' && type.size === undefined
@@ -129,7 +129,7 @@ export function shapeError(
  *
  *  An ARRAY IS RETURNED AS IT WAS GIVEN, identity included, and that is load-bearing rather
  *  than an optimisation: a storage binding is the caller's own buffer, and a debug run writes
- *  its results into it — `out[gid.x] = sum` has to land where the host can read it back, the
+ *  its results into it: `out[gid.x] = sum` has to land where the host can read it back, the
  *  same way `CpuModule.setBinding` binds the array itself. Copying here would make every
  *  storage write vanish into a temporary, which is a failure nothing downstream could see.
  *  The cost is that an array of structs keeps its elements exactly as given, with no
@@ -179,7 +179,7 @@ function numericArray(value: unknown, n: number, want: string, got: string): str
  *
  *  **f32 values print as the shortest decimal that round-trips.** The f32 nearest `0.8` is
  *  `0.800000011920929` as a double, and showing that is technically exact and practically
- *  unreadable — every f32 printer, WGSL's own included, writes `0.8`. So an `f32`-typed value
+ *  unreadable, since every f32 printer, WGSL's own included, writes `0.8`. So an `f32` value
  *  is rendered at the shortest precision whose `Math.fround` is the same f32. An `f64` value
  *  keeps its full precision, because there the extra digits are the answer rather than noise.
  *

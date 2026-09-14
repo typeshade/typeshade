@@ -75,7 +75,7 @@ export interface StepFrame {
   readonly callSpan: SourceSpan | undefined
   readonly env: Map<string, CpuValue>
   /** The declared type of every name this frame can hold: its parameters, and every `let` or
-   *  `var` its body declares. Without it a pause has values and no way to render them — a
+   *  `var` its body declares. Without it a pause has values and no way to render them: a
    *  `vec3` and a three-element array are the same `number[]` at runtime. */
   readonly types: ReadonlyMap<string, ShaderType>
   /** The statement this frame is about to execute, set at every pause. */
@@ -496,7 +496,7 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
  *  Flat, because the evaluator's environment is: `oracle.ts` keeps one `Map` per call with no
  *  per-block child scope, since the only way to reference a binding is the node the builder
  *  returned and the host language already scoped that lexically. A name declared twice in two
- *  sibling blocks therefore has one entry here, the last one seen — the same conflation the
+ *  sibling blocks therefore has one entry here, the last one seen, the same conflation the
  *  environment itself makes, so the type a pause reports always matches the value beside it.
  *
  *  Computed once per frame push. A body is walked in full, which is linear in its statements
