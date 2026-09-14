@@ -89,12 +89,20 @@ function isArrayValued(t: ShaderType): boolean {
 const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32'
 
 /** The zero value literal for a `var` with no initializer — mirrors
- *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → {},
- *  everything else → 0). */
+ *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → {}, array → N zeros
+ *  of its element, bool → false, everything else → 0). The two must agree exactly: the
+ *  interpreter and this generator are the two CPU backends, and a `var` that starts as `0` in
+ *  one and as `[0, 0, 0]` in the other is the bit-identity contract broken at the declaration.
+ *  An array and a bool arrived with #8 A10, which gave the source language the init-less
+ *  declaration that reaches them. */
 function zeroLit(t: ShaderType): string {
   if (t.kind === 'vec' || t.kind === 'vec64') return `new Array(${t.n}).fill(0)`
   if (t.kind === 'mat') return `new Array(${t.n * t.n}).fill(0)`
   if (t.kind === 'struct') return '{}'
+  if (t.kind === 'array') {
+    return `[${Array.from({ length: t.size ?? 0 }, () => zeroLit(t.elem)).join(', ')}]`
+  }
+  if (t.kind === 'scalar' && t.scalar === 'bool') return 'false'
   return '0'
 }
 

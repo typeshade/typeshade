@@ -353,4 +353,90 @@ This is the same declaration the EDSL's `constExpr(name, type, node)` produces �
 A struct-valued and a matrix-valued constant are not accepted yet: the constant collector
 runs without the struct table, and the surface has no matrix constructor.
 
+---
+
+## 14. TypeScript shapes the parser already had
+
+Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
+them, the object-literal shorthand, is an expression rather than a statement).
+None of them is a new operation: `Stmt.var.init` has always been optional, `assignOp` has
+always taken any `BinOp`, `construct` does not record how a field was spelled, and `switch`
+was already lowered; only the source language refused them.
+
+```ts
+"use typeshade"
+
+const PALETTE_WARM = 1.
+
+export function band(seed: i32, t: f32): vec3 {
+  let bits: i32 = seed
+  bits <<= 1
+  bits &= 3
+  bits |= 0
+  bits ^= 0
+  bits >>= 0
+
+  let rgb: vec3
+  rgb = vec3(0., 0., 0.)
+  switch (bits) {
+    case 0:
+      rgb = vec3(0.1, 0.1, 0.12)
+      break
+    case 1: {
+      if (t > 0.5) {
+        rgb = vec3(PALETTE_WARM, 0.55, 0.2)
+        break
+      }
+      rgb = vec3(0.5, 0.3, 0.1)
+      break
+    }
+    default:
+      rgb = vec3(0.85, 0.85, 0.9)
+  }
+  return rgb
+}
+```
+
+**`let x: f32` with no initializer** declares a mutable local and leaves the value for a
+later assignment: WGSL's `var x: f32;`, GLSL's `float x;`, and the EDSL's `Var(f32T)`. The
+annotation is what carries the type, so it is required; a `const` still needs its value.
+Note what the two targets do with a read that happens _before_ the first assignment: WGSL
+zero-initialises, GLSL ES 3.00 leaves it undefined. That divergence is the EDSL's today as
+well; assign before you read.
+
+**`&=`, `|=`, `^=`, `<<=`, `>>=`** compound the bitwise operators onto an `i32` or `u32`
+target. For `&=`, `|=` and `^=` the right-hand side takes the target's type (`y &= 3` on a
+`u32` is `y &= 3u`) and must have it. A SHIFT amount is a `u32` whatever the target is, which
+is WGSL's only scalar overload: `y <<= 1` emits `y <<= 1u`, and an `i32` amount is passed
+through the `u32(...)` cast rather than refused (`y <<= k` emits `y <<= u32(k)`). A negative
+shift amount is refused, as is a negative value on a `u32` target. A float target is refused
+here; `>>>=`, like `>>>`, is not supported.
+
+**`{ pos, uv }`** is the shorthand for `{ pos: pos, uv: uv }` and builds the identical
+struct; the shape `return { pos, uv }` is naturally written in.
+
+**`switch`** takes the `break` TypeScript requires at the end of a case. It is dropped in
+lowering, because the IR switch does not fall through and each backend writes its own case
+terminator; a `break` that leaves a case _early_ is kept and emitted. A case label is an
+integer constant: a literal, a negative literal, or a module `const`. A label has to fit the
+selector, so `case -1:` is refused for a `u32` one, and a label may appear only once: two
+that fold to the same number (`case 2:` beside `case 1 + 1:`) is an error here rather than at
+the backend. Two labels on one body (`case 0: case 1:`) is still refused, and so is `continue`
+in a `switch` that no loop encloses.
+
+**A case body does not fall through, whatever TypeScript would do with it.** A body that does
+not end in `break` still ends its case here, since the IR switch has no fall-through and
+neither does WGSL's. So `case 2: { if (c) { …; break } x = … }` runs its last line and leaves,
+where plain TypeScript would carry on into the next case. Write the `break`; the language
+does not warn about a missing one yet, since a body without one is what an author porting
+from WGSL writes.
+
+**One emit change, and the only one in this section.** `break` at the end of a case inside a
+loop was already accepted before this item, since the enclosing loop made it legal, and it
+reached the backends as a statement: WGSL emitted `case 0: { r = 1.0; break; }` and GLSL
+`r = 1.0; break; break;`. Both are valid programs, and both now lose that trailing `break`,
+because the drop is what makes a case body mean the same thing inside a loop and outside one.
+The behaviour is identical on all three backends; only the text is one statement shorter.
+
+
 Last updated: 2026-09-14
