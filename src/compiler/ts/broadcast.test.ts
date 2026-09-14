@@ -127,7 +127,9 @@ describe('vector against scalar broadcast', () => {
     expect(m).toMatch(/vec3<u32> and f32/)
     expect(m).toMatch(/own element type/)
     expect(m).toMatch(/u32\(x\)/)
-    expect(m).toMatch(/vec3\(/)
+    // vec3(v) does not compile (there is no element-converting constructor, #8 A8), so the
+    // message must not suggest it.
+    expect(m).not.toMatch(/vec3\(/)
   })
 
   it('types a literal against a vec64 as f64 with the full double', () => {
@@ -234,7 +236,7 @@ describe('compound assignment with a vector target', () => {
     expect(m).not.toMatch(/only through/)
   })
 
-  it('leaves plain assignment strict', () => {
+  it('leaves plain assignment strict and names the splat that compiles', () => {
     const r = compileTsSource(`
       "use typeshade";
       export function f(v: vec3, s: f32): vec3 {
@@ -242,6 +244,14 @@ describe('compound assignment with a vector target', () => {
       }
     `)
     expect(r.diagnostics.some((d) => /assign to vec3<f32>/.test(d.message))).toBe(true)
+    expect(r.diagnostics[0]!.message).toMatch(/vec3\(x\)/)
+    const ok = compileTsSource(`
+      "use typeshade";
+      export function f(v: vec3, s: f32): vec3 {
+        let w = v; w = vec3(s); return w;
+      }
+    `)
+    expect(ok.diagnostics).toEqual([])
   })
 })
 
@@ -290,7 +300,7 @@ describe('compound assignment with a vec64 target', () => {
     expect(c.eval('f', [[1, 2, 3], 2])).toEqual([3, 5, 7])
   })
 
-  it('still rejects %= on a vec64 target', () => {
+  it('still rejects %= on a vec64 target and says % has no f64 emulation', () => {
     const r = compileTsSource(`
       "use typeshade";
       export function f(v: vec3f64, s: f32): vec3f64 {
@@ -299,16 +309,18 @@ describe('compound assignment with a vec64 target', () => {
     `)
     expect(r.diagnostics.length).toBe(1)
     expect(r.diagnostics[0]!.message).toMatch(/cannot %= vec3<f64> and f32/)
+    expect(r.diagnostics[0]!.message).toMatch(/% has no f64 emulation/)
   })
 })
 
 describe('mismatch diagnostics for vectors', () => {
-  it('names the scalar cast and the vector constructor for vec3<f32> * u32', () => {
+  it('names the scalar cast for vec3<f32> * u32 and no constructor that does not compile', () => {
     const m = diagnose('v * n', 'v: vec3, n: u32', 'vec3')
     expect(m).toMatch(/cannot \* vec3<f32> and u32/)
     expect(m).toMatch(/A vector takes a scalar of its own element type/)
     expect(m).toMatch(/f32\(x\)/)
-    expect(m).toMatch(/vec3u\(/)
+    // vec3u(v) is rejected by the vector constructor (#8 A8), so it must not be suggested.
+    expect(m).not.toMatch(/vec3u\(/)
     expect(m).not.toMatch(/f32\(\)\/i32\(\)\/u32\(\)/)
   })
 
@@ -318,12 +330,34 @@ describe('mismatch diagnostics for vectors', () => {
     expect(m).toMatch(/same size/)
   })
 
-  it('names the converting constructor for vec3 + vec3u', () => {
+  it('names the per-component cast for vec3 + vec3u', () => {
     const m = diagnose('a + b', 'a: vec3, b: vec3u', 'vec3')
     expect(m).toMatch(/vec3<f32> and vec3<u32>/)
     expect(m).toMatch(/same element type/)
-    expect(m).toMatch(/vec3\(/)
-    expect(m).toMatch(/vec3u\(/)
+    expect(m).toMatch(/a \+ vec3\(f32\(b\.x\), f32\(b\.y\), f32\(b\.z\)\)/)
+    expect(m).not.toMatch(/vec3u\(/)
+    const m2 = diagnose('a * b', 'a: vec2u, b: vec2', 'vec2u')
+    expect(m2).toMatch(/a \* vec2u\(u32\(b\.x\), u32\(b\.y\)\)/)
+  })
+
+  it('every spelling the messages name compiles', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      export function f(v: vec3, n: u32, a: vec3, b: vec3u, w: vec3u): vec3 {
+        const p = v * f32(n);
+        const q = a + vec3(f32(b.x), f32(b.y), f32(b.z));
+        const r = w * u32(2.5);
+        return p + q + vec3(f32(r.x), f32(r.y), f32(r.z));
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+  })
+
+  it('says % has no f64 emulation for vec3<f64> % f32', () => {
+    const m = diagnose('v % s', 'v: vec3d, s: f32', 'vec3d')
+    expect(m).toMatch(/cannot % vec3<f64> and f32/)
+    expect(m).toMatch(/% has no f64 emulation/)
+    expect(m).not.toMatch(/Types must match\./)
   })
 
   it('keeps the scalar messages as they were', () => {

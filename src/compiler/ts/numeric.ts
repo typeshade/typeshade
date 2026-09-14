@@ -60,14 +60,16 @@ export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): 
 const BROADCAST_OPS: ReadonlySet<BinOp> = new Set<BinOp>(['+', '-', '*', '/', '%'])
 
 /** Result type of an arithmetic op (`+ - * / %`) between a vector and a scalar, or undefined
- *  when the pair does not broadcast. This mirrors binResultType in src/core/ir/node.ts, the
- *  rule the fn() EDSL applies (`v.mul(s)`, `s.sub(v)`): a native vector takes a scalar of its
- *  own element kind and the result is the vector's type whichever side it is on, and an
- *  emulated-double vector (vec64) takes an f64 or f32 scalar, except under `%`, which has no
- *  f64 emulation. Operand order is the caller's to keep: `s * v` stays scalar-left, which
- *  both backends emit as written and WGSL and GLSL accept. A same-type pair, a vector against
- *  a vector, and every non-arithmetic operator are not this helper's business and return
- *  undefined. */
+ *  when the pair does not broadcast. This follows binResultType in src/core/ir/node.ts, the
+ *  rule the fn() EDSL applies (`v.mul(s)`, `s.sub(v)`), for which shapes broadcast: the result
+ *  is the vector's type whichever side it is on, and an emulated-double vector (vec64) takes
+ *  an f64 or f32 scalar, except under `%`, which has no f64 emulation. For a native vector it
+ *  is tighter than binResultType, which accepts any scalar at runtime and leaves the element
+ *  check to tsc through ArithArg: here the scalar must be the vector's own element kind, since
+ *  WGSL and GLSL reject `vec3<u32> * f32`. Operand order is the caller's to keep: `s * v`
+ *  stays scalar-left, which both backends emit as written and WGSL and GLSL accept. A
+ *  same-type pair, a vector against a vector, and every non-arithmetic operator are not this
+ *  helper's business and return undefined. */
 export function broadcastResultType(
   left: ShaderType,
   right: ShaderType,
@@ -110,25 +112,38 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
     if (left.n !== right.n) {
       return `Type mismatch: cannot ${op} ${pair}. Vectors must have the same size.`
     }
-    const toLeft = `vec${left.n}${VEC_CTOR_SUFFIX[left.elem]}(…)`
-    const toRight = `vec${right.n}${VEC_CTOR_SUFFIX[right.elem]}(…)`
+    // There is no element-converting vector constructor yet (#8 A8): vec3u(v) with v a
+    // vec3<f32> is rejected, so the only spelling that compiles today casts per component.
+    const rebuilt = `vec${left.n}${VEC_CTOR_SUFFIX[left.elem]}(${'xyzw'
+      .slice(0, left.n)
+      .split('')
+      .map((c) => `${left.elem}(b.${c})`)
+      .join(', ')})`
+    const example = /^[-+*/%]$/.test(op) ? op : '+'
     return (
       `Type mismatch: cannot ${op} ${pair}. Vectors must have the same element type. ` +
-      `Convert one side: ${toLeft} or ${toRight}, e.g. a + ${toLeft}.`
+      `Cast one side per component, e.g. a ${example} ${rebuilt}.`
+    )
+  }
+  if ((op === '%' || op === '%=') && (isVec64(left) || isVec64(right))) {
+    return (
+      `Type mismatch: cannot ${op} ${pair}. % has no f64 emulation; ` +
+      `a vec64 takes a scalar only through + - * /.`
     )
   }
   const [vec, scalar] = isVec(left) ? [left, right] : [right, left]
   if (isVec(vec) && isScalar(scalar) && scalar.scalar in VEC_CTOR_SUFFIX) {
+    const splat = `vec${vec.n}${VEC_CTOR_SUFFIX[vec.elem]}(x)`
     if (scalar.scalar === vec.elem) {
       return (
         `Type mismatch: cannot ${op} ${pair}. ` +
-        `A vector combines with a scalar of its element type only through + - * / %.`
+        `A vector combines with a scalar of its element type only through + - * / %; ` +
+        `splat the scalar with ${splat} to get a vector.`
       )
     }
-    const ctor = `vec${vec.n}${VEC_CTOR_SUFFIX[scalar.scalar]}(…)`
     return (
       `Type mismatch: cannot ${op} ${pair}. A vector takes a scalar of its own element type. ` +
-      `Cast the scalar: ${vec.elem}(x), or convert the vector: ${ctor}.`
+      `Cast the scalar: ${vec.elem}(x).`
     )
   }
   if (isScalar(left) && isScalar(right)) {
