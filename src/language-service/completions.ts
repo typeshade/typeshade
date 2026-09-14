@@ -115,13 +115,140 @@ function tsCompletions(
   }))
 }
 
+/** What the syntax tree says about the position a completion was requested at. */
+type CompletionContext =
+  | { readonly kind: 'comment' }
+  | { readonly kind: 'string'; readonly literal: ts.StringLiteralLike | ts.TemplateLiteralToken }
+  | { readonly kind: 'code'; readonly slot: ts.Node }
+
 /**
- * Completions at `offset` in `uri`: TypeScript's own user-symbol and keyword completions,
- * merged with TypeShade context items — the attribute list after `@`, the `WgslBuiltinName`
- * list (filtered to the enclosing function's stage when known) inside `@builtin("`, and
- * snippet-enabled entries for `vec2`/`vec3`/`vec4` that replace the plain TypeScript entry of
- * the same name. Deduped by `label`, last write wins, so a TypeShade item always wins over the
- * TypeScript entry it enriches.
+ * The innermost node whose full span (`getFullStart()`, leading trivia included, through
+ * `getEnd()`) holds `pos`, under the editor convention that a cursor touches the token before
+ * it: at each level the child the cursor is strictly inside or at the end of wins, then the
+ * child whose leading trivia (or first character) the cursor sits in, then a zero-width node
+ * the parser inserted for something missing (the identifier of a `@` still being typed, the
+ * type after a `:` not yet written), which marks the slot the cursor is filling. Unlike
+ * `nodeAtPosition`, which anchors a hover to a token, this never skips trivia, so a position
+ * inside a comment resolves to the node the comment precedes and is then recognised as such
+ * by `contextAt`.
+ */
+function slotAt(sourceFile: ts.SourceFile, pos: number): ts.Node {
+  let node: ts.Node = sourceFile
+  for (;;) {
+    let inside: ts.Node | undefined
+    let before: ts.Node | undefined
+    let last: ts.Node | undefined
+    node.forEachChild((child) => {
+      const fullStart = child.getFullStart()
+      const start = child.getStart(sourceFile)
+      const end = child.getEnd()
+      if (inside === undefined && start < pos && pos <= end) inside = child
+      if (before === undefined && fullStart <= pos && pos <= start) before = child
+      if (fullStart <= pos) last = child
+    })
+    const next =
+      inside ??
+      before ??
+      (last !== undefined && last.getFullStart() === last.getEnd() ? last : undefined)
+    if (next === undefined) return node
+    node = next
+  }
+}
+
+/** Whether `pos` is inside one of the comments in the trivia that starts at `triviaStart` (the
+ * end of the previous token). A cursor at the very end of a `//` comment is still inside it,
+ * since that is where one types; a cursor right after a closing `*\/` is not. */
+function isInCommentAt(text: string, triviaStart: number, pos: number): boolean {
+  const ranges = [
+    ...(ts.getLeadingCommentRanges(text, triviaStart) ?? []),
+    ...(ts.getTrailingCommentRanges(text, triviaStart) ?? []),
+  ]
+  return ranges.some((r) => {
+    if (pos <= r.pos) return false
+    if (r.kind === ts.SyntaxKind.SingleLineCommentTrivia) return pos <= r.end
+    const closed = text.startsWith('*/', r.end - 2)
+    return closed ? pos < r.end : pos <= r.end
+  })
+}
+
+/**
+ * Classifies `offset` in `sourceFile` from the tree: inside a comment, inside a string or
+ * template literal (an unterminated one included, since that is what `@builtin("ver` is
+ * while it is being typed), or in code at some slot. The TypeShade triggers used to be regexes
+ * over the raw text before the cursor, which fired on `@ver` in a comment and `"vec"` in a
+ * string alike.
+ */
+function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext {
+  const slot = slotAt(sourceFile, offset)
+  const start = slot.getStart(sourceFile)
+  if (offset <= start && isInCommentAt(sourceFile.text, slot.getFullStart(), offset)) {
+    return { kind: 'comment' }
+  }
+  if ((ts.isStringLiteralLike(slot) || ts.isTemplateLiteralToken(slot)) && start < offset) {
+    const inside = offset < slot.getEnd() || slot.isUnterminated === true
+    if (inside) return { kind: 'string', literal: slot }
+  }
+  return { kind: 'code', slot }
+}
+
+/** Whether `literal` is the id argument of a `builtin(...)` call: the one string position where
+ * completions are offered, since `WgslBuiltinName` is a closed vocabulary. */
+function isBuiltinIdLiteral(literal: ts.Node): boolean {
+  const call = literal.parent
+  return (
+    call !== undefined &&
+    ts.isCallExpression(call) &&
+    ts.isIdentifier(call.expression) &&
+    call.expression.text === 'builtin' &&
+    call.arguments[0] === literal
+  )
+}
+
+/** Whether `slot` is the name of a decorator being typed: `@ver|`, a bare `@|` (the parser
+ * leaves a zero-width identifier there), or the callee of a decorator factory, `@buil|(...)`. */
+function isAttributeSlot(slot: ts.Node): boolean {
+  if (ts.isDecorator(slot)) return true
+  if (!ts.isIdentifier(slot)) return false
+  const parent = slot.parent
+  if (ts.isDecorator(parent) && parent.expression === slot) return true
+  return ts.isCallExpression(parent) && parent.expression === slot && ts.isDecorator(parent.parent)
+}
+
+/**
+ * Whether a value expression can start at `slot`: not inside a type (`let x: vec|`,
+ * `f(): vec|`, `uniform<Cam|>`), a decorator, an import or export clause, or a class body's
+ * member list; not a declaration's own name (`const vec|`), a property access member
+ * (`a.vec|`), or a literal already there. Everything else, including the whitespace after
+ * `return` or at the start of a statement, is where a `vec4(...)` snippet makes sense.
+ */
+function isExpressionSlot(slot: ts.Node): boolean {
+  if (ts.isStringLiteralLike(slot) || ts.isTemplateLiteralToken(slot) || ts.isNumericLiteral(slot))
+    return false
+  if (ts.isClassLike(slot) || ts.isInterfaceDeclaration(slot) || ts.isTypeLiteralNode(slot))
+    return false
+  for (let n: ts.Node | undefined = slot; n !== undefined && !ts.isSourceFile(n); n = n.parent) {
+    if (ts.isTypeNode(n) || ts.isDecorator(n)) return false
+    if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) return false
+    if (ts.isTypeAliasDeclaration(n) || ts.isInterfaceDeclaration(n)) return false
+  }
+  if (ts.isIdentifier(slot) && slot.parent !== undefined) {
+    const parent = slot.parent
+    if (ts.isPropertyAccessExpression(parent) && parent.name === slot) return false
+    if (ts.getNameOfDeclaration(parent as ts.Declaration) === slot) return false
+  }
+  return true
+}
+
+/**
+ * Completions at `offset` in `uri`, decided by `contextAt` (§5): inside a comment, TypeScript's
+ * own answer and nothing TypeShade-specific; inside a string literal nothing at all, except the
+ * `WgslBuiltinName` list (filtered to the enclosing function's stage when known) inside
+ * `@builtin("`; the attribute list when the cursor is on a decorator's name; and otherwise
+ * TypeScript's user-symbol and keyword completions, with snippet-enabled entries for
+ * `vec2`/`vec3`/`vec4` replacing the plain TypeScript entry of the same name only where a value
+ * expression can start (`isExpressionSlot`), never in a type position or after `@`. Deduped by
+ * `label`, last write wins, so a TypeShade item always wins over the TypeScript entry it
+ * enriches.
  */
 export function getCompletions(
   languageService: ts.LanguageService,
@@ -129,22 +256,24 @@ export function getCompletions(
   uri: string,
   offset: number,
 ): readonly TypeshadeCompletionItem[] {
-  const before = sourceFile.text.slice(0, offset)
+  const context = contextAt(sourceFile, offset)
 
-  const builtinMatch = /@builtin\(\s*["']([^"']*)$/.exec(before)
-  if (builtinMatch) {
+  if (context.kind === 'comment') return tsCompletions(languageService, uri, offset)
+
+  if (context.kind === 'string') {
+    if (!isBuiltinIdLiteral(context.literal)) return []
     const stage = enclosingStage(sourceFile, offset)
     const allowed = stage ? BUILTINS_BY_STAGE[stage] : WGSL_BUILTIN_NAMES
-    const prefix = builtinMatch[1]!
+    const prefix = sourceFile.text.slice(context.literal.getStart(sourceFile) + 1, offset)
     return allowed.filter((name) => name.startsWith(prefix)).map(builtinItem)
   }
 
-  if (/@[A-Za-z]*$/.test(before)) {
-    return ATTRIBUTE_NAMES.map(attributeItem)
-  }
+  if (isAttributeSlot(context.slot)) return ATTRIBUTE_NAMES.map(attributeItem)
 
   const merged = new Map<string, TypeshadeCompletionItem>()
   for (const item of tsCompletions(languageService, uri, offset)) merged.set(item.label, item)
-  for (const snippet of VEC_SNIPPETS) merged.set(snippet.label, vecSnippetItem(snippet))
+  if (isExpressionSlot(context.slot)) {
+    for (const snippet of VEC_SNIPPETS) merged.set(snippet.label, vecSnippetItem(snippet))
+  }
   return [...merged.values()]
 }
