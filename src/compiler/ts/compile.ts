@@ -56,6 +56,32 @@ export interface CompileResult {
 }
 
 /**
+ * How one `compile()` call is set up. Every field is optional, and the defaults are what
+ * `compile(source)` did before this interface existed.
+ */
+export interface CompileOptions {
+  /**
+   * The name this source is compiled under. It is the `file` of every `SourceSpan` the
+   * front end stamps on the IR, and the `fileName` of every diagnostic, so it is how a
+   * consumer that holds a span says which of the author's files a statement came from.
+   *
+   * Defaults to `typeshade-input.ts`, the placeholder `compileTsSource` has always used for a
+   * caller that named nothing. That default is fine for a compile whose output is shader
+   * text — nothing reads the name — but not for one whose output is stepped: a
+   * `DebugBreakpoint` carries the path the editor knows the file by, and matches it against
+   * `span.file`, so a session compiled under the placeholder silently arms no breakpoint at
+   * all. An adapter that has a path should pass it.
+   *
+   * Nothing resolves or reads it: it is a label carried to the spans, not a path the compiler
+   * opens. It is not carried verbatim, though — it becomes `ts.SourceFile.fileName`, and
+   * TypeScript path-normalizes that, so `./a.ts` is stored as `a.ts` and `C:\\shaders\\a.ts`
+   * as `C:/shaders/a.ts`. An adapter does not have to care: a `DebugBreakpoint`'s path is
+   * normalized the same way before it is compared, so either spelling matches.
+   */
+  readonly fileName?: string
+}
+
+/**
  * Compile TypeShade TypeScript source into the module and generated shader outputs.
  *
  * The source must carry the `"use typeshade"` directive (`compileTsSource`'s
@@ -71,9 +97,12 @@ export interface CompileResult {
  * and the throw is one `BACKEND` diagnostic with category `warning`. A compute-only module
  * gets `glsl: undefined` with no diagnostic, since GLSL ES 3.00 has no compute stage to
  * miss. See `CompileResult` for each field.
+ *
+ * `options.fileName` names the source; see {@link CompileOptions.fileName} for when the
+ * default placeholder is not good enough.
  */
-export function compile(source: string): CompileResult {
-  const r = compileTsSource(source)
+export function compile(source: string, options: CompileOptions = {}): CompileResult {
+  const r = compileTsSource(source, { fileName: options.fileName })
   const module: ModuleDecl = {
     consts: [...r.consts],
     structs: r.structs.map((s) => s.decl),

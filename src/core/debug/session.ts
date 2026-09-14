@@ -16,6 +16,7 @@ import type { CpuPrecision } from '../oracle.js'
 import { validate } from '../passes/validate.js'
 import { autoVars } from '../passes/opt/index.js'
 import { froundF32 } from '../passes/precision.js'
+import { sameFileName } from './file-name.js'
 import { makeCtx, runFunction, type Signal, type Step, type StepFrame } from './interp.js'
 
 /** A breakpoint, as an editor sets one: a zero-based line, optionally in a named file.
@@ -28,7 +29,14 @@ import { makeCtx, runFunction, type Signal, type Step, type StepFrame } from './
  */
 export interface DebugBreakpoint {
   /** Match only statements from this file. Omit to match on line alone, which is what a
-   *  single-file session wants. */
+   *  single-file session wants.
+   *
+   *  Compared against the name the module was COMPILED under (`SourceSpan.file`), and the two
+   *  are normalized before comparing: separators, `./` and `../` segments. They have to be,
+   *  because the compile side is `ts.SourceFile.fileName` and TypeScript rewrites what it is
+   *  given — `C:\shaders\a.ts` is stored as `C:/shaders/a.ts` — while a breakpoint's path
+   *  arrives exactly as the editor spelled it. Neither side is resolved against a directory
+   *  or looked up on disk, so a relative path and an absolute one are still two files. */
   readonly file?: string
   /** Zero-based line, the same convention `SourceSpan` and the language service use. */
   readonly line: number
@@ -299,7 +307,7 @@ class Session implements DebugSession {
   private hits(span: SourceSpan | undefined): boolean {
     if (span === undefined) return false
     return this.breakpoints.some(
-      (b) => (b.file === undefined || b.file === span.file) && b.line === span.line,
+      (b) => (b.file === undefined || sameFileName(b.file, span.file)) && b.line === span.line,
     )
   }
 
