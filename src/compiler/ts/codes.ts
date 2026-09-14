@@ -49,6 +49,11 @@ export const TS_CODES = {
   STRUCT_FIELD_MISSING_ATTR: 'TS8029',
   /** A TypeScript parse error (an unclosed parenthesis, a missing brace, an unexpected token) in a `"use typeshade"` file, carried through as a TypeShade diagnostic so a `compile()` caller sees it without running `tsc`. A file with one is not lowered or emitted: before this, `vec4(3.14` compiled to WGSL. The language service drops these in favour of TypeScript's own syntactic diagnostics, which carry the real `TS1005`-style code. */
   SYNTAX: 'TS8030',
+  /** `.length` on a runtime-sized array (`storage<array<T>>`), whose length is a property of
+   *  the buffer the host binds rather than of the type. It folded to the literal `0`, which
+   *  made `gid.x >= xs.length` true for every invocation and the kernel a no-op, silently
+   *  and in valid WGSL. Needs `arrayLength`, which neither surface spells yet (#46). */
+  UNSIZED_ARRAY_LENGTH: 'TS8032',
   UNSUPPORTED: 'TS8099',
 } as const
 

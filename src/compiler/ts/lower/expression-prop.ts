@@ -69,7 +69,28 @@ export function lowerPropertyAccess(
   const base = lowerExpression(obj, sourceFile, scope, diagnostics)
   if (!base) return undefined
   if (prop === 'length' && base.type.kind === 'array') {
-    return { op: 'lit', type: i32T, value: base.type.size ?? 0 }
+    // `?? 0` used to be the whole of this line, and 0 is not a length — it is the absence of
+    // one. A runtime-sized storage array (`storage<array<f32>>`) carries no `size`, so the
+    // standard bounds guard folded to `if (gid.x >= 0u) { return; }`, which is TRUE for every
+    // unsigned invocation: the kernel returned immediately and wrote nothing, with zero
+    // diagnostics, as valid WGSL, on a real GPU (#46). A wrong answer that every gate accepts
+    // is the one failure mode worth a hard error, so an unsized array says so instead.
+    //
+    // This rejects a program that used to "work". It never did: it compiled and ran and
+    // produced nothing. The message names `arrayLength` because that is the WGSL spelling the
+    // fix needs — it does not exist on either surface yet (#46's second half), which is
+    // exactly why this half cannot just lower to it.
+    if (base.type.size === undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `".length" on a runtime-sized array is not known at compile time. This array's length comes from the buffer the host binds, so there is no constant to fold — and folding one silently made the standard bounds guard "gid.x >= 0u", true for every invocation. WGSL spells it arrayLength(&x); TypeShade has no spelling for it yet (#46).`,
+        TS_CODES.UNSIZED_ARRAY_LENGTH,
+      )
+      return undefined
+    }
+    return { op: 'lit', type: i32T, value: base.type.size }
   }
   if (JS_ARRAY_METHODS.has(prop)) {
     pushDiag(

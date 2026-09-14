@@ -209,6 +209,7 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | two resources share `@binding` | name both |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
+| `.length` on a runtime-sized `storage<array<T>>` | `TS8032` — the length is the bound buffer's, not the type's; needs `arrayLength`, unspelled today |
 
 ---
 
