@@ -4,6 +4,7 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
+import { readOnlyPhrase } from '../context.js'
 import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -149,6 +150,7 @@ function lowerForInit(
     mutable: true,
     constValue: init.op === 'lit' ? init.value : undefined,
   })
+  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true })
   return { s: 'var', name, type, init }
 }
 
@@ -260,12 +262,24 @@ export function lowerUpdate(
     let target: Expr | undefined
     if (viaName && ts.isIdentifier(targetExpr)) {
       const binding = scope.resolve(targetExpr.text)
-      if (!binding || !binding.mutable) {
+      // Two different failures, kept apart as origin/main split them: an UNKNOWN name reported
+      // "it is declared with const", a statement about a declaration that does not exist.
+      if (!binding) {
         pushDiag(
           diagnostics,
           sourceFile,
           expr,
-          `Cannot assign to "${targetExpr.text}" — it is declared with const.`,
+          `Cannot assign to unknown name "${targetExpr.text}".`,
+          TS_CODES.UNKNOWN_NAME,
+        )
+        return undefined
+      }
+      if (!binding.mutable) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr,
+          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
           TS_CODES.CONST_ASSIGN,
         )
         return undefined

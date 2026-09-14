@@ -386,7 +386,7 @@ describe('rejections', () => {
         return cam.pos;
       }
     `
-    expect(diagnose(src)).toBe('Cannot assign to "cam" — it is read-only resource or const.')
+    expect(diagnose(src)).toBe('Cannot assign to "cam" — it is a read-only resource.')
     expect(code(src)).toBe('TS8005')
   })
 
@@ -536,7 +536,7 @@ describe('the root rule reaches an element target too', () => {
           return cam.xs[0];
         }
       `),
-    ).toBe('Cannot assign to "cam" — it is read-only resource or const.')
+    ).toBe('Cannot assign to "cam" — it is a read-only resource.')
   })
 
   it('rejects an element write through a parameter', () => {
