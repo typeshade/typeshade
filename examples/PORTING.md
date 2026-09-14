@@ -120,17 +120,17 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 Worth stating, because these rank high in issue #8 and would be natural things to reach for
 first. No example in the 36 is waiting on any of them:
 
-| Issue #8 item                                     | Blocks |
-| ------------------------------------------------- | ------ |
-| **A2** member / component assignment (`v.x = 0.`) | 0      |
-| **A4** `type` / `interface` structs               | 0      |
-| **A5** `@align` / `@size` field decorators        | 0      |
-| **A8** element-converting constructors            | 0      |
-| **A9** module-level vector constants              | 0      |
-| **A10** uninitialised `let`, `switch`, `<<=`      | 0      |
-| **A11** object-literal contextual typing          | 0      |
-| **S5** `arrayLength`                              | 0      |
-| **S7** `mat2` / `mat3`                            | 0      |
+| Issue #8 item                                        | Blocks |
+| ---------------------------------------------------- | ------ |
+| **A2** member / component assignment (`v.x = 0.`)    | 0      |
+| **A4** `type` / `interface` structs                  | 0      |
+| **A5** `@align` / `@size` field decorators           | 0      |
+| **A8** element-converting constructors               | 0      |
+| **A9** module-level vector constants — landed, #8 A9 | 0      |
+| **A10** uninitialised `let`, `switch`, `<<=`         | 0      |
+| **A11** object-literal contextual typing             | 0      |
+| **S5** `arrayLength`                                 | 0      |
+| **S7** `mat2` / `mat3`                               | 0      |
 
 A2 in particular: every `.assign()` in the corpus targets a whole value, never a component.
 What reads as member assignment in the IR walk (`construct`, `lit`, `binop` targets) is the
@@ -360,6 +360,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `declare const quality: override<f32>`                                                                          | ✗ same TS8099                                                                        |
 | `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a constant bound`                                    |
 | `for (let i: u32 = 0; i < WINDOW; i++)` with `const WINDOW: u32 = 8`                                            | ✓ — a module const **is** a constant bound                                           |
+| `const UP = vec3(0., 1., 0.)`, `const XS = array<f32, 3>(…)` (module vector / array const)                      | ✓ since #8 A9 — through `ConstDecl.valueExpr`, as the EDSL's `constExpr` fills it    |
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                    |
 | `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                           |
 | `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                    |

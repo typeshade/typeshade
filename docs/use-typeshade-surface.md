@@ -242,4 +242,32 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+---
+
+## 9. Module constants
+
+A top-level `const` is a module-scope shader constant. A scalar one is dual-precision (the
+shader gets the truncated value, the CPU oracle the full double); a **vector or array** one
+carries its value as an expression every backend emits and evaluates:
+
+```ts
+const PI2: f32 = 6.28318                                  // scalar, as before
+const UP = vec3(0., 1., 0.)                               // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
+const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
+const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.)
+const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.))
+const K: f32 = 2.
+const V = vec3(K, K, K)                                   // an earlier const is a valid component
+```
+
+The value must be **constant**: a literal, a constructor over literals, arithmetic over
+those, or a reference to a constant declared earlier in the file. It may not call a function
+or read a resource. `XS.length` is a constant too, so an array constant can bound a loop.
+
+This is the same declaration the EDSL's `constExpr(name, type, node)` produces — one
+`ConstDecl` with its `valueExpr` filled.
+
+A struct-valued and a matrix-valued constant are not accepted yet: the constant collector
+runs without the struct table, and the surface has no matrix constructor.
+
 Last updated: 2026-09-14
