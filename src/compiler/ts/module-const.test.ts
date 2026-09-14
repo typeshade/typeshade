@@ -17,6 +17,46 @@ describe('module const', () => {
     expect(r.wgsl).toMatch(/const LIMIT/)
   })
 
+  // #13 — the existing arm above asserts the const EXISTS in the WGSL; it never asserted how
+  // the value was SPELLED, and the spelling was wrong for every type but f32. `emitConst`
+  // formatted with the float writer regardless of `ConstDecl.type`, so this compiled with no
+  // diagnostic and emitted `const WINDOW: u32 = 8.0;` — rejected by Tint.
+  it('spells an integer, bool and f32 module const for its declared type', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      const KU: u32 = 8;
+      const KI: i32 = -3;
+      const KF: f32 = 2.5;
+      const KB: bool = true;
+      export function f(): u32 { return KU; }
+    `)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('const KU: u32 = 8u;')
+    expect(r.wgsl).toContain('const KI: i32 = -3;')
+    expect(r.wgsl).toContain('const KF: f32 = 2.5;')
+    expect(r.wgsl).toContain('const KB: bool = true;')
+  })
+
+  // The issue's own repro, whole: a compute kernel whose window size is a module const.
+  it('emits a usable integer const as a loop bound and a multiplier (the #13 repro)', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      const WINDOW: u32 = 8;
+      declare const input: storage<array<f32>>;
+      declare let output: storage<array<f32>>;
+      @compute([64, 1, 1])
+      export function reduce_windows(@builtin("global_invocation_id") gid: vec3u): void {
+        let sum = 0.;
+        for (let j: u32 = 0; j < WINDOW; j++) { sum = sum + input[gid.x * WINDOW + j]; }
+        output[gid.x] = sum;
+      }
+    `)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('const WINDOW: u32 = 8u;')
+    // The float spelling is the whole bug — assert it is gone, not merely that 8u appears.
+    expect(r.wgsl).not.toContain('8.0')
+  })
+
   it('folds const expressions and later consts', () => {
     const r = compileTsSource(`
       "use typeshade";
@@ -57,7 +97,9 @@ describe('module const', () => {
       const BAD: f32 = foo;
       export function f(): f32 { return BAD; }
     `)
-    expect(r.diagnostics.some((d) => /foldable|Unknown identifier|Module const/.test(d.message))).toBe(true)
+    expect(
+      r.diagnostics.some((d) => /foldable|Unknown identifier|Module const/.test(d.message)),
+    ).toBe(true)
   })
 
   it('still rejects top-level let', () => {

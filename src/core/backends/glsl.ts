@@ -156,6 +156,11 @@ function isIntType(t: ShaderType): boolean {
 
 function glslLit(value: number | boolean, t: ShaderType): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false'
+  // A `bool` whose value arrived as a NUMBER: `ConstDecl.wgslValue` is typed `number`, so a
+  // module-scope `const FLAG: bool = true` reaches here as 1, and without this arm it would
+  // fall through to the float spelling and emit `const FLAG: bool = 1.0;` — which neither
+  // target accepts. Same class as the integer arms below (#13).
+  if (t.kind === 'scalar' && t.scalar === 'bool') return value === 0 ? 'false' : 'true'
   if (t.kind === 'scalar' && t.scalar === 'u32') return `${intLit(value, 'u32')}u`
   if (t.kind === 'scalar' && t.scalar === 'i32') return intLit(value, 'i32')
   return f32Lit(value)
@@ -431,7 +436,7 @@ export const glslEs300Backend: Backend = {
     glslEs300Backend.constDecl(
       c.name,
       c.type,
-      c.valueExpr ? emitExprNeutral(c.valueExpr, glslEs300Backend) : f32Lit(c.wgslValue),
+      c.valueExpr ? emitExprNeutral(c.valueExpr, glslEs300Backend) : glslLit(c.wgslValue, c.type),
     ),
   // A NON-uniform struct (an IO output type, or a storage element struct) emits as a
   // plain GLSL struct; the `@location`/`@builtin` field attrs are stripped here — they
