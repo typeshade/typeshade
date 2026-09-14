@@ -14,38 +14,15 @@
 //   (equivalently: UPDATE_EMIT_GOLDENS=1 npx vitest run shader-dsl/examples/emit-goldens.test.ts)
 // — then commit the refreshed __emit-goldens__/ alongside the emitter change.
 //
-// CRLF note: goldens are committed text; git autocrlf checks them out with CRLF on
-// Windows while the emitters only ever produce LF — normalise before comparing
-// (masks line-ending noise only; the emitters have no CRLF code path).
+// The bake protocol itself (the env flag, the CRLF normalisation, the two failure messages)
+// moved to `_goldens.ts` when `shade-examples.test.ts` began pinning the `"use typeshade"`
+// corpus into the same directory: two copies of it is how one suite comes to be baked and
+// the other left red against the files that bake just rewrote.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { examples } from './index.js'
+import { checkGolden } from './_goldens.js'
 import { emitModule, emitGlslModule } from '../src/index.js'
-
-const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), '__emit-goldens__')
-const UPDATE = process.env.UPDATE_EMIT_GOLDENS === '1'
-
-const lf = (s: string): string => s.replace(/\r\n/g, '\n')
-
-function checkGolden(file: string, emitted: string): void {
-  const path = join(GOLDEN_DIR, file)
-  if (UPDATE) {
-    mkdirSync(GOLDEN_DIR, { recursive: true })
-    writeFileSync(path, emitted)
-    return
-  }
-  expect(
-    existsSync(path),
-    `${file}: golden missing — bake with \`bun run bake:goldens\` (from the repo root)`,
-  ).toBe(true)
-  expect(
-    lf(emitted),
-    `${file}: emit drifted from the committed golden — if intentional, re-bake with \`bun run bake:goldens\` (from the repo root) and commit the diff`,
-  ).toBe(lf(readFileSync(path, 'utf8')))
-}
 
 describe('shader-dsl examples — emit goldens', () => {
   it('covers every registered example (registry growth forces a bake, not a skip)', () => {
