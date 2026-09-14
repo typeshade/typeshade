@@ -121,6 +121,41 @@ describe('getCompiledOutput', () => {
     expect(service.getCompiledOutput('nope.ts', 'wgsl')).toBeUndefined()
   })
 
+  // Regression: an emit exception was swallowed into `text: ''` with no diagnostic, so an
+  // output pane showed an empty shader and nothing to say why. A compute-only module asked for
+  // a GLSL stage is the natural case: emitGlslModule refuses it (glsl-es300 has no compute)
+  // with an UnsupportedFeatureError naming the missing capability.
+  it('reports an emit exception as a BACKEND diagnostic on the first statement, with empty text', () => {
+    const service = createTypeshadeLanguageService()
+    const text =
+      '"use typeshade";\n' +
+      '@compute([64, 1, 1])\n' +
+      'export function cs(@builtin("global_invocation_id") id: vec3u): void {\n' +
+      '  const x = id.x\n' +
+      '}\n'
+    service.openDocument('compute.ts', text)
+    expect(service.getDiagnostics('compute.ts')).toEqual([])
+    expect(service.getCompiledOutput('compute.ts', 'wgsl')?.text).toContain('@compute')
+
+    for (const target of ['glsl-vertex', 'glsl-fragment'] as const) {
+      const output = service.getCompiledOutput('compute.ts', target)
+      expect(output).toBeDefined()
+      expect(output!.text).toBe('')
+      expect(output!.diagnostics).toHaveLength(1)
+      const d = output!.diagnostics[0]!
+      expect(d.source).toBe('typeshade')
+      expect(d.code).toBe('TS8015')
+      expect(d.severity).toBe('error')
+      expect(d.message).toContain(target)
+      expect(d.message).toContain('compute')
+      // The range covers the first statement: the directive on line 0.
+      expect(d.range.start.line).toBe(0)
+      expect(text.slice(d.span.start, d.span.start + d.span.length)).toBe('"use typeshade";')
+    }
+    // The emit failure is a fact about that target only: getDiagnostics stays clean.
+    expect(service.getDiagnostics('compute.ts')).toEqual([])
+  })
+
   it('produces GLSL fragment output distinct from the WGSL text', () => {
     const service = createTypeshadeLanguageService()
     service.openDocument('hello.ts', HELLO)

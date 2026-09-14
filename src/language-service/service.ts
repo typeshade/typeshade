@@ -5,7 +5,13 @@ import { emitModule } from '../core/backends/wgsl.js'
 import { emitGlslModule } from '../core/backends/glsl.js'
 import { compileTsSource, type CompileTsSourceResult } from '../compiler/ts/source-file.js'
 import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js'
-import { getTypeScriptDiagnostics, getTypeshadeDiagnostics } from './diagnostics.js'
+import { TS_CODES } from '../compiler/ts/codes.js'
+import { makeDiagnostic } from '../compiler/ts/diagnostic.js'
+import {
+  fromCompilerDiagnostic,
+  getTypeScriptDiagnostics,
+  getTypeshadeDiagnostics,
+} from './diagnostics.js'
 import { getCompletions } from './completions.js'
 import { getHover } from './hover.js'
 import {
@@ -328,8 +334,24 @@ export function createTypeshadeLanguageServiceWith(
             target === 'wgsl'
               ? emitModule(moduleDecl)
               : emitGlslModule(moduleDecl, target === 'glsl-vertex' ? 'vertex' : 'fragment')
-        } catch {
-          outputText = ''
+        } catch (e) {
+          // A backend refusing the module (a compute-only module asked for GLSL, a feature
+          // GLSL ES 3.00 cannot express) is a fact about this document and target, so it is
+          // reported the way compileTsSource reports its own emit failure: as a BACKEND
+          // diagnostic on the first statement, with the empty text an output pane can show.
+          const message = e instanceof Error ? e.message : String(e)
+          diagnostics.push(
+            fromCompilerDiagnostic(
+              sourceFile,
+              uri,
+              makeDiagnostic(
+                sourceFile,
+                undefined,
+                `Backend emit failed for ${target}: ${message}`,
+                TS_CODES.BACKEND,
+              ),
+            ),
+          )
         }
       }
       return { target, text: outputText, diagnostics }
