@@ -4,7 +4,7 @@
 // let/var/assign/if/for/switch/ret/…), the IfChain helper, and the fn /
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
-import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types.js'
+import { type ShaderType, type KeyOf, type ScalarKey, voidT, typeKey } from './types.js'
 import {
   type Stmt,
   type Expr,
@@ -635,6 +635,27 @@ type FnBodyValue<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R>
+// #8 B1 — the body shape the VOID-INFERRING overloads accept. It is the same `void` TS sees
+// for the guard-style body #2458 turned away, so the separation cannot be made at the type
+// level; it is made at run time instead, by `assertInferredVoid` below. The declared
+// parameter type is `undefined` rather than `void` so a body that DOES return a node keeps
+// matching the value overloads first — `void` as a return type accepts any value.
+type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undefined | void
+
+// #8 B1 — the runtime half of the void-inferring overloads. Those overloads pin the handle's
+// key to `'void'` without a `voidT` token, and #2458 is right that a key which LIES is worse
+// than `string`: TypeScript reads `(p) => { If(c, () => Return(x)); Return(f32(0)) }` as
+// returning nothing too, and that body returns f32. So the claim is checked where the answer
+// exists — after the body has run, against what `inferReturnType` actually found. A body that
+// returns a value through an ambient Return() is turned away here, naming the token to pass,
+// instead of being handed a false key.
+function assertInferredVoid(name: string, ret: ShaderType): void {
+  if (ret.kind === 'void') return
+  throw dslError(
+    'SD0113',
+    `fn '${name}' was authored without a return type, but its body returns ${typeKey(ret)} through an ambient Return() — write fn('${name}', params, <the type token>, body)`,
+  )
+}
 
 /** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
  *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
@@ -714,11 +735,15 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[
  *  destructuring pattern, so give it a local name there: `({ in: inp }) => inp.uv`.
  *
  *  The return-type token `ret` is optional when the body returns a value TypeScript can see,
- *  `(p) => expr` or a struct field proxy, since the handle takes that value's key. Pass the
- *  token when the body sends its value out through an ambient {@link Return} inside a nested
- *  closure: TypeScript reads such a body as returning nothing, and without the token the
- *  handle widens to `FnHandle<P, string>`, which puts every call site outside the key check.
- *  A function that returns nothing passes `voidT` and lands on `'void'`.
+ *  `(p) => expr` or a struct field proxy, since the handle takes that value's key. It is
+ *  optional again for a function that returns nothing, the shape of a compute entry: such a
+ *  body may drop `voidT` and the handle lands on `'void'`.
+ *
+ *  Pass the token when the body sends its value out through an ambient {@link Return} inside a
+ *  nested closure. TypeScript reads such a body as returning nothing — the same shape as the
+ *  genuinely void one — so the two are separated once the body has run: a body that took the
+ *  void form and returned a value is rejected with `SD0113` naming the token to write, rather
+ *  than handed a `'void'` key its call sites would believe.
  *
  *  The body is `(p, b) => …`: the typed param nodes first, the {@link Builder} second. Most
  *  bodies need only `p` and the ambient statement surface ({@link Let}, {@link Var},
@@ -757,12 +782,15 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[
  *  @param name - the emitted function name. Omit it to let a `funcs` key record name the
  *    function at module assembly.
  *  @param params - the parameter record, in declaration order, as described above.
- *  @param ret - the return type to pin. Omit it when the body's own `return` carries the type.
+ *  @param ret - the return type to pin. Omit it when the body's own `return` carries the type,
+ *    or when the body returns nothing at all.
  *  @param body - the function body, receiving the typed params and the builder.
  *  @param opts - the stage, the workgroup size, the return attribute, and the lint deviations
  *    listed above.
  *  @returns a callable handle that is also the function declaration.
  *  @throws `SD0110` when `portable` is declared without `stage: 'compute'`.
+ *  @throws `SD0113` when a body authored without a return type returns a value through an
+ *    ambient {@link Return}.
  *
  *  @example
  *  ```ts
@@ -790,6 +818,24 @@ export function fn<P extends FnParamSpec, R extends string>(
   body: FnBodyValue<P, R>,
   opts?: FnOpts,
 ): FnHandle<P, R>
+// #8 B1 — the void-body overloads. They sit AFTER the value overloads, so a body that returns
+// a value still matches those first and only a body TypeScript reads as returning nothing
+// falls through to here, where the handle lands on `'void'` with no `voidT` token written. The
+// guard-style body that shares that TypeScript shape is separated at run time (SD0113).
+// They sit BEFORE the explicit-`ret` overloads so the LAST signature stays the one it has
+// always been: `ReturnType<typeof fn>` reads the last overload, and moving it would retype
+// every `ReturnType<typeof fn>` annotation in the tree.
+export function fn<P extends FnParamSpec>(
+  params: P,
+  body: FnBodyVoid<P>,
+  opts?: FnOpts,
+): FnHandle<P, 'void'>
+export function fn<P extends FnParamSpec>(
+  name: string,
+  params: P,
+  body: FnBodyVoid<P>,
+  opts?: FnOpts,
+): FnHandle<P, 'void'>
 export function fn<P extends FnParamSpec, T extends ShaderType>(
   params: P,
   ret: T,
@@ -884,6 +930,9 @@ export function fn(
   if (result !== undefined) bld.ret(result)
   // Return type: explicit token if given, else inferred from what the body returns.
   const ret = explicitRet ?? inferReturnType(result, bld.stmts)
+  // #8 B1 — a body that produced no TS-level value took one of the void-inferring overloads,
+  // whose handle says `'void'`. Hold it to that, or say which token to write.
+  if (inferred && result === undefined) assertInferredVoid(name, ret)
   // stage → pipeline attrs (@vertex / @fragment / @compute @workgroup_size(N)).
   const attrs =
     opts?.stage === 'compute'

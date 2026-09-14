@@ -208,6 +208,17 @@ export const CODES = {
     summary: 'a local name is declared twice in one function',
     hint: 'rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (#2341)',
   },
+
+  // ── The void-body overload's runtime half (#8 B1) ──
+  // The overload that lets a void body drop `voidT` pins the handle's key to `'void'` at the
+  // TYPE level. TypeScript reads a body that sends its value out through an ambient Return()
+  // as returning nothing too, so the type level cannot separate the two; SD0113 is the
+  // runtime half that keeps `'void'` from ever being a lie (#2458's objection).
+  SD0113: {
+    code: 'SD0113',
+    summary: 'a fn whose body returns nothing at the TypeScript level returns a value at run time',
+    hint: 'name the return type in the fn() call — fn(name, params, <type>, body) — so the handle carries the key its callers need',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
 /** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived

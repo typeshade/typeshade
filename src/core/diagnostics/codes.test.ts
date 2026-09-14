@@ -54,6 +54,7 @@ describe('diagnostic code catalogue', () => {
         "SD0110",
         "SD0111",
         "SD0112",
+        "SD0113",
       ]
     `)
   })
