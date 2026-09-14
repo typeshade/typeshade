@@ -121,6 +121,41 @@ describe('getCompiledOutput', () => {
     expect(service.getCompiledOutput('nope.ts', 'wgsl')).toBeUndefined()
   })
 
+  // Regression: an emit exception was swallowed into `text: ''` with no diagnostic, so an
+  // output pane showed an empty shader and nothing to say why. A compute-only module asked for
+  // a GLSL stage is the natural case: emitGlslModule refuses it (glsl-es300 has no compute)
+  // with an UnsupportedFeatureError naming the missing capability.
+  it('reports an emit exception as a BACKEND diagnostic on the first statement, with empty text', () => {
+    const service = createTypeshadeLanguageService()
+    const text =
+      '"use typeshade";\n' +
+      '@compute([64, 1, 1])\n' +
+      'export function cs(@builtin("global_invocation_id") id: vec3u): void {\n' +
+      '  const x = id.x\n' +
+      '}\n'
+    service.openDocument('compute.ts', text)
+    expect(service.getDiagnostics('compute.ts')).toEqual([])
+    expect(service.getCompiledOutput('compute.ts', 'wgsl')?.text).toContain('@compute')
+
+    for (const target of ['glsl-vertex', 'glsl-fragment'] as const) {
+      const output = service.getCompiledOutput('compute.ts', target)
+      expect(output).toBeDefined()
+      expect(output!.text).toBe('')
+      expect(output!.diagnostics).toHaveLength(1)
+      const d = output!.diagnostics[0]!
+      expect(d.source).toBe('typeshade')
+      expect(d.code).toBe('TS8015')
+      expect(d.severity).toBe('error')
+      expect(d.message).toContain(target)
+      expect(d.message).toContain('compute')
+      // The range covers the first statement: the directive on line 0.
+      expect(d.range.start.line).toBe(0)
+      expect(text.slice(d.span.start, d.span.start + d.span.length)).toBe('"use typeshade";')
+    }
+    // The emit failure is a fact about that target only: getDiagnostics stays clean.
+    expect(service.getDiagnostics('compute.ts')).toEqual([])
+  })
+
   it('produces GLSL fragment output distinct from the WGSL text', () => {
     const service = createTypeshadeLanguageService()
     service.openDocument('hello.ts', HELLO)
@@ -260,5 +295,82 @@ describe('getDiagnostics: a syntax error', () => {
     expect(all.filter((d) => /'\)' expected/.test(d.message))).toHaveLength(1)
     // And the compiled output for such a document is empty, not a WGSL module.
     expect(service.getCompiledOutput('syntax.ts', 'wgsl')?.text ?? '').not.toMatch(/fn f/)
+  })
+})
+
+describe('getDiagnostics: cache invalidation across imports (design doc §8)', () => {
+  const B_OK = '"use typeshade";\nexport function k(): f32 {\n  return 1.\n}\n'
+  const B_BROKEN = '"use typeshade";\nexport function k(): bool {\n  return true\n}\n'
+  const A =
+    '"use typeshade";\nimport { k } from "./b.js"\nexport function f(): f32 {\n  return k()\n}\n'
+  const tsErrors = (service: ReturnType<typeof createTypeshadeLanguageService>) =>
+    service
+      .getDiagnostics('/a.ts')
+      .filter((d) => d.source === 'typescript')
+      .map((d) => d.code)
+
+  // Regression: the cache was keyed by A's own (uri, version) alone, so once A's diagnostics
+  // had been computed, changing or closing B never refreshed them until A itself was edited.
+  it('refreshes A when the document it imports changes, without A being touched', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('/b.ts', B_OK, 1)
+    service.openDocument('/a.ts', A, 1)
+    expect(tsErrors(service)).toEqual([])
+    service.updateDocument('/b.ts', B_BROKEN, 2)
+    // k() is now bool, returned where f32 is annotated: TS2322 in A.
+    expect(tsErrors(service)).toContain(2322)
+    service.updateDocument('/b.ts', B_OK, 3)
+    expect(tsErrors(service)).toEqual([])
+  })
+
+  it('reflects a closed import as a missing module, then its reopening as resolved again', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('/b.ts', B_OK, 1)
+    service.openDocument('/a.ts', A, 1)
+    expect(tsErrors(service)).toEqual([])
+    service.closeDocument('/b.ts')
+    // TS2307: Cannot find module './b.js'.
+    expect(tsErrors(service)).toContain(2307)
+    service.openDocument('/b.ts', B_OK, 1)
+    expect(tsErrors(service)).toEqual([])
+  })
+
+  // Regression: the key was built from the top-level import and export declarations alone,
+  // so a module reached only through an import(...) type never entered it, and A's diagnostics
+  // stayed put while C changed, though the TypeScript program had followed that edge.
+  it('follows a module referenced only through an import("...") type', () => {
+    const service = createTypeshadeLanguageService()
+    const C_OK = '"use typeshade";\nexport function c(): f32 {\n  return 1.\n}\n'
+    const C_BROKEN = '"use typeshade";\nexport function c(): bool {\n  return true\n}\n'
+    const A3 =
+      '"use typeshade";\n' +
+      'type M = typeof import("./c.js")\n' +
+      'export function f(): f32 {\n  const m: M = null as any\n  return m.c()\n}\n'
+    service.openDocument('/c.ts', C_OK, 1)
+    service.openDocument('/a.ts', A3, 1)
+    expect(tsErrors(service)).toEqual([])
+    service.updateDocument('/c.ts', C_BROKEN, 2)
+    expect(tsErrors(service)).toContain(2322)
+    service.updateDocument('/c.ts', C_OK, 3)
+    expect(tsErrors(service)).toEqual([])
+  })
+
+  it('follows the import chain transitively: a change two hops away refreshes the root', () => {
+    const service = createTypeshadeLanguageService()
+    const C_OK = '"use typeshade";\nexport function c(): f32 {\n  return 1.\n}\n'
+    const C_BROKEN = '"use typeshade";\nexport function c(): bool {\n  return true\n}\n'
+    // B re-exports c's result under an inferred type, so A's own type error appears or
+    // disappears with C's declared return type while B's text never changes.
+    const B = '"use typeshade";\nimport { c } from "./c.js"\nexport const K = c()\n'
+    const A2 =
+      '"use typeshade";\nimport { K } from "./b.js"\nexport function f(): f32 {\n  return K\n}\n'
+    service.openDocument('/c.ts', C_OK, 1)
+    service.openDocument('/b.ts', B, 1)
+    service.openDocument('/a.ts', A2, 1)
+    expect(tsErrors(service)).toEqual([])
+    service.updateDocument('/c.ts', C_BROKEN, 2)
+    expect(tsErrors(service)).toContain(2322)
+    service.updateDocument('/c.ts', C_OK, 3)
+    expect(tsErrors(service)).toEqual([])
   })
 })
