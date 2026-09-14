@@ -55,7 +55,7 @@ export function lowerFor(
     if (!initStmt) return undefined
     // The `for` header's own two statements never pass through `lowerStatement`, so the
     // blanket stamp there does not reach them; give each the span of the clause it came from
-    // rather than the whole loop's, so stepping a loop highlights `i = 0` and `i++`.
+    // rather than the whole loop's, so stepping a loop highlights `let i: i32 = 0` and `i++`.
     withSpan(initStmt, sourceFile, node.initializer)
     const cond = lowerExpression(node.condition, sourceFile, scope, diagnostics)
     if (!cond) return undefined

@@ -12,6 +12,10 @@ import { compileTsSource } from './source-file.js'
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../../core/ir/nodes.js'
 import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js'
 import { autoVars } from '../../core/passes/opt/index.js'
+import { fixpoint, irEqual, optimizeAt } from '../../core/passes/opt/optimize.js'
+import { mapChildren, mapStmtExpr } from '../../core/ir/visit.js'
+import { mapStmt } from '../../core/passes/opt/ir-transform.js'
+import { stripSpans } from '../../core/testing/strip-spans.js'
 import { fn, Var, f32, f32T } from '../../core/ir/index.js'
 
 /** One source exercising every statement kind the source language can produce. */
@@ -232,28 +236,34 @@ describe('source spans — every statement kind carries one', () => {
     const body = byName(module, 'shapes').body
     const at = (s: Stmt): string => textAt(text, sourceSpanOf(s)!)
     // Top-level, in source order.
-    expect(at(body[0]!)).toBe('base = 1.')
-    expect(at(body[1]!)).toBe('acc = 0.')
+    expect(at(body[0]!)).toBe('const base = 1.')
+    expect(at(body[1]!)).toBe('let acc = 0.')
     expect(at(body[2]!)).toBe('acc = base')
     expect(at(body[3]!)).toBe('acc += helper(base)')
     expect(at(body[4]!)).toMatch(/^if \(n > 0\) \{/)
     expect(at(body[5]!)).toMatch(/^for \(let i: i32 = 0; i < 4; i\+\+\) \{/)
-    expect(at(body[6]!)).toBe('w: i32 = 0')
+    expect(at(body[6]!)).toBe('let w: i32 = 0')
     expect(at(body[7]!)).toMatch(/^while \(w < 4\) \{/)
     expect(at(body[8]!)).toMatch(/^switch \(n\) \{/)
     expect(at(body[9]!)).toBe('return acc')
   })
 
-  it('a `let` declarator spans the declarator, not the whole variable statement', () => {
+  it('one declarator spans the whole statement, several span one each', () => {
+    // With one declarator the statement IS the declaration, so the span carries the
+    // `const`/`let` keyword and a breakpoint on that line points at its start. With several,
+    // one TypeScript statement lowers to one IR statement per declarator, and each must span
+    // its own or stepping highlights the same line twice.
     const { module, text } = compiled(`"use typeshade"
 export function f(): f32 {
-  const a = 1., b = 2.
-  return a + b
+  const a = 1.
+  const b = 2., c = 3.
+  return a + b + c
 }
 `)
     const body = byName(module, 'f').body
-    expect(textAt(text, sourceSpanOf(body[0]!)!)).toBe('a = 1.')
+    expect(textAt(text, sourceSpanOf(body[0]!)!)).toBe('const a = 1.')
     expect(textAt(text, sourceSpanOf(body[1]!)!)).toBe('b = 2.')
+    expect(textAt(text, sourceSpanOf(body[2]!)!)).toBe('c = 3.')
   })
 
   it('a `for` header spans its own init and update, not the whole loop', () => {
@@ -331,6 +341,23 @@ export function f(a: f32, b: f32): f32 {
 `)
     const calls = allExpressions(byName(module, 'f').body).filter((e) => e.op === 'call')
     expect(calls.map((c) => textAt(text, sourceSpanOf(c)!))).toEqual(['g(a)', 'g(b)'])
+  })
+
+  it('an expansion spans its outermost node only, since the inner ones were written nowhere', () => {
+    // `random(seed)` is not a call in the IR: the front end expands it into a
+    // `fract(sin(dot(...)))` tree. The node lowered FROM the `ts.CallExpression` takes its
+    // span, which is the text the author wrote; the nodes the expansion invents take none,
+    // because there is nowhere to point at. Same for the array higher-order functions, the
+    // `Math.*` expansions and a numeric cast.
+    const { module, text } = compiled(`"use typeshade"
+export function f(x: f32): f32 {
+  return random(x)
+}
+`)
+    const calls = allExpressions(byName(module, 'f').body).filter((e) => e.op === 'call')
+    expect(calls.length).toBeGreaterThan(1)
+    expect(textAt(text, sourceSpanOf(calls[0]!)!)).toBe('random(x)')
+    expect(calls.slice(1).every((c) => sourceSpanOf(c) === undefined)).toBe(true)
   })
 
   it('an intrinsic call carries one too', () => {
@@ -471,10 +498,66 @@ describe('source spans — survival through the passes that rebuild nodes', () =
     for (const s of authored) expect(sourceSpanOf(s), `span for ${s.s}`).toBeDefined()
   })
 
-  it('a statement rewritten by the shared walker keeps its span', () => {
+  it('the shared walkers preserve a span through an identity rewrite', () => {
+    // Actually run them. The claim is about `mapStmtExpr`, `mapChildren` and `mapStmt`, so a
+    // test that rebuilds a node by hand asserts nothing about the code it names.
     const { module, text } = compiled()
-    const ret = byName(module, 'shapes').body[9]!
-    const rebuilt = { ...ret, span: sourceSpanOf(ret) }
-    expect(textAt(text, sourceSpanOf(rebuilt as Stmt)!)).toBe('return acc')
+    const body = byName(module, 'shapes').body
+    for (const s of body) {
+      const before = sourceSpanOf(s)
+      if (!before) continue
+      for (const rebuilt of [
+        mapStmtExpr(s, (e) => e),
+        mapStmt(s, (e) => e),
+        mapStmtExpr(s, (e) => mapChildren(e, (c) => c)),
+      ]) {
+        expect(sourceSpanOf(rebuilt), `${s.s} through a walker`).toEqual(before)
+      }
+    }
+    // …and a call Expr through the expression walker.
+    const call = allExpressions(body).find((e) => e.op === 'call' && e.fn === 'helper')!
+    expect(sourceSpanOf(mapChildren(call, (c) => c))).toEqual(sourceSpanOf(call))
+    expect(textAt(text, sourceSpanOf(call)!)).toBe('helper(base)')
+  })
+
+  it('the optimizer keeps the authored spans it does not invent, at O1 and at a fixpoint', () => {
+    // The ratchet the review asked for. A pass that rebuilds a node from named fields instead
+    // of spreading it drops the span silently, and `dead-branch` did exactly that to every
+    // `if`. Naming the surviving set means the next such pass fails here rather than in an
+    // editor.
+    const { module, text } = compiled()
+    const surviving = (m: ModuleDecl): string[] =>
+      allStatements(byName(m, 'shapes').body)
+        .map((s) => sourceSpanOf(s))
+        .filter((sp): sp is SourceSpan => sp !== undefined)
+        .map((sp) => textAt(text, sp).split('\n')[0]!)
+    const authored = new Set(surviving(module))
+    expect(authored.size).toBeGreaterThan(8)
+    const ifSpans = (m: ModuleDecl): number =>
+      allStatements(byName(m, 'shapes').body).filter(
+        (st) => st.s === 'if' && sourceSpanOf(st) !== undefined,
+      ).length
+    const ifCount = ifSpans(module)
+    expect(ifCount).toBeGreaterThan(0)
+    for (const m of [optimizeAt(module, 'O1'), optimizeAt(module, 'O2'), fixpoint(module)]) {
+      // No span is INVENTED: an optimized statement either keeps the text it was written as,
+      // or carries none. A pass that rebuilt a node with some other node's span fails here.
+      for (const t of surviving(m)) expect(authored.has(t), t).toBe(true)
+      // …and every `if` still has one. This is the arm that `dead-branch`'s rebuild broke:
+      // it dropped the span of every `if` at exactly the tiers a debugger attaches to.
+      expect(ifSpans(m)).toBe(ifCount)
+    }
+  })
+
+  it('irEqual ignores a span, so the fixpoint does not iterate over provenance', () => {
+    // A span is provenance. Were `irEqual` to see it, a pass that rebuilt an equal tree would
+    // read as a change and the fixpoint would run again for nothing; measured at twice the
+    // iterations on a registered example when spans first landed.
+    const { module } = compiled()
+    const f = byName(module, 'shapes')
+    const stripped = { ...f, body: stripSpans(f.body) }
+    expect(irEqual(f, stripped)).toBe(true)
+    // …and it still sees a real difference.
+    expect(irEqual(f, { ...f, name: 'other' })).toBe(false)
   })
 })

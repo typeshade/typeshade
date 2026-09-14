@@ -42,7 +42,11 @@ function ddStmt(s: Stmt): Stmt[] {
         newArms.push({ cond: arm.cond, body })
       }
       if (newArms.length === 0) return elseBody ? [...elseBody] : []
-      return [{ s: 'if', arms: newArms, elseBody }]
+      // Spread rather than rebuild: this pass rewrites an `if`'s ARMS, so everything else the
+      // node carries is still true of it, including the authored span. Building a fresh
+      // literal dropped every `if` span at O1 and above, which is exactly the tier a debugger
+      // attaches to.
+      return [{ ...s, arms: newArms, elseBody }]
     }
     case 'for':
       return [{ ...s, body: ddBody(s.body) }]

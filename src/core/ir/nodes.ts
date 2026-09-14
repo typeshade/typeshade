@@ -129,10 +129,12 @@ export type Expr =
       readonly fn: string
       readonly args: readonly Expr[]
       readonly declRef?: FuncDecl
-      /** Where this call was written in its authored `"use typeshade"` source. The one
-       *  expression kind that carries a span in this increment, because stepping into a
-       *  helper needs to tell two calls in one statement apart; absent elsewhere. Read it
-       *  with {@link sourceSpanOf}. */
+      /** Where this call was written, when it is the outermost call node lowered from a
+       *  `ts.CallExpression`. Stepping into a helper has to tell two calls in one statement
+       *  apart, which is why this expression kind carries a span at all. A call the front end
+       *  synthesises while expanding one (the `random` hash, an array higher-order function,
+       *  a `Math.*` expansion, a numeric cast) carries none, because it was written nowhere.
+       *  Read it with {@link sourceSpanOf}. */
       readonly span?: SourceSpan
     }
   | {
