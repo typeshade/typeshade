@@ -93,7 +93,7 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 32  | `fp64-sine-sweep`     | generic      | blocked             | **A6-f64**                        | 13 / 36        |
 | 33  | `gradient`            | generic      | source ok · **#14** | — (source compiles; GLSL invalid) | 33 / 36        |
 | 34  | `override-quality`    | generic      | blocked             | **A7-override**                   | 1 / 36         |
-| 35  | `texture-array-lod`   | generic      | blocked             | **A1**, A3, A7-tex                | 28 / 36        |
+| 35  | `texture-array-lod`   | generic      | blocked             | **A1**, ~~A3~~, A7-tex            | 28 / 36        |
 | 36  | `compute-reduction`   | compute      | **ported**          | — (reflection hit by #14)         | —              |
 
 **Source the compiler accepts today: 2 of 36.** Of those, **1 has shipped as a twin**

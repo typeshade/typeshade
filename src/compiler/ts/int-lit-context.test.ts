@@ -246,6 +246,80 @@ describe('a float context is untouched', () => {
   it('leaves a call whose arguments are all written numbers alone', () => {
     expect(wgslOf('export function f(): f32 {\n  return min(1, 2);\n}')).toContain('min(1.0, 2.0)')
   })
+
+  it('keeps the IR SHAPE, which is what the isIntScalar guard is for', () => {
+    // Every other assertion in this block reads emitted TEXT, and the emit-level constant
+    // folder collapses `(1.0 + 1.0)` to `2.0` either way — so deleting the guard leaves them
+    // all green. What changes is the IR: retargetIntLit folds BEFORE it retargets, so without
+    // the guard an f32 context would receive a single `lit 2` where a `binop` was built
+    // before, and `fn()` — the IR-equality oracle — would stop matching.
+    const e = returnExpr('export function f(): f32 {\n  return 1. + 1.;\n}')
+    expect(e.op).toBe('binop')
+    const u = returnExpr('export function f(): u32 {\n  return 1 + 1;\n}')
+    expect(u).toEqual({ op: 'lit', type: expect.anything(), value: 2 })
+    expect(typeKey(u.type)).toBe('u32')
+  })
+})
+
+describe('what the rule deliberately does not reach', () => {
+  it('leaves a literal that does not fit the declared integer type alone', () => {
+    // retargetIntLit builds its literal by folding, so nothing downstream would have caught
+    // an out-of-range one: before this check `return -1` in a u32 function was silently
+    // retyped and only the backend refused it. The type mismatch it always reported is back.
+    for (const [src, want] of [
+      ['export function f(): u32 {\n  return -1;\n}', 'declared u32, got f32'],
+      ['export function f(): u32 {\n  return 4294967296;\n}', 'declared u32, got f32'],
+      ['export function f(): i32 {\n  return 2147483648;\n}', 'declared i32, got f32'],
+      ['export function f(): i32 {\n  return -2147483649;\n}', 'declared i32, got f32'],
+    ] as const) {
+      expect(diagnose(src)).toContain(want)
+    }
+    // The edges themselves still retarget.
+    expect(wgslOf('export function f(): i32 {\n  return -2147483648;\n}')).toContain(
+      'return -2147483648;',
+    )
+    expect(wgslOf('export function f(): u32 {\n  return 4294967295;\n}')).toContain(
+      'return 4294967295u;',
+    )
+  })
+
+  it('does not retype float arithmetic that happens to fold to a whole number', () => {
+    // §13 says a number written WITHOUT a decimal point takes the declared type. The fold
+    // inside retargetIntLit does not know how the number was written, so `2.5 + 0.5` in a u32
+    // position emitted `return 3u;` until every leaf of the operand tree had to be an integer
+    // literal.
+    expect(diagnose('export function f(): u32 {\n  return 2.5 + 0.5;\n}')).toContain(
+      'declared u32, got f32',
+    )
+    expect(
+      diagnose(`
+        export function g(a: u32): u32 {
+          return a;
+        }
+        export function f(): u32 {
+          return g(0.5 + 0.5);
+        }
+      `),
+    ).toBe('Argument 1 of "g" type mismatch.')
+    expect(diagnose('export function f(): vec2i {\n  return vec2i(1.5 + 0.5, 2);\n}')).toContain(
+      'expected i32',
+    )
+    // …while arithmetic whose leaves ARE integer literals still takes the declared type.
+    expect(wgslOf('export function f(): u32 {\n  return 2 + 3;\n}')).toContain('return 5u;')
+  })
+
+  it('never lets a literal in the first argument retype a whole intrinsic call', () => {
+    // mathResultType is args[0].type, so retargeting there retypes the call rather than the
+    // argument. A sweep of 243 programs found 24 that compiled before and errored after when
+    // it did; `max(1, i)` in an f32 position is one, and it is unchanged here.
+    expect(wgslOf('export function f(i: i32): f32 {\n  return max(1, i);\n}')).toContain(
+      'max(1.0, i)',
+    )
+    // The position this item is actually about — the literal is not the peer — still works.
+    expect(wgslOf('export function f(i: i32): i32 {\n  return min(i, 4);\n}')).toContain(
+      'min(i, 4)',
+    )
+  })
 })
 
 describe('what still does not compile', () => {

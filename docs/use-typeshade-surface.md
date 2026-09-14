@@ -246,21 +246,45 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
 ## 13. Integer literals
 
+**Numbering:** §§9 to §12 are reserved for issue #8's A2, A6, A8 and A9, which are in flight
+on their own branches and append here in issue order. This section is §13 so the six A-item
+branches do not all claim §9 and collide on merge.
+
 A number written without a decimal point takes the type the position around it **declares**.
 It is WGSL's abstract-integer rule, narrowed to the places where a type is actually stated:
 
 ```ts
-export function f(): u32 { return 0 }            // the declared return type
-x = 2                                            // the assignment target's type
-g(1)                                             // the parameter's type
-{ id: 0 }                                        // the struct field's type
-vec3u(1, 2, 3)                                   // the constructor's element type
-c ? 1 : 2                                        // through both arms, from the position around it
-for (let i = 0; i < 4; i++)                      // i32, the type an induction variable must have
-xs[0]                                            // i32
-min(i, 4)                                        // the kind of the call's other arguments
-const N: u32 = 16                                // the declared type
-let j: i32 = -1                                  // the declared type, sign and all
+"use typeshade"
+
+const N: u32 = 16 // the declared type — on the IR; see the note below
+
+class Id {
+  id: u32
+}
+
+export function g(a: i32): i32 {
+  return a
+}
+
+export function positions(i: i32, c: bool, xs: array<f32, 4>): u32 {
+  let j: i32 = -1 // the declared type, sign and all
+  let x: u32 = N // the assignment target's type…
+  x = 2 // …here
+  const s: Id = { id: 0 } // the struct field's type
+  const v = vec3u(1, 2, 3) // the constructor's element type
+  const t: u32 = c ? 1 : 2 // through both arms, from the position around it
+  let acc = 0.
+  for (let k = 0; k < 4; k++) {
+    // i32, the type an induction variable must have
+    acc += xs[0] // an index is an i32
+  }
+  return u32(g(1) + j) + x + s.id + v.x + t + u32(acc) + u32(min(i, 4))
+  //         ^ the parameter's type              ^ the kind of the call's other arguments
+}
+
+export function ret(): u32 {
+  return 0 // the declared return type
+}
 ```
 
 Only a declared **integer** type changes anything. In every float position the literal stays
@@ -277,5 +301,22 @@ A literal that is not an integer stays what it is and is diagnosed against the d
 `return 1.5` in a `u32` function is still a type mismatch, and so is passing an `i32` value
 where a `u32` is declared. There is no implicit conversion between types — only a literal,
 which has no type of its own until something states one.
+
+Three edges of the rule, each of which the diagnostics still cover:
+
+- **It is about how the number is WRITTEN, not what it folds to.** `return 2 + 3` in a `u32`
+  function is `return 5u;`, but `return 2.5 + 0.5` is a type mismatch — every leaf of the
+  arithmetic has to be an integer literal.
+- **The value has to fit.** `return -1` in a `u32` function, or `2147483648` in an `i32` one,
+  is left exactly as written and reported as the mismatch it always was.
+- **A literal in a builtin call's FIRST argument does not retype the call.** An intrinsic's
+  result type is its first argument's, so `min(1, i)` with an `i32` `i` still types the call
+  `f32` and emits `min(1.0, i)` — which WGSL does not accept. The position this rule is for is
+  the other one, `min(i, 4)`, where the literal is not what decides the type. Fixing the first
+  position means changing how every intrinsic's result type is decided, which is not additive.
+
+`const N: u32 = 16` is the **front end** only: the `ConstDecl` it builds carries `u32` and
+`16`, and the backend's `emitConst` still spells every scalar constant with a float literal,
+so the emitted line reads `const N: u32 = 16.0;`. That half is issue #13, with #17 as its fix.
 
 Last updated: 2026-09-14

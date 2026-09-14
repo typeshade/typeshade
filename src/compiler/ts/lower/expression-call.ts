@@ -153,9 +153,6 @@ export function lowerCall(
         args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem)
       }
     }
-  }
-
-  if (ctor) {
     if (args.length === 1 && isVectorCtorScalar(args[0]!.type, ctor.elem)) {
       const splat = args[0]!
       return {
@@ -257,9 +254,12 @@ function isBareNumericLiteral(node: ts.Expression): boolean {
  *  arguments (#8 A3): `min(i, 4)` with `i` an i32 makes the 4 an i32, and `clamp(x, 0, 1)`
  *  with `x` an f32 leaves both literals f32, since retargetIntLitCtx only acts on an integer
  *  target. The peer is the element scalar of the first argument that is not itself a written
- *  number, so `min(vu, 4)` on a vec3<u32> types the 4 as u32 and `min(u32(1), 2)` types the 2
- *  as u32. A call with nothing but written numbers has no peer and is left alone. Mutates
- *  `args` in place. */
+ *  number, so `min(u32(1), 2)` types the 2 as u32. A call with nothing but written numbers has
+ *  no peer and is left alone.
+ *
+ *  The FIRST argument is never retargeted, whatever the peer says: `mathResultType` is
+ *  `args[0].type`, so a literal there types the whole call rather than itself. See the loop.
+ *  Mutates `args` in place. */
 function retargetIntrinsicLiterals(
   args: Expr[],
   node: ts.CallExpression,
@@ -270,7 +270,18 @@ function retargetIntrinsicLiterals(
   const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined
   if (!peer) return
   const target = literalPeerType(peer)
-  for (let i = 0; i < args.length; i++) {
+  for (let i = 1; i < args.length; i++) {
+    // From 1, never 0: `mathResultType` is `args[0].type`, so retargeting a literal in the
+    // FIRST position does not just retype that argument, it retypes the whole call. A sweep
+    // over the intrinsics found 42 programs changed by that — 24 that compiled before and
+    // errored after (`max(1, i)` became an i32 call and no longer fit an f32 position) and 18
+    // whose emit moved. Retargeting only the later arguments keeps the case this item is
+    // about, `min(i, 4)`, because there the peer is the first argument and the literal is not.
+    //
+    // What it leaves alone is `min(1, i)`, a literal in the type-deciding position, which
+    // still types the call f32 and emits `min(1.0, i)` — invalid WGSL, exactly as on main.
+    // Fixing that means changing how an intrinsic call's result type is decided, which is a
+    // change to every intrinsic rather than to this rule, and is not additive.
     const argNode = node.arguments[i]
     if (!argNode) continue
     args[i] = retargetIntLitCtx(args[i]!, argNode, target)

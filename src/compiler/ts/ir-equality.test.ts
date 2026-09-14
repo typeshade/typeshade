@@ -64,6 +64,15 @@ function normalizeExpr(e: Expr): unknown {
       return { op: 'param', type: typeKey(e.type), name: e.name }
     case 'varref':
       return { op: 'varref', type: typeKey(e.type), name: e.name }
+    case 'call':
+      // Without this arm the `min(i, 4)` case compared `{ op: 'call' }` to `{ op: 'call' }`
+      // and passed on the merge base, where the literal is still an f32.
+      return {
+        op: 'call',
+        type: typeKey(e.type),
+        fn: e.fn,
+        args: e.args.map(normalizeExpr),
+      }
     case 'binop':
       return {
         op: 'binop',
