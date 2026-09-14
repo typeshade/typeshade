@@ -11,6 +11,7 @@ import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js
 import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
+import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -37,7 +38,28 @@ export function lowerStatements(
   return out
 }
 
+/** Lowers one TypeScript statement, then stamps every IR statement it produced with `node`'s
+ *  source span unless a finer capture site already stamped one (`withSpan` keeps the first).
+ *  Doing it here, at the one place every statement kind passes through, is what makes span
+ *  capture total: a new statement kind inherits it by being lowered, not by remembering to
+ *  call something. A `ts.Block` lowers to its own inner statements, each of which already
+ *  carries its own span, so the blanket stamp is a no-op there. */
 export function lowerStatement(
+  node: ts.Statement,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | Stmt[] | undefined {
+  const lowered = lowerStatementNode(node, sourceFile, scope, diagnostics)
+  if (lowered === undefined) return undefined
+  if (Array.isArray(lowered)) {
+    for (const s of lowered) withSpan(s, sourceFile, node)
+    return lowered
+  }
+  return withSpan(lowered, sourceFile, node)
+}
+
+function lowerStatementNode(
   node: ts.Statement,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
@@ -127,9 +149,24 @@ function lowerVariableStatement(
     )
     return undefined
   }
+  // One declarator is the overwhelmingly common case, and there the statement IS the
+  // declaration: stamping the declarator alone gives a span starting after the `const`/`let`
+  // keyword, so a breakpoint on that line points mid-statement. Several declarators genuinely
+  // lower to several IR statements, and there each must span its own, or stepping through
+  // `const a = 1, b = 2` highlights the whole line twice.
+  const single = node.declarationList.declarations.length === 1
   const results: Stmt[] = []
   for (const decl of node.declarationList.declarations) {
-    const one = lowerVariableDeclaration(decl, isConst, sourceFile, scope, diagnostics)
+    // The node whose span the lowered statement takes, decided here because only this level
+    // knows how many declarators there are.
+    const one = lowerVariableDeclaration(
+      decl,
+      isConst,
+      sourceFile,
+      scope,
+      diagnostics,
+      single ? node : decl,
+    )
     if (one) results.push(one)
   }
   if (results.length === 0) return undefined
@@ -142,6 +179,7 @@ function lowerVariableDeclaration(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  spanNode: ts.Node = decl,
 ): Stmt | undefined {
   if (!ts.isIdentifier(decl.name)) {
     pushDiag(
@@ -212,8 +250,16 @@ function lowerVariableDeclaration(
     )
     return undefined
   }
-  if (isConst) return { s: 'let', name, expr: init }
-  return { s: 'var', name, type: bindingType, init }
+  // #51 records the NAME's span with the declared type, for hover; the stamp below records
+  // the STATEMENT's, for stepping. Complementary, and both wanted here.
+  scope.recordDeclaration(sourceFile, decl.name, {
+    name,
+    kind: 'local',
+    type: bindingType,
+    mutable: !isConst,
+  })
+  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, spanNode)
+  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, spanNode)
 }
 
 function lowerExpressionStatement(
@@ -348,7 +394,9 @@ function lowerLValue(
     }
     const idx = lowerExpression(node, sourceFile, scope, diagnostics)
     if (!idx || idx.op !== 'index') return undefined
-    return idx
+    // The lvalue carries its own span (docs/debugging.md §5 decision 3): a debugger stopped on
+    // this statement can highlight what is about to change, not just the line it is on.
+    return withSpan(idx, sourceFile, node)
   }
   if (!ts.isIdentifier(node)) {
     pushDiag(
@@ -387,8 +435,17 @@ function lowerLValue(
     )
     return undefined
   }
-  if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
-  return { op: 'varref', type: binding.type, name: binding.name }
+  if (binding.kind === 'param')
+    return withSpan(
+      { op: 'param', type: binding.type, name: binding.name } as Expr,
+      sourceFile,
+      node,
+    )
+  return withSpan(
+    { op: 'varref', type: binding.type, name: binding.name } as Expr,
+    sourceFile,
+    node,
+  )
 }
 
 function lowerIf(
