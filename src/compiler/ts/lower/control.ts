@@ -1,5 +1,5 @@
 import ts from 'typescript'
-import type { Expr, Stmt } from '../../../core/ir/nodes.js'
+import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
@@ -248,6 +248,17 @@ export function lowerSwitch(
   return { s: 'switch', scrut, cases, defaultBody }
 }
 
+/** The compound assignments a `for` update may use. Multiplication and division are here
+ *  because a loop that scales its induction variable is still counted; the bitwise forms are
+ *  not, because a counted loop's trip count has to be knowable and a shift or a mask is not
+ *  one of the shapes {@link analyzeCountedFor} can read. */
+const FOR_UPDATE_OP: Readonly<Record<number, BinOp>> = {
+  [ts.SyntaxKind.PlusEqualsToken]: '+',
+  [ts.SyntaxKind.MinusEqualsToken]: '-',
+  [ts.SyntaxKind.AsteriskEqualsToken]: '*',
+  [ts.SyntaxKind.SlashEqualsToken]: '/',
+}
+
 export function lowerUpdate(
   expr: ts.Expression,
   sourceFile: ts.SourceFile,
@@ -317,24 +328,33 @@ export function lowerUpdate(
       },
     }
   }
-  if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
-    const left = expr.left
-    if (!ts.isIdentifier(left)) return undefined
-    const binding = scope.resolve(left.text)
-    if (!binding) return undefined
-    let rhs = lowerExpression(expr.right, sourceFile, scope, diagnostics)
-    if (!rhs) return undefined
-    if (rhs.op === 'lit' && typeof rhs.value === 'number') {
-      rhs = { op: 'lit', type: binding.type, value: rhs.value }
+  if (ts.isBinaryExpression(expr)) {
+    // All four arithmetic compound assignments, not just `+=` (#8 A15). `i *= 2` and `i /= 2`
+    // are ordinary counted loops — a 64-wide halving reaches its bound in six iterations — and
+    // the only reason they were "Unsupported for-update" is that nothing lowered them.
+    // analyzeCountedFor reads the step back out and refuses one that cannot advance.
+    const bop = FOR_UPDATE_OP[expr.operatorToken.kind]
+    if (bop !== undefined) {
+      const left = expr.left
+      if (!ts.isIdentifier(left)) return undefined
+      const binding = scope.resolve(left.text)
+      if (!binding) return undefined
+      let rhs = lowerExpression(expr.right, sourceFile, scope, diagnostics)
+      if (!rhs) return undefined
+      if (rhs.op === 'lit' && typeof rhs.value === 'number') {
+        rhs = { op: 'lit', type: binding.type, value: rhs.value }
+      }
+      // `i += 2` writes `i`, so the target carries the lvalue's span (#32) — for all four
+      // operators, the same way main stamped the `+=`-only form this generalises.
+      const target: Expr = withSpan(
+        binding.kind === 'param'
+          ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
+          : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+        sourceFile,
+        left,
+      )
+      return { s: 'assignOp', target, bop, expr: rhs }
     }
-    const target: Expr = withSpan(
-      binding.kind === 'param'
-        ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
-        : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
-      sourceFile,
-      left,
-    )
-    return { s: 'assignOp', target, bop: '+', expr: rhs }
   }
   pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)
   return undefined

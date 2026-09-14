@@ -270,10 +270,10 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §§9 and 10 are reserved for issue #8's A2 (member and component assignment)
-and A6 (`discard`, the missing builtins, `**`), which are in flight on their own branches and
-append here in issue order. This section is §11 so the six A-item branches do not all claim
-§9 and collide on merge.
+**Numbering:** §§9, 10 and 12 to 16 are reserved for issue #8's A2, A6, A9, A3, A10, A7 and
+A11, which are in flight on their own branches and append here in issue order. The sections
+below took the next free numbers so the A-item branches do not all claim §9 and collide on
+merge.
 
 ---
 
@@ -310,5 +310,50 @@ oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the o
 `-3.2` above happens to agree, and an in-range source always does. So the cross-backend
 ground a portable shader can stand on is **in-range values**; clamp before you convert if the
 source might not be.
+
+## 17. What a `for` loop may say, and what it is told
+
+A `for` must be **counted**: an integer induction variable, a constant bound, a constant step,
+and at most 256 trips. That has not changed. Two things about it have.
+
+**The step may scale, not only add.** All four arithmetic compound assignments are update
+forms now:
+
+```ts
+"use typeshade"
+
+export function shrink(): f32 {
+  let a = 0.
+  for (let i: i32 = 64; i > 1; i /= 2) {
+    a += 1. // 64 32 16 8 4 2 — six trips
+  }
+  for (let j: i32 = 1; j < 64; j *= 2) {
+    a += 1.
+  }
+  for (let k: i32 = 8; k > 0; k -= 2) {
+    a += 1.
+  }
+  return a
+}
+```
+
+A halving loop over a mip chain or a doubling one over a binary reduction is an ordinary
+counted loop — it reaches its bound in six iterations — and the only reason it was
+`Unsupported for-update` is that nothing read it.
+
+**A loop that exits too late is told that, not that it does not exit.** The trip count is
+computed rather than walked, so the answer is exact at any size:
+
+| | before | after |
+| --- | --- | --- |
+| `for (let i: i32 = 0; i < 1024; i++)` | `for (i = 0; i < 1024; step 1) does not exit.` | `for trip count 1024 exceeds 256.` |
+| `for (let i: i32 = 0; i < 16; i -= 1)` | the same sentence | unchanged — this one really does not exit |
+
+The old counter walked the sequence and could only look 258 steps ahead, so a policy violation
+and a non-terminating loop shared one message. They are different mistakes and the fix for each
+is different: the first wants a smaller bound, the second a step that moves toward it.
+
+A step that cannot advance the variable now says which way it fails — `i += 0`, `i *= 1`,
+`i *= 0` and `i /= 0` each get their own reason instead of one sentence about a step of 0.
 
 Last updated: 2026-09-14
