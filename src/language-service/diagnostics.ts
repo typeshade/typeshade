@@ -130,6 +130,29 @@ function binaryExpressionAt(
   return undefined
 }
 
+/**
+ * The binary expression `diagnostic` covers EXACTLY, if it is reported on one. A code that names
+ * both operands (TS2365) spans the whole operation, and a left-nested product starts at the same
+ * offset as the operation it is nested in (`n * 3. + v` and `n * 3.` both start at `n`), so the
+ * nearest enclosing binary is the wrong one to ask about half the time: it made `n * 3. + v`
+ * report while `v + n * 3.` and `(n * 3.) + v`, the same program respelled, did not. Matching
+ * the end as well as the start picks the operation the code is actually about, the same guard
+ * `argumentAt` uses for an argument.
+ */
+function binaryExpressionSpanning(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): ts.BinaryExpression | undefined {
+  const pos = diagnostic.start ?? 0
+  const end = pos + (diagnostic.length ?? 0)
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
+  while (node !== undefined) {
+    if (ts.isBinaryExpression(node) && node.getStart() === pos && node.getEnd() === end) return node
+    node = node.parent
+  }
+  return undefined
+}
+
 /** `+ - * / %` and their compound-assignment forms: the operators a vector or matrix operand
  * makes TypeScript give up on, and so the only ones `hasGpuArithmetic` accepts as the reason a
  * `number` turned up where a vector belongs. */
@@ -189,11 +212,13 @@ function isGpuRightOperand(context: DiagnosticFilterContext, diagnostic: ts.Diag
  * size") is the authority on what combines with what, and leaving both would show the editor
  * two messages for one mistake. The operator has to be arithmetic as well: TS2365 is raised for
  * other operators too, and this rule claims only the arithmetic false positive, so a vector
- * operand alone is never reason enough to drop one.
+ * operand alone is never reason enough to drop one. The operation asked about is the one the
+ * code SPANS (see `binaryExpressionSpanning`), not the nearest one enclosing its start offset,
+ * which for a left-nested product is a different operation entirely.
  */
 function isGpuBinaryOperand(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
-  const binary = binaryExpressionAt(context, diagnostic)
-  if (binary === undefined || binary.getStart() !== (diagnostic.start ?? 0)) return false
+  const binary = binaryExpressionSpanning(context, diagnostic)
+  if (binary === undefined) return false
   if (!ARITHMETIC_OPERATORS.has(binary.operatorToken.kind)) return false
   return isGpuExpression(context, binary.left) || isGpuExpression(context, binary.right)
 }
@@ -279,6 +304,327 @@ function isGpuArithmeticAssignment(
   return isGpuExpression(context, value) || hasGpuArithmetic(context, value)
 }
 
+/**
+ * The argument of a call expression one diagnostic is reported on, with the call and the
+ * argument's index, so a rule can ask what the callee wanted in that position.
+ */
+interface ArgumentPosition {
+  readonly call: ts.CallExpression
+  readonly index: number
+  readonly argument: ts.Expression
+}
+
+/**
+ * The argument `diagnostic` covers exactly, if it is reported on one. TS2345 spans the whole
+ * argument expression, so the walk up from the diagnostic's position takes the first ancestor
+ * that is an argument of a call AND has exactly the diagnostic's span: without that span check,
+ * a diagnostic reported on a callee (`inner` in `outer(inner(x))`, which starts at the same
+ * offset as the argument `inner(x)`) would be attributed to the outer call's parameter.
+ */
+function argumentAt(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): ArgumentPosition | undefined {
+  const pos = diagnostic.start ?? 0
+  const end = pos + (diagnostic.length ?? 0)
+  let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, pos)
+  while (node !== undefined) {
+    const parent: ts.Node | undefined = node.parent
+    if (parent !== undefined && ts.isCallExpression(parent) && node.getStart() === pos) {
+      const index = parent.arguments.indexOf(node as ts.Expression)
+      if (index >= 0 && node.getEnd() === end) {
+        return { call: parent, index, argument: node as ts.Expression }
+      }
+    }
+    node = parent
+  }
+  return undefined
+}
+
+/** Whether `symbol` is a signature's rest parameter (`...args: T[]`), read from its own
+ * declaration rather than from the parameter's position in the list. */
+function isRestParameter(symbol: ts.Symbol): boolean {
+  const declaration = symbol.valueDeclaration
+  return (
+    declaration !== undefined &&
+    ts.isParameter(declaration) &&
+    declaration.dotDotDotToken !== undefined
+  )
+}
+
+/**
+ * The type `signature` declares for the argument at `index`, or `undefined` when the signature
+ * has no parameter there (a call with too many arguments, which is TS2554's business, not this
+ * file's). A rest parameter covers every index from its own onwards and is unwrapped to its
+ * element type, so `hypot(v * s, w)`'s second argument is measured against `T`, not `T[]`.
+ */
+function parameterTypeOfSignature(
+  checker: ts.TypeChecker,
+  signature: ts.Signature,
+  index: number,
+  location: ts.Node,
+): ts.Type | undefined {
+  const parameters = signature.getParameters()
+  const last = parameters[parameters.length - 1]
+  const symbol =
+    parameters[index] ?? (last !== undefined && isRestParameter(last) ? last : undefined)
+  if (symbol === undefined) return undefined
+  const type = checker.getTypeOfSymbolAtLocation(symbol, location)
+  if (!isRestParameter(symbol)) return type
+  return checker.getIndexTypeOfType(type, ts.IndexKind.Number) ?? type
+}
+
+/**
+ * Every parameter type the argument at `position` could be measured against: the one from the
+ * signature the checker resolved, plus, when the callee is overloaded and the checker resolved
+ * none of its declared overloads, the parameter type each overload declares at that index. The
+ * ambient vector constructors are the overloaded callees that matter here (`vec4` has four
+ * overloads), and a TS2345 on one of them usually MEANS no overload matched, so there is no
+ * single picked signature to ask; "some overload wants a vector in this position" is then the
+ * honest question, and the argument side of the rule is what keeps `vec4(1., 1.)` reported.
+ */
+function parameterTypesAt(
+  checker: ts.TypeChecker,
+  position: ArgumentPosition,
+  resolved: ts.Signature | undefined,
+): ts.Type[] {
+  const { call, index } = position
+  const types: ts.Type[] = []
+  if (resolved !== undefined) {
+    const type = parameterTypeOfSignature(checker, resolved, index, call)
+    if (type !== undefined) types.push(type)
+  }
+  const overloads = checker.getTypeAtLocation(call.expression).getCallSignatures()
+  if (overloads.length > 1 && (resolved === undefined || !overloads.includes(resolved))) {
+    for (const overload of overloads) {
+      const type = parameterTypeOfSignature(checker, overload, index, call)
+      if (type !== undefined) types.push(type)
+    }
+  }
+  return types
+}
+
+/**
+ * Whether the parameter `position` lands on is INFERRED from the call's own arguments, that is,
+ * whether the signature declares it as one of its own type parameters (`dot<T extends Numeric>`,
+ * `hypot<T>(...args: T[])`). Such a position has no fixed type to compare against: it is
+ * whatever the checker inferred from the arguments, so one argument's type decides the type
+ * every other argument is then checked against.
+ */
+function isInferredParameter(
+  checker: ts.TypeChecker,
+  position: ArgumentPosition,
+  signature: ts.Signature,
+): boolean {
+  const declaration = signature.getDeclaration() as ts.SignatureDeclaration | undefined
+  if (declaration === undefined) return false
+  const parameters = declaration.parameters
+  const last = parameters[parameters.length - 1]
+  const parameter =
+    parameters[position.index] ??
+    (last !== undefined && last.dotDotDotToken !== undefined ? last : undefined)
+  const declared = parameter?.type
+  if (declared === undefined) return false
+  const node =
+    parameter.dotDotDotToken !== undefined && ts.isArrayTypeNode(declared)
+      ? declared.elementType
+      : declared
+  return (checker.getTypeAtLocation(node).flags & ts.TypeFlags.TypeParameter) !== 0
+}
+
+/**
+ * Every brand shape a type carries, as keys that compare two branded types by SHAPE alone:
+ * `vecTag:readonly ["f32", 3]` for a `vec3`, `vecTag:readonly ["i32", 3]` for a `vec3i`,
+ * `matTag:readonly ["f32", 4]` for a `mat4`. The tag is part of the key because the brand
+ * payloads collide across families (a `vec4` and a `mat4` are both branded `readonly
+ * ["f32", 4]`), and a union contributes each of its constituents' shapes, which is how an
+ * overload set's `vec3 | number` answers "a vec3 fits here". A type with no brand contributes
+ * nothing, so an empty set means "this position is not about vectors at all".
+ */
+function gpuShapeKeysOfType(
+  checker: ts.TypeChecker,
+  type: ts.Type,
+  location: ts.Node,
+): ReadonlySet<string> {
+  const keys = new Set<string>()
+  const collect = (candidate: ts.Type): void => {
+    if (candidate.isUnion()) {
+      for (const constituent of candidate.types) collect(constituent)
+      return
+    }
+    for (const property of candidate.getProperties()) {
+      const tag = UNIQUE_SYMBOL_PROPERTY.exec(property.getName())?.[1]
+      if (tag === undefined || !GPU_BRAND_TAG_NAMES.has(tag)) continue
+      const brand = checker.getTypeOfSymbolAtLocation(property, location)
+      keys.add(`${tag}:${checker.typeToString(brand)}`)
+    }
+  }
+  collect(type)
+  return keys
+}
+
+/** The one brand shape `expression`'s own type carries, or `undefined` when it carries none (a
+ * `number`, an `f32`, the `number` a product is typed) or more than one. */
+function gpuShapeOfExpression(
+  context: DiagnosticFilterContext,
+  expression: ts.Expression,
+): string | undefined {
+  const checker = context.checker
+  if (checker === undefined) return undefined
+  const keys = gpuShapeKeysOfType(checker, checker.getTypeAtLocation(expression), expression)
+  return keys.size === 1 ? [...keys][0] : undefined
+}
+
+/** `matTag:` keys, so `gpuArithmeticShape` can tell a matrix operand from a vector one. */
+const MATRIX_SHAPE_PREFIX = 'matTag:'
+
+/** The shape an arithmetic operation produces from its operands' shapes. A matrix times a
+ * vector is a VECTOR (`m * c` is the `vec4` every camera example ends with), so the vector
+ * operand wins; anything else keeps the branded operand it has. */
+function gpuOperationShape(
+  left: string | undefined,
+  right: string | undefined,
+): string | undefined {
+  if (left === undefined || right === undefined) return left ?? right
+  if (left.startsWith(MATRIX_SHAPE_PREFIX) && !right.startsWith(MATRIX_SHAPE_PREFIX)) return right
+  return left
+}
+
+/**
+ * The shape the vector or matrix arithmetic inside `node` would have produced if the brand had
+ * survived it: what `hasGpuArithmetic` finds, answered with a shape instead of a yes. The walk
+ * takes the OUTERMOST such operation, because that is the value the call receives:
+ * `u.tint.rgb * (vo.uv.y * u.gain)` is a `vec3`, decided by its own operands, not by the scalar
+ * product nested in its right-hand side.
+ */
+function gpuArithmeticShape(context: DiagnosticFilterContext, node: ts.Node): string | undefined {
+  if (ts.isBinaryExpression(node) && ARITHMETIC_OPERATORS.has(node.operatorToken.kind)) {
+    const shape = gpuOperationShape(
+      gpuShapeOfExpression(context, node.left),
+      gpuShapeOfExpression(context, node.right),
+    )
+    if (shape !== undefined) return shape
+  }
+  if (
+    (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+    ARITHMETIC_UNARY_OPERATORS.has(node.operator)
+  ) {
+    const shape = gpuShapeOfExpression(context, node.operand)
+    if (shape !== undefined) return shape
+  }
+  return ts.forEachChild(node, (child) => gpuArithmeticShape(context, child))
+}
+
+/** The shape a value would have if arithmetic kept the brand: its own, or the one the
+ * arithmetic inside it produced. `undefined` for a value that is not about vectors at all. */
+function gpuValueShape(
+  context: DiagnosticFilterContext,
+  expression: ts.Expression,
+): string | undefined {
+  return gpuShapeOfExpression(context, expression) ?? gpuArithmeticShape(context, expression)
+}
+
+/** Every brand shape the parameter at `position` accepts, across the signatures
+ * `parameterTypesAt` considers. Empty when that parameter is not a vector or matrix position:
+ * an `f32`, or a type parameter the arguments have already poisoned to `number`. */
+function parameterShapesAt(
+  checker: ts.TypeChecker,
+  position: ArgumentPosition,
+  resolved: ts.Signature | undefined,
+): ReadonlySet<string> {
+  const keys = new Set<string>()
+  for (const type of parameterTypesAt(checker, position, resolved)) {
+    for (const key of gpuShapeKeysOfType(checker, type, position.call)) keys.add(key)
+  }
+  return keys
+}
+
+/**
+ * Whether every OTHER argument of the call still fits where it sits, measured with the brand
+ * arithmetic erased put back. TypeScript checks a call's arguments in order and reports only the
+ * FIRST that fails, so dropping this one hides every later argument's mismatch with it: without
+ * this check `cross(a * 2., b)` with a `vec2` `b` goes completely silent, and the front end has
+ * no argument check for the ambient math functions to speak in TypeScript's place.
+ *
+ * A sibling in an INFERRED position is measured against `shape`, since a type parameter is one
+ * type for the whole call and `shape` is what this argument settles it to; one in a fixed
+ * position is measured against the shapes its own parameter declares. A sibling that carries no
+ * shape at all (a literal, an `f32`, a string) is left alone: it is not this rule's business,
+ * and TypeScript reports it on its own once the arithmetic stops hiding it.
+ */
+function otherArgumentsFit(
+  context: DiagnosticFilterContext,
+  checker: ts.TypeChecker,
+  position: ArgumentPosition,
+  resolved: ts.Signature | undefined,
+  shape: string,
+): boolean {
+  return position.call.arguments.every((argument, index) => {
+    if (index === position.index) return true
+    const other = gpuValueShape(context, argument)
+    if (other === undefined) return true
+    const at: ArgumentPosition = { call: position.call, index, argument }
+    if (resolved !== undefined && isInferredParameter(checker, at, resolved)) return other === shape
+    const declared = parameterShapesAt(checker, at, resolved)
+    return declared.size === 0 || declared.has(other)
+  })
+}
+
+/**
+ * TS2345 ("Argument of type 'number' is not assignable to parameter of type 'vec3'"), the same
+ * lost brand as TS2322 seen at a call instead of at an assignment: `vec4(u.tint.rgb * k, ...)`,
+ * `normalize(v * s)`, `mix(a, b * 0.5, t)` and a user function's `f(v * s)` all hand a vector
+ * position a value TypeScript has already typed `number`. Two shapes, because vector arithmetic
+ * reaches a call from two directions (issue #43):
+ *
+ * - the argument itself does vector or matrix arithmetic and that arithmetic's SHAPE is one the
+ *   parameter there accepts (`vec3 * f32` into a `vec3` parameter);
+ * - the parameter's type is INFERRED from the arguments and another argument's arithmetic, of
+ *   exactly this argument's shape, poisoned the inference: in `dot(a * 2., b)` with two `vec3`
+ *   the first argument is already `number`, so `T` infers `number` and TypeScript reports the
+ *   perfectly good `b` instead.
+ *
+ * Both arms compare SHAPES, never just "there is a brand here and arithmetic somewhere", because
+ * the ambient math functions are checked by nothing else: the compiler front end has no argument
+ * check for them at all (`dot(vec3, vec2)` produces no compiler diagnostic), so a wrong size that
+ * TypeScript stops reporting is a wrong size nobody reports. `dot(a * 2., b)` with a `vec2` `b`
+ * keeps its TS2345 because `vec2` is not the `vec3` the arithmetic would have inferred, and
+ * `otherArgumentsFit` extends the same question to the arguments TypeScript never got to.
+ *
+ * Arithmetic on a branded operand is required in both arms, never "the argument is branded" on
+ * its own, so a branded argument of the wrong shape in an arithmetic-free call still reports
+ * (`ambient.test.ts` pins that a `vec2` fails a `vec4` parameter). That is the one way this rule
+ * is narrower than the TS2322 rule it mirrors, where the compiler's own TYPE_MISMATCH does cover
+ * the both-branded case.
+ */
+function isGpuArithmeticArgument(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const checker = context.checker
+  if (checker === undefined) return false
+  const position = argumentAt(context, diagnostic)
+  if (position === undefined) return false
+  const shape = gpuValueShape(context, position.argument)
+  if (shape === undefined) return false
+  const resolved = checker.getResolvedSignature(position.call)
+  if (
+    hasGpuArithmetic(context, position.argument) &&
+    parameterShapesAt(checker, position, resolved).has(shape)
+  ) {
+    return otherArgumentsFit(context, checker, position, resolved, shape)
+  }
+  if (!isGpuExpression(context, position.argument)) return false
+  if (resolved === undefined || !isInferredParameter(checker, position, resolved)) return false
+  const poisoned = position.call.arguments.some(
+    (argument, index) =>
+      index !== position.index &&
+      hasGpuArithmetic(context, argument) &&
+      gpuArithmeticShape(context, argument) === shape,
+  )
+  return poisoned && otherArgumentsFit(context, checker, position, resolved, shape)
+}
+
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
@@ -323,6 +669,24 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       'only when the target is a branded vector or matrix AND the value is one too or does ' +
       'vector or matrix arithmetic, so `let n: f32 = v` (a scalar target) still reports.',
     when: isGpuArithmeticAssignment,
+  },
+  {
+    code: 2345,
+    reason:
+      'The TS2322 case at a call: an argument position that wants a vector or matrix, handed ' +
+      'the `number` vector arithmetic produces. Dropped when the argument does that arithmetic ' +
+      'and the SHAPE it would have produced is one the parameter there accepts (resolved ' +
+      'through the checker; when an overloaded ambient constructor matched no overload, when ' +
+      'SOME overload accepts that shape), or when the parameter type is inferred from the ' +
+      "arguments and another argument's arithmetic, of exactly this argument's shape, " +
+      'poisoned that inference (`dot(a * 2., b)` on two vec3 reports the good `b`). Every ' +
+      'other argument has to fit its own position too, since TypeScript reports only the first ' +
+      'argument that fails: `dot(a * 2., b)` and `cross(a * 2., b)` with a vec2 `b` keep ' +
+      'reporting, as the ambient math functions have no argument check in the front end. ' +
+      'Arithmetic is required either way, so `vec4(1., a)`, `f(1.)` and `f(x)` with `x: f32` ' +
+      'still report. Still hidden, because TypeScript stopped at the argument this rule ' +
+      'dropped: a later argument wrong in a way that is not a vector shape. Issue #43.',
+    when: isGpuArithmeticArgument,
   },
 ]
 
