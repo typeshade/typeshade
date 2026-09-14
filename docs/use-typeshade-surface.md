@@ -209,7 +209,7 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | two resources share `@binding` | name both |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
-| `.length` on a runtime-sized `storage<array<T>>` | `TS8032` — the length is the bound buffer's, not the type's; needs `arrayLength`, unspelled today |
+| `.length` on an `array<T>` with no `N`, anywhere | `TS8032`. For a `storage` array the length is the bound buffer's and needs `arrayLength` (unspelled today); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 
 ---
 

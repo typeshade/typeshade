@@ -287,6 +287,7 @@ export function fillFunctionBody(
       name: b.name,
       type: b.type,
       mutable: b.access === 'read_write',
+      space: b.space,
     })
   }
   for (const p of stub.params) {

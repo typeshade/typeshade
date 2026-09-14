@@ -48,8 +48,9 @@ Where the two disagree with intuition, the probe wins. Three results came out th
 way from what reading the feature list suggested: **A2** (member assignment), which ranks
 second in issue #8, blocks nothing here; f64 **arithmetic** already works, so the fp64
 family is held up by the cast and the literal rather than by the emulation; and `.length`
-on an unsized storage array is accepted and emits `0u`, which is worse than the rejection
-it was assumed to be.
+on an unsized storage array **was** accepted and emitted `0u`, which is worse than the
+rejection it was assumed to be — see the hazards entry below, which records that it is a
+diagnostic now.
 
 The classification is then "does every feature this example demands have a probe that
 passes". For seven examples the whole shader was additionally written out as a `.shade.ts`
