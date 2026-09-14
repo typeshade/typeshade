@@ -274,8 +274,12 @@ type mat2<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 2>
 type mat3<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 3>
 
 declare const arrayTag: unique symbol
+// The index signature is WRITABLE. \`out[gid.x] = value\` is the shape of every compute kernel
+// (examples/compute-reduction-twin.shade.ts), and the compiler lowers it to a storage store, so a
+// \`readonly\` here reported TS2542 ("Index signature ... only permits reading") on a program that
+// compiles. The tag and \`length\` stay readonly: neither is assignable in the source language.
 type array<T, N extends number = number> = { readonly [arrayTag]: readonly [T, N]; readonly length: N } & {
-  readonly [index: number]: T
+  [index: number]: T
 }
 declare function array<T, N extends number>(...values: readonly T[]): array<T, N>
 declare function fill<T, N extends number>(value: T): array<T, N>

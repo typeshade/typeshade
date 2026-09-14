@@ -373,6 +373,13 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   already makes for swizzles, a false negative in the editor over a false positive on valid
   code, and the compiler's own type checks still catch the scalar mixing that TypeScript's
   structural check lets through.
+- A storage array is writable in the editor exactly as it is in the compiler: `ambient.ts`'s
+  `array<T, N>` declares a plain `[index: number]: T`, not a `readonly` one. `out[idx] = value`
+  is the shape every compute kernel ends with (`examples/compute-reduction-twin.shade.ts`), and
+  the compiler lowers it to a storage store, so the `readonly` this type first carried made
+  TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
+  on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
+  assignable in the source language, so `out.length = 2` keeps its TS2540.
 
 ### Vector and matrix arithmetic (issue #21)
 
