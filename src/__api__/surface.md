@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 382 exports
+## `.` — 383 exports
 
 ```
 abs
@@ -342,6 +342,7 @@ TypeshadeHover
 TypeshadeLanguageService
 TypeshadeLanguageServiceOptions
 TypeshadePosition
+TypeshadeRange
 TypeshadeTextSpan
 u32
 u32T
@@ -690,7 +691,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 436 definitions
+## Shapes — 437 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -1123,10 +1124,11 @@ src/emit-prod.ts#minify  function  (opts?: MinifyOptions) => EmitPlugin
 src/emit-prod.ts#obfuscate  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin[]
 src/emit-prod.ts#prune  function  () => EmitPlugin
 src/language-service.ts#TypeshadeCompletionItem  interface  { detail: string; insertText?: string; kind: "function" | "keyword" | "type" | "attribute" | "value"; label: string }
-src/language-service.ts#TypeshadeDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; fileName: string; length: number; line: number; message: string; start: number }
-src/language-service.ts#TypeshadeHover  interface  { contents: readonly string[]; span: TypeshadeTextSpan }
-src/language-service.ts#TypeshadeLanguageService  class  { fileName: string; getCompletions: (source: string, position: TypeshadePosition) => readonly TypeshadeCompletionItem[]; getDiagnostics: (source: string) => readonly TypeshadeDiagnostic[]; getHover: (source: string, position: TypeshadePosition) => TypeshadeHover; getPosition: (source: string, offset: number) => TypeshadePosition }
+src/language-service.ts#TypeshadeDiagnostic  interface  { category: "error" | "warning" | "message"; code?: string; fileName: string; message: string; range: TypeshadeRange; span: TypeshadeTextSpan }
+src/language-service.ts#TypeshadeHover  interface  { contents: readonly string[]; range: TypeshadeRange; span: TypeshadeTextSpan }
+src/language-service.ts#TypeshadeLanguageService  class  { fileName: string; getCompletions: (source: string, position: TypeshadePosition) => readonly TypeshadeCompletionItem[]; getDiagnostics: (source: string) => readonly TypeshadeDiagnostic[]; getHover: (source: string, position: TypeshadePosition) => TypeshadeHover; getOffset: (source: string, position: TypeshadePosition) => number; getPosition: (source: string, offset: number) => TypeshadePosition }
 src/language-service.ts#TypeshadeLanguageServiceOptions  interface  { fileName?: string }
 src/language-service.ts#TypeshadePosition  interface  { character: number; line: number }
+src/language-service.ts#TypeshadeRange  interface  { end: TypeshadePosition; start: TypeshadePosition }
 src/language-service.ts#TypeshadeTextSpan  interface  { length: number; start: number }
 ```

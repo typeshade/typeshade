@@ -28,6 +28,7 @@ export {
   type TypeshadeHover,
   type TypeshadeLanguageServiceOptions,
   type TypeshadePosition,
+  type TypeshadeRange,
   type TypeshadeTextSpan,
 } from './language-service.js'
 
