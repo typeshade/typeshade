@@ -156,8 +156,23 @@ function isIntType(t: ShaderType): boolean {
 
 function glslLit(value: number | boolean, t: ShaderType): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false'
+  // A `bool` whose value arrived as a NUMBER: `ConstDecl.wgslValue` is typed `number`, so a
+  // module-scope `const FLAG: bool = true` reaches here as 1, and without this arm it would
+  // fall through to the float spelling and emit `const FLAG: bool = 1.0;` — which neither
+  // target accepts. Same class as the integer arms below (#13). Fail-closed like its
+  // neighbours: only 0 and 1 mean anything here, and NaN must not read as `true`.
+  if (t.kind === 'scalar' && t.scalar === 'bool') {
+    if (value !== 0 && value !== 1) throw dslError('SD0017', `bool literal ${value}`)
+    return value === 0 ? 'false' : 'true'
+  }
   if (t.kind === 'scalar' && t.scalar === 'u32') return `${intLit(value, 'u32')}u`
   if (t.kind === 'scalar' && t.scalar === 'i32') return intLit(value, 'i32')
+  // The last declared type this line used to ignore: a non-scalar `ConstDecl` with no
+  // `valueExpr` (`{ type: vec3fT, wgslValue: 1 }`) fell through and emitted
+  // `const K: vec3<f32> = 1.0;`, which both compilers reject. A vector, matrix, array or
+  // struct constant carries its value in `valueExpr`; reaching here without one is a
+  // malformed declaration, not a spelling this function can guess.
+  if (t.kind !== 'scalar') throw dslError('SD0017', `${t.kind} constant with no valueExpr`)
   return f32Lit(value)
 }
 
@@ -431,7 +446,7 @@ export const glslEs300Backend: Backend = {
     glslEs300Backend.constDecl(
       c.name,
       c.type,
-      c.valueExpr ? emitExprNeutral(c.valueExpr, glslEs300Backend) : f32Lit(c.wgslValue),
+      c.valueExpr ? emitExprNeutral(c.valueExpr, glslEs300Backend) : glslLit(c.wgslValue, c.type),
     ),
   // A NON-uniform struct (an IO output type, or a storage element struct) emits as a
   // plain GLSL struct; the `@location`/`@builtin` field attrs are stripped here — they

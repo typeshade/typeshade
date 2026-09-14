@@ -840,7 +840,7 @@ still moving weekly, which is the phase TypeShade is in.
 repository as `packages/typeshade-lsp` and `packages/vscode-typeshade`, with the same rule
 TypeScript follows: the client may add editor-only features, never shader semantics. Keep the
 published npm package boundary as it is, since a workspace package does not change what
-`@xgis/shader-dsl` exports, and reuse the site's `typeshade-syntax.mjs` TextMate grammar in the
+`typeshade` exports, and reuse the site's `typeshade-syntax.mjs` TextMate grammar in the
 client rather than writing a second one.
 
 ### Editor semantics in the service, adapters as conversion
