@@ -152,7 +152,7 @@ describe('component assignment', () => {
           return b;
         }
       `),
-    ).toBe('Cannot apply ++ to bool — ++ steps a numeric scalar or vector.')
+    ).toBe('Cannot apply ++ to bool — ++ steps a numeric scalar.')
     expect(
       diagnose(`
         ${STRUCTS}
@@ -162,7 +162,7 @@ describe('component assignment', () => {
           return p.a;
         }
       `),
-    ).toBe('Cannot apply -- to struct:P — -- steps a numeric scalar or vector.')
+    ).toBe('Cannot apply -- to struct:P — -- steps a numeric scalar.')
   })
 })
 
@@ -530,8 +530,75 @@ describe('what ++ and -- step', () => {
 
   it('still refuses the shapes that have no numeric step', () => {
     expect(diagnose('export function f(): bool {\n  let q = true;\n  q++;\n  return q;\n}')).toBe(
-      'Cannot apply ++ to bool — ++ steps a numeric scalar or vector.',
+      'Cannot apply ++ to bool — ++ steps a numeric scalar.',
     )
+  })
+
+  it('refuses a vector, which has no literal to step by on either target', () => {
+    // Measured against origin/main before narrowing the check: `v++` on a `vec3` and on a
+    // `vec3f64` alike came back as `TS8015 Backend emit failed: … SD0017 … vec constant with no
+    // valueExpr`, because the step is built as ONE literal of the target's type and no vector
+    // literal has a spelling. So this refuses nothing that compiled; it moves the failure to
+    // the source, where the message can name the addition to write instead.
+    expect(
+      diagnose('export function f(): vec3 {\n  let v = vec3(1., 2., 3.);\n  v++;\n  return v;\n}'),
+    ).toBe(
+      'Cannot apply ++ to vec3<f32> — a vector has no literal to step by. Write the addition out, e.g. v = v + vec3(1., 1., 1.).',
+    )
+    expect(
+      diagnose(`
+        declare let vs: storage<array<vec3f64>>
+        @compute([64, 1, 1])
+        export function k(@builtin("global_invocation_id") gid: vec3u) {
+          vs[gid.x]++;
+        }
+      `),
+    ).toBe(
+      'Cannot apply ++ to vec3<f64> — a vector has no literal to step by. Write the addition out, e.g. v = v + vec3f64(...).',
+    )
+  })
+
+  it('declares the df64 helper the f64 step calls, on a member and on an element', () => {
+    // The fp64 pass's f64 arm of `assignOp` emitted `df64_add(...)` without registering the
+    // helper (`ctx.used.add`), which its vec64 arm does — so the module called a function it
+    // never declared and Tint rejected it. Reachable through the member and element `++` this
+    // item adds, and through the `xs[i] += y` that was already there.
+    for (const [program, helper] of [
+      [
+        `"use typeshade";
+        declare let xs: storage<array<f64>>
+        @compute([64, 1, 1])
+        export function k(@builtin("global_invocation_id") gid: vec3u) {
+          xs[gid.x]++;
+        }`,
+        'fn df64_add(',
+      ],
+      [
+        `"use typeshade";
+        declare let xs: storage<array<f64>>
+        @compute([64, 1, 1])
+        export function k(@builtin("global_invocation_id") gid: vec3u) {
+          xs[gid.x]--;
+        }`,
+        'fn df64_sub(',
+      ],
+      [
+        `"use typeshade";
+        class P {
+          a: f64
+        }
+        declare let ds: storage<array<P>>
+        @compute([64, 1, 1])
+        export function k(@builtin("global_invocation_id") gid: vec3u) {
+          ds[gid.x].a++;
+        }`,
+        'fn df64_add(',
+      ],
+    ] as const) {
+      const r = compileTsSource(program)
+      expect(r.diagnostics).toEqual([])
+      expect(r.wgsl).toContain(helper)
+    }
   })
 })
 

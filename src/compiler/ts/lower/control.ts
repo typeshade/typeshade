@@ -310,7 +310,9 @@ export function lowerUpdate(
         diagnostics,
         sourceFile,
         expr,
-        `Cannot apply ${token} to ${typeKey(target.type)} — ${token} steps a numeric scalar or vector.`,
+        isVec(target.type) || isVec64(target.type)
+          ? `Cannot apply ${token} to ${typeKey(target.type)} — a vector has no literal to step by. Write the addition out, e.g. v = v + ${vecCtorHint(target.type)}.`
+          : `Cannot apply ${token} to ${typeKey(target.type)} — ${token} steps a numeric scalar.`,
         TS_CODES.ASSIGN_TARGET,
       )
       return undefined
@@ -361,8 +363,23 @@ export function lowerUpdate(
  *  emitted `p.q = (p.q + 1.0)`, which Tint and ANGLE both reject and the CPU oracle
  *  evaluates to undefined. The identifier arm shares the check, which closes the same hole
  *  it has always had for a bare `q++`. */
+/** The constructor an author would write to add one to a vector of this type, for the `++`
+ *  refusal's message: `vec3(1., 1., 1.)`, `vec3f64(...)` for an emulated double. */
+function vecCtorHint(t: ShaderType): string {
+  if (isVec64(t)) return `vec${t.n}f64(...)`
+  if (!isVec(t)) return 'vec3(1., 1., 1.)'
+  const suffix = t.elem === 'f32' ? '' : t.elem === 'i32' ? 'i' : 'u'
+  const one = t.elem === 'f32' ? '1.' : '1'
+  return `vec${t.n}${suffix}(${Array.from({ length: t.n }, () => one).join(', ')})`
+}
+
 function isSteppable(t: ShaderType): boolean {
-  if (isVec(t) || isVec64(t)) return true
+  // A numeric SCALAR only, vectors included out. `++` builds its step as one literal of the
+  // target's type, and no vector literal has a spelling: `v++` on a `vec3` and on a `vec3f64`
+  // alike fails closed at emit with SD0017 ("vec constant with no valueExpr"), on `main` and on
+  // this branch, for the bare name as well as for the member and element forms this item adds.
+  // Measured against origin/main before narrowing this, so it refuses nothing that compiles —
+  // it moves a backend failure to the source, where the message can name the fix.
   const k = typeKey(t)
   // f64 belongs here: an emulated double is a numeric scalar the fp64 pass lowers, and `s++`
   // on one emitted `s = df64_add(s, vec2<f32>(1.0, 0.0))` before this check existed. Leaving
