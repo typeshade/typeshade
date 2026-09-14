@@ -79,8 +79,7 @@ export interface DebugPause {
    *
    *  Always present. A statement the compiler synthesised, such as the counter a `while`
    *  lowers to or a helper `fp64Lower` injects, has no line to show, so a run never stops on
-   *  one; it
-   *  executes between two stops like any other work the author did not write
+   *  one: it executes between two stops like any other work the author did not write
    *  (`docs/debugging.md` §3.4). That is also why a module authored through the `fn()` EDSL,
    *  which carries no spans at all, runs to completion without pausing: there is no source to
    *  step. */
@@ -206,20 +205,30 @@ export interface DebugSession {
  *  `compileModuleJs` remains the backend for that.
  *
  *  The session stops immediately, before the entry's first statement, with
- *  `pause.reason === 'entry'`. Pass `stopOnEntry: false` to run to the first armed breakpoint
- *  instead, which still considers that first statement.
+ *  `pause.reason === 'entry'` unless a breakpoint is armed on that statement, in which case
+ *  the reason is `'breakpoint'`. Pass `stopOnEntry: false` to run to the first armed
+ *  breakpoint instead, which still considers that first statement.
  *
- *  A parameter `args` does not supply reads as the zero of its type, the same default the
- *  Playground's "Run on the CPU" uses, so an invocation can name only the inputs it cares
- *  about.
+ *  It comes back already finished, with no pause, when nothing in the run carries a source
+ *  span: a module authored through the `fn()` EDSL has none, and a run stops only where there
+ *  is a line to show ({@link DebugPause.span}).
+ *
+ *  A parameter `args` does not supply reads as the zero of its type for the shapes `zeroOf`
+ *  covers, which is the same default the Playground's "Run on the CPU" uses, so an invocation
+ *  can name only the inputs it cares about. A struct or array parameter is the gap: its zero
+ *  is `{}`, and reading a field of it throws a raw `TypeError` rather than a message naming
+ *  the parameter. That is parity with `compileModule` today, and the invocation builder of
+ *  §4.3 is where it gets fixed.
  *
  *  Exported from `@xgis/shader-dsl/debug`.
  *
  *  @param m - the module to run, as `compile()` or `module()` produced it.
  *  @param entry - the name of the function to invoke.
- *  @param args - that function's parameters, positionally; short or sparse is filled with zeros.
+ *  @param args - that function's parameters, positionally; a missing one is filled with the
+ *    zero of its type, except a struct or array, whose zero is an empty object (see above).
  *  @param opts - precision, GPU stubs, binding values and initial breakpoints.
- *  @returns the session, already stopped on the entry's first statement.
+ *  @returns the session, stopped on the entry's first statement, or already finished when the
+ *    module carries no spans.
  *  @throws {@link ValidationError} when the module fails a core rule, and `Error` when `entry`
  *    names no function in the module.
  *
@@ -231,7 +240,7 @@ export interface DebugSession {
  *  const { module } = compile(src)
  *  const s = startDebugSession(module, 'fs', [[100.5, 50.5, 0, 1]])
  *  while (s.pause) {
- *    console.log(s.pause.span?.line, [...s.pause.frames[0]!.locals])
+ *    console.log(s.pause.span.line, [...s.pause.frames[0]!.locals])
  *    s.stepOver()
  *  }
  *  console.log(s.result)
@@ -281,7 +290,8 @@ export function startDebugSession(
   )
 }
 
-/** Positional arguments, with anything missing standing in as the zero of its type. */
+/** Positional arguments, with anything missing standing in as the zero of its type, whatever
+ *  `zeroOf` makes of it: `{}` for a struct, which is the gap `startDebugSession`'s JSDoc names. */
 function fillArgs(decl: FuncDecl, args: readonly CpuValue[]): CpuValue[] {
   return decl.params.map((p, i) => (args[i] === undefined ? zeroOf(p.type) : args[i]!))
 }
@@ -386,7 +396,6 @@ class Session implements DebugSession {
     )
   }
 
-  /** Pull pauses out of the walk until one satisfies `want`, or the run finishes. */
   /** Pull events out of the walk until one is worth stopping at, or the run finishes.
    *
    *  Three rules, and each is a decision rather than a detail:
