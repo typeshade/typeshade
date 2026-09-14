@@ -102,5 +102,6 @@ entry-point signatures).
 
 [`PORTING.md`](./PORTING.md) classifies all 36 EDSL examples by whether they can be written
 in `"use typeshade"` today, with the blocking feature and its [issue #8](https://github.com/typeshade/typeshade/issues/8)
-item for each. Two port today; the rest are waiting on language-surface work, weighted by how
-many examples each missing feature holds up.
+item for each, weighted by how many examples each missing feature holds up. The compiler
+accepts the source of two of them; one has shipped as a twin, and the other is held by a
+backend bug that writing the twin uncovered.

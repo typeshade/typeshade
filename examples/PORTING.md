@@ -2,6 +2,15 @@
 
 Step 1 of the example port: a **classification**, not a port. Measured on `main` `b6d6c56`.
 
+> **Corrected after step 2.** Everything below measures whether the **compiler accepts the
+> source**. Writing the twins ([#16](https://github.com/typeshade/typeshade/pull/16)) showed
+> that is not the same as whether the **output is correct**: two backend bugs
+> ([#13](https://github.com/typeshade/typeshade/issues/13),
+> [#14](https://github.com/typeshade/typeshade/issues/14)) make some accepted source emit
+> invalid shaders. The rows below are unchanged and still true as "the compiler takes this";
+> [What step 2 found](#what-step-2-found-that-this-classification-could-not) says where that
+> is not enough, and #14 in particular blocks the GLSL form of every renderable twin.
+
 `"use typeshade"` is the product's language (`docs/use-typeshade-surface.md`), so the
 examples should be written in it. They are not yet, because the language surface still has
 holes — the ones catalogued in [issue #8](https://github.com/typeshade/typeshade/issues/8).
@@ -48,46 +57,48 @@ see [Verified, not inferred](#verified-not-inferred).
 It is the prioritisation signal: a row blocked by something that blocks 28 examples is not
 waiting on its own feature, it is waiting on the corpus-wide one.
 
-| #   | Example               | Category     | Now          | Blocked by                       | Blocks (total) |
-| --- | --------------------- | ------------ | ------------ | -------------------------------- | -------------- |
-| 1   | `graticule`           | cartographic | blocked      | **A6-deriv**                     | 5 / 36         |
-| 2   | `hillshade`           | cartographic | blocked      | **A1**                           | 28 / 36        |
-| 3   | `fp64-deep-zoom`      | cartographic | blocked      | **A6-f64**                       | 13 / 36        |
-| 4   | `fp64-checker-plane`  | cartographic | blocked      | **A1**, A6-f64, N1, N2           | 28 / 36        |
-| 5   | `fp64-loran`          | cartographic | blocked      | **A1**, A6-f64, N1, N2, A6-deriv | 28 / 36        |
-| 6   | `fp64-mercator-tiles` | cartographic | blocked      | **A1**, A6-f64, N1, N2, L-loop   | 28 / 36        |
-| 7   | `fp64-rtc`            | cartographic | blocked      | **A1**, A6-f64, N1               | 28 / 36        |
-| 8   | `color-ramp`          | cartographic | blocked      | **A1**, A6-deriv                 | 28 / 36        |
-| 9   | `discard-cutout`      | generic      | blocked      | **A6-discard**                   | 1 / 36         |
-| 10  | `plasma`              | generic      | blocked      | **A1**                           | 28 / 36        |
-| 11  | `voronoi`             | generic      | blocked      | **A1**                           | 28 / 36        |
-| 12  | `julia`               | generic      | blocked      | **A1**                           | 28 / 36        |
-| 13  | `mandelbrot`          | generic      | blocked      | **A1**                           | 28 / 36        |
-| 14  | `fbm-clouds`          | generic      | blocked      | **A1**, L-loop                   | 28 / 36        |
-| 15  | `domain-warp`         | generic      | blocked      | **A1**                           | 28 / 36        |
-| 16  | `raymarch-sphere`     | generic      | blocked      | **A1**                           | 28 / 36        |
-| 17  | `raymarch-boxes`      | generic      | blocked      | **A1**                           | 28 / 36        |
-| 18  | `tunnel`              | generic      | blocked      | **A1**                           | 28 / 36        |
-| 19  | `metaballs`           | generic      | blocked      | **A1**, L-loop                   | 28 / 36        |
-| 20  | `ocean`               | generic      | blocked      | **A1**                           | 28 / 36        |
-| 21  | `starfield`           | generic      | blocked      | **A1**                           | 28 / 36        |
-| 22  | `truchet`             | generic      | blocked      | **A1**, A6-deriv                 | 28 / 36        |
-| 23  | `kaleidoscope`        | generic      | blocked      | **A1**                           | 28 / 36        |
-| 24  | `heart`               | generic      | blocked      | **A1**, A6-deriv                 | 28 / 36        |
-| 25  | `fp64-mandelbrot`     | generic      | blocked      | **A1**, A6-f64, N1, N2, L-loop   | 28 / 36        |
-| 26  | `fp64-julia`          | generic      | blocked      | **A1**, A6-f64, N1, N2           | 28 / 36        |
-| 27  | `fp64-burning-ship`   | generic      | blocked      | **A1**, A6-f64, N1, N2           | 28 / 36        |
-| 28  | `fp64-newton`         | generic      | blocked      | **A1**, A6-f64, N1, N2           | 28 / 36        |
-| 29  | `fp64-mandelbrot-de`  | generic      | blocked      | **A1**, A6-f64, N1, N2           | 28 / 36        |
-| 30  | `fp64-clock`          | generic      | blocked      | **A1**, A6-f64                   | 28 / 36        |
-| 31  | `fp64-cancellation`   | generic      | blocked      | **A6-f64**, N2                   | 13 / 36        |
-| 32  | `fp64-sine-sweep`     | generic      | blocked      | **A6-f64**                       | 13 / 36        |
-| 33  | `gradient`            | generic      | **portable** | —                                | —              |
-| 34  | `override-quality`    | generic      | blocked      | **A7-override**                  | 1 / 36         |
-| 35  | `texture-array-lod`   | generic      | blocked      | **A1**, A3, A7-tex               | 28 / 36        |
-| 36  | `compute-reduction`   | compute      | **portable** | —                                | —              |
+| #   | Example               | Category     | Now                 | Blocked by                        | Blocks (total) |
+| --- | --------------------- | ------------ | ------------------- | --------------------------------- | -------------- |
+| 1   | `graticule`           | cartographic | blocked             | **A6-deriv**                      | 5 / 36         |
+| 2   | `hillshade`           | cartographic | blocked             | **A1**                            | 28 / 36        |
+| 3   | `fp64-deep-zoom`      | cartographic | blocked             | **A6-f64**                        | 13 / 36        |
+| 4   | `fp64-checker-plane`  | cartographic | blocked             | **A1**, A6-f64, N1, N2            | 28 / 36        |
+| 5   | `fp64-loran`          | cartographic | blocked             | **A1**, A6-f64, N1, N2, A6-deriv  | 28 / 36        |
+| 6   | `fp64-mercator-tiles` | cartographic | blocked             | **A1**, A6-f64, N1, N2, L-loop    | 28 / 36        |
+| 7   | `fp64-rtc`            | cartographic | blocked             | **A1**, A6-f64, N1                | 28 / 36        |
+| 8   | `color-ramp`          | cartographic | blocked             | **A1**, A6-deriv                  | 28 / 36        |
+| 9   | `discard-cutout`      | generic      | blocked             | **A6-discard**                    | 1 / 36         |
+| 10  | `plasma`              | generic      | blocked             | **A1**                            | 28 / 36        |
+| 11  | `voronoi`             | generic      | blocked             | **A1**                            | 28 / 36        |
+| 12  | `julia`               | generic      | blocked             | **A1**                            | 28 / 36        |
+| 13  | `mandelbrot`          | generic      | blocked             | **A1**                            | 28 / 36        |
+| 14  | `fbm-clouds`          | generic      | blocked             | **A1**, L-loop                    | 28 / 36        |
+| 15  | `domain-warp`         | generic      | blocked             | **A1**                            | 28 / 36        |
+| 16  | `raymarch-sphere`     | generic      | blocked             | **A1**                            | 28 / 36        |
+| 17  | `raymarch-boxes`      | generic      | blocked             | **A1**                            | 28 / 36        |
+| 18  | `tunnel`              | generic      | blocked             | **A1**                            | 28 / 36        |
+| 19  | `metaballs`           | generic      | blocked             | **A1**, L-loop                    | 28 / 36        |
+| 20  | `ocean`               | generic      | blocked             | **A1**                            | 28 / 36        |
+| 21  | `starfield`           | generic      | blocked             | **A1**                            | 28 / 36        |
+| 22  | `truchet`             | generic      | blocked             | **A1**, A6-deriv                  | 28 / 36        |
+| 23  | `kaleidoscope`        | generic      | blocked             | **A1**                            | 28 / 36        |
+| 24  | `heart`               | generic      | blocked             | **A1**, A6-deriv                  | 28 / 36        |
+| 25  | `fp64-mandelbrot`     | generic      | blocked             | **A1**, A6-f64, N1, N2, L-loop    | 28 / 36        |
+| 26  | `fp64-julia`          | generic      | blocked             | **A1**, A6-f64, N1, N2            | 28 / 36        |
+| 27  | `fp64-burning-ship`   | generic      | blocked             | **A1**, A6-f64, N1, N2            | 28 / 36        |
+| 28  | `fp64-newton`         | generic      | blocked             | **A1**, A6-f64, N1, N2            | 28 / 36        |
+| 29  | `fp64-mandelbrot-de`  | generic      | blocked             | **A1**, A6-f64, N1, N2            | 28 / 36        |
+| 30  | `fp64-clock`          | generic      | blocked             | **A1**, A6-f64                    | 28 / 36        |
+| 31  | `fp64-cancellation`   | generic      | blocked             | **A6-f64**, N2                    | 13 / 36        |
+| 32  | `fp64-sine-sweep`     | generic      | blocked             | **A6-f64**                        | 13 / 36        |
+| 33  | `gradient`            | generic      | source ok · **#14** | — (source compiles; GLSL invalid) | 33 / 36        |
+| 34  | `override-quality`    | generic      | blocked             | **A7-override**                   | 1 / 36         |
+| 35  | `texture-array-lod`   | generic      | blocked             | **A1**, A3, A7-tex                | 28 / 36        |
+| 36  | `compute-reduction`   | compute      | **ported**          | — (reflection hit by #14)         | —              |
 
-**Portable today: 2 of 36.**
+**Source the compiler accepts today: 2 of 36.** Of those, **1 has shipped as a twin**
+(`compute-reduction`, in #16); `gradient` is held by #14. See
+[What step 2 found](#what-step-2-found-that-this-classification-could-not).
 
 ## The blockers
 
@@ -129,7 +140,9 @@ And no example uses a matrix at all, so `mat2`/`mat3` cannot be on this corpus's
 
 ## What it takes to unlock the corpus
 
-Landing the features in weight order, how much of the corpus becomes portable:
+Landing the features in weight order, how much of the corpus the compiler would accept.
+**This counts source acceptance only** — #14 additionally blocks the GLSL form of all 33
+renderable examples, so every row below is an upper bound until it lands:
 
 | After landing | Portable |
 | ------------- | -------- |
@@ -172,21 +185,86 @@ A twin written that way would still emit a working shader, but it would no longe
 IR-equality oracle for its EDSL original, which is the entire reason for pairing them. So
 the workaround is not counted as "portable" anywhere in this document.
 
+## What step 2 found that this classification could not
+
+Everything above is measured two ways — an IR walk for what each example demands, a
+`compileTsSource` probe for what the compiler supplies. Both measure the same thing:
+**does the compiler accept this source**. Neither looks at what comes out the other end.
+
+Writing the twins ([#16](https://github.com/typeshade/typeshade/pull/16)) did, and the two
+examples this document called portable both turned out to emit something wrong. Not because
+the classification was careless — because acceptance and correctness are different
+questions, and only one of them was being asked.
+
+### [#13](https://github.com/typeshade/typeshade/issues/13) — an integer module constant emits a float literal
+
+`const WINDOW: u32 = 8` compiles with no diagnostic and emits `const WINDOW: u32 = 8.0;`.
+Tint: `cannot convert value of type 'abstract-float' to type 'u32'`. GLSL ES 3.00 the same.
+It reaches the `fn()` surface too — `emitConst` formats with the type-blind `f32Lit` where
+`emitOverride`, seven lines away, uses the type-aware `lit()`.
+
+This one does **not** block the port: the EDSL's `const WINDOW = u32(8)` is a build-time
+JavaScript constant that inlines as `8u`, so the faithful twin inlines too and never
+declares a module constant. Probe J01 in the appendix says the loop bound compiles, and it
+does — the probe just never looked at the emit.
+
+### [#14](https://github.com/typeshade/typeshade/issues/14) — bindings are invisible to stage reachability
+
+The source compiler encodes a binding read as `Expr.constref`; the reachability walk in
+`src/core/passes/stage-bindings.ts` counts only `Expr.varref`. So no stage reaches any
+binding in any source-compiled module, and the GLSL emit drops the uniform block while
+keeping every use of it:
+
+```glsl
+// a gradient-pass.ts twin, fragment stage
+in vec2 uv;
+layout(location = 0) out vec4 _ret;
+void main() {
+  float t = (uv.y + u.mix_bias);   // WebGL2: "'u' : undeclared identifier"
+```
+
+`reflect()` also reports `stages: []` for every binding, so a host building bind group
+layouts from it gets `visibility: 0`.
+
+**This is the most important finding in this document, and it outranks A1.** A1 unlocks 12
+more examples' _source_; #14 means every one of those twins would emit invalid GLSL. It
+blocks the GLSL form of all **33** renderable examples — every example in the corpus whose
+fragment stage reads a uniform, which is every renderable one. `gradient`, listed above as
+portable, is held by exactly this: its twin can be registered neither as `renderable: true`
+(the GLSL does not compile) nor as `renderable: false` (the flag arm correctly refuses a
+module that does emit a `main()`).
+
+So the real order of work for this port is **#14, then A1**, not A1 first.
+
+### What this says about the method
+
+An IR walk plus an acceptance probe is the right instrument for "which language features are
+missing", and that part of this document stands. It is the wrong instrument for "is the twin
+correct", and nothing short of emitting both sides and handing them to Tint and WebGL2
+answers that. #16 adds those gates — `shade-twins.test.ts` pins the two emits against each
+other, and the compile gate hands every registered twin's WGSL to Tint — so the next twin to
+land cannot repeat this.
+
 ## Verified, not inferred
 
 The table's per-example verdicts come from the IR walk. For the examples whose verdict
 turns on one feature, the full example was also written as a `.shade.ts` file and compiled,
 so the verdict rests on a compiler run rather than on a feature list.
 
-| Example             | Written out as                    | Result                                                                 |
-| ------------------- | --------------------------------- | ---------------------------------------------------------------------- |
-| `gradient`          | a faithful twin                   | compiles clean                                                         |
-| `compute-reduction` | a faithful twin                   | compiles clean                                                         |
-| `plasma`            | a faithful twin                   | 1 error, an A1 mismatch (+1 cascade); clean once `* vec3(0.5)` is used |
-| `tunnel`            | a faithful twin                   | 1 error, an A1 mismatch; clean once `* vec3(…)` is used                |
-| `hillshade`         | a faithful twin                   | 2 errors, both A1 (+10 cascade); clean once `* vec2(…)` / `* vec3(…)`  |
-| `graticule`         | twin with `fwidth(x)` → a literal | compiles clean — `fwidth` is genuinely the only gap                    |
-| `discard-cutout`    | twin with the `discard` removed   | compiles clean — `discard` is genuinely the only gap                   |
+"Compiles clean" is the claim being checked here, and it is a claim about the **front end**.
+It is not a claim that the emitted shader is valid — see
+[What step 2 found](#what-step-2-found-that-this-classification-could-not) for the two places
+that distinction turned out to matter.
+
+| Example             | Written out as                    | Result                                                                                                            |
+| ------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `gradient`          | a faithful twin                   | source compiles clean — but the emitted GLSL is invalid ([#14](https://github.com/typeshade/typeshade/issues/14)) |
+| `compute-reduction` | a faithful twin                   | source compiles clean; shipped as a twin in [#16](https://github.com/typeshade/typeshade/pull/16)                 |
+| `plasma`            | a faithful twin                   | 1 error, an A1 mismatch (+1 cascade); clean once `* vec3(0.5)` is used                                            |
+| `tunnel`            | a faithful twin                   | 1 error, an A1 mismatch; clean once `* vec3(…)` is used                                                           |
+| `hillshade`         | a faithful twin                   | 2 errors, both A1 (+10 cascade); clean once `* vec2(…)` / `* vec3(…)`                                             |
+| `graticule`         | twin with `fwidth(x)` → a literal | compiles clean — `fwidth` is genuinely the only gap                                                               |
+| `discard-cutout`    | twin with the `discard` removed   | compiles clean — `discard` is genuinely the only gap                                                              |
 
 The cascade counts are worth noting on their own: one rejected `const` turns into ten
 `Unknown identifier` diagnostics downstream. That is issue #8's A12, seen here at full size
@@ -214,35 +292,42 @@ for them and the language session should weigh them accordingly.
   today: the `Uniforms` head, `VsOut`, and the fullscreen-triangle vertex stage. That is a
   real cost of the port and an argument for issue #8's multi-file item (M26·S29).
 
-## Notes for step 2
+## Step 2, as it landed
 
-Step 2 writes the twins, and it is blocked until
-[PR #11](https://github.com/typeshade/typeshade/pull/11) lands, because that is what gives a
-`.shade.ts` file a registry entry, goldens and a compile-gate slot. Its shape as of writing:
-`examples/_shade.ts` reads each file, compiles it with `compile()`, and returns the same
-`ShaderExample` under `category: 'source'`; the curated list is `SHADE_ORDER`; the goldens are
-baked into `__emit-goldens__/` and the directory is checked against `SHADE_ORDER` in both
-directions. A twin therefore lands as: write `<id>.shade.ts`, add the id to `SHADE_ORDER`,
-bake. Since the 36 EDSL ids already own `__emit-goldens__/<id>.wgsl`, the twin's goldens have
-to be named so they cannot collide — follow whatever rule PR #11 settled on rather than
-inventing a second one.
+Step 2 is [#16](https://github.com/typeshade/typeshade/pull/16), stacked on
+[#11](https://github.com/typeshade/typeshade/pull/11) — which is what gives a `.shade.ts`
+file a registry entry, goldens and a compile-gate slot. A twin lands as: write
+`<id>-twin.shade.ts`, add the id to `SHADE_ORDER` with `twinOf` naming the EDSL example, bake.
+The `-twin` suffix is what keeps the golden stems disjoint; `shade-examples.test.ts` asserts
+that disjointness, because both corpora bake into one `__emit-goldens__/` directory.
 
-Step 2 also has to record what changes between an EDSL original and its twin. Two are already
-known from the pair that ports today, and both are optimizer artifacts rather than language
-differences:
+One twin landed, `compute-reduction-twin`. `gradient` is held by
+[#14](https://github.com/typeshade/typeshade/issues/14) — see above.
 
-- **`gradient`** — byte-identical except for one name: the EDSL's auto-var pass names the
-  mutable `vec2` `_av0`, the twin keeps the source name `pos`.
-- **`compute-reduction`** — three differences. The EDSL's LICM pass hoists `gid.x * 8u`
-  **above** the early-return guard, where the twin computes it after (same value, both
-  correct, different statement order). `Var`/`Loop` produce `_v0`/`_v1` where the twin has
-  `sum`/`j`. And the EDSL inlines `idx` into `output[gid.x]` where the twin keeps the
-  `let idx` binding.
+### What changes between an original and its twin
 
-Neither is a compiler bug. Both are the kind of difference the semantic-diff goldens in
-step 2 exist to record: the twins are semantically equal, not textually equal, and the
-naming and hoisting gaps are the seam between an optimizing authoring layer and a
-source-faithful compiler.
+Both differences that survive are optimizer artifacts rather than language gaps, and both are
+now pinned as goldens rather than described here:
+
+- **`compute-reduction`** — the EDSL's LICM pass hoists `gid.x * 8u` **above** the
+  early-return guard where the twin computes it after (same value, both correct, different
+  statement order); the EDSL inlines `gid.x` at the use sites where the twin keeps its
+  `let idx`; and `Var`/`Loop` produce `_v0`/`_v1` where the twin has `sum`/`j`. The
+  structural golden reports the first two as two insertions and says the interface matches
+  exactly.
+- **`gradient`** — this document first predicted "byte-identical except for one name"
+  (`_av0` vs `pos`). That was measured against a port that **inlined** the fragment body into
+  its `return`. The faithful twin keeps the original's two named intermediates, and there the
+  prediction does not hold: an EDSL `const` is a build-time JavaScript binding that vanishes,
+  while a source-language `const` is a shader `let` that emits. Same program, two more
+  statements. Worth knowing before writing the next twin — a twin that mirrors the original's
+  **source** will not generally mirror its **emit**.
+
+### The third difference is a bug, not an artifact
+
+The structural golden also shows every binding read as `constref` on the twin against
+`varref` on the original. That is [#14](https://github.com/typeshade/typeshade/issues/14),
+sitting in the committed output where fixing it will visibly change the golden.
 
 ## Appendix: the probes
 
