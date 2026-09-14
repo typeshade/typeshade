@@ -6,8 +6,7 @@ import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
-import { broadcastResultType, literalPeerType, numericMismatch } from '../numeric.js'
-import { retargetIntLit } from '../lit-coerce.js'
+import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { lowerCall } from './expression-call.js'
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js'
@@ -145,14 +144,12 @@ function lowerPrefixUnary(
   return undefined
 }
 
-/** Retargets a bare integer literal on either side to its peer's kind. The peer of a literal
+/** Retargets a bare numeric literal on either side to its peer's kind. The peer of a literal
  *  that meets a vector is the vector's element scalar (`v * 2` with `v: vec3<u32>` types the
- *  `2` as u32); a scalar peer is taken as is, so `i + 1` with `i: u32` behaves as before. */
+ *  `2` as u32, and against a vec64 the literal becomes an f64 carrying the full double); a
+ *  scalar peer is taken as is, so `i + 1` with `i: u32` behaves as before. */
 function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expression): [Expr, Expr] {
-  return [
-    retargetIntLit(left, lNode, literalPeerType(right.type)),
-    retargetIntLit(right, rNode, literalPeerType(left.type)),
-  ]
+  return [retargetLit(left, lNode, right.type), retargetLit(right, rNode, left.type)]
 }
 
 function lowerBinary(

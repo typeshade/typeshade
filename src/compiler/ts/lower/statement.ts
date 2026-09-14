@@ -3,12 +3,11 @@
 import ts from 'typescript'
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { isVec, typeKey } from '../../../core/ir/types.js'
+import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
-import { broadcastResultType, literalPeerType, numericMismatch } from '../numeric.js'
-import { retargetIntLit } from '../lit-coerce.js'
+import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -283,10 +282,11 @@ function lowerAssignOp(
   if (!value) return undefined
   if (value.op === 'lit' && typeof value.value === 'number' && isNumericScalar(target.type)) {
     value = { op: 'lit', type: target.type, value: value.value }
-  } else if (isVec(target.type)) {
+  } else if (isVec(target.type) || isVec64(target.type)) {
     // `v *= 2` with an integer vector target types the literal as the element kind; a
-    // non-integer literal stays f32 and is diagnosed below instead of being truncated.
-    value = retargetIntLit(value, right, literalPeerType(target.type))
+    // non-integer literal stays f32 and is diagnosed below instead of being truncated. A
+    // vec64 target makes the literal an f64 so the full double reaches the fp64 pass.
+    value = retargetLit(value, right, target.type)
   }
   if (typeKey(target.type) !== typeKey(value.type)) {
     // `v += s` with a vector target and a scalar of its element kind follows the same

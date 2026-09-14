@@ -1,8 +1,20 @@
 // Scalar numeric policy: NO implicit i32 ↔ u32 ↔ f32 conversion.
 
+import ts from 'typescript'
 import type { BinOp, Expr } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
-import { f32T, i32T, u32T, isF64, isScalar, isVec, isVec64, typeKey } from '../../core/ir/types.js'
+import {
+  f32T,
+  f64T,
+  i32T,
+  u32T,
+  isF64,
+  isScalar,
+  isVec,
+  isVec64,
+  typeKey,
+} from '../../core/ir/types.js'
+import { foldNumericLit, retargetIntLit } from './lit-coerce.js'
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -20,8 +32,29 @@ export function isNumericScalarType(t: ShaderType): boolean {
  *  the peer itself otherwise, so the scalar-scalar behaviour of the literal retarget is
  *  unchanged. */
 export function literalPeerType(peer: ShaderType): ShaderType {
-  if (isVec(peer)) return SCALAR_CAST[peer.elem] ?? peer
+  if (isVec(peer)) return peer.elem === 'f32' ? f32T : peer.elem === 'i32' ? i32T : u32T
   return peer
+}
+
+function stripParens(node: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(node) ? stripParens(node.expression) : node
+}
+
+/** Retargets a bare numeric literal on one side of an arithmetic op to the kind its `peer`
+ *  asks for. Against a native vector or a scalar this is {@link retargetIntLit} with the
+ *  vector's element scalar as the peer (`v * 2` with `v: vec3<u32>` types the `2` as u32; a
+ *  scalar peer behaves as before). Against an emulated-double vector (vec64) a literal that
+ *  lowered to an f32 (`0.1`, `-2`, `Math.PI`, a folded `1. / 3.`) becomes an f64 literal
+ *  carrying the full double, as liftAgainst in src/core/ir/node.ts does for `v.mul(0.1)`; the
+ *  fp64 pass splits it into (hi, lo) halves, so the low half is kept instead of being widened
+ *  from the f32 rounding as (x, 0.0). An explicit call such as `f32(0.1)` is left alone. */
+export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
+  if (!isVec64(peer)) return retargetIntLit(expr, node, literalPeerType(peer))
+  const folded = foldNumericLit(expr)
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded
+  if (typeKey(folded.type) !== 'f32') return folded
+  if (ts.isCallExpression(stripParens(node))) return folded
+  return { op: 'lit', type: f64T, value: folded.value }
 }
 
 const BROADCAST_OPS: ReadonlySet<BinOp> = new Set<BinOp>(['+', '-', '*', '/', '%'])

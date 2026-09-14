@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
 import { f32 } from '../../core/ir/node.js'
-import { f32T, vec3fT, typeKey } from '../../core/ir/types.js'
+import { f32T, vec3fT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -148,6 +148,18 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('flip', { v: vec3fT, s: f32T }, vec3fT, ({ v, s }) => s.sub(v))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('vec64 times a literal matches EDSL v.mul(0.1) with an f64 literal', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function scale(v: vec3f64): vec3f64 {
+        return v * 0.1;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

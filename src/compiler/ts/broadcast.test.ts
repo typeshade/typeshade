@@ -130,6 +130,33 @@ describe('vector against scalar broadcast', () => {
     expect(m).toMatch(/vec3\(/)
   })
 
+  it('types a literal against a vec64 as f64 with the full double', () => {
+    const e = lowerReturn('v * 0.1', 'v: vec3f64', 'vec3f64')
+    expectBinop(e, '*', 'vec3<f64>', param('v', 'vec3<f64>'), lit(0.1, 'f64'))
+    const n = lowerReturn('v * -2', 'v: vec3d', 'vec3d')
+    expectBinop(n, '*', 'vec3<f64>', param('v', 'vec3<f64>'), lit(-2, 'f64'))
+    const pi = lowerReturn('Math.PI * v', 'v: vec3d', 'vec3d')
+    expectBinop(pi, '*', 'vec3<f64>', lit(Math.PI, 'f64'), param('v', 'vec3<f64>'))
+  })
+
+  it('keeps an explicit f32() cast against a vec64 as f32', () => {
+    const e = lowerReturn('v * f32(0.1)', 'v: vec3f64', 'vec3f64')
+    expectBinop(e, '*', 'vec3<f64>', param('v', 'vec3<f64>'), lit(0.1, 'f32'))
+  })
+
+  it('emits the low half of a double literal against a vec64', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(v: vec3f64): vec3f64 {
+        return v * 0.1;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // An f32 literal widened as (f32(0.1), 0.0) would print a zero low half; the f64 literal
+    // keeps the ~-1.49e-9 remainder the df64 emulation exists for.
+    expect(c.wgsl).toMatch(/vec2<f32>\(0\.10000000149011612, -1\.4901161415892261e-9\)/)
+  })
+
   it('does not change scalar against scalar literal typing', () => {
     const e = lowerReturn('i + 1', 'i: u32', 'u32')
     expectBinop(e, '+', 'u32', param('i', 'u32'), lit(1, 'u32'))
