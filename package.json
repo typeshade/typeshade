@@ -10,7 +10,6 @@
     "webgl2",
     "gpu",
     "shading-language",
-    "dsl",
     "typescript",
     "reflection"
   ],
@@ -59,6 +58,7 @@
     "build": "tsc --build && tsc -p tsconfig.tests.json",
     "test": "vitest run",
     "gate:compile": "bun scripts/compile-gate.ts",
+    "bake:api-surface": "bun scripts/bake-api-surface.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "format:compiler": "prettier --write src/compiler/**/*.ts"
