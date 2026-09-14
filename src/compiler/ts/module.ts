@@ -9,7 +9,7 @@ import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { TS_CODES } from './codes.js'
-import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 export interface TsSourceFileInput {
   readonly fileName: string
@@ -254,13 +254,11 @@ export function compileTsSources(
           ? emitModule({ consts, structs: [], bindings: [], funcs })
           : emitFuncs(funcs)
     } catch (e) {
+      // `backendDiagnostic` (X-GIS #37's honest-failure work) rather than the message built
+      // by hand here; the anchor is the resolved entry, which is what `entry` was already
+      // being used for above.
       diagnostics.push(
-        makeDiagnostic(
-          entrySf ?? [...parsed.values()][0] ?? emptySourceFile(files),
-          undefined,
-          `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
-          TS_CODES.BACKEND,
-        ),
+        backendDiagnostic(entrySf ?? [...parsed.values()][0] ?? emptySourceFile(files), e),
       )
     }
   }
