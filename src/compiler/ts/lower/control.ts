@@ -4,6 +4,7 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
+import { readOnlyPhrase } from '../context.js'
 import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -269,7 +270,7 @@ export function lowerUpdate(
         diagnostics,
         sourceFile,
         expr,
-        `Cannot assign to "${targetExpr.text}" — it is declared with const.`,
+        `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding?.kind)}.`,
         TS_CODES.CONST_ASSIGN,
       )
       return undefined

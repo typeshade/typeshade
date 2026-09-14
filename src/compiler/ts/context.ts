@@ -14,6 +14,20 @@ import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
  *  const, and it now says so. */
 export type BindingKind = 'param' | 'local' | 'module' | 'binding'
 
+/** How a "cannot assign" diagnostic names what the target is. One helper because the three
+ *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
+ *  is not what a `declare const input: storage<…>` is. */
+export function readOnlyPhrase(kind: BindingKind | undefined): string {
+  switch (kind) {
+    case 'binding':
+      return 'a read-only resource'
+    case 'module':
+      return 'a module const'
+    default:
+      return 'declared with const'
+  }
+}
+
 export interface Binding {
   readonly kind: BindingKind
   readonly name: string

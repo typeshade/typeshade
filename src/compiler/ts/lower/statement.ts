@@ -5,7 +5,7 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { LoweringScope } from '../context.js'
+import { LoweringScope, readOnlyPhrase } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { lowerExpression } from './expression.js'
@@ -341,7 +341,7 @@ function lowerLValue(
         diagnostics,
         sourceFile,
         node,
-        `Cannot assign to "${baseName}" — it is declared with const.`,
+        `Cannot assign to "${baseName}" — it is ${readOnlyPhrase(binding.kind)}.`,
         TS_CODES.CONST_ASSIGN,
       )
       return undefined
@@ -372,12 +372,7 @@ function lowerLValue(
     return undefined
   }
   if (!binding.mutable) {
-    const ro =
-      binding.kind === 'binding'
-        ? 'a read-only resource'
-        : binding.kind === 'module'
-          ? 'a module const'
-          : 'declared with const'
+    const ro = readOnlyPhrase(binding.kind)
     pushDiag(
       diagnostics,
       sourceFile,
