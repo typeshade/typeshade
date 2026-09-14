@@ -497,10 +497,10 @@ needs a scalar f32 interpolant"). The generic same-shape overload stays last and
 The vector-beside-scalar shapes deliberately NOT declared are the ones a GPU compiler refuses, and
 they stay undeclared so that TypeScript is the thing reporting them: `clamp(vecN, s, s)` (Tint: `no
 matching call to 'clamp(vec3<f32>, f32, f32)'`), `min(vecN, s)`, `max(vecN, s)`, `pow(vecN, s)`,
-`step(vecN, s)`, and `mix` on an `i32` or `u32` vector. The mirrored forms never reach TypeScript
-at all: `mathResultType` keys a call's result on its FIRST argument, so `min(s, vecN)`,
-`max(s, vecN)`, `step(s, vecN)` and `smoothstep(s, s, vecN)` are already the front end's own
-`TS8003`.
+`step(vecN, s)`, and `mix` on an `i32` or `u32` vector. The mirrored forms draw TypeScript's
+TS2769 too, but do not depend on it: `mathResultType` keys a call's result on its FIRST argument,
+so `min(s, vecN)`, `max(s, vecN)`, `step(s, vecN)` and `smoothstep(s, s, vecN)` are already the
+front end's own `TS8003`.
 
 Four shapes both GPU compilers refuse are SILENT in the editor today, recorded here rather than
 fixed here (#57). `mix`'s blend factor is declared `t: number`, wider than the `f32` WGSL and GLSL

@@ -714,9 +714,9 @@ function calleeCallAt(
 
 /**
  * TS2769 ("No overload matches this call"), the shape TS2345 takes when the callee is
- * overloaded and no candidate matched. `mix` is the callee that matters: its four concrete
- * overloads and its generic one all take three arguments, so TypeScript has no single candidate
- * to blame and reports this code instead of naming the parameter.
+ * overloaded and no candidate matched. `mix` is the callee that matters: its concrete overloads
+ * and its generic one all take three arguments, so TypeScript has no single candidate to blame
+ * and reports this code instead of naming the parameter.
  *
  * Dropped only when the call does vector or matrix arithmetic somewhere AND some overload
  * accepts every argument with that arithmetic's shape restored. Asking the whole signature,
