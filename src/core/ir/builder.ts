@@ -1707,6 +1707,12 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
 /** Author a C-style `for` loop over the innermost active scope. The counter starts at `init`,
  *  runs while `cond` holds, and advances by `step` after each iteration.
  *
+ *  A fixed trip count is the short form: `Loop(96, (i) => { ... })` is the whole loop, and
+ *  emits the same `for (var i = 0u; i < 96u; i = i + 1u)` the three-part call spells out. Use
+ *  it wherever the bound is a constant, which is most loops; reach for the three-part form
+ *  when the counter starts somewhere other than zero, counts down, or is tested against
+ *  something that is not a literal.
+ *
  *  The leading name is optional and pins the emitted counter identifier; omit it and the
  *  builder generates one. `step` is optional too and defaults to `+1`, so an ascending loop
  *  passes nothing. The counter is a mutable node, since reassigning a loop variable is legal
@@ -1725,8 +1731,9 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
  *  @param name - the emitted counter identifier. Omit it and one is generated.
- *  @param init - the counter's initial value, which also fixes its type.
- *  @param cond - the continue test, receiving the counter.
+ *  @param init - the counter's initial value, which also fixes its type. A plain number is
+ *    the TRIP COUNT instead: the counter runs `0u` up to it, and no `cond` is written.
+ *  @param cond - the continue test, receiving the counter. Omitted by the trip-count form.
  *  @param body - the loop body, receiving the counter.
  *  @param step - the per-iteration increment. Defaults to `+1`.
  *
@@ -1734,6 +1741,11 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  ```ts
  *  import { Loop, toF32, u32 } from '@xgis/shader-dsl'
  *
+ *  Loop(64, (i) => {
+ *    acc.assign(acc.add(toF32(i)))
+ *  })
+ *
+ *  // the same loop, spelled out
  *  Loop(
  *    u32(0),
  *    (i) => i.lt(u32(64)),
@@ -1746,6 +1758,14 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  @see {@link reduce} for the value-returning fold.
  *  @see {@link Break} and {@link Continue} for the terminators.
  */
+// #8 B1/B2 — the TRIP-COUNT overloads come first: a `number` in the init slot is a count,
+// never an init node, so there is nothing for them to steal from the three-part form below.
+export function Loop(count: number, body: (i: Node<'u32'>) => ReadonlyNode | void): void
+export function Loop(
+  name: string,
+  count: number,
+  body: (i: Node<'u32'>) => ReadonlyNode | void,
+): void
 export function Loop<K extends string>(
   init: ReadonlyNode<K>,
   cond: (i: Node<K>) => ReadonlyNode<'bool'>,
@@ -1760,13 +1780,33 @@ export function Loop<K extends string>(
   step?: ReadonlyNode<ScalarKey> | number,
 ): void
 export function Loop<K extends string>(
-  a: string | ReadonlyNode<K>,
-  b: ReadonlyNode<K> | ((i: Node<K>) => ReadonlyNode<'bool'>),
-  c: ((i: Node<K>) => ReadonlyNode<'bool'>) | ((i: Node<K>) => ReadonlyNode | void),
+  a: string | number | ReadonlyNode<K>,
+  b:
+    | number
+    | ReadonlyNode<K>
+    | ((i: Node<K>) => ReadonlyNode<'bool'>)
+    | ((i: Node<'u32'>) => ReadonlyNode | void),
+  c?:
+    | ((i: Node<K>) => ReadonlyNode<'bool'>)
+    | ((i: Node<K>) => ReadonlyNode | void)
+    | ((i: Node<'u32'>) => ReadonlyNode | void),
   d?: ((i: Node<K>) => ReadonlyNode | void) | ReadonlyNode<ScalarKey> | number,
   e?: ReadonlyNode<ScalarKey> | number,
 ): void {
   const named = typeof a === 'string'
+  // #8 B2 — the trip-count form. `Loop(96, body)` is `Loop(u32(0), (i) => i.lt(u32(96)), body)`
+  // built here rather than at the call site, so it goes down the same `forRange` path and
+  // reaches the same `for` statement. The counter is u32 because `u32(0)` is what 19 of the
+  // corpus's 21 loops already start from, and because a WGSL index wants to be unsigned.
+  const countSlot = named ? b : a
+  if (typeof countSlot === 'number') {
+    const count = countSlot
+    const body = (named ? c : b) as (i: Node<'u32'>) => ReadonlyNode | void
+    const cond = (i: Node<'u32'>): ReadonlyNode<'bool'> => i.lt(u32(count))
+    if (named) currentBuilder().forRange(a as string, u32(0), cond, (_b, i) => body(i))
+    else currentBuilder().forRange(u32(0), cond, (_b, i) => body(i))
+    return
+  }
   const init = (named ? b : a) as ReadonlyNode<K>
   const cond = (named ? c : b) as (i: Node<K>) => ReadonlyNode<'bool'>
   const body = (named ? d : c) as (i: Node<K>) => ReadonlyNode | void
