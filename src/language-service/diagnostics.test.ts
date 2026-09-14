@@ -182,9 +182,18 @@ describe('an argument that is not vector arithmetic still reports (issue #43)', 
 // report these mistakes get. The first rule for issue #43 asked only "is this argument branded,
 // and does SOME argument do arithmetic", which answered yes to all of them.
 describe('a wrong shape still reports when the call also does arithmetic (issue #43)', () => {
-  const keepsTs2345 = (source: string): void => {
+  // TS2345 for a callee with one signature, TS2769 ("No overload matches this call") for an
+  // overloaded one: `mix` and every generic math name now declare an all-scalar overload beside
+  // the generic shape, and `mix` three vector-with-scalar ones as well, so TypeScript has no
+  // single candidate to name and reports the overload code on the same span instead. Which of
+  // the two codes arrives is TypeScript's business; that the mistake is still reported is this
+  // suite's.
+  const ARGUMENT_MISMATCH_CODES: ReadonlySet<string | number> = new Set([2345, 2769])
+  const keepsReporting = (source: string): void => {
     expect(
-      diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2345),
+      diagnosticsOf(source).some(
+        (d) => d.source === 'typescript' && ARGUMENT_MISMATCH_CODES.has(d.code),
+      ),
       source,
     ).toBe(true)
   }
@@ -219,8 +228,8 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
       '"use typeshade"\nexport function f(a: vec3, b: vec2): vec3 {\n  return cross(a * 2., b)\n}\n',
   }
   for (const [name, source] of Object.entries(cases)) {
-    it(`${name}: keeps its TS2345`, () => {
-      keepsTs2345(source)
+    it(`${name}: keeps reporting the argument mismatch`, () => {
+      keepsReporting(source)
     })
   }
 
@@ -228,7 +237,7 @@ describe('a wrong shape still reports when the call also does arithmetic (issue 
     // End to end, in the shape a shader is actually written in: `mix(vec3, vec2, float)` has no
     // GLSL ES 3.00 overload, so an editor that reported nothing here would be clean on a shader
     // that does not link.
-    keepsTs2345(
+    keepsReporting(
       '"use typeshade"\n' +
         'class VsOut {\n' +
         '  @builtin("position") pos: vec4\n' +

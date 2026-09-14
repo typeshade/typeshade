@@ -154,10 +154,10 @@ first. No example in the 36 is waiting on any of them:
 | Issue #8 item                                       | Blocks |
 | --------------------------------------------------- | ------ |
 | **A2** member / component assignment (`v.x = 0.`)   | 0      |
-| **A4** `type` / `interface` structs                 | 0      |
+| ~~**A4** `type` / `interface` structs~~ (landed)    | 0      |
 | **A5** `@align` / `@size` field decorators          | 0      |
 | ~~**A8** element-converting constructors~~ (landed) | 0      |
-| **A9** module-level vector constants                | 0      |
+| ~~**A9** module-level vector constants~~ (landed)   | 0      |
 | **A10** uninitialised `let`, `switch`, `<<=`        | 0      |
 | **A11** object-literal contextual typing            | 0      |
 | **S5** `arrayLength`                                | 0      |
@@ -470,10 +470,11 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                       |
 | `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                              |
 | `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                       |
+| `const UP = vec3(0., 1., 0.)`, `const XS = array<f32, 3>(…)` (module vector / array const)                      | ✓ since #8 A9 — through `ConstDecl.valueExpr`, the field the EDSL's `constExpr` fills                   |
 | `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                           |
 | `f32(vi & 1) * 4. - 1.` (the fullscreen-triangle vertex stage)                                                  | ✓                                                                                                       |
 | `1u`                                                                                                            | ✗ TS parse error — `"const u" requires an initializer`                                                  |
-| `type Camera = { view: mat4; pos: vec3 }`                                                                       | ✗ `Unknown field "pos" on struct:Camera`                                                                |
+| `type Camera = { view: mat4; pos: vec3 }`, `interface Camera { … }`                                             | ✓ since #8 A4                                                                                           |
 | `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                             |
 | `m: mat3`                                                                                                       | ✗ `Unknown type "mat3"`                                                                                 |
 | `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                    |

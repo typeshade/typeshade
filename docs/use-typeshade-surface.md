@@ -64,7 +64,7 @@ Product code should use `declare`. Mixing `declare` and call form in one file sh
 
 ---
 
-## 2. Value types — `type` and `class`
+## 2. Value types — `type`, `interface` and `class`
 
 Plain data without field metadata uses a type alias:
 
@@ -75,7 +75,16 @@ type Camera = {
 }
 ```
 
-Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators.
+`interface Camera { view: mat4; pos: vec3 }` is the same struct written a third way. A class,
+a type alias over an object type, and an interface all produce one `StructDecl`; the compiler
+accepts all three.
+
+A `type`/`interface` struct is the members written in it: a method or call signature, an
+index signature, an optional (`a?: f32`) member, and an `interface … extends …` are each
+rejected, since a WGSL struct has no form for them and silently dropping one would change
+the buffer layout the host fills.
+
+Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
 
 ```ts
 class Camera {
@@ -99,14 +108,30 @@ an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(t
 Forbidden on these classes:
 
 - `new Camera()` as a resource
-- `extends`
+- `extends` (`TS8010`: the base's fields would silently vanish from the layout)
 - methods that close over `declare` resources
 - `@compute` / `@vertex` / `@fragment` methods
 - constructors, `this` as a pipeline
+- no fields at all — a struct with an empty field list has no WGSL form
+- a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
 
 Pure methods that only read `this` fields may land later as free functions. Not in the first class slice.
 
-`interface Scene { time: uniform<f32> }` is a reserved alternate bind-group spelling. Not in the first slice. `declare` is the default.
+A struct is collected only when something **uses** it: a `declare` binding's `uniform<T>` /
+`storage<T>` argument, a parameter, return or local annotation, or a field of another struct
+that is itself used. Naming it in another TYPE declaration is not using it — `type Params =
+Config`, `Config[]`, `Config | undefined` and `Readonly<Config>` all describe a type rather
+than consume one, so none of them makes `Config` a shader struct. A `type` or `interface`
+declaration nothing consumes is not a shader type at all — it may be a host-side shape
+(`type Opts = { seed: number }`) — and is left alone, neither checked nor emitted. A `class`
+is always collected, as it always has been.
+
+One name, one declaration. A second class, interface or type alias of the same name is an
+error, **including two interfaces**, which TypeScript itself would merge: the merged layout
+would disagree with the one emitted here at every use site, so the ambiguity is refused
+rather than silently resolved.
+
+`declare` is the bind-group spelling; an `interface` is a value layout like any other.
 
 ---
 
@@ -245,10 +270,9 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §§9 and 10 are reserved for issue #8's A2 (member and component assignment)
-and A6 (`discard`, the missing builtins, `**`), which are in flight on their own branches and
-append here in issue order. This section is §11 so the six A-item branches do not all claim
-§9 and collide on merge.
+**Numbering:** §§9, 10 and 13 are reserved for issue #8's A2, A6 and A3, which are in flight
+on their own branches and append here in issue order. The sections below took the next free
+numbers so the A-item branches do not all claim §9 and collide on merge.
 
 ---
 
@@ -285,5 +309,48 @@ oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the o
 `-3.2` above happens to agree, and an in-range source always does. So the cross-backend
 ground a portable shader can stand on is **in-range values**; clamp before you convert if the
 source might not be.
+
+---
+
+## 12. Module constants
+
+A top-level `const` is a module-scope shader constant. A scalar one folds to a single value
+at declaration; a **vector or array** one carries its value as an expression every backend
+emits and evaluates:
+
+```ts
+"use typeshade"
+
+const PI2: f32 = 6.28318 // scalar, as before
+const UP = vec3(0., 1., 0.) // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
+const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
+const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.)
+const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.))
+const K: f32 = 2.
+const V = vec3(K, K, K) // an earlier const is a valid component
+
+export function pick(i: i32): vec4 {
+  return PAL[i] * K + vec4(UP, PI2) + vec4(V, XS[0]) + SKY
+}
+```
+
+The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
+a constructor over those, or arithmetic over those with a divisor that is not zero. It may
+not call a function, read a resource, or take a component, field or element — `vec3(UP.x, 0.,
+0.)` is refused even though both writers would fold it. `XS.length` is a constant too, so an
+array constant can bound a loop. An array **of arrays** is refused: the GLSL ES 3.00 spelling
+it would produce is not one ANGLE accepts.
+
+An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
+followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and
+`const NV: vec3<i32> = vec3<i32>(N, N, N);`. Before that fix the backend's `emitConst` spelled
+every scalar constant with a float literal (`4.0`), which is why this section once limited the
+rule to `f32` components.
+
+This is the same declaration the EDSL's `constExpr(name, type, node)` produces — one
+`ConstDecl` with its `valueExpr` filled.
+
+A struct-valued and a matrix-valued constant are not accepted yet: the constant collector
+runs without the struct table, and the surface has no matrix constructor.
 
 Last updated: 2026-09-14
