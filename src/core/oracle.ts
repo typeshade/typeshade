@@ -37,7 +37,7 @@
 // Treat this oracle as the ALGEBRA half of a two-oracle contract; the f32 half lives
 // on the GPU.
 
-import type { Expr, Stmt, ModuleDecl, StructDecl } from './ir/index.js'
+import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType } from './ir/index.js'
 import { validate } from './passes/validate.js'
 import { autoVars } from './passes/opt/index.js'
 import { froundF32 } from './passes/precision.js'
@@ -54,6 +54,8 @@ import {
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
+  cloneValue,
+  isAggregateType,
 } from './cpu-runtime.js'
 
 // Preserve the historical `@xgis/shader-dsl` oracle surface: the value-model
@@ -294,14 +296,25 @@ const NORMAL: Signal = { kind: 'normal' }
 // `var` declared in one branch can't be read from another. (A future
 // "read a binding by name" API would expose the divergence from WGSL block
 // scoping; don't add one without per-block scopes here.)
+/** A value about to be bound to a `let` / `var` name: copied when it is an aggregate, so the
+ *  binding has the value semantics both GPU targets give it. A freshly built value would not
+ *  need the copy, but telling those apart statically is the kind of special case that drifts
+ *  from the generator; both backends apply the one rule. */
+function bindValue(v: CpuValue, t: ShaderType): CpuValue {
+  return isAggregateType(t) ? cloneValue(v) : v
+}
+
 function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): Signal {
   for (const s of body) {
     switch (s.s) {
       case 'let':
-        env.set(s.name, evalExpr(s.expr, env, ctx))
+        // An aggregate is COPIED into the new name, as `var w = v` is on both GPU targets;
+        // binding the same array/object would make a later `w.x = …` mutate `v` here and
+        // not there (cloneValue, cpu-runtime.ts). A scalar binds as before.
+        env.set(s.name, bindValue(evalExpr(s.expr, env, ctx), s.expr.type))
         break
       case 'var':
-        env.set(s.name, s.init ? evalExpr(s.init, env, ctx) : zeroOf(s.type))
+        env.set(s.name, s.init ? bindValue(evalExpr(s.init, env, ctx), s.type) : zeroOf(s.type))
         break
       case 'assign':
         setLValue(s.target, evalExpr(s.expr, env, ctx), env, ctx)

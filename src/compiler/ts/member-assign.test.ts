@@ -110,7 +110,10 @@ describe('component assignment', () => {
     expect(typeKey(s.expr.type)).toBe('u32')
   })
 
-  it('lowers v.z++ to an assign of a binop on the member', () => {
+  it('lowers v.z++ to an assignOp, so the target is written once', () => {
+    // A member target is read AND written by the assign-of-binop form, and CSE hoisting that
+    // repeated read into an immutable `let` is what made a storage-rooted `++` emit invalid
+    // WGSL. The compound form names the lvalue once.
     const body = lowerBody(`
       export function f(): vec3 {
         let v = vec3(0.);
@@ -119,13 +122,45 @@ describe('component assignment', () => {
       }
     `)
     const s = body[1]!
-    if (s.s !== 'assign') throw new Error(`expected an assign, got ${s.s}`)
+    if (s.s !== 'assignOp') throw new Error(`expected an assignOp, got ${s.s}`)
+    expect(s.bop).toBe('+')
     expectMember(s.target, 'z', 'f32', varref('v', 'vec3<f32>'))
+    expect(s.expr).toEqual({ op: 'lit', type: expect.anything(), value: 1 })
+  })
+
+  it('keeps a bare name on the assign-of-binop form, so its emit does not move', () => {
+    const body = lowerBody(`
+      export function f(): i32 {
+        let i: i32 = 0;
+        i++;
+        return i;
+      }
+    `)
+    const s = body[1]!
+    if (s.s !== 'assign') throw new Error(`expected an assign, got ${s.s}`)
     expect(s.expr.op).toBe('binop')
-    if (s.expr.op !== 'binop') return
-    expect(s.expr.bop).toBe('+')
-    expect(typeKey(s.expr.type)).toBe('f32')
-    expect(s.expr.b).toEqual({ op: 'lit', type: expect.anything(), value: 1 })
+  })
+
+  it('rejects ++ on a target there is nothing to add 1 to', () => {
+    expect(
+      diagnose(`
+        export function f(): bool {
+          let b = true;
+          b++;
+          return b;
+        }
+      `),
+    ).toBe('Cannot apply ++ to bool — ++ steps a numeric scalar or vector.')
+    expect(
+      diagnose(`
+        ${STRUCTS}
+        export function f(x: f32): f32 {
+          let p: P = { a: x, b: 0. };
+          p--;
+          return p.a;
+        }
+      `),
+    ).toBe('Cannot apply -- to struct:P — -- steps a numeric scalar or vector.')
   })
 })
 
@@ -414,5 +449,133 @@ describe('rejections', () => {
         }
       `),
     ).toBe('.z out of range on vec2<f32>.')
+  })
+})
+
+describe('a write through a storage binding survives the optimizer', () => {
+  // The lvalue occurs twice in the source here, and its root is a `constref` (how this
+  // surface spells a binding read). CSE used to hoist the whole `ps[…]` navigation into an
+  // immutable `let` and rewrite the store into it — `let _cse1 = ps[i]; _cse1.b = …` — which
+  // Tint rejects with "cannot assign to value of type 'f32'". The guard is targetRoot /
+  // refsLocal in src/core/passes/opt/expr-utils.ts, pinned there too.
+  const COMPUTED = `
+    "use typeshade";
+    ${STRUCTS}
+    declare let ps: storage<array<P>>
+    @compute([64, 1, 1])
+    export function k(@builtin("global_invocation_id") gid: vec3u) {
+      ps[gid.x + u32(1)].b = ps[gid.x + u32(1)].a * ps[gid.x + u32(1)].a;
+    }
+  `
+
+  it('stores into the buffer, not into a hoisted temp', () => {
+    const c = compile(COMPUTED)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toMatch(/ps\[[^\]]*\]\.b = /)
+    expect(c.wgsl).not.toMatch(/_\w+\.b = /)
+    expect(c.wgsl).not.toMatch(/let \w+ = ps\[[^\]]*\];/)
+  })
+
+  it('increments a storage field through the compound form, with one load', () => {
+    const c = compile(`
+      "use typeshade";
+      ${STRUCTS}
+      declare let ps: storage<array<P>>
+      @compute([64, 1, 1])
+      export function k(@builtin("global_invocation_id") gid: vec3u) {
+        ps[gid.x * u32(2) + u32(1)].a++;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toMatch(/ps\[[^\]]*\]\.a \+= 1\.0;/)
+  })
+})
+
+describe('binding a value to another name copies it, as it does on the GPU', () => {
+  it('leaves the source vector alone when the copy is written', () => {
+    const c = compile(`
+      "use typeshade";
+      export function f(x: f32): f32 {
+        let v = vec3(x, 0., 0.);
+        let w = v;
+        w.x = 100.;
+        return v.x;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // `var w = v` is a value copy in WGSL and GLSL; the CPU oracle used to alias the two.
+    expect(c.wgsl).toContain('var w: vec3<f32> = v;')
+    expect(c.eval('f', [3])).toBe(3)
+  })
+
+  it('leaves the source struct alone when the copy is written', () => {
+    const c = compile(`
+      "use typeshade";
+      ${STRUCTS}
+      export function f(p: P): f32 {
+        let q: P = p;
+        q.a = 100.;
+        return p.a;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.eval('f', [{ a: 3, b: 0 }])).toBe(3)
+  })
+})
+
+describe('the root rule reaches an element target too', () => {
+  it('rejects an element write through a read-only resource', () => {
+    expect(
+      diagnose(`
+        class C {
+          xs: array<f32, 4>
+        }
+        declare const cam: uniform<C>
+        export function f(i: i32): f32 {
+          cam.xs[i] = 1.;
+          return cam.xs[0];
+        }
+      `),
+    ).toBe('Cannot assign to "cam" — it is read-only resource or const.')
+  })
+
+  it('rejects an element write through a parameter', () => {
+    expect(
+      diagnose(`
+        class C {
+          xs: array<f32, 4>
+        }
+        export function f(p: C, i: i32): f32 {
+          p.xs[i] = 1.;
+          return p.xs[0];
+        }
+      `),
+    ).toBe(
+      'Cannot write through parameter "p" — parameters are not writable. Use a local or storage.',
+    )
+  })
+
+  it('still takes the element writes that were always legal', () => {
+    const c = compile(`
+      "use typeshade";
+      declare let xs: storage<array<f32>>
+      @compute([64, 1, 1])
+      export function k(@builtin("global_invocation_id") gid: vec3u) {
+        xs[gid.x] = 1.;
+      }
+    `)
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(c.wgsl).toContain('xs[gid.x] = 1.0;')
+  })
+
+  it('sees through parentheses on a whole-name target', () => {
+    const r = compileTsSource(`"use typeshade";
+      export function f(a: vec3): vec3 {
+        let v = vec3(0.);
+        (v) = a;
+        return v;
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
   })
 })

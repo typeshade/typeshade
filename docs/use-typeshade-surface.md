@@ -265,14 +265,29 @@ pixels[i] = 1.            // an element
 | `declare let x: storage<T>` | yes |
 | `const` local | no — `TS8005` |
 | `declare const x: uniform<T>` / `storage<T>` | no — `TS8005` |
-| a function parameter | no — `TS8018`; parameters are read-only, as in WGSL |
+| a function parameter | no — `TS8018`; see the caveat below |
 | anything that is not a name (`vec3(0.).x`) | no — `TS8018` |
+
+The parameter row is about writing **through** a parameter — `p.x = 1.`, `p.xs[i] = 1.`.
+Writing a parameter **whole** (`p = 1.`, `p += 1.`, `p++`) is a different matter: WGSL rejects
+it too, but this surface has always accepted it and emitted `p = 1.0;`, so refusing it now
+would stop source that compiles today. Narrowing it needs a deprecation path and is on
+[issue #8](https://github.com/typeshade/typeshade/issues/8)'s "later" list; until then, a
+whole-parameter write is a bug the compiler does not catch yet.
 
 A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
 (`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
 assign that. `v.r` `v.g` `v.b` `v.a` are components like `v.x` … `v.w` and are writable.
 
+`++` and `--` step a numeric scalar or a vector. On a member or element target they lower to
+the compound form (`ps[i].a += 1.`), so the target is written once instead of read and written
+back; a bare name keeps `i = (i + 1)`. A bool, a struct, an array and a matrix are rejected
+(`TS8018`) — there is nothing to add `1` to.
+
 Lowering is the same `assign` / `assignOp` the EDSL's `v.x.assign(a)` and `o.pos.assign(v)`
 produce, so the two surfaces stay IR-equal here.
+
+Binding a value to another name **copies** it, as it does on both GPU targets: after
+`let w = v; w.x = 100.`, `v` is unchanged — on the GPU and in the CPU oracle alike.
 
 Last updated: 2026-09-14

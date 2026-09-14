@@ -318,37 +318,23 @@ function lowerAssignOp(
 }
 
 export function lowerLValue(
-  node: ts.Expression,
+  expression: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // `(v) = a` and `(v).x = a` name the same targets `v = a` and `v.x = a` do, so the
+  // parentheses come off once, here, rather than in each branch below (where only the member
+  // walk looked through them, and the fallback message then denied its own input).
+  const node = ts.isParenthesizedExpression(expression) ? unwrapParens(expression) : expression
   if (ts.isPropertyAccessExpression(node)) {
     return lowerMemberLValue(node, sourceFile, scope, diagnostics)
   }
   if (ts.isElementAccessExpression(node)) {
-    const baseName = ts.isIdentifier(node.expression) ? node.expression.text : undefined
-    const binding = baseName ? scope.resolve(baseName) : undefined
-    if (binding?.kind === 'param') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Cannot write through parameter "${baseName}" — parameters are not writable. Use a local or storage.`,
-        TS_CODES.ASSIGN_TARGET,
-      )
-      return undefined
-    }
-    if (binding && !binding.mutable) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Cannot assign to "${baseName}" — it is declared with const.`,
-        TS_CODES.CONST_ASSIGN,
-      )
-      return undefined
-    }
+    // The root of the chain decides writability, exactly as it does for a member target:
+    // `cam.xs[i] = 1.` on a uniform and `p.xs[i] = 1.` on a parameter used to reach the
+    // backend, because the binding was resolved only when the base was a bare identifier.
+    if (!checkRootWritable(node, sourceFile, scope, diagnostics)) return undefined
     const idx = lowerExpression(node, sourceFile, scope, diagnostics)
     if (!idx || idx.op !== 'index') return undefined
     return idx
@@ -410,13 +396,21 @@ function rootLValueName(node: ts.Expression): ts.Identifier | undefined {
  *  read is the target verbatim. Two things are checked that a read does not care about: the
  *  root binding must be writable, and a swizzle target must name exactly one component,
  *  which is what WGSL allows (`v.xy = …` is rejected there too). */
-function lowerMemberLValue(
-  node: ts.PropertyAccessExpression,
+function unwrapParens(node: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(node) ? unwrapParens(node.expression) : node
+}
+
+/** The writability of the binding at the root of a member or element chain, diagnosed. Shared
+ *  by both branches of {@link lowerLValue} so a write through a field and a write through an
+ *  element answer the same way: a write lands on the root, so the root is what has to accept
+ *  it. Returns false having pushed a diagnostic. */
+function checkRootWritable(
+  node: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  const root = rootLValueName(node.expression)
+): boolean {
+  const root = rootLValueName(node)
   if (!root) {
     pushDiag(
       diagnostics,
@@ -425,7 +419,7 @@ function lowerMemberLValue(
       'Assignment target must be a name, or a field, component or element of one.',
       TS_CODES.ASSIGN_TARGET,
     )
-    return undefined
+    return false
   }
   const binding = scope.resolve(root.text)
   if (!binding) {
@@ -436,7 +430,7 @@ function lowerMemberLValue(
       `Cannot assign to unknown name "${root.text}".`,
       TS_CODES.ASSIGN_TARGET,
     )
-    return undefined
+    return false
   }
   if (binding.kind === 'param') {
     pushDiag(
@@ -446,7 +440,7 @@ function lowerMemberLValue(
       `Cannot write through parameter "${root.text}" — parameters are not writable. Use a local or storage.`,
       TS_CODES.ASSIGN_TARGET,
     )
-    return undefined
+    return false
   }
   if (!binding.mutable) {
     const ro = binding.kind === 'module' ? 'read-only resource or const' : 'declared with const'
@@ -457,8 +451,18 @@ function lowerMemberLValue(
       `Cannot assign to "${root.text}" — it is ${ro}.`,
       TS_CODES.CONST_ASSIGN,
     )
-    return undefined
+    return false
   }
+  return true
+}
+
+function lowerMemberLValue(
+  node: ts.PropertyAccessExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (!checkRootWritable(node.expression, sourceFile, scope, diagnostics)) return undefined
   const target = lowerExpression(node, sourceFile, scope, diagnostics)
   if (!target) return undefined
   if (target.op !== 'member') {
@@ -471,8 +475,11 @@ function lowerMemberLValue(
     )
     return undefined
   }
+  // Only a `vec` base reaches here with a multi-character field: parseSwizzle rejects every
+  // other base (a vec64 included) before a member is built, and a struct field name of more
+  // than one character is a field, not a swizzle.
   const base = target.base.type
-  if ((isVec(base) || isVec64(base)) && target.field.length > 1) {
+  if (isVec(base) && target.field.length > 1) {
     pushDiag(
       diagnostics,
       sourceFile,

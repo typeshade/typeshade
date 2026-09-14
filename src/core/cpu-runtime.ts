@@ -462,6 +462,40 @@ export const GPU_STUBS: Record<string, Builtin> = {
 // 4294967040, not 4294967295). The mathematical 2^32−1 / 2^31−1 are NOT
 // f32-representable, so a float source can never produce them on the GPU; the
 // lower i32 bound −2^31 IS representable and stays exact.
+/** A value type that is held as a MUTABLE JavaScript object here — a vector, a matrix and an
+ *  emulated-double vector are `number[]`, an array is an array, a struct is a plain object.
+ *  A scalar and a bool are immutable JS primitives and never need copying. */
+export function isAggregateType(t: ShaderType): boolean {
+  return (
+    t.kind === 'vec' ||
+    t.kind === 'vec64' ||
+    t.kind === 'mat' ||
+    t.kind === 'array' ||
+    t.kind === 'struct'
+  )
+}
+
+/** A deep copy of a CPU value, for binding one aggregate to another name.
+ *
+ *  WGSL and GLSL both give `var w = v` VALUE semantics: `w` is a fresh copy, and writing
+ *  `w.x` leaves `v` alone. Both CPU backends used to bind the same underlying array or object
+ *  to the new name, so `let w = v; w.x = 100.` mutated `v` on the CPU and neither GPU — a
+ *  silent divergence in the one thing the oracle exists to guarantee. It was reachable only
+ *  through a raw `w[0] = …` until #8 A2 gave the `"use typeshade"` surface `w.x = …`.
+ *
+ *  Applied at a `let` / `var` binding whose type {@link isAggregateType} admits, by the
+ *  interpreter and by the generated code alike, so the two stay bit-identical. A scalar
+ *  binding is untouched, which is the overwhelming majority of them. */
+export function cloneValue(v: CpuValue): CpuValue {
+  if (Array.isArray(v)) return v.map(cloneValue) as CpuValue
+  if (typeof v === 'object' && v !== null) {
+    const out: Record<string, CpuValue> = {}
+    for (const [k, x] of Object.entries(v as Record<string, CpuValue>)) out[k] = cloneValue(x)
+    return out as CpuValue
+  }
+  return v
+}
+
 export const f32ToU32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(4294967040, Math.max(0, Math.trunc(v)))
 export const f32ToI32Sat = (v: number): number =>

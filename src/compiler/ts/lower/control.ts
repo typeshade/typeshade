@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { typeKey } from '../../../core/ir/types.js'
+import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
@@ -256,8 +256,9 @@ export function lowerUpdate(
     // A member or element target (`v.x++`, `ps[i].a++`) goes through lowerLValue, which owns
     // the writability and single-component-swizzle rules; a bare identifier keeps its own
     // path so its wording is unchanged.
+    const viaName = ts.isIdentifier(targetExpr)
     let target: Expr | undefined
-    if (ts.isIdentifier(targetExpr)) {
+    if (viaName && ts.isIdentifier(targetExpr)) {
       const binding = scope.resolve(targetExpr.text)
       if (!binding || !binding.mutable) {
         pushDiag(
@@ -277,17 +278,33 @@ export function lowerUpdate(
       target = lowerLValue(targetExpr, sourceFile, scope, diagnostics)
     }
     if (!target) return undefined
-    return {
-      s: 'assign',
-      target,
-      expr: {
-        op: 'binop',
-        type: target.type,
-        bop: op === ts.SyntaxKind.PlusPlusToken ? '+' : '-',
-        a: target,
-        b: { op: 'lit', type: target.type, value: 1 },
-      },
+    const token = op === ts.SyntaxKind.PlusPlusToken ? '++' : '--'
+    if (!isSteppable(target.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        expr,
+        `Cannot apply ${token} to ${typeKey(target.type)} — ${token} steps a numeric scalar or vector.`,
+        TS_CODES.ASSIGN_TARGET,
+      )
+      return undefined
     }
+    const bop = op === ts.SyntaxKind.PlusPlusToken ? '+' : '-'
+    const one: Expr = { op: 'lit', type: target.type, value: 1 }
+    // A bare name keeps the assign-of-binop it has always lowered to, so its emitted text does
+    // not move. A member or element target becomes an assignOp instead, so the lvalue is
+    // written ONCE: `ps[i].a = (ps[i].a + 1.0)` repeats the storage load, and CSE hoisting
+    // that repeated read into an immutable `let` is what made such an emit invalid. An
+    // emulated-double target keeps the binop form, since the fp64 pass lowers an assignOp on
+    // a vec64 target only when the value is a vec64 too (SD0041).
+    if (viaName || isVec64(target.type)) {
+      return {
+        s: 'assign',
+        target,
+        expr: { op: 'binop', type: target.type, bop, a: target, b: one },
+      }
+    }
+    return { s: 'assignOp', target, bop, expr: one }
   }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
     const left = expr.left
@@ -307,6 +324,18 @@ export function lowerUpdate(
   }
   pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)
   return undefined
+}
+
+/** The types `++` and `--` can step. A numeric scalar and a native vector are what both
+ *  backends add `1` to component-wise, and an emulated-double vector goes through the fp64
+ *  pass. A bool, a struct, an array and a matrix cannot: `p.q++` on a struct-typed field
+ *  emitted `p.q = (p.q + 1.0)`, which Tint and ANGLE both reject and the CPU oracle
+ *  evaluates to undefined. The identifier arm shares the check, which closes the same hole
+ *  it has always had for a bare `q++`. */
+function isSteppable(t: ShaderType): boolean {
+  if (isVec(t) || isVec64(t)) return true
+  const k = typeKey(t)
+  return k === 'f32' || k === 'i32' || k === 'u32'
 }
 
 function lowerBody(
