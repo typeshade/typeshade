@@ -260,7 +260,7 @@ describe('compute-reduction-twin.shade.ts — stepping one compute invocation', 
 // ═══ Every registered example, stepped against the oracle ═══
 //
 // The gate `interp.ts`'s header claims: every example through both walks, bit-identical. It
-// did not exist — `src/core/debug/step-differential.test.ts` sweeps only the generated corpus
+// did not exist: `src/core/debug/step-differential.test.ts` sweeps only the generated corpus
 // from `random-ir.ts`, whose `construct` arm builds f32 vectors and nothing else, so the
 // element-CONVERTING constructor `vec2u(v)` was never reached by either gate. The review found
 // the divergence by hand in `convert-grid:fs`: the stepper pushed raw components where the

@@ -141,7 +141,7 @@ describe('helpers: step in, step out, step over', () => {
     // `docs/debugging.md` §2.1: "stepIn on that statement enters f, stepOut returns to the
     // same statement with f's frame gone". It used to return to the caller's NEXT statement,
     // because a step-out was only "run until the stack is shallower" and pauses exist only at
-    // statement boundaries — which is also why the second call of a two-call statement could
+    // statement boundaries, which is also why the second call of a two-call statement could
     // not be stepped into at all. The post-call event is what fixes both.
     const m = compiled(WITH_HELPER)
     const s = startDebugSession(m, 'f', [1])
@@ -463,7 +463,7 @@ export function f(n: i32): f32 {
 describe('a statement nobody wrote is never a stop', () => {
   it('a while loop pauses only on statements the author can see', () => {
     // `docs/debugging.md` §3.4: the counter a `while` lowers to has no authored origin. It
-    // used to pause anyway, with no line to show — 3 of 11 stops on a two-iteration loop.
+    // used to pause anyway, with no line to show: 3 of 11 stops on a two-iteration loop.
     // Every span below is real text from the source, which is the whole of the claim.
     const t = trace(compiled(WHILE_SRC), WHILE_SRC, 'f', [0])
     expect(t).toEqual([
@@ -490,8 +490,8 @@ describe('a statement nobody wrote is never a stop', () => {
   it('a module with no spans at all runs to completion without pausing', () => {
     // The honest consequence of the rule, named rather than left to be discovered: an
     // `fn()`-authored module carries no spans, so there is no source to step. It is not a
-    // failure — the debugger is for `"use typeshade"`, and the EDSL keeps its own line-level
-    // tracing — but a caller must not be left waiting for a pause that cannot come.
+    // failure, since the debugger is for `"use typeshade"` and the EDSL keeps its own
+    // line-level tracing, but a caller must not be left waiting for a pause that cannot come.
     const handle = fn('g', { a: f32T }, f32T, ({ a }, b) => {
       const acc = Var('acc', f32(0))
       b.assign(acc, a)

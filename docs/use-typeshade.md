@@ -87,17 +87,32 @@ oracle, stopping before each statement the author wrote:
 <!-- doc-snippets: skip - a host-side snippet, not a compilation unit -->
 
 ```ts
-import { compile } from '@xgis/shader-dsl'
+import { compileTsSource } from '@xgis/shader-dsl'
 import { startDebugSession } from '@xgis/shader-dsl/debug'
 
-const { module } = compile(appSrc, { fileName: 'blur.shade.ts' })
-const s = startDebugSession(module, 'fs', [0.5], {
-  breakpoints: [{ file: 'blur.shade.ts', line: 12 }],
+// `compileTsSource` rather than `compile`, because a breakpoint's `file` is matched against
+// the file the spans name, and this is what names it. `compile` has no such option yet, so
+// its spans all say `typeshade-input.ts` and a file-qualified breakpoint would match nothing.
+const r = compileTsSource(appSrc, { fileName: 'blur.shade.ts' })
+const module = {
+  consts: [...r.consts],
+  structs: r.structs.map((s) => s.decl),
+  bindings: [...r.bindings],
+  funcs: [...r.funcs],
+}
+
+const s = startDebugSession(module, 'fs', [[0.3, 0.4]], {
+  breakpoints: [{ file: 'blur.shade.ts', line: 4 }],
 })
+s.pause.span.line // 3, the entry's first statement; s.pause.reason is 'entry'
 s.continue()
-console.log(s.pause?.span.line, [...(s.pause?.frames[0]?.locals ?? [])])
-s.stepIn()
+s.pause.span.line // 4, and s.pause.reason is now 'breakpoint'
+;[...s.pause.frames[0].locals] // [['uv', [0.3, 0.4]], ['r', 0.5]]
+s.stepIn() // line 5
 ```
+
+Lines are zero-based, as `SourceSpan` and the language service are. A breakpoint matches the
+line a statement STARTS on, so one on a blank line or on a closing brace never fires.
 
 One invocation, not a frame: a full 1920x1080 pass is about two million of them, and stepping
 is for the one that is wrong. It is the same walk over the same IR the WGSL and GLSL writers

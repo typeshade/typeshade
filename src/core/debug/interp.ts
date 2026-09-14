@@ -29,11 +29,11 @@
 //   oracle tree-walk          ~13 µs / invocation
 //   this generator walk       ~63 µs / invocation
 //
-// Roughly FIVE times the tree-walk, and the honest form of that number is a range: the median
-// lands between 5.0× and 5.5× across runs, individual repetitions between about 4× and 9×.
-// An earlier version of this comment quoted 3.1× from a single run, a reviewer measuring the
-// same thing got 4.1×, and neither is wrong so much as over-precise. That disagreement is why
-// the benchmark is now a script rather than a number nobody can check.
+// ABOUT FIVE TIMES the tree-walk, and that looseness is the honest form. The script's median
+// has come back between 4.7x and 5.8x on different runs of the same tree, and repetitions
+// inside one run span roughly 4x to 7x. An earlier version of this comment quoted 3.1x from a
+// single run and a reviewer measuring the same thing got 4.1x; neither is wrong so much as
+// over-precise. Run the script and read the band it prints rather than trusting this comment.
 //
 // The conclusion does not turn on the exact multiple: making the reference backend steppable
 // would put SOME several-fold cost on every use of it, and `compileModule` is production-used
