@@ -57,24 +57,37 @@ export function typeshadeCompilerOptions(): ts.CompilerOptions {
   }
 }
 
-/** The default `resolveImport`: same directory as `fromUri`, with a `.ts` extension appended
- * when the specifier has none. No `node:path` — the host must stay filesystem-free so it can
+/** The default `resolveImport`: same directory as `fromUri`, with a trailing `.js`/`.mjs`
+ * specifier rewritten to `.ts` (matching `tsc`'s own Bundler/NodeNext resolution, and the
+ * extension this repository's own source uses everywhere) and a `.ts` extension appended when
+ * the specifier has none at all. No `node:path` — the host must stay filesystem-free so it can
  * run in a browser worker (design doc §1, §7). */
 function defaultResolveImport(fromUri: string, specifier: string): string {
   const dir = fromUri.includes('/') ? fromUri.slice(0, fromUri.lastIndexOf('/') + 1) : ''
   const joined = joinPath(dir, specifier)
-  return /\.[a-zA-Z0-9]+$/.test(joined) ? joined : `${joined}.ts`
+  const rewritten = joined.replace(/\.m?js$/, '.ts')
+  return /\.[a-zA-Z0-9]+$/.test(rewritten) ? rewritten : `${rewritten}.ts`
 }
 
+/** Joins `dir` (a uri prefix ending in `/`, or `''`) with `specifier`, resolving only the
+ * specifier's own `.`/`..` segments against `dir`'s path. `dir`'s own scheme and authority
+ * (`file://`) or leading `/` are matched once up front and reattached verbatim rather than
+ * re-split with everything else — re-splitting the whole concatenated string on `/` (the
+ * previous approach) silently ate a `file://` authority's slashes and an absolute uri's leading
+ * `/`, so `./lib.ts` from `file:///main.ts` resolved to `file:/lib.ts` and from `/main.ts` to
+ * `lib.ts`, neither of which is ever an open document's uri. */
 function joinPath(dir: string, specifier: string): string {
-  const segments = `${dir}${specifier}`.split('/')
+  const scheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/{0,2}/.exec(dir)
+  const prefix = scheme ? scheme[0] : ''
+  const pathPart = dir.slice(prefix.length)
+  const isAbsolute = pathPart.startsWith('/')
   const out: string[] = []
-  for (const seg of segments) {
+  for (const seg of `${pathPart}${specifier}`.split('/')) {
     if (seg === '' || seg === '.') continue
     if (seg === '..') out.pop()
     else out.push(seg)
   }
-  return out.join('/')
+  return prefix + (isAbsolute ? '/' : '') + out.join('/')
 }
 
 /** One open or updated document: its text and the version an adapter supplied (or the store's
