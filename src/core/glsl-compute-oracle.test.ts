@@ -149,7 +149,7 @@ describe('M2b — compute→fragment lowering preserves out_color byte-for-byte 
     expect(runFragment(data, n, w)).toEqual(runCompute(data, n))
   })
 
-  it('#1812 — the same kernel DECLARED portable lowers through the tier gate, oracle-identical', () => {
+  it('X-GIS #1812 — the same kernel DECLARED portable lowers through the tier gate, oracle-identical', () => {
     const n = 10,
       w = 4 // the multi-row shape: the widest arm, so the tier gate is proven on it
     const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11)

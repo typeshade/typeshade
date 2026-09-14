@@ -264,21 +264,21 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
  *  and with nothing behind them. Each entry is a debt with a reason and an issue, not a
  *  waiver: the arms below fail if one becomes reachable and the entry survives. */
 const UNREACHABLE_ALLOWLIST: Readonly<Partial<Record<Capability, string>>> = {
-  // #1681 A3 — `enable f16;` emits on WGSL, but `Scalar` (ir/types.ts:9) is
+  // X-GIS #1681 A3 — `enable f16;` emits on WGSL, but `Scalar` (ir/types.ts:9) is
   // f32|i32|u32|bool and every scalar/vector/matrix type keys off it, so no f16 value
   // can be declared, passed, or returned. Reachable only once `Scalar` gains 'f16' and
   // the type constants / promotion rules follow.
-  f16: 'no f16 value type — Scalar is f32|i32|u32|bool (ir/types.ts:9) — #1681',
-  // #1681 A3 — `enable subgroups;` emits on WGSL and the registry has no subgroup
+  f16: 'no f16 value type — Scalar is f32|i32|u32|bool (ir/types.ts:9) — X-GIS #1681',
+  // X-GIS #1681 A3 — `enable subgroups;` emits on WGSL and the registry has no subgroup
   // intrinsic (subgroupAdd / subgroupBallot / subgroupBroadcast), so the directive is
   // the entire feature.
-  subgroups: 'no subgroup intrinsic in the registry (core/intrinsics.ts) — #1681',
-  // #1681 A3 — the GLSL row emits `#extension GL_OVR_multiview2 : require` and the
+  subgroups: 'no subgroup intrinsic in the registry (core/intrinsics.ts) — X-GIS #1681',
+  // X-GIS #1681 A3 — the GLSL row emits `#extension GL_OVR_multiview2 : require` and the
   // module still renders SINGLE-VIEW: `layout(num_views = N) in;` is unspellable and
   // `gl_ViewID_OVR` has no `@builtin` mapping. The cap exists to prove the `#extension`
   // path end to end (backends/glsl.ts GLSL_CAP_PROFILE says so in its own comment), and
   // this entry is the machine-checked version of that admission.
-  multiview: 'directive-only — no gl_ViewID_OVR / num_views authoring surface — #1681',
+  multiview: 'directive-only — no gl_ViewID_OVR / num_views authoring surface — X-GIS #1681',
 }
 
 describe('capability reachability (X-GIS #1681 A3)', () => {

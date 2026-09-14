@@ -1,4 +1,4 @@
-// ═══ #1812 — the PORTABLE KERNEL TIER, fail-before corpus ═══
+// ═══ X-GIS #1812 — the PORTABLE KERNEL TIER, fail-before corpus ═══
 //
 // The tier's one-sentence contract: a compute entry declared `portable: true` emits on BOTH
 // backends — native `@compute` on WGSL (zero byte change) and the compute→fragment-GPGPU
@@ -160,7 +160,7 @@ const captureThrow = (emit: () => unknown): unknown => {
   return undefined
 }
 
-describe('#1812 SD0110 — portable is a COMPUTE declaration, rejected at authoring time', () => {
+describe('X-GIS #1812 SD0110 — portable is a COMPUTE declaration, rejected at authoring time', () => {
   // Not a tsc error: FnOpts is one flat bag (stage and portable are independent optionals),
   // which is exactly why fn() carries the runtime half of the two-layer pattern.
   it('fn() throws SD0110 for portable on a vertex entry', () => {
@@ -185,7 +185,7 @@ describe('#1812 SD0110 — portable is a COMPUTE declaration, rejected at author
   })
 })
 
-describe('#1812 SD0111 — every tier violation fails on BOTH writers with the same sentence', () => {
+describe('X-GIS #1812 SD0111 — every tier violation fails on BOTH writers with the same sentence', () => {
   const CASES: ReadonlyArray<{ name: string; module: ModuleDecl; detail: string }> = [
     {
       name: 'gid read as .y (the tier is 1-D)',
@@ -290,7 +290,7 @@ describe('#1812 SD0111 — every tier violation fails on BOTH writers with the s
   })
 })
 
-describe('#1812 byte pins — the declaration is free on WGSL and exact on GLSL', () => {
+describe('X-GIS #1812 byte pins — the declaration is free on WGSL and exact on GLSL', () => {
   it('WGSL: declaring portable changes zero bytes', () => {
     expect(emitModule(PORTABLE_MOD)).toBe(emitModule(PLAIN_MOD))
   })
@@ -314,7 +314,7 @@ describe('#1812 byte pins — the declaration is free on WGSL and exact on GLSL'
   })
 })
 
-describe('#1812 reflect() — the host-contract signal', () => {
+describe('X-GIS #1812 reflect() — the host-contract signal', () => {
   it('portable is true exactly when declared, and absent otherwise', () => {
     const declared = reflect(PORTABLE_MOD).entries[0]!
     expect(declared.stage).toBe('compute')
@@ -327,7 +327,7 @@ describe('#1812 reflect() — the host-contract signal', () => {
   })
 })
 
-describe('#1812 the declaration survives module() assembly (fn-authored, not hand-built)', () => {
+describe('X-GIS #1812 the declaration survives module() assembly (fn-authored, not hand-built)', () => {
   // The ONE shape a hand-built-decl corpus cannot reach. `portable` has no attrs spelling by
   // design, and module() puts the fn HANDLE (not its decl) into funcs[] — so if the handle
   // does not mirror the field, every fn()-authored kernel loses the declaration on assembly

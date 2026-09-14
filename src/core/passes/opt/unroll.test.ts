@@ -356,7 +356,7 @@ describe('unrollLoops — small fixed-count loop unrolling', () => {
     // loop B's bound is a const-`let`, so it is deferred until constProp inlines the
     // literal, then unrolls on the SECOND pass. The two bodies must bind DIFFERENT names:
     // this fixture gave both `t`, which reads as innocuous WGSL (separate loop scopes) but
-    // is the #2341 miscompile — const-prop's per-function map is keyed on the name alone,
+    // is the X-GIS #2341 miscompile — const-prop's per-function map is keyed on the name alone,
     // so it propagated loop B's literal into loop A's body. `no-shadowed-local` now rejects
     // that module at every emit, so the collision it used to build has to come from the
     // pass's OWN minted names instead — see the `_u0_`-seeding test below, which is where

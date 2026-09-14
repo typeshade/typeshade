@@ -1,6 +1,6 @@
 // ═══ examples/index.ts vs the directory — the registry drift gate (X-GIS #1716) ═══
 //
-// `index.ts` is the file #1716 names: hand-maintained imports, hand-maintained re-exports,
+// `index.ts` is the file X-GIS #1716 names: hand-maintained imports, hand-maintained re-exports,
 // hand-maintained array. It is NOT regenerated here, and that is a finding rather than a
 // shortcut — the part of it that is genuinely hand-maintained is the ORDER:
 //
@@ -8,7 +8,7 @@
 //
 // A directory scan can enumerate the modules. It cannot know that cartographic examples
 // lead because the site is a map site. That curation is editorial value a generator does
-// not produce, the same thing #1700 says about the reference page's grouping. So the
+// not produce, the same thing X-GIS #1700 says about the reference page's grouping. So the
 // curation stays authored and this gate proves the two halves agree — which is exactly the
 // check `buildRegistry` performs, run here against the real corpus.
 //
@@ -25,7 +25,7 @@ import { discoverExamples } from './_scan.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-// The scan moved to `_scan.ts` when #1716's generator landed, and is SHARED with it. Two
+// The scan moved to `_scan.ts` when X-GIS #1716's generator landed, and is SHARED with it. Two
 // copies of the export-convention regex is how a generator and the gate that checks it come
 // to disagree — and the disagreement is invisible, because both keep passing on different
 // sets.
@@ -57,7 +57,7 @@ describe('examples registry — the directory and the curated list agree', () =>
 
   it('the curated ORDER is real editorial content, not the scan order', () => {
     // Pins the finding this gate is built around: if these ever coincide, the curation has
-    // been lost (or alphabetised by accident) and #1716's generator could own the file
+    // been lost (or alphabetised by accident) and X-GIS #1716's generator could own the file
     // outright. Failing here is a prompt to re-read that decision, not a bug.
     expect(examples.map((e) => e.id)).not.toEqual(discovered.map((d) => d.id))
   })

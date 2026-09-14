@@ -76,13 +76,13 @@ function keyOfUncached(e: Expr): string {
       // ARGUMENT type: float→u32 saturates to 0, int→u32 reinterprets the bits as
       // 4294967295. CSE then hoisted one and rewrote the other to it, in the emitted WGSL
       // and GLSL alike. `-0` is spelled apart from `0` for the same reason: `x + -0.0` and
-      // `x + 0.0` differ when x is -0.0. Found by the #2406 generated-program differential.
+      // `x + 0.0` differ when x is -0.0. Found by the X-GIS #2406 generated-program differential.
       return `L:${typeKey(e.type)}:${Object.is(e.value, -0) ? '-0' : String(e.value)}`
     case 'constref':
       return `C:${e.name}`
     case 'externref':
     case 'overrideref':
-      return `O:${e.name}` // #923 — distinct from a const read (never CSE'd together)
+      return `O:${e.name}` // X-GIS #923 — distinct from a const read (never CSE'd together)
     case 'param':
       return `P:${e.name}`
     case 'varref':

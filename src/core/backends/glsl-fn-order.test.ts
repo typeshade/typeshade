@@ -123,7 +123,7 @@ describe('glsl-es300 — a single-exit entry IS main() (X-GIS #1858)', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     expect(vs).not.toContain('_impl')
     expect((vs.match(/void main\(\) \{/g) ?? []).length).toBe(1)
-    // …and the values still land. This exit is a CONSTRUCTOR, so since #1867 each of its
+    // …and the values still land. This exit is a CONSTRUCTOR, so since X-GIS #1867 each of its
     // arguments goes straight to its field's varying and no aggregate is built at all.
     expect(vs).toContain('gl_Position = vec4(_v0, 0.0, 0.0, 1.0);')
     expect(vs).toContain('uv = vec2(_v0, _v0);')
@@ -133,7 +133,7 @@ describe('glsl-es300 — a single-exit entry IS main() (X-GIS #1858)', () => {
 
   it('scatters straight from the exit VARIABLE, minting no copy of it', () => {
     // A struct exit that stays a VARIABLE. The write-once form is collapsed to a
-    // constructor by #1867's structCtor, so reaching this path needs the shape that pass
+    // constructor by X-GIS #1867's structCtor, so reaching this path needs the shape that pass
     // refuses — a field read back, which is the polygon fragment's real shape
     // (`out.color.w = out.color.w * rim`). The scatter then needs the value in a named
     // place, and `o` already IS one: `IoOut _out = o;` would copy a struct nothing reads.
@@ -234,9 +234,9 @@ describe('glsl-es300 — a single-exit entry IS main() (X-GIS #1858)', () => {
   })
 })
 
-// ═══ #1867 — the IO struct is materialised only to be taken apart, so do not build it ═══
+// ═══ X-GIS #1867 — the IO struct is materialised only to be taken apart, so do not build it ═══
 //
-// One level below #1858: `main()` still opened by copying the varyings into a struct and
+// One level below X-GIS #1858: `main()` still opened by copying the varyings into a struct and
 // closed by binding the exit to a temp, purely to read its fields back out one line later.
 // Neither aggregate is needed, and once nothing spells the type the DECL goes too — which
 // is where the bytes are. The gates below pin both halves AND both bail-outs, because the
@@ -285,7 +285,7 @@ describe('glsl-es300 — the entry IO struct is never built (X-GIS #1867)', () =
   })
 
   it('KEEPS the gather when a body local would CAPTURE the substituted read', () => {
-    // The #1858 `seg_id` hazard in its second form, and just as silent: substituting
+    // The X-GIS #1858 `seg_id` hazard in its second form, and just as silent: substituting
     // `inp.uv` -> `uv` binds to a body local named `uv` if one exists, and the shader
     // still compiles and links. The whole substitution is refused for that param.
     const fsCap = fn(

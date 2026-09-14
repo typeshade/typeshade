@@ -1,9 +1,9 @@
 // ═══ Every public export carries a doc comment — the reference's precondition (X-GIS #1695) ═══
 //
-// #1694 measured the symptom: the authoring knowledge exists, is good, and cannot be found.
-// #1695's answer is a GENERATED API reference — and a generated reference is only worth
+// X-GIS #1694 measured the symptom: the authoring knowledge exists, is good, and cannot be found.
+// X-GIS #1695's answer is a GENERATED API reference — and a generated reference is only worth
 // trusting if nothing can join the public surface undocumented. That is this file. It is the
-// DURABLE half of #1695 and it deliberately does NOT depend on which extractor renders the
+// DURABLE half of X-GIS #1695 and it deliberately does NOT depend on which extractor renders the
 // pages: it enumerates with the TypeScript compiler API directly.
 //
 // WHY NOT READ THE EXTRACTOR'S OUTPUT. Reusing typedoc's api.json to enumerate would weld a
@@ -27,19 +27,19 @@
 // rather than `<subpath>#<name>` because 195 definitions are exposed by two or more
 // subpaths, and pair-keying would inflate 175 rows to 284 with ~109 duplicates.
 //
-// THE SEED IS 175, NOT 40. #1694's headline "40 of 71" measured a different quantity — a
+// THE SEED IS 175, NOT 40. X-GIS #1694's headline "40 of 71" measured a different quantity — a
 // regex over the four entry files crossed with "does this name appear in AUTHORING.md" — and
 // must never be transcribed here. The census that seeded this file was produced by ITS OWN
 // READER: 332 unique definitions across the four API subpaths, 175 of them undocumented
 // (. 159/284 · ./dev 13/33 · ./emit-prod 3/17 · ./core/ir 109/193). THAT ALLOWLIST IS NOW
 // EMPTY — 175 → 0, in four passes:
 //
-//   #1697          8  the backend symbols that reached the entry only through `index.ts`'s
+//   X-GIS #1697          8  the backend symbols that reached the entry only through `index.ts`'s
 //                     star re-export      (retired `emit-internals`)
-//   #1695 core/ir  109 the IR authoring surface, across node/types/builder/nodes
+//   X-GIS #1695 core/ir  109 the IR authoring surface, across node/types/builder/nodes
 //                                          (retired `ir-authoring`)
-//   #1695 ./dev    20  the diagnostic surface (retired `diagnostics`)
-//   #1695 engine   38  reflect / sot / intrinsics / measure / backend / cpu-oracle / fp64
+//   X-GIS #1695 ./dev    20  the diagnostic surface (retired `diagnostics`)
+//   X-GIS #1695 engine   38  reflect / sot / intrinsics / measure / backend / cpu-oracle / fp64
 //                                          (retired `engine-internals`)
 //
 // The `diagnostics` pass is the one worth remembering, because its row was blocked on a
@@ -57,7 +57,7 @@
 //
 // `@internal` IS NOT AN EXIT FROM THIS GATE. Five of those eight are documented AND tagged
 // `@internal`, so the extractor's `excludeInternal` keeps them out of the published pages
-// while they stay exported — the un-export decision is breaking, and stays open in #1697.
+// while they stay exported — the un-export decision is breaking, and stays open in X-GIS #1697.
 // Because this file enumerates independently of the extractor (see above), it keeps scanning
 // exactly the symbols the reference stops rendering; arm A6 pins that tagged set both ways so
 // a tag can never retire a doc obligation without review.
@@ -135,16 +135,16 @@ const INTERNAL: Readonly<Record<string, string>> = {
     'is keyed on — so validate()/diagnose() must run BEFORE it, not after (X-GIS #1695).',
   'src/core/backends/glsl.ts#lowerComputeToFragment':
     'the supported entry is the emulateCompute emit option; calling the pass directly yields ' +
-    'a half-lowered module. Un-export tracked by #1697.',
+    'a half-lowered module. Un-export tracked by X-GIS #1697.',
   'src/core/backends/wgsl.ts#emitBinding':
     'group/binding indices are assigned across a whole module, so a line emitted alone can ' +
-    'disagree with the layout reflect() reports. Un-export tracked by #1697.',
+    'disagree with the layout reflect() reports. Un-export tracked by X-GIS #1697.',
   'src/core/backends/wgsl.ts#emitStruct':
     'a struct is meaningful only alongside the bindings and funcs that use it, which is what ' +
-    'emitModule emits. Un-export tracked by #1697.',
+    'emitModule emits. Un-export tracked by X-GIS #1697.',
   'src/core/backends/wgsl.ts#wgslType':
     'type spelling is a backend private; the neutral surface is emitModule. Un-export ' +
-    'tracked by #1697.',
+    'tracked by X-GIS #1697.',
 }
 
 // ── the reader: ONE program, hoisted above every describe ───────────────────────────────
@@ -293,7 +293,7 @@ const EXPORT_FLOOR: Readonly<Record<string, number>> = {
   './language-service': 15,
 }
 
-describe('#1695 — reader sanity (every arm below is vacuous without these)', () => {
+describe('X-GIS #1695 — reader sanity (every arm below is vacuous without these)', () => {
   it('the program resolved each API subpath to at least its measured export count', () => {
     for (const sub of API_SUBPATHS) {
       const n = perSubpath.get(sub)?.length ?? 0
@@ -361,7 +361,7 @@ describe('#1695 — reader sanity (every arm below is vacuous without these)', (
   })
 })
 
-describe('#1695 — the public surface is fully accounted for', () => {
+describe('X-GIS #1695 — the public surface is fully accounted for', () => {
   it('A5: every exports subpath is classified as API or explicitly not-API', () => {
     // SET EQUALITY, not a for-each: a loop over API_SUBPATHS can only ever confirm the four
     // already listed, and the failure worth catching is a FIFTH subpath being added and
@@ -402,7 +402,7 @@ describe('#1695 — the public surface is fully accounted for', () => {
   })
 
   it('A3: no allowlist row names a symbol that is no longer exported', () => {
-    // The #996 path-keyed-gate lesson: without this, a renamed symbol leaves a permanently
+    // The X-GIS #996 path-keyed-gate lesson: without this, a renamed symbol leaves a permanently
     // green row AND reappears as a fresh A1 orphan, which reads as two unrelated problems.
     const stale = Object.keys(UNDOCUMENTED)
       .filter((key) => !DEFS.has(key))

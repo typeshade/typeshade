@@ -90,7 +90,7 @@ const VEC_REDUCE = ['length'] as const
 
 const F32_BINOPS: readonly BinOp[] = ['+', '-', '*', '/']
 // Integer ops carry WGSL's own semantics (wrap, truncating `/`, `x/0 = x`, `x%0 = 0`) — the
-// exact surface #2274 got wrong, so `/` and `%` are generated on purpose, over divisors that
+// exact surface X-GIS #2274 got wrong, so `/` and `%` are generated on purpose, over divisors that
 // CAN be zero.
 const INT_BINOPS: readonly BinOp[] = ['+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>']
 const CMPS: readonly CmpOp[] = ['<', '<=', '>', '>=', '==', '!=']
@@ -375,7 +375,7 @@ class Gen {
           // case. The first version of this generator satisfied neither: its scrutinee was
           // an arbitrary truncated float (so the arms were dead) and the switch was often
           // the last statement in the body (so `continue` and falling through agreed). It
-          // generated 39 `continue`s inside switches and could not see #2275 reverted.
+          // generated 39 `continue`s inside switches and could not see X-GIS #2275 reverted.
           // Here the scrutinee IS the loop counter, so cases 0/1/2 all execute, and the
           // accumulate lands after the switch, so skipping it is visible in the result.
           this.mark('accumulatorLoop')
@@ -444,7 +444,7 @@ class Gen {
           body,
         })
       } else if (inLoop && k < 0.93) {
-        // `switch` with `break` / `continue` arms. #2275 was exactly this: the interpreter
+        // `switch` with `break` / `continue` arms. X-GIS #2275 was exactly this: the interpreter
         // swallowed a `continue` raised inside a switch case, so the loop kept executing the
         // rest of the body. Generated only inside a loop, where `continue` is legal.
         this.mark('switch')

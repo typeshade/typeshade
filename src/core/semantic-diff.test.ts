@@ -7,14 +7,14 @@
 // literal change as a control-flow change, would pass a plain "is it non-empty?" test
 // and fail these (CLAUDE.md §12).
 //
-// The load-bearing arm is mangle invariance. It is what lets #1715's "prod is dev,
+// The load-bearing arm is mangle invariance. It is what lets X-GIS #1715's "prod is dev,
 // optimized" claim be asserted rather than trusted, and it is why 'names'
 // canonicalizes exactly the partition mangleModule is free to rewrite. It carries its
 // own sanity check — mangleModule returns the module UNCHANGED when there is nothing
 // to rename (and bails to identity on a `raw` body), so without asserting that renames
 // actually happened the invariant would hold vacuously.
 //
-// The #1806 block pins the OTHER half of that claim, for transforms that DO change
+// The X-GIS #1806 block pins the OTHER half of that claim, for transforms that DO change
 // what this comparator reports (inline): a declared pipeline drains exactly the
 // differences it provably causes into `explained`, and the arm that matters is the
 // regression one — the same declaration must NOT drain a difference the pipeline does
@@ -217,7 +217,7 @@ describe('semanticDiff — declared transforms (X-GIS #1806)', () => {
     // `shade` is single-return, so the arms above exercise inlineFn's expression
     // substitution. A linear multi-statement helper (let-prelude + trailing return)
     // takes inline-linear's statement-LIFTING path — fresh `let`s spliced into the
-    // caller — which is exactly the "temporary-variable rewrite" #1806 names.
+    // caller — which is exactly the "temporary-variable rewrite" X-GIS #1806 names.
     const noise = fn('noiseish', { x: f32T }, f32T, ({ x }, b) => {
       const a = b.let('a', sin(x))
       const t = b.let('t', a.mul(0.5))

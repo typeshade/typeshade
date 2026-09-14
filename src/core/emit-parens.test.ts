@@ -79,7 +79,7 @@ describe("emitExpr — 'minimal' drops parens precedence already implies", () =>
   })
 })
 
-// #2350: an intrinsic whose SPELLING re-embeds an argument in a tighter position
+// X-GIS #2350: an intrinsic whose SPELLING re-embeds an argument in a tighter position
 // (`mod`'s `/` operand on WGSL, `pack4x8unorm`'s `.x` base on GLSL) cannot take the
 // argument slot's `need` 1 — a bare `a + b` re-associates there, silently changing
 // the parse under 'minimal' only. Those templates force their arguments to ATOM.

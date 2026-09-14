@@ -32,7 +32,7 @@
 // RESOLVING THROUGH THE BINDING IS THE WHOLE PASS. A fold that only matches a
 // SYNTACTIC `construct(...).x` finds almost nothing, because the emitter CSEs every
 // expression into a `let` chain first — the construct and the member land two
-// statements apart, spelled `_cse3.x`. #1972 was opened because a probe that missed
+// statements apart, spelled `_cse3.x`. X-GIS #1972 was opened because a probe that missed
 // exactly this reported "0 sites" and read as a clean corpus.
 //
 // VALUE-SAFE by construction: no arithmetic is performed and no expression moves

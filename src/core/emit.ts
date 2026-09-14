@@ -348,7 +348,7 @@ function spellExterns(m: ModuleDecl, be: Backend): ModuleDecl {
  *  derived from the SAME lowered module (see `emitModuleWithReflection`). */
 function assembleLowered(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'full'): string {
   const parts: string[] = []
-  // #923 — specialization-constant declarations lead the module (WGSL `override`
+  // X-GIS #923 — specialization-constant declarations lead the module (WGSL `override`
   // lines): they are module-scope constants a later const/fn may reference. Skipped
   // when the module declares none, so override-free emit stays byte-identical.
   if (lowered.overrides?.length && be.emitOverride)

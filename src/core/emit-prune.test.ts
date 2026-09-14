@@ -76,7 +76,7 @@ describe('prune() in the obfuscate() preset', () => {
   it('GLSL shrinks and the helper is declared exactly once', () => {
     const plain = emitGlslModule(m, 'fragment')
     const out = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
-    // TWO occurrences, not three: since #1858 the backend orders its fn section, so the
+    // TWO occurrences, not three: since X-GIS #1858 the backend orders its fn section, so the
     // authored helper is spelled as a DEFINITION and at its call site and nowhere else —
     // the prototype this pass was written to remove is no longer emitted at all. The pass
     // stays in the preset for the text it did NOT write (hand-authored `rawGlsl`, a

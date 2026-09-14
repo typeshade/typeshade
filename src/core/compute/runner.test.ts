@@ -293,7 +293,7 @@ describe('createComputeRunner — cpu tier value parity', () => {
   })
 })
 
-// ── #2362 — n === 0 is a steady state on ALL THREE tiers ──────────────────────────────
+// ── X-GIS #2362 — n === 0 is a steady state on ALL THREE tiers ──────────────────────────────
 //
 // This is the one place the WebGL2 tier is driven through `run()`, and it is NOT value
 // coverage — see the file header: a dispatch recorded by a stub succeeds whether or not it
@@ -408,7 +408,7 @@ describe('createComputeRunner — an empty dispatch is a steady state on every t
   })
 })
 
-// ── #2355 — the WebGL2 tier borrows the HOST's context and must give it back ──────────
+// ── X-GIS #2355 — the WebGL2 tier borrows the HOST's context and must give it back ──────────
 //
 // `options.gl` is documented "A live WebGL2 context": the caller's, not one this runner
 // owns. The dispatch overwrites four pieces of global state and the `finally` restored one

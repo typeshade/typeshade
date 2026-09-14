@@ -199,7 +199,7 @@ export type Stmt =
   // CPU backend throws (raw text has no CPU evaluation), and the
   // lowerModule pass treats it as a leaf (no sub-Expr to lower).
   //
-  // #1671 — PAIRED PER-TARGET PAYLOADS. One node carries the SAME statement
+  // X-GIS #1671 — PAIRED PER-TARGET PAYLOADS. One node carries the SAME statement
   // spelled for each backend; the MEANING is fixed ("splice verbatim here")
   // and only the SPELLING is per-target — the same per-target-spelling pattern
   // `INTRINSICS`' `Spelling` record already uses (intrinsics.ts:15-19). Unlike

@@ -25,7 +25,7 @@ const scaleMod = (enables?: readonly DeclarableCapability[]) =>
     ],
   })
 
-describe('#628 — caps-gated enable directives (WGSL header + GLSL fail-closed)', () => {
+describe('X-GIS #628 — caps-gated enable directives (WGSL header + GLSL fail-closed)', () => {
   it('default (no enables) emits NO enable directive', () => {
     expect(emitModule(scaleMod())).not.toContain('enable ')
   })
