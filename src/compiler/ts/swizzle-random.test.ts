@@ -3,6 +3,7 @@ import { compileTsSource } from './source-file.js'
 import { typeKey } from '../../core/ir/types.js'
 import { parseSwizzle } from './swizzle.js'
 import { vec2fT, vec3fT, vec4fT, f32T } from '../../core/ir/types.js'
+import { stripSpans } from '../../core/testing/strip-spans.js'
 
 describe('swizzle', () => {
   it('parses .yx and rejects mix/range', () => {
@@ -83,11 +84,15 @@ describe('random(seed)', () => {
   })
 
   it('Math.random(x) aliases random(x)', () => {
-    const a = compileTsSource(`"use typeshade"; export function f(x: f32): f32 { return random(x); }`)
-    const b = compileTsSource(`"use typeshade"; export function f(x: f32): f32 { return Math.random(x); }`)
+    const a = compileTsSource(
+      `"use typeshade"; export function f(x: f32): f32 { return random(x); }`,
+    )
+    const b = compileTsSource(
+      `"use typeshade"; export function f(x: f32): f32 { return Math.random(x); }`,
+    )
     expect(a.diagnostics).toEqual([])
     expect(b.diagnostics).toEqual([])
-    expect(a.funcs[0]!.body).toEqual(b.funcs[0]!.body)
+    expect(stripSpans(a.funcs[0]!.body)).toEqual(stripSpans(b.funcs[0]!.body))
   })
 
   it('rejects argument-less random()', () => {
