@@ -17,7 +17,8 @@ import { validate } from '../passes/validate.js'
 import { autoVars } from '../passes/opt/index.js'
 import { froundF32 } from '../passes/precision.js'
 import { sameFileName } from './file-name.js'
-import { makeCtx, runFunction, type Signal, type Step, type StepFrame } from './interp.js'
+import { compileWatch, watchCacheKey, type CompiledWatch, type DebugWatchValue } from './watch.js'
+import { evalExpr, makeCtx, runFunction, type Signal, type Step, type StepFrame } from './interp.js'
 
 /** A breakpoint, as an editor sets one: a zero-based line, optionally in a named file.
  *
@@ -176,6 +177,31 @@ export interface DebugSession {
   continue(): DebugPause | undefined
   /** Replace the armed breakpoints. */
   setBreakpoints(breakpoints: readonly DebugBreakpoint[]): void
+  /** What is this expression, here, now — a DAP `evaluate`, a watch box, a debug hover.
+   *
+   *  The text is compiled by the REAL front end against the frame's own names, so a watch
+   *  means what the same text would mean written at that point in the shader, and a type error
+   *  in it is the same diagnostic the editor shows (`docs/debugging.md` §4.5). It can call the
+   *  module's own helpers. It is evaluated by the interpreter already running this session, at
+   *  this session's precision, so a watch answers the same question the run does.
+   *
+   *  Reads only; nothing a watch does can change the run. An assignment is a compile error
+   *  rather than a side effect.
+   *
+   *  The scope is the chosen frame's parameters and locals plus the module's bindings, minus
+   *  any name whose type the source language cannot yet spell (a texture, a sampler, a
+   *  runtime-sized storage array) — watching one of those is an error naming it, never a wrong
+   *  number. Compiled watches are cached by text and frame shape, so stepping with a watch
+   *  open costs one compile, not one per step.
+   *
+   *  @param expression - the watch text, as the user typed it.
+   *  @param frameIndex - which frame to evaluate in, innermost first; defaults to 0.
+   *  @throws `DebugWatchError` when the text does not compile in that scope, and whatever the
+   *    interpreter throws when evaluating it does (a GPU-only intrinsic with `gpuStubs` off,
+   *    an out-of-range index).
+   *  @throws `Error` when the session is not paused, or `frameIndex` names no frame.
+   */
+  evaluate(expression: string, frameIndex?: number): DebugWatchValue
 }
 
 /** Start a stepped run of one shader invocation.
@@ -249,6 +275,7 @@ export function startDebugSession(
     opts?.breakpoints ?? [],
     opts?.stopOnEntry ?? true,
     new Map(m.bindings.map((b) => [b.name, b.type])),
+    prepared,
   )
 }
 
@@ -266,6 +293,11 @@ class Session implements DebugSession {
   private paused: DebugPause | undefined
   private finished = false
   private signal: Signal | undefined
+  /** The module as the run prepared it, for a watch to redeclare structs and helpers from. */
+  private readonly prepared: ModuleDecl
+  /** Compiled watches, by text and frame shape. Stepping with a watch box open re-asks the
+   *  same question at every stop, and the answer changes while the lowering does not. */
+  private readonly watches = new Map<string, CompiledWatch>()
 
   constructor(
     decl: FuncDecl,
@@ -275,8 +307,10 @@ class Session implements DebugSession {
     breakpoints: readonly DebugBreakpoint[],
     stopOnEntry: boolean,
     bindingTypes: ReadonlyMap<string, ShaderType>,
+    prepared: ModuleDecl,
   ) {
     this.ctx = ctx
+    this.prepared = prepared
     this.bindingTypes = bindingTypes
     this.precision = precision
     this.breakpoints = breakpoints
@@ -303,6 +337,89 @@ class Session implements DebugSession {
 
   setBreakpoints(breakpoints: readonly DebugBreakpoint[]): void {
     this.breakpoints = breakpoints
+  }
+
+  evaluate(expression: string, frameIndex = 0): DebugWatchValue {
+    const pause = this.paused
+    if (!pause) {
+      throw new Error('shader-dsl/debug: cannot evaluate a watch — the run is not paused')
+    }
+    const frame = pause.frames[frameIndex]
+    if (!frame) {
+      throw new Error(
+        `shader-dsl/debug: no frame ${frameIndex}; the stack is ${pause.frames.length} deep`,
+      )
+    }
+
+    // A local shadows a binding of the same name, which is the order the interpreter itself
+    // resolves in (`evalExpr` checks the environment before the bindings).
+    const scope = new Map<string, ShaderType>(this.bindingTypes)
+    for (const [name, type] of frame.localTypes) scope.set(name, type)
+
+    const key = watchCacheKey(scope, expression)
+    let compiled = this.watches.get(key)
+    if (!compiled) {
+      compiled = this.atPrecision(compileWatch(this.prepared, scope, expression))
+      this.watches.set(key, compiled)
+    }
+
+    const env = new Map<string, CpuValue>()
+    for (const name of compiled.reads) {
+      if (frame.locals.has(name)) env.set(name, frame.locals.get(name) as CpuValue)
+      else if (pause.bindings.has(name)) env.set(name, pause.bindings.get(name) as CpuValue)
+      else {
+        // Declared further down the body, so the frame has a TYPE for it and no value. Saying
+        // so beats evaluating `undefined` into a NaN that reads like an answer.
+        throw new Error(
+          `shader-dsl/debug: "${name}" is declared in ${frame.fnName} but not yet assigned at this pause`,
+        )
+      }
+    }
+
+    // A watch is evaluated on the frame it is asked about: pushing one carrying that frame's
+    // stub marks is what makes a watch over a stand-in report itself as one, and it is what a
+    // call inside the watch unwinds back to. The run's own generator is suspended throughout,
+    // so nothing else is looking at this stack, and the `finally` puts it back either way.
+    const before = this.ctx.stubHits
+    this.ctx.frames.push({
+      fnName: frame.fnName,
+      fnSpan: frame.fnSpan,
+      callSpan: undefined,
+      env,
+      types: frame.localTypes,
+      stubbed: new Set(frame.stubbedLocals),
+      current: undefined,
+    })
+    try {
+      const walk = evalExpr(compiled.expr, env, this.ctx)
+      let step = walk.next()
+      // A watch never pauses: its statement boundaries are inside helpers it called, and a
+      // watch box asking a question is not a place to stop.
+      while (!step.done) step = walk.next()
+      return { value: step.value, type: compiled.type, stubbed: this.ctx.stubHits > before }
+    } finally {
+      this.ctx.frames.pop()
+    }
+  }
+
+  /** The watch expression rounded the way this run's arithmetic is rounded.
+   *
+   *  Without it a watch would answer a different question from the statement beside it: the run
+   *  is `froundF32`-wrapped at `'f32'` and a freshly compiled expression is not, so
+   *  `a * 0.1` in the watch box would be the f64 product while `const b = a * 0.1` one line
+   *  down is the f32 one. `froundF32` takes a module, so the expression rides in a throwaway
+   *  one rather than this file re-implementing the wrapping rule.
+   */
+  private atPrecision(w: CompiledWatch): CompiledWatch {
+    if (this.precision !== 'f32') return w
+    const wrapped = froundF32({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [{ name: 'w', params: [], ret: w.type, body: [{ s: 'return', expr: w.expr }] }],
+    })
+    const stmt = wrapped.funcs[0]?.body[0]
+    return stmt?.s === 'return' && stmt.expr ? { ...w, expr: stmt.expr } : w
   }
 
   stepIn(): DebugPause | undefined {

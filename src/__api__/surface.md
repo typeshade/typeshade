@@ -459,9 +459,11 @@ StageTiming
 summarize
 ```
 
-## `./debug` — 21 exports
+## `./debug` — 25 exports
 
 ```
+CompiledWatch
+compileWatch
 CpuPrecision
 CpuStruct
 CpuValue
@@ -476,6 +478,8 @@ DebugPause
 DebugSession
 DebugSessionOptions
 DebugStackFrame
+DebugWatchError
+DebugWatchValue
 formatCpuValue
 resolveBindings
 resolveInvocation
@@ -786,7 +790,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 503 definitions
+## Shapes — 507 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { fileName?: string }
@@ -846,12 +850,16 @@ src/core/debug/config.ts#resolveInvocation  function  (decl: FuncDecl, invocatio
 src/core/debug/config.ts#startDebugSessionFromConfig  function  (m: ModuleDecl, config: DebugLaunchConfig) => DebugSession
 src/core/debug/session.ts#DebugBreakpoint  interface  { file?: string; line: number }
 src/core/debug/session.ts#DebugPause  interface  { bindingTypes: ReadonlyMap<string, ShaderType>; bindings: ReadonlyMap<string, CpuValue>; frames: readonly DebugStackFrame[]; reason: "entry" | "step" | "breakpoint"; span: SourceSpan; stmt: Stmt }
-src/core/debug/session.ts#DebugSession  interface  { continue: () => DebugPause; discarded: boolean; done: boolean; pause: DebugPause; precision: CpuPrecision; result: CpuValue; setBreakpoints: (breakpoints: readonly DebugBreakpoint[]) => void; stepIn: () => DebugPause; stepOut: () => DebugPause; stepOver: () => DebugPause; stubbedIntrinsics: readonly string[] }
+src/core/debug/session.ts#DebugSession  interface  { continue: () => DebugPause; discarded: boolean; done: boolean; evaluate: (expression: string, frameIndex?: number) => DebugWatchValue; pause: DebugPause; precision: CpuPrecision; result: CpuValue; setBreakpoints: (breakpoints: readonly DebugBreakpoint[]) => void; stepIn: () => DebugPause; stepOut: () => DebugPause; stepOver: () => DebugPause; stubbedIntrinsics: readonly string[] }
 src/core/debug/session.ts#DebugSessionOptions  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; gpuStubs?: boolean; precision?: CpuPrecision; stopOnEntry?: boolean }
 src/core/debug/session.ts#DebugStackFrame  interface  { callSpan: SourceSpan; fnName: string; fnSpan: SourceSpan; localTypes: ReadonlyMap<string, ShaderType>; locals: ReadonlyMap<string, CpuValue>; span: SourceSpan; stubbedLocals: ReadonlySet<string> }
 src/core/debug/session.ts#startDebugSession  function  (m: ModuleDecl, entry: string, args?: readonly CpuValue[], opts?: DebugSessionOptions) => DebugSession
 src/core/debug/value.ts#createValueFormatter  function  (m: { readonly structs: readonly StructDecl[]; }) => (value: CpuValue, type?: ShaderType) => string
 src/core/debug/value.ts#formatCpuValue  function  (value: CpuValue, type?: ShaderType, structs?: ReadonlyMap<string, StructDecl>) => string
+src/core/debug/watch.ts#CompiledWatch  interface  { expr: Expr; reads: readonly string[]; type: ShaderType }
+src/core/debug/watch.ts#DebugWatchError  class  { cause?: unknown; message: string; name: string; problems: readonly string[]; stack?: string }
+src/core/debug/watch.ts#DebugWatchValue  interface  { stubbed: boolean; type: ShaderType; value: CpuValue }
+src/core/debug/watch.ts#compileWatch  function  (m: ModuleDecl, scope: ReadonlyMap<string, ShaderType>, expression: string) => CompiledWatch
 src/core/decode-log.ts#DecodedName  interface  { authored: readonly string[]; emitted: string }
 src/core/decode-log.ts#decodeShaderLog  function  (log: string, renames: ReadonlyMap<string, string>) => string
 src/core/decode-log.ts#invertRenames  function  (renames: ReadonlyMap<string, string>) => ReadonlyMap<string, DecodedName>
