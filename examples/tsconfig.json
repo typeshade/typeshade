@@ -22,5 +22,15 @@
     "sourceMap": false,
     "types": ["node"]
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts"],
+  // Mirrors tsconfig.tests.json's exclude, and for the same reason it exists there: a
+  // `.shade.ts` file is not TypeScript. It is `"use typeshade"` SOURCE for `compile()`,
+  // where `vec4` / `u32` / `uniform<T>` are the shader language's names and the class
+  // decorators are attribute syntax — 51 TS2304/TS1206 errors that say nothing about the
+  // corpus. Without this the editor project and the canonical gate disagree about what
+  // resolves, which is the drift this file's header exists to prevent, and typed ESLint
+  // (pre-commit lint-staged) fails to parse five files the type check never claimed.
+  // What DOES gate these files is `examples/shade-examples.test.ts`, which compiles every
+  // one of them and pins its emits.
+  "exclude": ["**/*.shade.ts"]
 }

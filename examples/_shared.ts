@@ -76,7 +76,22 @@ export interface ShaderExample {
   readonly id: string
   readonly title: string
   readonly blurb: string
-  readonly category: 'cartographic' | 'generic' | 'compute'
+  /**
+   * What the example is FOR, and — for `source` — what surface it is authored on.
+   *
+   * `cartographic` / `generic` / `compute` group the `fn()` EDSL corpus by subject: they
+   * are the three the site's examples table renders, and the order it renders them in.
+   *
+   * `source` is not a fourth subject, it is the other AUTHORING SURFACE: a `.shade.ts`
+   * file that opens with `"use typeshade"` and is compiled to the same IR by `compile()`
+   * rather than built by `fn()` / `module()` calls. Same `ShaderExample` shape, same
+   * `module`, so every consumer that reads `module` + `renderable` (the compile gate, the
+   * emit goldens) takes both corpora without knowing which surface wrote them.
+   *
+   * These entries live in `shadeExamples` (`_shade.ts`), NOT in `examples` (`index.ts`) —
+   * see that file's header for the three site gates that decide it.
+   */
+  readonly category: 'cartographic' | 'generic' | 'compute' | 'source'
   /** Source-file basename — lets the site pair this example with its `?raw` source for display. */
   readonly file: string
   readonly module: ModuleDecl
