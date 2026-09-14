@@ -22,7 +22,9 @@ fn discardOutsideCircle(p: vec2<f32>) -> vec4<f32> {
   let edge = fwidth(r);
   let rim = saturate(((1.0 - r) / (edge + 0.0001)));
   let fall = (exp2(((-r) * 2.0)) * (1.0 - pow(r, 2.0)));
-  return vec4<f32>((mix(vec3<f32>(0.06, 0.1, 0.35), vec3<f32>(1.0, 1.0, 1.0), fall) * rim), 1.0);
+  let tint = mix(vec3<f32>(0.06, 0.1, 0.35), vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(fall, fall, fall));
+  let shaded = (tint * rim);
+  return vec4<f32>(shaded, 1.0);
 }
 
 @fragment

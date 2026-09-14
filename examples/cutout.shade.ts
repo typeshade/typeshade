@@ -46,7 +46,15 @@ export function discardOutsideCircle(p: vec2): vec4 {
   const edge = fwidth(r)
   const rim = saturate((1. - r) / (edge + 0.0001))
   const fall = exp2(-r * 2.) * (1. - r ** 2.)
-  return vec4(mix(vec3(0.06, 0.1, 0.35), vec3(1., 1., 1.), fall) * rim, 1.)
+  // Spelled in three steps rather than one nested expression, and with a vector `t` for the
+  // mix, because the editor's ambient lib types both shapes as a plain `number`: its
+  // `mix<T extends Numeric>(a: T, b: T, t: T)` has no scalar-`t` overload, and vector
+  // arithmetic (`vec3 * f32`) yields `number`, which is a TS2345 the moment either result is
+  // passed on. Both are language-service gaps in #21's family, not compiler ones — the
+  // annotated `const` is the shape TS2322 filtering already covers.
+  const tint: vec3 = mix(vec3(0.06, 0.1, 0.35), vec3(1., 1., 1.), vec3(fall, fall, fall))
+  const shaded: vec3 = tint * rim
+  return vec4(shaded, 1.)
 }
 
 @fragment
