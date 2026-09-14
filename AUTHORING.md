@@ -353,6 +353,14 @@ for the float vectors, and `vec2u`/`vec3u`/`vec4u` and `vec2i`/`vec3i`/`vec4i` f
 integer ones. A bare number component takes the element kind, so `vec3u(1, 2, 3)` emits
 `vec3<u32>(1u, 2u, 3u)` where `vec3(1, 2, 3)` emits floats.
 
+Handed **one whole vector of the same size**, the constructor converts rather than composes:
+`vec3(v)` on a `vec3<u32>` is WGSL's `vec3<f32>(v)`, every component through the scalar
+conversion. That is what it emits, and now what it computes on the CPU as well — the oracle
+used to pass the source components through unchanged, so `vec3u(vec3(1.7, 2.9, -3.2))` read
+back `[1.7, 2.9, -3.2]` where WGSL gives `[1, 2, 0]`. A float source saturates into an
+integer target and `i32`/`u32` reinterpret two's-complement; on GLSL ES 3.00 only in-range
+sources are defined.
+
 ### Plain const bindings
 
 Author every intermediate value as a plain JavaScript `const`. There is nothing to wrap it

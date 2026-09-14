@@ -6,6 +6,7 @@
 // individual files.
 
 export * from './types.js'
+export * from './span.js'
 export * from './nodes.js'
 export * from './node.js'
 export * from './builder.js'
