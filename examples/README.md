@@ -78,6 +78,31 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 > ported from shadertoy.com listings, whose default license (CC BY-NC-SA) is incompatible
 > with this repository's MIT license.
 
+## `"use typeshade"` source examples
+
+The five `*.shade.ts` files are the OTHER authoring surface. Instead of building a graph with
+`fn()` / `module()` calls, they are TypeScript source that opens with `"use typeshade"` and is
+compiled to the same IR by `compile()` — so `vec4`, `u32` and `uniform<T>` are the shader
+language's own names, and the `@vertex` / `@builtin(...)` decorators are attribute syntax. They
+are not importable TypeScript modules (nothing declares those names), which is why
+`tsconfig.tests.json` and `examples/tsconfig.json` both exclude the pattern from the type check.
+
+They are registered in [`_shade.ts`](./_shade.ts), which reads each file and compiles it into
+the same `ShaderExample` shape the EDSL corpus uses (`category: 'source'`). That array is
+`shadeExamples`, kept separate from `examples` because the site consumes `examples` at build
+time and three of its gates fail on a fourth category — the reasoning is written out in
+`_shade.ts`'s header. Adding a file here is: write `<id>.shade.ts`, add the id to `SHADE_ORDER`,
+bake the goldens. Forgetting the second step fails `shade-examples.test.ts` rather than leaving
+the file dangling.
+
+| File                     | Renderable | What it shows                                                                                                            |
+| ------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `hello.shade.ts`         | yes        | The smallest complete program — a vertex stage positioning three corners from `vertex_index`, a flat-red fragment stage. |
+| `hello-vsout.shade.ts`   | yes        | The same triangle carrying a `uv` varying through a shared `VsOut` class: the `@builtin("position")` + `@location` pair. |
+| `hello-vsin.shade.ts`    | yes        | Vertex input from a buffer — a `VsIn` class of `@location` attributes becomes GLSL `in` declarations and a WGSL struct.  |
+| `hello-uniform.shade.ts` | no         | A bare `declare const scale: uniform<f32>`. WGSL takes a loose scalar uniform; GLSL ES 3.00 has no std140 block for one. |
+| `hello-camera.shade.ts`  | no         | A `mat4` + `vec3` `Camera` behind `uniform<Camera>`, read by a plain helper — a module with no entry point is a module.  |
+
 ## Run
 
 ```bash
@@ -94,6 +119,19 @@ entry-point signatures).
 - **Emit gate** — `examples.test.ts` (run with `bunx vitest`) asserts every renderable example
   emits WebGL2-valid GLSL ES 3.00 (no `f32()` cast leak, no `in` reserved-word identifier, the
   `uint(gl_VertexID)` cast) and that the compute example stays WGSL-only.
+- **Source-corpus gate** — `shade-examples.test.ts` compiles every `*.shade.ts` file, pins its
+  WGSL (and both GLSL stages, where it has them) in `__emit-goldens__/`, and checks the directory
+  against `SHADE_ORDER` in both directions so an unregistered file cannot go quiet.
+- **Compile gate** — `bun run gate:compile` emits all 41 registered examples (both corpora) and
+  hands the WGSL to Tint and every renderable GLSL pair to a real WebGL2 context.
 - **Render gate** — `playground/e2e/_shader-dsl-examples-render.spec.ts` compiles + links + draws
   each renderable example on a real WebGL2 context (packing the UBO from `reflect()`) and reads
   back a non-blank, varying frame.
+
+## Porting status
+
+[`PORTING.md`](./PORTING.md) classifies all 36 EDSL examples by whether they can be written
+in `"use typeshade"` today, with the blocking feature and its [issue #8](https://github.com/typeshade/typeshade/issues/8)
+item for each, weighted by how many examples each missing feature holds up. The compiler
+accepts the source of two of them; one has shipped as a twin, and the other is held by a
+backend bug that writing the twin uncovered.

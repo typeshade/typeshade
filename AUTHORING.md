@@ -141,22 +141,19 @@ import {
   location,
   emitModule,
   emitGlslStages,
-  u32,
-  toF32,
-  f32,
+  sub,
   vec2,
   vec4,
-  u32T,
   vec2fT,
   vec4fT,
 } from '@xgis/shader-dsl'
 ```
 
-Two kinds of name appear there. `u32T`, `vec2fT` and `vec4fT` are *type tokens*, which is
-what you write where a declaration needs a type. `f32`, `vec2` and `vec4` build a *node*,
-a typed expression the graph is made of. A node carries its type in TypeScript, and you
-build larger expressions by calling methods on it: `x.mul(4).sub(1)` is a multiply and a
-subtract.
+Two kinds of name appear there. `vec2fT` and `vec4fT` are *type tokens*, which is what you
+write where a declaration needs a type. `vec2` and `vec4` build a *node*, a typed expression
+the graph is made of. A node carries its type in TypeScript, and you build larger
+expressions by calling methods on it: `x.mul(4).sub(1)` is a multiply and a subtract. `sub`
+is the same subtraction as a free function, for the expression whose left side is a literal.
 
 ### A vertex entry point
 
@@ -173,10 +170,14 @@ read back by the fragment stage.
 
 ```ts
 const VsOut = ioStruct('VsOut', {
-  pos: builtin('position', vec4fT),
+  pos: builtin('position'),
   uv: location(0, vec2fT),
 })
 ```
+
+`builtin` needs no type token. WGSL fixes the type of every builtin but `clip_distances`,
+so `builtin('position')` reads `vec4<f32>` from the id; writing the token is what would let
+you disagree with the spec.
 
 This shader has no vertex buffer. It draws three vertices that cover the screen, and it
 derives their positions from the vertex index alone. Stage attributed params go in the
@@ -185,10 +186,10 @@ same param record as ordinary ones, using the same `builtin` and `location` help
 ```ts
 const vs = fn(
   'vs',
-  { vi: builtin('vertex_index', u32T) },
+  { vi: builtin('vertex_index') },
   ({ vi }) => {
-    const x = toF32(vi.bitAnd(u32(1))).mul(4).sub(1)
-    const y = toF32(vi.shr(u32(1))).mul(4).sub(1)
+    const x = vi.bitAnd(1).f32().mul(4).sub(1)
+    const y = vi.shr(1).f32().mul(4).sub(1)
     return VsOut.construct({
       pos: vec4(x, y, 0, 1),
       uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)),
@@ -198,9 +199,12 @@ const vs = fn(
 )
 ```
 
-The body receives the params as typed nodes, so `vi` is a `u32` node and `toF32` converts
-it to `f32`. The return type is inferred from the value the body returns, here the struct
-built by `VsOut.construct`.
+The body receives the params as typed nodes, so `vi` is a `u32` node and `.f32()` converts
+it. The cast sits in the chain beside `.mul` and `.sub`, so the line reads left to right;
+the free `f32(vi)` and the older `toF32(vi)` build the same node. A bare number operand
+takes its type from the node it meets, which is why `bitAnd(1)` needs no `u32(1)`. The
+return type is inferred from the value the body returns, here the struct built by
+`VsOut.construct`.
 
 ### A fragment entry point
 
@@ -213,20 +217,21 @@ const fs = fn(
   'fs',
   { vo: VsOut },
   ({ vo }) => {
-    const shade = f32(1).sub(vo.uv.y)
+    const shade = sub(1, vo.uv.y)
     return vec4(vo.uv.x, shade, 0.5, 1)
   },
-  { stage: 'fragment', retAttr: '@location(0)' },
+  { stage: 'fragment' },
 )
 ```
 
-`retAttr` attaches an attribute to a return value that is not a struct. `@location(0)` is
-the first colour attachment.
+A bare fragment return defaults to `@location(0)`, the first colour attachment, so nothing
+is written for it. Pass `retAttr` to send a non-struct return somewhere else.
 
 A number literal takes its type from the operand next to it, so
-`vec4(vo.uv.x, shade, 0.5, 1)` needs no wrapper. You write `f32(1)` where there is nothing
-to infer from, here because a bare number carries no methods and `sub` has to be called on
-something.
+`vec4(vo.uv.x, shade, 0.5, 1)` needs no wrapper. `sub(1, x)` is the free-function form of
+`x`'s own `.sub`, for the expression whose LEFT side is the literal: a bare number carries
+no methods, so the method form has to be written `f32(1).sub(x)`. `add`, `mul` and `div`
+have the same pair.
 
 ### Assembling the module
 
@@ -340,8 +345,13 @@ const scale = fn('scale', { v: vec2fT, k: f32T }, ({ v, k }) => v.mul(k))
 `f32T` is the float scalar and the type a bare number falls back to when there is no
 operand to take a type from. `u32T` and `i32T` are the integer scalars, `boolT` is what
 every comparison produces, and `vec2fT`, `vec3fT`, `vec4fT` are the float vectors. The
-unsigned twins are `vec2uT`, `vec3uT` and `vec4uT`, the signed ones `vec2iT` and
+unsigned twins are `vec2uT`, `vec3uT` and `vec4uT`, the signed ones `vec2iT`, `vec3iT` and
 `vec4iT`. `arrayT(elem, n)` builds a fixed length array type out of another token.
+
+Each vector token has a constructor beside it that builds a value: `vec2`, `vec3` and `vec4`
+for the float vectors, and `vec2u`/`vec3u`/`vec4u` and `vec2i`/`vec3i`/`vec4i` for the
+integer ones. A bare number component takes the element kind, so `vec3u(1, 2, 3)` emits
+`vec3<u32>(1u, 2u, 3u)` where `vec3(1, 2, 3)` emits floats.
 
 ### Plain const bindings
 
@@ -392,15 +402,20 @@ with `Let` outside the branch that reads it.
 ### Mutation with assign
 
 JavaScript cannot overload `=`, so mutation is a method on the value being written.
-`.assign(v)` is the only one, and a node carries no compound method: `add` is the pure
-expression, so `x += v` is written `x.assign(x.add(v))`.
+`.assign(v)` writes a value, and `.addAssign`, `.subAssign`, `.mulAssign` and `.divAssign`
+are the compound updates, emitting `x += v` and its siblings.
 
 ```ts
 const min_dist = f32(1e10) // a plain const…
 min_dist.assign(min(min_dist, d)) // …becomes a var because something assigns to it
-winding.assign(winding.add(1)) // no addAssign; the pure op plus assign
+winding.addAssign(1) // emits `winding += 1`
 o.pos.assign(vec4(pos, 0, 1)) // a struct field is a target too
 ```
+
+The two spellings of an update differ in the emitted text, not in meaning:
+`acc.addAssign(x)` emits `acc += x` and `acc.assign(acc.add(x))` emits `acc = (acc + x)`.
+Prefer the compound form: it is the statement the `"use typeshade"` compiler builds for a
+source-level `+=`, so a helper moved between the two authoring surfaces keeps its emit.
 
 Assigning to a plain `const` is enough to make it a variable in the emitted source. You do
 not have to see that coming and declare a `Var` up front.
@@ -413,16 +428,30 @@ on a node, for the same reason mutation is:
 | category   | methods                                                                  |
 | ---------- | ------------------------------------------------------------------------ |
 | arithmetic | `.add .sub .mul .div .mod .neg`                                          |
+| compound   | `.addAssign .subAssign .mulAssign .divAssign`                            |
 | comparison | `.lt .gt .le .ge .eq .ne`                                                |
-| logical    | `.and .or`                                                               |
+| logical    | `.and .or .not`                                                          |
 | bitwise    | `.bitAnd .bitOr .bitXor .shl .shr`                                       |
+| casts      | `.f32() .i32() .u32() .f64()`                                            |
 | components | `.x .y .z .w` · `.r .g .b .a` · `.rgb .xy .xyz …` · `.swizzle<R>('zxy')` |
-| index      | `.at(i, elemType)`                                                       |
+| index      | `.at(i)` on an array node · `.at(i, elemType)` otherwise                 |
 | ternary    | `cond.select(a, b)`                                                      |
 
-A few operations are free functions. `select(cond, a, b)` is the free spelling of
-`.select`, for the times the condition is not the value you want to read first. `mod(x, y)`
-is the floor modulo, the one to reach for wherever an operand can be negative, as in domain
+A method reads left to right, which is the right default; the expression it cannot spell is
+the one whose LEFT operand is a literal. `add`, `sub`, `mul` and `div` are the same four
+operations as free functions for exactly that case: `sub(1, smoothstep(a, b, d))` rather
+than `f32(1).sub(...)`. Whichever operand is a node types the other, so `sub(3, n)` emits
+`3u - n` for a `u32` `n`. `pow`, `mix` and `atan2` take a literal in their first slot too.
+
+`f32`, `i32`, `u32` and `f64` are casts when given a node, `f32(i)`, which is the spelling
+WGSL and the `"use typeshade"` surface both use, and literals when given a number. `toF32`
+and its siblings are the older names for the cast and still work.
+
+A few more operations are free functions. `select(cond, a, b)` is the free spelling of
+`.select`, for the times the condition is not the value you want to read first. Mind the
+argument order: it reads condition first, the reverse of WGSL's own
+`select(falseValue, trueValue, condition)`, so `select(c, a, b)` emits `select(b, a, c)`.
+`mod(x, y)` is the floor modulo, the one to reach for wherever an operand can be negative, as in domain
 repetition and angle folds; the `.mod` method is `%` and behaves differently on negative
 operands. `radians` and `degrees` convert angles, so a conversion constant of your own
 never has to be written or rounded.
@@ -480,10 +509,12 @@ const SKY = constExpr('SKY', vec4fT, vec4(0.4, 0.6, 0.9, 1))
 const PALETTE = constExpr('PALETTE', arrayT(vec4fT, 3), arrayLit(vec4fT, c0, c1, c2))
 ```
 
-`PI.decl` and the `constExpr` results go in the module's `consts` array. Read a
-`constDecl` through `PI.node`. A `constExpr` constant is read with
-`constRef('SKY', vec4fT)`, where the name is a string the type checker cannot check for
-you.
+`PI.decl` and the `constExpr` results go in the module's `consts` array. Both are read
+through `.node`: `PI.node`, `SKY.node`, `PALETTE.node.at(i)`. A `constExpr` result IS the
+declaration, so it drops into `consts` as itself while still answering `.node`, and the
+reference is built from the name and type the constant was declared with, so the two cannot
+disagree. `constRef('SKY', vec4fT)` is the older spelling, and the string in it is one the
+type checker cannot check for you.
 
 ## Functions and entry points
 
@@ -523,19 +554,35 @@ destructuring cannot bind such a name, so write `({ in: inp }) => …`.
 
 Leave the return type out and it is inferred from the value the body returns. The body's
 native `return` is checked against that type, so a wrongly typed return is a compile error.
+A body that returns nothing at all is inferred too, and lands on `void`.
 
-Pass an explicit type token in two cases. The first is a body whose value leaves through an
-ambient `Return()` inside a nested closure, which TypeScript cannot see. The second is a
-function that returns nothing at all, which passes `voidT`.
+One case still needs an explicit type token: a body whose value leaves through an ambient
+`Return(value)` inside a nested closure. TypeScript reads such a body as returning nothing,
+the same shape as a genuinely void one, so the two are separated once the body has run, and
+omitting the token there is rejected with `SD0113` naming the token to write.
 
 ```ts
 // Inferred: dot() yields f32, so luma returns f32.
 const luma = fn('luma', { c: vec3fT }, ({ c }) => dot(c, vec3(0.2126, 0.7152, 0.0722)))
 
-// Pinned: this one writes into a storage buffer and returns no value.
-const store = fn('store', { i: u32T, v: f32T }, voidT, ({ i, v }) => {
+// Inferred too: this one writes into a storage buffer and returns no value, so it is void.
+const store = fn('store', { i: u32T, v: f32T }, ({ i, v }) => {
   outputB.at(i).assign(v)
 })
+
+// Pinned: the value leaves through the ambient Return(), which tsc cannot see.
+const firstHit = fn(
+  'first_hit',
+  { d: f32T },
+  f32T,
+  ({ d }) => {
+    If(d.lt(0), () => {
+      Return(f32(0))
+    })
+    Return(d)
+  },
+  { allowEarlyReturn: true },
+)
 ```
 
 ### Calling a function
@@ -570,8 +617,7 @@ const params = resource('params', vec4uT, { group: 0, binding: 2 })
 
 const reduceKernel = fn(
   'reduce_windows',
-  { gid: builtin('global_invocation_id', vec3uT) },
-  voidT,
+  { gid: builtin('global_invocation_id') },
   ({ gid }) => {
     const idx = gid.x
     If(idx.ge(params.node.x), () => {
@@ -588,25 +634,29 @@ The guard leaves the function before its last statement, so the options also car
 `allowEarlyReturn: true`. [Control flow](/guide/authoring/control-flow/) covers early exits
 and that option.
 
+A body that returns nothing needs no return type token: the `voidT` a compute entry used to
+write is inferred.
+
 ### Stage parameters
 
-A stage passes its inputs through attributed parameters. `builtin(name, type)` declares a
-value the hardware supplies, such as `'vertex_index'`, `'position'` or
-`'global_invocation_id'`. `location(n, type)` declares a numbered slot that carries data
-between stages. The same two helpers describe the fields of an IO struct, which `ioStruct`
+A stage passes its inputs through attributed parameters. `builtin(name)` declares a value
+the hardware supplies, such as `'vertex_index'`, `'position'` or `'global_invocation_id'`,
+and reads the type from the id: WGSL fixes one for every id but `clip_distances`, whose
+`array<f32, N>` length you pick and therefore pass. `location(n, type)` declares a numbered
+slot that carries data between stages. The same two helpers describe the fields of an IO struct, which `ioStruct`
 declares once and both stages then share;
 [Layouts and resources](/guide/authoring/layouts-and-resources/) has the field map, the
 interpolation modes and the accessors the handle carries.
 
 ```ts
 const VsOut = ioStruct('VsOut', {
-  pos: builtin('position', vec4fT),
+  pos: builtin('position'),
   uv: location(0, vec2fT),
 })
 
 const vsFull = fn(
   'vs_full',
-  { idx: builtin('vertex_index', u32T) },
+  { idx: builtin('vertex_index') },
   (p) => {
     const pos = vec2(-1, -1)
     If(p.idx.eq(1), () => {
@@ -629,15 +679,16 @@ const fsGradient = fn(
   (p) => {
     const t = p.vo.uv.y.add(U.field.mix_bias)
     const rgb = mix(U.field.bottom.rgb, U.field.top.rgb, t)
-    return vec4(rgb, f32(1))
+    return vec4(rgb, 1)
   },
-  { stage: 'fragment', retAttr: '@location(0)' },
+  { stage: 'fragment' },
 )
 ```
 
-A stage function that returns a plain value attaches its attribute with `retAttr`, as
-`fs_gradient` does above. A stage function that returns a struct carries the attributes in
-the struct fields.
+A fragment function that returns a plain value gets `@location(0)`, the first colour
+attachment, without asking. Pass `retAttr` to send it somewhere else, and on a vertex
+stage, where there is no such default. A stage function that returns a struct carries the
+attributes in the struct fields.
 
 ### Assembling a module
 
@@ -661,6 +712,12 @@ ES 3.00 requires a declaration before its use, and a fixed order keeps the emitt
 same from run to run. A function you reach through a handle call but do not list is collected
 for you and placed before the function that calls it, which means an entry-point-only list
 also emits in a valid order.
+
+A resource is not collected that way: a module assembles only the declarations it is
+handed, so a `uniformStruct` or `storageBuffer` a function reads and `uses` does not list
+emits no `var` declaration at all, and the first report of that is the driver at pipeline
+creation. The `uses-declared` lint rule names it, so `diagnose(m)` or `lintModule(m)`
+reports every variable a body reads that nothing declares and says which handle to add.
 
 ### Naming the functions in a module
 
@@ -705,25 +762,45 @@ If(p.idx.eq(1), () => {
 ```
 
 These are statements. A body that ends in a native `return value` is not read as a value
-the chain produces. To leave the enclosing function from inside a branch, use `Return` or
-`ReturnIf`, covered at the end of this page.
+the chain produces, and writing one is rejected with `SD0115` rather than silently dropped:
+the value would go nowhere and the branch would emit as an empty block. To leave the
+enclosing function from inside a branch, use `Return` or `ReturnIf`, covered at the end of
+this page; for a branch that exists to pick a value, use `when`, below.
+
+`.not()` is logical negation, so a guard on the false case reads `If(hit.not(), …)` rather
+than `If(hit.eq(bool(false)), …)`.
 
 ### Loop
 
-`Loop` is the C style for loop. It takes the counter's initial value, a condition, a body,
-and an optional step that defaults to `+1`. An optional leading name string names the
-counter in the emitted source.
+`Loop` is the C style for loop. A fixed trip count is the short form, and covers most
+loops:
+
+```ts
+Loop(64, (i) => {
+  acc.addAssign(i.f32())
+})
+```
+
+The counter runs `0u` up to the count, stepping by one. Reach for the three part form when
+the counter starts somewhere other than zero, counts down, or is tested against something
+that is not a literal. It takes the counter's initial value, a condition, a body, and an
+optional step that defaults to `+1`. An optional leading name string names the counter in
+the emitted source, in either form.
 
 ```ts
 Loop(
   u32(0),
-  (i) => i.lt(u32(64)), // the condition receives the counter…
+  (i) => i.lt(64), // the condition receives the counter…
   (i) => {
     // …and so does the body, so declare (i) here too
-    acc.assign(acc.add(toF32(i)))
+    acc.addAssign(i.f32())
   },
 )
 ```
+
+The two spell the same loop and emit the same `for` header. A bare number compares against
+the counter's own kind, so `i.lt(64)` emits `i < 64u` for a `u32` counter and needs no
+`u32(64)`.
 
 Both callbacks receive the counter. A body written `() => {}` that mentions `i` is legal
 JavaScript closure syntax, and `i` is undefined there: `tsc` reports `Cannot find name 'i'`
@@ -745,7 +822,7 @@ boundary, so a `Break()` inside a guard targets the loop around the guard.
 const dists = Var('dists', arrayT(f32T, 64))
 
 Loop(u32(0), (i) => i.lt(count), (i) => {
-  const d = Let(dists.at(i, f32T))
+  const d = Let(dists.at(i)) // an array node knows its own element type
   If(d.lt(0), () => Continue()) // no distance recorded, next iteration
   If(d.lt(0.001), () => Break()) // close enough, leave the loop
   nearest.assign(min(nearest, d))
@@ -965,6 +1042,19 @@ const U = uniformStruct(
 const opacity = U.field.raster_params.x
 const m = U.field.mvp
 ```
+
+`U.field` is an ordinary object, so destructure it once at the top of a body and read the
+fields by name: `const { mvp, proj_params } = U.field`.
+
+A uniform that is one scalar or vector needs no struct around it. `resource` declares a
+single bound value and hands back `.node` to read it and `.binding` for `uses`:
+
+```ts
+const mode = resource('mode', u32T, { group: 0, binding: 1 })
+// mode.node is a ReadonlyNode<'u32'> — `@group(0) @binding(1) var<uniform> mode: u32;`
+```
+
+`resource` declares textures and samplers too; see [Textures and samplers](#textures-and-samplers).
 
 ### Plain structs
 
@@ -1946,8 +2036,10 @@ Nothing on the module announces fp64. The lowering pass finds the f64 types itse
 
 ### Conversions
 
-An f32 widens to f64 implicitly inside arithmetic, and the widen is exact. `toF64(x)` is the
-explicit spelling of that same widen. A JavaScript number is already a double, so
+An f32 widens to f64 implicitly inside arithmetic, and the widen is exact, so `x.add(dx)`
+for an f64 `x` and an f32 `dx` needs no conversion and emits what `x.add(toF64(dx))` emits.
+`toF64(x)`, and `x.f64()`, are the explicit spellings of that same widen, for a value that
+has to be f64 before it meets any arithmetic. A JavaScript number is already a double, so
 `f64(1e-9)`, or the bare `1e-9` in f64 arithmetic, splits the literal into its pair at build
 time with nothing lost. `f64FromParts(hi, lo)` assembles a value from two f32 halves that
 arrive already split, a vertex attribute pair for instance. Narrowing is always explicit:

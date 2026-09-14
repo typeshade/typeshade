@@ -63,7 +63,6 @@ A minimal file-level shader starts with `"use typeshade"`. Resources are declare
 "use typeshade"
 
 class Camera {
-  @align(16)
   view: mat4
   pos: vec3
 }
@@ -79,6 +78,8 @@ export function paint(@builtin("global_invocation_id") gid: vec3u) {
 ```
 
 The same authoring model is used by the documentation and the compiler's official surface reference. The host consumes the generated shader source; TypeShade does not own the rendering or compute runtime.
+
+Every `"use typeshade"` block in this README and in `docs/` compiles with the current compiler; `src/compiler/ts/doc-snippets.test.ts` extracts them and fails the build on any error diagnostic. Grammar that the compiler does not accept yet stays in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md), marked as a target, and is not copied here.
 
 ## Documentation
 

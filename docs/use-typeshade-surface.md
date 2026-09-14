@@ -90,6 +90,10 @@ class VsIn {
 }
 ```
 
+Of that list the compiler applies `@location` and `@builtin` today. `@align` on a field is
+an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(target)*.
+`@size`, `@offset`, `@interpolate` and `@ignore` parse but do not reach the emitted struct yet.
+
 `class` here is a struct with attributes, not an object.
 
 Forbidden on these classes:
@@ -208,13 +212,15 @@ Do not start Execution Graph or class methods before 2–4 are green.
 
 ---
 
-## 8. Example (target)
+## 8. Example
+
+Compiles today. `@align(16)` on `view` is part of the frozen grammar (§2) but the compiler
+rejects it (`TS8010`, "`@align` on a field is not applied"), so it is left out here.
 
 ```ts
 "use typeshade"
 
 class Camera {
-  @align(16)
   view: mat4
   pos: vec3
 }
@@ -231,4 +237,9 @@ export function paint(
 }
 ```
 
-Last updated: 2026-09-13
+**Rule:** a target example — grammar this document freezes but the compiler does not accept
+yet — stays in this document, is labelled *(target)*, and is never copied into `README.md`,
+the org profile, or any other front-facing page. Those pages carry only examples that
+compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
+
+Last updated: 2026-09-14

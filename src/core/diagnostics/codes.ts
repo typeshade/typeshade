@@ -208,6 +208,46 @@ export const CODES = {
     summary: 'a local name is declared twice in one function',
     hint: 'rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (#2341)',
   },
+
+  // ── The void-body overload's runtime half (#8 B1) ──
+  // The overload that lets a void body drop `voidT` pins the handle's key to `'void'` at the
+  // TYPE level. TypeScript reads a body that sends its value out through an ambient Return()
+  // as returning nothing too, so the type level cannot separate the two; SD0113 is the
+  // runtime half that keeps `'void'` from ever being a lie (#2458's objection).
+  SD0113: {
+    code: 'SD0113',
+    summary: 'a fn whose body returns nothing at the TypeScript level returns a value at run time',
+    hint: 'name the return type in the fn() call — fn(name, params, <type>, body) — so the handle carries the key its callers need',
+  },
+
+  // ── The two silent-acceptance diagnostics of #8 B4 ──
+  // Both name a module that assembles, validates and emits today, and fails at the driver or
+  // computes the wrong thing. Neither moves an emitted byte: they report what is already there.
+  SD0114: {
+    code: 'SD0114',
+    summary: 'a variable a function reads has no declaration in the module',
+    hint: 'add the handle that owns it to module({ uses: [...] }) — a uniformStruct or storageBuffer left out of `uses` emits no var declaration, and the module is rejected at pipeline creation',
+  },
+  SD0115: {
+    code: 'SD0115',
+    summary: 'a branch body returned a value, which a branch cannot carry out',
+    hint: 'an If/elif/else body is a statement block: write Return(value) for an early return, when(cond, () => a, () => b) for a value, or assign to a Var',
+  },
+  // A scalar cast applied to a vector used to type-check on BOTH authoring surfaces and emit
+  // `f32(v)`, which no target compiles. The cast methods and the node forms of f32/i32/u32/f64
+  // are bounded to a scalar receiver at tsc; this covers a widened or untyped caller (#8 S1).
+  SD0116: {
+    code: 'SD0116',
+    summary: 'a scalar cast applied to a non-scalar value',
+    hint: 'f32/i32/u32/f64 and the .f32()/.i32()/.u32()/.f64() methods convert one scalar — convert per component, or rebuild the vector with vec3(a.f32(), b.f32(), c.f32())',
+  },
+  // `.at(i)` reads its element type from an array node's own ShaderType. A node of any other
+  // type has no element to read, and the one-argument call has nothing to build (#8 S3).
+  SD0117: {
+    code: 'SD0117',
+    summary: 'a one-argument .at(i) on a node that is not an array',
+    hint: 'only an array node carries its element type — pass the element explicitly as .at(i, elemType)',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
 /** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived

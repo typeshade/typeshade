@@ -238,6 +238,12 @@ export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies Shad
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
 export const vec2iT = { kind: 'vec', n: 2, elem: 'i32' } as const satisfies ShaderType
+/** A native `vec3<i32>`, the signed-integer counterpart of {@link vec3uT} — a texel coordinate
+ *  into an array texture, a signed grid cell. Build a value with the {@link vec3i} constructor.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
+export const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType
 /** A native `vec4<i32>`, completing the signed-integer vector family alongside {@link vec2iT}.
  *  Use it to type an `fn` parameter, `resource` or struct field declared as `vec4<i32>`; build
  *  a value with `construct(vec4iT, [...])` or read one with `.at()` against this type.
@@ -465,6 +471,29 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                         : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
+
+// Drop a `,<digits>` suffix from the LAST comma-separated position of an array key's inner
+// text, which is where the size lives. Written as a right-recursion rather than a single
+// `${infer E},${infer N}` match because TS takes the FIRST comma for such a pattern, and an
+// element key may contain one: `array<array<f32,2>,3>` would otherwise yield `array<f32`.
+type DropArraySize<S extends string> = S extends `${infer A},${infer B}`
+  ? B extends `${number}`
+    ? A
+    : `${A},${DropArraySize<B>}`
+  : S
+
+/** Element key of an array key: `array<f32,4>` → `'f32'`, `array<vec3<f32>>` → `'vec3<f32>'`,
+ *  and `never` for a key that is not an array. It is the inverse of the `array` arm of
+ *  {@link KeyOf}, and it is what lets `xs.at(i)` know the element type without being told
+ *  again — the declaration already said it.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @typeParam K The array key to take the element of.
+ */
+export type ArrayElemKey<K extends string> = K extends `array<${infer Inner}>`
+  ? DropArraySize<Inner>
+  : never
 /** The key form of {@link Scalar} without `'bool'`: the set accepted wherever the DSL needs an
  *  indexable or comparable native scalar, such as array indices (`.at(i, elem)`), bitwise-op
  *  operands, and {@link matchExpr} or {@link Switch} scrutinees. `'f64'` and `'bool'` are

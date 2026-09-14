@@ -15,16 +15,22 @@ import {
 } from './index.js'
 import { emitModule } from '../backends/wgsl.js'
 
-// ═══ #2458 — a body that returns nothing at the TS level must NAME its return type ═══
+// ═══ #2458 — a body that RETURNS A VALUE at run time must NAME its return type ═══
 //
 // `inferReturnType` walks the recorded statements at RUNTIME and finds the type a
 // guard-style body returns through an ambient `Return()`. TypeScript cannot: the value never
 // passes through a `return`, so `R` fell back to its constraint and the handle was
 // `FnHandle<P, string>` — every call site of such a fn outside the phantom-key checker.
 //
-// Inferring `'void'` instead would be WORSE, not a fix: it is wrong for exactly the
-// guard-style case, and a key that LIES is worse than `string`. So the ret-inferring
-// overloads no longer accept a void body, and the author writes the type (or `voidT`).
+// Inferring `'void'` at the type level and stopping there would be WORSE, not a fix: it is
+// wrong for exactly the guard-style case, and a key that LIES is worse than `string`.
+//
+// #8 B1 keeps that judgement and moves where it is enforced. The void body (the compute-entry
+// shape, which is the common one) may now drop `voidT` and land on `'void'`, because the two
+// bodies TypeScript cannot tell apart ARE separable once the body has run: `inferReturnType`
+// already computed the answer. A body that took the void form and returned a value is turned
+// away with `SD0113`, naming the token to write — so `'void'` is never a lie, which is
+// #2458's actual requirement.
 
 type Exact<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
@@ -34,16 +40,19 @@ type Exact<A, B> =
 const _exactRejectsFallback: Exact<string, 'void'> = false
 
 describe('#2458 — fn() and the void body', () => {
-  it('REJECTS a void body on the ret-inferring overload', () => {
-    // @ts-expect-error — #2458: the body returns nothing, so tsc cannot know the return key.
-    // Before this change the overload matched and produced FnHandle<P, string>.
-    fn('guard_no_ret', { x: f32T }, ({ x }) => {
-      If(x.gt(0), () => {
-        Return(x)
-      })
-      Return(f32(0))
-    })
-    // The same body with a ret is accepted and RUNS — so the directive above is rejecting the
+  it('REJECTS a guard-style body that omits the return type', () => {
+    // #8 B1: the call now type-checks (it takes the void overload), and is turned away when
+    // the body has run and `inferReturnType` reports f32 — the point #2458 was making, moved
+    // from tsc to the throw that can actually see the answer.
+    expect(() =>
+      fn('guard_no_ret', { x: f32T }, ({ x }) => {
+        If(x.gt(0), () => {
+          Return(x)
+        })
+        Return(f32(0))
+      }),
+    ).toThrow(/SD0113/)
+    // The same body with a ret is accepted and RUNS — so the throw above is rejecting the
     // missing token, not a call that was impossible to make.
     const ok = fn('guard_ret', { x: f32T }, f32T, ({ x }) => {
       If(x.gt(0), () => {
@@ -90,8 +99,8 @@ describe('#2458 — fn() and the void body', () => {
       Return()
     }
     const withToken = fn('void_kernel', { x: f32T }, voidT, body, { stage: 'compute' })
-    // @ts-expect-error — #2458: the inferring overload no longer accepts a void body. This arm
-    // exists ONLY to emit what the pre-change call site emitted, so the two can be compared.
+    // #8 B1 — the same call with the token dropped. Both arms are authored spellings now, and
+    // this assertion is what makes the shorter one safe to reach for.
     const inferred = fn('void_kernel', { x: f32T }, body, { stage: 'compute' })
     expect(emitModule(module({ funcs: [withToken] }))).toBe(
       emitModule(module({ funcs: [inferred] })),

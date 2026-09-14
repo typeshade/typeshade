@@ -18,6 +18,11 @@ import {
   arrayT,
   Var,
   constRef,
+  u32T,
+  f32T,
+  boolT,
+  vec4fT,
+  vec3uT,
   type ShaderType,
   type StructDecl,
   type ConstDecl,
@@ -191,32 +196,94 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
  *  `vertex_index` and `instance_index` are `u32` here and `int` in GLSL, which is why the
  *  GLSL read is wrapped in `uint(...)`.
  *
+ *  The type token is optional. WGSL fixes the type of every id but `clip_distances`, so
+ *  `builtin('vertex_index')` reads it from {@link WGSL_BUILTIN_TYPES} — and the one-argument
+ *  call is the spelling that cannot disagree with the spec, where a written token can (a
+ *  `builtin('vertex_index', f32T)` type-checks and dies at the driver). Pass the token where
+ *  the id has no single type, which is `clip_distances` and its author-chosen `array<f32, N>`.
+ *
  *  Exported from `@xgis/shader-dsl`.
  *
  *  @param name - the WGSL builtin id.
- *  @param type - the field's type, which must match what the builtin supplies.
+ *  @param type - the field's type, which must match what the builtin supplies. Omit it for any
+ *    id in {@link WGSL_BUILTIN_TYPES}, which is every id except `clip_distances`.
  *  @returns a {@link FieldSpec} for an `ioStruct` field map or an `fn` param record.
  *
  *  @example
  *  ```ts
  *  import { fn, ioStruct, builtin, location, u32T, vec4fT, vec2fT } from '@xgis/shader-dsl'
  *
- *  const VsOut = ioStruct('VsOut', { pos: builtin('position', vec4fT), uv: location(0, vec2fT) })
+ *  const VsOut = ioStruct('VsOut', { pos: builtin('position'), uv: location(0, vec2fT) })
  *
  *  // The same helper attributes an entry point's parameter.
- *  const vs = fn('vs_main', { vid: builtin('vertex_index', u32T) }, ({ vid }) => vsOutFor(vid), {
+ *  const vs = fn('vs_main', { vid: builtin('vertex_index') }, ({ vid }) => vsOutFor(vid), {
  *    stage: 'vertex',
  *  })
  *  ```
  *
  *  @see {@link location} for the other field attribute.
  *  @see {@link WgslBuiltinName} for the full vocabulary.
+ *  @see {@link WGSL_BUILTIN_TYPES} for the type each id supplies.
  */
-export const builtin = <T extends ShaderType>(name: WgslBuiltinName, type: T): FieldSpec<T> => ({
-  type,
-  attr: `@builtin(${name})`,
-  builtin: name,
-})
+export function builtin<N extends FixedTypeBuiltinName>(
+  name: N,
+): FieldSpec<(typeof WGSL_BUILTIN_TYPES)[N]>
+export function builtin<T extends ShaderType>(name: WgslBuiltinName, type: T): FieldSpec<T>
+export function builtin(name: WgslBuiltinName, type?: ShaderType): FieldSpec<ShaderType> {
+  // #8 B5 — the token is the builtin's own type whenever WGSL fixes one, so the one-argument
+  // call is not a shorthand: it is the only spelling that cannot disagree with the spec.
+  const resolved = type ?? WGSL_BUILTIN_TYPES[name as FixedTypeBuiltinName]
+  if (resolved === undefined) {
+    // Unreachable from typed code — `clip_distances` is not in FixedTypeBuiltinName, so tsc
+    // requires its token. This is the backstop for an untyped (JavaScript) caller.
+    throw new TypeError(
+      `shader-dsl: builtin('${name}') supplies no single type — pass the type token, as in builtin('${name}', arrayT(f32T, 4))`,
+    )
+  }
+  return { type: resolved, attr: `@builtin(${name})`, builtin: name }
+}
+
+/** The type each `@builtin(<name>)` supplies, for every id WGSL gives ONE fixed type. Read it
+ *  to check a declared field against what the pipeline will actually hand the shader, or to
+ *  render the vocabulary in a tool. {@link builtin} resolves its own token from this table
+ *  when the call omits one, so the table and the authoring surface cannot disagree.
+ *
+ *  `clip_distances` is absent on purpose: it is an `array<f32, N>` whose N the author picks,
+ *  so it has no single type and its `builtin` call still names one.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ *
+ *  @example
+ *  ```ts
+ *  import { WGSL_BUILTIN_TYPES, typeKey } from '@xgis/shader-dsl'
+ *
+ *  typeKey(WGSL_BUILTIN_TYPES.global_invocation_id) // 'vec3<u32>'
+ *  ```
+ */
+export const WGSL_BUILTIN_TYPES = {
+  vertex_index: u32T,
+  instance_index: u32T,
+  position: vec4fT,
+  front_facing: boolT,
+  frag_depth: f32T,
+  sample_index: u32T,
+  sample_mask: u32T,
+  local_invocation_id: vec3uT,
+  local_invocation_index: u32T,
+  global_invocation_id: vec3uT,
+  workgroup_id: vec3uT,
+  num_workgroups: vec3uT,
+  subgroup_invocation_id: u32T,
+  subgroup_size: u32T,
+} as const satisfies Partial<Record<WgslBuiltinName, ShaderType>>
+
+/** The {@link WgslBuiltinName} ids whose type WGSL fixes — every id except `clip_distances`,
+ *  whose `array<f32, N>` length the author picks. A {@link builtin} call naming one of these
+ *  may omit the type token.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
+export type FixedTypeBuiltinName = keyof typeof WGSL_BUILTIN_TYPES
 
 /** Attribute a field or an entry-point parameter with `@location(<n>)`, a slot the
  *  pipeline or the previous stage supplies, with an optional `@interpolate(<mode>)`. The same

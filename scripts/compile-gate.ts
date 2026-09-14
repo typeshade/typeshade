@@ -10,9 +10,16 @@
 //   GLSL ES 3.00     `compileShader` for the vertex AND fragment stage, then `linkProgram`,
 //                    on a real WebGL2 context — ANGLE's translator. The `renderable` examples
 //                    only — that registry flag is this package's single authority on "has a
-//                    GLSL ES 3.00 form", and 3 of 36 clear it false today for three different
-//                    reasons (no compute in GLSL ES 3.00; a helper module with no entry point;
-//                    a host-side one). Those print `—`, never `ok`, so the count stays honest.
+//                    GLSL ES 3.00 form", and 5 of 41 clear it false today for four different
+//                    reasons (no compute in GLSL ES 3.00; a helper module with no entry point,
+//                    twice; a host-side one; a loose scalar uniform, which GLSL ES 3.00 has no
+//                    std140 block for). Those print `—`, never `ok`, so the count stays honest.
+//
+// BOTH CORPORA. The sweep is `examples` (the curated `fn()` EDSL registry) followed by
+// `shadeExamples` (the `"use typeshade"` `.shade.ts` files, compiled by `_shade.ts`). They
+// are two authoring surfaces over ONE IR, so they are one list here: what this gate asks —
+// does the emitted text compile — has the same answer shape for both, and a `.shade.ts`
+// example that Tint rejects is exactly as broken as an EDSL one that does.
 //
 // Both run headless on SwiftShader, which is a real Vulkan / GL implementation in software:
 // what it cannot stand in for is a GPU's rasterization and speed, and neither is measured
@@ -39,6 +46,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { chromium } from 'playwright'
 import { examples } from '../examples/index.js'
+import { shadeExamples } from '../examples/_shade.js'
 import { emitGlslModule, emitModule } from '../src/index.js'
 
 /** The four flags that make WebGPU exist on SwiftShader. `--enable-unsafe-webgpu` alone
@@ -81,8 +89,11 @@ const CUT = process.env['TYPESHADE_GATE_CUT'] ?? ''
  *  the wire the gate exists to watch. */
 const corrupt = (text: string): string => `${text}\n/* cut */ fn broken( {`
 
+/** Everything the gate compiles: the EDSL registry, then the `"use typeshade"` corpus. */
+const ALL_EXAMPLES = [...examples, ...shadeExamples]
+
 function jobs(): Job[] {
-  return examples.map((ex) => {
+  return ALL_EXAMPLES.map((ex) => {
     const cut = ex.id === CUT
     const wgsl = emitModule(ex.module)
     const glsl = ex.renderable
