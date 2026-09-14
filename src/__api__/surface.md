@@ -457,20 +457,30 @@ StageTiming
 summarize
 ```
 
-## `./debug` — 11 exports
+## `./debug` — 21 exports
 
 ```
 CpuPrecision
 CpuStruct
 CpuValue
+createValueFormatter
+DEBUG_LAUNCH_SCHEMA
 DebugBreakpoint
+DebugConfigError
+DebugInputs
+DebugInvocation
+DebugLaunchConfig
 DebugPause
 DebugSession
 DebugSessionOptions
 DebugStackFrame
+formatCpuValue
+resolveBindings
+resolveInvocation
 SourceSpan
 sourceSpanOf
 startDebugSession
+startDebugSessionFromConfig
 ```
 
 ## `./emit-prod` — 19 exports
@@ -774,7 +784,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 491 definitions
+## Shapes — 501 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -822,12 +832,22 @@ src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
 src/core/cpu-runtime.ts#CpuValue  type  number | boolean | number[] | CpuStruct
 src/core/cpu-runtime.ts#ORACLE_BUILTIN_NAMES  const  ReadonlySet<string>
 src/core/cpu-runtime.ts#ORACLE_GPU_STUB_NAMES  const  ReadonlySet<string>
+src/core/debug/config.ts#DEBUG_LAUNCH_SCHEMA  const  Readonly<Record<string, unknown>>
+src/core/debug/config.ts#DebugConfigError  class  { cause?: unknown; message: string; name: string; problems: readonly string[]; stack?: string }
+src/core/debug/config.ts#DebugInputs  interface  DebugInputs
+src/core/debug/config.ts#DebugInvocation  interface  { inputs?: DebugInputs }
+src/core/debug/config.ts#DebugLaunchConfig  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; derivatives?: "zero" | "quad"; entry: string; invocation?: DebugInvocation; name?: string; precision?: CpuPrecision; program?: string; request?: "launch"; stopOnEntry?: boolean; type?: "typeshade" }
+src/core/debug/config.ts#resolveBindings  function  (m: ModuleDecl, given: Readonly<Record<string, CpuValue>>, structs: ReadonlyMap<string, StructDecl>, problems: string[]) => Record<string, CpuValue>
+src/core/debug/config.ts#resolveInvocation  function  (decl: FuncDecl, invocation: DebugInvocation, structs: ReadonlyMap<string, StructDecl>, problems: string[]) => CpuValue[]
+src/core/debug/config.ts#startDebugSessionFromConfig  function  (m: ModuleDecl, config: DebugLaunchConfig) => DebugSession
 src/core/debug/session.ts#DebugBreakpoint  interface  { file?: string; line: number }
-src/core/debug/session.ts#DebugPause  interface  { bindings: ReadonlyMap<string, CpuValue>; frames: readonly DebugStackFrame[]; reason: "entry" | "step" | "breakpoint"; span: SourceSpan; stmt: Stmt }
+src/core/debug/session.ts#DebugPause  interface  { bindingTypes: ReadonlyMap<string, ShaderType>; bindings: ReadonlyMap<string, CpuValue>; frames: readonly DebugStackFrame[]; reason: "entry" | "step" | "breakpoint"; span: SourceSpan; stmt: Stmt }
 src/core/debug/session.ts#DebugSession  interface  { continue: () => DebugPause; discarded: boolean; done: boolean; pause: DebugPause; precision: CpuPrecision; result: CpuValue; setBreakpoints: (breakpoints: readonly DebugBreakpoint[]) => void; stepIn: () => DebugPause; stepOut: () => DebugPause; stepOver: () => DebugPause; stubbedIntrinsics: readonly string[] }
-src/core/debug/session.ts#DebugSessionOptions  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; gpuStubs?: boolean; precision?: CpuPrecision }
-src/core/debug/session.ts#DebugStackFrame  interface  { callSpan: SourceSpan; fnName: string; fnSpan: SourceSpan; locals: ReadonlyMap<string, CpuValue>; span: SourceSpan }
+src/core/debug/session.ts#DebugSessionOptions  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; gpuStubs?: boolean; precision?: CpuPrecision; stopOnEntry?: boolean }
+src/core/debug/session.ts#DebugStackFrame  interface  { callSpan: SourceSpan; fnName: string; fnSpan: SourceSpan; localTypes: ReadonlyMap<string, ShaderType>; locals: ReadonlyMap<string, CpuValue>; span: SourceSpan }
 src/core/debug/session.ts#startDebugSession  function  (m: ModuleDecl, entry: string, args?: readonly CpuValue[], opts?: DebugSessionOptions) => DebugSession
+src/core/debug/value.ts#createValueFormatter  function  (m: { readonly structs: readonly StructDecl[]; }) => (value: CpuValue, type?: ShaderType) => string
+src/core/debug/value.ts#formatCpuValue  function  (value: CpuValue, type?: ShaderType, structs?: ReadonlyMap<string, StructDecl>) => string
 src/core/decode-log.ts#DecodedName  interface  { authored: readonly string[]; emitted: string }
 src/core/decode-log.ts#decodeShaderLog  function  (log: string, renames: ReadonlyMap<string, string>) => string
 src/core/decode-log.ts#invertRenames  function  (renames: ReadonlyMap<string, string>) => ReadonlyMap<string, DecodedName>

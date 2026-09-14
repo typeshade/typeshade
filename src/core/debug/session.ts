@@ -9,7 +9,7 @@
 
 import type { CpuValue } from '../cpu-runtime.js'
 import { zeroOf } from '../cpu-runtime.js'
-import type { FuncDecl, ModuleDecl, Stmt } from '../ir/index.js'
+import type { FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js'
 import type { SourceSpan } from '../ir/span.js'
 import { sourceSpanOf } from '../ir/span.js'
 import type { CpuPrecision } from '../oracle.js'
@@ -54,6 +54,10 @@ export interface DebugStackFrame {
    *  `p.x = …` assigns in place. So a scalar reads as it was at the pause, and a vector or
    *  struct is a live view of the frame's own storage. Read them before stepping again. */
   readonly locals: ReadonlyMap<string, CpuValue>
+  /** The declared type of every name this frame can hold, so {@link formatCpuValue} can render
+   *  a local the way its author spelled it. A name absent from `locals` but present here has
+   *  not been declared yet at this pause. */
+  readonly localTypes: ReadonlyMap<string, ShaderType>
 }
 
 /** A stopped run: where it is, and everything visible from there.
@@ -73,6 +77,9 @@ export interface DebugPause {
   readonly frames: readonly DebugStackFrame[]
   /** The uniform and storage bindings this run was given, as their own scope. */
   readonly bindings: ReadonlyMap<string, CpuValue>
+  /** Each binding's declared type, for the same reason {@link DebugStackFrame.localTypes}
+   *  exists. */
+  readonly bindingTypes: ReadonlyMap<string, ShaderType>
 }
 
 /** How a run is set up.
@@ -98,6 +105,12 @@ export interface DebugSessionOptions {
   /** Breakpoints to arm before the run starts. {@link DebugSession.setBreakpoints} replaces
    *  them later. */
   readonly breakpoints?: readonly DebugBreakpoint[]
+  /** Stop before the entry's first statement. Default `true`.
+   *
+   *  `false` runs to the first breakpoint instead — and the entry's own first statement is one
+   *  of the statements that can carry it, so a breakpoint on the first line of a one-line
+   *  entry still fires. A session that merely skipped the entry pause would step over it. */
+  readonly stopOnEntry?: boolean
 }
 
 /** A run of one invocation, stopped at a statement and steppable from there.
@@ -143,8 +156,8 @@ export interface DebugSession {
  *  `compileModuleJs` remains the backend for that.
  *
  *  The session stops immediately, before the entry's first statement, with
- *  `pause.reason === 'entry'`. Call {@link DebugSession.continue} to run to the first armed
- *  breakpoint instead.
+ *  `pause.reason === 'entry'`. Pass `stopOnEntry: false` to run to the first armed breakpoint
+ *  instead, which still considers that first statement.
  *
  *  A parameter `args` does not supply reads as the zero of its type — the same default the
  *  Playground's "Run on the CPU" uses — so an invocation can name only the inputs it cares
@@ -196,7 +209,15 @@ export function startDebugSession(
   const ctx = makeCtx(prepared, opts?.gpuStubs ?? false)
   for (const [name, value] of Object.entries(opts?.bindings ?? {})) ctx.bindings[name] = value
 
-  return new Session(decl, fillArgs(decl, args), ctx, precision, opts?.breakpoints ?? [])
+  return new Session(
+    decl,
+    fillArgs(decl, args),
+    ctx,
+    precision,
+    opts?.breakpoints ?? [],
+    opts?.stopOnEntry ?? true,
+    new Map(m.bindings.map((b) => [b.name, b.type])),
+  )
 }
 
 /** Positional arguments, with anything missing standing in as the zero of its type. */
@@ -208,6 +229,7 @@ class Session implements DebugSession {
   readonly precision: CpuPrecision
   private readonly run: Step<Signal>
   private readonly ctx: ReturnType<typeof makeCtx>
+  private readonly bindingTypes: ReadonlyMap<string, ShaderType>
   private breakpoints: readonly DebugBreakpoint[]
   private paused: DebugPause | undefined
   private finished = false
@@ -219,12 +241,16 @@ class Session implements DebugSession {
     ctx: ReturnType<typeof makeCtx>,
     precision: CpuPrecision,
     breakpoints: readonly DebugBreakpoint[],
+    stopOnEntry: boolean,
+    bindingTypes: ReadonlyMap<string, ShaderType>,
   ) {
     this.ctx = ctx
+    this.bindingTypes = bindingTypes
     this.precision = precision
     this.breakpoints = breakpoints
     this.run = runFunction(decl, args, undefined, ctx)
-    this.advance('entry', () => true)
+    if (stopOnEntry) this.advance('entry', () => true)
+    else this.advance('breakpoint', (_d, span) => this.hits(span))
   }
 
   get pause(): DebugPause | undefined {
@@ -294,7 +320,7 @@ class Session implements DebugSession {
       const { stmt, frames } = next.value
       const span = sourceSpanOf(stmt)
       if (!want(frames.length, span)) continue
-      this.paused = snapshot(reason, stmt, span, frames, this.ctx.bindings)
+      this.paused = snapshot(reason, stmt, span, frames, this.ctx.bindings, this.bindingTypes)
       return this.paused
     }
   }
@@ -307,6 +333,7 @@ function snapshot(
   span: SourceSpan | undefined,
   frames: readonly StepFrame[],
   bindings: Readonly<Record<string, CpuValue>>,
+  bindingTypes: ReadonlyMap<string, ShaderType>,
 ): DebugPause {
   return {
     reason,
@@ -319,8 +346,10 @@ function snapshot(
         callSpan: f.callSpan,
         span: f.current ? sourceSpanOf(f.current) : undefined,
         locals: new Map(f.env),
+        localTypes: f.types,
       }))
       .reverse(),
     bindings: new Map(Object.entries(bindings)),
+    bindingTypes,
   }
 }
