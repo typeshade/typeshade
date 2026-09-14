@@ -44,8 +44,8 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 - **The package is `typeshade`.** It was `@xgis/shader-dsl`, a workspace of the X-GIS monorepo,
   which was never published to npm. Every `Exported from …` JSDoc line, every documentation and
-  example import, and the subpaths (`typeshade/dev`, `typeshade/compute`, `typeshade/emit-prod`,
-  `typeshade/core/ir`, `typeshade/language-service`) move with it.
+  example import, and the subpaths (`typeshade/dev`, `typeshade/debug`, `typeshade/compute`,
+  `typeshade/emit-prod`, `typeshade/core/ir`, `typeshade/language-service`) move with it.
 - **`XGIS_SHADER_DSL_TRACE` is now `TYPESHADE_TRACE`.** No alias — nothing is published yet.
 - The copyright line of `LICENSE` and `package.json`'s `author` name the owner,
   `Seungup Noh <seungup.noh@gmail.com>`, rather than X-GIS.
