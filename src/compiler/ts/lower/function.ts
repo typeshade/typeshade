@@ -1,12 +1,13 @@
 // === Function lowering: two-pass signatures then bodies ===
 
 import ts from 'typescript'
-import type { BindingDecl, FuncDecl, Stmt, Expr, StructDecl } from '../../../core/ir/nodes.js'
+import type { BindingDecl, FuncDecl, Stmt, Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
+import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
@@ -28,7 +29,7 @@ export function lowerSourceFunctions(
   diagnostics: TsCompilerDiagnostic[],
   consts: readonly { name: string; type: ShaderType }[] = [],
   bindings: readonly BindingDecl[] = [],
-  structs: readonly StructDecl[] = [],
+  structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
 ): FuncDecl[] {
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
@@ -197,7 +198,7 @@ export function parseSignature(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-  structs: readonly StructDecl[] = [],
+  structs: readonly CollectedStruct[] = [],
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
     pushDiag(
@@ -386,11 +387,11 @@ export function fillFunctionBody(
   callees: Map<string, FuncDecl>,
   consts: readonly { name: string; type: ShaderType }[] = [],
   bindings: readonly BindingDecl[] = [],
-  structs: readonly StructDecl[] = [],
+  structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
 ): void {
   const scope = new LoweringScope(callees, symbols)
-  scope.setStructs(structs)
+  scope.setStructs(structs.map((s) => s.decl))
   for (const c of consts) {
     scope.define({
       kind: 'module',
@@ -536,21 +537,29 @@ function checkStructBuiltinFields(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   structName: string,
-  structs: readonly StructDecl[],
+  structs: readonly CollectedStruct[],
   stage: BuiltinStage,
   direction: 'input' | 'output',
 ): void {
-  const decl = structs.find((s) => s.name === structName)
-  if (!decl) return
-  for (const field of decl.fields) {
+  const collected = structs.find((s) => s.decl.name === structName)
+  if (!collected) return
+  // Only a class can carry the decorator the message asks for: writing `@location(0)` on an
+  // interface or type-literal member is a TypeScript syntax error, so telling that author to
+  // add one names a fix they cannot apply. Say what they can do instead.
+  const remedy =
+    collected.spelling === 'class'
+      ? `WGSL requires every entry ${direction} struct member to declare one.`
+      : `WGSL requires every entry ${direction} struct member to declare one, and ` +
+        `${collected.spelling === 'interface' ? 'an interface' : 'a type alias'} member cannot ` +
+        `carry a decorator — declare "${structName}" as a class.`
+  for (const field of collected.decl.fields) {
     if (!field.builtin && field.location === undefined) {
       pushDiag(
         diagnostics,
         sourceFile,
         node,
         `Struct "${structName}" field "${field.name}" is used as a ${stage} ${direction} but ` +
-          `has neither @builtin(...) nor @location(...): WGSL requires every entry ${direction} ` +
-          `struct member to declare one.`,
+          `has neither @builtin(...) nor @location(...): ${remedy}`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       )
       continue

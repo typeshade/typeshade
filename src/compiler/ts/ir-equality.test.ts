@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
+import { uniformStruct } from '../../core/sot.js'
 import {
   atan2,
   exp2,
@@ -15,7 +16,16 @@ import {
   toF64,
   vec3,
 } from '../../core/ir/node.js'
-import { boolT, f32T, f64T, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import {
+  boolT,
+  f32T,
+  f64T,
+  mat4x4fT,
+  vec3fT,
+  vec3uT,
+  vec3f64T,
+  typeKey,
+} from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -287,6 +297,27 @@ describe('IR equality: use typeshade vs fn()', () => {
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('f', { a: f32T, b: f32T, c: f32T }, f32T, ({ a, b, c }) => fma(a, b, c))
     assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a type-alias struct matches the EDSL uniformStruct decl', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      type Camera = {
+        view: mat4;
+        pos: vec3;
+      }
+      declare const cam: uniform<Camera>
+      export function f(): vec3 {
+        return cam.pos;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = uniformStruct(
+      'Camera',
+      { group: 0, binding: 0, as: 'cam' },
+      { view: mat4x4fT, pos: vec3fT },
+    )
+    expect(tsResult.structs[0]!.decl).toEqual(edsl.struct)
   })
 
   it('vec3f(v) matches the EDSL vec3(v) element-converting constructor', () => {

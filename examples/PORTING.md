@@ -132,7 +132,7 @@ first. No example in the 36 is waiting on any of them:
 | Issue #8 item                                       | Blocks |
 | --------------------------------------------------- | ------ |
 | **A2** member / component assignment (`v.x = 0.`)   | 0      |
-| **A4** `type` / `interface` structs                 | 0      |
+| ~~**A4** `type` / `interface` structs~~ (landed)    | 0      |
 | **A5** `@align` / `@size` field decorators          | 0      |
 | ~~**A8** element-converting constructors~~ (landed) | 0      |
 | **A9** module-level vector constants                | 0      |
@@ -391,7 +391,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                           |
 | `f32(vi & 1) * 4. - 1.` (the fullscreen-triangle vertex stage)                                                  | ✓                                                                                                       |
 | `1u`                                                                                                            | ✗ TS parse error — `"const u" requires an initializer`                                                  |
-| `type Camera = { view: mat4; pos: vec3 }`                                                                       | ✗ `Unknown field "pos" on struct:Camera`                                                                |
+| `type Camera = { view: mat4; pos: vec3 }`, `interface Camera { … }`                                             | ✓ since #8 A4                                                                                           |
 | `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                             |
 | `m: mat3`                                                                                                       | ✗ `Unknown type "mat3"`                                                                                 |
 | `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                    |
