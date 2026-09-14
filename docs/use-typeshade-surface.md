@@ -244,7 +244,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
 ---
 
-## 9. Vector constructors
+## 11. Vector constructors
 
 A `vecN` constructor either **composes** a vector out of parts of its own element type, or
 **converts** one whole vector of the same size:
