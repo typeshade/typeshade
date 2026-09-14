@@ -9,6 +9,7 @@ import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { TS_CODES } from './codes.js'
 import { checkRecursion, type RecursionNode } from './recursion.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import type { DeclaredSymbol } from './symbols.js'
 
 export interface TsSourceFileInput {
   readonly fileName: string
@@ -18,6 +19,11 @@ export interface TsSourceFileInput {
 export interface CompileTsSourcesResult {
   readonly funcs: readonly FuncDecl[]
   readonly diagnostics: readonly TsCompilerDiagnostic[]
+  /** What the front end declared while lowering the ENTRY file (`entry`, or the first file
+   *  given), as `CompileTsSourceResult.symbols` records it. One file only: a `DeclaredSymbol`
+   *  span is a UTF-16 offset, which means nothing without the file it indexes, and this result
+   *  names no source file. Empty when nothing was lowered. */
+  readonly symbols: readonly DeclaredSymbol[]
   readonly wgsl?: string
 }
 
@@ -43,6 +49,7 @@ export function compileTsSources(
   entry?: string,
 ): CompileTsSourcesResult {
   const diagnostics: TsCompilerDiagnostic[] = []
+  const symbols: DeclaredSymbol[] = []
   const parsed = new Map<string, ts.SourceFile>()
   const exports = new Map<
     string,
@@ -71,7 +78,7 @@ export function compileTsSources(
   const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
   if (syntax.length > 0) {
     diagnostics.push(...syntax)
-    return { funcs: [], diagnostics }
+    return { funcs: [], diagnostics, symbols }
   }
 
   for (const [name, sf] of parsed) {
@@ -197,10 +204,33 @@ export function compileTsSources(
 
   const funcs: FuncDecl[] = []
   const graph: RecursionNode[] = []
+  // Only the entry file feeds the symbol table, since a span alone cannot say which file it
+  // indexes. `parsed` is keyed by `normalizePath`, so the caller's spelling of `entry` has to be
+  // normalized before it is looked up: `'./main.ts'` and `'main.ts'` name the same file, and
+  // handing back another file's offsets for one of the two spellings is the exact hazard the
+  // one-file rule exists to prevent. (The emit-failure anchor below keeps its own pre-existing
+  // raw-`entry` lookup; changing which file an emit failure is reported against is not this
+  // change's business.)
+  const normalizedEntry = entry !== undefined ? normalizePath(entry) : undefined
+  const symbolFile =
+    (normalizedEntry !== undefined && parsed.has(normalizedEntry) ? normalizedEntry : undefined) ??
+    [...parsed.keys()][0]
   for (const [name, table] of exports) {
     const callees = fileCallees.get(name)!
     for (const rec of table.values()) {
-      fillFunctionBody(rec.node, rec.stub, rec.sf, diagnostics, callees)
+      // Positional: `fillFunctionBody`'s consts/bindings/structs keep their defaults here.
+      const sink = name === symbolFile ? symbols : undefined
+      fillFunctionBody(
+        rec.node,
+        rec.stub,
+        rec.sf,
+        diagnostics,
+        callees,
+        undefined,
+        undefined,
+        undefined,
+        sink,
+      )
       funcs.push(rec.stub)
       // The graph key is the EMITTED name, not the local one: across files the same function
       // reaches its callers under whatever name each `import` bound it to, and a cycle is a
@@ -236,5 +266,5 @@ export function compileTsSources(
       diagnostics.push(backendDiagnostic(anchor, e))
     }
   }
-  return { funcs, diagnostics, wgsl }
+  return { funcs, diagnostics, symbols, wgsl }
 }
