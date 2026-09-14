@@ -10,7 +10,7 @@ Step 1 of the example port: a **classification**, not a port. Measured on `main`
 > the first twins uncovered, are fixed in
 > [#17](https://github.com/typeshade/typeshade/pull/17) and
 > [#18](https://github.com/typeshade/typeshade/pull/18). (3) Writing out the remaining twelve
-> twins cost three more rows their
+> twins ([#42](https://github.com/typeshade/typeshade/pull/42)) cost three more rows their
 > **portable** verdict — [#38](https://github.com/typeshade/typeshade/issues/38) and
 > [#40](https://github.com/typeshade/typeshade/issues/40) — so the headline figure is **11 of
 > 36**, not the 14 this document measured.
@@ -113,7 +113,7 @@ and rows 11, 16 and 17 above carry the blockers that stopped them (**B-negint**,
 Eleven have shipped: `compute-reduction` in
 [#16](https://github.com/typeshade/typeshade/pull/16), `gradient` once
 [#14](https://github.com/typeshade/typeshade/issues/14) unblocked its GLSL, and nine fullscreen
-twins in the change that adds this note.
+twins in [#42](https://github.com/typeshade/typeshade/pull/42).
 
 The three that fell out are the point, not a footnote: _accepts the source_ is not _emits a
 correct shader_, and one of the three passed every gate in this repository except Tint — see
@@ -221,7 +221,7 @@ Writing the twins did, and it has cost this document four of its verdicts so far
 [#16](https://github.com/typeshade/typeshade/pull/16), two more
 ([#38](https://github.com/typeshade/typeshade/issues/38),
 [#40](https://github.com/typeshade/typeshade/issues/40)) from writing out the remaining twelve
-in the change that adds this note. Not because the classification was
+in [#42](https://github.com/typeshade/typeshade/pull/42). Not because the classification was
 careless — because acceptance and correctness are different questions, and only one of them
 was being asked.
 
@@ -391,7 +391,7 @@ that disjointness, because both corpora bake into one `__emit-goldens__/` direct
 Eleven twins have landed: `compute-reduction-twin` in #16, `gradient-twin` once
 [#14](https://github.com/typeshade/typeshade/issues/14) was fixed, and nine fullscreen twins —
 `hillshade`, `plasma`, `julia`, `mandelbrot`, `domain-warp`, `tunnel`, `ocean`, `starfield`,
-`kaleidoscope` — in the change that adds this note. Every one is in the
+`kaleidoscope` — in [#42](https://github.com/typeshade/typeshade/pull/42). Every one is in the
 compile gate: WGSL through Tint, GLSL ES 3.00 compiled and linked on a real WebGL2 context.
 
 The three that were written and could not land are `voronoi`, `raymarch-sphere` and
