@@ -1,7 +1,7 @@
 // ═══ A shader value, shown the way its author spelled its type ═══
 //
 // The CPU value model is `number[]` for a vector, a flat `number[]` for a matrix and a plain
-// object for a struct — right for evaluating, and the reason a stock JavaScript debugger shows
+// object for a struct: right for evaluating, and the reason a stock JavaScript debugger shows
 // a `vec3` as `(3) [0.5, 0.5, 1]`. `docs/debugging.md` §2.3 names that as one of the two
 // reasons the design owns its own presentation layer rather than borrowing one. This is that
 // layer, and these are its claims.
@@ -61,7 +61,7 @@ describe('formatCpuValue renders the declared type, not the JavaScript one', () 
 
   it('given the struct table, the fields render at their own declared types too', () => {
     // Without it, `pos` is a JavaScript array and the rendering stops one level short of what
-    // the author wrote — which is exactly the failure this whole layer exists to avoid.
+    // the author wrote, which is exactly the failure this whole layer exists to avoid.
     expect(formatCpuValue({ pos: [1, 2, 3], zoom: 2 }, cameraT, structs)).toBe(
       'Camera { pos: vec3(1, 2, 3), zoom: 2 }',
     )

@@ -1,4 +1,4 @@
-// ═══ Shader DSL — one launch configuration, three carriers (docs/debugging.md §4) ═══
+// ═══ Shader DSL: one launch configuration, three carriers (docs/debugging.md §4) ═══
 //
 // The same object describes a debug run whether it arrives as a `launch.json` entry in an
 // IDE, a form in the Playground, or an argument to a headless test. It is defined here, with
@@ -26,8 +26,8 @@ import { coerceValue, isUnsized, shapeError, zeroValueOf } from './value.js'
 
 /** One invocation's inputs, keyed the way the shader declares them.
  *
- *  Builtin inputs are named by their WGSL id — `vertex_index`, `position`,
- *  `global_invocation_id` — at the top level. Everything else, a `@location(n)` vertex
+ *  Builtin inputs are named by their WGSL id (`vertex_index`, `position`,
+ *  `global_invocation_id`) at the top level. Everything else, a `@location(n)` vertex
  *  attribute or an interpolated varying, goes in `inputs` under the parameter's or the struct
  *  field's own name.
  *
@@ -49,7 +49,7 @@ export interface DebugInvocation {
   readonly inputs?: DebugInputs
 }
 
-/** `@location(n)` stage inputs by name — a vertex attribute, an interpolated varying.
+/** `@location(n)` stage inputs by name: a vertex attribute, an interpolated varying.
  *
  *  Exported from `@xgis/shader-dsl/debug`.
  */
@@ -72,7 +72,7 @@ export interface DebugInputs {
 export interface DebugLaunchConfig {
   /** The debug type an IDE dispatches on. Always `'typeshade'`; ignored by the engine. */
   readonly type?: 'typeshade'
-  /** `'launch'` — attaching to a running shader is not a thing that exists. Ignored here. */
+  /** `'launch'`, since attaching to a running shader is not a thing that exists. Ignored. */
   readonly request?: 'launch'
   /** The configuration's display name in the IDE. Ignored here. */
   readonly name?: string
@@ -89,7 +89,7 @@ export interface DebugLaunchConfig {
   /** Stop before the entry's first statement. Default `true`; `false` runs to the first
    *  breakpoint instead. */
   readonly stopOnEntry?: boolean
-  /** What the arithmetic means. Default `'f32'` — see {@link DebugSessionOptions.precision}. */
+  /** What the arithmetic means. Default `'f32'`; see {@link DebugSessionOptions.precision}. */
   readonly precision?: CpuPrecision
   /** What a screen-space derivative reads as. `'zero'` accepts the stub value and marks it
    *  as a stand-in ({@link DebugSession.stubbedIntrinsics}); `'quad'` is the 2×2 evaluation
@@ -173,7 +173,7 @@ export function startDebugSessionFromConfig(
   }
   if (config.derivatives === 'quad') {
     problems.push(
-      "derivatives: 'quad' is not implemented — docs/debugging.md decision 4 defers the 2×2 " +
+      "derivatives: 'quad' is not implemented; docs/debugging.md decision 4 defers the 2x2 " +
         "quad evaluation, so 'zero' is the only mode that exists today",
     )
   }
@@ -269,7 +269,7 @@ export function resolveInvocation(
 }
 
 /** `local_invocation_id`, `workgroup_id` and `local_invocation_index` from
- *  `global_invocation_id` and the entry's declared workgroup size — unless the caller gave
+ *  `global_invocation_id` and the entry's declared workgroup size, unless the caller gave
  *  one, in which case the given value wins and a contradiction is reported. */
 function deriveComputeIds(
   decl: FuncDecl,
@@ -359,8 +359,8 @@ function declaredInputs(
 
 /** The module's bindings by declared name, checked against their declared types.
  *
- *  An omitted binding reads as the zero of its type. A runtime-sized array has no zero — its
- *  length is the host's buffer — so omitting one is an error naming it rather than an empty
+ *  An omitted binding reads as the zero of its type. A runtime-sized array has no zero, since
+ *  its length is the host's buffer, so omitting one is an error naming it rather than an empty
  *  array whose every read would be `undefined`. A texture or sampler binding is refused
  *  outright: a CPU run has no texture memory, and `docs/debugging.md` §4.4 specifies the
  *  shapes for when the language surface grows them.
@@ -392,7 +392,7 @@ export function resolveBindings(
   for (const [name, type] of declared) {
     if (type.kind === 'texture' || type.kind === 'sampler') {
       problems.push(
-        `binding "${name}" is a ${typeKey(type)}, which a CPU run cannot supply — texture and ` +
+        `binding "${name}" is a ${typeKey(type)}, which a CPU run cannot supply: texture and ` +
           'sampler values are unsupported in this milestone (docs/debugging.md §4.4)',
       )
       continue
@@ -402,7 +402,7 @@ export function resolveBindings(
       if (isUnsized(type)) {
         problems.push(
           `binding "${name}" is ${typeKey(type)}, whose length only the host's buffer knows, ` +
-            'so it has no zero to stand in — supply a value for it',
+            'so it has no zero to stand in; supply a value for it',
         )
         continue
       }

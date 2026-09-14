@@ -2,9 +2,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
-import { fn } from '../../core/ir/builder.js'
+import { constExpr, fn } from '../../core/ir/builder.js'
 import { uniformStruct } from '../../core/sot.js'
-import { f32, vec3 } from '../../core/ir/node.js'
+import { constRef, f32, vec3 } from '../../core/ir/node.js'
 import { f32T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
@@ -65,6 +65,10 @@ function normalizeExpr(e: Expr): unknown {
       return { op: 'param', type: typeKey(e.type), name: e.name }
     case 'varref':
       return { op: 'varref', type: typeKey(e.type), name: e.name }
+    case 'constref':
+      // Without this arm the "same constref" case compared the tag alone, so a reference to
+      // the wrong constant, or to one of the wrong type, would have passed.
+      return { op: 'constref', type: typeKey(e.type), name: e.name }
     case 'construct':
       return { op: 'construct', type: typeKey(e.type), args: e.args.map(normalizeExpr) }
     case 'binop':
@@ -164,6 +168,23 @@ describe('IR equality: use typeshade vs fn()', () => {
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
     assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a module vector const matches the EDSL constExpr declaration', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      const UP = vec3(0., 1., 0.)
+      export function up(): vec3 {
+        return UP;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = constExpr('UP', vec3fT, vec3(0, 1, 0))
+    expect(tsResult.consts[0]).toEqual(edsl)
+    // …and the read is the same constref the EDSL's `.node` is.
+    const stmt = tsResult.funcs[0]!.body[0]!
+    if (stmt.s !== 'return' || !stmt.expr) throw new Error('expected a return')
+    expect(normalizeExpr(stmt.expr)).toEqual(normalizeExpr(constRef('UP', vec3fT).expr))
   })
 
   it('a type-alias struct matches the EDSL uniformStruct decl', () => {
