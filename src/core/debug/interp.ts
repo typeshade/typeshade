@@ -75,8 +75,9 @@ export interface StepCtx {
   readonly bindings: Record<string, CpuValue>
   readonly structs: Map<string, StructDecl>
   /** The module's declared uniform and storage names. The `"use typeshade"` front end lowers
-   *  a read of one to a `constref`, not a `varref` (see the `constref` case below), so the
-   *  walk needs the list to tell a binding read apart from a genuinely unknown constant. */
+   *  a read of one to a `constref` today and to a `varref` once #14's fix lands, so the walk
+   *  needs the list to answer BOTH the same way: a binding nobody supplied is named, rather
+   *  than reported as an unknown constant or an unbound name. */
   readonly bindingNames: Set<string>
   readonly gpuStubs: boolean
   readonly frames: StepFrame[]
@@ -97,6 +98,14 @@ export type Signal =
   | { kind: 'discard' }
 const NORMAL: Signal = { kind: 'normal' }
 
+/** A binding the module declares and the session was not given a value for. Named rather than
+ *  read as a zero: a debugger that invents an input silently answers a question about a
+ *  different program. */
+const noValueFor = (name: string): Error =>
+  new Error(
+    `shader-dsl/debug: no value supplied for binding '${name}' — pass it in the session's bindings`,
+  )
+
 export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): Step<CpuValue> {
   switch (e.op) {
     case 'lit':
@@ -107,15 +116,13 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       // A `"use typeshade"` read of `declare const camera: uniform<Camera>` lowers to a
       // `constref` carrying the binding's name, not to the `varref` the EDSL surface builds,
       // so the oracle's own `constref` case throws `unknown const` on any source-compiled
-      // module with a binding — `compile(src).eval` cannot run one today. Resolving it here
-      // is local and reversible: the day the front end lowers a binding read as a `varref`,
-      // this arm stops being reached and the `param`/`varref` case below already handles it.
+      // module with a binding — `compile(src).eval` cannot run one today. PR #18 (issue #14)
+      // changes that lowering to a `varref`; when it lands this arm simply stops being
+      // reached, because the `param`/`varref` case above resolves and reports a binding
+      // identically. Neither spelling is privileged here, so this file needs no change either
+      // way, and a session keeps working across the merge.
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
-      if (ctx.bindingNames.has(e.name)) {
-        throw new Error(
-          `shader-dsl/debug: no value supplied for binding '${e.name}' — pass it in the session's bindings`,
-        )
-      }
+      if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name)
       throw new Error(`shader-dsl/debug: unknown const ${e.name}`)
     }
     case 'overrideref': {
@@ -129,6 +136,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
     case 'varref': {
       if (env.has(e.name)) return env.get(e.name) as CpuValue
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
+      if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name)
       throw new Error(`shader-dsl/debug: unbound ${e.name}`)
     }
     case 'binop': {
@@ -304,12 +312,6 @@ function* setLValue(
 ): Step<void> {
   if (target.op === 'varref' || target.op === 'param') {
     env.set(target.name, value)
-    return
-  }
-  // The same front-end spelling as the `constref` read above: a write to a `storage` binding
-  // whose whole value is replaced arrives here as a `constref` target.
-  if (target.op === 'constref' && ctx.bindingNames.has(target.name)) {
-    ctx.bindings[target.name] = value
     return
   }
   if (target.op === 'member') {

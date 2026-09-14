@@ -328,6 +328,38 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     expect(s.discarded).toBe(false)
   })
 
+  it('a binding read resolves the same whether it is spelled constref or varref', () => {
+    // The front end spells a binding read as a `constref` today; #18 (issue #14) changes it to
+    // a `varref`. Both shapes are built here over the same module, so this file says which
+    // behaviour survives that merge rather than leaving it to be discovered: the value
+    // resolves, and an unsupplied binding is NAMED rather than read as a zero or reported as
+    // an unknown constant.
+    const bindingRead = (op: 'constref' | 'varref'): ModuleDecl => ({
+      consts: [],
+      structs: [],
+      bindings: [
+        { name: 'scale', type: f32T, space: 'uniform', access: 'read', group: 0, binding: 0 },
+      ],
+      funcs: [
+        {
+          name: 'f',
+          params: [],
+          ret: f32T,
+          body: [{ s: 'return', expr: { op, type: f32T, name: 'scale' } }],
+        },
+      ],
+    })
+    for (const op of ['constref', 'varref'] as const) {
+      const m = bindingRead(op)
+      const s = startDebugSession(m, 'f', [], { bindings: { scale: 7 }, precision: 'f64' })
+      s.continue()
+      expect(s.result, op).toBe(7)
+      expect(() => startDebugSession(m, 'f').continue(), op).toThrow(
+        /no value supplied for binding 'scale'/,
+      )
+    }
+  })
+
   it('an unknown entry point is an error naming it', () => {
     expect(() => startDebugSession(compiled(STRAIGHT), 'nope')).toThrow(/no function "nope"/)
   })
