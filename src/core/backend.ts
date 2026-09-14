@@ -290,7 +290,7 @@ export class UnsupportedFeatureError extends ShaderDslError {
   }
 }
 
-// ── Capability × backend matrix (#1717) ──────────────────────────────────────
+// ── Capability × backend matrix (X-GIS #1717) ──────────────────────────────────────
 
 /** How one backend supports one capability.
  *  - `'native'`: supported, with nothing to emit and nothing for the host to turn on.
@@ -382,7 +382,7 @@ export function capabilityMatrix(backends: readonly Backend[]): readonly Capabil
 
 /** The three caps `requiredCaps` derives from a module's SHAPE — a storage binding, a
  *  `@compute` entry, an MSAA texture load — and which `DeclarableCapability` therefore
- *  makes unrepresentable in `enables` (#1681 A2). */
+ *  makes unrepresentable in `enables` (X-GIS #1681 A2). */
 const DERIVED_CAPABILITIES: ReadonlySet<Capability> = new Set([
   'storageBuffer',
   'compute',

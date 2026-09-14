@@ -1,4 +1,4 @@
-// ═══ Every public export carries a doc comment — the reference's precondition (#1695) ═══
+// ═══ Every public export carries a doc comment — the reference's precondition (X-GIS #1695) ═══
 //
 // #1694 measured the symptom: the authoring knowledge exists, is good, and cannot be found.
 // #1695's answer is a GENERATED API reference — and a generated reference is only worth
@@ -80,7 +80,7 @@ const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as 
 /** Leading marker written by scripts/add-tsdoc-templates.ts. Kept in sync by arm A8 below,
  *  which fails if the script stops using it — the two must agree or scaffolding starts
  *  counting as coverage. */
-const STUB_SENTINEL = 'TODO(#1695):'
+const STUB_SENTINEL = 'TODO(X-GIS #1695):'
 
 /** The subpaths that ARE the public API and therefore owe documentation. */
 const API_SUBPATHS = [
@@ -120,7 +120,7 @@ const DEBT: Readonly<Record<string, string>> = {}
 const UNDOCUMENTED: Readonly<Record<string, string>> = {}
 
 /** Public exports deliberately tagged `@internal`: still exported (un-exporting is a
- *  breaking change and is #1697's open question), but kept OUT of the generated reference by
+ *  breaking change and is X-GIS #1697's open question), but kept OUT of the generated reference by
  *  the extractor's `excludeInternal`. Each reaches the entry only because `index.ts` star-
  *  re-exports a whole backend module — nobody chose them — and each has a doc comment saying
  *  so, which is why they no longer appear in UNDOCUMENTED.
@@ -132,11 +132,11 @@ const INTERNAL: Readonly<Record<string, string>> = {
   'src/core/diagnostics/loc.ts#isSourceTracing':
     "the read half of setSourceTracing, exported for this package's own tests and for " +
     "captureLoc's early-out. A diagnostic already reports whether it resolved a location by " +
-    'whether its `loc` is present, which is the question a consumer actually has (#1695).',
+    'whether its `loc` is present, which is the question a consumer actually has (X-GIS #1695).',
   'src/core/passes/match-lower.ts#lowerModule':
     'a lowering-pipeline pass entry. Running it by hand yields a half-lowered module whose ' +
     'nodes are rebuilt, which breaks the object identity the authored-source location table ' +
-    'is keyed on — so validate()/diagnose() must run BEFORE it, not after (#1695).',
+    'is keyed on — so validate()/diagnose() must run BEFORE it, not after (X-GIS #1695).',
   'src/core/backends/glsl.ts#lowerComputeToFragment':
     'the supported entry is the emulateCompute emit option; calling the pass directly yields ' +
     'a half-lowered module. Un-export tracked by #1697.',
@@ -387,7 +387,7 @@ describe('#1695 — the public surface is fully accounted for', () => {
       `these public exports have no doc comment and no allowlist row:\n  ${orphans.join('\n  ')}\n` +
         `Write a TSDoc comment at the DEFINITION site (a comment on the re-export does not ` +
         `count), or add a row to UNDOCUMENTED naming its debt class. The generated reference ` +
-        `(#1695) publishes every one of these, so an undocumented export ships as a blank page.`,
+        `(X-GIS #1695) publishes every one of these, so an undocumented export ships as a blank page.`,
     ).toEqual([])
   })
 

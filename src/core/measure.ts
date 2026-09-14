@@ -233,7 +233,7 @@ export function optimizerReport(m: ModuleDecl): OptimizerReport {
   }
 }
 
-// ── Where the emit time actually goes (#2449, direction record D1.1) ────────────────────
+// ── Where the emit time actually goes (X-GIS #2449, direction record D1.1) ────────────────────
 //
 // Every recorded compile cost in this repo is a TOTAL: 58-184 ms per retained family
 // (map/src/render/material/wgsl-for.ts:85), 80 ms for the polygon vertex emit against a 2 ms

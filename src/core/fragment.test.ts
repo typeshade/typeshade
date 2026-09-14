@@ -1,10 +1,10 @@
-// ═══ emitGlslFragment / emitFragment — the header comes back as DATA (#1711) ═══
+// ═══ emitGlslFragment / emitFragment — the header comes back as DATA (X-GIS #1711) ═══
 //
 // The arms that matter are the two the consumer's regex got wrong, and they pull in
 // opposite directions — which is the whole reason a regex cannot do this job:
 //
 //   • no `#extension`  → `/^#version[^\n]*\n(?:precision[^\n]*\n)*/` eats the precision
-//     lines, including the integer-sampler one the backend derives (#1703).
+//     lines, including the integer-sampler one the backend derives (X-GIS #1703).
 //   • an `#extension`  → the same regex matches only the `#version` line, because
 //     `#extension` sits between it and the precision block, so the include keeps a
 //     duplicate copy of every one of them.
@@ -66,7 +66,7 @@ describe('emitGlslFragment — the preamble is data, not a prefix to strip', () 
     expect(f.preamble).toContain('precision highp int;')
   })
 
-  it('an integer texture keeps its sampler precision (#1703) — the regex dropped it', () => {
+  it('an integer texture keeps its sampler precision (X-GIS #1703) — the regex dropped it', () => {
     const f = emitGlslFragment(withIntTexture, 'fragment')
     expect(f.preamble).toContain('precision highp usampler2D;')
     // The decoy: what the legacy strip would have produced from the whole-module emit.

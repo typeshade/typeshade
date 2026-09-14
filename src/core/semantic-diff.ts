@@ -1,4 +1,4 @@
-// ═══ Shader DSL — semantic diff over IR + reflection (#1714) ═══
+// ═══ Shader DSL — semantic diff over IR + reflection (X-GIS #1714) ═══
 //
 // Compares two modules at the layer a REVIEWER cares about — interface, resources,
 // constants, control-flow shape — instead of at the byte layer, where constant
@@ -23,7 +23,7 @@
 // distinguish the states it claims to control is the §12 "assertion that failed
 // either way" at the API layer, so it is absent rather than accepted-and-ignored.
 //
-// `transforms` (#1806) classifies BY CONSTRUCTION, never by pattern. A consumer's
+// `transforms` (X-GIS #1806) classifies BY CONSTRUCTION, never by pattern. A consumer's
 // dev↔prod comparison is dominated by the transforms its own build declares
 // (`inline()` rewrites call sites and duplicates literals), and #1806's ask is that
 // those stop spending the same regression budget as a backend or interface error —

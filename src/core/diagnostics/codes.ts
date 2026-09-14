@@ -110,7 +110,7 @@ export const CODES = {
   },
   SD0016: {
     code: 'SD0016',
-    // Split out of SD0014 (#1710). hostUniform borrowed that code for a shape it does not
+    // Split out of SD0014 (X-GIS #1710). hostUniform borrowed that code for a shape it does not
     // describe, so a reader who hit it was pointed at specialization constants and told to
     // decompose into "per-component scalar overrides" — advice for a different declarator.
     summary: 'host-owned resource has a shape the target cannot spell',
@@ -119,7 +119,7 @@ export const CODES = {
   SD0017: {
     code: 'SD0017',
     summary: 'literal cannot be spelled by the target',
-    hint: 'an i32/u32 literal must be an integer inside its 32-bit range and a float literal must be finite — neither WGSL nor GLSL has a NaN/Infinity spelling, and an out-of-range integer literal is a driver compile error; clamp or wrap the host-side value before it becomes a literal (#2276)',
+    hint: 'an i32/u32 literal must be an integer inside its 32-bit range and a float literal must be finite — neither WGSL nor GLSL has a NaN/Infinity spelling, and an out-of-range integer literal is a driver compile error; clamp or wrap the host-side value before it becomes a literal (X-GIS #2276)',
   },
 
   // ── Module-level gates ──
@@ -171,7 +171,7 @@ export const CODES = {
     summary: 'smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)',
     hint: 'write 1 − smoothstep(lo, hi, x) instead of reversing the edges',
   },
-  // The hint is deliberately GENERIC and enumerates NO fix family (#1654): the
+  // The hint is deliberately GENERIC and enumerates NO fix family (X-GIS #1654): the
   // per-builtin fix lives in the rule's FRAGMENT_ONLY_IDS table (the single
   // fix-authority) and reaches the reader through the diagnostic's own message.
   // Enumerating families here would re-create the untested sync contract that
@@ -182,7 +182,7 @@ export const CODES = {
     hint: 'the fix is per-builtin and named in the diagnostic message itself — the fragment-only-builtin rule table (FRAGMENT_ONLY_IDS) is the single fix-authority',
   },
 
-  // ── The portable kernel tier (#1812) — passes/portable-kernel.ts ──
+  // ── The portable kernel tier (X-GIS #1812) — passes/portable-kernel.ts ──
   // SD0110 is the AUTHOR-RUN guard (fn() rejects the declaration on a non-compute stage);
   // SD0111 is the SHAPE gate, reported per violation by the portable-kernel rule at every
   // emit on both writers and thrown by the GLSL lowering. Like SD0109 the per-violation
@@ -206,14 +206,14 @@ export const CODES = {
   SD0112: {
     code: 'SD0112',
     summary: 'a local name is declared twice in one function',
-    hint: 'rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (#2341)',
+    hint: 'rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (X-GIS #2341)',
   },
 
   // ── The void-body overload's runtime half (#8 B1) ──
   // The overload that lets a void body drop `voidT` pins the handle's key to `'void'` at the
   // TYPE level. TypeScript reads a body that sends its value out through an ambient Return()
   // as returning nothing too, so the type level cannot separate the two; SD0113 is the
-  // runtime half that keeps `'void'` from ever being a lie (#2458's objection).
+  // runtime half that keeps `'void'` from ever being a lie (X-GIS #2458's objection).
   SD0113: {
     code: 'SD0113',
     summary: 'a fn whose body returns nothing at the TypeScript level returns a value at run time',

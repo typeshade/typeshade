@@ -59,7 +59,7 @@ const buildModule = () =>
     ],
   })
 
-describe('optimize — write-once struct local → constructor (#1867)', () => {
+describe('optimize — write-once struct local → constructor (X-GIS #1867)', () => {
   it('collapses the assemble-then-return shape', () => {
     // Asserted on the IR, because the emit path runs the whole pipeline (this pass
     // included) and could not show the before state.

@@ -97,7 +97,7 @@ function runCompute(featData: number[], n: number): number[] {
   return out
 }
 
-// The SAME fixture DECLARED a portable kernel (#1812). `portable` is compute-only and has no
+// The SAME fixture DECLARED a portable kernel (X-GIS #1812). `portable` is compute-only and has no
 // attrs spelling, so the declaration also carries the structured stage the tier reads. The
 // lowering routes a declared entry through `analyzePortableKernel` instead of its ad-hoc
 // shape checks — this module is what proves that gate ACCEPTS the fixture (and that the

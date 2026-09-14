@@ -1,4 +1,4 @@
-// ═══ WGSL backend — absent-builtin fail-closed (#1672) ═══
+// ═══ WGSL backend — absent-builtin fail-closed (X-GIS #1672) ═══
 //
 // The asymmetry this closes: a `point_size` builtin was rejected by the GLSL writer
 // with a precise message (backends/glsl.ts builtinOut — "no writable gl_* mapping",
@@ -96,7 +96,7 @@ const legalMod = (): ModuleDecl =>
     uses: [LegalOut],
   })
 
-describe('wgsl — absent builtins fail closed (#1672)', () => {
+describe('wgsl — absent builtins fail closed (X-GIS #1672)', () => {
   it('an IO-struct field @builtin(point_size) throws instead of emitting invalid WGSL', () => {
     expect(() => emitModule(pointSizeMod())).toThrow(UnsupportedFeatureError)
     // The message is the deliverable — a prescriptive remedy, not just a rejection.
@@ -139,7 +139,7 @@ describe('wgsl — absent builtins fail closed (#1672)', () => {
     )
   })
 
-  // The documented contract (#740 R3): the STRUCTURED `builtin` field is the semantic
+  // The documented contract (X-GIS #740 R3): the STRUCTURED `builtin` field is the semantic
   // source, `attr` is only the emit spelling. A hand-built decl literal carrying just
   // the string is outside that contract and is NOT gated here — pinned so the choice is
   // a decision on record rather than an accident, and so a later "just regex the attr

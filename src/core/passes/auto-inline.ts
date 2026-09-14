@@ -26,7 +26,7 @@ import { mapStmt } from './opt/ir-transform.js'
 import { bodyHasRaw } from './opt/dce.js'
 import { inlineFn } from './inline.js'
 
-// Shared stage predicate (#763 S4 — this site was MISSED in the Phase-S sweep:
+// Shared stage predicate (X-GIS #763 S4 — this site was MISSED in the Phase-S sweep:
 // it lives under passes/, not passes/opt/, and the sweep grepped opt/ only).
 const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined
 
@@ -86,7 +86,7 @@ function countCalls(m: ModuleDecl, name: string): number {
  *  helpers, whose bodies are error-free transformations the algebraic/const-fold
  *  passes could legally cancel once exposed at a call site. `FuncDecl.opaque`
  *  carries it; it used to be a `df64_` NAME test, which `mangle` could rename out
- *  from under (#1926). See core/fp64/df64-lib.ts for the hazard. Recursive
+ *  from under (X-GIS #1926). See core/fp64/df64-lib.ts for the hazard. Recursive
  *  single-return fns are skipped (inlineFn keeps them; infinite expansion
  *  otherwise). A dead fn (0 calls) is left to deadFnElim, not inlining. */
 function inlinableRet(m: ModuleDecl, f: FuncDecl): Expr | undefined {

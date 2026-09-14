@@ -13,7 +13,7 @@ import { emitFunc } from '../backends/wgsl.js'
 //
 // → every projType position branch (point/heatmap/line/raster vs_*) silently collapsed
 // to its LAST arm (the globe/ECEF position), so on a flat view points rendered at
-// globe coords (offscreen) and heatmap splats sat at globe positions (#583, #584).
+// globe coords (offscreen) and heatmap splats sat at globe positions (X-GIS #583, X-GIS #584).
 //
 // The fix routes the arm assignment through the Node lvalue method `.assign()` (the
 // ambient sink → currentBuilder() at call time → the active CHILD scope), so the

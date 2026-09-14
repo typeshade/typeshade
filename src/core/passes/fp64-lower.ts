@@ -287,7 +287,7 @@ const isHelperOutput = (x: Expr): boolean => x.op === 'call' && x.fn.startsWith(
  *  metamorphic / render value unchanged) and opaque (a df64_ call, not a `+ 0`
  *  binop the optimizer would fold). A helper-output operand is already computed-lo
  *  and left as-is. On-device validated: probe dg_launder0 (Apple sub) and the
- *  Blackwell WebGL2 `div` recovery (#915); extended here to the distance()
+ *  Blackwell WebGL2 `div` recovery (X-GIS #915); extended here to the distance()
  *  composition's per-lane sub, whose raw operand is a lane of a loaded vec64. */
 const renormForCancel = (ctx: LowerCtx, x: Expr): Expr =>
   isHelperOutput(x) ? x : callHelper(ctx, 'df64_add', vec2fT, [x, RENORM_ZERO])
@@ -473,7 +473,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         // distance: √Σ (aᵢ − bᵢ)²  — per-lane scalar subtraction. Each lane is a
         // raw pair sliced out of a loaded vec64 (loaded lo), so this cancelling
         // sub needs the same renorm the scalar binop path applies (Blackwell
-        // WebGL2 `loran` collapse — the vec64 twin of the #915 scalar sub/div bug).
+        // WebGL2 `loran` collapse — the vec64 twin of the X-GIS #915 scalar sub/div bug).
         const a = walk(e.args[0]!)
         const b = walk(e.args[1]!)
         return callHelper(ctx, 'df64_sqrt', vec2fT, [
@@ -1072,7 +1072,7 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   }
 
   // `opaque: true` is the emit optimizer's instruction to keep these calls intact
-  // (#1926). Stamped HERE rather than at each of the 48 registry definitions
+  // (X-GIS #1926). Stamped HERE rather than at each of the 48 registry definitions
   // because this is the ONLY route by which a df64 helper enters a module — the
   // `df64_` prefix is reserved (SD0043) and authors never list them — so one site
   // covers both the float and integer registries and any future one.
@@ -1082,7 +1082,7 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   // SPREAD the source module, then override the four fields this pass actually rewrites
   // — the sibling idiom every other rebuilding pass uses. That carries `overrides`,
   // `enables`, and any FUTURE optional ModuleDecl field for free; hand-listing the
-  // survivors is what dropped `enables` here in the first place (#1670), invisibly: tsc
+  // survivors is what dropped `enables` here in the first place (X-GIS #1670), invisibly: tsc
   // cannot see it (the field is optional), and every emit path read the AUTHORED module,
   // so the loss only surfaced through a consumer deriving from the LOWERED module —
   // reflect() of a lowered module (emitModuleWithReflection) losing `requiredFeatures` on

@@ -41,7 +41,7 @@
 //                              overlaps `src/tsconfig-drift.test.ts`'s B1 arm, which frames
 //                              it around the older source-vendoring story and hand-LISTS the
 //                              four configs; this arm derives the list from git, so a config
-//                              that is added or moved cannot leave it vacuously green (#996).
+//                              that is added or moved cannot leave it vacuously green (X-GIS #996).
 //                              Collapsing the two is a follow-up, not a silent divergence:
 //                              neither carries an allowlist, so they can only both-red.
 //   S3 script `..` segments  — a script is not compiled, so S1/S2 never see it; it fails at
@@ -169,7 +169,7 @@ type Tsconfig = {
 }
 
 /** Tracked tsconfigs at any depth in the package, by BASENAME — derived, not hand-listed, so
- *  a new or moved config joins the census automatically (#996: a path-keyed list needs a
+ *  a new or moved config joins the census automatically (X-GIS #996: a path-keyed list needs a
  *  companion "every key still resolves"; having no list is strictly better). */
 const CONFIGS = TRACKED.filter((f) =>
   /^tsconfig(\.[\w.-]+)?\.json$/.test(f.slice(f.lastIndexOf('/') + 1)),
@@ -242,7 +242,7 @@ const PUBLISH_SHAPED = WORKSPACES.filter(
  *  so the exemption cannot outlive its reason. Values are machine-checked for an issue. */
 const PUBLISHABLE: Readonly<Record<string, string>> = {
   'shader-dsl':
-    'The mirror source (#1681 C). `git subtree split --prefix=shader-dsl` makes THIS manifest ' +
+    'The mirror source (X-GIS #1681 C). `git subtree split --prefix=shader-dsl` makes THIS manifest ' +
     'the root of the mirror repo the consumer submodules, so its name / version / exports / ' +
     'files stay meaningful outside the monorepo and `private: true` would be a claim about a ' +
     'tree that is consumed. This is NOT an npm publish — the pivot on #1681 dropped npm, the ' +
@@ -361,7 +361,7 @@ describe('#1681 C — the mirror invariant (F5) + the manifest hygiene it rests 
         'vendored or mirrored copy of this directory hits, because the subtree split roots ' +
         'the tree here and the monorepo above it is gone. A bare specifier fails the same way: ' +
         'F4 measured the consumer clone building with NO node_modules anywhere up the tree. ' +
-        'Every chain must terminate at shader-dsl/tsconfig.base.json (#1681 B1).',
+        'Every chain must terminate at shader-dsl/tsconfig.base.json (X-GIS #1681 B1).',
     ).toEqual([])
   })
 

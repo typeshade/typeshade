@@ -1,4 +1,4 @@
-// ═══ Capability-reachability ratchet (#1681 A3) ═══
+// ═══ Capability-reachability ratchet (X-GIS #1681 A3) ═══
 //
 // A `Capability` is a PROMISE to an author: declare it (or write the shape that derives
 // it) and the DSL will let you use the feature. Three of the nine keep only half of that
@@ -33,7 +33,7 @@
 // (the second half of `bun run build`), and the new entry then has to resolve or be
 // allowlisted with a reason.
 //
-// NON-VACUITY (#996 / CLAUDE.md §12 — "the authority itself is seen"): the resolver is
+// NON-VACUITY (X-GIS #996 / CLAUDE.md §12 — "the authority itself is seen"): the resolver is
 // probed per kind with BOTH a known-good and a known-bad witness, so a resolver that
 // broke into always-true or always-false cannot carry the two ratchet arms above.
 
@@ -281,8 +281,8 @@ const UNREACHABLE_ALLOWLIST: Readonly<Partial<Record<Capability, string>>> = {
   multiview: 'directive-only — no gl_ViewID_OVR / num_views authoring surface — #1681',
 }
 
-describe('capability reachability (#1681 A3)', () => {
-  // ── NON-VACUITY (#996) — the resolver SEES a known-good witness of every kind, and
+describe('capability reachability (X-GIS #1681 A3)', () => {
+  // ── NON-VACUITY (X-GIS #996) — the resolver SEES a known-good witness of every kind, and
   // does NOT see a known-bad one. Without both halves a resolver stuck at true would
   // green the ratchet arm and one stuck at false would green the allowlist arm.
   it('resolver sanity — every witness kind distinguishes a real surface from a missing one', () => {
@@ -354,7 +354,7 @@ describe('capability reachability (#1681 A3)', () => {
     ).toEqual([])
   })
 
-  // ── The witness table is not stale (#996's companion assertion) ──
+  // ── The witness table is not stale (X-GIS #996's companion assertion) ──
   it('every witnessed capability is one a backend actually profiles', () => {
     const profiled = new Set<string>([
       ...Object.keys(glslEs300Backend.capProfile),

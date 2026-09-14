@@ -34,7 +34,7 @@ export function intElemOf(t: ShaderType): 'i32' | 'u32' | undefined {
 export const wrapInt = (v: number, elem: 'i32' | 'u32'): number =>
   elem === 'u32' ? v >>> 0 : v | 0
 
-/** Memo for {@link keyOf}, keyed on the Expr OBJECT (#2465).
+/** Memo for {@link keyOf}, keyed on the Expr OBJECT (X-GIS #2465).
  *
  *  Sound because the IR is immutable: every field of every `Expr` arm is `readonly`
  *  (`ir/nodes.ts`), and a pass that rewrites builds a NEW node rather than editing one — so
@@ -46,7 +46,7 @@ export const wrapInt = (v: number, elem: 'i32' | 'u32'): number =>
  *  with zero disagreements. Should a pass ever start mutating a node in place, that is the
  *  premise to re-establish before trusting this.
  *
- *  Module-scope state is deliberate and dual-instance-safe (unlike the #763 D2 counter): two
+ *  Module-scope state is deliberate and dual-instance-safe (unlike the X-GIS #763 D2 counter): two
  *  copies of this module would each keep their own memo and compute identical keys, since
  *  the memo caches a pure function of its key.
  *
@@ -239,7 +239,7 @@ function targetRoot(e: Expr): string | undefined {
  *  COMPUTES earns a temp. A bare member / swizzle / index navigation is as cheap
  *  inlined as bound, so binding it would trade one addressing chain for another.
  *
- *  `loadRoots` widens that (#1886). "Navigation is free" is true of a local struct and
+ *  `loadRoots` widens that (X-GIS #1886). "Navigation is free" is true of a local struct and
  *  FALSE of a resource: `buf[i].field` on a storage or uniform buffer is a MEMORY LOAD,
  *  and repeating it repeats the load. Pass the module's binding names and an `index`
  *  rooted at one of them counts as worth hoisting even with no arithmetic around it.

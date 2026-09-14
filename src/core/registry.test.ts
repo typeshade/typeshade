@@ -1,4 +1,4 @@
-// ═══ buildRegistry — the validator half is the point (#1716) ═══
+// ═══ buildRegistry — the validator half is the point (X-GIS #1716) ═══
 //
 // Rendering a registry is easy; what everyone re-invents (and re-invents differently) is
 // the CHECK that the curated list and the discovered set describe the same programs. Both

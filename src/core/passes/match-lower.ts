@@ -160,7 +160,7 @@ function hoistMatchExprs(s: Stmt, counter: Counter): { hoisted: Stmt[]; rewritte
 // unchanged. Leaves (lit / constref / param / varref) have no children so
 // `visit` simply returns them.
 
-/** Does this Expr tree contain a matchExpr anywhere? (#763 P3 — for-header guard.) */
+/** Does this Expr tree contain a matchExpr anywhere? (X-GIS #763 P3 — for-header guard.) */
 function exprContainsMatch(e: Expr): boolean {
   if (e.op === 'matchExpr') return true
   let found = false

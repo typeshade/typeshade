@@ -11,7 +11,7 @@ name: ci
 #                 it proves the instrument can see an error at all.
 #
 # Inside the monorepo this file is inert (GitHub reads workflows from the repository root
-# only); it becomes live where the subtree split puts it — at the mirror's root (#2660).
+# only); it becomes live where the subtree split puts it — at the mirror's root (X-GIS #2660).
 #
 # The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
 # bunx fetches the standalone package at whatever version is newest, installs THAT

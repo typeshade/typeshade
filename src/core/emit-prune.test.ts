@@ -21,7 +21,7 @@ describe('pruneRedundantPrototypes — drops only what the definition already de
 
   it('KEEPS a prototype when a call comes before the definition', () => {
     // The shape that still needs a prototype, and the reason this pass may never
-    // just drop them all. The GLSL BACKEND no longer produces it (#1858 orders its
+    // just drop them all. The GLSL BACKEND no longer produces it (X-GIS #1858 orders its
     // own fn section), but hand-written `rawGlsl` and host-composed fragments can.
     const src = G('float h(float x);\nvoid main() { h(1.); }\nfloat h(float x) { return x; }\n')
     expect(pruneRedundantPrototypes(src)).toBe(src)

@@ -82,7 +82,7 @@ describe('rewrite shapes', () => {
     expect(names.indexOf('df64_sin_taylor')).toBeLessThan(names.indexOf('df64_sin'))
     expect(names.indexOf('df64_nint')).toBeLessThan(names.indexOf('df64_sin'))
     // A raw loaded operand feeding sin/cos is renormed first (the reduction's
-    // df64_div/df64_sub cancel on it — the #915 loaded-lo defense, as for fract):
+    // df64_div/df64_sub cancel on it — the X-GIS #915 loaded-lo defense, as for fract):
     // `a` is laundered through df64_add(a, 0) before it reaches sin/cos (the CSE
     // shares the one renorm between the two calls).
     //
@@ -200,13 +200,13 @@ describe('guard auto-injection', () => {
 // by recommendFp64Flavor. Its numerics are covered exhaustively by the fround
 // oracle (df64-int-property.test.ts); these lock the PASS/EMIT contract that the
 // per-device routing rides on — untested until now, and the invariant a future
-// D3D11 compile-cost slim of the bodies (#934) must not silently break:
+// D3D11 compile-cost slim of the bodies (X-GIS #934) must not silently break:
 //   1. the leaves actually swap to the integer registry, and
 //   2. the module is host-guard-free — the integer bodies never fetch f64Guard,
 //      so NO `_fp64` binding is injected. A stray guard reference would re-inject
 //      it, and an unused `_fp64` under WebGPU layout:'auto' is exactly the
 //      D3D12/NVIDIA bind-group-mismatch no-op-draw the guard machinery fights.
-describe('integer flavor — fast-math-immune registry, host-guard-free (#934)', () => {
+describe('integer flavor — fast-math-immune registry, host-guard-free (X-GIS #934)', () => {
   const arithModule = () =>
     module({ funcs: [fn('k', { a: f64T, b: f64T }, (p) => p.a.add(p.b).mul(p.a))] })
 

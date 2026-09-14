@@ -82,7 +82,7 @@ const GLSL_RESERVED: ReadonlySet<string> = new Set([
   // era. Every spelling below is a KEYWORD in ES 3.00, so a DSL local or param named
   // `usampler2D` emitted `float usampler2D = …` and died on the driver. The gate in
   // glsl.test.ts ties this set to what glslType() can actually declare, so a new texture
-  // shape cannot reopen the gap (#1703).
+  // shape cannot reopen the gap (X-GIS #1703).
   'sampler',
   'sampler2D',
   'sampler3D',

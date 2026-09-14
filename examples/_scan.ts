@@ -1,4 +1,4 @@
-// ═══ Discover the example modules on disk (#1716) ═══
+// ═══ Discover the example modules on disk (X-GIS #1716) ═══
 //
 // ONE authority for the export convention, shared by the generator
 // (`scripts/gen-example-registry.ts`) and the drift gate (`registry-drift.test.ts`). Two
@@ -20,7 +20,7 @@ const DECL = /export const (\w+)\s*:\s*ShaderExample\s*=/
 const ID = /\bid:\s*'([^']+)'/
 
 /** One discovered example: its stable id, the module to import, and the binding to import.
- *  `importPath` carries the `.js` extension the TypeScript ESM convention asks for (#1686):
+ *  `importPath` carries the `.js` extension the TypeScript ESM convention asks for (X-GIS #1686):
  *  what is written is what is emitted, so the generated registry resolves under plain Node
  *  as well as under a bundler. */
 export interface DiscoveredExample {

@@ -54,7 +54,7 @@ export type LogOp = '&&' | '||'
 export type Expr =
   | { readonly op: 'lit'; readonly type: ShaderType; readonly value: number | boolean }
   | { readonly op: 'constref'; readonly type: ShaderType; readonly name: string }
-  // A read of a pipeline SPECIALIZATION CONSTANT (#923) — a `ModuleDecl.overrides`
+  // A read of a pipeline SPECIALIZATION CONSTANT (X-GIS #923) — a `ModuleDecl.overrides`
   // entry. Structurally a named leaf like `constref`, but SEMANTICALLY OPAQUE to the
   // authoring-time optimizer: its value is fixed at PIPELINE CREATION (WGSL `constants:
   // {}` / a GLSL `#define` per permutation), NOT module build, so const-fold /
@@ -65,7 +65,7 @@ export type Expr =
   // it can never fold an overrideref). Emits as the bare name on both backends
   // (WGSL: the `override` identifier; GLSL: the `#define` macro).
   | { readonly op: 'overrideref'; readonly type: ShaderType; readonly name: string }
-  // A read of a HOST-PROVIDED global (#1713) — a `ModuleDecl.externs` entry. The variable
+  // A read of a HOST-PROVIDED global (X-GIS #1713) — a `ModuleDecl.externs` entry. The variable
   // twin of `externFn`: the host's prelude (MapLibre's injected GLSL globals, a host-owned
   // WGSL bind group) declares it, we only reference it, and the module emits NO
   // declaration for it. Its own `op` — not a reused `varref` — for three reasons that a

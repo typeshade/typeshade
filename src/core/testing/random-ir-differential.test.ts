@@ -1,4 +1,4 @@
-// ═══ Generated-program differentials (#2406 · direction record D6.1) ═══
+// ═══ Generated-program differentials (X-GIS #2406 · direction record D6.1) ═══
 //
 // Every other property test in this package randomises INPUTS over a fixed kernel. These
 // randomise the KERNEL. Two differentials, neither of which needs a GPU:
@@ -105,7 +105,7 @@ function* sweep(m: ModuleDecl): Generator<{ fn: string; args: CpuValue[]; key: s
 const clone = (v: CpuValue[]): CpuValue[] =>
   v.map((x) => (Array.isArray(x) ? [...x] : x)) as CpuValue[]
 
-describe('generated-program differentials (#2406)', () => {
+describe('generated-program differentials (X-GIS #2406)', () => {
   // ── the instrument check, FIRST: a green run below means nothing without it ──
   it('the corpus reaches the constructs the known defects lived in', () => {
     const f = describeCorpus(CORPUS)

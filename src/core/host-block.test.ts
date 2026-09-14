@@ -1,4 +1,4 @@
-// ═══ hostBlock (#1710) — the host owns a whole BLOCK, not just single values ═══
+// ═══ hostBlock (X-GIS #1710) — the host owns a whole BLOCK, not just single values ═══
 //
 // `hostUniform` covers one host-provided value. This is the other half of the issue's
 // proposal, and the half that cannot be built out of the first one: on WGSL a host-owned

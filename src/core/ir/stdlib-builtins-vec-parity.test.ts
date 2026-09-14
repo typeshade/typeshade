@@ -5,7 +5,7 @@ import { compileModule } from '../oracle.js'
 // ═══ CPU-oracle VECTOR parity for smoothstep / fma / atan2 ═══
 //
 // All three are component-wise over vecN<f32> in WGSL AND GLSL ES 3.00, and all
-// three vector forms are reachable from the authoring surface (smoothstep's #763
+// three vector forms are reachable from the authoring surface (smoothstep's X-GIS #763
 // X15 overload; fma/atan2's unconstrained `K extends string`). The CPU builtins
 // evaluated them with scalar `as number` casts, so a vector call emitted valid
 // WGSL/GLSL and silently returned NaN on the CPU oracle (JS array arithmetic) —
