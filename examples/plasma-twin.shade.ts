@@ -33,6 +33,9 @@ export function fs(vo: VsOut): vec4 {
   // three interfering sine waves — the classic plasma
   const v = sin(uv.x * 10. + t) + sin(uv.y * 10. + t) + sin((uv.x + uv.y) * 10. + t * 0.7)
   // the same wave at three phase offsets becomes the three colour channels
+  // `col` is annotated for the EDITOR, not the compiler: TypeScript types `vec3 * scalar` as
+  // `number`, which then draws TS2345 at the `vec4(col, 1.)` below, on a program that compiles
+  // (issue #43). Emit-neutral: the WGSL and GLSL are byte-identical without it.
   const col: vec3 = vec3(sin(v), sin(v + 2.094), sin(v + 4.188)) * 0.5 + 0.5
   return vec4(col, 1.)
 }

@@ -47,6 +47,10 @@ export function fs(vo: VsOut): vec4 {
     const fi = f32(i)
     const scale = fi * 14. + 18.
     const drift = fi * 0.014 + 0.01
+    // Annotated for the EDITOR, not for the compiler. TypeScript types `vec2 * scalar` as
+    // `number`, so `q` here and `sp` below would each draw TS2345 where they are next used, on
+    // a program that compiles (issue #43). Emit-neutral: the WGSL and GLSL are byte-identical
+    // without either annotation.
     const q: vec2 = vec2(p.x + t * drift, p.y) * scale + fi * 37.7
     const cell = floor(q)
     const f = fract(q)

@@ -48,6 +48,10 @@ export function fs(vo: VsOut): vec4 {
   // p and offsets the centre, scaled by the current zoom. mu.w = 0 (never
   // touched) keeps the canonical seahorse-valley framing.
   const mu = U.mouse
+  // Annotated for the EDITOR, not for the compiler. TypeScript types `vec * scalar` as
+  // `number`, so `pan` here would lose `.x` and `.y`, and `col` below would draw TS2345 at the
+  // `vec4(...)` that returns it, both on a program that compiles (issue #43). Emit-neutral:
+  // the WGSL and GLSL are byte-identical without either annotation.
   const pan: vec2 = screenCoords(vec2(mu.x / res.x, mu.y / res.y), res) * s * mu.w
   const c = vec2(p.x * s - 0.7453 + pan.x, p.y * s + 0.1127 + pan.y)
   let z = vec2(0., 0.)

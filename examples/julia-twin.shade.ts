@@ -34,6 +34,10 @@ function palette(t: f32): vec3 {
 export function fs(vo: VsOut): vec4 {
   const uv = vo.uv
   // centre the plane, scale by the zoom uniform
+  // `z` is annotated for the EDITOR, not the compiler: TypeScript types `vec2 * scalar` as
+  // `number`, so the iteration below loses `z.x` and `z.y` and its reassignment draws TS2322,
+  // on a program that compiles (issue #43). Emit-neutral: the WGSL and GLSL are byte-identical
+  // without it.
   let z: vec2 = vec2(uv.x * 2. - 1., uv.y * 2. - 1.) * U.zoom
   // the Julia constant: orbits on autopilot; once the pointer has entered (m.w = 1) it maps
   // to the pointer instead. The pointer is normalised to c-space ≈ [−0.8, 0.8]².

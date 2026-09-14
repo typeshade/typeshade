@@ -32,6 +32,9 @@ function hash(p: vec2): f32 {
 function noise(p: vec2): f32 {
   const i = floor(p)
   const f = fract(p)
+  // `u` is annotated for the EDITOR, not the compiler: TypeScript types `vec2 * scalar` as
+  // `number`, so `u.x` and `u.y` two lines down would be TS2339 on a program that compiles
+  // (issue #43). Emit-neutral: the WGSL and GLSL are byte-identical without it.
   const u: vec2 = f * f * (vec2(3.) - f * 2.)
   return mix(
     mix(hash(i), hash(i + vec2(1., 0.)), u.x),

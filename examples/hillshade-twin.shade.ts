@@ -44,6 +44,11 @@ export function fs(vo: VsOut): vec4 {
   const t = U.time
   const az = radians(U.sun_az)
   const ex = U.exaggeration
+  // Annotated for the EDITOR, not for the compiler. TypeScript types `vec * scalar` as
+  // `number`, so the product loses `.x` and `.y` and draws TS2345 where it is next used, on a
+  // program that compiles (issue #43). Both annotated locals in this file, `p` here and `lit`
+  // below, are that and only that: emit-neutral, the WGSL and GLSL are byte-identical without
+  // them.
   const p: vec2 = uv * 6.
   const eps = 0.015
 
