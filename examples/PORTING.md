@@ -48,8 +48,9 @@ Where the two disagree with intuition, the probe wins. Three results came out th
 way from what reading the feature list suggested: **A2** (member assignment), which ranks
 second in issue #8, blocks nothing here; f64 **arithmetic** already works, so the fp64
 family is held up by the cast and the literal rather than by the emulation; and `.length`
-on an unsized storage array is accepted and emits `0u`, which is worse than the rejection
-it was assumed to be.
+on an unsized storage array **was** accepted and emitted `0u`, which is worse than the
+rejection it was assumed to be — see the hazards entry below, which records that it is a
+diagnostic now.
 
 The classification is then "does every feature this example demands have a probe that
 passes". For seven examples the whole shader was additionally written out as a `.shade.ts`
@@ -128,17 +129,17 @@ unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 Worth stating, because these rank high in issue #8 and would be natural things to reach for
 first. No example in the 36 is waiting on any of them:
 
-| Issue #8 item                                                     | Blocks |
-| ----------------------------------------------------------------- | ------ |
-| **A2** member / component assignment (`v.x = 0.`) — landed, #8 A2 | 0      |
-| **A4** `type` / `interface` structs                               | 0      |
-| **A5** `@align` / `@size` field decorators                        | 0      |
-| **A8** element-converting constructors                            | 0      |
-| **A9** module-level vector constants                              | 0      |
-| **A10** uninitialised `let`, `switch`, `<<=`                      | 0      |
-| **A11** object-literal contextual typing                          | 0      |
-| **S5** `arrayLength`                                              | 0      |
-| **S7** `mat2` / `mat3`                                            | 0      |
+| Issue #8 item                                                  | Blocks |
+| -------------------------------------------------------------- | ------ |
+| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed) | 0      |
+| ~~**A4** `type` / `interface` structs~~ (landed)               | 0      |
+| **A5** `@align` / `@size` field decorators                     | 0      |
+| ~~**A8** element-converting constructors~~ (landed)            | 0      |
+| **A9** module-level vector constants                           | 0      |
+| **A10** uninitialised `let`, `switch`, `<<=`                   | 0      |
+| **A11** object-literal contextual typing                       | 0      |
+| **S5** `arrayLength`                                           | 0      |
+| **S7** `mat2` / `mat3`                                         | 0      |
 
 A2 in particular: every `.assign()` in the corpus targets a whole value, never a component.
 What reads as member assignment in the IR walk (`construct`, `lit`, `binop` targets) is the
@@ -296,9 +297,12 @@ for them and the language session should weigh them accordingly.
   integer varying is then invalid on the GPU, and nothing before the driver says so.
   (Issue #8 A5 predicts this; confirmed here.) No current example uses it — but any twin
   that needs a flat varying would be silently broken.
-- **`xs.length` on an unsized storage array emits `0u`.** Probed: the guard
-  `if (gid.x >= u32(src.length))` compiles and emits `if ((gid.x >= 0u))`. Wrong output,
-  no diagnostic. (Issue #8 S5.)
+- **`xs.length` on an unsized storage array emitted `0u`.** Probed: the guard
+  `if (gid.x >= u32(src.length))` compiled and emitted `if ((gid.x >= 0u))` — true for every
+  unsigned invocation, so the kernel returned at once and wrote nothing. Wrong output, no
+  diagnostic, valid WGSL, accepted by Tint. (Issue #8 S5, filed as
+  [#46](https://github.com/typeshade/typeshade/issues/46).) **It is a diagnostic now**
+  (`TS8032`); the `arrayLength` spelling that would let it work is #46's second half.
 - **Assignment to a parameter is accepted.** `function fs(x: f32) { x = x + 1. }` compiles.
   WGSL parameters are immutable. (Issue #8 "later", M13·S32.)
 - **A `.shade.ts` file cannot import.** `import { VsOut } from './_fullscreen.js'` parses
@@ -382,9 +386,10 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                       |
 | `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                              |
 | `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                       |
+| `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                           |
 | `f32(vi & 1) * 4. - 1.` (the fullscreen-triangle vertex stage)                                                  | ✓                                                                                                       |
 | `1u`                                                                                                            | ✗ TS parse error — `"const u" requires an initializer`                                                  |
-| `type Camera = { view: mat4; pos: vec3 }`                                                                       | ✗ `Unknown field "pos" on struct:Camera`                                                                |
+| `type Camera = { view: mat4; pos: vec3 }`, `interface Camera { … }`                                             | ✓ since #8 A4                                                                                           |
 | `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                             |
 | `m: mat3`                                                                                                       | ✗ `Unknown type "mat3"`                                                                                 |
 | `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                    |
@@ -393,3 +398,10 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                       |
 | `declare const params: uniform<vec4u>` (non-struct uniform)                                                     | ✓                                                                                                       |
 | `@compute([8, 8, 1])`, a struct return by object literal, a helper returning a struct, a helper taking a struct | ✓                                                                                                       |
+
+The command above prints diagnostics, so it measures acceptance and nothing else. One row
+carries a claim it cannot show: the element-converting constructor also changed what the CPU
+oracle **computes** — it used to pass the source components through unchanged, so
+`vec3u(vec3(1.7, 2.9, -3.2))` evaluated to `[1.7, 2.9, -3.2]` where WGSL gives `[1, 2, 0]`.
+That is asserted in `src/core/vec-convert.test.ts`, across both CPU backends, not by the
+probe.
