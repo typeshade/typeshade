@@ -242,4 +242,66 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
+## 15. Textures, samplers and overrides
+
+**Numbering:** §§9 to §14 are reserved for issue #8's A2, A6, A8, A9, A3 and A10, which are in
+flight on their own branches and append here in issue order. This section is §15 so the A-item
+branches do not all claim §9 and collide on merge.
+
+Three declarations the surface had no spelling for. None of them is a new IR shape — a
+`texture`/`sampler` `ShaderType` and `ModuleDecl.overrides` have been there all along, and the
+EDSL builds them with `resource(name, texture2dfT, …)` and `overrideConst(name, type, default)`.
+
+```ts
+"use typeshade"
+
+declare const tex: texture_2d<f32>
+declare const atlas: texture_2d_array<f32>
+declare const smp: sampler
+const tint: override<f32> = 0.85
+declare const bias: override<f32>
+
+class Color {
+  @location(0) color: vec4
+}
+
+@fragment
+export function fs(uv: vec2): Color {
+  const a = textureSample(tex, smp, uv)
+  const b = textureSample(atlas, smp, uv, 1)
+  const c = textureSampleLevel(tex, smp, uv, 0.)
+  const d = textureLoad(tex, vec2i(i32(0), i32(0)), 0) // vec2i(0, 0) is A3, not yet landed
+  const size = textureDimensions(tex)
+  const layers = textureNumLayers(atlas)
+  const k = tint + bias + f32(size.x) + f32(layers)
+  return { color: (a + b + c + d) * k }
+}
+```
+
+**A texture and a sampler are written bare** — no `uniform<>` or `storage<>` wrapper, because a
+handle lives in no address space. They take the next binding slot in declaration order like any
+other resource, and must be `const`. `texture_2d<T>` and `texture_2d_array<T>` take `f32`, `i32`
+or `u32`; the element decides both the WGSL spelling and which reads apply.
+
+**The read a call becomes is decided by the texture, not by the argument count.**
+`textureSample(atlas, smp, uv, 1)` on an array texture is the neutral id `textureSampleArray`,
+which WGSL spells with the layer as its own argument and GLSL ES 3.00 folds into a `vec3`
+coordinate — the same choice the EDSL's overloads make. A **layer** is an `i32` and a
+`textureLoad` **level** is a `u32`, so `textureLoad(t, c, 0)` emits `textureLoad(t, c, 0u)`
+rather than the `0.0` that no backend accepts.
+
+Sampling is float-only: an integer texture has no filtering, so `textureSample` on one is
+refused and names `textureLoad` instead. On GLSL ES 3.00 the texture and the sampler fuse into
+one `sampler2D`, and the sampler argument disappears from the call.
+
+**An override is a specialization constant**: the pipeline sets it, so no pass folds it and it
+occupies no binding slot. `const q: override<f32> = 0.5` states the default; `declare const q:
+override<f32>` has nowhere to put one and takes the type's zero. It must be a scalar
+(`f32`, `i32`, `u32`, `bool`) and the default must be a literal — the declaration each backend
+emits carries it, so it has to be known here. WGSL emits `override q: f32 = 0.5;`; GLSL ES 3.00
+has no equivalent and emits a `#define`.
+
+Left for later: `texture_2d_ms<f32>`, whose multisampled load neither backend here reaches, and
+the storage-texture forms.
+
 Last updated: 2026-09-14

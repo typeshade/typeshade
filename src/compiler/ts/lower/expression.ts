@@ -118,6 +118,10 @@ function lowerIdentifier(
     case 'binding':
     case 'local':
       return { op: 'varref', type: binding.type, name: binding.name }
+    // A specialization constant is its own IR node: the optimizer must never fold an
+    // overrideref, since its value is not known until the pipeline is built (#8 A7).
+    case 'override':
+      return { op: 'overrideref', type: binding.type, name: binding.name }
     default: {
       const never: never = binding.kind
       throw new Error(`shader-dsl: unhandled BindingKind ${String(never)}`)

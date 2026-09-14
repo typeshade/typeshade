@@ -2,9 +2,19 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
-import { fn } from '../../core/ir/builder.js'
-import { f32 } from '../../core/ir/node.js'
-import { f32T, vec3fT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import { fn, overrideConst } from '../../core/ir/builder.js'
+import { resource } from '../../core/sot.js'
+import { f32, textureSample } from '../../core/ir/node.js'
+import {
+  f32T,
+  samplerT,
+  texture2dArrayfT,
+  vec2fT,
+  vec3fT,
+  vec3f64T,
+  vec4fT,
+  typeKey,
+} from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -64,6 +74,10 @@ function normalizeExpr(e: Expr): unknown {
       return { op: 'param', type: typeKey(e.type), name: e.name }
     case 'varref':
       return { op: 'varref', type: typeKey(e.type), name: e.name }
+    case 'overrideref':
+      return { op: 'overrideref', type: typeKey(e.type), name: e.name }
+    case 'call':
+      return { op: 'call', type: typeKey(e.type), fn: e.fn, args: e.args.map(normalizeExpr) }
     case 'binop':
       return {
         op: 'binop',
@@ -160,6 +174,44 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a texture sample matches the EDSL textureSample', () => {
+    // #8 A7. The neutral id is chosen from the texture's own dim on both surfaces, so an
+    // array sample is `textureSampleArray` either way — that is the seam this pins.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      declare const atlas: texture_2d_array<f32>
+      declare const smp: sampler
+      export function sample(uv: vec2): vec4 {
+        return textureSample(atlas, smp, uv, 1);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 0 })
+    const smp = resource('smp', samplerT, { group: 0, binding: 1 })
+    const edsl = fn('sample', { uv: vec2fT }, vec4fT, ({ uv }) =>
+      textureSample(atlas.node, smp.node, uv, 1),
+    )
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('an override read matches the EDSL overrideConst handle', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      const quality: override<f32> = 0.5
+      export function q(): f32 {
+        return quality;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const quality = overrideConst('quality', f32T, 0.5)
+    const edsl = fn('q', {}, f32T, () => quality.node)
+
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

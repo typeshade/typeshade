@@ -22,6 +22,7 @@ import {
   mat4x4fT,
   structT,
   arrayT,
+  samplerT,
 } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { makeDiagnostic } from './diagnostic.js'
@@ -57,7 +58,26 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   vec4f64: vec4f64T,
 }
 
-export const SUPPORTED_TYPE_NAMES: readonly string[] = Object.keys(SCALAR_AND_VEC_MAP)
+/** The resource-handle types, which carry no value and appear only in a `declare const`
+ *  (#8 A7). `sampler` takes no type argument, so it lives here beside the scalars; the
+ *  `texture_*` names are generic and are handled in {@link mapGeneric}. */
+const HANDLE_MAP: Readonly<Record<string, ShaderType>> = {
+  sampler: samplerT,
+}
+
+/** The generic texture names and the `dim` each one carries. A `2d-ms` texture is left out:
+ *  the multisampled load never reaches emit on either backend this compiler targets, and a
+ *  name that maps to a type no shader can use is worse than no name. */
+const TEXTURE_DIM: Readonly<Record<string, '2d' | '2d-array'>> = {
+  texture_2d: '2d',
+  texture_2d_array: '2d-array',
+}
+
+export const SUPPORTED_TYPE_NAMES: readonly string[] = [
+  ...Object.keys(SCALAR_AND_VEC_MAP),
+  ...Object.keys(HANDLE_MAP),
+  ...Object.keys(TEXTURE_DIM),
+]
 
 export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
@@ -81,6 +101,7 @@ export function mapTsTypeToShaderType(
 
   if (ts.isTypeReferenceNode(typeNode)) {
     const name = typeNameOf(typeNode)
+    if (name !== undefined && HANDLE_MAP[name]) return HANDLE_MAP[name]
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
       return mapGeneric(name, typeNode, sourceFile, diagnostics)
     }
@@ -167,6 +188,18 @@ function mapGeneric(
       TS_CODES.MAT_UNSUPPORTED,
     )
     return undefined
+  }
+  if (name !== undefined && TEXTURE_DIM[name]) {
+    // `texture_2d<f32>` / `texture_2d_array<u32>` — the sampled element kind, which decides
+    // both the WGSL spelling and which read intrinsics apply. Only the three native scalars;
+    // WGSL has no f64 texture and a bool one is not a thing either.
+    const dim = TEXTURE_DIM[name]!
+    const elemName = typeNameOfArg(args[0]) ?? 'f32'
+    if (elemName !== 'f32' && elemName !== 'i32' && elemName !== 'u32') {
+      pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32, i32, or u32.`)
+      return undefined
+    }
+    return { kind: 'texture', dim, elem: elemName }
   }
   if (name === 'mat4' || name === 'mat4x4') {
     const elemName = typeNameOfArg(args[0])

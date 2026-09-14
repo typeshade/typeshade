@@ -292,6 +292,51 @@ type storage<T> = T
 declare function uniform<T>(): T
 declare function storage<T>(): T
 
+/** Specialization constants (#8 A7). Transparent for the same reason as \`uniform<T>\`: a
+ * function body reads the override as a plain value of its type. */
+type override<T> = T
+
+declare const textureTag: unique symbol
+declare const samplerTag: unique symbol
+/** The texture and sampler HANDLES. Opaque tags, not identities: a texture is not a value
+ * you can do arithmetic on, and the only things that accept one are the texture reads below,
+ * which is exactly what the compiler enforces. \`E\` is the sampled element kind and
+ * \`A\` whether the view is an array, so \`textureNumLayers\` can refuse a plain 2D texture in
+ * the editor the way the compiler refuses it. */
+type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
+type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
+type sampler = { readonly [samplerTag]: true }
+
+declare function textureSample(tex: texture_2d<f32>, smp: sampler, uv: vec2): vec4
+declare function textureSample(
+  tex: texture_2d_array<f32>,
+  smp: sampler,
+  uv: vec2,
+  layer: number,
+): vec4
+declare function textureSampleLevel(
+  tex: texture_2d<f32>,
+  smp: sampler,
+  uv: vec2,
+  level: number,
+): vec4
+declare function textureSampleLevel(
+  tex: texture_2d_array<f32>,
+  smp: sampler,
+  uv: vec2,
+  layer: number,
+  level: number,
+): vec4
+declare function textureLoad<E>(tex: texture_2d<E>, coord: vec2i, level: number): vec4
+declare function textureLoad<E>(
+  tex: texture_2d_array<E>,
+  coord: vec2i,
+  layer: number,
+  level: number,
+): vec4
+declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
+
 ${vecCtors}
 
 ${scalarCasts}
