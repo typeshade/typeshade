@@ -64,7 +64,7 @@ Product code should use `declare`. Mixing `declare` and call form in one file sh
 
 ---
 
-## 2. Value types — `type` and `class`
+## 2. Value types — `type`, `interface` and `class`
 
 Plain data without field metadata uses a type alias:
 
@@ -75,7 +75,16 @@ type Camera = {
 }
 ```
 
-Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators.
+`interface Camera { view: mat4; pos: vec3 }` is the same struct written a third way. A class,
+a type alias over an object type, and an interface all produce one `StructDecl`; the compiler
+accepts all three.
+
+A `type`/`interface` struct is the members written in it: a method or call signature, an
+index signature, an optional (`a?: f32`) member, and an `interface … extends …` are each
+rejected, since a WGSL struct has no form for them and silently dropping one would change
+the buffer layout the host fills.
+
+Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
 
 ```ts
 class Camera {
@@ -99,14 +108,30 @@ an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(t
 Forbidden on these classes:
 
 - `new Camera()` as a resource
-- `extends`
+- `extends` (`TS8010`: the base's fields would silently vanish from the layout)
 - methods that close over `declare` resources
 - `@compute` / `@vertex` / `@fragment` methods
 - constructors, `this` as a pipeline
+- no fields at all — a struct with an empty field list has no WGSL form
+- a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
 
 Pure methods that only read `this` fields may land later as free functions. Not in the first class slice.
 
-`interface Scene { time: uniform<f32> }` is a reserved alternate bind-group spelling. Not in the first slice. `declare` is the default.
+A struct is collected only when something **uses** it: a `declare` binding's `uniform<T>` /
+`storage<T>` argument, a parameter, return or local annotation, or a field of another struct
+that is itself used. Naming it in another TYPE declaration is not using it — `type Params =
+Config`, `Config[]`, `Config | undefined` and `Readonly<Config>` all describe a type rather
+than consume one, so none of them makes `Config` a shader struct. A `type` or `interface`
+declaration nothing consumes is not a shader type at all — it may be a host-side shape
+(`type Opts = { seed: number }`) — and is left alone, neither checked nor emitted. A `class`
+is always collected, as it always has been.
+
+One name, one declaration. A second class, interface or type alias of the same name is an
+error, **including two interfaces**, which TypeScript itself would merge: the merged layout
+would disagree with the one emitted here at every use site, so the ambiguity is refused
+rather than silently resolved.
+
+`declare` is the bind-group spelling; an `interface` is a value layout like any other.
 
 ---
 
