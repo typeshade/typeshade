@@ -10,12 +10,13 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 375 exports
+## `.` — 379 exports
 
 ```
 abs
 acos
 acosh
+add
 AddressSpace
 ALL_CAPABILITIES
 ArithArg
@@ -87,6 +88,7 @@ degrees
 Diagnostic
 Discard
 distance
+div
 dot
 dpdx
 dpdy
@@ -227,6 +229,7 @@ mod
 module
 ModuleDecl
 ModuleParts
+mul
 mulMat64
 Node
 NODE_BRAND
@@ -303,6 +306,7 @@ StructDecl
 StructField
 StructLayout
 structT
+sub
 Switch
 SwitchChain
 SwizzleKey
@@ -456,12 +460,13 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 222 exports
+## `./core/ir` — 226 exports
 
 ```
 abs
 acos
 acosh
+add
 AddressSpace
 ALL_CAPABILITIES
 ArithArg
@@ -500,6 +505,7 @@ DeclarableCapability
 degrees
 Discard
 distance
+div
 dot
 dpdx
 dpdy
@@ -575,6 +581,7 @@ mod
 module
 ModuleDecl
 ModuleParts
+mul
 mulMat64
 Node
 NODE_BRAND
@@ -620,6 +627,7 @@ Stmt
 StructDecl
 StructField
 structT
+sub
 Switch
 SwitchChain
 SwizzleKey
@@ -683,7 +691,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 429 definitions
+## Shapes — 433 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -826,11 +834,12 @@ src/core/ir/node.ts#TextureLoadArrayKey  type  "texture_2d_array<f32>" | "textur
 src/core/ir/node.ts#abs  const  <K extends FloatKey | Float64Key | IntKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#acos  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#acosh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
+src/core/ir/node.ts#add  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
 src/core/ir/node.ts#arrayLit  const  <E extends ShaderType, const I extends readonly ReadonlyNode[]>(elem: E, ...items: I) => Node<`array<${KeyOf<E>},${I["length"]}>`>
 src/core/ir/node.ts#asin  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#asinh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#atan  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
-src/core/ir/node.ts#atan2  const  <K extends FloatKey>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<K>>) => Node<K>
+src/core/ir/node.ts#atan2  function  { <K extends FloatKey>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<K>>): Node<K>; (y: number, x: ReadonlyNode<"f32">): Node<"f32">; }
 src/core/ir/node.ts#atanh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#bindingRef  function  <T extends ShaderType>(name: string, type: T) => Node<KeyOf<T>>
 src/core/ir/node.ts#bitcastF32  const  (v: ReadonlyNode<"u32">) => Node<"f32">
@@ -845,6 +854,7 @@ src/core/ir/node.ts#cosh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Nod
 src/core/ir/node.ts#cross  const  (a: ReadonlyNode<"vec3<f32>">, b: ReadonlyNode<"vec3<f32>">) => Node<"vec3<f32>">
 src/core/ir/node.ts#degrees  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#distance  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
+src/core/ir/node.ts#div  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
 src/core/ir/node.ts#dot  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
 src/core/ir/node.ts#dpdx  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#dpdy  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
@@ -879,8 +889,9 @@ src/core/ir/node.ts#matchExpr  function  <S extends ScalarKey, R extends string>
 src/core/ir/node.ts#max  const  <K extends FloatKey | Float64Key | IntKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>) => Node<K>
 src/core/ir/node.ts#member  const  <T extends ShaderType>(base: ReadonlyNode<string>, name: string, type: T) => Node<KeyOf<T>>
 src/core/ir/node.ts#min  const  <K extends FloatKey | Float64Key | IntKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>) => Node<K>
-src/core/ir/node.ts#mix  const  <K extends FloatKey | Float64Key>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>, t: number | ReadonlyNode<"f32">) => Node<K>
+src/core/ir/node.ts#mix  function  { <K extends FloatKey | Float64Key>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>, t: number | ReadonlyNode<"f32">): Node<K>; (a: number, b: number | ReadonlyNode<"f32">, t: number | ReadonlyNode<"f32">): Node<"f32">; }
 src/core/ir/node.ts#mod  const  <K extends FloatKey>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>>) => Node<K>
+src/core/ir/node.ts#mul  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
 src/core/ir/node.ts#mulMat64  const  <N extends 2 | 3 | 4>(a: ReadonlyNode<`mat${N}x${N}<f64>`>, b: ReadonlyNode<`mat${N}x${N}<f64>`>) => Node<`mat${N}x${N}<f64>`>
 src/core/ir/node.ts#normalize  const  <K extends `vec${number}<f32>` | `vec${number}<f64>`>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#optBarrier  const  (v: number | ReadonlyNode<"f32">) => Node<"f32">
@@ -891,7 +902,7 @@ src/core/ir/node.ts#pack2x16snorm  const  (v: ReadonlyNode<"vec2<f32>">) => Node
 src/core/ir/node.ts#pack2x16unorm  const  (v: ReadonlyNode<"vec2<f32>">) => Node<"u32">
 src/core/ir/node.ts#pack4x8unorm  const  (v: ReadonlyNode<"vec4<f32>">) => Node<"u32">
 src/core/ir/node.ts#param  function  <T extends ShaderType>(name: string, type: T) => ReadonlyNode<KeyOf<T>>
-src/core/ir/node.ts#pow  const  <K extends FloatKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>) => Node<K>
+src/core/ir/node.ts#pow  function  { <K extends FloatKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K>; (a: number, b: ReadonlyNode<"f32">): Node<"f32">; }
 src/core/ir/node.ts#radians  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#round  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#saturate  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
@@ -902,6 +913,7 @@ src/core/ir/node.ts#sinh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Nod
 src/core/ir/node.ts#smoothstep  function  { <K extends `vec${number}<f32>`>(e0: ReadonlyNode<K>, e1: ReadonlyNode<K>, x: ReadonlyNode<K>): Node<K>; (e0: number | ReadonlyNode<"f32">, e1: number | ReadonlyNode<"f32">, x: number | ReadonlyNode<"f32">): Node<"f32">; }
 src/core/ir/node.ts#sqrt  const  <K extends "f64" | FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#step  const  <K extends FloatKey>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNode<K>) => Node<K>
+src/core/ir/node.ts#sub  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
 src/core/ir/node.ts#tan  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#tanh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#textureDimensions  const  (tex: ReadonlyNode<TextureLoad2dKey | TextureLoadArrayKey>) => Node<"vec2<u32>">
