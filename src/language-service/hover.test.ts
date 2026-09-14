@@ -53,3 +53,35 @@ describe('getHover', () => {
     expect(service.getHover('e.ts', position)).toBeUndefined()
   })
 })
+
+describe('getHover: resource bindings (from the cached front-end analysis, §8)', () => {
+  const source =
+    '"use typeshade";\n' +
+    'class Camera {\n' +
+    '  position: vec4\n' +
+    '}\n' +
+    'declare const camera: uniform<Camera>\n' +
+    '@fragment\n' +
+    'export function fs(): vec4 {\n' +
+    '  const local = camera\n' +
+    '  return camera.position\n' +
+    '}\n'
+
+  it('adds the address space and @group/@binding slot under the quick info of a binding', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('r.ts', source)
+    const position = service.positionAt('r.ts', source.lastIndexOf('camera.position'))
+    const hover = service.getHover('r.ts', position)
+    expect(hover?.contents).toContain('const camera: Camera')
+    expect(hover?.contents).toContain('uniform resource at @group(0) @binding(0)')
+  })
+
+  it('says nothing about a binding for a local that merely holds one', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('r.ts', source)
+    const position = service.positionAt('r.ts', source.indexOf('local'))
+    const hover = service.getHover('r.ts', position)
+    expect(hover?.contents).toContain('local')
+    expect(hover?.contents).not.toContain('@binding')
+  })
+})
