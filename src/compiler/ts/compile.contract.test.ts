@@ -38,6 +38,68 @@ export function main(@builtin("global_invocation_id") gid: vec3<u32>): void {
 }
 `
 
+const VERTEX_ONLY = `
+"use typeshade";
+
+class Clip {
+  @builtin("position") pos: vec4;
+}
+
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  return { pos: vec4(0., 0., 0., 1.) };
+}
+`
+
+const FRAGMENT_ONLY = `
+"use typeshade";
+
+class Color {
+  @location(0) color: vec4;
+}
+
+@fragment
+export function fs(): Color {
+  return { color: vec4(1., 0., 0., 1.) };
+}
+`
+
+// A normal WebGPU program: a render pair plus a compute entry. The WGSL emitter takes it; the
+// GLSL ES 3.00 backend has no compute and throws on the whole module.
+const RENDER_PLUS_COMPUTE =
+  CLIP_COLOR +
+  `
+@compute([1])
+export function cs(@builtin("global_invocation_id") g: vec3<u32>): void {
+  const x = g.x;
+}
+`
+
+// A vertex+fragment module whose storage binding the GLSL storage emulation cannot spell
+// (an array of mat4). WGSL emits; only emitGlslStages throws.
+const GLSL_UNSUPPORTED_BINDING = `
+"use typeshade";
+declare const m: storage<array<mat4, 2>>;
+
+class Clip {
+  @builtin("position") pos: vec4;
+}
+
+class Color {
+  @location(0) color: vec4;
+}
+
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  return { pos: vec4(0., 0., 0., 1.) };
+}
+
+@fragment
+export function fs(): Color {
+  return { color: m[0][0] };
+}
+`
+
 // `a + b` on f32 and i32 is a TYPE_MISMATCH the front end reports; `f` still lowers to a
 // partial function, which is exactly the module compile() used to pack.
 const TYPE_ERROR = `
@@ -85,6 +147,43 @@ describe('compile() contract', () => {
     expect(errorsOf(s)).toEqual([])
     expect(s.wgsl).toMatch(/@compute/)
     expect(s.glsl).toBeUndefined()
+  })
+
+  it('yields wgsl but no glsl for a vertex-only module', () => {
+    const s = compile(VERTEX_ONLY)
+    expect(errorsOf(s)).toEqual([])
+    expect(s.wgsl).toMatch(/@vertex/)
+    expect(s.glsl).toBeUndefined()
+  })
+
+  it('yields wgsl but no glsl for a fragment-only module, and eval runs', () => {
+    const s = compile(FRAGMENT_ONLY)
+    expect(errorsOf(s)).toEqual([])
+    expect(s.wgsl).toMatch(/@fragment/)
+    expect(s.glsl).toBeUndefined()
+    expect((s.eval('fs') as { color: number[] }).color).toEqual([1, 0, 0, 1])
+  })
+
+  it('keeps the wgsl of a render+compute module when only the GLSL backend cannot emit it', () => {
+    const s = compile(RENDER_PLUS_COMPUTE)
+    expect(errorsOf(s)).toEqual([])
+    expect(s.wgsl).toMatch(/@vertex/)
+    expect(s.wgsl).toMatch(/@fragment/)
+    expect(s.wgsl).toMatch(/@compute/)
+    expect(s.glsl).toBeUndefined()
+    // The GLSL shortfall is visible, as a warning: the program compiled, one target is missing.
+    expect(s.diagnostics.map((d) => [d.code, d.category])).toEqual([[TS_CODES.BACKEND, 'warning']])
+    expect(s.diagnostics[0]!.message).toMatch(/glsl/)
+    expect((s.eval('fs') as { color: number[] }).color).toEqual([1, 0, 0, 1])
+  })
+
+  it('keeps the wgsl of a vertex+fragment module whose binding the GLSL backend cannot spell', () => {
+    const s = compile(GLSL_UNSUPPORTED_BINDING)
+    expect(errorsOf(s)).toEqual([])
+    expect(s.wgsl).toMatch(/var<storage/)
+    expect(s.glsl).toBeUndefined()
+    expect(s.diagnostics.map((d) => [d.code, d.category])).toEqual([[TS_CODES.BACKEND, 'warning']])
+    expect(s.diagnostics[0]!.message).toMatch(/storage binding 'm'/)
   })
 
   it('yields diagnostics and no shader text for a type error, and eval throws with the message', () => {

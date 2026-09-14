@@ -52,9 +52,12 @@ r.diagnostics.filter((d) => d.category === 'error') // must be empty
 `compile()` never hands back shader text for a program that did not compile. When any
 diagnostic has category `error`, `wgsl` and `glsl` are `undefined` and `run` throws an error
 that names the first error diagnostic. When there is no error, `wgsl` is always present and
-`glsl` is present only for a module with both a `@vertex` and a `@fragment` entry; a
-compute-only module has `wgsl` and no `glsl`. A backend that throws on a program the front end
-accepted is reported as a `TS8015` diagnostic, not an exception. `module` is always present,
+`glsl` is present only for a module with both a `@vertex` and a `@fragment` entry that the
+GLSL ES 3.00 backend can emit; a compute-only module has `wgsl` and no `glsl`. A WGSL emitter
+that throws on a program the front end accepted is reported as a `TS8015` error, not an
+exception. A GLSL emitter that throws on a `@vertex` plus `@fragment` module (a `@compute`
+entry beside them, a storage binding the GLSL emulation cannot spell) is a `TS8015` warning:
+the module compiled, `wgsl` stays and only `glsl` is `undefined`. `module` is always present,
 but it is partial when there is an error.
 
 A file without `"use typeshade"` is a `TS8001` error from both entry points. Pass

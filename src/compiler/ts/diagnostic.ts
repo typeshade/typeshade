@@ -57,17 +57,25 @@ export function makeDiagnostic(
 
 /**
  * The one shape every emit-time failure takes: a backend (WGSL or GLSL) threw on a module
- * the front end accepted, so the throw becomes a `BACKEND`-coded error diagnostic carrying
- * the backend's own message, anchored on the file's first statement (the failure has no
- * single offending node). `compileTsSource`, `compileTsSources` and `compile` all report an
- * emit failure through this so a caller sees one diagnostic, never an exception.
+ * the front end accepted, so the throw becomes a `BACKEND`-coded diagnostic carrying the
+ * backend's own message, anchored on the file's first statement (the failure has no single
+ * offending node). `compileTsSource`, `compileTsSources` and `compile` all report an emit
+ * failure through this so a caller sees one diagnostic, never an exception. The category is
+ * `error` for the WGSL emitter, whose text is the program; `compile()` passes `warning` for
+ * the GLSL stage of a vertex+fragment module, because a module whose WGSL emitted has
+ * compiled even when the second target cannot take it.
  */
-export function backendDiagnostic(sourceFile: ts.SourceFile, error: unknown): TsCompilerDiagnostic {
+export function backendDiagnostic(
+  sourceFile: ts.SourceFile,
+  error: unknown,
+  category: TsCompilerDiagnostic['category'] = 'error',
+): TsCompilerDiagnostic {
   return makeDiagnostic(
     sourceFile,
     undefined,
     `Backend emit failed: ${error instanceof Error ? error.message : String(error)}`,
     TS_CODES.BACKEND,
+    category,
   )
 }
 
