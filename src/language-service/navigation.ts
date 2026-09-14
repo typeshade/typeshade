@@ -5,12 +5,14 @@
 // surfaced (a user asking for the definition of `vec4` gets nothing, not the bundled `.d.ts`),
 // a document symbol's kind comes from the front end's own collected structs/bindings/consts
 // rather than TypeScript's generic `class`/`variable`, and a rename refuses to touch the
-// ambient vocabulary or a `@builtin(...)` string — neither is a renamable program symbol.
+// ambient vocabulary, a `@builtin(...)` string or the `"use typeshade"` directive — none is a
+// renamable program symbol, and `prepareRename` and `rename` share one predicate for that.
 
 import ts from 'typescript'
-import { compileTsSource } from '../compiler/ts/source-file.js'
+import type { CompileTsSourceResult } from '../compiler/ts/source-file.js'
+import { isUseTypeshadeDirective } from '../compiler/ts/directive.js'
 import { AMBIENT_LIB_URI } from './host.js'
-import { rangeForSpan } from './positions.js'
+import { nodeAtPosition, rangeForSpan } from './positions.js'
 import { WGSL_BUILTIN_NAMES } from './ambient.js'
 import type {
   TypeshadeDocumentSymbol,
@@ -22,18 +24,6 @@ import type {
 
 function spanOfNode(node: ts.Node): { start: number; length: number } {
   return { start: node.getStart(), length: node.getEnd() - node.getStart() }
-}
-
-function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
-  let found: ts.Node = root
-  const visit = (node: ts.Node): void => {
-    if (pos >= node.getStart() && pos < node.getEnd()) {
-      found = node
-      node.forEachChild(visit)
-    }
-  }
-  visit(root)
-  return found
 }
 
 /**
@@ -146,9 +136,6 @@ export function getReferences(
   return locationsFrom(program, entries)
 }
 
-/** The outline of `sourceFile`: its structs, entries, functions, resources and constants,
- * re-labelled from the front end's own collected declarations (`compileTsSource`) rather than
- * TypeScript's generic `class`/`variable` kinds (design doc §5). */
 /** The name and members of an `interface X { … }` or a `type X = { … }`, or undefined for any
  *  other statement — the two struct spellings that are not a class. */
 function interfaceOrAliasMembers(
@@ -161,12 +148,14 @@ function interfaceOrAliasMembers(
   return undefined
 }
 
-export function getDocumentSymbols(sourceFile: ts.SourceFile): TypeshadeDocumentSymbol[] {
-  const analysis = compileTsSource(sourceFile.text, {
-    sourceFile,
-    requireDirective: false,
-    emit: false,
-  })
+/** The outline of `sourceFile`: its structs, entries, functions, resources and constants,
+ * re-labelled from the front end's own collected declarations (`analysis`, the service's one
+ * cached `compileTsSource` run for this document version, §8) rather than TypeScript's generic
+ * `class`/`variable` kinds (design doc §5). */
+export function getDocumentSymbols(
+  sourceFile: ts.SourceFile,
+  analysis: CompileTsSourceResult,
+): TypeshadeDocumentSymbol[] {
   const structNames = new Set(analysis.structs.map((s) => s.decl.name))
   const bindingNames = new Set(analysis.bindings.map((b) => b.name))
   const constNames = new Set(analysis.consts.map((c) => c.name))
@@ -261,9 +250,8 @@ export function getDocumentSymbols(sourceFile: ts.SourceFile): TypeshadeDocument
   return symbols
 }
 
-/** Whether the string literal at `offset` is a `@builtin("...")` id — not a renamable program
- * symbol, so `prepareRename`/`rename` refuse it explicitly rather than relying on
- * `ts.LanguageService` to say no on its own. */
+/** Whether the string literal at `offset` is a `@builtin("...")` id, not a renamable program
+ * symbol. */
 function isBuiltinStringLiteralAt(sourceFile: ts.SourceFile, offset: number): boolean {
   const node = nodeAtPosition(sourceFile, offset)
   if (!ts.isStringLiteralLike(node)) return false
@@ -277,7 +265,17 @@ function isBuiltinStringLiteralAt(sourceFile: ts.SourceFile, offset: number): bo
   )
 }
 
-/** Whether the symbol at `offset` is (at least partly) declared in the ambient lib — a user
+/** Whether `offset` is on the `"use typeshade"` directive string itself. `ts.getRenameInfo`
+ * already says no to it (a plain string literal has no symbol), but `ts.findRenameLocations`
+ * treats a string literal as renamable and rewrites every identical literal in the program,
+ * which is how `rename` used to turn the directive into `"nope"` while `prepareRename` had
+ * refused the same position. */
+function isUseTypeshadeDirectiveAt(sourceFile: ts.SourceFile, offset: number): boolean {
+  const node = nodeAtPosition(sourceFile, offset)
+  return ts.isStringLiteral(node) && isUseTypeshadeDirective(node.parent)
+}
+
+/** Whether the symbol at `offset` is (at least partly) declared in the ambient lib: a user
  * asking to rename `vec4` or `uniform` would otherwise get edits into the bundled `.d.ts`,
  * which is never a real document. */
 function definesInAmbientLib(
@@ -289,29 +287,50 @@ function definesInAmbientLib(
   return defs !== undefined && defs.some((d) => d.fileName === AMBIENT_LIB_URI)
 }
 
-/** Whether the symbol at `offset` in `uri` can be renamed, and its current display range —
- * `undefined` for a `@builtin(...)` string, a name defined in the ambient lib, or a
- * `@vertex`/`@fragment`/`@compute` function decorator (see
- * `isDecoratorOnFunctionDeclarationAt`: `ts.getRenameInfo` throws on that target). */
+/**
+ * The one predicate both `prepareRename` and `rename` consult, so the two can never disagree
+ * about a position: `true` for the `"use typeshade"` directive string, a `@builtin(...)` id
+ * string, a `@vertex`/`@fragment`/`@compute` function decorator (see
+ * `isDecoratorOnFunctionDeclarationAt`: `ts.getRenameInfo` and `ts.findRenameLocations` both
+ * throw on that target), and a name defined in the ambient lib. Everything else is left to
+ * `ts.getRenameInfo`'s own `canRename` verdict, which `rename` also honours by going through
+ * `prepareRename` first.
+ */
+function isRenameRefusedAt(
+  languageService: ts.LanguageService,
+  sourceFile: ts.SourceFile,
+  uri: string,
+  offset: number,
+): boolean {
+  return (
+    isUseTypeshadeDirectiveAt(sourceFile, offset) ||
+    isBuiltinStringLiteralAt(sourceFile, offset) ||
+    isDecoratorOnFunctionDeclarationAt(sourceFile, offset) ||
+    definesInAmbientLib(languageService, uri, offset)
+  )
+}
+
+/** Whether the symbol at `offset` in `uri` can be renamed, and its current display range;
+ * `undefined` for every position `isRenameRefusedAt` names, and for anything else
+ * `ts.getRenameInfo` reports as not renamable. */
 export function prepareRename(
   languageService: ts.LanguageService,
   sourceFile: ts.SourceFile,
   uri: string,
   offset: number,
 ): { range: TypeshadeRange; placeholder: string } | undefined {
-  if (isBuiltinStringLiteralAt(sourceFile, offset)) return undefined
-  if (isDecoratorOnFunctionDeclarationAt(sourceFile, offset)) return undefined
-  if (definesInAmbientLib(languageService, uri, offset)) return undefined
+  if (isRenameRefusedAt(languageService, sourceFile, uri, offset)) return undefined
   const info = languageService.getRenameInfo(uri, offset, {})
   if (!info.canRename) return undefined
   return { range: rangeForSpan(sourceFile, info.triggerSpan), placeholder: info.displayName }
 }
 
 /** Every edit, across every affected document, to rename the symbol at `offset` in `uri` to
- * `newName` — empty for a `@builtin(...)` string, a name defined in the ambient lib, or a
- * `@vertex`/`@fragment`/`@compute` function decorator (see
- * `isDecoratorOnFunctionDeclarationAt`: `ts.findRenameLocations` throws on that target), and any
- * individual edit that would still land in the ambient lib is dropped defensively. */
+ * `newName`. Empty (`{}`) exactly when `prepareRename` returns `undefined` for the same
+ * position, since it runs `prepareRename` first: `ts.findRenameLocations` on its own is more
+ * permissive than `ts.getRenameInfo` (it rewrites any string literal, including the
+ * `"use typeshade"` directive) and the two must not disagree. Any individual edit that would
+ * still land in the ambient lib is dropped defensively. */
 export function rename(
   languageService: ts.LanguageService,
   program: ts.Program,
@@ -320,9 +339,7 @@ export function rename(
   offset: number,
   newName: string,
 ): Readonly<Record<string, readonly TypeshadeTextEdit[]>> {
-  if (isBuiltinStringLiteralAt(sourceFile, offset)) return {}
-  if (isDecoratorOnFunctionDeclarationAt(sourceFile, offset)) return {}
-  if (definesInAmbientLib(languageService, uri, offset)) return {}
+  if (prepareRename(languageService, sourceFile, uri, offset) === undefined) return {}
   const locations = languageService.findRenameLocations(uri, offset, false, false, false)
   if (!locations) return {}
   const out: Record<string, TypeshadeTextEdit[]> = {}

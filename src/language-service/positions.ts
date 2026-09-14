@@ -105,3 +105,25 @@ export function wordSpan(source: string, offset: number): TypeshadeTextSpan {
   while (end < source.length && /[A-Za-z0-9_@]/.test(source[end]!)) end++
   return { start, length: end - start }
 }
+
+/**
+ * Finds the innermost node of `root` whose own span (`getStart()`, so excluding leading trivia,
+ * through `getEnd()`) contains `pos`, by a plain recursive descent; `root` itself when no
+ * child does. `ts.getTokenAtPosition` is compiler-internal and not part of the public
+ * `typescript` API, so this is the one shared stand-in for it: hover, completions, rename and
+ * the TS1206 filter all anchor to the same node for the same offset. The span test is
+ * `start <= pos < end`, so an offset immediately after a token's last character is outside
+ * that token; a caller following the editor convention of a cursor touching the token before
+ * it checks `pos - 1` as well (see `isDecoratorOnFunctionDeclarationAt` in `navigation.ts`).
+ */
+export function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
+  let found: ts.Node = root
+  const visit = (node: ts.Node): void => {
+    if (pos >= node.getStart() && pos < node.getEnd()) {
+      found = node
+      node.forEachChild(visit)
+    }
+  }
+  visit(root)
+  return found
+}
