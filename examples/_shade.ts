@@ -126,6 +126,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'module-const',
+    title: 'Module constants',
+    blurb:
+      'A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands every spelling to Tint and to a real WebGL2 context.',
+    renderable: true,
+  },
+  {
     id: 'gradient-twin',
     title: 'Gradient pass (source twin)',
     blurb:
