@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — the classic tunnel (polar remap) ═══
+// ═══ typeshade example — the classic tunnel (polar remap) ═══
 //
 // The demoscene / ShaderToy staple: remap the screen into polar coordinates
 // (angle around the bore, 1/radius into the depth) so a flat checker pattern

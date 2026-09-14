@@ -1,4 +1,4 @@
-// ═══ Shader DSL — semantic diff over IR + reflection (#1714) ═══
+// ═══ Shader DSL — semantic diff over IR + reflection (X-GIS #1714) ═══
 //
 // Compares two modules at the layer a REVIEWER cares about — interface, resources,
 // constants, control-flow shape — instead of at the byte layer, where constant
@@ -9,7 +9,7 @@
 // noise the backends and optimizer passes introduce. Byte-level comparison already
 // has an owner (examples/emit-goldens.test.ts).
 //
-// NO `target` OPTION, deliberately. #1714 proposed one, for a cross-backend arm
+// NO `target` OPTION, deliberately. X-GIS #1714 proposed one, for a cross-backend arm
 // asserting "the GLSL emit and the WGSL emit agree". That arm is vacuous as written:
 // reflect() takes a ModuleDecl and never a backend (reflect.ts), so both sides of
 // that comparison are the same value and it can never go red. The real cross-backend
@@ -23,9 +23,9 @@
 // distinguish the states it claims to control is the §12 "assertion that failed
 // either way" at the API layer, so it is absent rather than accepted-and-ignored.
 //
-// `transforms` (#1806) classifies BY CONSTRUCTION, never by pattern. A consumer's
+// `transforms` (X-GIS #1806) classifies BY CONSTRUCTION, never by pattern. A consumer's
 // dev↔prod comparison is dominated by the transforms its own build declares
-// (`inline()` rewrites call sites and duplicates literals), and #1806's ask is that
+// (`inline()` rewrites call sites and duplicates literals), and X-GIS #1806's ask is that
 // those stop spending the same regression budget as a backend or interface error —
 // WITHOUT a blind ignore. So the declared plugin list — the same array the production
 // emit call takes — is applied to the reference side step by step, and a diff line is
@@ -335,7 +335,7 @@ function exprSig(e: Expr, c: Canon, locals: ReadonlyMap<string, string>): string
       return `(const ${c.consts.get(e.name) ?? e.name}:${t})`
     case 'overrideref':
       return `(override ${e.name}:${t})`
-    // #1713 — a host-provided global's name is ABI (the host's prelude spells it), so it is
+    // X-GIS #1713 — a host-provided global's name is ABI (the host's prelude spells it), so it is
     // compared even under `ignore: ['names']`, same as an override.
     case 'externref':
       return `(extern ${e.name}:${t})`
@@ -530,7 +530,7 @@ function resolvedLines(prev: readonly string[], next: readonly string[]): string
  *  Renaming with {@link mangle} produces no differences under the default options, because
  *  `'names'` canonicalizes exactly the identifiers that pass is free to rewrite.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param a - the reference module, the development side when `transforms` is declared.
  *  @param b - the module to compare against it, the transformed side.
@@ -540,8 +540,8 @@ function resolvedLines(prev: readonly string[], next: readonly string[]): string
  *
  *  @example
  *  ```ts
- *  import { semanticDiff, isSemanticallyEqual } from '@xgis/shader-dsl'
- *  import { inline, obfuscate } from '@xgis/shader-dsl/emit-prod'
+ *  import { semanticDiff, isSemanticallyEqual } from 'typeshade'
+ *  import { inline, obfuscate } from 'typeshade/emit-prod'
  *
  *  const d = semanticDiff(devModule, prodModule, { transforms: [inline(), ...obfuscate()] })
  *  isSemanticallyEqual(d) // true when prod differs from dev only as the declared pipeline dictates

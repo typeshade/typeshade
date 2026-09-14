@@ -18,7 +18,7 @@ import {
 import { structDecl, ioStruct, builtin, location } from '../sot.js'
 import { emitModule } from '../backends/wgsl.js'
 
-// ═══ #2456 — KeyOf's struct / array / void arms ═══
+// ═══ X-GIS #2456 — KeyOf's struct / array / void arms ═══
 //
 // `KeyOf` is documented as having to stay byte-identical to `typeKey`'s switch. It had no
 // arm for `struct`, `array` or `void`, so all three fell to the `: string` fallback — and
@@ -28,7 +28,7 @@ import { emitModule } from '../backends/wgsl.js'
 //
 // EVERY type assertion below uses `Exact`, never assignability. `'struct:VsOut'` IS assignable
 // to `string`, so an assignability check would have passed against the very fallback it exists
-// to reject (§12's vacuous-assertion lesson, paid for on #2408's first `-0` test).
+// to reject (§12's vacuous-assertion lesson, paid for on X-GIS #2408's first `-0` test).
 
 type Exact<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
@@ -43,7 +43,7 @@ const VsOut = ioStruct('VsOut', { pos: builtin('position', vec4fT), uv: location
 const FsIn = ioStruct('FsIn', { uv: location(0, vec2fT) })
 const Seg = structDecl('SegK', { k: f32T, v: vec2fT })
 
-describe('#2456 — KeyOf agrees with typeKey on struct / array / void', () => {
+describe('X-GIS #2456 — KeyOf agrees with typeKey on struct / array / void', () => {
   it('spells each key the way typeKey spells it, at the TYPE level and at runtime', () => {
     // Written twice on purpose: the `Exact` line pins the compile-time key, the `toBe` pins
     // the runtime one. An arm that drifts from typeKey fails one of the two, whichever way
@@ -103,7 +103,7 @@ describe('#2456 — KeyOf agrees with typeKey on struct / array / void', () => {
       pos: construct(vec4fT, [0, 0, 0, 1]),
       uv: construct(vec2fT, [0, 0]),
     })
-    // @ts-expect-error — #2456: a `struct:VsOut` value where `struct:FsIn` is wanted. This was
+    // @ts-expect-error — X-GIS #2456: a `struct:VsOut` value where `struct:FsIn` is wanted. This was
     // tsc-GREEN before the KeyOf arms, because both sides were `Node<string>`.
     takesFsIn({ i: wrong })
     // The RUNTIME gate is independent and was always there — asserted so the @ts-expect-error
@@ -112,7 +112,7 @@ describe('#2456 — KeyOf agrees with typeKey on struct / array / void', () => {
   })
 
   it('infers a fn return key from a body that returns a struct field PROXY', () => {
-    // `return o` (the #763 X14 duck-typed proxy return) used to collapse the handle to
+    // `return o` (the X-GIS #763 X14 duck-typed proxy return) used to collapse the handle to
     // `FnHandle<P, string>`; the keyed StructArg makes it infer the struct.
     const g = fn('proxy_ret', { u: vec2fT }, ({ u }) => {
       const o = VsOut.var('o')

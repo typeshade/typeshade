@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 deep-zoom Mandelbrot ═══
+// ═══ typeshade example — fp64 deep-zoom Mandelbrot ═══
 //
 // THE classic double-float demo (the df64 technique traces back to the NVIDIA
 // CUDA SDK Mandelbrot sample): at a zoom span of ~1e-7 on a filament of the

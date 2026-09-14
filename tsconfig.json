@@ -1,13 +1,26 @@
 {
-  // #1681 B1 — the PACKAGE-LOCAL base, never the monorepo root's: this directory
+  // X-GIS #1681 B1 — the PACKAGE-LOCAL base, never the monorepo root's: this directory
   // must compile when it is vendored out of the repo. See tsconfig.base.json.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    // The package root, NOT ./src, so the emit mirrors the source tree:
+    // src/index.ts -> dist/src/index.js and examples/index.ts -> dist/examples/index.js.
+    // This is forced, not cosmetic. `tsc` does not rewrite import specifiers, so the
+    // `from '../src/index.js'` that every examples file carries is copied verbatim into
+    // dist/examples/*.js — and it only resolves if the src output really is one directory
+    // up under `src/`. Emitting src to dist/ root (the old layout) pointed every emitted
+    // example at dist/src/, which did not exist, and `typeshade/examples` failed at the
+    // first hop. Nothing else in the package names a dist path: the exports map published
+    // to npm is DERIVED from this layout by scripts/publish-manifest.ts.
+    "rootDir": ".",
+    // `.d.ts.map` beside every `.d.ts`. The tarball ships src/ and examples/ next to
+    // dist/ (`files` in package.json keeps both), so a consumer's "go to definition" lands
+    // on the real TypeScript rather than on a generated declaration.
+    "declarationMap": true,
     "types": [],
-    // #1686 — nodenext is the RATCHET, not a preference. `tsc` does not rewrite import
+    // X-GIS #1686 — nodenext is the RATCHET, not a preference. `tsc` does not rewrite import
     // specifiers, so an extensionless `from './core/ir'` is copied verbatim into
     // `dist/*.js` and `dist/*.d.ts`, and Node ESM resolves neither an extensionless
     // path nor a directory: every entry point failed at the first hop with
@@ -25,9 +38,51 @@
     "module": "nodenext",
     "moduleResolution": "nodenext"
   },
-  "include": ["src/**/*.ts"],
-  // #763 V6 — tests never reach dist/ (compiled *.test.js/.d.ts were riding along
+  // examples/ joins the EMITTING project because `./examples` is a public `exports`
+  // subpath and a published subpath has to resolve to built .js/.d.ts like every other one.
+  // The noEmit pass (tsconfig.tests.json) still type-checks all of examples/ and scripts/;
+  // this list is about what reaches dist/.
+  "include": ["src/**/*.ts", "examples/**/*.ts"],
+  // X-GIS #763 V6 — tests never reach dist/ (compiled *.test.js/.d.ts were riding along
   // into the build output). Test TYPE-CHECKING is not lost: the
   // `build` script chains `tsc -p tsconfig.tests.json` (a noEmit pass over src + examples).
-  "exclude": ["src/**/*.test.ts"]
+  //
+  // `examples/**/*.shade.ts` is "use typeshade" SOURCE, not TypeScript — the same exclusion
+  // tsconfig.tests.json and examples/tsconfig.json carry, for the same reason.
+  //
+  // The ten named examples files are everything in that directory NOT reachable from
+  // `examples/index.ts`, which is what the `./examples` subpath resolves to: repository-local
+  // gates (`_goldens`, `_order`, `_scan`, `_twin-diff`, `_mrt-gate`, `_shade`), CLIs
+  // (`print`, `measure`) and two host-integration snippets nothing imports. The list is not
+  // hand-curated — `src/publish-manifest.test.ts` D4 recomputes the closure with the
+  // TypeScript API and fails if this list and "unreachable from index.ts" disagree, so an
+  // example added to the registry is emitted automatically and a helper added beside it is
+  // reported. Three reasons to draw the line there rather than emit the whole directory:
+  //   1. `_shade`, `_scan` and `_goldens` read the filesystem RELATIVE TO THEIR OWN FILE
+  //      (`dirname(fileURLToPath(import.meta.url))`), so their dist copies would look for
+  //      `.shade.ts` sources and `__emit-goldens__/` inside dist/examples/ and find neither.
+  //      Emitting them ships modules that cannot work.
+  //   2. `host-webgpu.ts` needs the `@webgpu/types` GLOBALS, and `types: []` above withholds
+  //      them on purpose — it is what proves the published .d.ts carry no ambient dependency
+  //      a consumer has to install. (`host-webgl2.ts` compiles fine; WebGL2 is in the DOM
+  //      lib. It is excluded as unreachable, not as a type failure.)
+  //   3. `exports` has no wildcard subpath, so none of the ten is importable from the
+  //      published package anyway. Emitting them adds only weight.
+  // Every one of them is still TYPE-CHECKED, by `tsc -p tsconfig.tests.json`, which covers
+  // all of examples/ and scripts/ and does load those types.
+  "exclude": [
+    "src/**/*.test.ts",
+    "examples/**/*.test.ts",
+    "examples/**/*.shade.ts",
+    "examples/_goldens.ts",
+    "examples/_mrt-gate.ts",
+    "examples/_order.ts",
+    "examples/_scan.ts",
+    "examples/_shade.ts",
+    "examples/_twin-diff.ts",
+    "examples/host-webgl2.ts",
+    "examples/host-webgpu.ts",
+    "examples/measure.ts",
+    "examples/print.ts"
+  ]
 }

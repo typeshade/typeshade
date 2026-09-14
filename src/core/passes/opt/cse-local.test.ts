@@ -70,7 +70,7 @@ describe('cse-local — statement-local CSE', () => {
   })
 })
 
-// ═══ Control-flow CONDITIONS (#1886) ═══
+// ═══ Control-flow CONDITIONS (X-GIS #1886) ═══
 //
 // The same blind spot gvn had: `valueExprs` returned [] for control flow, so a repeat
 // INSIDE an `if` condition was never hoisted. Measured on the 87-source baked corpus
@@ -86,7 +86,7 @@ describe('cse-local — statement-local CSE', () => {
 // again. Both arms passed under that cut and would have shipped proving nothing. The
 // cut that distinguishes is the mistake a person would actually make: widen `valueExprs`
 // AND `mapStmtValue` together. Then the `else if` arm and the `for` arm each red.
-describe('cse-local — control-flow conditions (#1886)', () => {
+describe('cse-local — control-flow conditions (X-GIS #1886)', () => {
   it('collapses a repeat inside an `if` condition', () => {
     const m = module({
       funcs: [
@@ -162,7 +162,7 @@ describe('cse-local — control-flow conditions (#1886)', () => {
   })
 })
 
-// ═══ Indexing a BINDING is a memory load (#1886) ═══
+// ═══ Indexing a BINDING is a memory load (X-GIS #1886) ═══
 //
 // Same widening as gvn's: `isWorthHoisting` refuses a bare `buf.at(i).field` because it
 // calculates nothing, which is right for a local struct and wrong for a storage buffer,
@@ -175,7 +175,7 @@ describe('cse-local — control-flow conditions (#1886)', () => {
 // this file opens with. A read_write arm written here would pass whatever the predicate
 // says, because the two reads would sit in different statements and never be tallied
 // together at all. That is the vacuous shape, not a guard.
-describe('cse-local — indexing a binding (#1886)', () => {
+describe('cse-local — indexing a binding (X-GIS #1886)', () => {
   const Slot = structDecl('LcSlot', { id: u32T, size: f32T })
 
   it('collapses two `buf.at(i).field` reads inside one statement', () => {

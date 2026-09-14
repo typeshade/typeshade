@@ -2,7 +2,7 @@
 //
 // The integer df64 flavor (df64-int.ts) exists because Apple's Metal shader
 // compiler reassociates the float EFT error terms at ANY large-magnitude
-// cancellation — proven on-device (probe history, PR #924–#932): every float
+// cancellation — proven on-device (probe history, PR X-GIS #924–X-GIS #932): every float
 // barrier collapses on Apple while the integer lowering passes 9/9. Elsewhere
 // the guarded float flavor is correct on the real chains and cheaper, so:
 //
@@ -33,7 +33,7 @@ import type { Fp64Flavor } from '../passes/fp64-lower.js'
  *  flavour: df64 still compiles and runs, but its extended precision collapses to plain f32
  *  once the shader compiler reassociates the error terms the float flavour depends on.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface Fp64FlavorSignals {
   /** `GPUAdapter.info` (or any {vendor, architecture} shaped object). Apple
@@ -83,14 +83,14 @@ export function isAppleGpu(s: Fp64FlavorSignals): boolean {
  *  `info`, a WebGL2 `UNMASKED_RENDERER_WEBGL` string, a user agent. All are optional, any
  *  single Apple signal selects `'integer'`, and passing none returns `'float'`.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param s - the device signals the host was able to collect.
  *  @returns `'integer'` on an Apple or Metal-backed context, `'float'` everywhere else.
  *
  *  @example
  *  ```ts
- *  import { recommendFp64Flavor, emitModule } from '@xgis/shader-dsl'
+ *  import { recommendFp64Flavor, emitModule } from 'typeshade'
  *
  *  const fp64Flavor = recommendFp64Flavor({ adapterInfo: adapter.info, userAgent: navigator.userAgent })
  *  const wgsl = emitModule(MODULE, { fp64Flavor })

@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — starfield (hash grid, parallax layers) ═══
+// ═══ typeshade example — starfield (hash grid, parallax layers) ═══
 //
 // The classic star field without a single texture: three grid layers, each
 // cell hashing whether it holds a star, where inside the cell it sits, how it

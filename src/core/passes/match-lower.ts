@@ -160,7 +160,7 @@ function hoistMatchExprs(s: Stmt, counter: Counter): { hoisted: Stmt[]; rewritte
 // unchanged. Leaves (lit / constref / param / varref) have no children so
 // `visit` simply returns them.
 
-/** Does this Expr tree contain a matchExpr anywhere? (#763 P3 — for-header guard.) */
+/** Does this Expr tree contain a matchExpr anywhere? (X-GIS #763 P3 — for-header guard.) */
 function exprContainsMatch(e: Expr): boolean {
   if (e.op === 'matchExpr') return true
   let found = false
@@ -236,7 +236,7 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
         arms: s.arms.map((arm) => ({ ...arm, cond: visit(arm.cond), body: arm.body })),
       }
     case 'for': {
-      // #763 P3 — the throw this file's header comment PROMISED but never had.
+      // X-GIS #763 P3 — the throw this file's header comment PROMISED but never had.
       // Hoisting a matchExpr out of a for-COND evaluates it ONCE where the loop
       // (and the CPU oracle) evaluate it per iteration — a silent CPU/GPU
       // divergence, author-reachable via forRange's cond callback. init/update
@@ -248,7 +248,7 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
         (s.update.s === 'assign' && exprContainsMatch(s.update.expr))
       ) {
         throw new Error(
-          'shader-dsl: matchExpr in a for-loop header (init/cond/update) is not lowerable — hoisting evaluates it once instead of per-iteration. Compute it into a var inside the loop body (or before the loop if truly invariant).',
+          'typeshade: matchExpr in a for-loop header (init/cond/update) is not lowerable — hoisting evaluates it once instead of per-iteration. Compute it into a var inside the loop body (or before the loop if truly invariant).',
         )
       }
       return s

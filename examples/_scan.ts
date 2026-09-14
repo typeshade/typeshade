@@ -1,4 +1,4 @@
-// ═══ Discover the example modules on disk (#1716) ═══
+// ═══ Discover the example modules on disk (X-GIS #1716) ═══
 //
 // ONE authority for the export convention, shared by the generator
 // (`scripts/gen-example-registry.ts`) and the drift gate (`registry-drift.test.ts`). Two
@@ -7,9 +7,9 @@
 //
 // Reads the filesystem, so it is NOT importable from the browser build — hence the leading
 // underscore, which also keeps it out of its own discovery (the `_` files are helpers, not
-// examples). It stays inside `shader-dsl/` rather than moving to root `scripts/` because
-// `registry-drift.test.ts` imports it, and nothing tracked under `shader-dsl/` may reference
-// a path outside the package (`src/self-contained.test.ts`).
+// examples). It stays here rather than under `scripts/` because `registry-drift.test.ts`
+// imports it, and nothing tracked in this package may reference a path outside it
+// (`src/self-contained.test.ts`).
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -20,7 +20,7 @@ const DECL = /export const (\w+)\s*:\s*ShaderExample\s*=/
 const ID = /\bid:\s*'([^']+)'/
 
 /** One discovered example: its stable id, the module to import, and the binding to import.
- *  `importPath` carries the `.js` extension the TypeScript ESM convention asks for (#1686):
+ *  `importPath` carries the `.js` extension the TypeScript ESM convention asks for (X-GIS #1686):
  *  what is written is what is emitted, so the generated registry resolves under plain Node
  *  as well as under a bundler. */
 export interface DiscoveredExample {

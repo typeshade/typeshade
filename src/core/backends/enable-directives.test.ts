@@ -1,4 +1,4 @@
-// ═══ shader-dsl — caps-gated language-feature enable directives (#628) ═══
+// ═══ shader-dsl — caps-gated language-feature enable directives (X-GIS #628) ═══
 //
 // The `enable`-directive knob system: a module opts into a language-feature
 // capability via `enables` (e.g. `['f16']`); the WGSL writer emits the matching
@@ -25,7 +25,7 @@ const scaleMod = (enables?: readonly DeclarableCapability[]) =>
     ],
   })
 
-describe('#628 — caps-gated enable directives (WGSL header + GLSL fail-closed)', () => {
+describe('X-GIS #628 — caps-gated enable directives (WGSL header + GLSL fail-closed)', () => {
   it('default (no enables) emits NO enable directive', () => {
     expect(emitModule(scaleMod())).not.toContain('enable ')
   })

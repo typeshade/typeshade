@@ -21,7 +21,7 @@ import { splitF64 } from './df64-lib.js'
 // ── The f32-rounding oracle, integer flavor ──
 
 /** The f32 oracle: `fp64Lower`'s output evaluated as a correctly-rounding f32 machine,
- *  which is what the GPU is. `precision: 'f32'` (#2426) replaced a copy of this wrapper in
+ *  which is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper in
  *  each of six files; it additionally rounds literals and parameters, which they did not. */
 const intOracle = (m: ModuleDecl) =>
   compileModule(fp64Lower(m, { flavor: 'integer' }), { precision: 'f32' })
@@ -90,7 +90,7 @@ const N = 20000
  *  to its host over an RPC whose REPLY is read only when the loop turns, and the call times
  *  out at 60 s (birpc's default; vitest 3 exposes no setting for it) — this file measured
  *  58 s on one runner and 65 s on another, where all 15 tests passed and `vitest run` still
- *  exited 1 with `[vitest-worker]: Timeout calling "onTaskUpdate"` (#2665). A turn per 1000
+ *  exited 1 with `[vitest-worker]: Timeout calling "onTaskUpdate"` (X-GIS #2665). A turn per 1000
  *  samples reads the reply in time, and lets `testTimeout` interrupt a wedged sweep, which a
  *  synchronous loop never allows. Samples, seeds and assertions are unchanged. */
 async function sweep(n: number, body: () => void): Promise<void> {

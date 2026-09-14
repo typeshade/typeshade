@@ -3,7 +3,7 @@
 // Before this layer, a vertex/uniform layout was declared in up to FOUR places that
 // had to agree by hand: the StructDecl (fields + @location/@builtin attrs), the
 // binding decl ({group,binding,name,space,type}), the bindingRef node, and every
-// stringly member access (the since-removed `node.field('name', type)` — #763 H5).
+// stringly member access (the since-removed `node.field('name', type)` — X-GIS #763 H5).
 // Drift between them is a whole class of bug (the polygon slot-drift family,
 // OPACITY). The SoT helpers declare a layout ONCE and DERIVE the rest, so the
 // pieces cannot disagree and the type checker covers field names + types.
@@ -36,7 +36,7 @@ import { dslError } from './diagnostics/error.js'
 /** The handle {@link constDecl} returns: a module-level constant and its typed reference,
  *  declared together so the name is written once.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface ConstHandle<T extends ShaderType> {
   /** The constant's declaration, for `module({ consts })` or `module({ uses })`. */
@@ -57,7 +57,7 @@ export interface ConstHandle<T extends ShaderType> {
  *  colour, an `array<vec4<f32>, N>` palette) use {@link constExpr}, which takes one
  *  constant-foldable literal node in place of the WGSL/CPU value pair.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param name - the emitted constant name.
  *  @param type - the constant's scalar type.
@@ -95,7 +95,7 @@ export function constDecl<T extends ShaderType>(
  *  builtin attribute or a location attribute, never both. Build one with `builtin(name, type)`
  *  or `location(n, type, interpolate?)`.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   /** The field's shader type. */
@@ -118,7 +118,7 @@ export interface FieldSpec<T extends ShaderType = ShaderType> {
  *  GLSL mapping (`sample_index`, the compute family on WebGL2) are included: the type says
  *  which names are WGSL builtins, and whether a target supports one is checked at emit.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type WgslBuiltinName =
   | 'vertex_index'
@@ -144,7 +144,7 @@ export type WgslBuiltinName =
  *  two are edited together; `language-service/ambient.test.ts` parses this file's AST and
  *  cross-checks this array against the `WgslBuiltinName` union itself.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
   'vertex_index',
@@ -202,7 +202,7 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
  *  `builtin('vertex_index', f32T)` type-checks and dies at the driver). Pass the token where
  *  the id has no single type, which is `clip_distances` and its author-chosen `array<f32, N>`.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param name - the WGSL builtin id.
  *  @param type - the field's type, which must match what the builtin supplies. Omit it for any
@@ -211,7 +211,7 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
  *
  *  @example
  *  ```ts
- *  import { fn, ioStruct, builtin, location, u32T, vec4fT, vec2fT } from '@xgis/shader-dsl'
+ *  import { fn, ioStruct, builtin, location, u32T, vec4fT, vec2fT } from 'typeshade'
  *
  *  const VsOut = ioStruct('VsOut', { pos: builtin('position'), uv: location(0, vec2fT) })
  *
@@ -237,7 +237,7 @@ export function builtin(name: WgslBuiltinName, type?: ShaderType): FieldSpec<Sha
     // Unreachable from typed code — `clip_distances` is not in FixedTypeBuiltinName, so tsc
     // requires its token. This is the backstop for an untyped (JavaScript) caller.
     throw new TypeError(
-      `shader-dsl: builtin('${name}') supplies no single type — pass the type token, as in builtin('${name}', arrayT(f32T, 4))`,
+      `typeshade: builtin('${name}') supplies no single type — pass the type token, as in builtin('${name}', arrayT(f32T, 4))`,
     )
   }
   return { type: resolved, attr: `@builtin(${name})`, builtin: name }
@@ -251,11 +251,11 @@ export function builtin(name: WgslBuiltinName, type?: ShaderType): FieldSpec<Sha
  *  `clip_distances` is absent on purpose: it is an `array<f32, N>` whose N the author picks,
  *  so it has no single type and its `builtin` call still names one.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @example
  *  ```ts
- *  import { WGSL_BUILTIN_TYPES, typeKey } from '@xgis/shader-dsl'
+ *  import { WGSL_BUILTIN_TYPES, typeKey } from 'typeshade'
  *
  *  typeKey(WGSL_BUILTIN_TYPES.global_invocation_id) // 'vec3<u32>'
  *  ```
@@ -281,7 +281,7 @@ export const WGSL_BUILTIN_TYPES = {
  *  whose `array<f32, N>` length the author picks. A {@link builtin} call naming one of these
  *  may omit the type token.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type FixedTypeBuiltinName = keyof typeof WGSL_BUILTIN_TYPES
 
@@ -289,7 +289,7 @@ export type FixedTypeBuiltinName = keyof typeof WGSL_BUILTIN_TYPES
  *  pipeline or the previous stage supplies, with an optional `@interpolate(<mode>)`. The same
  *  helper serves an {@link ioStruct} field map and an {@link fn} parameter record.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param n - the location slot.
  *  @param type - the field's type.
@@ -322,7 +322,7 @@ export const location = <T extends ShaderType>(
  *  storage-buffer element, a nested struct); its fields carry no attribute, which is the only
  *  difference between the two.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface IoStruct<F extends Record<string, FieldSpec>, N extends string = string> {
   /** The struct declaration, for `module({ structs })`. */
@@ -376,7 +376,7 @@ export interface IoStruct<F extends Record<string, FieldSpec>, N extends string 
  *  - `.construct({ ... })` builds the value in one expression, keyed by field name, with a
  *    missing or extra field a tsc error. It is the form to prefer when nothing needs mutating.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param name - the emitted struct name.
  *  @param fields - the field map, each value a `builtin(...)` or `location(...)` spec.
@@ -384,7 +384,7 @@ export interface IoStruct<F extends Record<string, FieldSpec>, N extends string 
  *
  *  @example
  *  ```ts
- *  import { ioStruct, builtin, location, vec4fT, vec2fT, f32T } from '@xgis/shader-dsl'
+ *  import { ioStruct, builtin, location, vec4fT, vec2fT, f32T } from 'typeshade'
  *
  *  const VsOut = ioStruct('VsOut', {
  *    pos: builtin('position', vec4fT),
@@ -420,16 +420,16 @@ export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
-          // Symbols are protocol probes (NODE_BRAND #763 D1, Symbol.toPrimitive,
+          // Symbols are protocol probes (NODE_BRAND X-GIS #763 D1, Symbol.toPrimitive,
           // inspection) — never authored fields. Answer undefined, don't throw.
           if (typeof prop !== 'string') return undefined
-          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13)
-          // `$` = the raw struct-value Node (#740 R6): lets a field proxy be
+          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13)
+          // `$` = the raw struct-value Node (X-GIS #740 R6): lets a field proxy be
           // FORWARDED — fn call factories unwrap it, so `helper(p.input)` works
           // when p.input arrived as a typed handle param. Not a WGSL identifier,
           // so it can never shadow a real field.
           if (prop === '$') return node
-          // Duck-type as the raw node for value positions (#763 X14): `return o`
+          // Duck-type as the raw node for value positions (X-GIS #763 X14): `return o`
           // / `Return(o)` read `.expr`/`.type` — they used to die at LOAD with a
           // misleading "no field 'expr'". A declared field of that name wins.
           if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop]
@@ -465,7 +465,7 @@ export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
  *  that carries those. It has the same shape as `IoStruct` (`.decl`, `.type`, `.of`, `.var`,
  *  `.construct`) plus a positional `.get(node, field)` reader.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface PlainStruct<F extends Record<string, ShaderType>, N extends string = string> {
   /** The struct declaration, for `module({ structs })`. */
@@ -518,7 +518,7 @@ export interface PlainStruct<F extends Record<string, ShaderType>, N extends str
  *  As a storage-buffer element type it is the argument {@link storageBuffer} takes, and
  *  `buf.at(i)` then returns this struct's field proxy directly, with no `.of` step.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param name - the emitted struct name.
  *  @param fields - the field map, each value a plain shader type.
@@ -526,7 +526,7 @@ export interface PlainStruct<F extends Record<string, ShaderType>, N extends str
  *
  *  @example
  *  ```ts
- *  import { structDecl, storageBuffer, u32T, vec2fT } from '@xgis/shader-dsl'
+ *  import { structDecl, storageBuffer, u32T, vec2fT } from 'typeshade'
  *
  *  const ShapeSegment = structDecl('ShapeSegment', { kind: u32T, p0: vec2fT, p1: vec2fT })
  *  const segments = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })
@@ -565,10 +565,10 @@ export function structDecl<F extends Record<string, ShaderType>, N extends strin
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
-          if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
-          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13)
-          if (prop === '$') return node // raw struct-value Node (#740 R6, forwardable)
-          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop] // #763 X14
+          if (typeof prop !== 'string') return undefined // symbol probes (X-GIS #763 D1) — never fields
+          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13)
+          if (prop === '$') return node // raw struct-value Node (X-GIS #740 R6, forwardable)
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop] // X-GIS #763 X14
           const t = fields[prop as string]
           if (t === undefined)
             throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
@@ -588,7 +588,7 @@ export function structDecl<F extends Record<string, ShaderType>, N extends strin
  *  the element's field proxy, `U.field.patterns.at(k).id`. The declared WGSL type is
  *  `array<T, N>`.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface HandleArray<H extends StructHandle> {
   /** The element's struct handle. */
@@ -599,7 +599,7 @@ export interface HandleArray<H extends StructHandle> {
 /** A fixed-size array uniform field with a plain element type: `dash_array: arrayOf(vec4fT, 2)`.
  *  The field proxy exposes `.at(i)`, which returns the typed element read.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface TypeArray<T extends ShaderType> {
   /** The element's shader type. */
@@ -617,7 +617,7 @@ type UniformFieldSpec = ShaderType | HandleArray<StructHandle> | TypeArray<Shade
  *  typed field proxy; a bare `ShaderType` returns a {@link TypeArray} whose field `.at(i)`
  *  gives the element read directly.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param element - the element: a struct handle, or a shader type.
  *  @param count - the array length.
@@ -625,7 +625,7 @@ type UniformFieldSpec = ShaderType | HandleArray<StructHandle> | TypeArray<Shade
  *
  *  @example
  *  ```ts
- *  import { uniformStruct, arrayOf, vec4fT } from '@xgis/shader-dsl'
+ *  import { uniformStruct, arrayOf, vec4fT } from 'typeshade'
  *
  *  const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
  *    dash_array: arrayOf(vec4fT, 2),
@@ -650,7 +650,7 @@ const isTypeArray = (v: UniformFieldSpec): v is TypeArray<ShaderType> =>
   typeof v === 'object' && 'elemType' in v && 'count' in v
 
 /** Uniform fields are READ-ONLY in WGSL — the field proxy hands out `ReadonlyNode`
- *  (#763 G2): `U.field.opacity.assign(…)` is a tsc error, not a naga rejection.
+ *  (X-GIS #763 G2): `U.field.opacity.assign(…)` is a tsc error, not a naga rejection.
  *  Handle-array fields get the element handle's read view (the `.of` read overload). */
 type UniformFieldNode<V> =
   V extends HandleArray<infer H>
@@ -674,7 +674,7 @@ type UniformFieldNode<V> =
  *  `UniformStruct<{ time: ...; resolution: ... } & F>` to compose a base uniform layout with a
  *  caller's extra fields under one type-checked struct.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
   /** The struct declaration, for `module({ structs })`. */
@@ -711,7 +711,7 @@ export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
  *  Byte offsets are std140 and come from `reflect(m).uniforms`, so a host never counts them by
  *  hand.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param typeName - the emitted struct name.
  *  @param at - the `group` and `binding` slot, and `as`, the emitted variable name every field
@@ -721,7 +721,7 @@ export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
  *
  *  @example
  *  ```ts
- *  import { uniformStruct, mat4x4fT, vec4fT } from '@xgis/shader-dsl'
+ *  import { uniformStruct, mat4x4fT, vec4fT } from 'typeshade'
  *
  *  const U = uniformStruct('Uniforms', { group: 0, binding: 0, as: 'u' }, {
  *    mvp: mat4x4fT,
@@ -760,8 +760,8 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
     node,
     field: new Proxy({} as Record<string, unknown>, {
       get: (_t, prop) => {
-        if (typeof prop !== 'string') return undefined // symbol probes (#763 D1) — never fields
-        if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (#763 X13) — await/JSON.stringify must not throw
+        if (typeof prop !== 'string') return undefined // symbol probes (X-GIS #763 D1) — never fields
+        if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13) — await/JSON.stringify must not throw
         const v = fields[prop as string]
         if (v === undefined)
           throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
@@ -778,7 +778,7 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
         }
         return member(node, prop as string, v)
       },
-      // `in`/spread feature-detection must see the declared fields (#763 X13 —
+      // `in`/spread feature-detection must see the declared fields (X-GIS #763 X13 —
       // the sibling proxies got this trap in R6; this one was the gap).
       has: (_t, prop) => typeof prop === 'string' && prop in fields,
     }) as { readonly [K in keyof F]: UniformFieldNode<F[K]> },
@@ -793,7 +793,7 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
  *  (`Node<'texture_2d<f32>'>`, `Node<'sampler'>`, `Node<'vec4<f32>'>`), so type-specific
  *  operations (`textureSample`, `.mul`) stay type-checked at the call site.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface Resource<T extends ShaderType = ShaderType> {
   /** The binding declaration, for `module({ bindings })`. */
@@ -815,7 +815,7 @@ export interface Resource<T extends ShaderType = ShaderType> {
  *  `.binding` goes in `module({ bindings })`, or pass the handle in `uses`. The address space
  *  defaults to `'uniform'`, the texture and sampler convention.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param name - the emitted binding name, which is also the name a host binds by.
  *  @param type - the resource's type, such as `texture2dfT`, `texture2dArrayfT` or `samplerT`.
@@ -824,7 +824,7 @@ export interface Resource<T extends ShaderType = ShaderType> {
  *
  *  @example
  *  ```ts
- *  import { resource, textureSample, texture2dfT, samplerT } from '@xgis/shader-dsl'
+ *  import { resource, textureSample, texture2dfT, samplerT } from 'typeshade'
  *
  *  const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
  *  const smp = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
@@ -863,7 +863,7 @@ export function resource<T extends ShaderType>(
  *  a std140 block. When the host's prelude already declares the symbol and the module must
  *  not declare it again, use {@link externVar}, which emits nothing.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param name - the uniform's name, as the host spells it.
  *  @param type - its shader type: a scalar, vector or matrix.
@@ -875,7 +875,7 @@ export function resource<T extends ShaderType>(
  *
  *  @example
  *  ```ts
- *  import { hostUniform, vec2fT } from '@xgis/shader-dsl'
+ *  import { hostUniform, vec2fT } from 'typeshade'
  *
  *  const viewport = hostUniform('u_viewport_px', vec2fT, { group: 0, binding: 1 }, {
  *    precision: 'highp', // GLSL only; ignored on WGSL
@@ -933,7 +933,7 @@ export function hostUniform<T extends ShaderType>(
  *  must also be unique across every loose block in the module, since flattening puts them all
  *  in one namespace; a collision throws {@link UnsupportedFeatureError} at GLSL emit.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param typeName - the struct's type name, as the host spells it.
  *  @param at - the WGSL `group` and `binding` slot, and `as`, the block variable's name.
@@ -946,7 +946,7 @@ export function hostUniform<T extends ShaderType>(
  *
  *  @example
  *  ```ts
- *  import { hostBlock, mat4x4fT, vec2fT } from '@xgis/shader-dsl'
+ *  import { hostBlock, mat4x4fT, vec2fT } from 'typeshade'
  *
  *  const camera = hostBlock('CameraUniforms', { group: 0, binding: 0, as: 'u_camera' }, {
  *    u_matrix: mat4x4fT,
@@ -989,7 +989,7 @@ export function hostBlock<F extends Record<string, UniformFieldSpec>>(
  *  {@link ioStruct} handle) it returns the typed field proxy, `buf.at(i).p0`, with no `.of()`
  *  and no element-type argument; for a scalar element (`f32T`) it returns the element node.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface StorageBuffer<A> {
   /** The binding declaration, for `module({ bindings })`. */
@@ -1020,7 +1020,7 @@ type MutableView<V> = {
   [K in keyof V]: K extends '$' ? V[K] : V[K] extends ReadonlyNode<infer T> ? Node<T> : V[K]
 }
 
-// The element view's WRITE capability follows the declared ACCESS (#763 G2):
+// The element view's WRITE capability follows the declared ACCESS (X-GIS #763 G2):
 // `access: 'read'` hands out read views (`buf.at(i).p0.assign(…)` is a tsc error —
 // it used to compile and die at the driver); `read_write` hands out mutable views.
 /** Declare a bound `array<Element>` storage buffer from its element alone. The element is a
@@ -1055,7 +1055,7 @@ type MutableView<V> = {
  *  denormal to zero, and small integers are denormal f32 bit patterns (`1u` is 1.4e-45), so
  *  that route can legally lose values.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param name - the emitted binding name, which is also the name a host binds by.
  *  @param element - the array's element: a struct handle, or a scalar or vector type.
@@ -1064,7 +1064,7 @@ type MutableView<V> = {
  *
  *  @example
  *  ```ts
- *  import { storageBuffer, structDecl, u32T, vec2fT } from '@xgis/shader-dsl'
+ *  import { storageBuffer, structDecl, u32T, vec2fT } from 'typeshade'
  *
  *  const ShapeSegment = structDecl('ShapeSegment', { kind: u32T, p0: vec2fT, p1: vec2fT })
  *  const segments = storageBuffer('segments', ShapeSegment, { group: 0, binding: 9, access: 'read' })

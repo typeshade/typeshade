@@ -138,7 +138,7 @@ describe('gvn — cross-statement value numbering', () => {
   })
 })
 
-// ═══ Control-flow CONDITIONS (#1886) ═══
+// ═══ Control-flow CONDITIONS (X-GIS #1886) ═══
 //
 // `valueExprs` used to return [] for every control-flow statement, so an `if`
 // condition was never tallied and never rewritten — "handled by recursion" was true
@@ -152,10 +152,10 @@ describe('gvn — cross-statement value numbering', () => {
 // binding it to a `let` before the statement free. The two exclusions below are not
 // hypothetical caution — they are the cases that would make this unsound, and each
 // has its own arm here.
-describe('gvn — control-flow conditions (#1886)', () => {
+describe('gvn — control-flow conditions (X-GIS #1886)', () => {
   it('numbers a repeat shared between an `if` condition and a later statement', () => {
     // normalize(v) is evaluated by the `if` condition on every path, then again by
-    // `q` in the same block. Before #1886 gvn saw only ONE occurrence (the `q` one)
+    // `q` in the same block. Before X-GIS #1886 gvn saw only ONE occurrence (the `q` one)
     // and did nothing.
     const m = module({
       funcs: [
@@ -238,7 +238,7 @@ describe('gvn — control-flow conditions (#1886)', () => {
   })
 })
 
-// ═══ Cross-block reuse: an inner block may read an enclosing block's temp (#1886) ═══
+// ═══ Cross-block reuse: an inner block may read an enclosing block's temp (X-GIS #1886) ═══
 //
 // gvn numbered each block in isolation, so a value the OUTER block had already bound
 // to a temp was recomputed from scratch inside a nested block. That costs nothing to
@@ -250,7 +250,7 @@ describe('gvn — control-flow conditions (#1886)', () => {
 // already mints a temp). No group in the corpus has an occurrence inside a loop body,
 // so the back-edge guard below is free here — it is in the code for correctness, not
 // for a measured case.
-describe('gvn — cross-block reuse (#1886)', () => {
+describe('gvn — cross-block reuse (X-GIS #1886)', () => {
   it('reuses an enclosing block’s temp inside a nested `if` body', () => {
     const m = module({
       funcs: [
@@ -333,17 +333,18 @@ describe('gvn — cross-block reuse (#1886)', () => {
   })
 })
 
-// ═══ Indexing a BINDING is a memory load, not free navigation (#1886) ═══
+// ═══ Indexing a BINDING is a memory load, not free navigation (X-GIS #1886) ═══
 //
 // `isWorthHoisting` counts an expr as worth a temp only if it CALCULATES something
 // (binop / call / construct / …). A bare `buf.at(i).field` calculates nothing, so no
 // pass in the family will ever collapse it however often it repeats — which is right
 // for a local struct and wrong for a storage/uniform buffer, where the index is a
-// LOAD. 142 such repeats sit in X-GIS's own baked corpus, and unlike the peephole
-// candidates this one is corpus-independent: any consumer feeding a shader through a
+// LOAD. 142 such repeats were counted in the shader corpus this pass was written against,
+// and unlike the peephole candidates this one is corpus-independent: any consumer feeding a
+// shader through a
 // storage buffer hits it, and a driver cannot reliably CSE a load through a dynamic
 // index it must assume may alias.
-describe('gvn — indexing a binding (#1886)', () => {
+describe('gvn — indexing a binding (X-GIS #1886)', () => {
   const Slot = structDecl('GvnSlot', { id: u32T, size: f32T })
 
   it('collapses a repeated `buf.at(i).field` across two statements', () => {

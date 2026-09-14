@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl examples — registry ═══
+// ═══ typeshade examples — registry ═══
 //
 // GENERATED — DO NOT EDIT.
 // Regenerate with: bun scripts/gen-example-registry.ts > shader-dsl/examples/index.ts

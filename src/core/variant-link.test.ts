@@ -1,4 +1,4 @@
-// ═══ linkVariants (#1715 Problem A) — the aggregation, driven by a recorder ═══
+// ═══ linkVariants (X-GIS #1715 Problem A) — the aggregation, driven by a recorder ═══
 //
 // This file proves the LOGIC: every variant is attempted, the right step is blamed, the
 // driver's log survives, and GL objects are released. It cannot prove that real GLSL links —

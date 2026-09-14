@@ -1,10 +1,10 @@
-// ═══ externVar (#1713) + hostUniform (#1710) — the host boundary, declared ═══
+// ═══ externVar (X-GIS #1713) + hostUniform (X-GIS #1710) — the host boundary, declared ═══
 //
 // These are one concept at two granularities, which is why they are one design and one
-// test file. The dc4i corpus on #1710 proves it: its four helpers run as a single chain —
+// test file. The dc4i corpus on X-GIS #1710 proves it: its four helpers run as a single chain —
 // strip the header, cut the std140 block open into loose uniforms, put back the precision
-// the strip destroyed, splice the host's #includes. Steps 1/3/4 are #1711; step 2 is
-// #1710; and the reason step 3 exists at all is that step 1 broke what step 2 needs.
+// the strip destroyed, splice the host's #includes. Steps 1/3/4 are X-GIS #1711; step 2 is
+// X-GIS #1710; and the reason step 3 exists at all is that step 1 broke what step 2 needs.
 //
 //   hostUniform  — WE declare it, the HOST owns the resource. GLSL: a loose default-block
 //                  uniform (what a prelude actually provides). WGSL: a normal binding,
@@ -86,7 +86,7 @@ describe('externVar — the host declares it; we only reference it', () => {
     // `u_matrix * a_pos` is the FIRST thing a MapLibre-shaped consumer writes, and until now
     // no arm here spelled it: the fixture above uses a vec4, so the mat4 was only ever
     // exercised through `reflect()`, which needs the declaration and not the product. A
-    // declarator whose headline use is untested is the shape §12 records from #1703.
+    // declarator whose headline use is untested is the shape §12 records from X-GIS #1703.
     //
     // The generic `.mul` REJECTS mat x vec deliberately (`ir/node.ts:1860`) — the MVP
     // transform gets a name at the call site instead of disappearing into an operator — so
@@ -225,7 +225,7 @@ describe('hostUniform — we declare it, the host owns it', () => {
 
 // ── the dc4i corpus, as an acceptance test ───────────────────────────────────
 
-describe('#1710 acceptance — the string surgery, replaced', () => {
+describe('X-GIS #1710 acceptance — the string surgery, replaced', () => {
   // What the consumer's `emitGlslHelperModuleWithLooseUniforms` + `ensureGlslUniformPrecision`
   // produced, now authored directly. Two host uniforms, a helper, no entry point: exactly
   // the shape of a MapLibre include.

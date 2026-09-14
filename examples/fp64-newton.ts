@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 Newton fractal (z³ = 1) ═══
+// ═══ typeshade example — fp64 Newton fractal (z³ = 1) ═══
 //
 // The fp64 family's DIVISION showcase: Newton's method z ← z − (z³−1)/(3z²)
 // runs a full complex division every iteration, and the f64 side does it with

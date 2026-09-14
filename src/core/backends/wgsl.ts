@@ -80,7 +80,7 @@ export function wgslType(t: ShaderType): string {
         case '2d':
           return `texture_2d<${t.elem}>`
         default:
-          // Exhaustiveness on the ARM (#1703) — see typeKey's twin: with the texture
+          // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.
           return t satisfies never
       }
@@ -144,7 +144,7 @@ function paramAttr(p: { builtin?: string; location?: number; attr?: string }): s
   return ''
 }
 
-/** THE WGSL capability table (#1670) — what this target supports, what each cap costs
+/** THE WGSL capability table (X-GIS #1670) — what this target supports, what each cap costs
  *  in the emitted source (`directive`), and what the host must request of the adapter
  *  (`hostFeature`). Coverage derives from these KEYS (`Capabilities.fromProfile`),
  *  `modulePreamble` from these `directive`s, and the host list from these
@@ -153,7 +153,7 @@ function paramAttr(p: { builtin?: string; location?: number; attr?: string }): s
  *
  *  The WGSL writer can SPELL every row here; whether a given adapter HAS an optional
  *  feature is a runtime probe the RHI owns — it opts a module in via `enables` only
- *  after confirming the device feature (#628).
+ *  after confirming the device feature (X-GIS #628).
  *
  *  NO `multiview` row, deliberately: WebGPU has no OVR_multiview2 equivalent, so a
  *  module declaring it must fail closed here (SD0030 naming 'multiview') rather than
@@ -173,14 +173,14 @@ const WGSL_CAP_PROFILE = {
   // Opt-in LANGUAGE features — a WGSL `enable` directive AND a device feature.
   f16: { directive: 'f16', hostFeature: 'shader-f16' },
   subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },
-  // Opt-in DEVICE features (#1670) — no WGSL directive exists for any of these; the
+  // Opt-in DEVICE features (X-GIS #1670) — no WGSL directive exists for any of these; the
   // host activates them at requestDevice time (or they are core).
   floatRenderTarget: {}, // core in WebGPU: an rgba32float render target needs no feature
   float32Blend: { hostFeature: 'float32-blendable' },
   float32Filterable: { hostFeature: 'float32-filterable' },
 } satisfies CapProfile
 
-/** `@builtin(<id>)` ids that do NOT exist in WGSL (#1672), each mapped to the message
+/** `@builtin(<id>)` ids that do NOT exist in WGSL (X-GIS #1672), each mapped to the message
  *  tail the shared pre-pass prints after `wgsl: @builtin(<id>)`. Every one of them is a
  *  GLSL-ism an author can reach for — `point_size`/`point_coord` are the gl_PointSize /
  *  gl_PointCoord pair, and `frag_coord` is the GLSL spelling of the fragment-input
@@ -230,7 +230,7 @@ export const wgslBackend: Backend = {
   caseLabel: (value, scrutType) =>
     scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
   switchHead: (scrut) => `switch ${scrut} {`,
-  // #1671 — emit THIS target's payload; a raw carrying only the GLSL spelling is
+  // X-GIS #1671 — emit THIS target's payload; a raw carrying only the GLSL spelling is
   // a hard build failure here, not a stringified `undefined` in the module body.
   rawStmt: (s) => {
     if (s.wgsl !== undefined) return s.wgsl
@@ -250,7 +250,7 @@ export const wgslBackend: Backend = {
       c.type,
       c.valueExpr ? emitExprNeutral(c.valueExpr, wgslBackend) : lit(c.wgslValue, c.type),
     ),
-  // #923 — a pipeline specialization constant: a module-scope `override` the host
+  // X-GIS #923 — a pipeline specialization constant: a module-scope `override` the host
   // specializes via createRenderPipeline({ constants: { name } }). The default value
   // uses the same scalar spelling as any literal (1.0 / 2u / true), so the module
   // compiles standalone and a branch guarded by the override is dead-code-eliminated
@@ -286,8 +286,8 @@ export const wgslBackend: Backend = {
   // polygon composer's _mcSS fill/stroke), so those precision-critical paths are
   // emitted verbatim, untouched.
   optimize: (m) => fixpoint(m),
-  // The WGSL `enable`-directive header (#628): one `enable <ext>;` per declared cap
-  // whose PROFILE ROW carries a directive (#1670 — the host-side rows contribute
+  // The WGSL `enable`-directive header (X-GIS #628): one `enable <ext>;` per declared cap
+  // whose PROFILE ROW carries a directive (X-GIS #1670 — the host-side rows contribute
   // nothing), deduped + sorted for a deterministic byte order. Bare lines, NO trailing
   // separator — the one contract every backend's preamble keeps (backend.ts); the blank
   // line before the first declaration is added by emit.ts's `directiveHeader`, which
@@ -318,7 +318,7 @@ export const emitExpr = (e: Expr): string => emitExprNeutral(e, wgslBackend)
 
 // The module-decl emit functions live as wgslBackend methods; these thin wrappers keep the
 // existing export names + signatures. Only two of the four have a consumer through the
-// package entry — see each doc comment, and #1697 for the surface question.
+// package entry — see each doc comment, and X-GIS #1697 for the surface question.
 
 /** Emit one {@link ConstDecl} as a WGSL `const` line, without the surrounding module.
  *
@@ -388,7 +388,7 @@ export const emitFuncsCsed = emitFuncs
  *  functions.
  *
  *  `opts` is an optional {@link EmitOptions}: `plugins` for emit-time transforms such as the
- *  production ones on the `@xgis/shader-dsl/emit-prod` subpath, and `parens` to choose how
+ *  production ones on the `typeshade/emit-prod` subpath, and `parens` to choose how
  *  many parentheses the expressions carry. */
 export const emitModule = (m: ModuleDecl, opts?: EmitOptions): string =>
   emitModuleDriver(m, wgslBackend, opts)

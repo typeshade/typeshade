@@ -19,11 +19,11 @@ import { emitModule } from '../backends/wgsl.js'
 
 // ═══ #8 B1 — a void body may drop the `voidT` token ═══
 //
-// The compute entry is the shape that paid for #2458's rule: `fn('k', { gid }, voidT, body,
+// The compute entry is the shape that paid for X-GIS #2458's rule: `fn('k', { gid }, voidT, body,
 // { stage: 'compute' })` wrote a token whose only job was to say "nothing", and leaving it out
 // was a `tsc` error rather than an inference. The void overloads make the short spelling an
 // authored one; the type-level claim `'void'` is held up by the SD0113 throw, which is what
-// keeps it from being the lie #2458 refused.
+// keeps it from being the lie X-GIS #2458 refused.
 
 type Exact<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
@@ -54,7 +54,7 @@ describe('#8 B1 — fn() infers void', () => {
       Var('t', x.add(1))
     })
     // The load-bearing assertion. `string` here would put every call site of `h` outside the
-    // phantom-key checker, which is the regression #2458 named.
+    // phantom-key checker, which is the regression X-GIS #2458 named.
     const _h: Exact<ReturnType<typeof h>, Node<'void'>> = true
     expect([_h, _exactRejectsFallback]).toEqual([true, false])
     const _decl: FnHandle<{ x: typeof f32T }, 'void'> = h

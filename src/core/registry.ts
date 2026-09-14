@@ -1,4 +1,4 @@
-// ═══ Shader DSL — registry generation from a set of discovered modules (#1716) ═══
+// ═══ Shader DSL — registry generation from a set of discovered modules (X-GIS #1716) ═══
 //
 // At 20+ programs the hand-written wiring file becomes the bottleneck: a consumer reported
 // 762 lines of import → key → emitter → reflection boilerplate, and adding a program means
@@ -20,7 +20,7 @@
 //
 // A scan can enumerate modules. It cannot know that cartographic examples lead because the
 // site is a map site. That curation is editorial value a generator does not produce — the
-// same thing #1700 says about the reference page's grouping. So `order` is an INPUT here,
+// same thing X-GIS #1700 says about the reference page's grouping. So `order` is an INPUT here,
 // not an output, and the gate's job is to prove the curated list and the discovered set
 // describe the same programs.
 
@@ -102,10 +102,10 @@ export function buildRegistry(
 ): BuiltRegistry {
   const byId = new Map<string, RegistryEntry>()
   for (const e of entries) {
-    if (byId.has(e.id)) throw new Error(`shader-dsl: buildRegistry duplicate id '${e.id}'`)
+    if (byId.has(e.id)) throw new Error(`typeshade: buildRegistry duplicate id '${e.id}'`)
     if (!IDENT.test(e.exportName))
       throw new Error(
-        `shader-dsl: buildRegistry export name '${e.exportName}' for '${e.id}' is not an identifier`,
+        `typeshade: buildRegistry export name '${e.exportName}' for '${e.id}' is not an identifier`,
       )
     byId.set(e.id, e)
   }
@@ -117,7 +117,7 @@ export function buildRegistry(
     const unregistered = ids.filter((id) => !curated.has(id))
     if (unknown.length || unregistered.length)
       throw new Error(
-        `shader-dsl: buildRegistry order does not match the discovered modules.` +
+        `typeshade: buildRegistry order does not match the discovered modules.` +
           (unknown.length ? `\n  curated but not discovered: ${unknown.join(', ')}` : '') +
           (unregistered.length
             ? `\n  discovered but not curated: ${unregistered.join(', ')}`

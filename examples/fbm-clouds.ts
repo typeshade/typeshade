@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fBm clouds (fractal value noise) ═══
+// ═══ typeshade example — fBm clouds (fractal value noise) ═══
 //
 // Value-noise summed over octaves (fractal Brownian motion): each octave doubles
 // the frequency and halves the amplitude, drifting over time. The textbook

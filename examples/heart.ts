@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — beating heart (implicit curve) ═══
+// ═══ typeshade example — beating heart (implicit curve) ═══
 //
 // The sextic heart curve (x² + y² − 1)³ − x²y³ = 0, filled where the implicit
 // function goes negative, anti-aliased with `fwidth` on the field itself, and

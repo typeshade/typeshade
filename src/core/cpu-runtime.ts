@@ -26,7 +26,7 @@ import type { BinOp, ShaderType } from './ir/index.js'
  *  {@link CpuStruct}. This is the value type the functions of a {@link CpuModule} take
  *  and return, and the one its `setBinding` accepts.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type CpuValue = number | boolean | number[] | CpuStruct
 /** A struct value on the CPU: a plain object keyed by field name, holding one
@@ -36,7 +36,7 @@ export type CpuValue = number | boolean | number[] | CpuStruct
  *  no struct identity of its own: the field set is whatever the declaring struct listed,
  *  and the caller checks it structurally.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface CpuStruct {
   [k: string]: CpuValue
@@ -49,7 +49,7 @@ export const isArr = Array.isArray
 /** The numeric kind a binary op evaluates in. WGSL integer arithmetic is two's-complement
  *  modulo 2^32 with truncating `/` and `%` (`x / 0 = x`, `x % 0 = 0`, i32 `MIN / -1 = MIN`);
  *  JS number arithmetic is none of that, so every integer op in `scalarBin` is spelled
- *  kind-directed (#2274). `'f32'` covers every float kind (f32 and the lowered f64 lanes):
+ *  kind-directed (X-GIS #2274). `'f32'` covers every float kind (f32 and the lowered f64 lanes):
  *  plain f64 JS arithmetic, the f64-algebra caveat in this file's header. Derived from the
  *  STATIC operand type by `numKindOf`; both CPU backends pass it (the codegen bakes it into
  *  the generated JS). */
@@ -125,7 +125,7 @@ export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, kind: NumKind = '
 }
 
 // WGSL min/max: "if one operand is a NaN, the other is returned" — where Math.min/Math.max
-// propagate the NaN (#2274). GLSL ES 3.00 leaves NaN behaviour undefined; WGSL is the
+// propagate the NaN (X-GIS #2274). GLSL ES 3.00 leaves NaN behaviour undefined; WGSL is the
 // canonical target.
 const minNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.min(a, b))
 const maxNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.max(a, b))
@@ -209,7 +209,7 @@ const f16BitsToF32 = (h: number): number => {
 }
 
 export const BUILTINS: Record<string, Builtin> = {
-  // The f32 oracle's rounding step (#2426). NOT authorable and never emitted: `froundF32`
+  // The f32 oracle's rounding step (X-GIS #2426). NOT authorable and never emitted: `froundF32`
   // (passes/precision.ts) injects it, and only the CPU engines ever see a module carrying it.
   // It lives HERE rather than in each engine because both resolve builtins through this one
   // table — the interpreter by `BUILTINS[e.fn]`, the codegen by `$.B[fn]` — so the two cannot
@@ -270,14 +270,14 @@ export const BUILTINS: Record<string, Builtin> = {
     isArr(a) || isArr(b) ? applyMinMax(maxNum, a, b) : maxNum(a as number, b as number),
   // clamp(e, lo, hi) = min(max(e, lo), hi) — the formula WGSL lists first and the one GLSL
   // ES 3.00 defines (lo > hi is implementation-defined on WGSL, undefined on GLSL), so the
-  // oracle is one of the permitted results rather than a third formula (#2274). With the
+  // oracle is one of the permitted results rather than a third formula (X-GIS #2274). With the
   // NaN-returns-the-other min/max above, clamp(NaN, lo, hi) is lo.
   clamp: (x, lo, hi) => clampVal(x, lo, hi),
   // saturate(x) = clamp(x, 0, 1) — WGSL's dedicated builtin (GLSL inlines the
   // clamp; see the intrinsic registry). Same min(max(·, 0), 1) composition as clamp.
   saturate: map1((x) => minNum(maxNum(x, 0), 1)),
   mix: (a, b, t) => mixVal(a, b, t),
-  // smoothstep — component-wise; the vector overload (#763 X15) makes the vec
+  // smoothstep — component-wise; the vector overload (X-GIS #763 X15) makes the vec
   // path reachable, and the old scalar-cast body silently returned NaN for it
   // (JS array arithmetic). e0/e1 may be scalar broadcasts over a vector x.
   smoothstep: (e0, e1, x) => {
@@ -349,10 +349,10 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   // Integer-source conversions (float sources are routed to f32ToI32Sat / f32ToU32Sat by
   // both backends — see below): u32 ↔ i32 is a bit reinterpretation on both targets, so
-  // i32(0xFFFFFFFFu) is -1 and u32(-1) is 0xFFFFFFFF (#2274).
+  // i32(0xFFFFFFFFu) is -1 and u32(-1) is 0xFFFFFFFF (X-GIS #2274).
   i32: (x) => Math.trunc(x as number) | 0,
   u32: (x) => Math.trunc(x as number) >>> 0,
-  // #763 O1 — pure-math builtins the catalogue claims portable but the oracle
+  // X-GIS #763 O1 — pure-math builtins the catalogue claims portable but the oracle
   // lacked (a shader using them compiled + emitted on both GPU targets, then
   // threw `unknown fn` at first CPU use — and compileModule is production-used).
   pow: (a, b) =>
@@ -431,7 +431,7 @@ export const BUILTINS: Record<string, Builtin> = {
   },
 }
 
-// GPU-only stubs (#763 O3). textureSample needs the GPU's sampler/atlas; fwidth
+// GPU-only stubs (X-GIS #763 O3). textureSample needs the GPU's sampler/atlas; fwidth
 // needs neighbouring fragments — neither is computable in this per-invocation
 // interpreter. Evaluating one THROWS unless compileModule was given
 // `{ gpuStubs: true }`: a silent [0,0,0,1] / 0 is a plausible-wrong value, the
@@ -443,7 +443,7 @@ export const GPU_STUBS: Record<string, Builtin> = {
   dpdx: () => 0,
   dpdy: () => 0,
   textureLoad: () => [0, 0, 0, 1],
-  // 2d-array reads (#1651) — same placeholder/throw contract as their 2d twins:
+  // 2d-array reads (X-GIS #1651) — same placeholder/throw contract as their 2d twins:
   // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.
   textureSampleArray: () => [0, 0, 0, 1],
   textureSampleLevelArray: () => [0, 0, 0, 1],
@@ -518,7 +518,7 @@ export function elemKindOf(t: ShaderType): ElemKind | undefined {
  *  that each intrinsic a shader can emit for WGSL or GLSL also has a CPU implementation
  *  or a documented placeholder.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS))
 /** The names of every GPU-only intrinsic the CPU backends cannot genuinely evaluate, as a
@@ -536,7 +536,7 @@ export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUI
  *  so a test can assert that each intrinsic a shader can emit has either a CPU
  *  implementation or a documented placeholder.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export const ORACLE_GPU_STUB_NAMES: ReadonlySet<string> = new Set(Object.keys(GPU_STUBS))
 
@@ -580,7 +580,7 @@ export function zeroOf(type: { kind: string; n?: number }): CpuValue {
 }
 
 // matNxN (column-major) × vecN → vecN. result[row] = Σ_col m[col*N+row]*v[col].
-// Dimension-generic (#763 O2) — the old hardcoded mat4 form read m[4+i]/m[8+i]/
+// Dimension-generic (X-GIS #763 O2) — the old hardcoded mat4 form read m[4+i]/m[8+i]/
 // m[12+i] out of range on a mat2/mat3 and returned silent NaNs.
 export function matVec(m: number[], v: number[]): number[] {
   const n = v.length

@@ -47,7 +47,7 @@ import type { Expr, FuncDecl, Stmt } from './nodes.js'
  *  already converts, so this type follows the editor-facing one rather than changing the
  *  diagnostic shape.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @see {@link sourceSpanOf} for reading one back off a node.
  */
@@ -89,14 +89,14 @@ export interface SourceSpan {
  *  widen where spans come from — more expression kinds, a fallback table for a node shape that
  *  cannot carry a field — without a breaking change.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @param node - the statement, expression or function declaration to ask about.
  *  @returns the span, or `undefined` when the node carries none.
  *
  *  @example
  *  ```ts
- *  import { compile, sourceSpanOf } from '@xgis/shader-dsl'
+ *  import { compile, sourceSpanOf } from 'typeshade'
  *
  *  const { module } = compile(src)
  *  for (const s of module.funcs[0]!.body) {

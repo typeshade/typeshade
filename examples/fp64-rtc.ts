@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 relative-to-center rendering ═══
+// ═══ typeshade example — fp64 relative-to-center rendering ═══
 //
 // THE technique every planet-scale engine ships (RTC / relative-to-eye,
 // Cesium & co.): a survey marker sits at world (10⁸+3.7, 5×10⁷+2.3), and the

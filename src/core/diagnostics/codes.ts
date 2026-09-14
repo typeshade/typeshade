@@ -13,10 +13,10 @@
 /** One entry of the diagnostic catalogue: the `SD####` code, the INVARIANT half of its message,
  *  and an optional one-line remedy. The dynamic half of a real error (the offending types, the
  *  field name) is not here — it is supplied at the throw site and composed into
- *  {@link ShaderDslError}'s `.message`, which is why the summary can be relied on as a category
+ *  {@link TypeShadeError}'s `.message`, which is why the summary can be relied on as a category
  *  while the message cannot.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade`, `typeshade/dev`.
  */
 export interface ErrorCodeDef {
   readonly code: string
@@ -33,11 +33,11 @@ export interface ErrorCodeDef {
  *  a consumer may `switch` on `err.code` across versions. A test snapshots this object, so
  *  adding or removing an entry is a deliberate diff rather than a silent one.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade`, `typeshade/dev`.
  *
  *  @example
  *  ```ts
- *  import { CODES, type ErrorCode } from '@xgis/shader-dsl'
+ *  import { CODES, type ErrorCode } from 'typeshade'
  *
  *  const docsUrl = (code: ErrorCode) => `https://example.com/errors/${code}`
  *  console.log(CODES.SD0002.summary) // 'binary op on mismatched vectors'
@@ -91,7 +91,7 @@ export const CODES = {
   SD0012: {
     code: 'SD0012',
     summary: 'statement sink not installed',
-    hint: 'import @xgis/shader-dsl from its entry, not a deep path',
+    hint: 'import typeshade from its entry, not a deep path',
   },
   SD0013: {
     code: 'SD0013',
@@ -110,7 +110,7 @@ export const CODES = {
   },
   SD0016: {
     code: 'SD0016',
-    // Split out of SD0014 (#1710). hostUniform borrowed that code for a shape it does not
+    // Split out of SD0014 (X-GIS #1710). hostUniform borrowed that code for a shape it does not
     // describe, so a reader who hit it was pointed at specialization constants and told to
     // decompose into "per-component scalar overrides" — advice for a different declarator.
     summary: 'host-owned resource has a shape the target cannot spell',
@@ -119,7 +119,7 @@ export const CODES = {
   SD0017: {
     code: 'SD0017',
     summary: 'literal cannot be spelled by the target',
-    hint: 'an i32/u32 literal must be an integer inside its 32-bit range and a float literal must be finite — neither WGSL nor GLSL has a NaN/Infinity spelling, and an out-of-range integer literal is a driver compile error; clamp or wrap the host-side value before it becomes a literal (#2276)',
+    hint: 'an i32/u32 literal must be an integer inside its 32-bit range and a float literal must be finite — neither WGSL nor GLSL has a NaN/Infinity spelling, and an out-of-range integer literal is a driver compile error; clamp or wrap the host-side value before it becomes a literal (X-GIS #2276)',
   },
 
   // ── Module-level gates ──
@@ -127,7 +127,7 @@ export const CODES = {
   SD0030: {
     code: 'SD0030',
     summary: 'unsupported feature for this backend',
-    // #1717 Ask 3 — close the discovery loop. The error already names the capability; what
+    // X-GIS #1717 Ask 3 — close the discovery loop. The error already names the capability; what
     // a reader needs next is where the per-backend support table lives, and that a
     // capability with no row is a HARD stop rather than something to work around.
     hint: 'see AUTHORING.md §10 (Capabilities & extensions) for the per-backend support table; a capability the target has no capProfile row for fails closed by design',
@@ -171,7 +171,7 @@ export const CODES = {
     summary: 'smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)',
     hint: 'write 1 − smoothstep(lo, hi, x) instead of reversing the edges',
   },
-  // The hint is deliberately GENERIC and enumerates NO fix family (#1654): the
+  // The hint is deliberately GENERIC and enumerates NO fix family (X-GIS #1654): the
   // per-builtin fix lives in the rule's FRAGMENT_ONLY_IDS table (the single
   // fix-authority) and reaches the reader through the diagnostic's own message.
   // Enumerating families here would re-create the untested sync contract that
@@ -182,7 +182,7 @@ export const CODES = {
     hint: 'the fix is per-builtin and named in the diagnostic message itself — the fragment-only-builtin rule table (FRAGMENT_ONLY_IDS) is the single fix-authority',
   },
 
-  // ── The portable kernel tier (#1812) — passes/portable-kernel.ts ──
+  // ── The portable kernel tier (X-GIS #1812) — passes/portable-kernel.ts ──
   // SD0110 is the AUTHOR-RUN guard (fn() rejects the declaration on a non-compute stage);
   // SD0111 is the SHAPE gate, reported per violation by the portable-kernel rule at every
   // emit on both writers and thrown by the GLSL lowering. Like SD0109 the per-violation
@@ -206,14 +206,14 @@ export const CODES = {
   SD0112: {
     code: 'SD0112',
     summary: 'a local name is declared twice in one function',
-    hint: 'rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (#2341)',
+    hint: 'rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (X-GIS #2341)',
   },
 
   // ── The void-body overload's runtime half (#8 B1) ──
   // The overload that lets a void body drop `voidT` pins the handle's key to `'void'` at the
   // TYPE level. TypeScript reads a body that sends its value out through an ambient Return()
   // as returning nothing too, so the type level cannot separate the two; SD0113 is the
-  // runtime half that keeps `'void'` from ever being a lie (#2458's objection).
+  // runtime half that keeps `'void'` from ever being a lie (X-GIS #2458's objection).
   SD0113: {
     code: 'SD0113',
     summary: 'a fn whose body returns nothing at the TypeScript level returns a value at run time',
@@ -256,9 +256,9 @@ export const CODES = {
  *  over it will fail to compile when a new code is added.
  *
  *  Note this is the type of a code the package CAN throw, not a promise about
- *  {@link ShaderDslError}'s `.code` field, which is a plain `string` — a subclass or a future
+ *  {@link TypeShadeError}'s `.code` field, which is a plain `string` — a subclass or a future
  *  version may carry a code this union does not have, so narrow rather than assume.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade`, `typeshade/dev`.
  */
 export type ErrorCode = keyof typeof CODES

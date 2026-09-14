@@ -6,7 +6,7 @@ import type { Backend, CapProfile } from '../backend.js'
 // A minimal backend stub that covers everything EXCEPT compute — diagnose() reads only
 // `id` and `capProfile`, so we don't need a full Backend implementation.
 //
-// #1670: the stub declares a real `capProfile` (coverage is DERIVED from its keys) rather
+// X-GIS #1670: the stub declares a real `capProfile` (coverage is DERIVED from its keys) rather
 // than the hand-rolled `caps.covers/missing` pair it used to fake. That pair could answer
 // differently from any real backend's; a profile literal cannot.
 const noComputeProfile: CapProfile = {

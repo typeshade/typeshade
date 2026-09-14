@@ -1,12 +1,13 @@
-// ═══ @xgis/shader-dsl example — Mandelbrot set (smooth escape-time) ═══
+// ═══ typeshade example — Mandelbrot set (smooth escape-time) ═══
 //
 // The fractal every shader site ports first: iterate z ← z² + c where c is the
 // pixel, colour by the SMOOTH iteration count (the fractional remainder from
 // log₂ log₂ |z|² kills the discrete banding), and breathe the zoom into the
 // seahorse valley. Sibling to julia.ts (fixed plane, orbiting c) — here c is
 // the plane and the camera moves. f32 precision bounds the useful zoom depth,
-// which is exactly the kind of limit X-GIS's RTC/DSFUN machinery exists to
-// beat for map coordinates. WGSL (WebGPU) + GLSL ES 3.00 (WebGL2).
+// which is exactly the limit the fp64 emulation (`fp64Lower`, and the
+// relative-to-centre trick the fp64-* examples use) exists to beat.
+// WGSL (WebGPU) + GLSL ES 3.00 (WebGL2).
 
 import {
   fn,

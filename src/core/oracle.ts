@@ -26,9 +26,9 @@
 // algebra does once it is rounded to 32-bit floats per-vertex on a real driver.
 //
 // Concretely, it CANNOT catch:
-//   • #392 (polygon fill displaced from outline) — fill arm fed f32 abs-degree
+//   • X-GIS #392 (polygon fill displaced from outline) — fill arm fed f32 abs-degree
 //     positions; the displacement is purely an f32-rounding artifact, invisible in f64.
-//   • #360 (globe polar-cap black hole) — tail slot read as f32 garbage; the cull
+//   • X-GIS #360 (globe polar-cap black hole) — tail slot read as f32 garbage; the cull
 //     fires only under f32 truncation, never in this interpreter.
 // A CPU↔CPU pass here is therefore NOT evidence of GPU precision parity. The only
 // real f32 differential is a headless-GPU gate that runs the EXECUTED shader and
@@ -59,7 +59,7 @@ import {
   elemKindOf,
 } from './cpu-runtime.js'
 
-// Preserve the historical `@xgis/shader-dsl` oracle surface: the value-model
+// Preserve the historical `typeshade` oracle surface: the value-model
 // types + the builtin/stub name sets moved to cpu-runtime.ts (single authority),
 // re-exported here so existing importers of `./oracle` are unaffected.
 export type { CpuValue, CpuStruct } from './cpu-runtime.js'
@@ -67,14 +67,14 @@ export { ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './cpu-runtime.js'
 
 interface Ctx {
   consts: Map<string, CpuValue>
-  /** Specialization constants (#923) → their DEFAULT value. The CPU oracle is the
+  /** Specialization constants (X-GIS #923) → their DEFAULT value. The CPU oracle is the
    *  un-specialized mirror: an override reads as its declared default (pipeline
    *  specialization is a GPU-driver concept with no CPU analogue). */
   overrides: Map<string, CpuValue>
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
   bindings: Record<string, CpuValue>
   structs: Map<string, StructDecl>
-  /** Opt-in GPU stubs (#763 O3): textureSample/fwidth return placeholder values
+  /** Opt-in GPU stubs (X-GIS #763 O3): textureSample/fwidth return placeholder values
    *  instead of throwing. OFF by default — plausible-wrong is the worst failure
    *  mode for a reference backend. */
   gpuStubs: boolean
@@ -89,7 +89,7 @@ interface Ctx {
  *  `compileModuleJs(m).fns.f(args)` and `compileModule(m).fns.f(args)` agree under `Object.is`,
  *  element for element.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface CpuModule {
   /** The module's declared functions by name. Parameters are positional, in declaration
@@ -106,22 +106,22 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return e.value
     case 'constref': {
       const v = ctx.consts.get(e.name)
-      if (v === undefined) throw new Error(`shader-dsl/cpu: unknown const ${e.name}`)
+      if (v === undefined) throw new Error(`typeshade/cpu: unknown const ${e.name}`)
       return v
     }
     case 'overrideref': {
       const v = ctx.overrides.get(e.name)
-      if (v === undefined) throw new Error(`shader-dsl/cpu: unknown override ${e.name}`)
+      if (v === undefined) throw new Error(`typeshade/cpu: unknown override ${e.name}`)
       return v
     }
-    // #1713 — see cpu-codegen: no host here, so no value. Throw rather than fabricate.
+    // X-GIS #1713 — see cpu-codegen: no host here, so no value. Throw rather than fabricate.
     case 'externref':
-      throw new Error(`shader-dsl/cpu: host-provided global '${e.name}' has no CPU value`)
+      throw new Error(`typeshade/cpu: host-provided global '${e.name}' has no CPU value`)
     case 'param':
     case 'varref': {
       if (env.has(e.name)) return env.get(e.name) as CpuValue
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
-      throw new Error(`shader-dsl/cpu: unbound ${e.name}`)
+      throw new Error(`typeshade/cpu: unbound ${e.name}`)
     }
     case 'binop': {
       const av = evalExpr(e.a, env, ctx),
@@ -142,12 +142,10 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         return matMul(av as number[], bv as number[])
       }
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
-        throw new Error(
-          'shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec',
-        )
+        throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
       }
       // The RESULT type's numeric kind drives WGSL integer semantics (wrap, truncating
-      // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (#2274).
+      // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (X-GIS #2274).
       return applyBin(e.bop, av, bv, numKindOf(e.type))
     }
     case 'unop': {
@@ -159,7 +157,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         b = evalExpr(e.b, env, ctx) as number
       // == / != reflect f32 rounding when comparing f32 operands — the GPU
       // computes f32, so exact f64 equality silently disagrees with it on
-      // equality branches (#13). Ordering ops keep f64 (rounding rarely flips an
+      // equality branches (X-GIS #13). Ordering ops keep f64 (rounding rarely flips an
       // inequality, and f64 is the stricter mirror for thresholds).
       const f32cmp = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
       switch (e.cop) {
@@ -201,14 +199,14 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (stub) {
         if (!ctx.gpuStubs) {
           throw new Error(
-            `shader-dsl/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (#763 O3)`,
+            `typeshade/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
           )
         }
         return stub(...args)
       }
       const user = ctx.fns[e.fn]
       if (user) return user(...args)
-      throw new Error(`shader-dsl/cpu: unknown fn ${e.fn}`)
+      throw new Error(`typeshade/cpu: unknown fn ${e.fn}`)
     }
     case 'member': {
       const base = evalExpr(e.base, env, ctx)
@@ -291,7 +289,7 @@ function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ct
     base[evalExpr(target.idx, env, ctx) as number] = value
     return
   }
-  throw new Error(`shader-dsl/cpu: bad assignment target ${target.op}`)
+  throw new Error(`typeshade/cpu: bad assignment target ${target.op}`)
 }
 
 type Signal =
@@ -322,7 +320,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         break
       case 'assignOp': {
         const cur = evalExpr(s.target, env, ctx)
-        // #763 O6 — thread the numeric kind exactly as the binop path does
+        // X-GIS #763 O6 — thread the numeric kind exactly as the binop path does
         // (oracle.ts binop case): `x >>= y` on an i32 target is an ARITHMETIC
         // shift; the flag was once applied to one of the two eval sites only.
         const kind = numKindOf(s.target.type)
@@ -373,7 +371,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
           const r = execBody(chosen, env, ctx)
           // A `break` in a case body exits the SWITCH only (WGSL and GLSL alike), so it
           // is consumed here. Everything else propagates to the statement that owns it —
-          // `return`, `discard`, and a `continue` aimed at an enclosing loop (#2275: it
+          // `return`, `discard`, and a `continue` aimed at an enclosing loop (X-GIS #2275: it
           // used to be dropped, so the loop body ran to completion on that iteration).
           if (r.kind !== 'normal' && r.kind !== 'break') return r
         }
@@ -387,7 +385,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         // comment, but on CPU there's no analogue and a silent
         // missing-return is much harder to localise).
         throw new Error(
-          `shader-dsl/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`,
+          `typeshade/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`,
         )
       }
       case 'raw': {
@@ -395,9 +393,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         // CPU evaluation. Reaching here means a raw Stmt was placed on a
         // shader path that also runs through the CPU mirror (cpu-projections
         // / compute eval), which is a composition bug — fail loudly.
-        throw new Error(
-          'shader-dsl/cpu: raw Stmt reached CPU backend — raw passthrough is GPU-only',
-        )
+        throw new Error('typeshade/cpu: raw Stmt reached CPU backend — raw passthrough is GPU-only')
       }
     }
   }
@@ -413,7 +409,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
  *    it when the question is what the target computes, so a parity gate can compare at ulp
  *    scale without a tolerance wide enough to hide a real error.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export type CpuPrecision = 'f64' | 'f32'
 
@@ -447,7 +443,7 @@ export type CpuPrecision = 'f64' | 'f32'
  *  It runs {@link validate} and {@link autoVars} first, the same passes the GPU writers run, so
  *  it rejects the same malformed modules they do.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to evaluate.
  *  @param opts - `precision` and `gpuStubs`, as above.
@@ -457,7 +453,7 @@ export type CpuPrecision = 'f64' | 'f32'
  *
  *  @example
  *  ```ts
- *  import { compileModule } from '@xgis/shader-dsl'
+ *  import { compileModule } from 'typeshade'
  *
  *  const cpu = compileModule(MODULE, { precision: 'f32' })
  *  cpu.setBinding('u', { scale: 2, offset: [0.5, 0.5] })
@@ -482,7 +478,7 @@ export function compileModule(
   if (opts?.precision === 'f32') m = froundF32(m)
   const ctx: Ctx = {
     consts: new Map<string, CpuValue>(),
-    // #923 — an override reads as its default on the CPU mirror.
+    // X-GIS #923 — an override reads as its default on the CPU mirror.
     overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
     fns: {},
     bindings: {},

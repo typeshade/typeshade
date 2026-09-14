@@ -1,4 +1,4 @@
-// ═══ Shader DSL — variant families: the axes a HOST decides at runtime (#1712) ═══
+// ═══ Shader DSL — variant families: the axes a HOST decides at runtime (X-GIS #1712) ═══
 //
 // AUTHORING.md §11 is right that a preprocessor is unnecessary when WE decide the variant:
 // a builder parameter plus a plain `if` is strictly better, because the losing arm is
@@ -19,7 +19,7 @@
 //   family.emitGuarded(...)    GLSL-only, opt-in: ONE source with a GENERATED #if ladder,
 //                              for a host that owns the define
 //   family.emitGuardedFragment(...)
-//                              the same ladder as a header-less FRAGMENT (#1711), since the
+//                              the same ladder as a header-less FRAGMENT (X-GIS #1711), since the
 //                              reported shape puts the ladder inside an #include — and an
 //                              include cannot carry a second #version
 //
@@ -131,7 +131,7 @@ function product<A extends Record<string, readonly unknown[]>>(axes: A): AxisVal
   for (const name of Object.keys(axes)) {
     const values = axes[name] as readonly unknown[]
     if (values.length === 0)
-      throw new Error(`shader-dsl: variantFamily axis '${name}' declares no values`)
+      throw new Error(`typeshade: variantFamily axis '${name}' declares no values`)
     rows = rows.flatMap((r) => values.map((v) => ({ ...r, [name]: v })))
   }
   return rows as AxisValues<A>[]
@@ -149,7 +149,7 @@ function guardCondition<A extends Record<string, readonly unknown[]>>(
     if (typeof spec === 'string') {
       if (typeof value !== 'boolean')
         throw new Error(
-          `shader-dsl: variantFamily axis '${name}' has non-boolean value ${JSON.stringify(value)}` +
+          `typeshade: variantFamily axis '${name}' has non-boolean value ${JSON.stringify(value)}` +
             ` but a single define name — give it one define per value`,
         )
       terms.push(value ? `defined(${spec})` : `!defined(${spec})`)
@@ -157,7 +157,7 @@ function guardCondition<A extends Record<string, readonly unknown[]>>(
       const named = spec[String(value)]
       if (named === undefined)
         throw new Error(
-          `shader-dsl: variantFamily axis '${name}' value ${JSON.stringify(value)} has no define`,
+          `typeshade: variantFamily axis '${name}' value ${JSON.stringify(value)} has no define`,
         )
       terms.push(`defined(${named})`)
     }
@@ -184,7 +184,7 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
       const t = raw.trim()
       const neg = t.startsWith('!')
       const m = /^!?defined\(([^)]+)\)$/.exec(t)
-      if (!m) throw new Error(`shader-dsl: selectGuardedArm cannot read condition '${t}'`)
+      if (!m) throw new Error(`typeshade: selectGuardedArm cannot read condition '${t}'`)
       return neg ? !on.has(m[1]!) : on.has(m[1]!)
     })
 
@@ -238,7 +238,7 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
  *  ladder usually goes inside an include, and an include cannot carry a second `#version`.
  *  Joining the preamble to the source reproduces `emitGuarded` byte for byte.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param spec - the axes, the per-point builder, and the key derivation.
  *  @returns the built family: every variant with its module, reflection and key, plus the
@@ -248,7 +248,7 @@ export function selectGuardedArm(source: string, defined: Iterable<string>): str
  *
  *  @example
  *  ```ts
- *  import { variantFamily } from '@xgis/shader-dsl'
+ *  import { variantFamily } from 'typeshade'
  *
  *  const family = variantFamily({
  *    axes: { shadows: [false, true], blend: ['add', 'mix'] },
@@ -275,7 +275,7 @@ export function variantFamily<A extends Record<string, readonly unknown[]>>(
   for (const v of variants) {
     if (byKey.has(v.key))
       throw new Error(
-        `shader-dsl: variantFamily key collision '${v.key}' — the key must mention every` +
+        `typeshade: variantFamily key collision '${v.key}' — the key must mention every` +
           ` axis the builder reads, or two different programs share one cache id`,
       )
     byKey.set(v.key, v)
@@ -341,7 +341,7 @@ function buildGuarded<A extends Record<string, readonly unknown[]>>(
   for (const { v, f } of frags)
     if (f.preamble.join('\n') !== preamble.join('\n'))
       throw new Error(
-        `shader-dsl: variantFamily.emitGuarded — variant '${v.key}' needs a different` +
+        `typeshade: variantFamily.emitGuarded — variant '${v.key}' needs a different` +
           ` preamble than '${frags[0]!.v.key}':\n  ${f.preamble.join(' | ')}\n  vs\n  ` +
           `${preamble.join(' | ')}\nOne guarded source can carry only one #version` +
           ` block, so these variants cannot share it — emit them separately.`,

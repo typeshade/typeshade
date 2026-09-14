@@ -27,7 +27,7 @@ import { fragmentOnlyBuiltin } from './fragment-only-builtin.js'
 
 const FIX =
   'textureSample is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives'
-// #1651 — the ARRAY row names the array-shaped fix (the layer argument is part of it).
+// X-GIS #1651 — the ARRAY row names the array-shaped fix (the layer argument is part of it).
 const ARRAY_FIX =
   'textureSampleArray is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, layer, level) — an explicit LOD needs no derivatives'
 
@@ -59,7 +59,7 @@ const vsCalling = (callee: typeof mid) =>
 
 const run = (m: ReturnType<typeof module>) => lint(m, [fragmentOnlyBuiltin])
 
-describe('fragment-only-builtin (#1650)', () => {
+describe('fragment-only-builtin (X-GIS #1650)', () => {
   it('flags textureSample reached TRANSITIVELY from a vertex entry', () => {
     const ds = run(
       module({ bindings: [tex.binding, smp.binding], funcs: [vsCalling(mid), mid, leaf] }),
@@ -99,7 +99,7 @@ describe('fragment-only-builtin (#1650)', () => {
     expect(run(m)).toEqual([])
   })
 
-  it('#1651: flags the ARRAY sample from a vertex entry, naming the ARRAY fix', () => {
+  it('X-GIS #1651: flags the ARRAY sample from a vertex entry, naming the ARRAY fix', () => {
     const m = module({
       bindings: [arr.binding, smp.binding],
       funcs: [vsCalling(leafArray), leafArray],
@@ -111,7 +111,7 @@ describe('fragment-only-builtin (#1650)', () => {
     expect(ds[0]?.hint).toContain('uv, layer, level')
   })
 
-  it('#1651: stays silent for the array explicit-LOD form in a vertex entry', () => {
+  it('X-GIS #1651: stays silent for the array explicit-LOD form in a vertex entry', () => {
     const m = module({
       bindings: [arr.binding, smp.binding],
       funcs: [vsCalling(leafArrayLevel), leafArrayLevel],
@@ -141,14 +141,14 @@ describe('fragment-only-builtin (#1650)', () => {
     expect(run(m)).toEqual([])
   })
 
-  it('#1654: flags a helper reachable from BOTH a vertex and a fragment entry', () => {
+  it('X-GIS #1654: flags a helper reachable from BOTH a vertex and a fragment entry', () => {
     // Pins the rule docstring's "one reachable from BOTH is flagged, because it is
     // emitted into the vertex/compute stage as well" — previously true only by
     // construction (the closure never subtracts fragment-reachable fns), untested.
     const fs = fn('fob_fs_dual', {}, vec4fT, () => mid({ uv: vec2(0, 0) }), { stage: 'fragment' })
     // The fragment→mid edge is REAL, not assumed: without this cross-check the test
     // would still pass on the vertex chain alone if the fragment entry silently
-    // failed to produce its call edge (verification-review nit on #1654).
+    // failed to produce its call edge (verification-review nit on X-GIS #1654).
     const fsRefs = emptyRefSet()
     collectFnRefs(fs.decl, fsRefs)
     expect([...fsRefs.calls]).toContain('fob_mid')
@@ -181,8 +181,8 @@ describe('fragment-only-builtin (#1650)', () => {
   })
 })
 
-// ── #1654: the DERIVATIVE rows (dpdx / dpdy / fwidth) ──────────────────────────
-// These three ids were ABSENT from FRAGMENT_ONLY_IDS before #1654, so the rule was
+// ── X-GIS #1654: the DERIVATIVE rows (dpdx / dpdy / fwidth) ──────────────────────────
+// These three ids were ABSENT from FRAGMENT_ONLY_IDS before X-GIS #1654, so the rule was
 // silent on every case below: the positives here are the fail-before witness (on the
 // pre-#1654 table each `run(...)` returned [] — green-by-silence — and only the new
 // rows turn them red-then-green). Their fix is shared and shape-free: no drop-in
@@ -204,7 +204,7 @@ const vsCallingF32 = (callee: typeof midDpdx) =>
     retAttr: builtin('position', vec4fT),
   })
 
-describe('fragment-only-builtin — derivatives (#1654)', () => {
+describe('fragment-only-builtin — derivatives (X-GIS #1654)', () => {
   it('flags dpdx reached TRANSITIVELY from a vertex entry, naming the derivative fix', () => {
     const ds = run(module({ funcs: [vsCallingF32(midDpdx), midDpdx, leafDpdx] }))
     expect(ds.map((d) => d.ruleId)).toEqual(['fragment-only-builtin'])

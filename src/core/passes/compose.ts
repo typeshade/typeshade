@@ -20,7 +20,7 @@ import type { ModuleDecl, Stmt, FuncDecl } from '../ir/index.js'
  *  CPU in double precision) throw only when they reach it. Set `allowUnswapped` only when
  *  leaving a placeholder open is deliberate.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  */
 export interface ComposeOptions {
   /** Let a placeholder with no matching swap stay in the module. The WGSL emitter writes it as
@@ -98,7 +98,7 @@ function swapInBody(
  *  this build. It turns off the first check only; a swap key that matches no placeholder is
  *  still an error.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the base module carrying the placeholders.
  *  @param swaps - tag to statement list, one entry per placeholder to fill.
@@ -109,7 +109,7 @@ function swapInBody(
  *
  *  @example
  *  ```ts
- *  import { composeModule, fn, module, f32, f32T, type Stmt } from '@xgis/shader-dsl'
+ *  import { composeModule, fn, module, f32, f32T, type Stmt } from 'typeshade'
  *
  *  const base = module({
  *    funcs: [fn('shade', {}, f32T, (_p, b) => b.placeholder('result'))],
@@ -135,14 +135,14 @@ export function composeModule(
   const unknownKeys = Object.keys(swaps).filter((k) => !used.has(k))
   if (unknownKeys.length) {
     throw new Error(
-      `shader-dsl: composeModule swap key(s) match no placeholder: ${unknownKeys.join(', ')} (seen: ${[...seen].join(', ') || 'none'})`,
+      `typeshade: composeModule swap key(s) match no placeholder: ${unknownKeys.join(', ')} (seen: ${[...seen].join(', ') || 'none'})`,
     )
   }
   if (!opts?.allowUnswapped) {
     const unswapped = [...seen].filter((t) => !used.has(t))
     if (unswapped.length) {
       throw new Error(
-        `shader-dsl: composeModule left placeholder(s) un-swapped: ${unswapped.join(', ')} — provide a swap or pass { allowUnswapped: true }`,
+        `typeshade: composeModule left placeholder(s) un-swapped: ${unswapped.join(', ')} — provide a swap or pass { allowUnswapped: true }`,
       )
     }
   }

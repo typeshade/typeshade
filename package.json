@@ -1,5 +1,5 @@
 {
-  "name": "@xgis/shader-dsl",
+  "name": "typeshade",
   "version": "0.0.1",
   "description": "A TypeScript shader DSL: author a typed node graph once and emit WGSL, GLSL ES 3.00, an f64 CPU oracle, and pipeline reflection from the same source.",
   "keywords": [
@@ -14,7 +14,7 @@
     "reflection"
   ],
   "license": "MIT",
-  "author": "TypeShade",
+  "author": "Seungup Noh <seungup.noh@gmail.com>",
   "homepage": "https://typeshade.dev",
   "bugs": {
     "url": "https://github.com/typeshade/typeshade/issues"
@@ -35,9 +35,11 @@
     "./emit-prod": "./src/emit-prod.ts",
     "./core/ir": "./src/core/ir/index.ts",
     "./examples": "./examples/index.ts",
-    "./language-service": "./src/language-service/index.ts"
+    "./language-service": "./src/language-service/index.ts",
+    "./shade": "./dist/shade.d.ts"
   },
   "files": [
+    "dist",
     "src",
     "examples",
     "tsconfig.json",
@@ -57,11 +59,12 @@
     "url": "https://github.com/typeshade/typeshade.git"
   },
   "scripts": {
-    "build": "tsc --build && tsc -p tsconfig.tests.json",
+    "build": "tsc --build && bun scripts/emit-shade-dts.ts && tsc -p tsconfig.tests.json",
     "test": "vitest run",
     "bench:stepping": "bun scripts/bench-stepping.ts",
     "gate:compile": "bun scripts/compile-gate.ts",
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
+    "manifest:publish": "bun scripts/publish-manifest.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "format:compiler": "prettier --write src/compiler/**/*.ts"
@@ -75,12 +78,7 @@
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
-  },
-  "peerDependenciesMeta": {
-    "typescript": {
-      "optional": true
-    }
+    "typescript": ">=5.0.0 <6"
   },
   "publishConfig": {
     "access": "public"

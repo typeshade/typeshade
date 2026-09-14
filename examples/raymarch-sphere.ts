@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — raymarched sphere (signed-distance field) ═══
+// ═══ typeshade example — raymarched sphere (signed-distance field) ═══
 //
 // A sphere distance-field, sphere-traced from a camera ray, then Blinn-Phong shaded
 // with an orbiting light. The "hello world" of raymarching. Showcases the new

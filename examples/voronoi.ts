@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — animated Voronoi (cellular noise) ═══
+// ═══ typeshade example — animated Voronoi (cellular noise) ═══
 //
 // The classic ShaderToy cellular pattern: tile the plane into cells, scatter one
 // animated feature point per cell, and shade each fragment by the DISTANCE to its

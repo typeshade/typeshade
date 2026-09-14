@@ -63,7 +63,7 @@ import { RESERVED_WORDS } from '../reserved-words.js'
  *  `authoredFn.authoredName`, because the same spelling is renamed independently inside each
  *  function and a bare name would be ambiguous.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/emit-prod`, `typeshade/dev`.
  */
 export interface MangleResult {
   readonly module: ModuleDecl
@@ -132,11 +132,11 @@ function collectDeclNames(body: readonly Stmt[], acc: Set<string>): void {
  *  emitting a module that no longer compiles. That is worth knowing at the call site: a single
  *  `rawWgsl` anywhere in a module silently costs you the whole minification win.
  *
- *  Exported from `@xgis/shader-dsl/emit-prod`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/emit-prod`, `typeshade/dev`.
  *
  *  @example
  *  ```ts
- *  import { mangleModule } from '@xgis/shader-dsl/emit-prod'
+ *  import { mangleModule } from 'typeshade/emit-prod'
  *
  *  const { module, renames } = mangleModule(MODULE)
  *  // ship `module`; keep `renames` next to the build so a driver log can be decoded
@@ -167,7 +167,7 @@ export function mangleModule(m: ModuleDecl): MangleResult {
   for (const s of m.structs) for (const f of s.fields) survivors.add(f.name)
   for (const b of m.bindings) survivors.add(b.name)
   for (const o of m.overrides ?? []) survivors.add(o.name)
-  // #1713 — a host-provided global is spelled by the HOST's prelude, so renaming it (or
+  // X-GIS #1713 — a host-provided global is spelled by the HOST's prelude, so renaming it (or
   // handing its spelling out as a generated short name) would desync the two. Same
   // treatment as an override name, and `rE` below likewise never rewrites an `externref`.
   for (const e of m.externs ?? []) {
@@ -309,10 +309,10 @@ export function mangleModule(m: ModuleDecl): MangleResult {
   for (const [fnName, scoped] of localMaps)
     for (const [from, to] of scoped) renames.set(`${fnName}.${from}`, to)
   return {
-    // `...m` preserves every module field this pass does NOT rewrite — the #923
+    // `...m` preserves every module field this pass does NOT rewrite — the X-GIS #923
     // `overrides` (whose names, like binding names above, are the host ABI and must
-    // survive un-renamed so both emit paths still declare them) and the #628
-    // `enables`, and the #1713 `externs` (spelled by the host's prelude, so ours to
+    // survive un-renamed so both emit paths still declare them) and the X-GIS #628
+    // `enables`, and the X-GIS #1713 `externs` (spelled by the host's prelude, so ours to
     // reference and never to rename). Only the four renamed collections are replaced;
     // `overrideref` and `externref` reads in bodies are already left un-renamed by `rE`,
     // matching the untouched decls.

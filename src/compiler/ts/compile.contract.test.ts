@@ -1,7 +1,7 @@
 // compile() fails honestly: no shader text and no runnable oracle for a program that did not
 // compile. Before this, an error left `wgsl` undefined in `compileTsSource` and compile() then
 // packed the PARTIAL module anyway, so a caller got WGSL for a program that had not compiled,
-// or a ShaderDslError thrown out of the emitter.
+// or a TypeShadeError thrown out of the emitter.
 
 import { describe, expect, it } from 'vitest'
 import { compile } from './compile.js'

@@ -9,11 +9,11 @@
 // than four) it cost 965 prototype lines, 71_011 chars, 9.5% of the production-
 // transformed text, of which a handful were load-bearing.
 //
-// #1858 fixed that at the source: `emitGlslModule` topo-sorts its own fn section and
+// X-GIS #1858 fixed that at the source: `emitGlslModule` topo-sorts its own fn section and
 // emits a prototype only where the call graph forces one. So this pass now finds
 // NOTHING on a backend-emitted map shader — measured over every `BAKED_SHADER_KEYS`
 // entry: 0 prototypes dropped, 0 of 74 GLSL sources altered, 0.00% of the
-// production-transformed text (#1914).
+// production-transformed text (X-GIS #1914).
 //
 // It is kept for the GLSL the backend did NOT author, which is where a redundant
 // prototype still arrives: hand-written `rawGlsl`, host-spliced fragments, and the

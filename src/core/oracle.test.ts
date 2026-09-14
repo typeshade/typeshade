@@ -5,7 +5,7 @@ import { module, fn, f32, f32T, mod, vec3, vec3fT, clamp, mix, type Node } from 
 // #13 (remaining half) — the oracle is the CPU half of a two-oracle contract; the
 // GPU computes f32. Its `==` / `!=` must therefore reflect f32 rounding, not exact
 // f64 equality, or it silently disagrees with the GPU on equality branches.
-describe('oracle — f32-faithful equality (#13 fround compare)', () => {
+describe('oracle — f32-faithful equality (X-GIS #13 fround compare)', () => {
   it('== returns true for two values equal after f32 rounding but unequal in f64', () => {
     // 1.0 and 1.0 + 2^-30 are distinct f64 numbers, but both round to 1.0f
     // (f32 ulp at 1.0 ≈ 1.19e-7 ≫ 2^-30 ≈ 9.3e-10). The GPU sees them equal.
@@ -94,9 +94,9 @@ describe('oracle — vecN(scalar) splat matches WGSL', () => {
   })
 })
 
-// #839 — mod is FLOOR-mod on both targets; the oracle must match on the
+// X-GIS #839 — mod is FLOOR-mod on both targets; the oracle must match on the
 // negative operands where floor-mod and JS/WGSL trunc-mod disagree.
-describe('oracle — mod floor-mod semantics (#839)', () => {
+describe('oracle — mod floor-mod semantics (X-GIS #839)', () => {
   it('negative x wraps into [0, y) (trunc-mod would return a negative)', () => {
     const m = module({
       funcs: [fn('fm', { x: f32T, y: f32T }, f32T, ({ x, y }) => mod(x, y))],

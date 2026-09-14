@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 world-plane checkerboard ═══
+// ═══ typeshade example — fp64 world-plane checkerboard ═══
 //
 // The map-engine failure mode in its purest form: a 1×1-unit checkerboard on
 // a world plane, viewed 100 million units from the origin (ulp_f32(1e8) = 8 —

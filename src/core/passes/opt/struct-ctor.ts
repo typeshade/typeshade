@@ -14,7 +14,7 @@
 // shape reaches BOTH writers identically (see the `var out: FragmentOutput` in any
 // emitted WGSL), which is why it is fixed here rather than in a backend. WGSL gets the
 // shorter return; GLSL additionally stops emitting the struct at all, because its
-// entry writer scatters a CONSTRUCTOR exit field-by-field (#1867) and the type then
+// entry writer scatters a CONSTRUCTOR exit field-by-field (X-GIS #1867) and the type then
 // has no spelling left for the decl to be needed by.
 //
 // VALUE-SAFE by construction: the field expressions are carried over verbatim and in

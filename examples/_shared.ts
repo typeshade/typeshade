@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl examples — shared example descriptor ═══
+// ═══ typeshade examples — shared example descriptor ═══
 //
 // Each example is authored ONCE (real DSL, no runtime dep) and consumed by two surfaces
 // from this single source: the CLI printer (examples/print.ts) and the interactive site

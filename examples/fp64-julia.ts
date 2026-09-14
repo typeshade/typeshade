@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 deep-zoom Julia set ═══
+// ═══ typeshade example — fp64 deep-zoom Julia set ═══
 //
 // The Julia twin of fp64-mandelbrot.ts: the SEED is fixed (c = −0.8 + 0.156i)
 // and the PIXEL becomes z₀, so the precision-critical value is the per-pixel

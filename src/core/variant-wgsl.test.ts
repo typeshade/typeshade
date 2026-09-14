@@ -1,4 +1,4 @@
-// ═══ validateVariantsWgsl — the aggregation, driven by a recorder (#1715) ═══
+// ═══ validateVariantsWgsl — the aggregation, driven by a recorder (X-GIS #1715) ═══
 //
 // The REAL run goes through a browser's Tint (`playground/e2e/_variant-wgsl-gate.spec.ts`).
 // What is tested here is everything around it: that every variant is attempted, that an

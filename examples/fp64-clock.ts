@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 long-uptime clock ═══
+// ═══ typeshade example — fp64 long-uptime clock ═══
 //
 // The "shader time" bug every long-running app ships eventually: animate with
 // `fract(t)` when t has grown large and f32 time stops moving — at t ≈ 10⁸
