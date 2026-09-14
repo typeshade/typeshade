@@ -107,10 +107,12 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  type changes anything: for every other target the expression is returned untouched, so no
  *  program that compiles today is lowered differently. What the `isIntScalar` guard protects
  *  is the IR SHAPE, which is what `fn()` is the oracle for: without it the fold inside
- *  {@link retargetIntLit} would run against an f32 target and rewrite `1. + 1.` into a single
- *  `lit 2` at sites that built a `binop` before. The emitted TEXT would not move — the
- *  emit-level constant folder collapses it either way — so only an IR assertion can see the
- *  difference, and `int-lit-context.test.ts` carries one.
+ *  {@link retargetIntLit} would run against an f32 target and rewrite `1 + 1` into a single
+ *  `lit 2` at sites that built a `binop` before. `1 + 1`, not `1. + 1.`: the float-written form
+ *  never reaches the guard at all, since {@link isIntegerLiteralTree} rejects the `.` first, so
+ *  it cannot tell whether the guard is there. The emitted TEXT would not move either way — the
+ *  emit-level constant folder collapses both — so only an IR assertion can see the difference,
+ *  and `int-lit-context.test.ts` carries one, on `1 + 1`.
  *
  *  Only what is WRITTEN as an integer is retargeted ({@link isIntegerLiteralTree}), and only
  *  when the value fits the target, so `return 2.5 + 0.5` and `return -1` in a `u32` function
@@ -130,4 +132,27 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
     return { ...expr, type: ifTrue.type, ifTrue, ifFalse }
   }
   return retargetIntLit(expr, node, target)
+}
+
+/** The DECLARATION-site retarget: {@link retargetIntLitCtx}, and where that declines, the
+ *  acceptance `let`/`const` and the `for` init had before this item existed.
+ *
+ *  That acceptance was a plain `init.op === 'lit'` retarget to the annotated type, so a literal
+ *  WRITTEN as a float but valued as an integer took the declared integer type: `let y: i32 = 0.`
+ *  emitted `var y: i32 = 0;`, `let y: u32 = 0.` emitted `0u`, and `let y: i32 = 1e3` emitted
+ *  `1000`. {@link retargetIntLitCtx} alone refuses those, because {@link isIntegerLiteralTree}
+ *  rejects any text carrying `.` or `e` — which turned three shapes that compiled into TS8003.
+ *
+ *  So the fallback is exactly the old rule and nothing wider: a folded `lit`, an integral
+ *  value, inside the target's range. A non-integral one (`let y: i32 = 1.5`) is left alone and
+ *  keeps its mismatch, as it had at emit before. Only the two DECLARATION sites use this — a
+ *  return, an argument and a field never had the acceptance, so there is nothing there to
+ *  preserve. */
+export function retargetDeclaredIntLit(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
+  const byContext = retargetIntLitCtx(expr, node, target)
+  if (byContext !== expr || !isIntScalar(target)) return byContext
+  const folded = foldNumericLit(expr)
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return expr
+  if (!fitsTarget(folded.value, target)) return expr
+  return { op: 'lit', type: target, value: folded.value }
 }

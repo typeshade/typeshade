@@ -253,11 +253,64 @@ describe('a float context is untouched', () => {
     // all green. What changes is the IR: retargetIntLit folds BEFORE it retargets, so without
     // the guard an f32 context would receive a single `lit 2` where a `binop` was built
     // before, and `fn()` — the IR-equality oracle — would stop matching.
-    const e = returnExpr('export function f(): f32 {\n  return 1. + 1.;\n}')
+    //
+    // Written `1 + 1`, NOT `1. + 1.`: the second reaches `isIntegerLiteralTree` first, which
+    // rejects any text carrying a `.`, so the guard is never consulted and deleting it left
+    // this green. `1 + 1` is an integer tree in an f32 position, which is exactly the pair
+    // only the guard separates.
+    const e = returnExpr('export function f(): f32 {\n  return 1 + 1;\n}')
     expect(e.op).toBe('binop')
     const u = returnExpr('export function f(): u32 {\n  return 1 + 1;\n}')
     expect(u).toEqual({ op: 'lit', type: expect.anything(), value: 2 })
     expect(typeKey(u.type)).toBe('u32')
+  })
+})
+
+describe('a declaration keeps the acceptance it had before this item', () => {
+  // The fix round's own regression. `retargetIntLitCtx` retargets only what
+  // `isIntegerLiteralTree` accepts, and that rejects any text carrying a `.` or an `e` — but
+  // the `init.op === 'lit'` special case it replaced at the two DECLARATION sites had no such
+  // rule, so a float-WRITTEN literal with an integral value took the declared integer type.
+  // Measured on origin/main: `let y: i32 = 0.` emitted `var y: i32 = 0;`, `let y: u32 = 0.`
+  // emitted `0u`, `let y: i32 = 1e3` emitted `1000`, and the `for` init the same. All four
+  // were TS8003 at the head of the fix round. `retargetDeclaredIntLit` keeps the old rule as
+  // its fallback.
+  it.each([
+    [
+      'let y: i32 = 0.',
+      'export function f(): i32 {\n  let y: i32 = 0.;\n  return y;\n}',
+      'var y: i32 = 0;',
+    ],
+    [
+      'let y: u32 = 0.',
+      'export function f(): u32 {\n  let y: u32 = 0.;\n  return y;\n}',
+      'var y: u32 = 0u;',
+    ],
+    [
+      'let y: i32 = 1e3',
+      'export function f(): i32 {\n  let y: i32 = 1e3;\n  return y;\n}',
+      'var y: i32 = 1000;',
+    ],
+    [
+      'for (let k: u32 = 0.; …)',
+      'export function f(): u32 {\n  let a: u32 = 0;\n  for (let k: u32 = 0.; k < 4; k++) {\n    a = a + 1;\n  }\n  return a;\n}',
+      'for (var k: u32 = 0u;',
+    ],
+  ])('%s still compiles', (_label, src, want) => {
+    expect(wgslOf(src)).toContain(want)
+  })
+
+  it('takes the integral value only — a float-written one that is not stays refused', () => {
+    // `let y: i32 = 1.5` was never a program: on origin/main it was retyped as an i32 literal
+    // holding 1.5 and the BACKEND refused it (SD0017). It is refused at the source now, which
+    // is the same answer with a better message, so the fallback stops at `Number.isInteger`.
+    expect(diagnose('export function f(): i32 {\n  let y: i32 = 1.5;\n  return y;\n}')).toContain(
+      'no implicit int/float conversion',
+    )
+    // …and out of range is still out of range, written as a float or not.
+    expect(diagnose('export function f(): u32 {\n  let y: u32 = -1.;\n  return y;\n}')).toContain(
+      'no implicit int/float conversion',
+    )
   })
 })
 

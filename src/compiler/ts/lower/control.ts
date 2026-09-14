@@ -11,7 +11,7 @@ import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
-import { retargetIntLitCtx } from '../lit-coerce.js'
+import { retargetDeclaredIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerStatement, lowerStatements } from './statement.js'
 
@@ -141,7 +141,7 @@ function lowerForInit(
   // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
   // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
   // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
-  init = retargetIntLitCtx(init, decl.initializer, annotated ?? i32T)
+  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T)
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
     // The check statement.ts has always had at its own declaration site, and the reason this
     // one was silent rather than merely wrong: nothing compared the two.

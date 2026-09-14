@@ -8,7 +8,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, readOnlyPhrase } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
-import { retargetIntLitCtx } from '../lit-coerce.js'
+import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -229,10 +229,11 @@ function lowerVariableDeclaration(
       // `let j: i32 = -1` takes its declared type like any other position (#8 A3, issue #40).
       // A negative literal is a PrefixUnaryExpression, not a NumericLiteral, so the
       // `init.op === 'lit'` special case this replaces never fired for one and the author was
-      // told to cast an integer they had already written. Going through retargetIntLitCtx also
-      // stops `let j: i32 = 1.5` from being retyped as an i32 literal holding 1.5: it only
-      // retypes what is actually an integer, and the type check below now catches the rest.
-      init = retargetIntLitCtx(init, decl.initializer, annotated)
+      // told to cast an integer they had already written. `retargetDeclaredIntLit` keeps that
+      // old special case as its fallback — `let y: i32 = 0.` and `let y: i32 = 1e3` compiled
+      // before this item and still do — while `let j: i32 = 1.5` stays refused, since the
+      // fallback takes an integral value only and the type check below catches the rest.
+      init = retargetDeclaredIntLit(init, decl.initializer, annotated)
     }
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
