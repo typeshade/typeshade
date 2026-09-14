@@ -270,10 +270,9 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §§9 and 10 are reserved for issue #8's A2 (member and component assignment)
-and A6 (`discard`, the missing builtins, `**`), which are in flight on their own branches and
-append here in issue order. This section is §11 so the six A-item branches do not all claim
-§9 and collide on merge.
+**Numbering:** §§9, 10 and 12 to 15 are reserved for issue #8's A2, A6, A9, A3, A10 and A7,
+which are in flight on their own branches and append here in issue order. The sections below
+took the next free numbers so the A-item branches do not all claim §9 and collide on merge.
 
 ---
 
@@ -310,5 +309,56 @@ oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the o
 `-3.2` above happens to agree, and an in-range source always does. So the cross-backend
 ground a portable shader can stand on is **in-range values**; clamp before you convert if the
 source might not be.
+
+## 16. Object literals take the declared struct
+
+Which struct `{ … }` builds comes from the type the position **declares** — a function's
+return type, a `let`/`const` annotation, or a parameter type:
+
+```ts
+"use typeshade"
+
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+class FsIn {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+export function shade(o: FsIn): f32 {
+  return o.uv.x
+}
+
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  const p = vec2(0., 0.)
+  return { pos: vec4(p, 0., 1.), uv: p } // the return type says VsOut
+}
+
+export function pick(): f32 {
+  const a: FsIn = { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } // the annotation says FsIn
+  return shade(a) + shade({ pos: a.pos, uv: a.uv }) // the parameter says FsIn
+}
+```
+
+Matching the field **names** against the struct table is the fallback, for a position that
+declares nothing (`const o = { … }` with no annotation). It stays because it is often enough,
+but it could never answer the case above: `VsOut` and `FsIn` have the same fields, so the name
+set does not distinguish them and the literal was rejected inside a function that states
+exactly which one it returns.
+
+A declared struct also improves the diagnostics, because there is something to name:
+
+| | before | after |
+| --- | --- | --- |
+| `return { a: 1. }` for a two-field `P` | `Object literal { a } does not match a known struct.` | `Missing field "b" for struct P.` |
+| `return { a: 1., c: 2. }` | the same sentence | `Struct P has no field "c".` |
+
+A contextual type that is not a struct is ignored here rather than reported: `const o: f32 =
+{ a: 1. }` is a mistake about the declaration, and the declaration's own type check is what
+says so.
 
 Last updated: 2026-09-14

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn } from '../../core/ir/builder.js'
-import { uniformStruct } from '../../core/sot.js'
+import { structDecl, uniformStruct } from '../../core/sot.js'
 import { f32, vec3 } from '../../core/ir/node.js'
 import { f32T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
@@ -163,6 +163,34 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('an object literal in a declared return matches the EDSL struct construct', () => {
+    // #8 A11. Two structs share a shape here, so name matching cannot answer and only the
+    // declared return type can — which is what makes the two surfaces build the same node.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      class P {
+        a: f32
+        b: f32
+      }
+      class Q {
+        a: f32
+        b: f32
+      }
+      export function mk(): Q {
+        return { a: 1., b: 2. };
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    // `structDecl`, not `ioStruct`: the source-side struct here carries no attributes, and the
+    // return type is INFERRED from the construct, which is how the EDSL spells a
+    // struct-returning function (the handle is not a ShaderType token).
+    const Q = structDecl('Q', { a: f32T, b: f32T })
+    const edsl = fn('mk', {}, () => Q.construct({ a: f32(1), b: f32(2) }))
+
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

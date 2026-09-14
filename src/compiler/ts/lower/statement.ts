@@ -68,7 +68,16 @@ function lowerStatementNode(
   if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics)
   if (ts.isReturnStatement(node)) {
     if (!node.expression) return { s: 'return' }
-    const expr = lowerExpression(node.expression, sourceFile, scope, diagnostics)
+    // The declared return type is the context an object literal needs: `return { pos, uv }`
+    // in a function declared VsOut builds a VsOut, even when another struct has the same
+    // fields (#8 A11).
+    const expr = lowerExpression(
+      node.expression,
+      sourceFile,
+      scope,
+      diagnostics,
+      scope.returnType(),
+    )
     if (!expr) return undefined
     return { s: 'return', expr }
   }
@@ -217,7 +226,8 @@ function lowerVariableDeclaration(
     )
     return undefined
   }
-  let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+  // The annotation is the context for `const o: VsOut = { … }` (#8 A11).
+  let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated)
   if (!init) return undefined
   if (annotated && init.op === 'lit') {
     if (typeof init.value === 'number' && isNumericScalar(annotated)) {
