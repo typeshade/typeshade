@@ -434,7 +434,7 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
         ? `vec${N}<${E}>`
         : T extends { kind: 'mat'; n: infer N extends number; elem: infer E extends string }
           ? `mat${N}x${N}<${E}>`
-          : // #2456 — struct / array / void arms. typeKey has emitted `struct:Name`,
+          : // X-GIS #2456 — struct / array / void arms. typeKey has emitted `struct:Name`,
             // `array<K,N>` and `void` since forever; KeyOf had no arm for any of them, so
             // every struct-typed and array-typed node fell through to the `string` fallback
             // — the phantom key that swallowed `construct`, `arrayLit` and both struct
@@ -447,18 +447,18 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                 : `array<${KeyOf<E>}>`
               : T extends { kind: 'void' }
                 ? 'void'
-                : // #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
+                : // X-GIS #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
                   // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
                   // to `string`, so a texture/sampler argument swap type-checked.
                   T extends { kind: 'texture'; dim: '2d-ms' }
                   ? 'texture_multisampled_2d<f32>'
-                  : // #1651 — arm ORDER is immaterial here: the dims are exact literals, so
+                  : // X-GIS #1651 — arm ORDER is immaterial here: the dims are exact literals, so
                     // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
                     // arm comes first. The real hazard is a MISSING arm — it drops an array
                     // resource() node through to the `string` fallback, where it matches no
                     // authoring overload at all (the failure is a confusing "no overload
                     // matches", not a key mismatch).
-                    // #1703 — `elem` is INFERRED, not hardcoded to f32: a texture2duT resource
+                    // X-GIS #1703 — `elem` is INFERRED, not hardcoded to f32: a texture2duT resource
                     // must land on `texture_2d<u32>`, and a hardcoded `<f32>` would silently
                     // hand an integer texture the FLOAT key, where textureSample's overload
                     // accepts it and naga rejects the emitted WGSL.

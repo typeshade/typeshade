@@ -236,7 +236,7 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
         arms: s.arms.map((arm) => ({ ...arm, cond: visit(arm.cond), body: arm.body })),
       }
     case 'for': {
-      // #763 P3 — the throw this file's header comment PROMISED but never had.
+      // X-GIS #763 P3 — the throw this file's header comment PROMISED but never had.
       // Hoisting a matchExpr out of a for-COND evaluates it ONCE where the loop
       // (and the CPU oracle) evaluate it per iteration — a silent CPU/GPU
       // divergence, author-reachable via forRange's cond callback. init/update

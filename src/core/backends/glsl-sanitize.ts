@@ -163,7 +163,7 @@ export function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
   }
   const locallyClean = { ...m, funcs: m.funcs.map(rewriteFunc) }
 
-  // #763 P6 — module-level surfaces the per-fn pass could not cover:
+  // X-GIS #763 P6 — module-level surfaces the per-fn pass could not cover:
   // (a) BINDING names reach GLSL verbatim as UBO/texture identifiers; renaming
   //     one would desync the host's reflection-driven bind points → fail loud.
   for (const b of m.bindings) {

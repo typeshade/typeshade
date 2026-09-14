@@ -123,7 +123,7 @@ function typeLayout(
         )
         return { size: sl.size, align: sl.align }
       }
-      // #763 P7 — mat2 std140 DIVERGES between WGSL uniform rules (column stride 8)
+      // X-GIS #763 P7 — mat2 std140 DIVERGES between WGSL uniform rules (column stride 8)
       // and real GLSL std140 (columns round to vec4 → stride 16). The GLSL UBO emit
       // declares this layout THE offset contract, so a mat2 field would drift host
       // bytes vs GL for it and every following field. No producer exists (types.ts
@@ -731,7 +731,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   for (const f of m.funcs) {
     const stage = stageOf(f)
     if (!stage) continue
-    // #1905 — the location/builtin view of the same signature, read through the GLSL
+    // X-GIS #1905 — the location/builtin view of the same signature, read through the GLSL
     // backend's own attribute readers so the two cannot describe different interfaces.
     const io = entryIo(f, structs)
     entries.push({
@@ -764,7 +764,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     }
   }
 
-  // #923 — specialization constants, in declaration order (the host reads names +
+  // X-GIS #923 — specialization constants, in declaration order (the host reads names +
   // defaults straight from here to build the WGSL `constants` dict / GLSL define header).
   const overrides: OverrideInfo[] = (m.overrides ?? []).map((o) => ({
     name: o.name,
@@ -772,7 +772,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     default: o.default,
   }))
 
-  // #1670 — the caps the host must have active before pipeline creation. Same
+  // X-GIS #1670 — the caps the host must have active before pipeline creation. Same
   // derivation the emit gate uses (requiredCaps: shape-derived + declared `enables`), so
   // reflection and assertCaps can never disagree about what a module needs; sorted for a
   // deterministic order. Always present, empty when the module needs nothing — the

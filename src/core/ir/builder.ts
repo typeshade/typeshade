@@ -417,7 +417,7 @@ const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[
   const key = Symbol.for('xgis.shader-dsl.instanceLoaded')
   if (g[key])
     console.warn(
-      '[shader-dsl] a second copy of typeshade was loaded (dual-instance). Ambient state is globalThis-backed so this is safe, but check the bundler/dedupe config — see #763 D2.',
+      '[shader-dsl] a second copy of typeshade was loaded (dual-instance). Ambient state is globalThis-backed so this is safe, but check the bundler/dedupe config — see X-GIS #763 D2.',
     )
   else g[key] = true
 }
@@ -446,7 +446,7 @@ installStmtSink({
   assignOp: (target, bop, value) => currentBuilder().assignOp(target, bop, value),
 })
 
-// ═══ #843 — authoring-error context ═══
+// ═══ X-GIS #843 — authoring-error context ═══
 // When an author's callback throws (a JS ReferenceError, a sot field typo, …) the
 // stack leads with builder internals and the failing fn / statement is invisible.
 // Each callback boundary prefixes the SAME error object's message once — symbol-
@@ -512,7 +512,7 @@ function subBody(
 // no return type. The args mapped-type's own K is the PARAM key (unrelated).
 /** A forwardable struct field proxy (a handle param / `.of()` view) — accepted
  *  anywhere a struct-typed argument is, via its raw-node `$` accessor. */
-// #2456 — keyed: a sot field proxy's `$` now carries `struct:${Name}`, so a body that
+// X-GIS #2456 — keyed: a sot field proxy's `$` now carries `struct:${Name}`, so a body that
 // returns the proxy (`return o`) infers the fn's return key instead of collapsing to
 // `string`. Defaulted, so the loose ARGUMENT positions below stay unchanged.
 type StructArg<R extends string = string> = { readonly $: ReadonlyNode<R> }
@@ -652,7 +652,7 @@ type FnBody<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R> | void
-// #2458 — the body shape the RET-INFERRING overloads accept. A body that returns nothing at
+// X-GIS #2458 — the body shape the RET-INFERRING overloads accept. A body that returns nothing at
 // the TS level cannot tell tsc what it returns: `inferReturnType` walks the recorded
 // statements and finds `f32` for a guard-style body, but TS sees `void` and falls back to
 // `R = string`, which puts every call site outside the phantom-key checker. Such a body must
@@ -662,14 +662,14 @@ type FnBodyValue<P extends FnParamSpec, R extends string> = (
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R>
 // #8 B1 — the body shape the VOID-INFERRING overloads accept. It is the same `void` TS sees
-// for the guard-style body #2458 turned away, so the separation cannot be made at the type
+// for the guard-style body X-GIS #2458 turned away, so the separation cannot be made at the type
 // level; it is made at run time instead, by `assertInferredVoid` below. The declared
 // parameter type is `undefined` rather than `void` so a body that DOES return a node keeps
 // matching the value overloads first — `void` as a return type accepts any value.
 type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undefined | void
 
 // #8 B1 — the runtime half of the void-inferring overloads. Those overloads pin the handle's
-// key to `'void'` without a `voidT` token, and #2458 is right that a key which LIES is worse
+// key to `'void'` without a `voidT` token, and X-GIS #2458 is right that a key which LIES is worse
 // than `string`: TypeScript reads `(p) => { If(c, () => Return(x)); Return(f32(0)) }` as
 // returning nothing too, and that body returns f32. So the claim is checked where the answer
 // exists — after the body has run, against what `inferReturnType` actually found. A body that
@@ -913,7 +913,7 @@ export function fn(
         ? (spec as ParamAttr | StructParamHandle).type
         : spec) as ShaderType,
       attr: fieldSpec?.attr,
-      // #763 S5 — thread the structured IO fields through to FuncDecl.params;
+      // X-GIS #763 S5 — thread the structured IO fields through to FuncDecl.params;
       // dropping them here made reflect() see ZERO vertex attributes for
       // location()-authored entry params (the string fallback was load-bearing).
       location: fieldSpec?.location,
@@ -944,7 +944,7 @@ export function fn(
     try {
       return body(paramNodes, bld)
     } catch (e) {
-      // #843 — outermost authoring context: name the fn whose body threw, once
+      // X-GIS #843 — outermost authoring context: name the fn whose body threw, once
       // (a nested subBody has already tagged the statement kind by this point).
       tagAuthoringError(e, AUTHOR_FN_TAGGED, `while building fn '${name}'`)
       throw e
@@ -1005,7 +1005,7 @@ export function fn(
     ret,
     body: decl.body,
     attrs: decl.attrs,
-    // #1812 — `portable` has NO attrs spelling by design, so unlike `stage`/`workgroupSize`
+    // X-GIS #1812 — `portable` has NO attrs spelling by design, so unlike `stage`/`workgroupSize`
     // it has no fallback to recover it from: a handle that did not mirror it would drop the
     // declaration the moment module() put the handle (not the decl) into funcs[], and the
     // whole tier would be silently dead on the only path that can author it — fn().
@@ -1136,7 +1136,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
   const authored: FuncDecl[] = record
     ? Object.entries(input as Readonly<Record<string, FuncDecl>>).map(([key, f]) => {
         const d = declOf(f)
-        // #763 D4 — a record-form rename mutates the SHARED FuncDecl in place.
+        // X-GIS #763 D4 — a record-form rename mutates the SHARED FuncDecl in place.
         // If this decl already participated in another assembly under a
         // DIFFERENT name, renaming it now silently corrupts that module's
         // re-emit (`fn old` definition vs `new(...)` calls). Fail loud.
@@ -1247,7 +1247,7 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
  *  @see {@link reflect} for reading the assembled module's pipeline metadata.
  */
 export function module(parts: ModuleParts): ModuleDecl {
-  // #763 X1 — `uses:` derives structs/bindings/consts from the HANDLES, which
+  // X-GIS #763 X1 — `uses:` derives structs/bindings/consts from the HANDLES, which
   // already know their own decls; every module used to restate them by hand,
   // and a forgotten `U.binding` was green through tsc AND validate, dying at
   // pipeline creation. Explicit arrays still work and merge (name-deduped —
@@ -1295,15 +1295,15 @@ export function module(parts: ModuleParts): ModuleDecl {
     structs,
     bindings,
     funcs: normalizeFuncs(parts.funcs),
-    // #923 — carry the specialization-constant declarators through (absent ⇒ omit the
+    // X-GIS #923 — carry the specialization-constant declarators through (absent ⇒ omit the
     // key, so an override-free module object stays byte-identical to before).
     ...(parts.overrides ? { overrides: parts.overrides } : {}),
-    // #1713 — same carry-through for host-provided globals. Passed EXPLICITLY rather than
+    // X-GIS #1713 — same carry-through for host-provided globals. Passed EXPLICITLY rather than
     // through `uses:`: an ExternVarHandle is `{ node, decl }`, which the `uses` dispatch's
     // `'decl' in h` branch would route to addConst and silently emit as a module constant.
     ...(parts.externs ? { externs: parts.externs } : {}),
   }
-  // #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
+  // X-GIS #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
   // enables-free module object stays byte-identical to before).
   return parts.enables ? { ...decl, enables: parts.enables } : decl
 }

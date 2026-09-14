@@ -210,11 +210,11 @@ const opaqueF32 = (v: number): Expr => ({
  *  from, which `member-fold` now does — const-prop carries that zero into
  *  `df64_twoSum`'s `s = a + b` and the pre-existing `x + 0 -> x` identity deletes
  *  the add. That add IS the renorm: it is what launders a LOADED lo into a COMPUTED
- *  one, and #915 paid for it on Apple `sub` and Blackwell WebGL2 `div`. Measured
+ *  one, and X-GIS #915 paid for it on Apple `sub` and Blackwell WebGL2 `div`. Measured
  *  before the barrier: 408 flattened arithmetic ops -> 400.
  *
  *  Opacity here is by CONSTRUCTION, not by which folds happen to be absent —
- *  the distinction #1972 was opened to correct. `member-fold.test.ts` pins both
+ *  the distinction X-GIS #1972 was opened to correct. `member-fold.test.ts` pins both
  *  directions: the twoSum dies without this barrier and survives with it. */
 const RENORM_ZERO: Expr = { op: 'construct', type: vec2fT, args: [opaqueF32(0), opaqueF32(0)] }
 
@@ -332,8 +332,8 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
     case 'lit':
       return isF64(e.type) ? pairLit(e.value as number) : e
     case 'constref':
-    case 'externref': // #1713 — a host-provided global is spelled by the host, never lowered
-    case 'overrideref': // #923 — a specialization constant is a WGSL scalar, never f64
+    case 'externref': // X-GIS #1713 — a host-provided global is spelled by the host, never lowered
+    case 'overrideref': // X-GIS #923 — a specialization constant is a WGSL scalar, never f64
     case 'param':
     case 'varref':
       return containsF64(e.type) ? { ...e, type: mapType(e.type) } : e

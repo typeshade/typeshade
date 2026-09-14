@@ -3,7 +3,7 @@ import { fn, module, externFn, f32, f32T } from './index.js'
 import { callFn } from './call-fn.js'
 import { emitModule } from '../backends/wgsl.js'
 
-// ═══ #740 R1 — module() transitive collection + key-naming ═══
+// ═══ X-GIS #740 R1 — module() transitive collection + key-naming ═══
 //
 // The assembly ceremony this retires: authors hand-listing every helper fn in
 // manual callee-first order. Contract under test:

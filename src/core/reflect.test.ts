@@ -171,11 +171,11 @@ describe('reflect — module metadata walker', () => {
   })
 })
 
-// #1651 — `resourceKind: 'texture'` alone under-describes a texture binding: a host
+// X-GIS #1651 — `resourceKind: 'texture'` alone under-describes a texture binding: a host
 // creating the bind group needs the DIM to pick a 2d / 2d-array / multisampled view.
 // textureDim is therefore set on EVERY texture entry (never "only when interesting" —
 // that would make `undefined` mean both "a 2d texture" and "not a texture").
-// #1703 adds the second axis: dim alone still under-describes the binding, because a
+// X-GIS #1703 adds the second axis: dim alone still under-describes the binding, because a
 // host must ALSO know whether the view is float or integer — WebGPU's sampleType must
 // be 'uint'/'sint' and WebGL2 must back it with R32UI/R32I. textureElem carries the
 // same always-set contract as textureDim, for the same reason.

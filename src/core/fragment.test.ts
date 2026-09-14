@@ -46,7 +46,7 @@ const fsEntry = fn(
 const plain = module({ funcs: [shade, fsEntry] })
 
 // An INTEGER texture, so the backend derives `precision highp usampler2D;` — the exact
-// line #1703 added and the regex threw away.
+// line X-GIS #1703 added and the regex threw away.
 const uTex = resource('u_data', texture2duT, { group: 0, binding: 0 })
 const fsInt = fn(
   'fs_int',

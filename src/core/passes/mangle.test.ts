@@ -91,7 +91,7 @@ describe('emit-prod mangle() plugin through the { plugins } seam — authored vo
     expect(emitModule(m)).toContain('terrain_shade')
   })
 
-  it('#923: a specialization-constant module still emits its `override` through mangle', () => {
+  it('X-GIS #923: a specialization-constant module still emits its `override` through mangle', () => {
     // mangle rebuilds the module; before the `...m` spread it whitelisted only
     // consts/structs/bindings/funcs, so `overrides` vanished and the emit dropped the
     // `override` line while the guarded branch still read the name → undeclared identifier.
@@ -170,7 +170,7 @@ describe('mangleModule — direct pass contracts', () => {
       expect(ret.expr.b.name).toBe(to)
   })
 
-  it('preserves #923 overrides through the rebuild and never renames an override name', () => {
+  it('preserves X-GIS #923 overrides through the rebuild and never renames an override name', () => {
     const quality = overrideConst('quality', f32T, 1.0)
     const om = module({
       // a module const alongside proves renaming still happens around the preserved override

@@ -215,7 +215,7 @@ export const wgslBackend: Backend = {
   caseLabel: (value, scrutType) =>
     scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
   switchHead: (scrut) => `switch ${scrut} {`,
-  // #1671 — emit THIS target's payload; a raw carrying only the GLSL spelling is
+  // X-GIS #1671 — emit THIS target's payload; a raw carrying only the GLSL spelling is
   // a hard build failure here, not a stringified `undefined` in the module body.
   rawStmt: (s) => {
     if (s.wgsl !== undefined) return s.wgsl
@@ -235,7 +235,7 @@ export const wgslBackend: Backend = {
       c.type,
       c.valueExpr ? emitExprNeutral(c.valueExpr, wgslBackend) : f32Lit(c.wgslValue),
     ),
-  // #923 — a pipeline specialization constant: a module-scope `override` the host
+  // X-GIS #923 — a pipeline specialization constant: a module-scope `override` the host
   // specializes via createRenderPipeline({ constants: { name } }). The default value
   // uses the same scalar spelling as any literal (1.0 / 2u / true), so the module
   // compiles standalone and a branch guarded by the override is dead-code-eliminated
@@ -303,7 +303,7 @@ export const emitExpr = (e: Expr): string => emitExprNeutral(e, wgslBackend)
 
 // The module-decl emit functions live as wgslBackend methods; these thin wrappers keep the
 // existing export names + signatures. Only two of the four have a consumer through the
-// package entry — see each doc comment, and #1697 for the surface question.
+// package entry — see each doc comment, and X-GIS #1697 for the surface question.
 
 /** Emit one {@link ConstDecl} as a WGSL `const` line, without the surrounding module.
  *

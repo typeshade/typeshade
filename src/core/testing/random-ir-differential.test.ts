@@ -35,9 +35,9 @@ const PER_PASS_SEEDS = 6
 
 /** Seeds that have CAUGHT something, kept in the corpus forever. A sweep is free to move —
  *  the count here was trimmed once for the unit-tier budget and that alone would have
- *  dropped seed 25, the one that found #2408, silently taking the evidence with it. */
+ *  dropped seed 25, the one that found X-GIS #2408, silently taking the evidence with it. */
 const PINNED_SEEDS = [
-  25, // #2408 — CSE merged `u32(-1.0)` with `u32(-1)`; O0 16639 vs O1 255
+  25, // X-GIS #2408 — CSE merged `u32(-1.0)` with `u32(-1)`; O0 16639 vs O1 255
 ] as const
 
 const CORPUS: Corpus[] = [
@@ -110,10 +110,10 @@ describe('generated-program differentials (X-GIS #2406)', () => {
   it('the corpus reaches the constructs the known defects lived in', () => {
     const f = describeCorpus(CORPUS)
     console.log(`[D6.1] ${SEEDS} seeds · features: ${JSON.stringify(f)}`)
-    // #2274 lived in integer `/` and `%` (WGSL's `x/0 = x`, `x%0 = 0`, INT_MIN/-1 wrap).
+    // X-GIS #2274 lived in integer `/` and `%` (WGSL's `x/0 = x`, `x%0 = 0`, INT_MIN/-1 wrap).
     expect(f['int/'] ?? 0).toBeGreaterThan(20)
     expect(f['int%'] ?? 0).toBeGreaterThan(20)
-    // #2275 lived in a `continue` raised inside a `switch` inside a loop.
+    // X-GIS #2275 lived in a `continue` raised inside a `switch` inside a loop.
     expect(f.switchContinue ?? 0).toBeGreaterThan(5)
     expect(f.switchBreak ?? 0).toBeGreaterThan(5)
     // and the rest of the surface the differentials claim to cover.
@@ -148,7 +148,7 @@ describe('generated-program differentials (X-GIS #2406)', () => {
     expect(checks).toBeGreaterThan(1000) // the sweep ran at all
   })
 
-  // #2426 — the f32 oracle mode has to reach BOTH engines identically, or they stop being
+  // X-GIS #2426 — the f32 oracle mode has to reach BOTH engines identically, or they stop being
   // differentials of each other. One shared `BUILTINS.__fround` entry and one shared pass
   // should make that free; this arm is what proves it over generated programs rather than
   // over the eight hand-written cases in precision.test.ts.

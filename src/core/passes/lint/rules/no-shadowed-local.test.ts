@@ -6,7 +6,7 @@ import { optimizeAt } from '../../opt/optimize.js'
 import { emitModule } from '../../../backends/wgsl.js'
 import { emitGlslModule } from '../../../backends/glsl.js'
 
-// #2341 — the IR identifies a binding by its NAME alone, and five optimizer passes key a
+// X-GIS #2341 — the IR identifies a binding by its NAME alone, and five optimizer passes key a
 // function-wide flat map on it. A duplicated name merges two bindings; nothing checked it.
 // These fixtures ARE the two symptoms from the issue, so the rule can never be graded
 // against a shape gentler than the one that miscompiled.
@@ -62,7 +62,7 @@ describe('no-shadowed-local', () => {
   })
 
   // What these two fixtures DID before the gate existed, measured on 6285c6a and reproduced
-  // in #2341: the sibling arms returned 10 at O0 and 20 at O1 — the tier the package
+  // in X-GIS #2341: the sibling arms returned 10 at O0 and 20 at O1 — the tier the package
   // documents as value-identical to O0 (optimize.ts:209) — and the param reuse returned 198
   // instead of the authored 100, with the CPU oracle and the emitted WGSL agreeing on the
   // wrong value, so no backend differential could have caught it. Every door onto that is

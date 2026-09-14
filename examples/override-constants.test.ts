@@ -30,7 +30,7 @@ import { overrideQuality } from './override-quality.js'
 
 const m = overrideQuality.module
 
-describe('#923 — specialization constants (WGSL override ↔ GLSL #define)', () => {
+describe('X-GIS #923 — specialization constants (WGSL override ↔ GLSL #define)', () => {
   // ── 1. WGSL emit: the `override` line + the surviving guarded branch ──
   it('WGSL emits a module-scope `override` with the default and keeps the guarded branch', () => {
     const wgsl = emitModule(m)

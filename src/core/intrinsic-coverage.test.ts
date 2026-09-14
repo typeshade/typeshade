@@ -262,7 +262,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       f64FromParts(f, f),
       f64Parts(toF64(f)),
       textureSampleLevel(bindingRef('t', texture2dfT), bindingRef('s', samplerT), vec2(0, 0), 1),
-      // #1651 — the 2d-array forms carry their OWN ids, so the classification sweep
+      // X-GIS #1651 — the 2d-array forms carry their OWN ids, so the classification sweep
       // must drive them too (an unclassified id would fall through as identity).
       textureSample(bindingRef('ta', texture2dArrayfT), bindingRef('s', samplerT), vec2(0, 0), 1),
       textureSampleLevel(
@@ -273,7 +273,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         0,
       ),
       textureLoad(bindingRef('ta', texture2dArrayfT), vec2i(0, 0), 1, u),
-      // #1658 — the layer-count query is a FOURTH array id (WGSL has a dedicated
+      // X-GIS #1658 — the layer-count query is a FOURTH array id (WGSL has a dedicated
       // function, GLSL reads textureSize's .z), so it must be swept too.
       textureNumLayers(bindingRef('ta', texture2dArrayfT)),
     ]
