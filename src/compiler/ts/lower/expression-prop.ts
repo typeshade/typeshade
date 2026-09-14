@@ -7,6 +7,8 @@ import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alia
 import { parseSwizzle } from '../swizzle.js'
 import { numericMismatch } from '../numeric.js'
 import { lowerExpression } from './expression.js'
+import { makeDiagnostic } from '../diagnostic.js'
+import { TS_CODES, type TsCode } from '../codes.js'
 
 const JS_ARRAY_METHODS = new Set([
   'map',
@@ -46,10 +48,22 @@ export function lowerPropertyAccess(
     const value = resolveMathConst(prop)
     if (value !== undefined) return { op: 'lit', type: f32T, value }
     if (resolveMathFn(prop) || resolveMathExpand(prop)) {
-      pushDiag(diagnostics, sourceFile, node, `"Math.${prop}" is a function alias. Call it.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"Math.${prop}" is a function alias. Call it.`,
+        TS_CODES.UNSUPPORTED,
+      )
       return undefined
     }
-    pushDiag(diagnostics, sourceFile, node, `"Math.${prop}" is not a TypeShade alias.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"Math.${prop}" is not a TypeShade alias.`,
+      TS_CODES.UNKNOWN_NAME,
+    )
     return undefined
   }
   const base = lowerExpression(obj, sourceFile, scope, diagnostics)
@@ -58,20 +72,32 @@ export function lowerPropertyAccess(
     return { op: 'lit', type: i32T, value: base.type.size ?? 0 }
   }
   if (JS_ARRAY_METHODS.has(prop)) {
-    pushDiag(diagnostics, sourceFile, node, `JS Array method ".${prop}" is not a shader op. Use sum/min/any/all/zip/fill.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `JS Array method ".${prop}" is not a shader op. Use sum/min/any/all/zip/fill.`,
+      TS_CODES.UNSUPPORTED,
+    )
     return undefined
   }
   if (base.type.kind === 'struct') {
     const ft = scope.fieldType(base.type.name, prop)
     if (!ft) {
-      pushDiag(diagnostics, sourceFile, node, `Unknown field "${prop}" on ${typeKey(base.type)}.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Unknown field "${prop}" on ${typeKey(base.type)}.`,
+        TS_CODES.UNKNOWN_NAME,
+      )
       return undefined
     }
     return { op: 'member', type: ft, base, field: prop }
   }
   const sw = parseSwizzle(base.type, prop)
   if (!sw.ok) {
-    pushDiag(diagnostics, sourceFile, node, sw.message)
+    pushDiag(diagnostics, sourceFile, node, sw.message, TS_CODES.UNKNOWN_NAME)
     return undefined
   }
   return { op: 'member', type: sw.type, base, field: sw.field }
@@ -86,7 +112,13 @@ export function lowerObjectLiteral(
   const given: { name: string; expr: Expr }[] = []
   for (const prop of node.properties) {
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) {
-      pushDiag(diagnostics, sourceFile, prop, 'Object literals must use identifier fields, e.g. { pos: vec4(...) }.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        prop,
+        'Object literals must use identifier fields, e.g. { pos: vec4(...) }.',
+        TS_CODES.UNSUPPORTED,
+      )
       return undefined
     }
     const expr = lowerExpression(prop.initializer, sourceFile, scope, diagnostics)
@@ -96,7 +128,13 @@ export function lowerObjectLiteral(
   const names = given.map((g) => g.name)
   const match = scope.matchStruct(names)
   if (!match) {
-    pushDiag(diagnostics, sourceFile, node, `Object literal { ${names.join(', ')} } does not match a known struct.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Object literal { ${names.join(', ')} } does not match a known struct.`,
+      TS_CODES.UNKNOWN_NAME,
+    )
     return undefined
   }
   const byName = new Map(given.map((g) => [g.name, g.expr]))
@@ -104,11 +142,23 @@ export function lowerObjectLiteral(
   for (const field of match.fields) {
     const expr = byName.get(field.name)
     if (!expr) {
-      pushDiag(diagnostics, sourceFile, node, `Missing field "${field.name}" for struct ${match.name}.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Missing field "${field.name}" for struct ${match.name}.`,
+        TS_CODES.STRUCT_FIELD,
+      )
       return undefined
     }
     if (typeKey(expr.type) !== typeKey(field.type)) {
-      pushDiag(diagnostics, sourceFile, node, numericMismatch(`field ${match.name}.${field.name}`, field.type, expr.type))
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        numericMismatch(`field ${match.name}.${field.name}`, field.type, expr.type),
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
     }
     args.push(expr)
@@ -121,7 +171,7 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   message: string,
+  code: TsCode,
 ): void {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }

@@ -33,7 +33,8 @@
     "./compute": "./src/compute.ts",
     "./emit-prod": "./src/emit-prod.ts",
     "./core/ir": "./src/core/ir/index.ts",
-    "./examples": "./examples/index.ts"
+    "./examples": "./examples/index.ts",
+    "./language-service": "./src/language-service/index.ts"
   },
   "files": [
     "src",
@@ -70,6 +71,14 @@
     "prettier": "^3.5.3",
     "typescript": "5.6.3",
     "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
   },
   "publishConfig": {
     "access": "public"

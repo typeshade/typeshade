@@ -5,6 +5,8 @@ import type { LoweringScope } from '../context.js'
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerExpression } from './expression.js'
+import { makeDiagnostic } from '../diagnostic.js'
+import { TS_CODES, type TsCode } from '../codes.js'
 
 export function lowerArrayCtor(
   node: ts.CallExpression,
@@ -14,7 +16,13 @@ export function lowerArrayCtor(
 ): Expr | undefined {
   const typeArgs = node.typeArguments
   if (!typeArgs || typeArgs.length < 1) {
-    pushDiag(diagnostics, sourceFile, node, 'array<T, N>(...) needs type arguments.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'array<T, N>(...) needs type arguments.',
+      TS_CODES.UNKNOWN_TYPE,
+    )
     return undefined
   }
   const fakeRef = ts.factory.createTypeReferenceNode('array', [...typeArgs])
@@ -28,7 +36,13 @@ export function lowerArrayCtor(
     args.push(lowered)
   }
   if (n !== undefined && args.length !== n) {
-    pushDiag(diagnostics, sourceFile, node, `array constructor expects ${n} element(s), got ${args.length}.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `array constructor expects ${n} element(s), got ${args.length}.`,
+      TS_CODES.ARITY_MISMATCH,
+    )
     return undefined
   }
   return { op: 'construct', type: mapped, args }
@@ -42,17 +56,29 @@ export function lowerFill(
 ): Expr | undefined {
   const typeArgs = node.typeArguments
   if (!typeArgs || typeArgs.length < 2) {
-    pushDiag(diagnostics, sourceFile, node, 'fill<T, N>(v) needs type arguments.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'fill<T, N>(v) needs type arguments.',
+      TS_CODES.UNKNOWN_TYPE,
+    )
     return undefined
   }
   const fakeRef = ts.factory.createTypeReferenceNode('array', [...typeArgs])
   const mapped = mapTsTypeToShaderType(fakeRef, sourceFile, diagnostics)
   if (!mapped || mapped.kind !== 'array' || mapped.size === undefined) {
-    pushDiag(diagnostics, sourceFile, node, 'fill<T, N>(v) needs a fixed N.')
+    pushDiag(diagnostics, sourceFile, node, 'fill<T, N>(v) needs a fixed N.', TS_CODES.UNKNOWN_TYPE)
     return undefined
   }
   if (node.arguments.length !== 1) {
-    pushDiag(diagnostics, sourceFile, node, 'fill<T, N>(v) expects 1 value.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'fill<T, N>(v) expects 1 value.',
+      TS_CODES.ARITY_MISMATCH,
+    )
     return undefined
   }
   const v = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
@@ -88,12 +114,12 @@ export function lowerArrayFold(
   const asArray = first && first.type.kind === 'array'
   if (name === 'sum') {
     if (!first) {
-      pushDiag(diagnostics, sourceFile, node, 'sum(xs) needs an array.')
+      pushDiag(diagnostics, sourceFile, node, 'sum(xs) needs an array.', TS_CODES.ARITY_MISMATCH)
       return undefined
     }
     const out = unrollSum(first)
     if (typeof out === 'string') {
-      pushDiag(diagnostics, sourceFile, node, out)
+      pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH)
       return undefined
     }
     return out
@@ -101,31 +127,43 @@ export function lowerArrayFold(
   if ((name === 'min' || name === 'max') && asArray && args.length === 1) {
     const out = unrollMinMax(name, first!)
     if (typeof out === 'string') {
-      pushDiag(diagnostics, sourceFile, node, out)
+      pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH)
       return undefined
     }
     return out
   }
   if (name === 'any' || name === 'all' || name === 'none') {
     if (!first || predDecls.length !== 1) {
-      pushDiag(diagnostics, sourceFile, node, `${name}(xs, pred) needs an array and a predicate function.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${name}(xs, pred) needs an array and a predicate function.`,
+        TS_CODES.ARITY_MISMATCH,
+      )
       return undefined
     }
     const out = unrollPred(first, predDecls[0]!, name === 'all' ? '&&' : '||')
     if (typeof out === 'string') {
-      pushDiag(diagnostics, sourceFile, node, out)
+      pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH)
       return undefined
     }
     return name === 'none' ? noneOf(out) : out
   }
   if (name === 'zip') {
     if (args.length !== 2 || predDecls.length !== 1) {
-      pushDiag(diagnostics, sourceFile, node, 'zip(xs, ys, fn) needs two arrays and a function.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        'zip(xs, ys, fn) needs two arrays and a function.',
+        TS_CODES.ARITY_MISMATCH,
+      )
       return undefined
     }
     const out = unrollZip(args[0]!, args[1]!, predDecls[0]!)
     if (typeof out === 'string') {
-      pushDiag(diagnostics, sourceFile, node, out)
+      pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH)
       return undefined
     }
     return out
@@ -138,7 +176,7 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   message: string,
+  code: TsCode,
 ): void {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }

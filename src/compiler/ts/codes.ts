@@ -1,4 +1,9 @@
 // Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
+//
+// Numbering: `TS8` + a zero-padded sequential number, assigned in the order a code was added.
+// A gap (8011 is retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
+// exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
+// deserve its own code, so it stays parked past the sequential range instead of at its head.
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
@@ -16,6 +21,34 @@ export const TS_CODES = {
   TOP_LEVEL: 'TS8014',
   BACKEND: 'TS8015',
   INDEX_OOB: 'TS8016',
+  /** Invalid `switch` case: not a numeric literal, or a fall-through case body. */
+  SWITCH_CASE: 'TS8017',
+  /** An assignment or `++`/`--` target that is not a writable name (not an identifier, unknown, or a non-writable parameter). Assigning to a known immutable binding is `CONST_ASSIGN` instead. */
+  ASSIGN_TARGET: 'TS8018',
+  /** Wrong number of arguments, elements, or fields at a call or constructor site. */
+  ARITY_MISMATCH: 'TS8019',
+  /** A function declaration or parameter shape TypeShade does not support (missing name or body, optional/rest/destructured parameter). */
+  FUNCTION_SHAPE: 'TS8020',
+  /** A `return` shape problem: bare `return` where a value is required, or a function with no return type annotation. */
+  RETURN_SHAPE: 'TS8021',
+  /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`). */
+  UNKNOWN_NAME: 'TS8022',
+  /** The same function or binding name declared twice in one scope. */
+  DUPLICATE_SYMBOL: 'TS8023',
+  /** `@builtin("...")` names an id outside WGSL's builtin vocabulary (`WgslBuiltinName` in `core/sot.ts`). */
+  BUILTIN_NAME: 'TS8024',
+  /** A `@builtin(...)` id used as the wrong stage's input or output, e.g. `frag_depth` on a vertex return, or `front_facing` on a vertex parameter. */
+  BUILTIN_STAGE: 'TS8025',
+  /** `@compute([x, y, z])` with `y` or `z` other than `1`: the backend only carries the first workgroup axis today, so a shape it would silently drop is rejected instead. */
+  WORKGROUP_SHAPE: 'TS8026',
+  /** `mat2`/`mat3`: not implemented (only `mat4`/`mat4x4` maps to a real WGSL type), so authoring one is rejected instead of silently widening to `mat4x4`. */
+  MAT_UNSUPPORTED: 'TS8027',
+  /** A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`), e.g. a misspelled `@vertx`: without this, the decorated function or field just silently stops being an entry point or an I/O field. */
+  ATTRIBUTE_NAME: 'TS8028',
+  /** A field of a struct used as an entry function's parameter or return type carries neither `@builtin(...)` nor `@location(...)`: WGSL rejects an entry-IO struct member with no attribute, so this is caught at the front end instead of reaching the backend as invalid emitted WGSL. */
+  STRUCT_FIELD_MISSING_ATTR: 'TS8029',
+  /** A TypeScript parse error (an unclosed parenthesis, a missing brace, an unexpected token) in a `"use typeshade"` file, carried through as a TypeShade diagnostic so a `compile()` caller sees it without running `tsc`. A file with one is not lowered or emitted: before this, `vec4(3.14` compiled to WGSL. The language service drops these in favour of TypeScript's own syntactic diagnostics, which carry the real `TS1005`-style code. */
+  SYNTAX: 'TS8030',
   UNSUPPORTED: 'TS8099',
 } as const
 

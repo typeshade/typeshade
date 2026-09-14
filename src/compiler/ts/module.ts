@@ -6,6 +6,8 @@ import { emitFuncs } from '../../core/backends/wgsl.js'
 import { hasUseTypeshadeDirective } from './directive.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
+import { TS_CODES } from './codes.js'
+import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 
 export interface TsSourceFileInput {
   readonly fileName: string
@@ -41,38 +43,55 @@ export function compileTsSources(
 ): CompileTsSourcesResult {
   const diagnostics: TsCompilerDiagnostic[] = []
   const parsed = new Map<string, ts.SourceFile>()
-  const exports = new Map<string, Map<string, { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }>>()
+  const exports = new Map<
+    string,
+    Map<string, { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }>
+  >()
 
   for (const f of files) {
     const name = normalizePath(f.fileName)
     const sf = ts.createSourceFile(name, f.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
     parsed.set(name, sf)
     if (!hasUseTypeshadeDirective(sf)) {
-      diagnostics.push({
-        message: `File "${name}" is missing "use typeshade".`,
-        fileName: name,
-        line: 1,
-        character: 1,
-        category: 'error',
-      })
+      diagnostics.push(
+        makeDiagnostic(
+          sf,
+          undefined,
+          `File "${name}" is missing "use typeshade".`,
+          TS_CODES.MISSING_DIRECTIVE,
+        ),
+      )
     }
   }
 
+  // A file TypeScript could not parse takes the whole program down: nothing is lowered or
+  // emitted, and the parse errors, each naming its file, are the diagnostics (see
+  // `compileTsSource`).
+  const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
+  if (syntax.length > 0) {
+    diagnostics.push(...syntax)
+    return { funcs: [], diagnostics }
+  }
+
   for (const [name, sf] of parsed) {
-    const table = new Map<string, { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }>()
+    const table = new Map<
+      string,
+      { stub: FuncDecl; node: ts.FunctionDeclaration; sf: ts.SourceFile }
+    >()
     for (const stmt of sf.statements) {
       if (!ts.isFunctionDeclaration(stmt)) continue
       const exported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false
       const stub = parseSignature(stmt, sf, diagnostics)
       if (!stub) continue
       if (table.has(stub.name)) {
-        diagnostics.push({
-          message: `Duplicate function "${stub.name}" in "${name}".`,
-          fileName: name,
-          line: 1,
-          character: 1,
-          category: 'error',
-        })
+        diagnostics.push(
+          makeDiagnostic(
+            sf,
+            stmt,
+            `Duplicate function "${stub.name}" in "${name}".`,
+            TS_CODES.DUPLICATE_SYMBOL,
+          ),
+        )
         continue
       }
       table.set(stub.name, { stub, node: stmt, sf })
@@ -92,48 +111,56 @@ export function compileTsSources(
     const callees = fileCallees.get(name)!
     for (const stmt of sf.statements) {
       if (!ts.isImportDeclaration(stmt)) continue
-      if (!stmt.importClause || !stmt.moduleSpecifier || !ts.isStringLiteral(stmt.moduleSpecifier)) {
-        diagnostics.push({
-          message: 'Import must be `import { name } from "./file"`.',
-          fileName: name,
-          line: 1,
-          character: 1,
-          category: 'error',
-        })
+      if (
+        !stmt.importClause ||
+        !stmt.moduleSpecifier ||
+        !ts.isStringLiteral(stmt.moduleSpecifier)
+      ) {
+        diagnostics.push(
+          makeDiagnostic(
+            sf,
+            stmt,
+            'Import must be `import { name } from "./file"`.',
+            TS_CODES.UNSUPPORTED,
+          ),
+        )
         continue
       }
       const spec = stmt.moduleSpecifier.text
       if (!spec.startsWith('.')) {
-        diagnostics.push({
-          message: `Only relative imports are supported (got "${spec}").`,
-          fileName: name,
-          line: 1,
-          character: 1,
-          category: 'error',
-        })
+        diagnostics.push(
+          makeDiagnostic(
+            sf,
+            stmt,
+            `Only relative imports are supported (got "${spec}").`,
+            TS_CODES.UNSUPPORTED,
+          ),
+        )
         continue
       }
       const target = resolveSpecifier(name, spec)
       const targetTable = exports.get(target)
       if (!targetTable) {
-        diagnostics.push({
-          message: `Cannot resolve import "${spec}" from "${name}" (looked for "${target}").`,
-          fileName: name,
-          line: 1,
-          character: 1,
-          category: 'error',
-        })
+        diagnostics.push(
+          makeDiagnostic(
+            sf,
+            stmt,
+            `Cannot resolve import "${spec}" from "${name}" (looked for "${target}").`,
+            TS_CODES.UNSUPPORTED,
+          ),
+        )
         continue
       }
       const bindings = stmt.importClause.namedBindings
       if (!bindings || !ts.isNamedImports(bindings)) {
-        diagnostics.push({
-          message: 'Default / namespace import is not supported. Use `import { name } from "./file"`.',
-          fileName: name,
-          line: 1,
-          character: 1,
-          category: 'error',
-        })
+        diagnostics.push(
+          makeDiagnostic(
+            sf,
+            stmt,
+            'Default / namespace import is not supported. Use `import { name } from "./file"`.',
+            TS_CODES.UNSUPPORTED,
+          ),
+        )
         continue
       }
       for (const el of bindings.elements) {
@@ -141,23 +168,25 @@ export function compileTsSources(
         const local = el.name.text
         const rec = targetTable.get(imported)
         if (!rec) {
-          diagnostics.push({
-            message: `"${target}" has no function "${imported}".`,
-            fileName: name,
-            line: 1,
-            character: 1,
-            category: 'error',
-          })
+          diagnostics.push(
+            makeDiagnostic(
+              sf,
+              el,
+              `"${target}" has no function "${imported}".`,
+              TS_CODES.UNSUPPORTED,
+            ),
+          )
           continue
         }
         if (rec.stub && (rec.stub as { exported?: boolean }).exported === false) {
-          diagnostics.push({
-            message: `"${imported}" is not exported from "${target}".`,
-            fileName: name,
-            line: 1,
-            character: 1,
-            category: 'error',
-          })
+          diagnostics.push(
+            makeDiagnostic(
+              sf,
+              el,
+              `"${imported}" is not exported from "${target}".`,
+              TS_CODES.UNSUPPORTED,
+            ),
+          )
           continue
         }
         callees.set(local, rec.stub)
@@ -180,13 +209,24 @@ export function compileTsSources(
     try {
       wgsl = emitFuncs(funcs)
     } catch (e) {
-      diagnostics.push({
-        message: `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
-        fileName: entry ?? files[0]?.fileName ?? 'typeshade',
-        line: 1,
-        character: 1,
-        category: 'error',
-      })
+      const anchor =
+        (entry ? parsed.get(entry) : undefined) ??
+        [...parsed.values()][0] ??
+        ts.createSourceFile(
+          files[0]?.fileName ?? 'typeshade',
+          '',
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS,
+        )
+      diagnostics.push(
+        makeDiagnostic(
+          anchor,
+          undefined,
+          `Backend emit failed: ${e instanceof Error ? e.message : String(e)}`,
+          TS_CODES.BACKEND,
+        ),
+      )
     }
   }
   return { funcs, diagnostics, wgsl }

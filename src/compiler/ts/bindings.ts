@@ -8,6 +8,7 @@ import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { TS_CODES } from './codes.js'
+import { makeDiagnostic } from './diagnostic.js'
 
 export function isResourceCall(expr: ts.Expression): expr is ts.CallExpression {
   return (
@@ -53,14 +54,14 @@ export function collectBindings(
     const key = `${b.group}:${b.binding}`
     const prev = seen.get(key)
     if (prev) {
-      diagnostics.push({
-        message: `@binding(${b.binding}) in group ${b.group} is used by "${prev}" and "${b.name}".`,
-        fileName: sourceFile.fileName,
-        line: 1,
-        character: 1,
-        category: 'error',
-        code: TS_CODES.UNSUPPORTED,
-      })
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          undefined,
+          `@binding(${b.binding}) in group ${b.group} is used by "${prev}" and "${b.name}".`,
+          TS_CODES.UNSUPPORTED,
+        ),
+      )
     } else seen.set(key, b.name)
   }
   return out
@@ -125,7 +126,9 @@ function fromCall(
       : undefined)
   if (!type) return undefined
   if (kind === 'uniform' && !isConst) {
-    diagnostics.push(diag(sourceFile, call, `uniform "${name}" must be const. Use const ${name} = uniform<T>().`))
+    diagnostics.push(
+      diag(sourceFile, call, `uniform "${name}" must be const. Use const ${name} = uniform<T>().`),
+    )
     return undefined
   }
   let group = 0
@@ -161,13 +164,13 @@ function parseOptions(obj: ts.ObjectLiteralExpression): {
       out[key] = Number(prop.initializer.text)
     }
     if (key === 'access' && ts.isStringLiteral(prop.initializer)) {
-      if (prop.initializer.text === 'read' || prop.initializer.text === 'read_write') out.access = prop.initializer.text
+      if (prop.initializer.text === 'read' || prop.initializer.text === 'read_write')
+        out.access = prop.initializer.text
     }
   }
   return out
 }
 
 function diag(sourceFile: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  return { message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error', code: TS_CODES.UNSUPPORTED }
+  return makeDiagnostic(sourceFile, node, message, TS_CODES.UNSUPPORTED)
 }

@@ -10,6 +10,8 @@ import { mapTsTypeToShaderType } from '../type-map.js'
 import { numericMismatch } from '../numeric.js'
 import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
+import { makeDiagnostic } from '../diagnostic.js'
+import { TS_CODES, type TsCode } from '../codes.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusEqualsToken]: '+',
@@ -54,21 +56,41 @@ export function lowerStatement(
   if (ts.isSwitchStatement(node)) return lowerSwitch(node, sourceFile, scope, diagnostics)
   if (ts.isBreakStatement(node)) {
     if (!scope.inLoop()) {
-      pushDiag(diagnostics, sourceFile, node, 'break is only valid inside a loop or switch.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        'break is only valid inside a loop or switch.',
+        TS_CODES.BREAK_OUTSIDE,
+      )
       return undefined
     }
     return { s: 'break' }
   }
   if (ts.isContinueStatement(node)) {
     if (!scope.inLoop()) {
-      pushDiag(diagnostics, sourceFile, node, 'continue is only valid inside a loop.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        'continue is only valid inside a loop.',
+        TS_CODES.BREAK_OUTSIDE,
+      )
       return undefined
     }
     return { s: 'continue' }
   }
-  if (ts.isVariableStatement(node)) return lowerVariableStatement(node, sourceFile, scope, diagnostics)
-  if (ts.isExpressionStatement(node)) return lowerExpressionStatement(node, sourceFile, scope, diagnostics)
-  pushDiag(diagnostics, sourceFile, node, `Unsupported statement "${truncate(node.getText(sourceFile))}".`)
+  if (ts.isVariableStatement(node))
+    return lowerVariableStatement(node, sourceFile, scope, diagnostics)
+  if (ts.isExpressionStatement(node))
+    return lowerExpressionStatement(node, sourceFile, scope, diagnostics)
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Unsupported statement "${truncate(node.getText(sourceFile))}".`,
+    TS_CODES.UNSUPPORTED,
+  )
   return undefined
 }
 
@@ -96,7 +118,13 @@ function lowerVariableStatement(
   const isConst = (flags & ts.NodeFlags.Const) !== 0
   const isLet = (flags & ts.NodeFlags.Let) !== 0
   if (!isConst && !isLet) {
-    pushDiag(diagnostics, sourceFile, node, 'Use "const" or "let". The JS "var" keyword is not supported.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Use "const" or "let". The JS "var" keyword is not supported.',
+      TS_CODES.UNSUPPORTED,
+    )
     return undefined
   }
   const results: Stmt[] = []
@@ -116,12 +144,24 @@ function lowerVariableDeclaration(
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
   if (!ts.isIdentifier(decl.name)) {
-    pushDiag(diagnostics, sourceFile, decl.name, 'Destructuring is not supported.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.name,
+      'Destructuring is not supported.',
+      TS_CODES.UNSUPPORTED,
+    )
     return undefined
   }
   const name = decl.name.text
   if (scope.hasInCurrent(name)) {
-    pushDiag(diagnostics, sourceFile, decl.name, `Duplicate binding "${name}" in this scope.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.name,
+      `Duplicate binding "${name}" in this scope.`,
+      TS_CODES.DUPLICATE_SYMBOL,
+    )
     return undefined
   }
   let annotated: ShaderType | undefined
@@ -130,7 +170,13 @@ function lowerVariableDeclaration(
     if (!annotated) return undefined
   }
   if (!decl.initializer) {
-    pushDiag(diagnostics, sourceFile, decl, `"${isConst ? 'const' : 'let'} ${name}" requires an initializer.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      `"${isConst ? 'const' : 'let'} ${name}" requires an initializer.`,
+      TS_CODES.UNSUPPORTED,
+    )
     return undefined
   }
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
@@ -143,7 +189,13 @@ function lowerVariableDeclaration(
     }
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
-    pushDiag(diagnostics, sourceFile, decl, numericMismatch(`let/const ${name}`, annotated, init.type))
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      numericMismatch(`let/const ${name}`, annotated, init.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
     return undefined
   }
   const bindingType = annotated ?? init.type
@@ -151,7 +203,13 @@ function lowerVariableDeclaration(
   try {
     scope.define({ kind: 'local', name, type: bindingType, mutable: !isConst, constValue })
   } catch (e) {
-    pushDiag(diagnostics, sourceFile, decl.name, e instanceof Error ? e.message : String(e))
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.name,
+      e instanceof Error ? e.message : String(e),
+      TS_CODES.DUPLICATE_SYMBOL,
+    )
     return undefined
   }
   if (isConst) return { s: 'let', name, expr: init }
@@ -173,9 +231,16 @@ function lowerExpressionStatement(
   }
   if (ts.isBinaryExpression(expr)) {
     const bop = ASSIGN_OP[expr.operatorToken.kind]
-    if (bop !== undefined) return lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics)
+    if (bop !== undefined)
+      return lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics)
   }
-  pushDiag(diagnostics, sourceFile, node, `Unsupported expression statement "${truncate(node.getText(sourceFile))}".`)
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Unsupported expression statement "${truncate(node.getText(sourceFile))}".`,
+    TS_CODES.UNSUPPORTED,
+  )
   return undefined
 }
 
@@ -191,7 +256,13 @@ function lowerAssign(
   const value = lowerExpression(right, sourceFile, scope, diagnostics)
   if (!value) return undefined
   if (typeKey(target.type) !== typeKey(value.type)) {
-    pushDiag(diagnostics, sourceFile, right, numericMismatch(`assign to ${typeKey(target.type)}`, target.type, value.type))
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      numericMismatch(`assign to ${typeKey(target.type)}`, target.type, value.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
     return undefined
   }
   return { s: 'assign', target, expr: value }
@@ -213,7 +284,13 @@ function lowerAssignOp(
     value = { op: 'lit', type: target.type, value: value.value }
   }
   if (typeKey(target.type) !== typeKey(value.type)) {
-    pushDiag(diagnostics, sourceFile, right, numericMismatch(`${bop}=`, target.type, value.type))
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      numericMismatch(`${bop}=`, target.type, value.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
     return undefined
   }
   return { s: 'assignOp', target, bop, expr: value }
@@ -229,11 +306,23 @@ function lowerLValue(
     const baseName = ts.isIdentifier(node.expression) ? node.expression.text : undefined
     const binding = baseName ? scope.resolve(baseName) : undefined
     if (binding?.kind === 'param') {
-      pushDiag(diagnostics, sourceFile, node, `Cannot write through parameter "${baseName}" — parameters are not writable. Use a local or storage.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Cannot write through parameter "${baseName}" — parameters are not writable. Use a local or storage.`,
+        TS_CODES.ASSIGN_TARGET,
+      )
       return undefined
     }
     if (binding && !binding.mutable) {
-      pushDiag(diagnostics, sourceFile, node, `Cannot assign to "${baseName}" — it is declared with const.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Cannot assign to "${baseName}" — it is declared with const.`,
+        TS_CODES.CONST_ASSIGN,
+      )
       return undefined
     }
     const idx = lowerExpression(node, sourceFile, scope, diagnostics)
@@ -241,17 +330,35 @@ function lowerLValue(
     return idx
   }
   if (!ts.isIdentifier(node)) {
-    pushDiag(diagnostics, sourceFile, node, 'Assignment target must be a simple identifier.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Assignment target must be a simple identifier.',
+      TS_CODES.ASSIGN_TARGET,
+    )
     return undefined
   }
   const binding = scope.resolve(node.text)
   if (!binding) {
-    pushDiag(diagnostics, sourceFile, node, `Cannot assign to unknown name "${node.text}".`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to unknown name "${node.text}".`,
+      TS_CODES.ASSIGN_TARGET,
+    )
     return undefined
   }
   if (!binding.mutable) {
     const ro = binding.kind === 'module' ? 'read-only resource or const' : 'declared with const'
-    pushDiag(diagnostics, sourceFile, node, `Cannot assign to "${node.text}" — it is ${ro}.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${node.text}" — it is ${ro}.`,
+      TS_CODES.CONST_ASSIGN,
+    )
     return undefined
   }
   if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
@@ -267,7 +374,13 @@ function lowerIf(
   const cond = lowerExpression(node.expression, sourceFile, scope, diagnostics)
   if (!cond) return undefined
   if (typeKey(cond.type) !== 'bool') {
-    pushDiag(diagnostics, sourceFile, node.expression, `if condition must be bool, got ${typeKey(cond.type)}.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      `if condition must be bool, got ${typeKey(cond.type)}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
     return undefined
   }
   const thenBody = lowerBranch(node.thenStatement, sourceFile, scope, diagnostics)
@@ -314,9 +427,9 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   message: string,
+  code: TsCode,
 ): void {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }
 
 function truncate(s: string, n = 60): string {

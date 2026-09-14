@@ -3,7 +3,13 @@ import type { Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
-import { expectedArity, isCanonicalMathFn, resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js'
+import {
+  expectedArity,
+  isCanonicalMathFn,
+  resolveMathConst,
+  resolveMathExpand,
+  resolveMathFn,
+} from '../math-alias.js'
 import { SCALAR_CAST } from '../numeric.js'
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS } from './expression-prop.js'
@@ -16,11 +22,25 @@ import {
   lowerUserCall,
   mathResultType,
 } from './expression-misc.js'
+import { makeDiagnostic } from '../diagnostic.js'
+import { TS_CODES, type TsCode } from '../codes.js'
 
 const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' | 'f64' }>> = {
-  vec2: { n: 2, elem: 'f32' }, vec2f: { n: 2, elem: 'f32' }, vec2i: { n: 2, elem: 'i32' }, vec2u: { n: 2, elem: 'u32' }, vec2f64: { n: 2, elem: 'f64' },
-  vec3: { n: 3, elem: 'f32' }, vec3f: { n: 3, elem: 'f32' }, vec3i: { n: 3, elem: 'i32' }, vec3u: { n: 3, elem: 'u32' }, vec3f64: { n: 3, elem: 'f64' },
-  vec4: { n: 4, elem: 'f32' }, vec4f: { n: 4, elem: 'f32' }, vec4i: { n: 4, elem: 'i32' }, vec4u: { n: 4, elem: 'u32' }, vec4f64: { n: 4, elem: 'f64' },
+  vec2: { n: 2, elem: 'f32' },
+  vec2f: { n: 2, elem: 'f32' },
+  vec2i: { n: 2, elem: 'i32' },
+  vec2u: { n: 2, elem: 'u32' },
+  vec2f64: { n: 2, elem: 'f64' },
+  vec3: { n: 3, elem: 'f32' },
+  vec3f: { n: 3, elem: 'f32' },
+  vec3i: { n: 3, elem: 'i32' },
+  vec3u: { n: 3, elem: 'u32' },
+  vec3f64: { n: 3, elem: 'f64' },
+  vec4: { n: 4, elem: 'f32' },
+  vec4f: { n: 4, elem: 'f32' },
+  vec4i: { n: 4, elem: 'i32' },
+  vec4u: { n: 4, elem: 'u32' },
+  vec4f64: { n: 4, elem: 'f64' },
 }
 
 export function lowerCall(
@@ -40,30 +60,63 @@ export function lowerCall(
       viaMath = true
       const jsName = callee.name.text
       if (resolveMathConst(jsName) !== undefined) {
-        pushDiag(diagnostics, sourceFile, node, `"Math.${jsName}" is a constant, not a function.`)
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `"Math.${jsName}" is a constant, not a function.`,
+          TS_CODES.UNSUPPORTED,
+        )
         return undefined
       }
       if (jsName === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
-      if (resolveMathExpand(jsName)) return lowerExpandCall(jsName, node, sourceFile, scope, diagnostics)
+      if (resolveMathExpand(jsName))
+        return lowerExpandCall(jsName, node, sourceFile, scope, diagnostics)
       intrinsicId = resolveMathFn(jsName)
       if (!intrinsicId) {
-        pushDiag(diagnostics, sourceFile, node, `"Math.${jsName}(...)" is not a TypeShade Math alias.`)
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `"Math.${jsName}(...)" is not a TypeShade Math alias.`,
+          TS_CODES.UNKNOWN_NAME,
+        )
         return undefined
       }
     } else if (callee.name.text === 'swizzle') {
       return lowerSwizzleCall(node, callee.expression, sourceFile, scope, diagnostics)
     } else if (JS_ARRAY_METHODS.has(callee.name.text)) {
-      pushDiag(diagnostics, sourceFile, node, `JS Array method ".${callee.name.text}" is not a shader op. Use sum/min/any/all/zip/fill.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `JS Array method ".${callee.name.text}" is not a shader op. Use sum/min/any/all/zip/fill.`,
+        TS_CODES.UNSUPPORTED,
+      )
       return undefined
     } else {
-      pushDiag(diagnostics, sourceFile, node, 'Method calls are not supported. Use free functions.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        'Method calls are not supported. Use free functions.',
+        TS_CODES.UNSUPPORTED,
+      )
       return undefined
     }
   } else if (ts.isIdentifier(callee)) {
     const name = callee.text
     if (name === 'array') return lowerArrayCtor(node, sourceFile, scope, diagnostics)
     if (name === 'fill') return lowerFill(node, sourceFile, scope, diagnostics)
-    if (name === 'sum' || name === 'min' || name === 'max' || name === 'any' || name === 'all' || name === 'none' || name === 'zip') {
+    if (
+      name === 'sum' ||
+      name === 'min' ||
+      name === 'max' ||
+      name === 'any' ||
+      name === 'all' ||
+      name === 'none' ||
+      name === 'zip'
+    ) {
       const folded = lowerArrayFold(name, node, sourceFile, scope, diagnostics)
       if (folded !== 'fallback') return folded
     }
@@ -71,7 +124,8 @@ export function lowerCall(
     ctor = VEC_CTOR[name]
     if (!ctor) {
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
-      if (resolveMathExpand(name)) return lowerExpandCall(name, node, sourceFile, scope, diagnostics)
+      if (resolveMathExpand(name))
+        return lowerExpandCall(name, node, sourceFile, scope, diagnostics)
       if (name === 'mod' || isCanonicalMathFn(name)) intrinsicId = name
       else {
         const decl = scope.resolveCallee(name)
@@ -90,7 +144,11 @@ export function lowerCall(
   if (ctor) {
     if (args.length === 1 && isVectorCtorScalar(args[0]!.type, ctor.elem)) {
       const splat = args[0]!
-      return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args: Array.from({ length: ctor.n }, () => splat) }
+      return {
+        op: 'construct',
+        type: vectorCtorType(ctor.n, ctor.elem),
+        args: Array.from({ length: ctor.n }, () => splat),
+      }
     }
     // fp64 lowering represents vecN<f64> as DF64VecN, while the constructor
     // contract is component-based. Flatten vec64 arguments here so the fp64 pass
@@ -99,28 +157,58 @@ export function lowerCall(
     // an f64 operand.
     const ctorArgs = ctor.elem === 'f64' ? flattenF64VectorArgs(args) : args
     if (vectorComponentCount(ctorArgs) !== ctor.n) {
-      pushDiag(diagnostics, sourceFile, node, 'Vector constructor component count mismatch.')
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        'Vector constructor component count mismatch.',
+        TS_CODES.ARITY_MISMATCH,
+      )
       return undefined
     }
     const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, ctor.elem))
     if (badArg) {
-      pushDiag(diagnostics, sourceFile, node, `Vector constructor element type mismatch: expected ${ctor.elem}.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Vector constructor element type mismatch: expected ${ctor.elem}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
     }
     return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args: ctorArgs }
   }
 
   if (!intrinsicId) {
-    pushDiag(diagnostics, sourceFile, node, `Unknown function "${node.getText(sourceFile)}". Function calls (Phase 6) need a visible callee.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Unknown function "${node.getText(sourceFile)}". Function calls (Phase 6) need a visible callee.`,
+      TS_CODES.UNKNOWN_FN,
+    )
     return undefined
   }
   const arity = expectedArity(intrinsicId) ?? (intrinsicId === 'mod' ? 2 : undefined)
   if (arity !== undefined && args.length !== arity) {
-    pushDiag(diagnostics, sourceFile, node, `${viaMath ? 'Math.' : ''}${intrinsicId} expects ${arity} argument(s), got ${args.length}.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${viaMath ? 'Math.' : ''}${intrinsicId} expects ${arity} argument(s), got ${args.length}.`,
+      TS_CODES.ARITY_MISMATCH,
+    )
     return undefined
   }
   if (args.length === 0) {
-    pushDiag(diagnostics, sourceFile, node, `Call "${intrinsicId}" needs at least one argument.`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Call "${intrinsicId}" needs at least one argument.`,
+      TS_CODES.ARITY_MISMATCH,
+    )
     return undefined
   }
   return { op: 'call', type: mathResultType(intrinsicId, args), fn: intrinsicId, args }
@@ -167,7 +255,7 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   message: string,
+  code: TsCode,
 ): void {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }

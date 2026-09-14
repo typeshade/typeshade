@@ -4,6 +4,8 @@ import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { TS_CODES } from './codes.js'
+import { makeDiagnostic } from './diagnostic.js'
+import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
 
 export type CollectedStruct = {
   readonly decl: StructDecl
@@ -19,6 +21,7 @@ export function collectStructs(
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue
     for (const d of stmt.modifiers ?? []) {
       if (!ts.isDecorator(d)) continue
+      checkAttributeName(diagnostics, sourceFile, d)
       const text = d.getText(sourceFile)
       if (/@std140/.test(text) || /@align/.test(text)) {
         diagnostics.push(diag(sourceFile, d, `${text.split('(')[0]} on a class is not applied.`))
@@ -30,24 +33,33 @@ export function collectStructs(
     const fields: StructField[] = []
     for (const member of stmt.members) {
       if (ts.isMethodDeclaration(member) || ts.isConstructorDeclaration(member)) {
-        diagnostics.push(diag(sourceFile, member, `Data class "${stmt.name.text}" cannot have methods.`))
+        diagnostics.push(
+          diag(sourceFile, member, `Data class "${stmt.name.text}" cannot have methods.`),
+        )
         continue
       }
       if (!ts.isPropertyDeclaration(member) || !ts.isIdentifier(member.name)) continue
       for (const d of member.modifiers ?? []) {
         if (!ts.isDecorator(d)) continue
+        checkAttributeName(diagnostics, sourceFile, d)
         const text = d.getText(sourceFile)
         if (/@align/.test(text)) {
           diagnostics.push(diag(sourceFile, d, `@align on a field is not applied.`))
         }
       }
       const type = member.type
-        ? mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ?? structT(member.type.getText(sourceFile))
+        ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
+          structT(member.type.getText(sourceFile)))
         : undefined
       if (!type) continue
       const field: StructField = { name: member.name.text, type }
       const loc = numberDecorator(member, 'location')
-      const builtin = stringDecorator(member, 'builtin')
+      const decos = ts.canHaveDecorators(member) ? (ts.getDecorators(member) ?? []) : []
+      const builtinArg = builtinDecoratorArg(decos)
+      const builtin =
+        builtinArg && checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
+          ? builtinArg.name
+          : undefined
       if (loc !== undefined) (field as { location?: number }).location = loc
       if (builtin) (field as { builtin?: string }).builtin = builtin
       if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
@@ -69,17 +81,6 @@ function numberDecorator(node: ts.Node, name: string): number | undefined {
   return undefined
 }
 
-function stringDecorator(node: ts.Node, name: string): string | undefined {
-  for (const d of ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : []) {
-    if (!ts.isCallExpression(d.expression)) continue
-    if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name) continue
-    const a = d.expression.arguments[0]
-    if (a && (ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a))) return a.text
-  }
-  return undefined
-}
-
 function diag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
-  const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
-  return { message, fileName: sf.fileName, line: line + 1, character: character + 1, category: 'error', code: TS_CODES.STRUCT_FIELD }
+  return makeDiagnostic(sf, node, message, TS_CODES.STRUCT_FIELD)
 }

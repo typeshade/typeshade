@@ -11,6 +11,8 @@ import { retargetIntLit } from '../lit-coerce.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { lowerCall } from './expression-call.js'
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js'
+import { makeDiagnostic } from '../diagnostic.js'
+import { TS_CODES, type TsCode } from '../codes.js'
 
 const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusToken]: '+',
@@ -45,25 +47,44 @@ export function lowerExpression(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  if (ts.isParenthesizedExpression(node)) return lowerExpression(node.expression, sourceFile, scope, diagnostics)
+  if (ts.isParenthesizedExpression(node))
+    return lowerExpression(node.expression, sourceFile, scope, diagnostics)
   if (ts.isIdentifier(node)) return lowerIdentifier(node, sourceFile, scope, diagnostics)
   if (ts.isNumericLiteral(node)) return { op: 'lit', type: f32T, value: Number(node.text) }
   if (node.kind === ts.SyntaxKind.TrueKeyword) return { op: 'lit', type: boolT, value: true }
   if (node.kind === ts.SyntaxKind.FalseKeyword) return { op: 'lit', type: boolT, value: false }
   if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
-    if (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) {
-      pushDiag(diagnostics, sourceFile, node, '++/-- is a statement, not a value.')
+    if (
+      node.operator === ts.SyntaxKind.PlusPlusToken ||
+      node.operator === ts.SyntaxKind.MinusMinusToken
+    ) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        '++/-- is a statement, not a value.',
+        TS_CODES.UNSUPPORTED,
+      )
       return undefined
     }
-    if (ts.isPrefixUnaryExpression(node)) return lowerPrefixUnary(node, sourceFile, scope, diagnostics)
+    if (ts.isPrefixUnaryExpression(node))
+      return lowerPrefixUnary(node, sourceFile, scope, diagnostics)
   }
-  if (ts.isObjectLiteralExpression(node)) return lowerObjectLiteral(node, sourceFile, scope, diagnostics)
+  if (ts.isObjectLiteralExpression(node))
+    return lowerObjectLiteral(node, sourceFile, scope, diagnostics)
   if (ts.isBinaryExpression(node)) return lowerBinary(node, sourceFile, scope, diagnostics)
   if (ts.isCallExpression(node)) return lowerCall(node, sourceFile, scope, diagnostics)
-  if (ts.isPropertyAccessExpression(node)) return lowerPropertyAccess(node, sourceFile, scope, diagnostics)
+  if (ts.isPropertyAccessExpression(node))
+    return lowerPropertyAccess(node, sourceFile, scope, diagnostics)
   if (ts.isElementAccessExpression(node)) return lowerIndex(node, sourceFile, scope, diagnostics)
   if (ts.isConditionalExpression(node)) return lowerSelect(node, sourceFile, scope, diagnostics)
-  pushDiag(diagnostics, sourceFile, node, `Unsupported expression "${node.getText(sourceFile)}".`)
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Unsupported expression "${node.getText(sourceFile)}".`,
+    TS_CODES.UNSUPPORTED,
+  )
   return undefined
 }
 
@@ -77,7 +98,13 @@ function lowerIdentifier(
   if (!binding) {
     const c = resolveLangConst(node.text)
     if (c !== undefined) return { op: 'lit', type: f32T, value: c }
-    pushDiag(diagnostics, sourceFile, node, `Unknown identifier "${node.text}".`)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Unknown identifier "${node.text}".`,
+      TS_CODES.UNKNOWN_NAME,
+    )
     return undefined
   }
   if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
@@ -93,15 +120,28 @@ function lowerPrefixUnary(
 ): Expr | undefined {
   const operand = lowerExpression(node.operand, sourceFile, scope, diagnostics)
   if (!operand) return undefined
-  if (node.operator === ts.SyntaxKind.MinusToken) return { op: 'unop', type: operand.type, a: operand }
+  if (node.operator === ts.SyntaxKind.MinusToken)
+    return { op: 'unop', type: operand.type, a: operand }
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
     if (typeKey(operand.type) !== 'bool') {
-      pushDiag(diagnostics, sourceFile, node, `Unary "!" requires a bool operand, got ${typeKey(operand.type)}.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Unary "!" requires a bool operand, got ${typeKey(operand.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
     }
-    return { op: 'compare', type: boolT, cop: '==', a: operand, b: { op: 'lit', type: boolT, value: false } }
+    return {
+      op: 'compare',
+      type: boolT,
+      cop: '==',
+      a: operand,
+      b: { op: 'lit', type: boolT, value: false },
+    }
   }
-  pushDiag(diagnostics, sourceFile, node, 'Unsupported unary operator.')
+  pushDiag(diagnostics, sourceFile, node, 'Unsupported unary operator.', TS_CODES.UNSUPPORTED)
   return undefined
 }
 
@@ -126,7 +166,13 @@ function lowerBinary(
       if (mixed) return mixed
     }
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, numericMismatch('add/sub/mul/div/%', left.type, right.type))
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        numericMismatch('add/sub/mul/div/%', left.type, right.type),
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
     }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
@@ -134,7 +180,13 @@ function lowerBinary(
   const bit = BITWISE[node.operatorToken.kind]
   if (bit !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, numericMismatch('bitwise', left.type, right.type))
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        numericMismatch('bitwise', left.type, right.type),
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
     }
     return { op: 'binop', type: left.type, bop: bit, a: left, b: right }
@@ -142,7 +194,13 @@ function lowerBinary(
   const log = LOGICAL[node.operatorToken.kind]
   if (log !== undefined) {
     if (typeKey(left.type) !== 'bool' || typeKey(right.type) !== 'bool') {
-      pushDiag(diagnostics, sourceFile, node, `Logical "${log}" requires bool operands.`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Logical "${log}" requires bool operands.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
     }
     return { op: 'logical', type: boolT, lop: log, a: left, b: right }
@@ -150,20 +208,35 @@ function lowerBinary(
   const cmp = COMPARE[node.operatorToken.kind]
   if (cmp !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
-      pushDiag(diagnostics, sourceFile, node, numericMismatch('compare', left.type, right.type))
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        numericMismatch('compare', left.type, right.type),
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right }
   }
-  if (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken || node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken) {
-    pushDiag(diagnostics, sourceFile, node, 'Use strict equality === / !==.')
+  if (
+    node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken
+  ) {
+    pushDiag(diagnostics, sourceFile, node, 'Use strict equality === / !==.', TS_CODES.UNSUPPORTED)
     return undefined
   }
   if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
-    pushDiag(diagnostics, sourceFile, node, 'Unsigned right shift >>> is not supported.')
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Unsigned right shift >>> is not supported.',
+      TS_CODES.UNSUPPORTED,
+    )
     return undefined
   }
-  pushDiag(diagnostics, sourceFile, node, 'Unsupported binary operator.')
+  pushDiag(diagnostics, sourceFile, node, 'Unsupported binary operator.', TS_CODES.UNSUPPORTED)
   return undefined
 }
 
@@ -172,9 +245,9 @@ function pushDiag(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   message: string,
+  code: TsCode,
 ): void {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-  diagnostics.push({ message, fileName: sourceFile.fileName, line: line + 1, character: character + 1, category: 'error' })
+  diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }
 
 export function exprType(expr: Expr): ShaderType {

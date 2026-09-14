@@ -137,6 +137,33 @@ export type WgslBuiltinName =
   | 'subgroup_size'
   | 'clip_distances'
 
+/** Every {@link WgslBuiltinName} value as a runtime array. The type above is a type-only union
+ *  with no runtime witness, so a caller that needs the vocabulary at runtime — the compiler
+ *  front end's `@builtin(...)` allow-list check, or an editor's completion/hover list — reads
+ *  this instead of retyping the literals. Kept immediately next to the type it mirrors so the
+ *  two are edited together; `language-service/ambient.test.ts` parses this file's AST and
+ *  cross-checks this array against the `WgslBuiltinName` union itself.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
+export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
+  'vertex_index',
+  'instance_index',
+  'position',
+  'front_facing',
+  'frag_depth',
+  'sample_index',
+  'sample_mask',
+  'local_invocation_id',
+  'local_invocation_index',
+  'global_invocation_id',
+  'workgroup_id',
+  'num_workgroups',
+  'subgroup_invocation_id',
+  'subgroup_size',
+  'clip_distances',
+]
+
 /** Attribute a field or an entry-point parameter with a `@builtin(<name>)`, the value the
  *  pipeline supplies to the shader. The same helper serves an
  *  {@link ioStruct} field map and an {@link fn} param record.
