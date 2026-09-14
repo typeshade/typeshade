@@ -241,12 +241,19 @@ function eachTypeName(node: ts.Node, f: (name: string) => void): void {
 
 /** The candidate names a program actually USES as a struct.
  *
- *  The roots are every type reference outside a candidate's own body: a `declare` binding's
- *  `uniform<T>` / `storage<T>` argument, a parameter or return annotation, a local
- *  annotation, a class field's type — anywhere a type can be written. From there it closes
- *  over the fields of the candidates already reached, so a struct referenced only as another
- *  struct's field is found too. A name nothing mentions stays exactly as invisible as it was
- *  before interfaces and aliases were collected at all. */
+ *  The roots are the places a type is CONSUMED: a `declare` binding's `uniform<T>` /
+ *  `storage<T>` argument, a parameter or return annotation, a local annotation, a class
+ *  field's type, a module const's annotation. From there it closes over the fields of the
+ *  candidates already reached, so a struct referenced only as another struct's field is found
+ *  too. A name nothing consumes stays exactly as invisible as it was before interfaces and
+ *  aliases were collected at all.
+ *
+ *  What is NOT a root is another TYPE DECLARATION. `type Params = Config` mentions `Config`
+ *  and consumes nothing, and rooting on it made a dead alias enough to pull a host-shaped
+ *  `Config` into the collector: `type Config = { seed: number }` next to an unused
+ *  `type Params = Config` compiles on main and reported TS8002 here. The same went for
+ *  `Config[]`, `Config | undefined` and `Readonly<Config>` — every way a declaration can name
+ *  a type without a value ever having it. */
 function reachableCandidates(
   sourceFile: ts.SourceFile,
   candidates: ReadonlyMap<string, Candidate>,
@@ -259,7 +266,11 @@ function reachableCandidates(
     pending.push(name)
   }
   for (const stmt of sourceFile.statements) {
-    if (candidateOf(stmt)) continue
+    // Every type DECLARATION is skipped, not just the candidates: an alias or an interface
+    // that mentions a name is describing a type, not using one, and a chain of dead aliases
+    // must not make a candidate reachable. A candidate's own members are walked below,
+    // through the fixpoint, and only once something has actually reached it.
+    if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue
     eachTypeName(stmt, see)
   }
   while (pending.length > 0) {

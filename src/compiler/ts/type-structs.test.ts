@@ -354,6 +354,82 @@ describe('shapes a WGSL struct has no form for', () => {
   })
 })
 
+describe('only a CONSUMPTION site makes a candidate reachable', () => {
+  // The gate exists so a host-shaped `type Config = { seed: number }` stays as invisible as it
+  // was before aliases were collected at all. Its first version rooted on every type reference
+  // outside a candidate, which made a DEAD ALIAS enough: `type Params = Config` mentions
+  // `Config`, consumes nothing, and pulled it in. Each of these compiles on main.
+  const HOST = 'type Config = { seed: number }\n'
+  const TAIL = '\nexport function f(): f32 {\n  return 1.;\n}'
+
+  it('a declaration that only NAMES a candidate does not reach it', () => {
+    for (const dead of [
+      'type Params = Config',
+      'type List = Config[]',
+      'type Maybe = Config | undefined',
+      'type RO = Readonly<Config>',
+      'interface Holder {\n  c: Config\n}',
+    ]) {
+      const r = compileTsSource(`"use typeshade";\n${HOST}${dead}${TAIL}`)
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+      expect(r.structs.map((x) => x.decl.name)).toEqual([])
+    }
+  })
+
+  it('every place a type is actually consumed still reaches it', () => {
+    const P = 'type P = {\n  a: f32\n}\n'
+    for (const live of [
+      'export function f(p: P): f32 {\n  return p.a;\n}',
+      'export function f(): P {\n  return { a: 1. };\n}',
+      'declare const u: uniform<P>\nexport function f(): f32 {\n  return u.a;\n}',
+      'export function f(): f32 {\n  const p: P = { a: 1. };\n  return p.a;\n}',
+    ]) {
+      const r = compileTsSource(`"use typeshade";\n${P}${live}`)
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+      expect(r.structs.map((x) => x.decl.name)).toEqual(['P'])
+    }
+  })
+
+  it('reaches through a field of something consumed, from a class as well as an alias', () => {
+    const viaAlias = compileTsSource(`"use typeshade";
+      type Inner = {
+        x: f32
+      }
+      type Outer = {
+        i: Inner
+      }
+      declare const u: uniform<Outer>
+      export function f(): f32 {
+        return u.i.x;
+      }
+    `)
+    expect(viaAlias.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(viaAlias.structs.map((x) => x.decl.name).sort()).toEqual(['Inner', 'Outer'])
+
+    const viaClass = compileTsSource(`"use typeshade";
+      type Inner = {
+        x: f32
+      }
+      class C {
+        i: Inner
+      }
+      declare const u: uniform<C>
+      export function f(): f32 {
+        return u.i.x;
+      }
+    `)
+    expect(viaClass.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(viaClass.structs.map((x) => x.decl.name).sort()).toEqual(['C', 'Inner'])
+  })
+
+  it('still reports a host-shaped alias that IS consumed', () => {
+    const r = compileTsSource(
+      `"use typeshade";\n${HOST}export function f(p: Config): f32 {\n  return 1.;\n}`,
+    )
+    expect(r.diagnostics.some((d) => d.code === 'TS8002')).toBe(true)
+  })
+})
+
 describe('inheritance drops fields, so it is refused', () => {
   const EXTENDS = `
     declare const u: uniform<B>

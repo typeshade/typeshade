@@ -112,14 +112,19 @@ Forbidden on these classes:
 - methods that close over `declare` resources
 - `@compute` / `@vertex` / `@fragment` methods
 - constructors, `this` as a pipeline
+- no fields at all — a struct with an empty field list has no WGSL form
+- a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
 
 Pure methods that only read `this` fields may land later as free functions. Not in the first class slice.
 
 A struct is collected only when something **uses** it: a `declare` binding's `uniform<T>` /
 `storage<T>` argument, a parameter, return or local annotation, or a field of another struct
-that is itself used. A `type` or `interface` declaration nothing refers to is not a shader
-type at all — it may be a host-side shape (`type Opts = { seed: number }`) — and is left
-alone, neither checked nor emitted. A `class` is always collected, as it always has been.
+that is itself used. Naming it in another TYPE declaration is not using it — `type Params =
+Config`, `Config[]`, `Config | undefined` and `Readonly<Config>` all describe a type rather
+than consume one, so none of them makes `Config` a shader struct. A `type` or `interface`
+declaration nothing consumes is not a shader type at all — it may be a host-side shape
+(`type Opts = { seed: number }`) — and is left alone, neither checked nor emitted. A `class`
+is always collected, as it always has been.
 
 One name, one declaration. A second class, interface or type alias of the same name is an
 error, **including two interfaces**, which TypeScript itself would merge: the merged layout
