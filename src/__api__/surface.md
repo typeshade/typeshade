@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 381 exports
+## `.` — 382 exports
 
 ```
 abs
@@ -71,6 +71,7 @@ condExpr
 constDecl
 ConstDecl
 constExpr
+ConstExprDecl
 ConstHandle
 constRef
 construct
@@ -462,7 +463,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 226 exports
+## `./core/ir` — 227 exports
 
 ```
 abs
@@ -497,6 +498,7 @@ CmpOp
 condExpr
 ConstDecl
 constExpr
+ConstExprDecl
 constRef
 construct
 Continue
@@ -693,7 +695,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 435 definitions
+## Shapes — 436 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -788,6 +790,7 @@ src/core/intrinsics.ts#isKnownIntrinsic  const  (name: string) => boolean
 src/core/intrinsics.ts#spellIntrinsic  function  (target: IntrinsicTarget, name: string, args: readonly string[]) => string
 src/core/ir/builder.ts#Break  const  () => void
 src/core/ir/builder.ts#Builder  class  { addAssign: <K extends string>(target: Node<K>, value: ArithArg<K>) => void; assign: <K extends string>(target: ReadonlyNode<K>, value: ReadonlyNode<K>) => void; assignOp: <K extends string>(target: ReadonlyNode<K>, bop: BinOp, value: ArithArg<K>) => void; autoName: () => string; autoNames: { n: number; }; break: () => void; child: () => Builder; continue: () => void; discard: () => void; forRange: { <K extends string>(init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (b: Builder, i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; <K extends string>(name: string, init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (b: Builder, i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; }; if: (cond: ReadonlyNode<"bool">, body: (b: Builder) => void | ReadonlyNode<string>) => IfChain; inferredVar: () => { ref: (type: ShaderType) => Node<string>; commit: (type: ShaderType) => void; cancel: () => void; }; let: { <K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>; <K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>; }; placeholder: (tag: string) => void; push: (s: Stmt) => void; raw: (payload: RawPayload) => void; ret: (value?: ReadonlyNode<string>) => void; stmts: Stmt[]; switch: (scrut: ReadonlyNode<"i32" | "u32">, cases: [number, (b: Builder) => void | ReadonlyNode<string>][], defaultBody?: (b: Builder) => void | ReadonlyNode<string>) => void; var: { <T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>; <T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>; } }
+src/core/ir/builder.ts#ConstExprDecl  interface  { cpuValue: number; name: string; node: ReadonlyNode<KeyOf<T>>; type: ShaderType; valueExpr?: Expr; wgslValue: number }
 src/core/ir/builder.ts#Continue  const  () => void
 src/core/ir/builder.ts#Discard  const  () => void
 src/core/ir/builder.ts#ExternFn  type  { (args: { readonly [K in keyof P]: number | ReadonlyNode<KeyOf<P[K]>>; }): Node<KeyOf<R>>; (...args: NodeLike[]): Node<KeyOf<R>>; }
@@ -808,7 +811,7 @@ src/core/ir/builder.ts#SwitchChain  class  { case: (value: number, body: () => v
 src/core/ir/builder.ts#UsesHandle  type  { readonly struct: StructDecl; readonly binding: BindingDecl; } | { readonly decl: ConstDecl | StructDecl; } | { readonly binding: BindingDecl; readonly elementDecl?: StructDecl; }
 src/core/ir/builder.ts#Var  function  { <K extends string>(init: ReadonlyNode<K>): Node<K>; <T extends ShaderType>(type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>; <T extends ShaderType>(name: string, type: T, init?: ReadonlyNode<KeyOf<T>>): Node<KeyOf<T>>; <K extends string>(name: string, init: ReadonlyNode<K>): Node<K>; }
 src/core/ir/builder.ts#condExpr  function  <K extends string>(arms: readonly (readonly [ReadonlyNode<"bool">, () => ReadonlyNode<K>])[], elseVal: () => ReadonlyNode<K>) => Node<K>
-src/core/ir/builder.ts#constExpr  function  (name: string, type: ShaderType, value: Node<string>) => ConstDecl
+src/core/ir/builder.ts#constExpr  function  <T extends ShaderType>(name: string, type: T, value: Node<string>) => ConstExprDecl<T>
 src/core/ir/builder.ts#externFn  function  <P extends ParamSpec, R extends ShaderType>(name: string, params: P, ret: R) => ExternFn<P, R>
 src/core/ir/builder.ts#externVar  function  <T extends ShaderType>(name: string, type: T, opts?: { spelling?: { wgsl?: string; glsl?: string; }; stage?: "vertex" | "fragment" | "compute"; }) => ExternVarHandle<KeyOf<T>>
 src/core/ir/builder.ts#fn  function  { <P extends FnParamSpec, R extends string>(params: P, body: FnBodyValue<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec, R extends string>(name: string, params: P, body: FnBodyValue<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec>(params: P, body: FnBodyVoid<P>, opts?: FnOpts): FnHandle<P, "void">; <P extends FnParamSpec>(name: string, params: P, body: FnBodyVoid<P>, opts?: FnOpts): FnHandle<P, "void">; <P extends FnParamSpec, T extends ShaderType>(params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; <P extends FnParamSpec, T extends ShaderType>(name: string, params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; }

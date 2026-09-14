@@ -30,6 +30,7 @@ import {
   f32,
   i32,
   u32,
+  constRef,
   overrideRef,
   externRef,
   installStmtSink,
@@ -1306,6 +1307,23 @@ export function module(parts: ModuleParts): ModuleDecl {
   return parts.enables ? { ...decl, enables: parts.enables } : decl
 }
 
+/** What {@link constExpr} returns: the `ConstDecl` itself, so it drops straight into
+ *  `module({ consts })`, carrying `node` — the typed reference to read the constant through at
+ *  call sites. Reading through `.node` is what makes a rename or a retype of the constant a
+ *  `tsc` error rather than a `constRef('NAME', someType)` string that agrees with nothing.
+ *
+ *  `node` is non-enumerable: the declaration is spread, compared and serialized on its way to
+ *  the emitted module, and it stays exactly the object it was.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @typeParam T The constant's `ShaderType`, which types `node`'s key.
+ */
+export interface ConstExprDecl<T extends ShaderType> extends ConstDecl {
+  /** The typed reference to read the constant through at call sites. */
+  readonly node: ReadonlyNode<KeyOf<T>>
+}
+
 /** Author a module-level constant from an IR value expression: the form for a constant that
  *  is not a plain scalar. `value` is any constant-foldable literal node, a `vec4(...)`, an
  *  `arrayLit(...)`, a struct constructor. It emits `const <name>: <type> = <value>;` on both
@@ -1320,10 +1338,17 @@ export function module(parts: ModuleParts): ModuleDecl {
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
+ *  The declaration carries `.node`, the typed reference to read it through, so the name is
+ *  written once. Without it a reader is spelled `constRef('SKY', vec4fT)` — a string the type
+ *  checker never compares against the declaration, and a second copy of the type, so a rename
+ *  or a retype is silent at every call site until the GPU compiler sees it.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
  *  @param name - the emitted constant name, and the name every reference spells.
  *  @param type - the constant's shader type, emitted as its declared type.
  *  @param value - a constant-foldable literal node holding the value.
- *  @returns the `ConstDecl` to put in `module({ consts })`.
+ *  @returns the `ConstDecl` to put in `module({ consts })`, carrying `.node`.
  *
  *  @example
  *  ```ts
@@ -1331,13 +1356,31 @@ export function module(parts: ModuleParts): ModuleDecl {
  *
  *  const SKY = constExpr('SKY', vec4fT, vec4(0.4, 0.6, 0.9, 1))
  *  const PALETTE = constExpr('PALETTE', arrayT(vec4fT, 2), arrayLit(vec4fT, c0, c1))
+ *
+ *  const bg = fn('bg', {}, () => SKY.node) // no constRef('SKY', vec4fT)
+ *  const m = module({ consts: [SKY], funcs: [bg] })
  *  ```
  *
  *  @see {@link constDecl} for a scalar constant with a separate CPU value.
  *  @see {@link module} for where the returned declaration goes.
  */
-export function constExpr(name: string, type: ShaderType, value: Node): ConstDecl {
-  return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
+export function constExpr<T extends ShaderType>(
+  name: string,
+  type: T,
+  value: Node,
+): ConstExprDecl<T> {
+  const decl = { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
+  // #8 B6 — `node` is NON-ENUMERABLE on purpose. The returned object IS the ConstDecl that
+  // goes into `module({ consts })` and from there into the emitted module, where it is spread,
+  // compared and serialized; an enumerable extra field carrying a whole Expr would show up in
+  // every one of those. Non-enumerable keeps the declaration byte-for-byte the object it was
+  // while still answering `SKY.node`.
+  Object.defineProperty(decl, 'node', {
+    value: constRef(name, type),
+    enumerable: false,
+    configurable: true,
+  })
+  return decl as unknown as ConstExprDecl<T>
 }
 
 /** Author a raw statement, the escape hatch that splices verbatim text into a function body.
