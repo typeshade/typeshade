@@ -50,7 +50,9 @@ function expectedOpening(s: Stmt): RegExp {
       return /^continue\b/
     case 'let':
     case 'var':
-      return new RegExp(`^${s.name}\\b|^let\\s+${s.name}\\b`)
+      // A single-declarator statement spans the whole thing, keyword included; one declarator
+      // of several spans just itself, and a `for` header's `init` keeps its own `let`.
+      return new RegExp(`^(const\\s+|let\\s+)?${s.name}\\b`)
     default:
       return /^\S/
   }
@@ -99,8 +101,8 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
 
   it('stops on each statement of vs, in the order they are written', () => {
     expect(walk(module, src, 'vs', [1])).toEqual([
-      'x = -0.8',
-      'y = -0.8',
+      'let x = -0.8',
+      'let y = -0.8',
       'if (i === 1) {\n    x = 0.8\n  }',
       'x = 0.8',
       'if (i === 2) {\n    x = 0.\n    y = 0.8\n  }',
@@ -110,8 +112,8 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
 
   it('takes the other branch for another invocation, and skips neither if', () => {
     expect(walk(module, src, 'vs', [2])).toEqual([
-      'x = -0.8',
-      'y = -0.8',
+      'let x = -0.8',
+      'let y = -0.8',
       'if (i === 1) {\n    x = 0.8\n  }',
       'if (i === 2) {\n    x = 0.\n    y = 0.8\n  }',
       'x = 0.',
@@ -173,10 +175,10 @@ describe('compute-reduction-twin.shade.ts — stepping one compute invocation', 
       precision: 'f64',
     })
     expect(trace.slice(0, 6)).toEqual([
-      'idx = gid.x',
+      'const idx = gid.x',
       'if (idx >= params.x) {\n    return\n  }',
-      'base = idx * 8',
-      'sum = 0.',
+      'const base = idx * 8',
+      'let sum = 0.',
       'for (let j: u32 = 0; j < 8; j++) {\n    sum = sum + input[base + j]\n  }',
       'let j: u32 = 0',
     ])
@@ -203,7 +205,11 @@ describe('compute-reduction-twin.shade.ts — stepping one compute invocation', 
       bindings: bindingsFor(out),
       precision: 'f64',
     })
-    expect(trace).toEqual(['idx = gid.x', 'if (idx >= params.x) {\n    return\n  }', 'return'])
+    expect(trace).toEqual([
+      'const idx = gid.x',
+      'if (idx >= params.x) {\n    return\n  }',
+      'return',
+    ])
     expect(out).toEqual([0])
   })
 
