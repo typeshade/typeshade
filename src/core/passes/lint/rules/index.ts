@@ -29,6 +29,7 @@ import { smoothstepEdgeOrder } from './smoothstep-edge-order.js'
 import { fragmentOnlyBuiltin } from './fragment-only-builtin.js'
 import { portableKernel } from './portable-kernel.js'
 import { noShadowedLocal } from './no-shadowed-local.js'
+import { usesDeclared } from './uses-declared.js'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -57,6 +58,7 @@ export const RULES: readonly LintRule[] = [
   fragmentOnlyBuiltin,
   portableKernel,
   noShadowedLocal,
+  usesDeclared,
 ]
 
 export {
@@ -84,6 +86,7 @@ export {
   fragmentOnlyBuiltin,
   portableKernel,
   noShadowedLocal,
+  usesDeclared,
 }
 
 /** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules

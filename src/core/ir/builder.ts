@@ -269,10 +269,14 @@ export class Builder {
 
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
    *  top-to-bottom. The If stmt is pushed on the first call and mutated in
-   *  place by subsequent .elif/.else. */
+   *  place by subsequent .elif/.else.
+   *
+   *  A branch is a statement block, so a body that RETURNS a value is rejected with `SD0115`
+   *  rather than having that value quietly dropped. Write `Return(value)` for an early return,
+   *  {@link when} for a value, or assign to a `Var`. */
   if(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
     const arms: Array<{ cond: Expr; body: Stmt[] }> = [
-      { cond: cond.expr, body: subBody(this, body, 'If body') },
+      { cond: cond.expr, body: subBody(this, body, 'If body', 'If') },
     ]
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
@@ -376,14 +380,16 @@ export class IfChain {
     private readonly arms: Array<{ cond: Expr; body: Stmt[] }>,
     private readonly setElse: (body: Stmt[]) => void,
   ) {}
-  /** Add an `else if (cond) { body }` arm. Returns the chain. */
+  /** Add an `else if (cond) { body }` arm. Returns the chain. A body that returns a value is
+   *  rejected with `SD0115`, as for {@link Builder.if}. */
   elif(cond: ReadonlyNode<'bool'>, body: (b: Builder) => ReadonlyNode | void): IfChain {
-    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body, 'elif body') })
+    this.arms.push({ cond: cond.expr, body: subBody(this.parent, body, 'elif body', 'elif') })
     return this
   }
-  /** Add the `else { body }` block and end the chain. */
+  /** Add the `else { body }` block and end the chain. A body that returns a value is rejected
+   *  with `SD0115`, as for {@link Builder.if}. */
   else(body: (b: Builder) => ReadonlyNode | void): void {
-    this.setElse(subBody(this.parent, body, 'else body'))
+    this.setElse(subBody(this.parent, body, 'else body', 'else'))
   }
 }
 
@@ -454,14 +460,21 @@ function tagAuthoringError(e: unknown, tag: symbol, prefix: string): void {
   }
 }
 
-function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void, kind?: string): Stmt[] {
+function subBody(
+  parent: Builder,
+  fn: (b: Builder) => ReadonlyNode | void,
+  kind?: string,
+  // #8 B4 — the branch spelling this body belongs to (`If`, `elif`, `else`). Present means
+  // a returned value is REPORTED rather than dropped; see the throw below.
+  branch?: string,
+): Stmt[] {
   // child() shares the parent's auto-name counter, so an omitted binding name inside this
   // nested scope keeps incrementing the same `_v{n}` sequence (no inner-shadows-outer).
   const b = parent.child()
   // A control-flow body does NOT capture a native `return value`: `If(c, () => x)` would
   // then be an INVISIBLE early return that reads as fall-through. Early returns are
   // explicit — `ReturnIf(cond, value)` (a guard clause) or `Return()` inside the branch.
-  withScope(b, () => {
+  const result = withScope(b, () => {
     try {
       return fn(b)
     } catch (e) {
@@ -470,6 +483,17 @@ function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void, kind?
       throw e
     }
   })
+  // #8 B4 — dropping that value SILENTLY is the part worth fixing. `If(c, () => Return(f32(1)))`
+  // and `If(c, () => f32(1))` differ by three characters and by everything else: the second
+  // computes a value nothing reads, and emits an empty `if` block. Nothing downstream can
+  // report it — by the time the module exists the value is gone — so it is reported here,
+  // where the callback's return is still in hand.
+  if (branch !== undefined && isNodeValue(result)) {
+    throw dslError(
+      'SD0115',
+      `the ${branch} body returned a ${typeKey(result.type)} value, which is dropped — a branch is a statement block, not an expression`,
+    )
+  }
   return b.stmts
 }
 
@@ -1686,11 +1710,17 @@ export const Discard = (): void => currentBuilder().discard()
  *  callback only exits that closure; for an early return from the branch write
  *  {@link Return} or {@link ReturnIf}.
  *
+ *  Because that value goes nowhere, a body that returns one is rejected with `SD0115` instead
+ *  of being accepted as an empty branch: `If(c, () => f32(1))` differs from
+ *  `If(c, () => Return(f32(1)))` by three characters and by everything else. For a value,
+ *  reach for {@link when}.
+ *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  *
  *  @param cond - the branch condition.
  *  @param body - the statements of the branch, authored through the ambient functions.
  *  @returns the chain, for `.elif` and `.else`.
+ *  @throws `SD0115` when the body returns a value.
  *
  *  @example
  *  ```ts

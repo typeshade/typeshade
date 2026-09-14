@@ -219,6 +219,20 @@ export const CODES = {
     summary: 'a fn whose body returns nothing at the TypeScript level returns a value at run time',
     hint: 'name the return type in the fn() call — fn(name, params, <type>, body) — so the handle carries the key its callers need',
   },
+
+  // ── The two silent-acceptance diagnostics of #8 B4 ──
+  // Both name a module that assembles, validates and emits today, and fails at the driver or
+  // computes the wrong thing. Neither moves an emitted byte: they report what is already there.
+  SD0114: {
+    code: 'SD0114',
+    summary: 'a variable a function reads has no declaration in the module',
+    hint: 'add the handle that owns it to module({ uses: [...] }) — a uniformStruct or storageBuffer left out of `uses` emits no var declaration, and the module is rejected at pipeline creation',
+  },
+  SD0115: {
+    code: 'SD0115',
+    summary: 'a branch body returned a value, which a branch cannot carry out',
+    hint: 'an If/elif/else body is a statement block: write Return(value) for an early return, when(cond, () => a, () => b) for a value, or assign to a Var',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
 /** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived
