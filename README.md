@@ -52,7 +52,7 @@ Install it from npm:
 npm install typeshade
 ```
 
-The tarball ships compiled ESM with type declarations — `import { compile } from 'typeshade'` needs no TypeScript toolchain — alongside the `.ts` sources the declaration maps point at, so "go to definition" lands on real source. The public subpaths are `typeshade`, `typeshade/dev`, `typeshade/compute`, `typeshade/emit-prod`, `typeshade/core/ir`, `typeshade/examples` and `typeshade/language-service`. `typescript` is an optional peer dependency, needed only by `typeshade/language-service`.
+The tarball ships compiled ESM with type declarations — `import { compile } from 'typeshade'` needs no TypeScript toolchain — alongside the `.ts` sources the declaration maps point at, so "go to definition" lands on real source. The public subpaths are `typeshade`, `typeshade/dev`, `typeshade/compute`, `typeshade/emit-prod`, `typeshade/core/ir`, `typeshade/examples` and `typeshade/language-service`. `typescript` is a peer dependency (`>=5.0.0 <6`) and npm installs it for you: `compile()` is a TypeScript front end, so the main entry needs the parser at run time. TypeScript 7 is excluded deliberately — its `ts.SyntaxKind` is not the one this compiler reads, and the package throws on import against it.
 
 For repository development, or to pin a commit rather than a version, add TypeShade as a git submodule and compile it in place:
 
@@ -162,7 +162,9 @@ bun run test
 bun run gate:compile
 ```
 
-`dist/` is gitignored. `bun run build` writes it: `dist/src/…` and `dist/examples/…`, mirroring the source tree. `bun run manifest:publish` prints the manifest the npm tarball carries — the same `exports` map rewritten onto those paths — and reports any entry point the build did not produce.
+`dist/` is gitignored. `bun run build` writes it: `dist/src/…`, `dist/examples/…` and `dist/shade.d.ts`, mirroring the source tree. `bun run manifest:publish` prints the manifest the npm tarball carries — the same `exports` map rewritten onto those paths — and reports any entry point the build did not produce.
+
+Releases are cut by creating a GitHub release; [`RELEASING.md`](./RELEASING.md) is the checklist and [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) does the work.
 
 The compile gate hands emitted shader code to the real target compilers and browser contexts used by the project. [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the build, tests and compile gate on pushes and pull requests.
 

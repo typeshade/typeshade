@@ -28,6 +28,30 @@ this package was split out of and is not part of this repository, so everything 
 `### 2026-09` heading is the generated monorepo-era history and is left exactly as it was
 generated — including its `shader-dsl` scope names and its `X-GIS/X-GIS` pull request links.
 
+#### feat
+
+- the package ships built output. `tsc --build` emits `dist/src/…`, `dist/examples/…` and
+  `dist/shade.d.ts`; the manifest inside the npm tarball is derived from the repository's own
+  `exports` map by `scripts/publish-manifest.ts` and points every subpath at it. In this
+  repository, and for a submodule consumer, `exports` still resolves to `./src/*.ts`.
+- `./shade`, a types-only subpath resolving to `dist/shade.d.ts` — the ambient authoring
+  declarations, written out of `SHADE_DTS` at build time — so a `tsc` user outside the language
+  service can put `"types": ["typeshade/shade"]` in a `lib: []` project. README has what it does
+  and does not cover.
+- releases are cut by creating a GitHub release: `.github/workflows/publish.yml` re-runs CI,
+  builds, verifies the tag against `package.json`, proves the packed tarball installs and
+  imports, and publishes with provenance. `RELEASING.md` is the checklist.
+
+#### fix
+
+- **BREAKING for installers** `typescript` is a REQUIRED peer dependency, pinned to
+  `>=5.0.0 <6`. It was marked optional on the premise that only `./language-service` needed it;
+  `src/index.ts` re-exports `compile` from `src/compiler/ts/source-file.ts`, which imports
+  `typescript` at module scope, so `import { emitModule } from 'typeshade'` failed with
+  `ERR_MODULE_NOT_FOUND` on a clean install. The upper bound is measured too: `>=5.0.0` let npm
+  resolve TypeScript 7.0.2, whose default export has no `SyntaxKind`, and the package threw at
+  module load. No source changed — the manifest was describing the package wrongly.
+
 #### chore
 
 - the package publishes as `typeshade`. `package.json` `name`, the `Exported from ...` JSDoc line

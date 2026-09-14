@@ -1,0 +1,162 @@
+name: publish
+
+# Publishing `typeshade` to npm. One trigger: a GitHub release. Creating the release IS the
+# publish — there is no manual `npm publish` step for a human to get wrong, and no long-lived
+# credential on anybody's laptop.
+#
+# WHY THE GATES RUN AGAIN HERE, when CI already ran them on the commit. Because npm forbids
+# republishing a version: one bad upload burns 0.1.0 permanently, and the next release has to
+# be 0.1.1 with an explanation. The gates are cheap and the mistake is not. `verify` below
+# CALLS ci.yml rather than restating it (`workflow_call`), so "the same checks as CI" is
+# literally the same file and cannot drift into a weaker copy.
+#
+# WHAT IT PUBLISHES. Not the manifest in the tree: `scripts/publish-manifest.ts --write`
+# rewrites `exports` onto dist/ first, because the repository's map resolves to ./src/*.ts and
+# a consumer installing from npm has no TypeScript toolchain promised to them. That script is
+# invoked HERE, deliberately, and not as a `prepack` hook — `self-contained.test.ts` S4 forbids
+# pack/publish lifecycle scripts, since `prepack` also runs inside `npm pack` and would let a
+# read-only operation mutate a working tree. The checkout this runs in is thrown away.
+#
+# AUTHENTICATION — trusted publishing by default, NPM_TOKEN as a fallback. See RELEASING.md
+# for the one-time setup of either. Trusted publishing (npm's OIDC flow) is the default
+# because it needs no stored credential at all: npm verifies the `id-token` below against a
+# publisher the package owner registers once on npmjs.com, naming this repository and this
+# workflow file. Nothing to leak, nothing to rotate, and no token sitting in repository
+# secrets for every future workflow to read. If an `NPM_TOKEN` secret IS set, the step below
+# writes it to .npmrc and npm uses it instead — kept as a fallback because trusted publishing
+# needs npm >= 11.5.1 and a publisher registered before the first release, and a release that
+# fails on either is a tag already pushed with nothing on the registry.
+#
+# RENAMING THIS FILE BREAKS TRUSTED PUBLISHING. The registered publisher names the workflow
+# filename. Rename it and the OIDC exchange is refused until the publisher is re-registered.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run every gate and pack the tarball, but do not upload it'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The type check, unit suite and compile gate, from ci.yml itself.
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: pack, verify the tarball, publish
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Both the provenance attestation and trusted publishing exchange this for a registry
+      # credential. Without it `--provenance` fails and the OIDC flow is not attempted.
+      id-token: write
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A release event's ref is the tag, but say so rather than relying on it: a
+          # workflow_dispatch run would otherwise pack whatever is on the default branch.
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Trusted publishing needs npm >= 11.5.1; the runner's bundled npm is 10.x.
+      - name: Upgrade npm
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - run: bun install
+
+      - name: The tag must equal package.json's version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json','utf8')).version")
+          echo "tag=$TAG  package.json=$VERSION"
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::release tag '$TAG' does not match package.json version '$VERSION'." \
+                 "Expected the tag 'v$VERSION'. Nothing was published; fix the version or the" \
+                 "tag and cut the release again. See RELEASING.md."
+            exit 1
+          fi
+
+      - run: bun run build
+
+      - name: Rewrite the manifest onto dist/
+        run: bun scripts/publish-manifest.ts --write
+
+      - name: Pack, and record what is in the tarball
+        run: |
+          set -euo pipefail
+          npm pack --dry-run 2>&1 | sed -e 's/^npm notice //' | tee /tmp/pack.txt
+          npm pack --pack-destination /tmp --silent
+          {
+            echo '### Tarball'
+            echo
+            echo '```'
+            grep -E 'name:|version:|filename:|package size:|unpacked size:|total files:' /tmp/pack.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The last chance to catch a tarball that cannot be imported. npm has no un-publish, so
+      # a resolution failure found here is a cancelled release; found by a user, it is a
+      # burned version number.
+      - name: The packed tarball must install and import
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/verify && cd /tmp/verify
+          echo '{"name":"verify","version":"1.0.0","private":true,"type":"module"}' > package.json
+          npm install --silent /tmp/typeshade-*.tgz
+          node --input-type=module -e "
+            const subpaths = ['typeshade', 'typeshade/dev', 'typeshade/compute', 'typeshade/emit-prod',
+                              'typeshade/core/ir', 'typeshade/examples', 'typeshade/language-service']
+            for (const s of subpaths) {
+              const m = await import(s)
+              console.log(\`ok   \${s} — \${Object.keys(m).length} exports\`)
+            }
+            const { compile } = await import('typeshade')
+            const r = compile('\"use typeshade\"\nexport function f(x: f32): f32 { return x * x }\n')
+            const errors = r.diagnostics.filter((d) => d.category === 'error')
+            if (errors.length > 0) throw new Error('compile() failed: ' + JSON.stringify(errors))
+            if (!r.wgsl || !r.wgsl.includes('fn f')) throw new Error('no WGSL emitted')
+            console.log('ok   compile() emitted WGSL')
+          "
+
+      - name: Configure npm auth from NPM_TOKEN
+        if: env.NPM_TOKEN != ''
+        run: |
+          echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" >> ~/.npmrc
+          echo "Publishing with the NPM_TOKEN secret (trusted publishing not used)."
+
+      - name: Publish to npm
+        if: env.DRY_RUN != 'true'
+        run: npm publish --provenance --access public
+
+      - name: Dry run — not published
+        if: env.DRY_RUN == 'true'
+        run: |
+          npm publish --provenance --access public --dry-run
+          echo "Dry run: nothing was uploaded." >> "$GITHUB_STEP_SUMMARY"
