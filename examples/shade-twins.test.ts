@@ -5,8 +5,9 @@
 // something checks that they agree; until there was a twin, the sentence was aspirational.
 // `examples/PORTING.md` (landed in #12) classifies which of the 36 examples the compiler
 // accepts as source today, and why the rest are blocked. This suite is what a twin written
-// from that classification is FOR. One is registered so far — `compute-reduction-twin`.
-// `gradient` was held by #14 until that landed; it is registered in its own change.
+// from that classification is FOR. Two are registered here: `compute-reduction-twin`, and
+// `gradient-twin`, which #14 held back until a binding read lowered to a `varref` rather than
+// a `constref`, the defect that had `reflect()` blanking every binding's `stages`.
 //
 // Three jobs, in increasing strength:
 //
