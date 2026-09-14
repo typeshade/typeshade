@@ -97,3 +97,10 @@ entry-point signatures).
 - **Render gate** — `playground/e2e/_shader-dsl-examples-render.spec.ts` compiles + links + draws
   each renderable example on a real WebGL2 context (packing the UBO from `reflect()`) and reads
   back a non-blank, varying frame.
+
+## Porting status
+
+[`PORTING.md`](./PORTING.md) classifies all 36 EDSL examples by whether they can be written
+in `"use typeshade"` today, with the blocking feature and its [issue #8](https://github.com/typeshade/typeshade/issues/8)
+item for each. Two port today; the rest are waiting on language-surface work, weighted by how
+many examples each missing feature holds up.
