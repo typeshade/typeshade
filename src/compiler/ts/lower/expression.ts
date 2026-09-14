@@ -11,6 +11,7 @@ import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { lowerCall } from './expression-call.js'
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js'
 import { makeDiagnostic } from '../diagnostic.js'
+import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
 const ARITH: Readonly<Record<number, BinOp>> = {
@@ -72,7 +73,14 @@ export function lowerExpression(
   if (ts.isObjectLiteralExpression(node))
     return lowerObjectLiteral(node, sourceFile, scope, diagnostics)
   if (ts.isBinaryExpression(node)) return lowerBinary(node, sourceFile, scope, diagnostics)
-  if (ts.isCallExpression(node)) return lowerCall(node, sourceFile, scope, diagnostics)
+  if (ts.isCallExpression(node)) {
+    const call = lowerCall(node, sourceFile, scope, diagnostics)
+    // The one expression kind that carries a span in this increment: stepping into a helper
+    // has to tell two calls in one statement apart. A call that lowered to something else —
+    // an intrinsic the front end expands, a constructor — keeps no span, since the node it
+    // produced is no longer a call site.
+    return call?.op === 'call' ? withSpan(call, sourceFile, node) : call
+  }
   if (ts.isPropertyAccessExpression(node))
     return lowerPropertyAccess(node, sourceFile, scope, diagnostics)
   if (ts.isElementAccessExpression(node)) return lowerIndex(node, sourceFile, scope, diagnostics)

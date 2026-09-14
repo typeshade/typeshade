@@ -6,6 +6,7 @@ import { findUseTypeshadeDirective, USE_TYPESHADE } from './directive.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
+import { checkRecursion, type RecursionNode } from './recursion.js'
 import { TS_CODES } from './codes.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 import type { DeclaredSymbol } from './symbols.js'
@@ -212,6 +213,13 @@ export function compileTsSources(
     }
   }
 
+  // There are TWO multi-file compilers — this one and `module.ts`'s — and #48's first fix
+  // reached only the other. `doc-snippets.test.ts` certifies every multi-file example in the
+  // README and docs through THIS one, so a recursive snippet here emitted WGSL Tint refuses
+  // with zero diagnostics while the same source through `module.ts` was rejected. The graph is
+  // built the same way there: canonical name is the EMITTED name, and the resolver goes
+  // through each file's `callees` so an import alias still resolves.
+  const graph: RecursionNode[] = []
   for (const [name, sf] of parsed) {
     const bag = stubs.get(name)
     if (!bag) continue
@@ -220,7 +228,7 @@ export function compileTsSources(
     for (const [fnName, rec] of bag) callees.set(fnName, rec.stub)
     // Positional: `fillFunctionBody`'s consts/bindings/structs keep their defaults here.
     const sink = name === entry ? symbols : undefined
-    for (const rec of bag.values())
+    for (const rec of bag.values()) {
       fillFunctionBody(
         rec.node,
         rec.stub,
@@ -232,7 +240,15 @@ export function compileTsSources(
         undefined,
         sink,
       )
+      graph.push({
+        name: rec.stub.name,
+        decl: rec.node,
+        sourceFile: sf,
+        resolve: (callee: string) => callees.get(callee)?.name,
+      })
+    }
   }
+  checkRecursion(graph, diagnostics)
 
   const consts = collectModuleConsts(entrySf, diagnostics, symbols)
   const entryBag = stubs.get(entry) ?? new Map()

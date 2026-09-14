@@ -1,23 +1,20 @@
 // === Function lowering: two-pass signatures then bodies ===
 
 import ts from 'typescript'
-import type {
-  BindingDecl,
-  FuncDecl,
-  Stmt,
-  Expr,
-  StructDecl,
-  OverrideDecl,
-} from '../../../core/ir/nodes.js'
+import type { BindingDecl, FuncDecl, Stmt, Expr, OverrideDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
+import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope } from '../context.js'
+import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
 import { makeDiagnostic } from '../diagnostic.js'
+import { spanOf } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { checkRecursion } from '../recursion.js'
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -31,7 +28,7 @@ export function lowerSourceFunctions(
   diagnostics: TsCompilerDiagnostic[],
   consts: readonly { name: string; type: ShaderType }[] = [],
   bindings: readonly BindingDecl[] = [],
-  structs: readonly StructDecl[] = [],
+  structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
   overrides: readonly OverrideDecl[] = [],
 ): FuncDecl[] {
@@ -71,6 +68,18 @@ export function lowerSourceFunctions(
     )
     funcs.push(stub)
   }
+  // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
+  // downstream of here was looking for one. In a single file a function is called by the name
+  // it is declared under, so the graph key and the resolver are both just `callees`.
+  checkRecursion(
+    ready.map((stmt) => ({
+      name: stmt.name!.text,
+      decl: stmt,
+      sourceFile,
+      resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+    })),
+    diagnostics,
+  )
   return funcs
 }
 
@@ -92,7 +101,7 @@ export function parseSignature(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-  structs: readonly StructDecl[] = [],
+  structs: readonly CollectedStruct[] = [],
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
     pushDiag(
@@ -248,6 +257,11 @@ export function parseSignature(
     )
   }
   const decl: FuncDecl = { name, params, ret, body: [] }
+  // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
+  // function's span covers its `@fragment` line; `nameSpan` is just the identifier, for a
+  // stack frame that highlights the name rather than the whole body.
+  ;(decl as { span?: SourceSpan }).span = spanOf(sourceFile, node)
+  ;(decl as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, node.name)
   if (stageInfo.stage) (decl as { stage?: FuncDecl['stage'] }).stage = stageInfo.stage
   if (stageInfo.workgroupSize !== undefined) {
     ;(decl as { workgroupSize?: number }).workgroupSize = stageInfo.workgroupSize
@@ -276,12 +290,12 @@ export function fillFunctionBody(
   callees: Map<string, FuncDecl>,
   consts: readonly { name: string; type: ShaderType }[] = [],
   bindings: readonly BindingDecl[] = [],
-  structs: readonly StructDecl[] = [],
+  structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
   overrides: readonly OverrideDecl[] = [],
 ): void {
   const scope = new LoweringScope(callees, symbols)
-  scope.setStructs(structs)
+  scope.setStructs(structs.map((s) => s.decl))
   for (const c of consts) {
     scope.define({
       kind: 'module',
@@ -297,6 +311,7 @@ export function fillFunctionBody(
       name: b.name,
       type: b.type,
       mutable: b.access === 'read_write',
+      space: b.space,
     })
   }
   // An override reads as an `overrideref`, which no pass folds: its value arrives when the
@@ -431,21 +446,29 @@ function checkStructBuiltinFields(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   structName: string,
-  structs: readonly StructDecl[],
+  structs: readonly CollectedStruct[],
   stage: BuiltinStage,
   direction: 'input' | 'output',
 ): void {
-  const decl = structs.find((s) => s.name === structName)
-  if (!decl) return
-  for (const field of decl.fields) {
+  const collected = structs.find((s) => s.decl.name === structName)
+  if (!collected) return
+  // Only a class can carry the decorator the message asks for: writing `@location(0)` on an
+  // interface or type-literal member is a TypeScript syntax error, so telling that author to
+  // add one names a fix they cannot apply. Say what they can do instead.
+  const remedy =
+    collected.spelling === 'class'
+      ? `WGSL requires every entry ${direction} struct member to declare one.`
+      : `WGSL requires every entry ${direction} struct member to declare one, and ` +
+        `${collected.spelling === 'interface' ? 'an interface' : 'a type alias'} member cannot ` +
+        `carry a decorator — declare "${structName}" as a class.`
+  for (const field of collected.decl.fields) {
     if (!field.builtin && field.location === undefined) {
       pushDiag(
         diagnostics,
         sourceFile,
         node,
         `Struct "${structName}" field "${field.name}" is used as a ${stage} ${direction} but ` +
-          `has neither @builtin(...) nor @location(...): WGSL requires every entry ${direction} ` +
-          `struct member to declare one.`,
+          `has neither @builtin(...) nor @location(...): ${remedy}`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       )
       continue

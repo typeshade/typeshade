@@ -3,14 +3,16 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { fn, overrideConst } from '../../core/ir/builder.js'
-import { resource } from '../../core/sot.js'
-import { f32, textureSample } from '../../core/ir/node.js'
+import { resource, uniformStruct } from '../../core/sot.js'
+import { f32, textureSample, vec3 } from '../../core/ir/node.js'
 import {
   f32T,
+  mat4x4fT,
   samplerT,
   texture2dArrayfT,
   vec2fT,
   vec3fT,
+  vec3uT,
   vec3f64T,
   vec4fT,
   typeKey,
@@ -78,6 +80,8 @@ function normalizeExpr(e: Expr): unknown {
       return { op: 'overrideref', type: typeKey(e.type), name: e.name }
     case 'call':
       return { op: 'call', type: typeKey(e.type), fn: e.fn, args: e.args.map(normalizeExpr) }
+    case 'construct':
+      return { op: 'construct', type: typeKey(e.type), args: e.args.map(normalizeExpr) }
     case 'binop':
       return {
         op: 'binop',
@@ -212,6 +216,39 @@ describe('IR equality: use typeshade vs fn()', () => {
     const quality = overrideConst('quality', f32T, 0.5)
     const edsl = fn('q', {}, f32T, () => quality.node)
 
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a type-alias struct matches the EDSL uniformStruct decl', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      type Camera = {
+        view: mat4;
+        pos: vec3;
+      }
+      declare const cam: uniform<Camera>
+      export function f(): vec3 {
+        return cam.pos;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = uniformStruct(
+      'Camera',
+      { group: 0, binding: 0, as: 'cam' },
+      { view: mat4x4fT, pos: vec3fT },
+    )
+    expect(tsResult.structs[0]!.decl).toEqual(edsl.struct)
+  })
+
+  it('vec3f(v) matches the EDSL vec3(v) element-converting constructor', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function widen(v: vec3u): vec3 {
+        return vec3f(v);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('widen', { v: vec3uT }, vec3fT, ({ v }) => vec3(v))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

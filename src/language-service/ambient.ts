@@ -94,8 +94,23 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
     )
   }
   lines.push(`declare function ${name}(scalar: number): ${type}`)
+  // The element-CONVERTING form (#8 A8): one whole vector of this constructor's own size and
+  // a different element kind. The compiler's rule (`isConvertibleVector`) is exactly "native
+  // vec, same n, different elem", so the overloads are the two other native kinds — and an
+  // `f64` constructor gets none, because an emulated-double vector is a pair of f32 lanes the
+  // fp64 pass assembles rather than a component list to reinterpret.
+  if (elem !== 'f64') {
+    for (const other of NATIVE_VEC_ELEMS) {
+      if (other === elem) continue
+      lines.push(`declare function ${name}(v: ${vecTypeName(other, n)}): ${type}`)
+    }
+  }
   return lines.join('\n')
 }
+
+/** The element kinds a converting constructor accepts on either side. `f64` is deliberately
+ *  absent — see {@link vecCtorOverloads}. */
+const NATIVE_VEC_ELEMS: readonly VecElem[] = ['f32', 'i32', 'u32']
 
 /** The canonical brand-type name for one (element, arity) pair — `vec2`/`vec3`/`vec4` for
  * `f32` (the default element every bare `vecN` name maps to), `vecNi`/`vecNu`/`vecNf64`

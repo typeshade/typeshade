@@ -154,12 +154,14 @@ export function compileTsSource(
   const bindings = collectBindings(sourceFile, diagnostics, symbols)
   const consts = collectModuleConsts(sourceFile, diagnostics, symbols)
   const overrides = collectOverrides(sourceFile, diagnostics, symbols)
+  // The CollectedStructs whole, not their decls: #23's TS8029 names the spelling the author
+  // used (`class`, `interface` or `type`), which only the collected form carries.
   const funcs = lowerSourceFunctions(
     sourceFile,
     diagnostics,
     consts,
     bindings,
-    structs.map((s) => s.decl),
+    structs,
     symbols,
     overrides,
   )
