@@ -1,4 +1,4 @@
-// ═══ Shader DSL — a stepped run of one shader invocation (docs/debugging.md §2.1) ═══
+// ═══ Shader DSL: a stepped run of one shader invocation (docs/debugging.md §2.1) ═══
 //
 // The editor-neutral half of the debugger. It takes a module, an entry point and one
 // invocation's inputs, and hands back an object that stops at statement boundaries and can be
@@ -56,12 +56,19 @@ export interface DebugStackFrame {
   readonly callSpan: SourceSpan | undefined
   /** The statement this frame is stopped on. */
   readonly span: SourceSpan | undefined
-  /** The names in scope in this frame and their current values, copied at the pause.
+  /** The names this frame holds and their current values, copied at the pause.
    *
-   *  The copy is one level deep, which is what the CPU value model makes meaningful: a
-   *  vector is a `number[]` and a struct a plain object, shared by reference so that
-   *  `p.x = …` assigns in place. So a scalar reads as it was at the pause, and a vector or
-   *  struct is a live view of the frame's own storage. Read them before stepping again. */
+   *  The copy is one level deep, which is what the CPU value model makes meaningful: a vector
+   *  is a `number[]` and a struct a plain object, shared by reference so that `p.x = ...`
+   *  assigns in place. So a scalar reads as it was at the pause, and a vector or struct is a
+   *  live view of the frame's own storage. Read them before stepping again.
+   *
+   *  One call's whole environment, NOT a lexical scope. The interpreter keeps one map per
+   *  call, as `oracle.ts` does, so a name declared inside a block stays in it after the block
+   *  ends: a `for` counter, or a local of an `if` body, is still listed with its last value
+   *  once control has left. Per-block scopes would be the fix and are not M2's; until then a
+   *  variables view showing this map is showing what the frame HAS, which is a superset of
+   *  what the next statement can name. */
   readonly locals: ReadonlyMap<string, CpuValue>
   /** The declared type of every name this frame can hold, so {@link formatCpuValue} can render
    *  a local the way its author spelled it. A name absent from `locals` but present here has
@@ -93,14 +100,30 @@ export interface DebugPause {
   /** Why the run stopped: the first statement of the entry, a completed step, or a
    *  breakpoint. */
   readonly reason: 'entry' | 'step' | 'breakpoint'
-  /** Where the statement about to execute was written. Absent for a statement the compiler
-   *  synthesised, such as the counter a `while` loop lowers to. */
-  readonly span: SourceSpan | undefined
+  /** Where the statement about to execute was written.
+   *
+   *  Always present. A statement the compiler synthesised, such as the counter a `while`
+   *  lowers to or a helper `fp64Lower` injects, has no line to show, so a run never stops on
+   *  one; it
+   *  executes between two stops like any other work the author did not write
+   *  (`docs/debugging.md` §3.4). That is also why a module authored through the `fn()` EDSL,
+   *  which carries no spans at all, runs to completion without pausing: there is no source to
+   *  step. */
+  readonly span: SourceSpan
   /** The IR statement about to execute. */
   readonly stmt: Stmt
   /** The call stack, innermost frame first, as a debug adapter reports it. */
   readonly frames: readonly DebugStackFrame[]
-  /** The uniform and storage bindings this run was given, as their own scope. */
+  /** The uniform and storage bindings this run was given, as their own scope.
+   *
+   *  The values SUPPLIED, keyed by declared name, not the module's declared list: a binding the
+   *  caller did not supply is absent here, because it has no value, and reading it during the
+   *  run throws naming it rather than reading as a zero. A name the module does not declare
+   *  cannot appear at all, since `startDebugSession` rejects one.
+   *
+   *  What is NOT checked yet is the shape of a supplied value: a number where a struct is
+   *  declared is stored as given and produces `NaN` when a field of it is read. That check
+   *  belongs with the invocation builder of §4.3 and lands with it. */
   readonly bindings: ReadonlyMap<string, CpuValue>
   /** Each binding's declared type, for the same reason {@link DebugStackFrame.localTypes}
    *  exists. */
@@ -112,11 +135,11 @@ export interface DebugPause {
  *  Exported from `@xgis/shader-dsl/debug`.
  */
 export interface DebugSessionOptions {
-  /** What the arithmetic means. Defaults to `'f32'` here, NOT to `compileModule`'s `'f64'`:
-   *  someone stepping a shader is asking what the GPU computes, and the f64 mode answers a
-   *  different question — it is the algebra reference, blind by construction to the rounding
-   *  that produces most "it looks wrong on the GPU" reports. `docs/debugging.md` open
-   *  question 6 is exactly this default. */
+  /** What the arithmetic means. Defaults to `'f32'`, where `compileModule` defaults to
+   *  `'f64'`, and the difference is deliberate: someone stepping a shader is asking what the
+   *  GPU computes, while the f64 mode answers a different question. It is the algebra
+   *  reference, blind by construction to the rounding that produces most "it looks wrong on
+   *  the GPU" reports. `docs/debugging.md` §5 decision 6 settles this. */
   readonly precision?: CpuPrecision
   /** Accept placeholder values at the GPU-only intrinsics (a texture read, a screen-space
    *  derivative) instead of throwing. Off by default, as on the oracle, because a plausible
@@ -132,12 +155,25 @@ export interface DebugSessionOptions {
   /** Breakpoints to arm before the run starts. {@link DebugSession.setBreakpoints} replaces
    *  them later. */
   readonly breakpoints?: readonly DebugBreakpoint[]
-  /** Stop before the entry's first statement. Default `true`.
+  /** Stop before the entry's first statement. Default `true`; `false` runs to the first
+   *  breakpoint instead.
    *
-   *  `false` runs to the first breakpoint instead — and the entry's own first statement is one
-   *  of the statements that can carry it, so a breakpoint on the first line of a one-line
-   *  entry still fires. A session that merely skipped the entry pause would step over it. */
+   *  Either way a breakpoint on the entry's own first statement fires: the entry pause is
+   *  examined against the armed breakpoints like any other stop, and reports `'breakpoint'`
+   *  when one matches. */
   readonly stopOnEntry?: boolean
+  /** Stop the run after this many statement events, as a guard against a shader that cannot
+   *  finish.
+   *
+   *  A `while (true)` with no reachable exit is a program the front end accepts and neither
+   *  backend can finish, and `continue()` on one does not return: it is an ordinary loop on
+   *  the caller's thread, so there is no timeout and nothing to cancel. A budget turns that
+   *  into an error naming the limit. Unset means unbounded, which is the right default for a
+   *  test; a UI driving a session over a shader someone else wrote should set one.
+   *
+   *  Counted in statements reached, not in statements stopped at, so it bounds the work one
+   *  `continue()` can do rather than the number of pauses it reports. */
+  readonly maxSteps?: number
 }
 
 /** A run of one invocation, stopped at a statement and steppable from there.
@@ -158,14 +194,16 @@ export interface DebugSession {
    *  point during this run, by name. Empty unless `gpuStubs` is on.
    *
    *  A property of the whole run, and cumulative: once `dpdx` appears here it stays, however
-   *  far the run has moved on. It answers "did anything in this session stand in, and what" —
-   *  a banner on the session, a warning in a test. It does NOT say which of the values on
-   *  screen right now are stand-ins, because a name is not a value; that is
-   *  {@link DebugStackFrame.stubbedLocals}, which is what a variables view marks. */
+   *  far the run has moved on. It answers "did anything in this session stand in, and what",
+   *  which is a banner on the session or a warning in a test. It does NOT say which of the
+   *  values on screen are stand-ins, because a name is not a value: after `const d = dpdx(a)`
+   *  it reports `dpdx` and cannot tell `d` from `a`. That is
+   *  {@link DebugStackFrame.stubbedLocals}, the other half of `docs/debugging.md` §2.4, which
+   *  is what a variables view marks. */
   readonly stubbedIntrinsics: readonly string[]
   /** The precision this run is evaluating at, so a UI can say which question it is answering. */
   readonly precision: CpuPrecision
-  /** Run to the next statement in this frame or a caller — over any calls the current
+  /** Run to the next statement in this frame or a caller, over any calls the current
    *  statement makes. */
   stepOver(): DebugPause | undefined
   /** Run to the next statement anywhere, which is the first statement of a callee when the
@@ -202,6 +240,13 @@ export interface DebugSession {
    *  @throws `Error` when the session is not paused, or `frameIndex` names no frame.
    */
   evaluate(expression: string, frameIndex?: number): DebugWatchValue
+  /** Abandon the run without finishing it: the session reports `done`, keeps whatever pause it
+   *  was showing out of `pause`, and every further move is a no-op.
+   *
+   *  What a DAP `terminate` maps onto, and what a UI closing a panel should call. It cannot
+   *  interrupt a `continue()` that is already running, since that is a loop on the same
+   *  thread; {@link DebugSessionOptions.maxSteps} is the guard for that case. */
+  terminate(): void
 }
 
 /** Start a stepped run of one shader invocation.
@@ -217,8 +262,8 @@ export interface DebugSession {
  *  `pause.reason === 'entry'`. Pass `stopOnEntry: false` to run to the first armed breakpoint
  *  instead, which still considers that first statement.
  *
- *  A parameter `args` does not supply reads as the zero of its type — the same default the
- *  Playground's "Run on the CPU" uses — so an invocation can name only the inputs it cares
+ *  A parameter `args` does not supply reads as the zero of its type, the same default the
+ *  Playground's "Run on the CPU" uses, so an invocation can name only the inputs it cares
  *  about.
  *
  *  Exported from `@xgis/shader-dsl/debug`.
@@ -265,7 +310,17 @@ export function startDebugSession(
   if (!decl) throw new Error(`shader-dsl/debug: no function "${entry}" in module`)
 
   const ctx = makeCtx(prepared, opts?.gpuStubs ?? false)
-  for (const [name, value] of Object.entries(opts?.bindings ?? {})) ctx.bindings[name] = value
+  // A name the module does not declare is a typo, not a value: storing it silently means the
+  // real binding stays unsupplied and the run fails later, naming the binding the caller
+  // thought they had just supplied. `ctx.bindingNames` is the declared set.
+  const declared = new Set(m.bindings.map((b) => b.name))
+  for (const [name, value] of Object.entries(opts?.bindings ?? {})) {
+    if (!declared.has(name)) {
+      const known = [...declared].sort().join(', ') || 'none'
+      throw new Error(`shader-dsl/debug: no binding "${name}" in this module; it declares ${known}`)
+    }
+    ctx.bindings[name] = value
+  }
 
   return new Session(
     decl,
@@ -276,6 +331,7 @@ export function startDebugSession(
     opts?.stopOnEntry ?? true,
     new Map(m.bindings.map((b) => [b.name, b.type])),
     prepared,
+    opts?.maxSteps,
   )
 }
 
@@ -298,6 +354,8 @@ class Session implements DebugSession {
   /** Compiled watches, by text and frame shape. Stepping with a watch box open re-asks the
    *  same question at every stop, and the answer changes while the lowering does not. */
   private readonly watches = new Map<string, CompiledWatch>()
+  private readonly maxSteps: number | undefined
+  private steps = 0
 
   constructor(
     decl: FuncDecl,
@@ -308,15 +366,24 @@ class Session implements DebugSession {
     stopOnEntry: boolean,
     bindingTypes: ReadonlyMap<string, ShaderType>,
     prepared: ModuleDecl,
+    maxSteps: number | undefined,
   ) {
     this.ctx = ctx
     this.prepared = prepared
     this.bindingTypes = bindingTypes
     this.precision = precision
     this.breakpoints = breakpoints
+    this.maxSteps = maxSteps
     this.run = runFunction(decl, args, undefined, ctx)
+    // `'entry'` is the reason only when nothing else claims the stop. A breakpoint on the
+    // entry's FIRST statement used to be invisible: the constructor consumed that statement
+    // as the entry pause, so a later `continue()` resumed past it and the breakpoint never
+    // reported. `advance` now prefers `'breakpoint'` whenever one matches, here as on every
+    // other move, which is what makes the `stopOnEntry: false` arm below honest too: it runs
+    // to the first breakpoint, and the entry's own first statement is one of the statements
+    // that can carry one.
     if (stopOnEntry) this.advance('entry', () => true)
-    else this.advance('breakpoint', (_d, span) => this.hits(span))
+    else this.advance('breakpoint', () => false)
   }
 
   get pause(): DebugPause | undefined {
@@ -422,6 +489,11 @@ class Session implements DebugSession {
     return stmt?.s === 'return' && stmt.expr ? { ...w, expr: stmt.expr } : w
   }
 
+  terminate(): void {
+    this.finished = true
+    this.paused = undefined
+  }
+
   stepIn(): DebugPause | undefined {
     return this.advance('step', () => true)
   }
@@ -433,11 +505,18 @@ class Session implements DebugSession {
 
   stepOut(): DebugPause | undefined {
     const depth = this.depth()
-    return this.advance('step', (d) => d < depth)
+    // The post-call arm is what makes this §2.1's step-out rather than "run until the stack is
+    // shallower": it stops the moment this frame's caller has it back, still on the statement
+    // that made the call, so a following `stepIn` enters that statement's next call.
+    return this.advance(
+      'step',
+      (d) => d < depth,
+      (d) => d < depth,
+    )
   }
 
   continue(): DebugPause | undefined {
-    return this.advance('breakpoint', (_d, span) => this.hits(span))
+    return this.advance('breakpoint', () => false)
   }
 
   /** How deep the stack is at the current pause; 1 is the entry frame. */
@@ -445,17 +524,30 @@ class Session implements DebugSession {
     return this.paused?.frames.length ?? 0
   }
 
-  private hits(span: SourceSpan | undefined): boolean {
-    if (span === undefined) return false
+  private hits(span: SourceSpan): boolean {
     return this.breakpoints.some(
       (b) => (b.file === undefined || sameFileName(b.file, span.file)) && b.line === span.line,
     )
   }
 
   /** Pull pauses out of the walk until one satisfies `want`, or the run finishes. */
+  /** Pull events out of the walk until one is worth stopping at, or the run finishes.
+   *
+   *  Three rules, and each is a decision rather than a detail:
+   *
+   *  - **A statement with no span is never a stop.** It still executes; it just has no line to
+   *    show, so stopping there would put an editor's caret nowhere. The counter a `while`
+   *    lowers to is the case that exists today (`docs/debugging.md` §3.4). This is why
+   *    `DebugPause.span` is not optional.
+   *  - **A breakpoint stops any move**, not only `continue`. A breakpoint inside a helper that
+   *    a stepped-over statement calls has to fire, which is what DAP's `next`, `stepIn` and
+   *    `stepOut` all report.
+   *  - **A post-call event is a stop only for `stepOut`.** See {@link StepEvent.afterCall}.
+   */
   private advance(
     reason: DebugPause['reason'],
-    want: (depth: number, span: SourceSpan | undefined) => boolean,
+    want: (depth: number, span: SourceSpan) => boolean,
+    wantAfterCall?: (depth: number) => boolean,
   ): DebugPause | undefined {
     if (this.finished) return undefined
     for (;;) {
@@ -466,10 +558,32 @@ class Session implements DebugSession {
         this.signal = next.value
         return undefined
       }
-      const { stmt, frames } = next.value
+      const { stmt, frames, afterCall } = next.value
+      if (!afterCall && this.maxSteps !== undefined && ++this.steps > this.maxSteps) {
+        this.finished = true
+        this.paused = undefined
+        throw new Error(
+          `shader-dsl/debug: the run reached ${this.maxSteps} statements without finishing ` +
+            `(maxSteps); it is either an unbounded loop or a budget set too low`,
+        )
+      }
       const span = sourceSpanOf(stmt)
-      if (!want(frames.length, span)) continue
-      this.paused = snapshot(reason, stmt, span, frames, this.ctx.bindings, this.bindingTypes)
+      if (afterCall) {
+        if (span === undefined || !wantAfterCall?.(frames.length)) continue
+        this.paused = snapshot('step', stmt, span, frames, this.ctx.bindings, this.bindingTypes)
+        return this.paused
+      }
+      if (span === undefined) continue
+      const hit = this.hits(span)
+      if (!hit && !want(frames.length, span)) continue
+      this.paused = snapshot(
+        hit ? 'breakpoint' : reason,
+        stmt,
+        span,
+        frames,
+        this.ctx.bindings,
+        this.bindingTypes,
+      )
       return this.paused
     }
   }
@@ -479,7 +593,7 @@ class Session implements DebugSession {
 function snapshot(
   reason: DebugPause['reason'],
   stmt: Stmt,
-  span: SourceSpan | undefined,
+  span: SourceSpan,
   frames: readonly StepFrame[],
   bindings: Readonly<Record<string, CpuValue>>,
   bindingTypes: ReadonlyMap<string, ShaderType>,

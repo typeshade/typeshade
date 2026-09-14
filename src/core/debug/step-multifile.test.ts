@@ -133,10 +133,14 @@ describe('stepping across files', () => {
     const out = startDebugSession(program(), 'fs', [], {})
     out.stepIn()
     out.stepIn()
-    expect(out.pause!.span!.file).toBe('lib/util.ts')
+    expect(out.pause!.span.file).toBe('lib/util.ts')
     out.stepOut()
-    expect(out.pause!.span!.file).toBe('app/main.ts')
-    expect(out.pause!.span!.line).toBe(5)
+    // Back in the CALLING file on the CALLING statement, per docs/debugging.md §2.1: a step-out
+    // returns to the statement that made the call with the callee's frame gone, not to the
+    // caller's next statement. Crossing a file boundary does not change that.
+    expect(out.pause!.span.file).toBe('app/main.ts')
+    expect(out.pause!.span.line).toBe(4)
+    expect(out.pause!.frames.map((f) => f.fnName)).toEqual(['fs'])
   })
 
   it('runs to the same answer the whole-program oracle gives', () => {

@@ -13,6 +13,7 @@ import { f32T, type ModuleDecl } from '../ir/index.js'
 import { startDebugSession, type DebugSession } from './session.js'
 import { DebugWatchError } from './watch.js'
 import { formatCpuValue } from './value.js'
+import { stampSpans } from '../testing/stamp-spans.js'
 
 function compiled(source: string): ModuleDecl {
   const r = compileTsSource(source, { fileName: 'w.shade.ts' })
@@ -279,7 +280,7 @@ describe('a watch sees the bindings and the structs', () => {
 describe('a watch over a stand-in says so', () => {
   // Hand-built for the same reason `stub-marking.test.ts` is: `dpdx` is not reachable from
   // "use typeshade" yet, so there is no source that can produce this module.
-  const STUBBED: ModuleDecl = {
+  const STUBBED: ModuleDecl = stampSpans({
     consts: [],
     structs: [],
     bindings: [],
@@ -304,7 +305,7 @@ describe('a watch over a stand-in says so', () => {
         ],
       },
     ],
-  }
+  })
 
   it('marks an answer that read a marked local, and leaves a clean one alone', () => {
     const s = startDebugSession(STUBBED, 'fs', [2], { gpuStubs: true })

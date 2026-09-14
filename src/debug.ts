@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl/debug — stepping one shader invocation on the CPU ═══
+// ═══ @xgis/shader-dsl/debug: stepping one shader invocation on the CPU ═══
 //
 // The engine behind `docs/debugging.md`: the CPU oracle's own walk, re-spelled as a generator
 // that stops at statement boundaries, so an author can step through the `"use typeshade"`
@@ -45,7 +45,7 @@ export {
 // Reading a shader value back out in the types the author wrote.
 export { formatCpuValue, createValueFormatter } from './core/debug/value.js'
 
-// The span an author's breakpoint resolves against, and the reader for it — re-exported here
+// The span an author's breakpoint resolves against, and the reader for it, re-exported here
 // so a debug adapter needs one import, not two.
 export { sourceSpanOf, type SourceSpan } from './core/ir/span.js'
 // The value model every local, parameter and binding is spelled in.

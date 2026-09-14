@@ -81,6 +81,29 @@ rather than lowered: the counter a `while` becomes, a value `autoVars` materiali
 front end expands a shorthand into. That is what a debugger reads to stop on the line an author
 wrote; `docs/debugging.md` is the design.
 
+`@xgis/shader-dsl/debug` is the layer that reads them. It steps one invocation on the CPU
+oracle, stopping before each statement the author wrote:
+
+<!-- doc-snippets: skip - a host-side snippet, not a compilation unit -->
+
+```ts
+import { compile } from '@xgis/shader-dsl'
+import { startDebugSession } from '@xgis/shader-dsl/debug'
+
+const { module } = compile(appSrc, { fileName: 'blur.shade.ts' })
+const s = startDebugSession(module, 'fs', [0.5], {
+  breakpoints: [{ file: 'blur.shade.ts', line: 12 }],
+})
+s.continue()
+console.log(s.pause?.span.line, [...(s.pause?.frames[0]?.locals ?? [])])
+s.stepIn()
+```
+
+One invocation, not a frame: a full 1920x1080 pass is about two million of them, and stepping
+is for the one that is wrong. It is the same walk over the same IR the WGSL and GLSL writers
+emit, checked against the oracle over every registered example, so what it shows is what the
+program computes rather than a second opinion about it.
+
 A file without `"use typeshade"` is a `TS8001` error from both entry points. Pass
 `requireDirective: false` to `compileTsSource` to get the silently empty result instead, for a
 probe that only reads `hasDirective`.

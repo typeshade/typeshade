@@ -29,6 +29,7 @@ import {
   type Stmt,
 } from '../ir/index.js'
 import { startDebugSession, type DebugSession } from './session.js'
+import { stampSpans } from '../testing/stamp-spans.js'
 
 const param = (name: string, type: ShaderType = f32T): Expr => ({ op: 'param', type, name })
 const ref = (name: string, type: ShaderType = f32T): Expr => ({ op: 'varref', type, name })
@@ -42,8 +43,10 @@ const call = (fn: string, args: Expr[], type: ShaderType = f32T): Expr => ({
 const mul = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: f32T, bop: '*', a, b })
 const add = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: f32T, bop: '+', a, b })
 
+// Stamped, because a session stops only where there is a span and `dpdx` cannot be written in
+// `"use typeshade"` at all, so these modules have to be hand-built. See `stamp-spans.ts`.
 function module(funcs: FuncDecl[]): ModuleDecl {
-  return { consts: [], structs: [], bindings: [], funcs }
+  return stampSpans({ consts: [], structs: [], bindings: [], funcs })
 }
 
 function entry(body: Stmt[], params: FuncDecl['params'] = [{ name: 'x', type: f32T }]): ModuleDecl {
