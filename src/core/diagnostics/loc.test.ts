@@ -78,7 +78,7 @@ describe('internal-frame filter', () => {
 
   it.each([
     ['a dist build', '/app/node_modules/typeshade/dist/core/', 'ir/builder.js'],
-    ['a renamed install dir', '/app/vendor/xgis-dsl/core/', 'passes/opt/optimize.js'],
+    ['a renamed install dir', '/app/vendor/typeshade-fork/core/', 'passes/opt/optimize.js'],
     ['a Vite /@fs dev URL', 'https://localhost:3000/@fs/w/pkg/dist/core/', 'ir/node.js'],
   ])('classifies %s as internal where the hardcoded filter did not', (_what, prefix, rest) => {
     const frame = prefix + rest

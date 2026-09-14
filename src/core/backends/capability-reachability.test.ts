@@ -333,10 +333,10 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
       ['typeConstant -', 'f16', { kind: 'typeConstant', id: 'f128T' }, false],
       // intrinsic: a registry id vs a nonexistent one.
       ['intrinsic +', 'subgroups', { kind: 'intrinsic', id: 'sin' }, true],
-      ['intrinsic -', 'subgroups', { kind: 'intrinsic', id: 'xgisNotAnIntrinsic' }, false],
+      ['intrinsic -', 'subgroups', { kind: 'intrinsic', id: 'notAnIntrinsic' }, false],
       // builtin: one the GLSL writer maps vs one it does not.
       ['builtin +', 'multiview', { kind: 'builtin', id: 'front_facing' }, true],
-      ['builtin -', 'multiview', { kind: 'builtin', id: 'xgis_not_a_builtin' }, false],
+      ['builtin -', 'multiview', { kind: 'builtin', id: 'not_a_builtin' }, false],
       // hostOnly: a genuinely zero-byte cap vs one whose row carries a directive (f16 on
       // WGSL) — "nothing to author" must not be satisfiable by a cap with a source token.
       ['hostOnly +', 'floatRenderTarget', hostOnly('floatRenderTarget'), true],
