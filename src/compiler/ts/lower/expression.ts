@@ -114,9 +114,23 @@ function lowerIdentifier(
     )
     return undefined
   }
-  if (binding.kind === 'param') return { op: 'param', type: binding.type, name: binding.name }
-  if (binding.kind === 'module') return { op: 'constref', type: binding.type, name: binding.name }
-  return { op: 'varref', type: binding.type, name: binding.name }
+  switch (binding.kind) {
+    case 'param':
+      return { op: 'param', type: binding.type, name: binding.name }
+    case 'module':
+      return { op: 'constref', type: binding.type, name: binding.name }
+    // A resource binding is a module-scope `var`, so it reads as a `varref` — the same shape
+    // the fn() EDSL builds. `constref` here is what #14 was: invisible to the binding
+    // reachability walk, which counts `varref` names alone. Spelled as an exhaustive switch
+    // rather than a fallthrough so a fifth BindingKind cannot silently land on this arm.
+    case 'binding':
+    case 'local':
+      return { op: 'varref', type: binding.type, name: binding.name }
+    default: {
+      const never: never = binding.kind
+      throw new Error(`shader-dsl: unhandled BindingKind ${String(never)}`)
+    }
+  }
 }
 
 function lowerPrefixUnary(

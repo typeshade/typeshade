@@ -328,12 +328,13 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     expect(s.discarded).toBe(false)
   })
 
-  it('a binding read resolves the same whether it is spelled constref or varref', () => {
-    // The front end spells a binding read as a `constref` today; #18 (issue #14) changes it to
-    // a `varref`. Both shapes are built here over the same module, so this file says which
-    // behaviour survives that merge rather than leaving it to be discovered: the value
-    // resolves, and an unsupplied binding is NAMED rather than read as a zero or reported as
-    // an unknown constant.
+  it('a binding read resolves, and an unsupplied one is named rather than read as zero', () => {
+    // Since #18 (issue #14) a binding read is a `varref`, the same node any other name gets,
+    // which is why the session needs the module's declared binding names to tell the two
+    // apart. The `constref` spelling this test also builds is what the front end produced
+    // BEFORE #18; it is kept as a hand-built module because a module reaching the session
+    // from anywhere else must still not resolve a binding through it — the arm that used to
+    // do so is gone, so this half pins that it now fails loudly as an unknown constant.
     const bindingRead = (op: 'constref' | 'varref'): ModuleDecl => ({
       consts: [],
       structs: [],
@@ -349,15 +350,20 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
         },
       ],
     })
-    for (const op of ['constref', 'varref'] as const) {
-      const m = bindingRead(op)
-      const s = startDebugSession(m, 'f', [], { bindings: { scale: 7 }, precision: 'f64' })
-      s.continue()
-      expect(s.result, op).toBe(7)
-      expect(() => startDebugSession(m, 'f').continue(), op).toThrow(
-        /no value supplied for binding 'scale'/,
-      )
-    }
+    // The live spelling: resolves, and names the binding when nobody supplied one.
+    const live = bindingRead('varref')
+    const s = startDebugSession(live, 'f', [], { bindings: { scale: 7 }, precision: 'f64' })
+    s.continue()
+    expect(s.result).toBe(7)
+    expect(() => startDebugSession(live, 'f').continue()).toThrow(
+      /no value supplied for binding 'scale'/,
+    )
+
+    // The retired spelling: no longer resolved, and no longer silently wrong either.
+    const retired = bindingRead('constref')
+    expect(() =>
+      startDebugSession(retired, 'f', [], { bindings: { scale: 7 } }).continue(),
+    ).toThrow(/unknown const scale/)
   })
 
   it('an unknown entry point is an error naming it', () => {
