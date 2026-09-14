@@ -114,6 +114,14 @@ describe('getCompletions: context is decided by the syntax tree, not the raw tex
     expect(completionsAt(service, 's1.ts', source, '"@ver')).toEqual([])
   })
 
+  it('offers nothing inside a regular expression literal either', () => {
+    const service = createTypeshadeLanguageService()
+    const source = '"use typeshade";\nconst r = /vec/\nconst b = builtin(/ver/)\n'
+    service.openDocument('s4.ts', source)
+    expect(completionsAt(service, 's4.ts', source, '/vec')).toEqual([])
+    expect(completionsAt(service, 's4.ts', source, '/ver')).toEqual([])
+  })
+
   it('offers nothing inside a template literal either', () => {
     const service = createTypeshadeLanguageService()
     const source = '"use typeshade";\nconst a = `vec`\n'

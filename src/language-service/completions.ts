@@ -118,7 +118,7 @@ function tsCompletions(
 /** What the syntax tree says about the position a completion was requested at. */
 type CompletionContext =
   | { readonly kind: 'comment' }
-  | { readonly kind: 'string'; readonly literal: ts.StringLiteralLike | ts.TemplateLiteralToken }
+  | { readonly kind: 'string'; readonly literal: ts.LiteralLikeNode }
   | { readonly kind: 'code'; readonly slot: ts.Node }
 
 /**
@@ -201,8 +201,8 @@ function triviaStartAt(slot: ts.Node, sourceFile: ts.SourceFile, pos: number): n
 }
 
 /**
- * Classifies `offset` in `sourceFile` from the tree: inside a comment, inside a string or
- * template literal (an unterminated one included, since that is what
+ * Classifies `offset` in `sourceFile` from the tree: inside a comment, inside a string,
+ * template or regular expression literal (an unterminated one included, since that is what
  * `@builtin("ver` is while it is being typed), or in code at some slot. The TypeShade triggers
  * used to be regexes over the raw text before the cursor, which fired on `@ver` in a comment
  * and `"vec"` in a string alike; the comment check then only looked at the leading trivia of
@@ -215,7 +215,12 @@ function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext
     return { kind: 'comment' }
   }
   const start = slot.getStart(sourceFile)
-  if ((ts.isStringLiteralLike(slot) || ts.isTemplateLiteralToken(slot)) && start < offset) {
+  if (
+    (ts.isStringLiteralLike(slot) ||
+      ts.isTemplateLiteralToken(slot) ||
+      ts.isRegularExpressionLiteral(slot)) &&
+    start < offset
+  ) {
     const inside = offset < slot.getEnd() || slot.isUnterminated === true
     if (inside) return { kind: 'string', literal: slot }
   }
@@ -227,6 +232,7 @@ function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext
 function isBuiltinIdLiteral(literal: ts.Node): boolean {
   const call = literal.parent
   return (
+    ts.isStringLiteralLike(literal) &&
     call !== undefined &&
     ts.isCallExpression(call) &&
     ts.isIdentifier(call.expression) &&
@@ -253,8 +259,7 @@ function isAttributeSlot(slot: ts.Node): boolean {
  * `return` or at the start of a statement, is where a `vec4(...)` snippet makes sense.
  */
 function isExpressionSlot(slot: ts.Node): boolean {
-  if (ts.isStringLiteralLike(slot) || ts.isTemplateLiteralToken(slot) || ts.isNumericLiteral(slot))
-    return false
+  if (ts.isLiteralExpression(slot) || ts.isTemplateLiteralToken(slot)) return false
   if (ts.isClassLike(slot) || ts.isInterfaceDeclaration(slot) || ts.isTypeLiteralNode(slot))
     return false
   for (let n: ts.Node | undefined = slot; n !== undefined && !ts.isSourceFile(n); n = n.parent) {
