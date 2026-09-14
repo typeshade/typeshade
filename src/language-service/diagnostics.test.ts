@@ -45,6 +45,16 @@ describe('vector and matrix arithmetic draws no TypeScript diagnostic (issue #21
       '"use typeshade"\nexport function f(v: vec3, s: f32): vec3 {\n  return v * s\n}\n',
     'a vector-annotated local of vector arithmetic':
       '"use typeshade"\nexport function f(a: vec3, b: vec3): vec3 {\n  let t: vec3 = a + b\n  return t\n}\n',
+    // The same program in three spellings. TS2365 spans the whole operation, and a LEFT-nested
+    // product starts at the same offset as the operation containing it, so a rule that asked the
+    // nearest binary expression at that offset asked about `n * 3.` (two scalars, no brand, keep
+    // the diagnostic) in the first spelling and about the real `+` in the other two.
+    'a scalar product added to a vector':
+      '"use typeshade"\nexport function f(n: f32, v: vec2): vec2 {\n  return n * 3. + v\n}\n',
+    'a vector added to a scalar product':
+      '"use typeshade"\nexport function f(n: f32, v: vec2): vec2 {\n  return v + n * 3.\n}\n',
+    'a parenthesized scalar product added to a vector':
+      '"use typeshade"\nexport function f(n: f32, v: vec2): vec2 {\n  return (n * 3.) + v\n}\n',
   }
   for (const [name, source] of Object.entries(cases)) {
     it(`${name}: no TypeScript-sourced diagnostic`, () => {
@@ -78,6 +88,12 @@ describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issu
       '"use typeshade"\nexport function f(a: vec3, b: vec3, t: f32): vec3 {\n  return mix(a, b * 0.5, t)\n}\n',
     'a product nested inside another call':
       '"use typeshade"\nexport function f(v: vec3, s: f32): vec4 {\n  return vec4(normalize(v * s), 1.)\n}\n',
+    // A matrix times a vector is a VECTOR, so the shape the rule measures `m * c` by is `c`'s,
+    // not `m`'s, which is the line every camera example ends with.
+    'a matrix times a vector handed a vector parameter':
+      '"use typeshade"\nfunction g(p: vec4): vec4 {\n  return p\n}\nexport function f(m: mat4, c: vec4): vec4 {\n  return g(m * c)\n}\n',
+    'dot of a matrix-vector product, reported on the other argument':
+      '"use typeshade"\nexport function f(m: mat4, c: vec4, b: vec4): f32 {\n  return dot(m * c, b)\n}\n',
   }
   for (const [name, source] of Object.entries(cases)) {
     it(`${name}: no diagnostic at all, from TypeScript or the compiler`, () => {
@@ -89,8 +105,9 @@ describe('vector arithmetic reaching a call draws no TypeScript diagnostic (issu
   }
 
   it('a rest parameter is measured by its element type, and the compiler still speaks', () => {
-    // `hypot(...args: T[])` is the one ambient shape whose parameter is a rest parameter, and
-    // this program is NOT valid: hypot takes scalars. TypeScript's complaint about it is the
+    // `hypot(...args: T[])` is one of the five variadic math aliases (`MATH_EXPAND_ALIAS`:
+    // `log10`, `log1p`, `expm1`, `cbrt`, `hypot`), which together with `array(...values)` are
+    // the ambient lib's only rest parameters. This program is NOT valid: hypot takes scalars. TypeScript's complaint about it is the
     // poisoned-inference one (`w` measured against the `number` the product inferred), so it
     // goes, and what is left is the compiler saying the thing that is actually wrong.
     const source =
@@ -154,6 +171,90 @@ describe('an argument that is not vector arithmetic still reports (issue #43)', 
       '"use typeshade"\nfunction h(a: f32, b: f32): f32 {\n  return a + b\n}\nexport function f(v: vec3, w: vec3, s: f32): f32 {\n  return h(v * s, w)\n}\n',
       2345,
     )
+  })
+})
+
+// The arithmetic in a call is not a licence to stop checking the OTHER arguments. Every case
+// here is a real size or element mismatch in a call that also does vector arithmetic, and the
+// ambient math functions have no argument check in the compiler front end at all
+// (`src/compiler/ts/math-alias.ts` lowers them by arity), so TypeScript's TS2345 is the only
+// report these mistakes get. The first rule for issue #43 asked only "is this argument branded,
+// and does SOME argument do arithmetic", which answered yes to all of them.
+describe('a wrong shape still reports when the call also does arithmetic (issue #43)', () => {
+  const keepsTs2345 = (source: string): void => {
+    expect(
+      diagnosticsOf(source).some((d) => d.source === 'typescript' && d.code === 2345),
+      source,
+    ).toBe(true)
+  }
+
+  const cases: Readonly<Record<string, string>> = {
+    // `T` infers `number` from the product, so TypeScript reports the OTHER argument, and that
+    // argument is the wrong size for the `vec3` the product would have inferred.
+    'dot of a scaled vec3 and a vec2':
+      '"use typeshade"\nexport function f(a: vec3, b: vec2): f32 {\n  return dot(a * 2., b)\n}\n',
+    'dot of a vec2 and a scaled vec3':
+      '"use typeshade"\nexport function f(a: vec2, b: vec3): f32 {\n  return dot(a, b * 2.)\n}\n',
+    // Same arity, different element kind: the shape a rule compares has to carry both.
+    'dot of a scaled vec3 and a vec3i':
+      '"use typeshade"\nexport function f(a: vec3, b: vec3i): f32 {\n  return dot(a * 2., b)\n}\n',
+    'distance of a scaled vec3 and a vec2':
+      '"use typeshade"\nexport function f(a: vec3, b: vec2): f32 {\n  return distance(a * 2., b)\n}\n',
+    // The mismatch is in the THIRD argument, two positions past the one TypeScript reports.
+    'mix of a scaled vec3 with a vec2 at the end':
+      '"use typeshade"\nexport function f(a: vec3, b: vec3, c: vec2): vec3 {\n  return mix(a * 0.5, b, c)\n}\n',
+    'clamp of a scaled vec3 with a vec2 at the end':
+      '"use typeshade"\nexport function f(a: vec3, b: vec3, c: vec2): vec3 {\n  return clamp(a * 2., b, c)\n}\n',
+    'max of a scaled vec3 and a matrix':
+      '"use typeshade"\nexport function f(a: vec3, m: mat4): vec3 {\n  return max(a * 2., m)\n}\n',
+    // A matrix times a vector is a vec4, so the vec2 is the mismatch, not the matrix operand.
+    'dot of a matrix-vector product and a vec2':
+      '"use typeshade"\nexport function f(m: mat4, c: vec4, b: vec2): f32 {\n  return dot(m * c, b)\n}\n',
+    // `cross`'s parameters are FIXED `vec3`, so these two are the other arm: the product's own
+    // shape is measured against the parameter, and the sibling against its own.
+    'cross of a scaled vec2 and a vec3':
+      '"use typeshade"\nexport function f(a: vec2, s: f32, b: vec3): vec3 {\n  return cross(a * s, b)\n}\n',
+    'cross of a scaled vec3 and a vec2':
+      '"use typeshade"\nexport function f(a: vec3, b: vec2): vec3 {\n  return cross(a * 2., b)\n}\n',
+  }
+  for (const [name, source] of Object.entries(cases)) {
+    it(`${name}: keeps its TS2345`, () => {
+      keepsTs2345(source)
+    })
+  }
+
+  it('a fragment that mixes a vec3 with a vec2 is not clean in the editor', () => {
+    // End to end, in the shape a shader is actually written in: `mix(vec3, vec2, float)` has no
+    // GLSL ES 3.00 overload, so an editor that reported nothing here would be clean on a shader
+    // that does not link.
+    keepsTs2345(
+      '"use typeshade"\n' +
+        'class VsOut {\n' +
+        '  @builtin("position") pos: vec4\n' +
+        '  @location(0) uv: vec2\n' +
+        '}\n' +
+        '@fragment\n' +
+        'export function fs(vo: VsOut): vec4 {\n' +
+        '  const c: vec3 = vec3(1., 0., 0.)\n' +
+        '  return vec4(mix(c * 0.5, vo.uv, 0.5), 1.)\n' +
+        '}\n',
+    )
+  })
+
+  it('the same fragment with two vec3 is clean, so the guard is about the shape', () => {
+    const source =
+      '"use typeshade"\n' +
+      'class VsOut {\n' +
+      '  @builtin("position") pos: vec4\n' +
+      '  @location(0) uv: vec2\n' +
+      '}\n' +
+      '@fragment\n' +
+      'export function fs(vo: VsOut): vec4 {\n' +
+      '  const c: vec3 = vec3(1., 0., 0.)\n' +
+      '  const d: vec3 = vec3(0., 1., 0.)\n' +
+      '  return vec4(mix(c * 0.5, d, 0.5), 1.)\n' +
+      '}\n'
+    expect(diagnosticsOf(source).map((d) => `${d.source} ${d.code}: ${d.message}`)).toEqual([])
   })
 })
 
