@@ -455,6 +455,31 @@ export class ReadonlyNode<K extends string = string> {
     return this.logical('||', o)
   }
 
+  /** Logical negation, the `!` of both targets. It completes the `.and` / `.or` set, which
+   *  until now could say every boolean expression except the simplest one.
+   *
+   *  The node it builds is `this == false`, which is what the `"use typeshade"` compiler
+   *  lowers a source-level `!a` to. That is the point: the two authoring surfaces meet in the
+   *  IR, so a helper moved from one to the other keeps its emit. The emitted text is
+   *  `(a == false)` rather than `!a`.
+   *
+   *  @returns the negated condition.
+   *  @throws `SD0004` when the receiver is not a bool node. The `this:` bound rejects that at
+   *    `tsc` for a typed receiver; the throw covers a widened `ReadonlyNode<string>` one.
+   *
+   *  @example
+   *  ```ts
+   *  If(hit.not(), () => {
+   *    Discard()
+   *  })
+   *  ```
+   */
+  not(this: ReadonlyNode<'bool'>): Node<'bool'> {
+    if (this.type.kind !== 'scalar' || this.type.scalar !== 'bool')
+      throw dslError('SD0004', `logical '!' needs a bool operand, got ${typeKey(this.type)}`)
+    return this.cmp('==', bool(false))
+  }
+
   /** Bitwise ops on u32 / i32. Number literals auto-lift to the LHS's scalar
    *  type so `flags.bitAnd(1)` emits `flags & 1u` for a u32 flags (the WGSL
    *  rejects mixed-scalar bitwise — typed lifting keeps emit correct). */
