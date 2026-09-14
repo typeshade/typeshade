@@ -32,8 +32,11 @@ import type { Expr, FuncDecl, Stmt } from './nodes.js'
  *  it lowers, for the outermost call node lowered from each `ts.CallExpression`, and for an
  *  assignment's target. A call the front end SYNTHESISES while expanding one carries none:
  *  `random(seed)` becomes a `fract(sin(dot(…)))` tree, the array higher-order functions expand
- *  into per-element calls, `Math.hypot` becomes `length(vec2(…))`, and a numeric cast is a
- *  call node too. None of those were written anywhere. `start` and `length` are the
+ *  into per-element calls, and `Math.hypot` becomes `length(vec2(…))`. None of those were
+ *  written anywhere. A numeric cast is NOT in that list: `f32(n)` is a call node lowered from a
+ *  `ts.CallExpression` the author wrote, and it carries the span of that text like any other.
+ *  What has no span is `f32(3)`, where the literal's coercion folds to a `lit` — and a `lit`
+ *  has no span field at all, so there is nothing to ask about. `start` and `length` are the
  *  authority; the four line and character fields are derived from them through the parsed
  *  `ts.SourceFile`'s own line map, so a consumer that holds only the span — a debug adapter, a
  *  source-map writer — does not have to re-read the file to display it.
