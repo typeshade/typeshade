@@ -35,6 +35,14 @@ export const TS_CODES = {
   UNKNOWN_NAME: 'TS8022',
   /** The same function or binding name declared twice in one scope. */
   DUPLICATE_SYMBOL: 'TS8023',
+  /** `@builtin("...")` names an id outside WGSL's builtin vocabulary (`WgslBuiltinName` in `core/sot.ts`). */
+  BUILTIN_NAME: 'TS8024',
+  /** A `@builtin(...)` id used as the wrong stage's input or output, e.g. `frag_depth` on a vertex return, or `front_facing` on a vertex parameter. */
+  BUILTIN_STAGE: 'TS8025',
+  /** `@compute([x, y, z])` with `y` or `z` other than `1`: the backend only carries the first workgroup axis today, so a shape it would silently drop is rejected instead. */
+  WORKGROUP_SHAPE: 'TS8026',
+  /** `mat2`/`mat3`: not implemented (only `mat4`/`mat4x4` maps to a real WGSL type), so authoring one is rejected instead of silently widening to `mat4x4`. */
+  MAT_UNSUPPORTED: 'TS8027',
   UNSUPPORTED: 'TS8099',
 } as const
 

@@ -11,6 +11,10 @@ const EXAMPLES_DIR = join(HERE, '..', '..', 'examples')
 const SOT_FILE = join(HERE, '..', 'core', 'sot.ts')
 const FUNCTION_FILE = join(HERE, '..', 'compiler', 'ts', 'lower', 'function.ts')
 const STRUCTS_FILE = join(HERE, '..', 'compiler', 'ts', 'structs.ts')
+// `'builtin'` itself is matched in builtin-check.ts now (shared by function.ts's parameter
+// decorator and structs.ts's field decorator, so the allow-list/stage checks live in one
+// place) — included here so this test still covers where `@builtin(...)` is actually parsed.
+const BUILTIN_CHECK_FILE = join(HERE, '..', 'compiler', 'ts', 'builtin-check.ts')
 
 const HELLO_EXAMPLES = [
   'hello.shade.ts',
@@ -62,7 +66,8 @@ describe('ATTRIBUTE_NAMES matches what lower/function.ts and structs.ts actually
   it('every listed name is checked for by the two decorator readers', () => {
     const fn = readFileSync(FUNCTION_FILE, 'utf8')
     const structs = readFileSync(STRUCTS_FILE, 'utf8')
-    const combined = fn + structs
+    const builtinCheck = readFileSync(BUILTIN_CHECK_FILE, 'utf8')
+    const combined = fn + structs + builtinCheck
     for (const name of ATTRIBUTE_NAMES) {
       expect(combined, `${name} should be a literal this pipeline checks for`).toContain(
         `'${name}'`,
@@ -74,7 +79,7 @@ describe('ATTRIBUTE_NAMES matches what lower/function.ts and structs.ts actually
     const fn = readFileSync(FUNCTION_FILE, 'utf8')
     const structs = readFileSync(STRUCTS_FILE, 'utf8')
     // structs.ts only ever *rejects* @align ("on a field is not applied") — it never reads one
-    // as a real decorator the way stringDecorator/numberDecorator read builtin/location.
+    // as a real decorator the way builtinDecoratorArg/numberDecorator read builtin/location.
     for (const name of ['interpolate', 'align', 'size', 'ignore']) {
       expect(ATTRIBUTE_NAMES, `${name} is not implemented by the compiler`).not.toContain(name)
     }

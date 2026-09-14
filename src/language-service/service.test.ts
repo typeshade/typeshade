@@ -108,6 +108,90 @@ describe('getCompiledOutput', () => {
   })
 })
 
+describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', () => {
+  it('reports an unknown builtin with source typeshade, the right code, and a range over the literal', () => {
+    const service = createTypeshadeLanguageService()
+    const text =
+      '"use typeshade";\n' +
+      '@vertex\n' +
+      'export function vs(@builtin("vertex_idx") i: u32): vec4 {\n' +
+      '  return vec4(0., 0., 0., 1.)\n' +
+      '}\n'
+    service.openDocument('builtin-name.ts', text)
+    const d = service
+      .getDiagnostics('builtin-name.ts')
+      .find((d) => d.source === 'typeshade' && d.code === 'TS8024')
+    expect(d, 'expected a TS8024 (BUILTIN_NAME) diagnostic').toBeDefined()
+    expect(d!.severity).toBe('error')
+    expect(d!.message).toContain('Did you mean "vertex_index"?')
+    // Line 2 (0-based): the `@builtin("vertex_idx")` parameter decorator.
+    expect(d!.range.start.line).toBe(2)
+    expect(text.slice(d!.span.start, d!.span.start + d!.span.length)).toBe('"vertex_idx"')
+  })
+
+  it('reports a wrong-stage builtin with source typeshade and the right code', () => {
+    const service = createTypeshadeLanguageService()
+    const text =
+      '"use typeshade";\n' +
+      '@vertex\n' +
+      'export function vs(@builtin("front_facing") f: bool): vec4 {\n' +
+      '  return vec4(0., 0., 0., 1.)\n' +
+      '}\n'
+    service.openDocument('builtin-stage.ts', text)
+    const d = service
+      .getDiagnostics('builtin-stage.ts')
+      .find((d) => d.source === 'typeshade' && d.code === 'TS8025')
+    expect(d, 'expected a TS8025 (BUILTIN_STAGE) diagnostic').toBeDefined()
+    expect(d!.severity).toBe('error')
+    expect(d!.range.start.line).toBe(2)
+  })
+
+  it('reports a bad @compute workgroup shape with source typeshade and the right code', () => {
+    const service = createTypeshadeLanguageService()
+    const text =
+      '"use typeshade";\n' + '@compute([64, 2, 1])\n' + 'export function cs(): void {\n' + '}\n'
+    service.openDocument('workgroup.ts', text)
+    const d = service
+      .getDiagnostics('workgroup.ts')
+      .find((d) => d.source === 'typeshade' && d.code === 'TS8026')
+    expect(d, 'expected a TS8026 (WORKGROUP_SHAPE) diagnostic').toBeDefined()
+    expect(d!.severity).toBe('error')
+    expect(d!.range.start.line).toBe(1)
+  })
+
+  it('reports an entry function with no return annotation that returns a value, naming the inferred type', () => {
+    const service = createTypeshadeLanguageService()
+    const text =
+      '"use typeshade";\n' +
+      '@fragment\n' +
+      'export function fs() {\n' +
+      '  return vec4(1., 0., 0., 1.)\n' +
+      '}\n'
+    service.openDocument('no-return-type.ts', text)
+    const d = service
+      .getDiagnostics('no-return-type.ts')
+      .find((d) => d.source === 'typeshade' && d.code === 'TS8021')
+    expect(d, 'expected a TS8021 (RETURN_SHAPE) diagnostic').toBeDefined()
+    expect(d!.severity).toBe('error')
+    expect(d!.message).toContain('vec4<f32>')
+  })
+
+  it('reports mat2 as unsupported with source typeshade and the right code', () => {
+    const service = createTypeshadeLanguageService()
+    const text =
+      '"use typeshade";\n' +
+      'export function f(m: mat2<f32>): vec2 {\n' +
+      '  return vec2(0., 0.)\n' +
+      '}\n'
+    service.openDocument('mat2.ts', text)
+    const d = service
+      .getDiagnostics('mat2.ts')
+      .find((d) => d.source === 'typeshade' && d.code === 'TS8027')
+    expect(d, 'expected a TS8027 (MAT_UNSUPPORTED) diagnostic').toBeDefined()
+    expect(d!.severity).toBe('error')
+  })
+})
+
 describe('positionAt / offsetAt', () => {
   it('round-trips on an open document', () => {
     const service = createTypeshadeLanguageService()

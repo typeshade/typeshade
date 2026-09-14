@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 383 exports
+## `.` — 384 exports
 
 ```
 abs
@@ -387,6 +387,7 @@ vec4uT
 VertexAttr
 VertexLayout
 voidT
+WGSL_BUILTIN_NAMES
 wgslBackend
 WgslBuiltinName
 WgslCompiled
@@ -727,7 +728,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 468 definitions
+## Shapes — 469 definitions
 
 ```
 src/compiler/ts/compile.ts#compile  function  (source: string) => { readonly diagnostics: readonly TsCompilerDiagnostic[]; readonly module: ModuleDecl; readonly wgsl?: string; readonly glsl?: { readonly vertex: string; readonly fragment: string; }; readonly eval: (name: string, args?: readonly unknown[]) => unknown; }
@@ -1126,6 +1127,7 @@ src/core/sot.ts#Resource  interface  { binding: BindingDecl; node: Node<KeyOf<T>
 src/core/sot.ts#StorageBuffer  interface  { at: (i: number | ReadonlyNode<ScalarKey>) => A; binding: BindingDecl; elementDecl?: StructDecl; node: Node<string> }
 src/core/sot.ts#TypeArray  interface  { count: number; elemType: T }
 src/core/sot.ts#UniformStruct  interface  { binding: BindingDecl; decl: StructDecl; field: { readonly [K in keyof F]: UniformFieldNode<F[K]>; }; node: Node<string>; struct: StructDecl; type: ShaderType }
+src/core/sot.ts#WGSL_BUILTIN_NAMES  const  readonly WgslBuiltinName[]
 src/core/sot.ts#WgslBuiltinName  type  "vertex_index" | "instance_index" | "position" | "front_facing" | "frag_depth" | "sample_index" | "sample_mask" | "local_invocation_id" | "local_invocation_index" | "global_invocation_id" | "workgroup_id" | "num_workgroups" | "subgroup_invocation_id" | "subgroup_size" | "clip_distances"
 src/core/sot.ts#arrayOf  function  { <H extends StructHandle>(element: H, count: number): HandleArray<H>; <T extends ShaderType>(element: T, count: number): TypeArray<T>; }
 src/core/sot.ts#builtin  const  <T extends ShaderType>(name: WgslBuiltinName, type: T) => FieldSpec<T>

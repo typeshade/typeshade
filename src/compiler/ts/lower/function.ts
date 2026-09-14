@@ -10,6 +10,12 @@ import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import {
+  builtinDecoratorArg,
+  checkBuiltinName,
+  checkBuiltinStage,
+  type BuiltinStage,
+} from '../builtin-check.js'
 
 export function lowerSourceFunctions(
   sourceFile: ts.SourceFile,
@@ -22,7 +28,7 @@ export function lowerSourceFunctions(
   const callees = new Map<string, FuncDecl>()
   const ready: ts.FunctionDeclaration[] = []
   for (const stmt of decls) {
-    const stub = parseSignature(stmt, sourceFile, diagnostics)
+    const stub = parseSignature(stmt, sourceFile, diagnostics, structs)
     if (!stub) continue
     if (callees.has(stub.name)) {
       pushDiag(
@@ -64,6 +70,7 @@ export function parseSignature(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  structs: readonly StructDecl[] = [],
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
     pushDiag(
@@ -86,6 +93,10 @@ export function parseSignature(
     return undefined
   }
   const name = node.name.text
+  // Computed up front (rather than after the return type, as before) so the builtin/stage
+  // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
+  // know the entry stage they are validating against.
+  const stageInfo = parseStage(node, sourceFile, diagnostics)
   const params: FuncDecl['params'][number][] = []
   for (const p of node.parameters) {
     if (!ts.isIdentifier(p.name)) {
@@ -129,7 +140,40 @@ export function parseSignature(
       )
       return undefined
     }
-    const builtin = stringDecorator(p, sourceFile, 'builtin')
+    const builtinArg = builtinDecoratorArg(decoratorsOf(p))
+    let builtin: string | undefined
+    if (builtinArg) {
+      const validName = checkBuiltinName(
+        diagnostics,
+        sourceFile,
+        builtinArg.argNode,
+        builtinArg.name,
+      )
+      if (validName) {
+        builtin = builtinArg.name
+        if (stageInfo.stage) {
+          checkBuiltinStage(
+            diagnostics,
+            sourceFile,
+            builtinArg.argNode,
+            builtinArg.name,
+            stageInfo.stage,
+            'input',
+          )
+        }
+      }
+    }
+    if (stageInfo.stage && pType.kind === 'struct') {
+      checkStructBuiltinFields(
+        diagnostics,
+        sourceFile,
+        p,
+        pType.name,
+        structs,
+        stageInfo.stage,
+        'input',
+      )
+    }
     const location = numberDecorator(p, sourceFile, 'location')
     params.push({
       name: p.name.text,
@@ -155,7 +199,21 @@ export function parseSignature(
       }
       ret = mapped
     }
-  } else {
+    if (stageInfo.stage && ret.kind === 'struct') {
+      checkStructBuiltinFields(
+        diagnostics,
+        sourceFile,
+        node.type,
+        ret.name,
+        structs,
+        stageInfo.stage,
+        'output',
+      )
+    }
+  } else if (!stageInfo.stage) {
+    // Only a helper function gets this warning up front: an entry function's body has not been
+    // lowered yet, so whether "no annotation" is actually a problem (it returns a value) is
+    // decided in `fillFunctionBody`, which can also name the inferred type in the error.
     diagnostics.push(
       makeDiagnostic(
         sourceFile,
@@ -166,7 +224,6 @@ export function parseSignature(
       ),
     )
   }
-  const stageInfo = parseStage(node, sourceFile)
   const decl: FuncDecl = { name, params, ret, body: [] }
   if (stageInfo.stage) (decl as { stage?: FuncDecl['stage'] }).stage = stageInfo.stage
   if (stageInfo.workgroupSize !== undefined) {
@@ -217,7 +274,26 @@ export function fillFunctionBody(
   }
   const body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
   ;(stub as { body: readonly Stmt[] }).body = body
-  if (typeKey(stub.ret) === 'void') return
+  if (typeKey(stub.ret) === 'void') {
+    // An entry function (`stub.stage` set) with no return type annotation was left at the
+    // tentative `void` from `parseSignature` above; now that the body is lowered, a `return`
+    // carrying a value means that tentative void was wrong, and the front end can name the
+    // real (inferred) type — this is now an error, not the warning `parseSignature` gives a
+    // helper function, because it emits invalid WGSL (the design doc's Stage 3 check).
+    if (node.type === undefined && stub.stage) {
+      const valued = collectReturns(body).find((r) => r.expr)
+      if (valued?.expr) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.name!,
+          `Entry function "${stub.name}" returns a value (inferred type ${typeKey(valued.expr.type)}) but has no return type annotation; add ": ${typeKey(valued.expr.type)}" to the signature.`,
+          TS_CODES.RETURN_SHAPE,
+        )
+      }
+    }
+    return
+  }
   for (const r of collectReturns(body)) {
     if (!r.expr) {
       pushDiag(
@@ -252,6 +328,7 @@ export function fillFunctionBody(
 function parseStage(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
 ): { stage?: FuncDecl['stage']; workgroupSize?: number } {
   const decos = decoratorsOf(node)
   let stage: FuncDecl['stage'] | undefined
@@ -262,8 +339,21 @@ function parseStage(
     else if (/^@fragment\b/.test(text)) stage = 'fragment'
     else if (/^@compute\b/.test(text)) {
       stage = 'compute'
-      const m = text.match(/@compute\(\s*\[\s*(\d+)/)
+      const m = text.match(/@compute\(\s*\[\s*(\d+)\s*(?:,\s*(\d+))?\s*(?:,\s*(\d+))?\s*\]/)
       workgroupSize = m ? Number(m[1]) : 64
+      const y = m?.[2] !== undefined ? Number(m[2]) : undefined
+      const z = m?.[3] !== undefined ? Number(m[3]) : undefined
+      if ((y !== undefined && y !== 1) || (z !== undefined && z !== 1)) {
+        const shape = [m![1], m![2], m![3]].filter((v) => v !== undefined).join(', ')
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          d,
+          `@compute workgroup shape [${shape}] must have y and z equal to 1: the backend only ` +
+            `carries the x workgroup size today, and would silently drop the rest.`,
+          TS_CODES.WORKGROUP_SHAPE,
+        )
+      }
     }
   }
   return { stage, workgroupSize }
@@ -275,22 +365,34 @@ function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
   return mods.filter(ts.isDecorator)
 }
 
+/** Validates every `@builtin(...)` field of the struct named `structName` (a parameter's or a
+ *  return type's struct) against `stage`/`direction`, anchoring each diagnostic at `node` (the
+ *  parameter or the return type annotation) since a `StructField` carries no source position of
+ *  its own — see `structs.ts`'s `collectStructs`, which already validated each field's builtin
+ *  *name* independently of how the struct ends up used. */
+function checkStructBuiltinFields(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  structName: string,
+  structs: readonly StructDecl[],
+  stage: BuiltinStage,
+  direction: 'input' | 'output',
+): void {
+  const decl = structs.find((s) => s.name === structName)
+  if (!decl) return
+  for (const field of decl.fields) {
+    if (!field.builtin) continue
+    checkBuiltinStage(diagnostics, sourceFile, node, field.builtin, stage, direction)
+  }
+}
+
 function numberDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): number | undefined {
   for (const d of decoratorsOf(node)) {
     if (!ts.isCallExpression(d.expression)) continue
     if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name) continue
     const a = d.expression.arguments[0]
     if (a && ts.isNumericLiteral(a)) return Number(a.text)
-  }
-  return undefined
-}
-
-function stringDecorator(node: ts.Node, _sf: ts.SourceFile, name: string): string | undefined {
-  for (const d of decoratorsOf(node)) {
-    if (!ts.isCallExpression(d.expression)) continue
-    if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== name) continue
-    const a = d.expression.arguments[0]
-    if (a && (ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a))) return a.text
   }
   return undefined
 }

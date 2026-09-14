@@ -158,7 +158,17 @@ function mapGeneric(
     pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32, i32, u32, or f64.`)
     return undefined
   }
-  if (name === 'mat2' || name === 'mat3' || name === 'mat4' || name === 'mat4x4') {
+  if (name === 'mat2' || name === 'mat3') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${name}" is not supported yet (only mat4/mat4x4 maps to a real WGSL type); using it would silently emit mat4x4.`,
+      TS_CODES.MAT_UNSUPPORTED,
+    )
+    return undefined
+  }
+  if (name === 'mat4' || name === 'mat4x4') {
     const elemName = typeNameOfArg(args[0])
     if (elemName === 'u32' || elemName === 'i32' || elemName === 'bool') {
       pushDiag(diagnostics, sourceFile, typeNode, `mat4 is floating-point only (mat4<f32>).`)

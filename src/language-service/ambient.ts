@@ -5,9 +5,10 @@
 // authoring vocabulary with zero false positives on a valid program (§6). The vocabulary is
 // derived from the compiler's own tables — `SUPPORTED_TYPE_NAMES` and `SCALAR_CAST` from
 // `compiler/ts/type-map.ts`/`numeric.ts`, and the Math aliases from `compiler/ts/math-alias.ts`
-// — rather than retyped by hand, so the two cannot drift silently; `ambient.test.ts` also
-// cross-checks the one piece with no runtime witness (`WgslBuiltinName`, a type-only union) by
-// parsing `core/sot.ts` with the TypeScript compiler API.
+// — rather than retyped by hand, so the two cannot drift silently. `WGSL_BUILTIN_NAMES` below is
+// re-exported straight from `core/sot.ts`'s own runtime array, next to the `WgslBuiltinName`
+// type it mirrors; `ambient.test.ts` additionally cross-checks that array against the type
+// itself by parsing `core/sot.ts` with the TypeScript compiler API.
 //
 // GPU scalar types are branded nominal types: `type f32 = number & { readonly [tag]: true }`,
 // with a REQUIRED (not optional) unique-symbol property, so `f32` and `u32` are not assignable
@@ -22,6 +23,7 @@
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
 import { SCALAR_CAST } from '../compiler/ts/numeric.js'
 import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js'
+import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
 
 type VecElem = 'f32' | 'i32' | 'u32' | 'f64'
 
@@ -54,32 +56,14 @@ for (const name of SUPPORTED_TYPE_NAMES) {
  * not a function, only a type name. */
 const VEC_CTOR_NAMES = [...VEC_TYPE_ELEM.keys()].filter((name) => !/d$/.test(name))
 
-/** WGSL builtin ids `@builtin(...)` accepts, mirroring `WgslBuiltinName` in `core/sot.ts`
- * exactly (a type-only union with no runtime witness, so it cannot be imported — `ambient.
- * test.ts` parses `sot.ts` with the TypeScript compiler API and asserts this literal list
- * stays in sync with it). Declared as a completion/hover data source too — see
- * `completions.ts`. */
-export const WGSL_BUILTIN_NAMES: readonly string[] = [
-  'vertex_index',
-  'instance_index',
-  'position',
-  'front_facing',
-  'frag_depth',
-  'sample_index',
-  'sample_mask',
-  'local_invocation_id',
-  'local_invocation_index',
-  'global_invocation_id',
-  'workgroup_id',
-  'num_workgroups',
-  'subgroup_invocation_id',
-  'subgroup_size',
-  'clip_distances',
-]
+/** WGSL builtin ids `@builtin(...)` accepts — `core/sot.ts`'s own runtime array (the compiler
+ * front end's `@builtin(...)` allow-list check reads the same one), re-exported here as a
+ * completion/hover data source too — see `completions.ts`. */
+export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES
 
 /**
  * The attribute names the compiler parses as decorators, per `lower/function.ts`'s
- * `parseStage`/`stringDecorator`/`numberDecorator` and `structs.ts`'s field decorators.
+ * `parseStage`/`builtinDecoratorArg`/`numberDecorator` and `structs.ts`'s field decorators.
  * `interpolate`/`align`/`size`/`ignore` are NOT included: `structs.ts` only ever *rejects*
  * `@align` (`"@align on a field is not applied"`) and neither the struct nor the function
  * lowering recognizes `interpolate`, `size`, or `ignore` at all — grepping the lowering
