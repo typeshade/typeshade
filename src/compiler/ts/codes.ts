@@ -49,6 +49,18 @@ export const TS_CODES = {
   STRUCT_FIELD_MISSING_ATTR: 'TS8029',
   /** A TypeScript parse error (an unclosed parenthesis, a missing brace, an unexpected token) in a `"use typeshade"` file, carried through as a TypeShade diagnostic so a `compile()` caller sees it without running `tsc`. A file with one is not lowered or emitted: before this, `vec4(3.14` compiled to WGSL. The language service drops these in favour of TypeScript's own syntactic diagnostics, which carry the real `TS1005`-style code. */
   SYNTAX: 'TS8030',
+  /** A call cycle: a function that reaches itself, directly or through other functions.
+   *  WGSL has no call stack, so Tint rejects the emitted module
+   *  (`cyclic dependency found: 'a' -> 'b' -> 'a'`); before this the front end accepted it
+   *  and emitted it with zero diagnostics. */
+  RECURSION: 'TS8031',
+  /** `.length` on an `array<T>` with no `N`, anywhere: a `storage` binding or a field of one,
+   *  a `uniform<array<T>>`, a local, or a parameter. It folded to the literal `0`, which made
+   *  `gid.x >= xs.length` true for every invocation and the kernel a silent no-op in valid
+   *  WGSL. The message differs by shape: only a storage array can reach `arrayLength` (which
+   *  takes `ptr<storage, …>` and neither surface spells yet, #46); everything else needs an
+   *  explicit size. */
+  UNSIZED_ARRAY_LENGTH: 'TS8032',
   UNSUPPORTED: 'TS8099',
 } as const
 
