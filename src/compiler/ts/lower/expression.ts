@@ -6,8 +6,7 @@ import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
-import { numericMismatch } from '../numeric.js'
-import { retargetIntLit } from '../lit-coerce.js'
+import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { lowerCall } from './expression-call.js'
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js'
@@ -148,8 +147,12 @@ function lowerPrefixUnary(
   return undefined
 }
 
+/** Retargets a bare numeric literal on either side to its peer's kind. The peer of a literal
+ *  that meets a vector is the vector's element scalar (`v * 2` with `v: vec3<u32>` types the
+ *  `2` as u32, and against a vec64 the literal becomes an f64 carrying the full double); a
+ *  scalar peer is taken as is, so `i + 1` with `i: u32` behaves as before. */
 function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expression): [Expr, Expr] {
-  return [retargetIntLit(left, lNode, right.type), retargetIntLit(right, rNode, left.type)]
+  return [retargetLit(left, lNode, right.type), retargetLit(right, rNode, left.type)]
 }
 
 function lowerBinary(
@@ -169,11 +172,15 @@ function lowerBinary(
       if (mixed) return mixed
     }
     if (typeKey(left.type) !== typeKey(right.type)) {
+      // A vector against a scalar of its element kind broadcasts, as it does in WGSL, GLSL and
+      // the fn() EDSL; the result is the vector's type and the operand order stays as written.
+      const broadcast = broadcastResultType(left.type, right.type, arith)
+      if (broadcast) return { op: 'binop', type: broadcast, bop: arith, a: left, b: right }
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        numericMismatch('add/sub/mul/div/%', left.type, right.type),
+        numericMismatch(node.operatorToken.getText(sourceFile), left.type, right.type),
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined
