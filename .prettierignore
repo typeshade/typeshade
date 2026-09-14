@@ -4,3 +4,5 @@ coverage
 **/__emit-goldens__
 *.tsbuildinfo
 package-lock.json
+# Shader source, not TypeScript: prettier cannot parse a decorated top-level function.
+*.shade.ts

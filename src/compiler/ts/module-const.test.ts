@@ -57,6 +57,51 @@ describe('module const', () => {
     expect(r.wgsl).not.toContain('8.0')
   })
 
+  // #13 follow-up. Routing `emitConst` through `intLit` means an out-of-range integer const
+  // would THROW from inside `emitModule`, where the caller cannot attribute it to a line —
+  // and the front end's emit path turns that into no diagnostic at all and a truncated
+  // module. Diagnosed at lowering instead, so `wgsl` stays undefined and the reader sees why.
+  it.each([
+    ['u32', '5000000000', 'outside [0, 4294967295]'],
+    ['u32', '-1', 'outside [0, 4294967295]'],
+    ['i32', '3000000000', 'outside [-2147483648, 2147483647]'],
+    ['i32', '-3000000000', 'outside [-2147483648, 2147483647]'],
+  ])('rejects an out-of-range %s module const (%s)', (type, value, tail) => {
+    const r = compileTsSource(`
+      "use typeshade";
+      const K: ${type} = ${value};
+      export function f(): ${type} { return K; }
+    `)
+    const errs = r.diagnostics.filter((d) => d.category === 'error')
+    expect(errs[0]?.message).toContain(`Module const "K" is ${type}, but ${value} is ${tail}`)
+    expect(errs[0]?.code).toBe(TS_CODES.TYPE_MISMATCH)
+    expect(r.wgsl).toBeUndefined()
+  })
+
+  it('rejects a fractional integer module const instead of truncating it', () => {
+    // It used to become 1 through `Math.trunc`, with nothing said.
+    const r = compileTsSource(`
+      "use typeshade";
+      const K: i32 = 1.5;
+      export function f(): i32 { return K; }
+    `)
+    const errs = r.diagnostics.filter((d) => d.category === 'error')
+    expect(errs[0]?.message).toContain('Module const "K" is i32, but 1.5 is not an integer')
+    expect(r.wgsl).toBeUndefined()
+  })
+
+  it('keeps the boundary values, which are in range', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      const LO: i32 = -2147483648;
+      const HI: u32 = 4294967295;
+      export function f(): u32 { return HI; }
+    `)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('const LO: i32 = -2147483648;')
+    expect(r.wgsl).toContain('const HI: u32 = 4294967295u;')
+  })
+
   it('folds const expressions and later consts', () => {
     const r = compileTsSource(`
       "use typeshade";

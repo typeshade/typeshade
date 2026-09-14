@@ -10,11 +10,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { emitExpr } from '../emit.js'
-import { wgslBackend } from './wgsl.js'
-import { glslEs300Backend } from './glsl.js'
-import { f32T, i32T, u32T, boolT, fn, module, vec4, f32 } from '../ir/index.js'
-import { emitModule as emitWgslModule } from './wgsl.js'
-import { emitGlslModule } from './glsl.js'
+import { wgslBackend, emitModule as emitWgslModule } from './wgsl.js'
+import { glslEs300Backend, emitGlslModule } from './glsl.js'
+import { f32T, i32T, u32T, boolT, vec3fT, fn, module, vec4, f32 } from '../ir/index.js'
 import type { Expr, ShaderType } from '../ir/index.js'
 import { ShaderDslError } from '../diagnostics/error.js'
 
@@ -74,6 +72,22 @@ describe.each(backends)('literal() is fail-closed (%s)', (_id, be) => {
   it('rejects a fractional integer literal', () => {
     throws(1.5, i32T)
     throws(1.5, u32T)
+  })
+  it('rejects a bool literal that is neither 0 nor 1', () => {
+    // The bool arm reads a NUMBER (`ConstDecl.wgslValue` is typed `number`), so it has to
+    // decide what a value outside {0, 1} means. It refuses, like its integer and float
+    // neighbours, rather than letting NaN or 2 read as `true`.
+    throws(2, boolT)
+    throws(-1, boolT)
+    throws(NaN, boolT)
+    expect(be.literal(0, boolT)).toBe('false')
+    expect(be.literal(1, boolT)).toBe('true')
+  })
+  it('rejects a non-scalar type carrying a bare numeric value', () => {
+    // A vector, matrix, array or struct constant carries its value in `ConstDecl.valueExpr`.
+    // Reaching the scalar spelling without one used to emit `const K: vec3<f32> = 1.0;`,
+    // which both compilers reject.
+    throws(1, vec3fT)
   })
   it('rejects non-finite floats and keeps finite spellings unchanged', () => {
     throws(NaN, f32T)

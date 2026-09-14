@@ -115,7 +115,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     id: 'module-const',
     title: 'Module constants',
     blurb:
-      'A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands its spelling to Tint and to a real WebGL2 context. No example in either corpus declared an integer module constant before, which is why #13 (an integer const emitting a float literal) went unnoticed.',
+      'A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands every spelling to Tint and to a real WebGL2 context.',
     renderable: true,
   },
   {
