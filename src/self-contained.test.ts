@@ -1,35 +1,25 @@
-// ═══ #1681 C — THE MIRROR INVARIANT: shader-dsl/ names no path outside shader-dsl/ ═══
+// ═══ X-GIS #1681 C — SELF-CONTAINMENT: this package names no path outside itself ═══
 //
-// WHAT THE MIRROR IS. This package is NOT published to npm. The consuming project takes it
-// as a git SUBMODULE of a MIRROR repository produced by
+// WHERE THIS CAME FROM. The invariant was written when the package was the `shader-dsl/`
+// workspace of the X-GIS monorepo and reached its consumer as a git submodule of a MIRROR
+// repository produced by `git subtree split --prefix=shader-dsl`. The monorepo was
+// authoritative and the mirror was a read-only derivative. None of that is true now: this
+// repository is the source, it publishes to npm as `typeshade`, and the split has happened
+// once and for all. The measurements that motivated the invariant (the split is idempotent,
+// the mirror clone is 1.7 MB against the monorepo's 498 MB .git, a fresh clone builds with
+// no node_modules anywhere up the tree) belong to that history and are not re-run here.
 //
-//     git subtree split --prefix=shader-dsl
+// WHY IT STILL EARNS ITS PLACE. The invariant outlived its original reason, because the
+// property it protects is what a consumer depends on either way: a path that climbs OUT of
+// this tree (`../../shared/src/x`, a `../tsconfig.base.json`, `cd ..`) names a directory
+// that exists on the author's machine and nowhere else. A submodule checkout is exactly the
+// tracked files and nothing else; an npm tarball is exactly `files` and nothing else. In
+// both, an escaping path is a build that fails for everyone but the person who wrote it,
+// and it fails at config-load time, before a single .ts file is read.
 //
-// The monorepo stays authoritative; the mirror is a read-only derivative and fixes flow back
-// through X-GIS. Measured on this machine while the pivot was decided:
-//
-//   F1  the split yields 235 commits and the tree ROOTS AT THE PACKAGE — src/, examples/,
-//       package.json, tsconfig.json, tsconfig.base.json, tsconfig.tests.json, README.md,
-//       LICENSE, CHANGELOG.md, AUTHORING.md, AGENTS.md all sit at top level. No dist/ (it is
-//       untracked), and — the load-bearing part — no `..`.
-//   F2  the split is IDEMPOTENT: a second split over the same history reproduced head SHA
-//       5afff6ec, so CI can FAST-FORWARD push the mirror. No force-push, no rewritten
-//       submodule pins in the consumer.
-//   F3  the mirror bare repo gc's to 1.6 MB against this monorepo's 498 MB .git; a consumer
-//       clone is 1.7 MB carrying all 235 commits.
-//   F4  a fresh consumer clone BUILDS STANDALONE: `tsc -p tsconfig.json`, with no
-//       node_modules anywhere up the tree, exits 0 with 0 errors and emits 82 dist JS files.
-//       Increment B's package-local tsconfig.base.json is what makes that resolve.
-//
-// WHY THE INVARIANT IS THE THING THAT MAKES IT WORK. F4 is not a property of the split — it
-// is a property of the SOURCE. The split re-roots the tree at shader-dsl/, so any path that
-// climbs out of the package (`../../shared/src/x`, `../tsconfig.base.json` at the monorepo
-// root, `cd ..`) names a directory that DOES NOT EXIST in the consumer clone. Nothing
-// downstream can repair that: the tarball is fine, the monorepo is fine, and the mirror —
-// the only tree the consumer ever compiles — is broken, in a repository nobody here builds.
-// So the invariant is F5: NOTHING TRACKED UNDER shader-dsl/ MAY REFERENCE A PATH OUTSIDE IT.
-// Measured across the three surfaces a package can reach outward through, this file gates
-// all three, plus the manifest hygiene the invariant leans on.
+// So: NOTHING TRACKED HERE MAY REFERENCE A PATH OUTSIDE THIS PACKAGE. Measured across the
+// three surfaces a package can reach outward through, this file gates all three, plus the
+// manifest hygiene the invariant leans on.
 //
 // WHAT EACH ARM CATCHES THAT NO OTHER ARM CAN
 //   S1 relative imports      — the .ts source graph. 223 tracked .ts files, 771 relative
