@@ -149,9 +149,24 @@ function lowerVariableStatement(
     )
     return undefined
   }
+  // One declarator is the overwhelmingly common case, and there the statement IS the
+  // declaration: stamping the declarator alone gives a span starting after the `const`/`let`
+  // keyword, so a breakpoint on that line points mid-statement. Several declarators genuinely
+  // lower to several IR statements, and there each must span its own, or stepping through
+  // `const a = 1, b = 2` highlights the whole line twice.
+  const single = node.declarationList.declarations.length === 1
   const results: Stmt[] = []
   for (const decl of node.declarationList.declarations) {
-    const one = lowerVariableDeclaration(decl, isConst, sourceFile, scope, diagnostics)
+    // The node whose span the lowered statement takes, decided here because only this level
+    // knows how many declarators there are.
+    const one = lowerVariableDeclaration(
+      decl,
+      isConst,
+      sourceFile,
+      scope,
+      diagnostics,
+      single ? node : decl,
+    )
     if (one) results.push(one)
   }
   if (results.length === 0) return undefined
@@ -164,6 +179,7 @@ function lowerVariableDeclaration(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  spanNode: ts.Node = decl,
 ): Stmt | undefined {
   if (!ts.isIdentifier(decl.name)) {
     pushDiag(
@@ -234,11 +250,8 @@ function lowerVariableDeclaration(
     )
     return undefined
   }
-  // The declarator's own span, not the whole `let a = 1, b = 2` statement's: one TypeScript
-  // variable statement lowers to one IR statement per declarator, and a debugger stepping
-  // through them should highlight the one it is on.
-  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, decl)
-  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, decl)
+  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, spanNode)
+  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, spanNode)
 }
 
 function lowerExpressionStatement(

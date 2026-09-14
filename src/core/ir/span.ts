@@ -29,7 +29,11 @@ import type { Expr, FuncDecl, Stmt } from './nodes.js'
  *  the line and character of each end for display.
  *
  *  The `"use typeshade"` source compiler fills one for every {@link Stmt} and {@link FuncDecl}
- *  it lowers, and for every function-call {@link Expr}. `start` and `length` are the
+ *  it lowers, for the outermost call node lowered from each `ts.CallExpression`, and for an
+ *  assignment's target. A call the front end SYNTHESISES while expanding one carries none:
+ *  `random(seed)` becomes a `fract(sin(dot(…)))` tree, the array higher-order functions expand
+ *  into per-element calls, `Math.hypot` becomes `length(vec2(…))`, and a numeric cast is a
+ *  call node too. None of those were written anywhere. `start` and `length` are the
  *  authority; the four line and character fields are derived from them through the parsed
  *  `ts.SourceFile`'s own line map, so a consumer that holds only the span — a debug adapter, a
  *  source-map writer — does not have to re-read the file to display it.
@@ -45,7 +49,8 @@ import type { Expr, FuncDecl, Stmt } from './nodes.js'
  *  @see {@link sourceSpanOf} for reading one back off a node.
  */
 export interface SourceSpan {
-  /** The compilation unit's file name, exactly as the compiler was given it. */
+  /** The compilation unit's file name: the one the caller named, or the compiler's own default
+   *  when the caller named none (`compileTsSource` supplies `typeshade-input.ts`). */
   readonly file: string
   /** UTF-16 code-unit offset of the first character, into that file's text. */
   readonly start: number

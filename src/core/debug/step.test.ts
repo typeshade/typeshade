@@ -71,7 +71,7 @@ describe('a stepped run stops at every statement, in source order', () => {
     const m = compiled(STRAIGHT)
     const s = startDebugSession(m, 'f', [3])
     expect(s.pause!.reason).toBe('entry')
-    expect(textAt(STRAIGHT, s.pause!.span!)).toBe('two = 2.')
+    expect(textAt(STRAIGHT, s.pause!.span!)).toBe('const two = 2.')
     // Nothing has executed yet, so the only name in scope is the parameter.
     expect([...s.pause!.frames[0]!.locals.keys()]).toEqual(['a'])
     expect(s.done).toBe(false)
@@ -79,8 +79,8 @@ describe('a stepped run stops at every statement, in source order', () => {
 
   it('visits each statement once, in the order they were written', () => {
     expect(trace(compiled(STRAIGHT), STRAIGHT, 'f', [3])).toEqual([
-      'two = 2.',
-      'acc = a',
+      'const two = 2.',
+      'let acc = a',
       'acc = acc * two',
       'return acc',
     ])
@@ -121,10 +121,10 @@ describe('helpers: step in, step out, step over', () => {
     s.stepIn()
     // Innermost first, as a debug adapter reports a stack.
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['double', 'f'])
-    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('d = x + x')
+    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('const d = x + x')
     // The frame knows where it was called from, and the caller still shows its own statement.
     expect(textAt(WITH_HELPER, s.pause!.frames[0]!.callSpan!)).toBe('double(a)')
-    expect(textAt(WITH_HELPER, s.pause!.frames[1]!.span!)).toBe('first = double(a)')
+    expect(textAt(WITH_HELPER, s.pause!.frames[1]!.span!)).toBe('const first = double(a)')
     expect(s.pause!.frames[0]!.locals.get('x')).toBe(1)
   })
 
@@ -133,7 +133,7 @@ describe('helpers: step in, step out, step over', () => {
     const s = startDebugSession(m, 'f', [1])
     s.stepOver()
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['f'])
-    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('second = double(first)')
+    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('const second = double(first)')
     expect(s.pause!.frames[0]!.locals.get('first')).toBe(2)
   })
 
@@ -144,16 +144,16 @@ describe('helpers: step in, step out, step over', () => {
     expect(s.pause!.frames).toHaveLength(2)
     s.stepOut()
     expect(s.pause!.frames.map((fr) => fr.fnName)).toEqual(['f'])
-    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('second = double(first)')
+    expect(textAt(WITH_HELPER, s.pause!.span!)).toBe('const second = double(first)')
   })
 
   it('step in visits both call sites of the same helper, one frame at a time', () => {
     expect(trace(compiled(WITH_HELPER), WITH_HELPER, 'f', [1])).toEqual([
-      'first = double(a)',
-      'd = x + x',
+      'const first = double(a)',
+      'const d = x + x',
       'return d',
-      'second = double(first)',
-      'd = x + x',
+      'const second = double(first)',
+      'const d = x + x',
       'return d',
       'return second',
     ])
@@ -173,7 +173,7 @@ export function f(): f32 {
 
   it('pauses once per iteration on the body and on the update', () => {
     expect(trace(compiled(LOOP), LOOP, 'f')).toEqual([
-      'acc = 0.',
+      'let acc = 0.',
       'for (let i: i32 = 0; i < 3; i++) {\n    acc += 1.\n  }',
       'let i: i32 = 0',
       'acc += 1.',
