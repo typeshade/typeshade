@@ -244,7 +244,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
 ---
 
-## 9. Builtins, casts and `discard`
+## 10. Builtins, casts and `discard`
 
 The scalar casts are `f32(x)`, `i32(x)`, `u32(x)`, `bool(x)` and `f64(x)`. `bool(x)` is
 "x is not zero", WGSL's own conversion, and is spelled with the compare it means. `f64(x)`
