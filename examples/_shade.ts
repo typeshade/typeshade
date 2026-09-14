@@ -1,6 +1,6 @@
 // ═══ The `.shade.ts` corpus — `"use typeshade"` source, wrapped as registry entries ═══
 //
-// Five example files opened with `"use typeshade"` and shipped in this directory
+// Seven example files opened with `"use typeshade"` and shipped in this directory
 // (`hello.shade.ts` and friends). Until now they were authored and then left dangling: no
 // test emitted them, the compile gate never saw them, and nothing in the package would have
 // noticed if a compiler change turned one into a shader that no longer compiles. This file
@@ -101,6 +101,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     // GLSL ES 3.00 refuses the vertex stage outright (`uniform binding 'scale' must be a
     // struct (a std140 UBO block)`), so there is no stage pair to compile or link.
     renderable: false,
+  },
+  {
+    id: 'hello-uniform-struct',
+    title: 'Hello uniform block',
+    blurb:
+      'The uniform that DOES have a GLSL ES 3.00 form: a `Uniforms` class behind `uniform<T>` lays out as a std140 block on both targets, so unlike `hello-uniform` this one emits and links on WebGL2. The first source-compiled example with a binding and a renderable GLSL pair — the configuration whose absence let #14 hide.',
+    renderable: true,
   },
   {
     id: 'hello-camera',

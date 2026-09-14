@@ -5,7 +5,7 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { LoweringScope } from '../context.js'
+import { LoweringScope, readOnlyPhrase } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { lowerExpression } from './expression.js'
@@ -262,7 +262,6 @@ function defineLocal(
 ): boolean {
   try {
     scope.define({ kind: 'local', name, type, mutable, constValue })
-    return true
   } catch (e) {
     pushDiag(
       diagnostics,
@@ -273,6 +272,11 @@ function defineLocal(
     )
     return false
   }
+  // #51 records every local for the editor. It sits here rather than at the one call site it
+  // had, so the declaration WITHOUT an initializer (`let x: f32;`) is recorded too — the
+  // editor should know a name the language now accepts.
+  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable })
+  return true
 }
 
 function lowerExpressionStatement(
@@ -465,7 +469,7 @@ function lowerLValue(
         diagnostics,
         sourceFile,
         node,
-        `Cannot assign to "${baseName}" — it is declared with const.`,
+        `Cannot assign to "${baseName}" — it is ${readOnlyPhrase(binding.kind)}.`,
         TS_CODES.CONST_ASSIGN,
       )
       return undefined
@@ -491,12 +495,17 @@ function lowerLValue(
       sourceFile,
       node,
       `Cannot assign to unknown name "${node.text}".`,
-      TS_CODES.ASSIGN_TARGET,
+      // UNKNOWN_NAME, not ASSIGN_TARGET: the name does not resolve, which is what every
+      // other unresolved-identifier site in the lowerer reports (expression.ts, the property
+      // and call lowerers). ASSIGN_TARGET is about the SHAPE of the target — "must be an
+      // identifier" — and this target is a perfectly good identifier that names nothing.
+      // `lowerUpdate` raises the same message, and now the same code, for `nope++`.
+      TS_CODES.UNKNOWN_NAME,
     )
     return undefined
   }
   if (!binding.mutable) {
-    const ro = binding.kind === 'module' ? 'read-only resource or const' : 'declared with const'
+    const ro = readOnlyPhrase(binding.kind)
     pushDiag(
       diagnostics,
       sourceFile,

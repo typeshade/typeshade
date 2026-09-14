@@ -69,6 +69,21 @@ describe('a let that declares before it assigns', () => {
     expect(c.eval('f', [-3])).toBe(3)
   })
 
+  it('is recorded for the editor, like any other local', () => {
+    // #51 records every local so hover and go-to-definition can answer for it. The record sits
+    // in the shared defineLocal, so the shape with NO initializer gets one too — a name the
+    // language now accepts should not be invisible to the editor.
+    const r = compileTsSource(
+      '"use typeshade";\nexport function f(): f32 {\n  let x: f32;\n  x = 1.;\n  return x;\n}',
+    )
+    expect(r.diagnostics).toEqual([])
+    const x = r.symbols.filter((sym) => sym.name === 'x')
+    expect(x).toHaveLength(1)
+    expect(x[0]!.kind).toBe('local')
+    expect(typeKey(x[0]!.type)).toBe('f32')
+    expect(x[0]!.mutable).toBe(true)
+  })
+
   it('still refuses the two forms that have nothing to declare', () => {
     // A `const` has no later assignment to carry the value, and an unannotated `let` has no
     // type to declare — two different refusals where there used to be one sentence.
