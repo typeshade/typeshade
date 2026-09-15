@@ -126,6 +126,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'palette-const',
+    title: 'Module vector and array constants',
+    blurb:
+      'A fullscreen triangle banded by a module-scope `array<vec4, 3>` palette and an `array<f32, 3>` of stops, with a `vec3` constant built from an earlier scalar one — every shape a module constant can now take, read from both stages.',
+    renderable: true,
+  },
+  {
     id: 'convert-grid',
     title: 'Converting constructors',
     blurb:
@@ -138,6 +145,14 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       'A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands every spelling to Tint and to a real WebGL2 context.',
     renderable: true,
+  },
+  {
+    id: 'gradient-twin',
+    title: 'Gradient pass (source twin)',
+    blurb:
+      '`gradient-pass.ts` written in the source language instead of built with `fn()` / `module()` — the same shader through the other surface, with a uniform block both targets lay out and a GLSL pair that links.',
+    renderable: true,
+    twinOf: 'gradient',
   },
   {
     id: 'compute-reduction-twin',

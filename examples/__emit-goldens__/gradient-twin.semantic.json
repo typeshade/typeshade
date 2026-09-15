@@ -1,0 +1,42 @@
+{
+  "twin": "gradient-twin",
+  "of": "gradient",
+  "equal": false,
+  "diff": {
+    "interface": [],
+    "resources": [],
+    "constants": [
+      "+lit f32=1",
+      "+lit f32=1",
+      "+lit f32=1",
+      "+lit f32=1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1",
+      "-lit f32=-1"
+    ],
+    "controlFlow": [
+      "+fs_gradient#0 let v#0 = (+:f32 (.y:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (.mix_bias:f32 (varref u:struct:Uniforms)))",
+      "+fs_gradient#1 let v#1 = (call mix:vec3<f32> (.rgb:vec3<f32> (.bottom:vec4<f32> (varref u:struct:Uniforms))) (.rgb:vec3<f32> (.top:vec4<f32> (varref u:struct:Uniforms))) (varref v#0:f32))",
+      "+fs_gradient#2 return (construct:vec4<f32> (varref v#1:vec3<f32>) (lit:f32))",
+      "+vs_full#0 var v#0: vec2<f32> = (construct:vec2<f32> (unop:f32 (lit:f32)) (unop:f32 (lit:f32)))",
+      "+vs_full#1 if arms=2 else=n conds=[(==:bool (param idx:u32) (lit:u32)) (==:bool (param idx:u32) (lit:u32))]",
+      "+vs_full#1.arm0.0 assign (varref v#0:vec2<f32>) = (construct:vec2<f32> (lit:f32) (unop:f32 (lit:f32)))",
+      "+vs_full#1.arm1.0 assign (varref v#0:vec2<f32>) = (construct:vec2<f32> (unop:f32 (lit:f32)) (lit:f32))",
+      "+vs_full#2 return (construct:struct:st#0 (construct:vec4<f32> (varref v#0:vec2<f32>) (lit:f32) (lit:f32)) (construct:vec2<f32> (*:f32 (+:f32 (.x:f32 (varref v#0:vec2<f32>)) (lit:f32)) (lit:f32)) (*:f32 (+:f32 (.y:f32 (varref v#0:vec2<f32>)) (lit:f32)) (lit:f32))))",
+      "-fs_gradient#0 return (construct:vec4<f32> (call mix:vec3<f32> (.rgb:vec3<f32> (.bottom:vec4<f32> (varref u:struct:Uniforms))) (.rgb:vec3<f32> (.top:vec4<f32> (varref u:struct:Uniforms))) (+:f32 (.y:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (.mix_bias:f32 (varref u:struct:Uniforms)))) (lit:f32))",
+      "-vs_full#0 if arms=2 else=n conds=[(==:bool (param idx:u32) (lit:u32)) (==:bool (param idx:u32) (lit:u32))]",
+      "-vs_full#0.arm0.0 assign (construct:vec2<f32> (lit:f32) (lit:f32)) = (construct:vec2<f32> (lit:f32) (lit:f32))",
+      "-vs_full#0.arm1.0 assign (construct:vec2<f32> (lit:f32) (lit:f32)) = (construct:vec2<f32> (lit:f32) (lit:f32))",
+      "-vs_full#1 return (construct:struct:st#0 (construct:vec4<f32> (construct:vec2<f32> (lit:f32) (lit:f32)) (lit:f32) (lit:f32)) (construct:vec2<f32> (*:f32 (+:f32 (.x:f32 (construct:vec2<f32> (lit:f32) (lit:f32))) (lit:f32)) (lit:f32)) (*:f32 (+:f32 (.y:f32 (construct:vec2<f32> (lit:f32) (lit:f32))) (lit:f32)) (lit:f32))))"
+    ]
+  }
+}

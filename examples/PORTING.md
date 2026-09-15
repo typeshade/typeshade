@@ -103,10 +103,10 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
 
 **Source the compiler accepts today: 15 of 36**, up from 2 when this was first measured — [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the
-single largest blocker. One has shipped as a twin (`compute-reduction` in
-[#16](https://github.com/typeshade/typeshade/pull/16)); `gradient` was held by
-[#14](https://github.com/typeshade/typeshade/issues/14), which this PR fixes, and lands in
-[#36](https://github.com/typeshade/typeshade/pull/36). The other twelve are
+single largest blocker. Two have shipped as twins — `compute-reduction` in
+[#16](https://github.com/typeshade/typeshade/pull/16), and `gradient` here, once
+[#14](https://github.com/typeshade/typeshade/issues/14) — fixed in
+[#18](https://github.com/typeshade/typeshade/pull/18) — unblocked its GLSL; the other twelve are
 unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 [What step 2 found](#what-step-2-found-that-this-classification-could-not).
 
@@ -135,7 +135,7 @@ first. No example in the 36 is waiting on any of them:
 | ~~**A4** `type` / `interface` structs~~ (landed)    | 0      |
 | **A5** `@align` / `@size` field decorators          | 0      |
 | ~~**A8** element-converting constructors~~ (landed) | 0      |
-| **A9** module-level vector constants                | 0      |
+| ~~**A9** module-level vector constants~~ (landed)   | 0      |
 | **A10** uninitialised `let`, `switch`, `<<=`        | 0      |
 | **A11** object-literal contextual typing            | 0      |
 | **S5** `arrayLength`                                | 0      |
@@ -384,6 +384,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                       |
 | `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                              |
 | `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                       |
+| `const UP = vec3(0., 1., 0.)`, `const XS = array<f32, 3>(…)` (module vector / array const)                      | ✓ since #8 A9 — through `ConstDecl.valueExpr`, the field the EDSL's `constExpr` fills                   |
 | `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                           |
 | `f32(vi & 1) * 4. - 1.` (the fullscreen-triangle vertex stage)                                                  | ✓                                                                                                       |
 | `1u`                                                                                                            | ✗ TS parse error — `"const u" requires an initializer`                                                  |

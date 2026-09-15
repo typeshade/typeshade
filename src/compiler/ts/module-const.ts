@@ -1,13 +1,14 @@
 // Top-level `const` → ModuleDecl.consts (foldable scalars).
 
 import ts from 'typescript'
-import type { ConstDecl } from '../../core/ir/nodes.js'
+import type { ConstDecl, Expr } from '../../core/ir/nodes.js'
+import type { ShaderType } from '../../core/ir/types.js'
 import { typeKey } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { LoweringScope } from './context.js'
 import type { DeclaredSymbolSink } from './symbols.js'
 import { mapTsTypeToShaderType } from './type-map.js'
-import { foldConstValue } from './loop-bound.js'
+import { foldConstNumber, foldConstValue } from './loop-bound.js'
 import { lowerExpression } from './lower/expression.js'
 import { isResourceCall } from './bindings.js'
 import { isOverrideType } from './overrides.js'
@@ -25,6 +26,11 @@ export function collectModuleConsts(
 ): ConstDecl[] {
   const scope = new LoweringScope(undefined, symbols)
   const out: ConstDecl[] = []
+  // The value EXPRESSION of each non-scalar const declared so far, by name. A scalar const's
+  // value reaches `foldConstNumber` through the scope binding, but a vector or array one is
+  // carried by `valueExpr` alone and defines its binding WITHOUT a constValue — so without
+  // this map a later `A / Z` could not see the zero component inside `Z`.
+  const valueExprs = new Map<string, Expr>()
   for (const stmt of sourceFile.statements) {
     if (!isTopLevelConst(stmt)) continue
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue
@@ -33,11 +39,147 @@ export function collectModuleConsts(
       // its value is the DEFAULT a pipeline may replace, so overrides.ts owns it and folding
       // it here would bake in a value the pipeline is allowed to change (#8 A7).
       if (isOverrideType(decl.type)) continue
-      const c = lowerOne(decl, sourceFile, scope, diagnostics)
-      if (c) out.push(c)
+      const c = lowerOne(decl, sourceFile, scope, diagnostics, valueExprs)
+      if (!c) continue
+      out.push(c)
+      if (c.valueExpr) valueExprs.set(c.name, c.valueExpr)
     }
   }
   return out
+}
+
+/** The shapes {@link ConstDecl.valueExpr} documents as constant-foldable: a literal, a
+ *  WHOLE constant declared earlier in the file, a constructor over those, and arithmetic
+ *  over those. Anything reading a binding, a parameter or a runtime input is not one, and
+ *  neither is a call, a swizzle, a member, an index or a conditional — a module constant is
+ *  folded once at emit, not evaluated.
+ *
+ *  Division is the one arm that looks at a value rather than a shape. The scalar path gets
+ *  that for free — `foldConstNumber` returns `undefined` for `/ 0`, so `const K: f32 = 1. / 0.`
+ *  never becomes a constant — but this path only asked whether the operands were foldable, so
+ *  `const Y = vec3(1. / ZERO, 0., 0.)` compiled with no diagnostic at all: Tint refuses the
+ *  WGSL it produces, and GLSL and the CPU oracle disagree about the value. A divisor this can
+ *  prove is zero is refused here instead. */
+function isFoldableValueExpr(
+  e: Expr,
+  scope: LoweringScope,
+  valueExprs: ReadonlyMap<string, Expr>,
+): boolean {
+  switch (e.op) {
+    case 'lit':
+    case 'constref':
+      return true
+    case 'unop':
+      return isFoldableValueExpr(e.a, scope, valueExprs)
+    case 'binop':
+      if ((e.bop === '/' || e.bop === '%') && foldsToZero(e.b, scope, valueExprs)) return false
+      return (
+        isFoldableValueExpr(e.a, scope, valueExprs) && isFoldableValueExpr(e.b, scope, valueExprs)
+      )
+    case 'construct':
+      return e.args.every((a) => isFoldableValueExpr(a, scope, valueExprs))
+    default:
+      return false
+  }
+}
+
+/** Whether `e` is a divisor this can PROVE is zero: a scalar that folds to 0, or a vector
+ *  constructor with a component that does (`v / vec3(1., 0., 1.)` divides componentwise, so
+ *  one zero is enough). A divisor that does not fold is not proven anything and passes — the
+ *  point is to refuse what is certainly undefined, not to demand a proof of safety. */
+function foldsToZero(
+  e: Expr,
+  scope: LoweringScope,
+  valueExprs: ReadonlyMap<string, Expr>,
+  seen: ReadonlySet<string> = new Set(),
+): boolean {
+  if (e.op === 'construct') return e.args.some((a) => foldsToZero(a, scope, valueExprs, seen))
+  // A reference to an earlier NON-SCALAR const: its value lives in `valueExpr`, not in the
+  // scope binding, so `const Z = vec3(1., 0., 1.); const Y = A / Z` looked unprovable and
+  // compiled to WGSL Tint refuses. Following the reference reaches the component, through any
+  // number of hops (`const W = Z; A / W`). `seen` is the cycle guard: a const can only name
+  // one declared EARLIER, so a cycle is unreachable from this collector — but foldsToZero is
+  // a recursive walk over a map, and a map is not the declaration order.
+  if (e.op === 'constref' && !seen.has(e.name)) {
+    const value = valueExprs.get(e.name)
+    if (value) return foldsToZero(value, scope, valueExprs, new Set([...seen, e.name]))
+  }
+  return foldConstNumber(e, scope) === 0
+}
+
+/** The kinds a `valueExpr` constant may have, as {@link ConstDecl.valueExpr} documents them.
+ *  `struct` and `mat` are listed because the field carries them and every backend emits them,
+ *  but neither is reachable from this surface today — a module-scope object literal has no
+ *  struct table to match against here, and there is no matrix constructor — so the diagnostic
+ *  below names only the vector and the array. A vec64 is not listed either, and there is no
+ *  way to build one at module scope to test the refusal with: `vec3f64(...)` is not a
+ *  constructor this surface has, so the exclusion is a statement of intent, not a live arm. */
+function isValueExprType(t: ShaderType): boolean {
+  // An array OF arrays is refused: the GLSL ES 3.00 writer spells the element type inline and
+  // the nested form it produces is not something ANGLE accepts, so allowing it here would ship
+  // a declaration that compiles on one backend and not the other.
+  if (t.kind === 'array') return t.elem.kind !== 'array'
+  return t.kind === 'vec' || t.kind === 'struct' || t.kind === 'mat'
+}
+
+/** `const UP = vec3(0., 1., 0.)` and friends: a module constant whose value is a whole
+ *  vector, array, struct or matrix rather than a scalar. It is emitted from
+ *  {@link ConstDecl.valueExpr}, the field the EDSL's `constExpr(name, type, node)` fills, so
+ *  the two surfaces produce the same declaration and the WGSL writer, the GLSL writer and
+ *  both CPU backends all take the path they already had for it. */
+function valueExprConst(
+  name: string,
+  decl: ts.VariableDeclaration,
+  init: Expr,
+  annotated: ShaderType | undefined,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  valueExprs: ReadonlyMap<string, Expr>,
+): ConstDecl | undefined {
+  const type = annotated ?? init.type
+  if (annotated && typeKey(annotated) !== typeKey(init.type)) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" is declared ${typeKey(annotated)} but its value is ${typeKey(init.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
+    return undefined
+  }
+  // Constant-ness first, TYPE second. The other order answered `const K: f32 = sin(1.)` with
+  // "f32 is neither a foldable scalar nor a whole vector or array", which is untrue of f32 —
+  // the problem was never the type. Now the type message fires only for a value that IS
+  // constant and whose type this surface cannot carry.
+  if (!isFoldableValueExpr(init, scope, valueExprs)) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" must be constant: a literal, a whole earlier module const, ` +
+          `a constructor over those, or arithmetic over those with a non-zero divisor. ` +
+          `It cannot call a function, read a resource, or take a component, field or element.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
+    return undefined
+  }
+  if (!isValueExprType(type)) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" must be a foldable scalar (literal or const expression), ` +
+          `or a whole vector or array built from them; ${typeKey(type)} is neither.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
+    return undefined
+  }
+  scope.define({ kind: 'module', name, type, mutable: false })
+  return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: init }
 }
 
 function lowerOne(
@@ -45,6 +187,7 @@ function lowerOne(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  valueExprs: ReadonlyMap<string, Expr>,
 ): ConstDecl | undefined {
   if (!ts.isIdentifier(decl.name)) {
     diagnostics.push(
@@ -88,15 +231,10 @@ function lowerOne(
   if (!init) return undefined
   const folded = foldConstValue(init, scope)
   if (typeof folded !== 'number' && typeof folded !== 'boolean') {
-    diagnostics.push(
-      makeDiagnostic(
-        sourceFile,
-        decl,
-        `Module const "${name}" must be a foldable scalar (literal or const expression).`,
-        TS_CODES.TYPE_MISMATCH,
-      ),
-    )
-    return undefined
+    // A non-scalar constant — a vector, an array, a struct, a matrix — is carried by
+    // ConstDecl.valueExpr instead of the wgslValue/cpuValue pair, which is what the EDSL's
+    // constExpr fills: both writers emit the expression and the CPU backend evaluates it.
+    return valueExprConst(name, decl, init, annotated, sourceFile, scope, diagnostics, valueExprs)
   }
   const type = annotated ?? init.type
   const k = typeKey(type)
