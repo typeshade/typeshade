@@ -4,16 +4,23 @@ Step 1 of the example port: a **classification**, not a port. First measured on 
 `b6d6c56`; the rows have been re-measured since, most recently on this branch with A1 (#19)
 and the #14 fix in place. Where a row's verdict changed, the correction note below says so.
 
-> **Corrected twice.** This document was written before three changes that invalidate much
-> of it, and the rows have been updated for all three. (1) **A1** — vector × scalar broadcast
-> — landed in [#19](https://github.com/typeshade/typeshade/pull/19), so the single largest
-> blocker below is gone. (2) [#13](https://github.com/typeshade/typeshade/issues/13) and
-> [#14](https://github.com/typeshade/typeshade/issues/14), the two backend bugs writing the
-> twins uncovered, are fixed in
+> **Corrected three times.** This document was written before four changes that invalidate
+> much of it, and the rows have been updated for all four. (1) **A1** — vector × scalar
+> broadcast — landed in [#19](https://github.com/typeshade/typeshade/pull/19), so the single
+> largest blocker below is gone. (2) [#13](https://github.com/typeshade/typeshade/issues/13)
+> and [#14](https://github.com/typeshade/typeshade/issues/14), the two backend bugs writing
+> the first twins uncovered, are fixed in
 > [#17](https://github.com/typeshade/typeshade/pull/17) and
-> [#18](https://github.com/typeshade/typeshade/pull/18). What has **not** changed is the
-> lesson those two taught: everything here measures whether the compiler **accepts the
-> source**, which is not the same as whether the **output is correct**. See
+> [#18](https://github.com/typeshade/typeshade/pull/18). (3) Writing out the remaining twelve
+> twins ([#42](https://github.com/typeshade/typeshade/pull/42)) cost three more rows their
+> **portable** verdict — [#38](https://github.com/typeshade/typeshade/issues/38) and
+> [#40](https://github.com/typeshade/typeshade/issues/40) — so the headline figure is **11 of
+> 36**, not the 14 this document measured.
+>
+> What has **not** changed is the lesson those four taught, and #40 sharpened it: everything
+> here measures whether the compiler **accepts the source**, which is not the same as whether
+> the **output is correct** — and `voronoi-twin` shows that passing every gate in this
+> repository is not the same either. See
 > [What step 2 found](#what-step-2-found-that-this-classification-could-not).
 
 `"use typeshade"` is the product's language (`docs/use-typeshade-surface.md`), so the
@@ -75,13 +82,13 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 8   | `color-ramp`          | cartographic | blocked      | **A6-deriv**                 | 5 / 36         |
 | 9   | `discard-cutout`      | generic      | blocked      | **A6-discard**               | 1 / 36         |
 | 10  | `plasma`              | generic      | **portable** | —                            | —              |
-| 11  | `voronoi`             | generic      | **portable** | —                            | —              |
+| 11  | `voronoi`             | generic      | blocked      | **B-negint**                 | 1 / 36         |
 | 12  | `julia`               | generic      | **portable** | —                            | —              |
 | 13  | `mandelbrot`          | generic      | **portable** | —                            | —              |
 | 14  | `fbm-clouds`          | generic      | blocked      | **L-loop**                   | 4 / 36         |
 | 15  | `domain-warp`         | generic      | **portable** | —                            | —              |
-| 16  | `raymarch-sphere`     | generic      | **portable** | —                            | —              |
-| 17  | `raymarch-boxes`      | generic      | **portable** | —                            | —              |
+| 16  | `raymarch-sphere`     | generic      | blocked      | **B-scope**                  | 2 / 36         |
+| 17  | `raymarch-boxes`      | generic      | blocked      | **B-scope**                  | 2 / 36         |
 | 18  | `tunnel`              | generic      | **portable** | —                            | —              |
 | 19  | `metaballs`           | generic      | blocked      | **L-loop**                   | 4 / 36         |
 | 20  | `ocean`               | generic      | **portable** | —                            | —              |
@@ -102,12 +109,18 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 35  | `texture-array-lod`   | generic      | blocked      | **A3**, A7-tex               | 1 / 36         |
 | 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
 
-**Source the compiler accepts today: 14 of 36**, up from 2 when this was first measured — [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the
-single largest blocker. Two have shipped as twins — `compute-reduction` in
-[#16](https://github.com/typeshade/typeshade/pull/16), and `gradient` here, once
+**Portable today: 11 of 36.** The measured figure was 14 — up from 2 once
+[#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the single largest
+blocker — and then all twelve unwritten twins were written out. Three of them do not compile,
+and rows 11, 16 and 17 above carry the blockers that stopped them (**B-negint**, **B-scope**).
+Eleven have shipped: `compute-reduction` in
+[#16](https://github.com/typeshade/typeshade/pull/16), `gradient` once
 [#14](https://github.com/typeshade/typeshade/issues/14) — fixed in
-[#18](https://github.com/typeshade/typeshade/pull/18) — unblocked its GLSL; the other twelve are
-unwritten, and _accepts the source_ is not _emits a correct shader_ — see
+[#18](https://github.com/typeshade/typeshade/pull/18) — unblocked its GLSL, and nine fullscreen
+twins in [#42](https://github.com/typeshade/typeshade/pull/42).
+
+The three that fell out are the point, not a footnote: _accepts the source_ is not _emits a
+correct shader_, and one of the three passed every gate in this repository except Tint — see
 [What step 2 found](#what-step-2-found-that-this-classification-could-not).
 
 ## The blockers
@@ -123,6 +136,15 @@ unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 | **A6-discard**  | the `discard` statement                                              | A6              | 1      | `discard-cutout`                                                                                                                                                          |
 | **A7-tex**      | `texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad` | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
 | **A7-override** | `override<T>` specialization constants                               | A7              | 1      | `override-quality`                                                                                                                                                        |
+| **B-scope**     | a local name bound in two block scopes of one function ([#38])       | **a bug**       | 2      | `raymarch-sphere`, `raymarch-boxes`                                                                                                                                       |
+| **B-negint**    | a negative integer literal in a local or `for` declaration ([#40])   | **a bug**       | 1      | `voronoi`                                                                                                                                                                 |
+
+The last two rows are not missing features. They are compiler defects found by writing the
+twins, which is why they carry an issue number where the others carry an issue #8 item — and
+why they were filed rather than worked around.
+
+[#38]: https://github.com/typeshade/typeshade/issues/38
+[#40]: https://github.com/typeshade/typeshade/issues/40
 
 ### What the corpus does **not** need
 
@@ -200,10 +222,15 @@ Everything above is measured two ways — an IR walk for what each example deman
 `compileTsSource` probe for what the compiler supplies. Both measure the same thing:
 **does the compiler accept this source**. Neither looks at what comes out the other end.
 
-Writing the twins ([#16](https://github.com/typeshade/typeshade/pull/16)) did, and the two
-examples this document called portable both turned out to emit something wrong. Not because
-the classification was careless — because acceptance and correctness are different
-questions, and only one of them was being asked.
+Writing the twins did, and it has cost this document four of its verdicts so far — two
+([#13](https://github.com/typeshade/typeshade/issues/13),
+[#14](https://github.com/typeshade/typeshade/issues/14)) from the first two twins in
+[#16](https://github.com/typeshade/typeshade/pull/16), two more
+([#38](https://github.com/typeshade/typeshade/issues/38),
+[#40](https://github.com/typeshade/typeshade/issues/40)) from writing out the remaining twelve
+in [#42](https://github.com/typeshade/typeshade/pull/42). Not because the classification was
+careless — because acceptance and correctness are different questions, and only one of them
+was being asked.
 
 ### [#13](https://github.com/typeshade/typeshade/issues/13) — an integer module constant emits a float literal
 
@@ -251,14 +278,66 @@ compile gate never saw a source-compiled binding: `examples/binding-declared.tes
 both corpora and asserts that every binding a stage's emitted source mentions, that stage's
 source also declares — reading both halves off the bytes rather than off the walk under test.
 
+### [#38](https://github.com/typeshade/typeshade/issues/38) — TypeScript block scope lowers to flat IR names
+
+`LoweringScope` models block scope correctly for resolution — a frame stack, innermost-first —
+and then lowers every binding under its source name verbatim. The IR identifies a local by
+name alone within a function, so two bindings that are lexically disjoint in the source
+collide, and the compile fails at emit with `SD0112`.
+
+The shape that stopped both raymarchers is the idiomatic one: the march loop binds the ray
+position `p`, and the shading block binds `p` again at the hit point. The shape a user will
+hit first is worse and is not in the corpus at all —
+
+```ts
+for (let i: u32 = 0; i < 4; i++) { … }
+for (let i: u32 = 0; i < 3; i++) { … }   // SD0112: fn 'fs' declares 'i' more than once
+```
+
+Two sequential loops over `i`. The `fn()` surface escapes this because `Let(value)` may omit
+the name and take a function-unique `_v{n}`; TypeScript has no anonymous `const`, so the
+remedy the diagnostic suggests cannot be written on this surface.
+
+### [#40](https://github.com/typeshade/typeshade/issues/40) — a negative integer literal in a declaration
+
+`for (let j: i32 = -1; j <= 1; j++)` — the 3x3 neighbour scan `voronoi` is built on — emits
+`var j: i32 = -1.0;` with **zero diagnostics**. The sibling site fails the other way:
+`let j: i32 = -1` is rejected outright, told to cast an integer it already wrote. A negative
+literal is a `PrefixUnaryExpression`, so neither declaration site's `init.op === 'lit'`
+coercion fires; `statement.ts` then reports a type mismatch and `control.ts`, which has no
+such check, emits the float into the integer declaration.
+
+**This is the one that matters for how this document should be read.** `voronoi-twin`
+compiled without a diagnostic, its `reflect()` deep-equalled the EDSL original's, both emit
+goldens baked, `bun run build` was clean and all 2444 tests passed. Every instrument in this
+repository said yes. Tint and WebGL2 said:
+
+```
+wgsl: cannot convert value of type 'abstract-float' to type 'i32'
+glsl: '=' : cannot convert from 'const float' to 'highp int'
+```
+
+A twin can be accepted, structurally equal to its original, byte-stable against its goldens,
+and still not be a shader.
+
 ### What this says about the method
 
 An IR walk plus an acceptance probe is the right instrument for "which language features are
 missing", and that part of this document stands. It is the wrong instrument for "is the twin
 correct", and nothing short of emitting both sides and handing them to Tint and WebGL2
-answers that. #16 adds those gates — `shade-twins.test.ts` pins the two emits against each
-other, and the compile gate hands every registered twin's WGSL to Tint — so the next twin to
-land cannot repeat this.
+answers that.
+
+#16 added `shade-twins.test.ts`, and this section originally claimed that gate meant "the next
+twin to land cannot repeat this". #40 falsified that claim: `voronoi-twin` passed
+`shade-twins.test.ts` — its `reflect()` deep-equalled the original's and both its goldens
+baked — while emitting `var j: i32 = -1.0`. A golden pins whatever is emitted, right or wrong,
+and structural equality against an EDSL original says nothing about whether either side is a
+legal shader.
+
+The gate that caught it is the compile one, and it is the only one in this repository that
+can: an external compiler is the only participant here with no stake in the IR being right.
+So the order for the next twin is fixed — write it, compile it, **then** bake. Baking first
+records the bug as the expected output.
 
 ## Verified, not inferred
 
@@ -319,9 +398,16 @@ file a registry entry, goldens and a compile-gate slot. A twin lands as: write
 The `-twin` suffix is what keeps the golden stems disjoint; `shade-examples.test.ts` asserts
 that disjointness, because both corpora bake into one `__emit-goldens__/` directory.
 
-One twin landed in #16, `compute-reduction-twin`. `gradient` was held by
-[#14](https://github.com/typeshade/typeshade/issues/14) until this PR fixed it, and lands as
-`gradient-twin` in [#36](https://github.com/typeshade/typeshade/pull/36).
+Eleven twins have landed: `compute-reduction-twin` in #16, `gradient-twin` once
+[#14](https://github.com/typeshade/typeshade/issues/14) was fixed, and nine fullscreen twins —
+`hillshade`, `plasma`, `julia`, `mandelbrot`, `domain-warp`, `tunnel`, `ocean`, `starfield`,
+`kaleidoscope` — in [#42](https://github.com/typeshade/typeshade/pull/42). Every one is in the
+compile gate: WGSL through Tint, GLSL ES 3.00 compiled and linked on a real WebGL2 context.
+
+The three that were written and could not land are `voronoi`, `raymarch-sphere` and
+`raymarch-boxes`. They are absent rather than renamed: a twin that spells the shader
+differently from its original to dodge a compiler bug is not an oracle, it is a second
+program that happens to compile.
 
 ### What changes between an original and its twin
 
