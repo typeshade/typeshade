@@ -44,8 +44,11 @@ declare let pixels: storage<f32>
 | `declare const x: uniform<T>` | uniform | read |
 | `declare const x: storage<T>` | storage | read |
 | `declare let x: storage<T>` | storage | read_write |
-| `declare const x: T` | illegal | space required |
+| `declare const x: texture_2d<T>` / `texture_2d_array<T>` / `sampler` | uniform | read (a handle, written bare; §15) |
+| `declare const x: override<T>` | none | a specialization constant, no bind slot; §15 |
+| `declare const x: T` | illegal | space required, unless `T` is a handle or `override<T>` |
 | `declare let x: uniform<T>` | illegal | uniform is const |
+| `declare const x: uniform<sampler>` | illegal | a handle is written bare |
 
 Writes to a read-only resource are a compile error.
 
@@ -229,7 +232,10 @@ Do not start Execution Graph or class methods before 2–4 are green.
 
 | Situation | Error |
 |-----------|-------|
-| `declare const x: f32` | need `uniform<T>` or `storage<T>` |
+| `declare const x: f32` | need `uniform<T>`, `storage<T>`, a handle type or `override<T>` |
+| `const q: override<bool> = 1` | the default must be a literal of the declared type |
+| an `override` named like a struct field or a resource | on GLSL ES 3.00 it is a `#define`, which would rewrite that declaration |
+| a fractional or negative texture layer or mip level | WGSL rejects it and GLSL ES 3.00 rounds it |
 | `declare let x: uniform<T>` | uniform must be `declare const` |
 | assign to `declare const` resource | read-only |
 | two resources share `@binding` | name both |
@@ -312,7 +318,7 @@ source might not be.
 
 ## 15. Textures, samplers and overrides
 
-Three declarations the surface had no spelling for. None of them is a new IR shape — a
+Three declarations the surface had no spelling for. None of them is a new IR shape: a
 `texture`/`sampler` `ShaderType` and `ModuleDecl.overrides` have been there all along, and the
 EDSL builds them with `resource(name, texture2dfT, …)` and `overrideConst(name, type, default)`.
 
@@ -330,7 +336,7 @@ class Color {
 }
 
 @fragment
-export function fs(uv: vec2): Color {
+export function fs(@location(0) uv: vec2): Color {
   const a = textureSample(tex, smp, uv)
   const b = textureSample(atlas, smp, uv, 1)
   const c = textureSampleLevel(tex, smp, uv, 0.)
@@ -342,7 +348,7 @@ export function fs(uv: vec2): Color {
 }
 ```
 
-**A texture and a sampler are written bare** — no `uniform<>` or `storage<>` wrapper, because a
+**A texture and a sampler are written bare**, with no `uniform<>` or `storage<>` wrapper, because a
 handle lives in no address space. They take the next binding slot in declaration order like any
 other resource, and must be `const`. `texture_2d<T>` and `texture_2d_array<T>` take `f32`, `i32`
 or `u32`; the element decides both the WGSL spelling and which reads apply.
@@ -350,7 +356,7 @@ or `u32`; the element decides both the WGSL spelling and which reads apply.
 **The read a call becomes is decided by the texture, not by the argument count.**
 `textureSample(atlas, smp, uv, 1)` on an array texture is the neutral id `textureSampleArray`,
 which WGSL spells with the layer as its own argument and GLSL ES 3.00 folds into a `vec3`
-coordinate — the same choice the EDSL's overloads make. A **layer** is an `i32` and a
+coordinate, which is the same choice the EDSL's overloads make. A **layer** is an `i32` and a
 `textureLoad` **level** is a `u32`, so `textureLoad(t, c, 0)` emits `textureLoad(t, c, 0u)`
 rather than the `0.0` that no backend accepts.
 
@@ -361,9 +367,25 @@ one `sampler2D`, and the sampler argument disappears from the call.
 **An override is a specialization constant**: the pipeline sets it, so no pass folds it and it
 occupies no binding slot. `const q: override<f32> = 0.5` states the default; `declare const q:
 override<f32>` has nowhere to put one and takes the type's zero. It must be a scalar
-(`f32`, `i32`, `u32`, `bool`) and the default must be a literal — the declaration each backend
-emits carries it, so it has to be known here. WGSL emits `override q: f32 = 0.5;`; GLSL ES 3.00
-has no equivalent and emits a `#define`.
+(`f32`, `i32`, `u32`, `bool`) and the default must be a literal of that type, since the declaration
+each backend emits carries it, so it has to be known here, and `override<bool> = 1` is refused
+rather than emitted as `override q: bool = 1.0;`, which neither compiler accepts. WGSL emits
+`override q: f32 = 0.5;`; GLSL ES 3.00 has no equivalent and emits a `#define`.
+
+**An override may not take the name of a struct field or a resource.** That `#define` is a
+preprocessor substitution, so it rewrites every later occurrence of the name, a declaration
+included: an override called `uv` beside a `@location(0) uv` varying emitted `#define uv 0.85`
+above `in vec2 uv;`, which ANGLE reads as `in vec2 0.85;`. The collision is refused at the
+declaration; the WGSL was always fine, which is exactly why nothing caught it.
+
+**A layer and a mip level are whole numbers of 0 or more.** A fractional or negative one is
+refused rather than emitted: WGSL rejects it and GLSL ES 3.00 silently rounds, so the two
+targets would disagree about the same source. That is the rule the EDSL raises `SD0015` for.
+
+**These five names are reserved**: `textureSample`, `textureSampleLevel`, `textureLoad`,
+`textureDimensions`, `textureNumLayers`. A function you declare with one of those names is
+refused, the way `mod` and `clamp` have always been. A name that was *only* a user function
+before this item is the one thing that changes here.
 
 Left for later: `texture_2d_ms<f32>`, whose multisampled load neither backend here reaches, and
 the storage-texture forms.

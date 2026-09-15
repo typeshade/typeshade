@@ -153,7 +153,18 @@ export function compileTsSource(
   const structs = collectStructs(sourceFile, diagnostics, symbols)
   const bindings = collectBindings(sourceFile, diagnostics, symbols)
   const consts = collectModuleConsts(sourceFile, diagnostics, symbols)
-  const overrides = collectOverrides(sourceFile, diagnostics, symbols)
+  // The names the GLSL writer spells from this module, so an override cannot shadow one with
+  // its `#define`. Structs and bindings are collected above, which is why this order holds.
+  const glslNames = new Set<string>([
+    ...structs.flatMap((s) => s.decl.fields.map((f) => f.name)),
+    ...bindings.map((b) => b.name),
+  ])
+  const overrides = collectOverrides(sourceFile, diagnostics, symbols, glslNames)
+  // A name claimed by two DIFFERENT collectors. Each reports its own repeats, and none can see
+  // the others, so `const q: f32 = 1.` beside `const q: override<f32> = 2.` passed all three and
+  // then met `scope.define`, which throws — an exception out of `compile()` and out of the
+  // language service's `getDiagnostics()`. Reported here, where all three lists exist.
+  reportCrossDeclarationCollisions(sourceFile, diagnostics, consts, bindings, overrides)
   // The CollectedStructs whole, not their decls: #23's TS8029 names the spelling the author
   // used (`class`, `interface` or `type`), which only the collected form carries.
   const funcs = lowerSourceFunctions(
@@ -201,4 +212,40 @@ export function compileTsSource(
 export function isTypeshadeSource(source: string, fileName = 'check.ts'): boolean {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
   return hasUseTypeshadeDirective(sf)
+}
+
+/** Reports a module-scope name declared by more than one of the three collectors — a module
+ *  const, a resource binding and an override each own a namespace they police alone.
+ *
+ *  Named in the order they are collected, so the message points at what the author most likely
+ *  meant to keep. The declaration itself is not removed: the later `scope.define` is guarded,
+ *  so one of the two wins silently rather than throwing, and the diagnostic is what stops the
+ *  module being emitted. */
+function reportCrossDeclarationCollisions(
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  consts: readonly { readonly name: string }[],
+  bindings: readonly { readonly name: string }[],
+  overrides: readonly { readonly name: string }[],
+): void {
+  const kindOf = new Map<string, string>()
+  for (const [kind, list] of [
+    ['a module const', consts],
+    ['a resource', bindings],
+    ['an override', overrides],
+  ] as const) {
+    for (const d of list) {
+      const prev = kindOf.get(d.name)
+      if (prev !== undefined && prev !== kind) {
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            undefined,
+            `"${d.name}" is declared as ${prev} and as ${kind}; one module-scope name means one thing.`,
+            TS_CODES.DUPLICATE_SYMBOL,
+          ),
+        )
+      } else kindOf.set(d.name, kind)
+    }
+  }
 }

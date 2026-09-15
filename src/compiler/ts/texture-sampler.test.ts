@@ -252,3 +252,169 @@ describe('override constants', () => {
     ).toBe('Cannot assign to "q" — it is an override constant, set by the pipeline.')
   })
 })
+
+describe('what the review of #54 found (the four majors)', () => {
+  it('checks an override default against its declared type', () => {
+    // `defaultValue` only asked whether the initializer was a literal, so
+    // `const fancy: override<bool> = 1` emitted `override fancy: bool = 1.0;` — Tint: "cannot
+    // convert value of type 'abstract-float' to type 'bool'", ANGLE: "boolean expression
+    // expected". `OverrideDecl.default` is a `number | boolean`, so both spellings fit the
+    // field and both backends print what they are given; nothing downstream could catch it.
+    expect(
+      diagnose('const fancy: override<bool> = 1\nexport function f(): f32 {\n  return 1.;\n}'),
+    ).toBe('override "fancy" is bool; its default must be true or false.')
+    expect(
+      diagnose('const q: override<f32> = true\nexport function f(): f32 {\n  return 1.;\n}'),
+    ).toBe('override "q" is f32; its default must be a number.')
+    expect(
+      diagnose('const q: override<i32> = false\nexport function f(): f32 {\n  return 1.;\n}'),
+    ).toBe('override "q" is i32; its default must be a number.')
+    expect(
+      diagnose('const q: override<i32> = 1.5\nexport function f(): f32 {\n  return 1.;\n}'),
+    ).toBe('override "q" is i32; its default must be a whole number.')
+    expect(
+      diagnose('const q: override<u32> = -1\nexport function f(): f32 {\n  return 1.;\n}'),
+    ).toBe('override "q" is u32; its default cannot be negative.')
+    // …and every well-typed default still lands, negative i32 included.
+    for (const [src, want] of [
+      ['const q: override<bool> = true', 'override q: bool = true;'],
+      ['const q: override<f32> = 1.5', 'override q: f32 = 1.5;'],
+      ['const q: override<i32> = -2', 'override q: i32 = -2;'],
+      ['declare const q: override<bool>', 'override q: bool = false;'],
+    ] as const) {
+      const r = compileTsSource(
+        `"use typeshade";\n${src}\nexport function f(): f32 {\n  return 1.;\n}`,
+      )
+      expect(r.diagnostics).toEqual([])
+      expect(r.wgsl).toContain(want)
+    }
+  })
+
+  it('reports a repeated or colliding module-scope name instead of throwing', () => {
+    // `scope.define` THROWS on a repeat, and it was the first thing to see these — so
+    // `compile()` raised an exception and the language service's `getDiagnostics()` did too,
+    // where the merge base had shown a squiggle.
+    for (const [src, want] of [
+      ['const q: override<f32> = 1.\nconst q: override<f32> = 2.', 'Duplicate override "q".'],
+      [
+        'declare const tex: texture_2d<f32>\ndeclare const tex: texture_2d<f32>',
+        'Duplicate resource "tex".',
+      ],
+      ['declare const u: uniform<f32>\ndeclare const u: uniform<f32>', 'Duplicate resource "u".'],
+      [
+        'const q: f32 = 1.\nconst q: override<f32> = 2.',
+        '"q" is declared as a module const and as an override; one module-scope name means one thing.',
+      ],
+      [
+        // The #define check below sees this one first and drops the override, so the
+        // cross-collector message never fires — but it is REPORTED either way, which is the
+        // property under test: a repeat must not leave through `scope.define`.
+        'declare const u: uniform<f32>\nconst u: override<f32> = 1.',
+        'override "u" collides with a struct field or resource of that name. On GLSL ES 3.00 ' +
+          'an override is a #define, so it would rewrite that declaration; rename the override.',
+      ],
+    ] as const) {
+      const body = `"use typeshade";\n${src}\nexport function f(): f32 {\n  return 1.;\n}`
+      expect(() => compileTsSource(body)).not.toThrow()
+      expect(compileTsSource(body).diagnostics.map((d) => d.message)).toContain(want)
+    }
+  })
+
+  it('refuses an override whose name the GLSL #define would capture', () => {
+    // On GLSL ES 3.00 an override is a `#define`, and a #define rewrites every later
+    // occurrence of its name — a declaration included. `const uv: override<f32> = 0.85` beside
+    // a `@location(0) uv` varying emitted `#define uv 0.85` above `in vec2 uv;`, which ANGLE
+    // reads as `in vec2 0.85;`. WGSL was fine and nothing said so.
+    const prog = (name: string): string => `
+      "use typeshade";
+      class VsOut {
+        @builtin("position") pos: vec4
+        @location(0) uv: vec2
+      }
+      class Color {
+        @location(0) color: vec4
+      }
+      class U {
+        k: f32
+      }
+      declare const params: uniform<U>
+      const ${name}: override<f32> = 0.85
+      @vertex
+      export function vs(@builtin("vertex_index") i: u32): VsOut {
+        return { pos: vec4(f32(i), 0., 0., 1.), uv: vec2(0., 0.) };
+      }
+      @fragment
+      export function fs(v: VsOut): Color {
+        return { color: vec4(v.uv, ${name} + params.k, 1.) };
+      }
+    `
+    for (const name of ['uv', 'color', 'k', 'params']) {
+      expect(diagnose(prog(name))).toContain(`override "${name}" collides with a struct field`)
+    }
+    // A name of its own still compiles, and the #define is still what GLSL gets.
+    const ok = compile(prog('quality'))
+    expect(ok.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(ok.glsl?.fragment).toContain('#define quality 0.85')
+  })
+
+  it('refuses a fractional or negative texture layer and mip level', () => {
+    // `intArg` bailed on these and its comment claimed a downstream check that does not exist.
+    // `textureLoad(t, c, 2.5)` and `textureSample(atlas, smp, uv, 1.5)` emitted with zero
+    // diagnostics; Tint refuses the WGSL and GLSL ES 3.00 silently rounds — the divergence the
+    // EDSL's own layerArg/levelArg raise SD0015 for.
+    const prog = (call: string): string => `
+      "use typeshade";
+      class Color {
+        @location(0) color: vec4
+      }
+      declare const atlas: texture_2d_array<f32>
+      declare const tex: texture_2d<f32>
+      declare const smp: sampler
+      @fragment
+      export function fs(@builtin("position") p: vec4): Color {
+        const c: vec2i = vec2i(i32(0), i32(0));
+        return { color: ${call} };
+      }
+    `
+    expect(diagnose(prog('textureLoad(tex, c, 2.5)'))).toBe(
+      'A texture mip level must be a whole number of 0 or more, got 2.5. WGSL rejects a ' +
+        'fractional or negative one and GLSL ES 3.00 silently rounds it, so the two targets ' +
+        'would disagree.',
+    )
+    expect(diagnose(prog('textureLoad(tex, c, -1)'))).toContain('got -1')
+    expect(diagnose(prog('textureSample(atlas, smp, p.xy, 1.5)'))).toContain(
+      'A texture layer must be a whole number of 0 or more, got 1.5',
+    )
+    expect(diagnose(prog('textureSample(atlas, smp, p.xy, -1)'))).toContain('layer')
+    expect(diagnose(prog('textureLoad(atlas, c, 1, 2.5)'))).toContain('mip level')
+    // …and a whole one still lowers to the integer the neutral id wants.
+    const ok = compile(prog('textureLoad(atlas, c, 1, 2)'))
+    expect(ok.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(ok.wgsl).toContain('textureLoad(atlas, c, 1, 2u)')
+  })
+})
+
+describe('the smaller findings of that review', () => {
+  it('reports a texture element that is not a type name, rather than defaulting to f32', () => {
+    // `typeNameOfArg(args[0]) ?? 'f32'` made `texture_2d<{ a: f32 }>` a `texture_2d<f32>`.
+    for (const t of ['texture_2d<{ a: f32 }>', 'texture_2d<f32[]>', 'texture_2d<bool>']) {
+      expect(diagnose(`declare const t: ${t}\nexport function f(): f32 {\n  return 1.;\n}`)).toBe(
+        'texture_2d<T> T must be f32, i32, or u32.',
+      )
+    }
+  })
+
+  it('refuses a type argument on a sampler, and a handle inside uniform<>', () => {
+    expect(
+      diagnose('declare const s: sampler<f32>\nexport function f(): f32 {\n  return 1.;\n}'),
+    ).toBe('sampler takes no type argument.')
+    expect(
+      diagnose('declare const s: uniform<sampler>\nexport function f(): f32 {\n  return 1.;\n}'),
+    ).toContain('is a sampler; it is declared bare, not inside uniform<...>')
+    expect(
+      diagnose(
+        'declare const s: uniform<texture_2d<f32>>\nexport function f(): f32 {\n  return 1.;\n}',
+      ),
+    ).toContain('is a texture; it is declared bare, not inside uniform<...>')
+  })
+})

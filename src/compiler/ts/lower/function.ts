@@ -296,8 +296,17 @@ export function fillFunctionBody(
 ): void {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
+  // Every module-scope define is guarded, because `scope.define` THROWS on a repeat and this
+  // is the last place a collision between two collectors can land. Each collector reports its
+  // own duplicates, so a name arriving twice here has already been diagnosed — an override
+  // beside a module const of the same name, say — and the second define would turn that
+  // diagnostic into an exception out of `compile()` and out of the language service's
+  // `getDiagnostics()`, where a squiggle belongs.
+  const defineOnce = (b: Parameters<LoweringScope['define']>[0]): void => {
+    if (!scope.hasInCurrent(b.name)) scope.define(b)
+  }
   for (const c of consts) {
-    scope.define({
+    defineOnce({
       kind: 'module',
       name: c.name,
       type: c.type,
@@ -306,7 +315,7 @@ export function fillFunctionBody(
     })
   }
   for (const b of bindings) {
-    scope.define({
+    defineOnce({
       kind: 'binding',
       name: b.name,
       type: b.type,
@@ -317,7 +326,7 @@ export function fillFunctionBody(
   // An override reads as an `overrideref`, which no pass folds: its value arrives when the
   // pipeline is built, not when the module is compiled (#8 A7).
   for (const o of overrides) {
-    scope.define({ kind: 'override', name: o.name, type: o.type, mutable: false })
+    defineOnce({ kind: 'override', name: o.name, type: o.type, mutable: false })
   }
   for (const p of stub.params) {
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })

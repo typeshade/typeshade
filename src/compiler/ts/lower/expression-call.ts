@@ -12,7 +12,7 @@ import {
   resolveMathFn,
 } from '../math-alias.js'
 import { SCALAR_CAST } from '../numeric.js'
-import { isIntegerLiteralNode } from '../lit-coerce.js'
+import { foldNumericLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS } from './expression-prop.js'
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js'
@@ -315,7 +315,11 @@ function lowerTextureCall(
       // written. (`textureSampleLevel`'s level argument sits where the layer does on the
       // non-array form, which is why the index is computed rather than fixed.)
       const out = [...args]
-      if (isArray) out[3] = intArg(out[3]!, node.arguments[3]!, i32T)
+      if (isArray) {
+        const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
+        if (!layer) return undefined
+        out[3] = layer
+      }
       return { op: 'call', type: texel, fn, args: out }
     }
     case 'textureLoad': {
@@ -325,9 +329,22 @@ function lowerTextureCall(
       // `textureLoad(t, c, 0.0)` is not valid WGSL — the same bug the EDSL fixed in its own
       // layerArg/levelArg (#1703), fixed the same way and with the same types.
       const out = [...args]
-      if (isArray) out[2] = intArg(out[2]!, node.arguments[2]!, i32T)
+      if (isArray) {
+        const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+        if (!layer) return undefined
+        out[2] = layer
+      }
       const levelIndex = isArray ? 3 : 2
-      out[levelIndex] = intArg(out[levelIndex]!, node.arguments[levelIndex]!, u32T)
+      const level = intArg(
+        out[levelIndex]!,
+        node.arguments[levelIndex]!,
+        u32T,
+        'mip level',
+        sourceFile,
+        diagnostics,
+      )
+      if (!level) return undefined
+      out[levelIndex] = level
       return { op: 'call', type: texel, fn: isArray ? 'textureLoadArray' : id, args: out }
     }
     default:
@@ -335,17 +352,50 @@ function lowerTextureCall(
   }
 }
 
-/** A layer or mip-level argument, retyped when it is a bare whole number.
+/** A layer or mip-level argument, retyped when it is a bare whole number and REPORTED when it
+ *  is a number that cannot be one.
  *
  *  A number written without a decimal point lowers to an f32 on this surface, and WGSL's
  *  `textureLoad` and array sampling take INTEGERS — `textureLoad(t, c, 0.0)` is rejected. An
- *  argument that is already an integer, or that is not a literal at all, is returned as it is;
- *  a fractional literal is left alone too, so the type check downstream still reports it. */
-function intArg(arg: Expr, node: ts.Expression, want: ShaderType): Expr {
-  if (arg.op !== 'lit' || typeof arg.value !== 'number') return arg
-  if (!isIntegerLiteralNode(node) && !Number.isInteger(arg.value)) return arg
-  if (typeKey(arg.type) === 'i32' || typeKey(arg.type) === 'u32') return arg
-  return { op: 'lit', type: want, value: arg.value }
+ *  argument that is not a literal at all is returned as it is, and one that is already an
+ *  integer likewise.
+ *
+ *  A fractional or negative literal is the case this used to wave through, on the claim that a
+ *  check downstream would report it. There is none: `textureLoad(t, c, 2.5)`,
+ *  `textureLoad(t, c, -1)` and `textureSample(atlas, smp, uv, 1.5)` emitted with zero
+ *  diagnostics, Tint refused the WGSL, and GLSL silently rounded — the exact divergence the
+ *  EDSL's own layerArg/levelArg raise SD0015 for. Reported here, at the argument, with the
+ *  divergence named. */
+function intArg(
+  arg: Expr,
+  node: ts.Expression,
+  want: ShaderType,
+  what: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  // A NEGATED literal is a unop, not a lit, and reached the backend as `-(1.0)`. Folded first
+  // so the range check below sees the number the author wrote.
+  const lit = foldNumericLit(arg)
+  if (lit.op !== 'lit' || typeof lit.value !== 'number') return arg
+  const v = lit.value
+  // Negative is refused whatever the target type. A layer is typed i32 because that is the
+  // overload WGSL's array sampling takes, not because -1 means anything: both it and a mip
+  // level are indices into memory that starts at 0.
+  if (!Number.isInteger(v) || v < 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A texture ${what} must be a whole number of 0 or more, got ${String(v)}. ` +
+        `WGSL rejects a fractional or negative one and GLSL ES 3.00 silently rounds it, ` +
+        `so the two targets would disagree.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  if (typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32') return lit
+  return { op: 'lit', type: want, value: v }
 }
 
 /** One arity check, with the message naming what the texture's own shape requires — an array

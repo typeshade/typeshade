@@ -41,8 +41,10 @@ export function collectOverrides(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   symbols?: DeclaredSymbolSink,
+  glslNames: ReadonlySet<string> = new Set(),
 ): OverrideDecl[] {
   const out: OverrideDecl[] = []
+  const seen = new Set<string>()
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue
     const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
@@ -50,6 +52,31 @@ export function collectOverrides(
       if (!ts.isIdentifier(decl.name) || !isOverrideType(decl.type)) continue
       const one = lowerOne(decl, isConst, sourceFile, diagnostics)
       if (!one) continue
+      // The check `collectModuleConsts` already had. Without it a repeated name reached
+      // `scope.define` and threw out of `compile()` rather than being reported.
+      if (seen.has(one.name)) {
+        diagnostics.push(diag(sourceFile, decl, `Duplicate override "${one.name}".`))
+        continue
+      }
+      // On GLSL ES 3.00 an override is a `#define`, and a #define rewrites every later
+      // occurrence of its name — including a declaration. `const uv: override<f32> = 0.85`
+      // beside a `@location(0) uv` varying emitted `#define uv 0.85` above `in vec2 uv;`,
+      // which ANGLE reads as `in vec2 0.85;` and refuses, while WGSL was fine and nothing said
+      // so. The names it can capture are the ones the GLSL writer spells from source: a struct
+      // field (a varying, a fragment output, a uniform block member) and a binding.
+      if (glslNames.has(one.name)) {
+        diagnostics.push(
+          diag(
+            sourceFile,
+            decl,
+            `override "${one.name}" collides with a struct field or resource of that name. ` +
+              `On GLSL ES 3.00 an override is a #define, so it would rewrite that declaration; ` +
+              `rename the override.`,
+          ),
+        )
+        continue
+      }
+      seen.add(one.name)
       out.push(one)
       recordDeclaration(symbols, sourceFile, decl.name, {
         name: one.name,
@@ -100,7 +127,14 @@ function lowerOne(
  *  takes the type's zero — which is what an unset specialization constant is worth, and is
  *  spelled out in the surface document rather than left to be discovered. Only a literal is
  *  accepted: the default is baked into the declaration both backends emit, so it has to be
- *  known here, not folded later. */
+ *  known here, not folded later.
+ *
+ *  The literal has to MATCH the declared type, and this checked only that it was a literal:
+ *  `const fancy: override<bool> = 1` emitted `override fancy: bool = 1.0;`, which Tint refuses
+ *  (`cannot convert value of type 'abstract-float' to type 'bool'`) and ANGLE answers with
+ *  `boolean expression expected`. Nothing downstream could catch it — `OverrideDecl.default` is
+ *  a `number | boolean`, so both spellings fit the field and both backends print what they are
+ *  given. */
 function defaultValue(
   decl: ts.VariableDeclaration,
   type: ShaderType,
@@ -108,20 +142,49 @@ function defaultValue(
   diagnostics: TsCompilerDiagnostic[],
 ): number | boolean | undefined {
   const init = decl.initializer
-  if (!init) return typeKey(type) === 'bool' ? false : 0
+  const k = typeKey(type)
+  if (!init) return k === 'bool' ? false : 0
+  const name = (decl.name as ts.Identifier).text
   const unwrapped = ts.isPrefixUnaryExpression(init) ? init.operand : init
   const negated = ts.isPrefixUnaryExpression(init) && init.operator === ts.SyntaxKind.MinusToken
-  if (init.kind === ts.SyntaxKind.TrueKeyword) return true
-  if (init.kind === ts.SyntaxKind.FalseKeyword) return false
+  const isBool = init.kind === ts.SyntaxKind.TrueKeyword || init.kind === ts.SyntaxKind.FalseKeyword
+  if (k === 'bool') {
+    if (isBool) return init.kind === ts.SyntaxKind.TrueKeyword
+    diagnostics.push(
+      diag(sourceFile, init, `override "${name}" is bool; its default must be true or false.`),
+    )
+    return undefined
+  }
+  if (isBool) {
+    diagnostics.push(
+      diag(sourceFile, init, `override "${name}" is ${k}; its default must be a number.`),
+    )
+    return undefined
+  }
   if (ts.isNumericLiteral(unwrapped)) {
-    const v = Number(unwrapped.text)
-    return negated ? -v : v
+    const v = negated ? -Number(unwrapped.text) : Number(unwrapped.text)
+    // An integer override takes an integer, in range. `override<u32> = -1` and
+    // `override<i32> = 1.5` reach the backend's literal spelling otherwise, which refuses them
+    // as SD0017 with no line of source to point at.
+    if (k !== 'f32' && !Number.isInteger(v)) {
+      diagnostics.push(
+        diag(sourceFile, init, `override "${name}" is ${k}; its default must be a whole number.`),
+      )
+      return undefined
+    }
+    if (k === 'u32' && v < 0) {
+      diagnostics.push(
+        diag(sourceFile, init, `override "${name}" is u32; its default cannot be negative.`),
+      )
+      return undefined
+    }
+    return v
   }
   diagnostics.push(
     diag(
       sourceFile,
       init,
-      `override "${(decl.name as ts.Identifier).text}" default must be a literal; ` +
+      `override "${name}" default must be a literal; ` +
         `the declaration each backend emits carries it.`,
     ),
   )

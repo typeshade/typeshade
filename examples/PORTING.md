@@ -98,11 +98,11 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 31  | `fp64-cancellation`   | generic      | blocked      | **A6-f64**, N2               | 13 / 36        |
 | 32  | `fp64-sine-sweep`     | generic      | blocked      | **A6-f64**                   | 13 / 36        |
 | 33  | `gradient`            | generic      | **portable** | —                            | —              |
-| 34  | `override-quality`    | generic      | blocked      | ~~A7-override~~              | 1 / 36         |
+| 34  | `override-quality`    | generic      | **portable** | —                            | —              |
 | 35  | `texture-array-lod`   | generic      | blocked      | **A3**, ~~A7-tex~~           | 1 / 36         |
 | 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
 
-**Source the compiler accepts today: 14 of 36**, up from 2 when this was first measured — [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the
+**Source the compiler accepts today: 15 of 36**, up from 2 when this was first measured — [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the
 single largest blocker. One has shipped as a twin (`compute-reduction` in
 [#16](https://github.com/typeshade/typeshade/pull/16)); `gradient` was held by
 [#14](https://github.com/typeshade/typeshade/issues/14), which this PR fixes, and lands in
@@ -122,7 +122,7 @@ unwritten, and _accepts the source_ is not _emits a correct shader_ — see
 | **A3**          | an integer literal taking the declared type (`vec2i(0, 0)`)                                   | A3              | 1      | `texture-array-lod`                                                                                                                                                       |
 | **A6-discard**  | the `discard` statement                                                                       | A6              | 1      | `discard-cutout`                                                                                                                                                          |
 | **A7-tex**      | ~~`texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`~~ — **landed** (#8 A7) | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
-| **A7-override** | ~~`override<T>` specialization constants~~ — **landed** (#8 A7)                               | A7              | 1      | `override-quality`                                                                                                                                                        |
+| **A7-override** | ~~`override<T>` specialization constants~~ — **landed** (#8 A7)                               | A7              | 0      | — (`override-quality` compiles)                                                                                                                                           |
 
 ### What the corpus does **not** need
 
