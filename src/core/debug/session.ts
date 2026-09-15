@@ -16,7 +16,9 @@ import type { CpuPrecision } from '../oracle.js'
 import { validate } from '../passes/validate.js'
 import { autoVars } from '../passes/opt/index.js'
 import { froundF32 } from '../passes/precision.js'
-import { makeCtx, runFunction, type Signal, type Step, type StepFrame } from './interp.js'
+import { sameFileName } from './file-name.js'
+import { compileWatch, watchCacheKey, type CompiledWatch, type DebugWatchValue } from './watch.js'
+import { evalExpr, makeCtx, runFunction, type Signal, type Step, type StepFrame } from './interp.js'
 
 /** A breakpoint, as an editor sets one: a zero-based line, optionally in a named file.
  *
@@ -28,7 +30,14 @@ import { makeCtx, runFunction, type Signal, type Step, type StepFrame } from './
  */
 export interface DebugBreakpoint {
   /** Match only statements from this file. Omit to match on line alone, which is what a
-   *  single-file session wants. */
+   *  single-file session wants.
+   *
+   *  Compared against the name the module was COMPILED under (`SourceSpan.file`), and the two
+   *  are normalized before comparing: separators, `./` and `../` segments. They have to be,
+   *  because the compile side is `ts.SourceFile.fileName` and TypeScript rewrites what it is
+   *  given (`C:\shaders\a.ts` is stored as `C:/shaders/a.ts`) while a breakpoint's path
+   *  arrives exactly as the editor spelled it. Neither side is resolved against a directory
+   *  or looked up on disk, so a relative path and an absolute one are still two files. */
   readonly file?: string
   /** Zero-based line, the same convention `SourceSpan` and the language service use. */
   readonly line: number
@@ -65,6 +74,22 @@ export interface DebugStackFrame {
    *  a local the way its author spelled it. A name absent from `locals` but present here has
    *  not been declared yet at this pause. */
   readonly localTypes: ReadonlyMap<string, ShaderType>
+  /** The names in {@link locals} whose value is a **stand-in**, not a computed result: it came
+   *  from a GPU-only intrinsic that `gpuStubs` let stand in, or from arithmetic on one. Empty
+   *  unless the session was started with `gpuStubs: true`, since without it a stub throws
+   *  instead of returning.
+   *
+   *  This is what a variables view marks so that nobody reads `dx = 0` as the answer
+   *  (`docs/debugging.md` §2.4). {@link DebugSession.stubbedIntrinsics} answers the other
+   *  question, WHICH intrinsics stood in anywhere in the run, and neither substitutes for the
+   *  other: a run can have stubbed `dpdx` ten statements ago and be showing nothing derived
+   *  from it now.
+   *
+   *  Conservative in the one direction that cannot mislead. It over-reports rather than
+   *  under-reports: a helper that calls `dpdx` and does not use the result still marks what
+   *  the call returned, and writing one clean component of a marked vector leaves the vector
+   *  marked. Assigning a whole name something clean clears it. */
+  readonly stubbedLocals: ReadonlySet<string>
 }
 
 /** A stopped run: where it is, and everything visible from there.
@@ -118,7 +143,9 @@ export interface DebugSessionOptions {
   /** Accept placeholder values at the GPU-only intrinsics (a texture read, a screen-space
    *  derivative) instead of throwing. Off by default, as on the oracle, because a plausible
    *  wrong number is the worst failure mode for a reference. When on,
-   *  {@link DebugSession.stubbedIntrinsics} names every one that stood in. */
+   *  {@link DebugSession.stubbedIntrinsics} names every one that stood in, and
+   *  {@link DebugStackFrame.stubbedLocals} names the values each pause is showing that came
+   *  from one. */
   readonly gpuStubs?: boolean
   /** Uniform and storage values by declared name, in the CPU value model: a number for a
    *  scalar, a flat array for a vector or matrix, an object keyed by field name for a
@@ -169,8 +196,9 @@ export interface DebugSession {
    *  far the run has moved on. It answers "did anything in this session stand in, and what",
    *  which is a banner on the session or a warning in a test. It does NOT say which of the
    *  values on screen are stand-ins, because a name is not a value: after `const d = dpdx(a)`
-   *  it reports `dpdx` and cannot tell `d` from `a`. That per-value marking is the other half
-   *  of `docs/debugging.md` §2.4 and arrives with the milestone that delivers it. */
+   *  it reports `dpdx` and cannot tell `d` from `a`. That is
+   *  {@link DebugStackFrame.stubbedLocals}, the other half of `docs/debugging.md` §2.4, which
+   *  is what a variables view marks. */
   readonly stubbedIntrinsics: readonly string[]
   /** The precision this run is evaluating at, so a UI can say which question it is answering. */
   readonly precision: CpuPrecision
@@ -186,6 +214,31 @@ export interface DebugSession {
   continue(): DebugPause | undefined
   /** Replace the armed breakpoints. */
   setBreakpoints(breakpoints: readonly DebugBreakpoint[]): void
+  /** What is this expression, here, now: a DAP `evaluate`, a watch box, a debug hover.
+   *
+   *  The text is compiled by the REAL front end against the frame's own names, so a watch
+   *  means what the same text would mean written at that point in the shader, and a type error
+   *  in it is the same diagnostic the editor shows (`docs/debugging.md` §4.5). It can call the
+   *  module's own helpers. It is evaluated by the interpreter already running this session, at
+   *  this session's precision, so a watch answers the same question the run does.
+   *
+   *  Reads only; nothing a watch does can change the run. An assignment is a compile error
+   *  rather than a side effect.
+   *
+   *  The scope is the chosen frame's parameters and locals plus the module's bindings, minus
+   *  any name whose type the source language cannot yet spell (a texture, a sampler, a
+   *  runtime-sized storage array); watching one of those is an error naming it, never a wrong
+   *  number. Compiled watches are cached by text and frame shape, so stepping with a watch
+   *  open costs one compile, not one per step.
+   *
+   *  @param expression - the watch text, as the user typed it.
+   *  @param frameIndex - which frame to evaluate in, innermost first; defaults to 0.
+   *  @throws `DebugWatchError` when the text does not compile in that scope, and whatever the
+   *    interpreter throws when evaluating it does (a GPU-only intrinsic with `gpuStubs` off,
+   *    an out-of-range index).
+   *  @throws `Error` when the session is not paused, or `frameIndex` names no frame.
+   */
+  evaluate(expression: string, frameIndex?: number): DebugWatchValue
   /** Abandon the run without finishing it: the session reports `done`, keeps whatever pause it
    *  was showing out of `pause`, and every further move is a no-op.
    *
@@ -286,6 +339,7 @@ export function startDebugSession(
     opts?.breakpoints ?? [],
     opts?.stopOnEntry ?? true,
     new Map(m.bindings.map((b) => [b.name, b.type])),
+    prepared,
     opts?.maxSteps,
   )
 }
@@ -305,6 +359,11 @@ class Session implements DebugSession {
   private paused: DebugPause | undefined
   private finished = false
   private signal: Signal | undefined
+  /** The module as the run prepared it, for a watch to redeclare structs and helpers from. */
+  private readonly prepared: ModuleDecl
+  /** Compiled watches, by text and frame shape. Stepping with a watch box open re-asks the
+   *  same question at every stop, and the answer changes while the lowering does not. */
+  private readonly watches = new Map<string, CompiledWatch>()
   private readonly maxSteps: number | undefined
   private steps = 0
 
@@ -316,9 +375,11 @@ class Session implements DebugSession {
     breakpoints: readonly DebugBreakpoint[],
     stopOnEntry: boolean,
     bindingTypes: ReadonlyMap<string, ShaderType>,
+    prepared: ModuleDecl,
     maxSteps: number | undefined,
   ) {
     this.ctx = ctx
+    this.prepared = prepared
     this.bindingTypes = bindingTypes
     this.precision = precision
     this.breakpoints = breakpoints
@@ -353,6 +414,89 @@ class Session implements DebugSession {
 
   setBreakpoints(breakpoints: readonly DebugBreakpoint[]): void {
     this.breakpoints = breakpoints
+  }
+
+  evaluate(expression: string, frameIndex = 0): DebugWatchValue {
+    const pause = this.paused
+    if (!pause) {
+      throw new Error('shader-dsl/debug: cannot evaluate a watch; the run is not paused')
+    }
+    const frame = pause.frames[frameIndex]
+    if (!frame) {
+      throw new Error(
+        `shader-dsl/debug: no frame ${frameIndex}; the stack is ${pause.frames.length} deep`,
+      )
+    }
+
+    // A local shadows a binding of the same name, which is the order the interpreter itself
+    // resolves in (`evalExpr` checks the environment before the bindings).
+    const scope = new Map<string, ShaderType>(this.bindingTypes)
+    for (const [name, type] of frame.localTypes) scope.set(name, type)
+
+    const key = watchCacheKey(scope, expression)
+    let compiled = this.watches.get(key)
+    if (!compiled) {
+      compiled = this.atPrecision(compileWatch(this.prepared, scope, expression))
+      this.watches.set(key, compiled)
+    }
+
+    const env = new Map<string, CpuValue>()
+    for (const name of compiled.reads) {
+      if (frame.locals.has(name)) env.set(name, frame.locals.get(name) as CpuValue)
+      else if (pause.bindings.has(name)) env.set(name, pause.bindings.get(name) as CpuValue)
+      else {
+        // Declared further down the body, so the frame has a TYPE for it and no value. Saying
+        // so beats evaluating `undefined` into a NaN that reads like an answer.
+        throw new Error(
+          `shader-dsl/debug: "${name}" is declared in ${frame.fnName} but not yet assigned at this pause`,
+        )
+      }
+    }
+
+    // A watch is evaluated on the frame it is asked about: pushing one carrying that frame's
+    // stub marks is what makes a watch over a stand-in report itself as one, and it is what a
+    // call inside the watch unwinds back to. The run's own generator is suspended throughout,
+    // so nothing else is looking at this stack, and the `finally` puts it back either way.
+    const before = this.ctx.stubHits
+    this.ctx.frames.push({
+      fnName: frame.fnName,
+      fnSpan: frame.fnSpan,
+      callSpan: undefined,
+      env,
+      types: frame.localTypes,
+      stubbed: new Set(frame.stubbedLocals),
+      current: undefined,
+    })
+    try {
+      const walk = evalExpr(compiled.expr, env, this.ctx)
+      let step = walk.next()
+      // A watch never pauses: its statement boundaries are inside helpers it called, and a
+      // watch box asking a question is not a place to stop.
+      while (!step.done) step = walk.next()
+      return { value: step.value, type: compiled.type, stubbed: this.ctx.stubHits > before }
+    } finally {
+      this.ctx.frames.pop()
+    }
+  }
+
+  /** The watch expression rounded the way this run's arithmetic is rounded.
+   *
+   *  Without it a watch would answer a different question from the statement beside it: the run
+   *  is `froundF32`-wrapped at `'f32'` and a freshly compiled expression is not, so
+   *  `a * 0.1` in the watch box would be the f64 product while `const b = a * 0.1` one line
+   *  down is the f32 one. `froundF32` takes a module, so the expression rides in a throwaway
+   *  one rather than this file re-implementing the wrapping rule.
+   */
+  private atPrecision(w: CompiledWatch): CompiledWatch {
+    if (this.precision !== 'f32') return w
+    const wrapped = froundF32({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [{ name: 'w', params: [], ret: w.type, body: [{ s: 'return', expr: w.expr }] }],
+    })
+    const stmt = wrapped.funcs[0]?.body[0]
+    return stmt?.s === 'return' && stmt.expr ? { ...w, expr: stmt.expr } : w
   }
 
   terminate(): void {
@@ -392,7 +536,7 @@ class Session implements DebugSession {
 
   private hits(span: SourceSpan): boolean {
     return this.breakpoints.some(
-      (b) => (b.file === undefined || b.file === span.file) && b.line === span.line,
+      (b) => (b.file === undefined || sameFileName(b.file, span.file)) && b.line === span.line,
     )
   }
 
@@ -475,6 +619,7 @@ function snapshot(
         span: f.current ? sourceSpanOf(f.current) : undefined,
         locals: new Map(f.env),
         localTypes: f.types,
+        stubbedLocals: new Set(f.stubbed),
       }))
       .reverse(),
     bindings: new Map(Object.entries(bindings)),
