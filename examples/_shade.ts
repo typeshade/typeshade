@@ -140,6 +140,14 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'gradient-twin',
+    title: 'Gradient pass (source twin)',
+    blurb:
+      '`gradient-pass.ts` written in the source language instead of built with `fn()` / `module()` — the same shader through the other surface, with a uniform block both targets lay out and a GLSL pair that links.',
+    renderable: true,
+    twinOf: 'gradient',
+  },
+  {
     id: 'compute-reduction-twin',
     title: 'Compute reduction (source twin)',
     blurb:
