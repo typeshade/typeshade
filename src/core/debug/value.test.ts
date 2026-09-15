@@ -21,6 +21,7 @@ import {
   type ShaderType,
 } from '../ir/types.js'
 import type { StructDecl } from '../ir/nodes.js'
+import type { CpuValue } from '../cpu-runtime.js'
 import {
   coerceValue,
   createValueFormatter,
@@ -45,11 +46,13 @@ describe('formatCpuValue renders the declared type, not the JavaScript one', () 
     expect(formatCpuValue([1, 2], vec2fT)).toBe('vec2(1, 2)')
   })
 
-  it('a matrix is its columns, in the order it is stored', () => {
-    // Column-major, as the IR stores it: the first four numbers are column 0.
+  it('a matrix is its columns, labelled, in the order it is stored', () => {
+    // Column-major, as the IR stores it: the first four numbers are column 0. The groups are
+    // LABELLED because the bare `(...)(...)` this used to print left a reader no way to know
+    // whether they were rows or columns, and the difference between those is a transpose.
     const m = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1]
     expect(formatCpuValue(m, mat4x4fT)).toBe(
-      'mat4x4(1, 0, 0, 0)(0, 1, 0, 0)(0, 0, 1, 0)(5, 6, 7, 1)',
+      'mat4x4col0(1, 0, 0, 0)col1(0, 1, 0, 0)col2(0, 0, 1, 0)col3(5, 6, 7, 1)',
     )
   })
 
@@ -191,7 +194,7 @@ describe('shapeError names both shapes, or says nothing', () => {
 
   it('a struct names an unknown field and lists the real ones', () => {
     expect(shapeError({ poss: [1, 2, 3] }, cameraT, structs)).toBe(
-      'struct:Camera has no field "poss"; its fields are pos, zoom',
+      'Camera has no field "poss"; its fields are pos, zoom',
     )
   })
 
@@ -241,5 +244,87 @@ describe('coerceValue fills what is missing and keeps what must be shared', () =
 describe('the formatter and the session meet', () => {
   it('renders a vec4 a fragment entry returned, at f32', () => {
     expect(formatCpuValue([Math.fround(0.8), 0, 0, 1], vec4fT)).toBe('vec4(0.8, 0, 0, 1)')
+  })
+})
+
+describe('coerceValue fills a struct wherever one sits', () => {
+  const lightT: ShaderType = { kind: 'struct', name: 'Light' }
+  const LIGHT: StructDecl = {
+    name: 'Light',
+    fields: [
+      { name: 'pos', type: vec3fT },
+      { name: 'gain', type: f32T },
+    ],
+  }
+  const withLight = new Map<string, StructDecl>([['Light', LIGHT]])
+
+  it('fills an absent field of a top-level struct', () => {
+    expect(coerceValue({ pos: [1, 2, 3] }, lightT, withLight)).toEqual({
+      pos: [1, 2, 3],
+      gain: 0,
+    })
+  })
+
+  it('fills one inside an array, which it used to leave undefined', () => {
+    // `shapeError` permits a missing field precisely because `coerceValue` is supposed to fill
+    // it, so an array of partial structs passed the check and every unsupplied field reached
+    // the evaluator as `undefined`. A run then returned `undefined` rather than anything a
+    // type could explain.
+    const given: CpuValue = [{ pos: [1, 2, 3] }, { pos: [4, 5, 6], gain: 2 }] as never
+    expect(shapeError(given, arrayT(lightT, 2), withLight)).toBeUndefined()
+    const out = coerceValue(given, arrayT(lightT, 2), withLight)
+    expect(out).toEqual([
+      { pos: [1, 2, 3], gain: 0 },
+      { pos: [4, 5, 6], gain: 2 },
+    ])
+  })
+
+  it('and fills it IN PLACE, because a storage array is the caller’s own memory', () => {
+    // The identity is load-bearing: `out[i] = …` has to land where the host reads it back.
+    // Rebuilding the array here would make every storage write vanish into a temporary.
+    const given: CpuValue = [{ pos: [1, 2, 3] }] as never
+    expect(coerceValue(given, arrayT(lightT, 1), withLight)).toBe(given)
+    expect((given as never as { gain: number }[])[0]!.gain).toBe(0)
+  })
+
+  it('leaves an array of scalars alone rather than walking it', () => {
+    const given: CpuValue = [1, 2, 3]
+    expect(coerceValue(given, arrayT(f32T, 3), withLight)).toBe(given)
+  })
+})
+
+describe('an f64 session keeps the digits an f32 one would round away', () => {
+  it('formatCpuValue shortens an f32-typed value only under f32', () => {
+    // 16777217 is the first integer an f32 cannot hold. Under `precision: 'f64'` the session
+    // is the algebra oracle (§1.3): its numbers are doubles that happen to sit in f32-typed
+    // slots, and printing 16777216 for one would be inventing a rounding the run never did.
+    expect(formatCpuValue(16777217, f32T)).toBe('16777216')
+    expect(formatCpuValue(16777217, f32T, undefined, 'f64')).toBe('16777217')
+  })
+
+  it('createValueFormatter carries the precision it was built with', () => {
+    expect(createValueFormatter({ structs: [] }, 'f64')(16777217, f32T)).toBe('16777217')
+    expect(createValueFormatter({ structs: [] })(16777217, f32T)).toBe('16777216')
+  })
+
+  it('a value that underflows to zero keeps its sign', () => {
+    expect(formatCpuValue(-1e-50, f32T)).toBe('-0')
+    expect(formatCpuValue(1e-50, f32T)).toBe('0')
+  })
+})
+
+describe('a struct renders in its declared order, and says what is missing', () => {
+  it('declared order, not the value’s own key order', () => {
+    // Two values of one struct have to render comparably; insertion order is a property of how
+    // the object was built, which is not something a reader should have to think about.
+    expect(formatCpuValue({ zoom: 2, pos: [1, 2, 3] }, cameraT, structs)).toBe(
+      'Camera { pos: vec3(1, 2, 3), zoom: 2 }',
+    )
+  })
+
+  it('a field the value lacks is visible rather than silently skipped', () => {
+    expect(formatCpuValue({ pos: [1, 2, 3] }, cameraT, structs)).toBe(
+      'Camera { pos: vec3(1, 2, 3), zoom: <missing> }',
+    )
   })
 })
