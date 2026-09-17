@@ -5,8 +5,24 @@
 // something checks that they agree; until there was a twin, the sentence was aspirational.
 // `examples/PORTING.md` (landed in #12) classifies which of the 36 examples the compiler
 // accepts as source today, and why the rest are blocked. This suite is what a twin written
-// from that classification is FOR. One is registered so far — `compute-reduction-twin`.
-// `gradient` was held by #14 until that landed; it is registered in its own change.
+// from that classification is FOR. Eleven are registered: `compute-reduction-twin`,
+// `gradient-twin`, which #14 held back until a binding read lowered to a `varref` rather than
+// a `constref` (the defect that had `reflect()` blanking every binding's `stages`), and the
+// nine fullscreen twins A1 unlocked.
+//
+// Three of PORTING.md's fourteen portable examples have NO twin, each stopped by a compiler
+// bug the twin itself uncovered:
+//
+//   - `raymarch-sphere` and `raymarch-boxes` both bind a local named `p` twice in one
+//     function (the march position, then the hit position). Valid TypeScript; #38.
+//   - `voronoi`: the 3x3 neighbour scan counts `for (let j: i32 = -1; …)`, and a negative
+//     integer literal in a for-init emits `var j: i32 = -1.0`; #40. Nothing here caught it:
+//     it compiled, it reflected identically, its goldens baked. Tint and WebGL2 caught it.
+//
+// They are absent rather than renamed or rewritten, because a twin that spells the shader
+// differently from its original to dodge a compiler bug is not the oracle this suite claims
+// to run, and `voronoi` is the case that shows why the compile gate is part of the oracle
+// and this suite alone is not.
 //
 // Three jobs, in increasing strength:
 //
@@ -22,6 +38,15 @@
 //      legitimately differ (an EDSL `const` is a build-time JavaScript binding; a
 //      source-language `const` is a shader `let`), and the useful gate is that the
 //      DIFFERENCE does not move unnoticed.
+//
+// READ THE TWO GOLDENS AS THE DIFFERENT THINGS THEY ARE. `semanticDiff` compares the
+// AUTHORED modules, before `autoVars` materialises the EDSL's assignment-to-a-value-node
+// into a real `var`. So a shader whose emits differ by one identifier can still show a whole
+// function as changed in the structural golden: on the EDSL side the vertex body is still
+// `assign (construct vec2 …) = …`, which has no counterpart in a source-compiled body and
+// drags its literals into the `constants` bucket with it. `gradient-twin` is exactly that
+// case — its `.diff` golden is two names and two extra `let`s. The structural golden is the
+// record that neither side moved; the text diff is the one to read for what they spell.
 //
 // The goldens live in `__emit-goldens__/` with the emits they are derived from, so the one
 // bake protocol in `_goldens.ts` covers them: `UPDATE_EMIT_GOLDENS=1`.
