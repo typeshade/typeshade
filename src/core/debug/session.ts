@@ -120,9 +120,12 @@ export interface DebugPause {
    *  run throws naming it rather than reading as a zero. A name the module does not declare
    *  cannot appear at all, since `startDebugSession` rejects one.
    *
-   *  What is NOT checked yet is the shape of a supplied value: a number where a struct is
-   *  declared is stored as given and produces `NaN` when a field of it is read. That check
-   *  belongs with the invocation builder of §4.3 and lands with it. */
+   *  A value supplied through {@link startDebugSessionFromConfig} has been checked against its
+   *  declared type and had any absent struct field filled in. One supplied straight to
+   *  {@link startDebugSession} has not: this entry point stores what it is given, so a number
+   *  where a struct is declared produces `NaN` when a field of it is read. The configuration
+   *  layer is where that check lives, which is also where a caller gets every problem at once
+   *  rather than the first. */
   readonly bindings: ReadonlyMap<string, CpuValue>
   /** Each binding's declared type, for the same reason {@link DebugStackFrame.localTypes}
    *  exists. */

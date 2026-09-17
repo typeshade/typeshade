@@ -13,6 +13,7 @@
 
 import type { CpuValue, CpuStruct } from '../cpu-runtime.js'
 import type { ShaderType } from '../ir/types.js'
+import type { CpuPrecision } from '../oracle.js'
 import { typeKey } from '../ir/types.js'
 import type { StructDecl } from '../ir/nodes.js'
 
@@ -99,7 +100,9 @@ export function shapeError(
       const known = new Set(decl.fields.map((f) => f.name))
       for (const k of Object.keys(value)) {
         if (!known.has(k))
-          return `${key} has no field "${k}"; its fields are ${decl.fields.map((f) => f.name).join(', ')}`
+          // `type.name`, not `typeKey(type)`: the author wrote `Camera`, and `struct:Camera` is
+          // an internal spelling that means nothing to the person reading the message.
+          return `${type.name} has no field "${k}"; its fields are ${decl.fields.map((f) => f.name).join(', ')}`
       }
       for (const f of decl.fields) {
         const v = (value as CpuStruct)[f.name]
@@ -132,8 +135,14 @@ export function shapeError(
  *  its results into it: `out[gid.x] = sum` has to land where the host can read it back, the
  *  same way `CpuModule.setBinding` binds the array itself. Copying here would make every
  *  storage write vanish into a temporary, which is a failure nothing downstream could see.
- *  The cost is that an array of structs keeps its elements exactly as given, with no
- *  zero-filling inside them; `shapeError` has already checked that each one fits. */
+ *  So an array of structs is filled IN PLACE, element by element, rather than rebuilt: the
+ *  array object the caller passed is still the array the run writes into, and each element is
+ *  replaced by a complete one. The claim this comment used to make, that `shapeError` had
+ *  already checked each element, was wrong in the direction that matters: `shapeError` permits
+ *  a missing struct field precisely because this function is supposed to fill it, so
+ *  `[{ pos: [1,2,3] }]` against `array<Light, 1>` was accepted and every unsupplied field
+ *  reached the evaluator as `undefined`, which reads out of the run as `undefined` rather than
+ *  as anything a type could explain. */
 export function coerceValue(
   value: CpuValue,
   type: ShaderType,
@@ -152,7 +161,25 @@ export function coerceValue(
     }
     return out
   }
+  if (type.kind === 'array' && Array.isArray(value)) {
+    // In place, for the identity reason above. Only where an element can actually need
+    // filling, so an array of scalars or vectors is left untouched rather than walked.
+    if (elementNeedsFilling(type.elem, structs)) {
+      const arr = value as CpuValue[]
+      for (let i = 0; i < arr.length; i++) arr[i] = coerceValue(arr[i]!, type.elem, structs)
+    }
+    return value
+  }
   return value
+}
+
+/** Whether an element of this type can carry an absent field that {@link coerceValue} fills.
+ *  A scalar, vector or matrix cannot, and walking a large storage array of them for nothing is
+ *  the cost this avoids. */
+function elementNeedsFilling(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): boolean {
+  if (t.kind === 'struct') return structs.has(t.name)
+  if (t.kind === 'array') return elementNeedsFilling(t.elem, structs)
+  return false
 }
 
 const describe = (v: unknown): string => {
@@ -183,6 +210,12 @@ function numericArray(value: unknown, n: number, want: string, got: string): str
  *  is rendered at the shortest precision whose `Math.fround` is the same f32. An `f64` value
  *  keeps its full precision, because there the extra digits are the answer rather than noise.
  *
+ *  **Except under `precision: 'f64'`,** which is why this takes the session's precision. That
+ *  mode is the algebra oracle (§1.3): its numbers are doubles that happen to sit in `f32`-typed
+ *  slots, and shortening one to the nearest f32 would print `16777216` for a value the session
+ *  computed as `16777217`. Rounding a number for display is only honest when the number really
+ *  is an f32.
+ *
  *  Exported from `@xgis/shader-dsl/debug`.
  *
  *  @param value - the value to render.
@@ -190,6 +223,9 @@ function numericArray(value: unknown, n: number, want: string, got: string): str
  *  @param structs - the module's struct declarations, so a struct's FIELDS render at their own
  *    declared types rather than falling back to their JavaScript shapes. Omit and a struct
  *    still renders by field name, one level less precisely.
+ *  @param precision - the session's precision. Defaults to `'f32'`, which is
+ *    {@link DebugSessionOptions.precision}'s own default; pass `'f64'` so an f32-typed value
+ *    keeps every digit the f64 run produced.
  *  @returns a one-line rendering in the authoring surface's own spelling.
  *
  *  @example
@@ -201,16 +237,19 @@ export function formatCpuValue(
   value: CpuValue,
   type?: ShaderType,
   structs?: ReadonlyMap<string, StructDecl>,
+  precision: CpuPrecision = 'f32',
 ): string {
   if (type === undefined) return formatUntyped(value)
+  const elem = (v: number, e: string): string =>
+    e === 'f32' && precision === 'f32' ? f32Text(v) : numText(v)
   switch (type.kind) {
     case 'scalar':
       if (type.scalar === 'bool') return String(value)
-      return type.scalar === 'f32' ? f32Text(value as number) : numText(value as number)
+      return type.scalar === 'f32' ? elem(value as number, 'f32') : numText(value as number)
     case 'f64':
       return numText(value as number)
     case 'vec':
-      return `vec${type.n}(${(value as number[]).map((v) => elemText(v, type.elem)).join(', ')})`
+      return `vec${type.n}(${(value as number[]).map((v) => elem(v, type.elem)).join(', ')})`
     case 'vec64':
       return `vec${type.n}<f64>(${(value as number[]).map(numText).join(', ')})`
     case 'mat': {
@@ -218,24 +257,35 @@ export function formatCpuValue(
       const cols: string[] = []
       for (let c = 0; c < type.n; c++) {
         const col = m.slice(c * type.n, c * type.n + type.n)
-        cols.push(`(${col.map((v) => elemText(v, type.elem)).join(', ')})`)
+        cols.push(`col${c}(${col.map((v) => elem(v, type.elem)).join(', ')})`)
       }
-      return `mat${type.n}x${type.n}${cols.join('')}`
+      // `col0(...)col1(...)`, because the bare `(...)(...)` this used to print gave a reader
+      // no way to know that the groups are COLUMNS rather than rows, and the difference is a
+      // transpose. The `<f64>` says which element type, since an f64 matrix is stored the same
+      // way and rendered identically otherwise.
+      const of = type.elem === 'f64' ? '<f64>' : ''
+      return `mat${type.n}x${type.n}${of}${cols.join('')}`
     }
     case 'struct': {
       const o = value as CpuStruct
       const fields = structs?.get(type.name)?.fields
-      const body = Object.keys(o)
+      // Declared order when the declaration is in hand, so two values of one struct render
+      // comparably and a field the value happens to lack is visibly missing rather than
+      // silently skipped. The value's own key order is the fallback.
+      const keys = fields ? fields.map((f) => f.name) : Object.keys(o)
+      const body = keys
         .map((k) => {
           const ft = fields?.find((f) => f.name === k)?.type
-          return `${k}: ${ft ? formatCpuValue(o[k]!, ft, structs) : formatUntyped(o[k]!)}`
+          const v = o[k]
+          if (v === undefined) return `${k}: <missing>`
+          return `${k}: ${ft ? formatCpuValue(v, ft, structs, precision) : formatUntyped(v)}`
         })
         .join(', ')
       return `${type.name} { ${body} }`
     }
     case 'array': {
       const xs = value as CpuValue[]
-      return `[${xs.map((v) => formatCpuValue(v, type.elem, structs)).join(', ')}]`
+      return `[${xs.map((v) => formatCpuValue(v, type.elem, structs, precision)).join(', ')}]`
     }
     default:
       return formatUntyped(value)
@@ -253,8 +303,6 @@ function formatUntyped(value: CpuValue): string {
     .join(', ')} }`
 }
 
-const elemText = (v: number, elem: string): string => (elem === 'f32' ? f32Text(v) : numText(v))
-
 function numText(v: number): string {
   if (Number.isNaN(v)) return 'NaN'
   if (v === Infinity) return 'inf'
@@ -263,10 +311,15 @@ function numText(v: number): string {
   return String(v)
 }
 
-/** The shortest decimal that rounds to the same f32. */
+/** The shortest decimal that rounds to the same f32.
+ *
+ *  A value that UNDERFLOWS to zero keeps its sign: `-1e-50` is `-0` as an f32, and printing it
+ *  as `0` would hide the one thing left of it. `Math.fround` preserves the sign, but
+ *  `toPrecision` on the result does not always, so the sign is put back explicitly. */
 function f32Text(v: number): string {
   if (!Number.isFinite(v) || Object.is(v, -0)) return numText(v)
   const exact = Math.fround(v)
+  if (exact === 0) return numText(Object.is(exact, -0) || v < 0 ? -0 : 0)
   for (let p = 1; p <= 9; p++) {
     const text = exact.toPrecision(p)
     if (Math.fround(Number(text)) === exact) return numText(Number(text))
@@ -293,9 +346,10 @@ function f32Text(v: number): string {
  *  }
  *  ```
  */
-export function createValueFormatter(m: {
-  readonly structs: readonly StructDecl[]
-}): (value: CpuValue, type?: ShaderType) => string {
+export function createValueFormatter(
+  m: { readonly structs: readonly StructDecl[] },
+  precision: CpuPrecision = 'f32',
+): (value: CpuValue, type?: ShaderType) => string {
   const structs = new Map(m.structs.map((s) => [s.name, s]))
-  return (value, type) => formatCpuValue(value, type, structs)
+  return (value, type) => formatCpuValue(value, type, structs, precision)
 }
