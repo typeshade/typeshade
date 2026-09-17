@@ -57,6 +57,15 @@ describe('evaluate answers over the paused frame', () => {
     expect(s.evaluate('a + b * 2.').value).toBe(11)
   })
 
+  it('reads through a conditional, whose three children were the one shape the reader skipped', () => {
+    // `select` was missing from the walk that collects the names a watch reads, so
+    // `c ? a : b` compiled and then failed at evaluation with "unbound c": the names inside the
+    // conditional were never bound into the watch's frame.
+    const s = atEnd()
+    expect(s.evaluate('a > 1. ? a : b').value).toBe(3)
+    expect(s.evaluate('a > 5. ? a : b').value).toBe(4)
+  })
+
   it('gives the answer the compiler’s own type, not a guess from the value', () => {
     const s = atEnd()
     // The whole reason the snippet is a `const` in a `void` function: a watch box cannot

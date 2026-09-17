@@ -284,6 +284,8 @@ function childExprs(e: Expr): readonly Expr[] {
       return e.args
     case 'member':
       return [e.base]
+    case 'select':
+      return [e.cond, e.ifTrue, e.ifFalse]
     case 'index':
       return [e.base, e.idx]
     default:
