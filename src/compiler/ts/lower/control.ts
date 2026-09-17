@@ -1,15 +1,17 @@
 import ts from 'typescript'
 import type { Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
+import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { readOnlyPhrase } from '../context.js'
 import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { retargetDeclaredIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerLValue, lowerStatement, lowerStatements } from './statement.js'
 
@@ -134,8 +136,23 @@ function lowerForInit(
     : undefined
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
-  if (annotated && init.op === 'lit' && typeof init.value === 'number') {
-    init = { op: 'lit', type: annotated, value: init.value }
+  // The induction variable's declared type, or i32 when there is no annotation, since that is
+  // the type it must have. `for (let j: i32 = -1; …)` reaches this with a PrefixUnaryExpression
+  // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
+  // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
+  // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
+  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T)
+  if (annotated && typeKey(annotated) !== typeKey(init.type)) {
+    // The check statement.ts has always had at its own declaration site, and the reason this
+    // one was silent rather than merely wrong: nothing compared the two.
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      numericMismatch(`for-init ${name}`, annotated, init.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
   }
   const type: ShaderType = annotated ?? init.type
   const k = typeKey(type)
@@ -430,16 +447,19 @@ export function lowerUpdate(
   return undefined
 }
 
-/** The `e.g.` clause the `++` refusal on a vector carries, for the one vector kind whose
- *  written-out addition has a spelling that compiles: a native `f32` vector, where
- *  `v = v + vec3(1., 1., 1.)` is accepted. An `i32` or `u32` element rejects a bare literal
- *  one with TS8003 (`v + vec2i(1, 1)`; it takes an annotated `const one: i32 = 1` first),
- *  and an emulated-double vector has no literal spelling at all (a float literal is `f32`,
- *  so `vec3f64(1., 1., 1.)` is TS8003 too). Those kinds get no example rather than one that
- *  does not compile; each spelling here was checked by compiling it. */
+/** The `e.g.` clause the `++` refusal on a vector carries, for the vector kinds whose
+ *  written-out addition has a spelling that compiles: a native vector, where
+ *  `v = v + vec3(1., 1., 1.)` is accepted and, because a literal inside `vec2i(...)` takes the
+ *  constructor's element type (#8 A3), so is `v = v + vec2i(1, 1)`. An emulated-double vector
+ *  has no literal spelling at all (a float literal is `f32`, so `vec3f64(1., 1., 1.)` is
+ *  TS8003), so it gets no example rather than one that does not compile; each spelling here
+ *  was checked by compiling it. */
 function stepHint(t: ShaderType): string {
-  if (!isVec(t) || t.elem !== 'f32') return ''
-  return `, e.g. v = v + vec${t.n}(${Array.from({ length: t.n }, () => '1.').join(', ')})`
+  if (!isVec(t)) return ''
+  const one = t.elem === 'f32' ? '1.' : t.elem === 'i32' || t.elem === 'u32' ? '1' : undefined
+  if (one === undefined) return ''
+  const suffix = t.elem === 'f32' ? '' : t.elem === 'i32' ? 'i' : 'u'
+  return `, e.g. v = v + vec${t.n}${suffix}(${Array.from({ length: t.n }, () => one).join(', ')})`
 }
 
 /** The types `++` and `--` can step: a numeric scalar, and nothing else. The step is one

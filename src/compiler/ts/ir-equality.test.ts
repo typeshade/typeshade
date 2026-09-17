@@ -12,6 +12,7 @@ import {
   fma,
   fwidth,
   member,
+  min,
   pow,
   saturate,
   select,
@@ -29,6 +30,7 @@ import {
   samplerT,
   structT,
   texture2dArrayfT,
+  u32T,
   vec2fT,
   vec3fT,
   vec3uT,
@@ -102,6 +104,15 @@ function normalizeExpr(e: Expr): unknown {
       return { op: 'param', type: typeKey(e.type), name: e.name }
     case 'varref':
       return { op: 'varref', type: typeKey(e.type), name: e.name }
+    case 'call':
+      // Without this arm the `min(i, 4)` case compared `{ op: 'call' }` to `{ op: 'call' }`
+      // and passed on the merge base, where the literal is still an f32.
+      return {
+        op: 'call',
+        type: typeKey(e.type),
+        fn: e.fn,
+        args: e.args.map(normalizeExpr),
+      }
     case 'constref':
       // Without this arm the "same constref" case compared the tag alone, so a reference to
       // the wrong constant, or to one of the wrong type, would have passed.
@@ -141,8 +152,6 @@ function normalizeExpr(e: Expr): unknown {
         a: normalizeExpr(e.a),
         b: normalizeExpr(e.b),
       }
-    case 'call':
-      return { op: 'call', type: typeKey(e.type), fn: e.fn, args: e.args.map(normalizeExpr) }
     case 'select':
       return {
         op: 'select',
@@ -485,6 +494,30 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('f', { a: f32T, b: f32T, c: f32T }, f32T, ({ a, b, c }) => fma(a, b, c))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a bare integer literal in a u32 return matches the EDSL u32(0)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function zero(): u32 {
+        return 0;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('zero', {}, u32T, () => u32(0))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('min(i, 4) matches the EDSL min(i, u32(4)) rather than an f32 literal', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function cap(i: u32): u32 {
+        return min(i, 4);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('cap', { i: u32T }, u32T, ({ i }) => min(i, u32(4)))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 
