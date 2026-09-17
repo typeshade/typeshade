@@ -5,6 +5,12 @@
 // sequence and could only look `MAX_LOOP_TRIPS + 2` steps ahead — so a policy violation wore
 // the words of a non-terminating loop. And `i *= 2`, an ordinary counted loop that reaches its
 // bound in six iterations, was "Unsupported for-update" because nothing lowered it.
+//
+// The multiplicative step has no `fn()` EDSL spelling: `forRange` builds an additive loop and
+// nothing else, so ir-equality.test.ts cannot pin `i *= 2` against a twin the way it pins the
+// rest of this surface. Until `forRange` takes a step operation, the CPU count below is what
+// stands in for that: the interpreter and the generator both run the emitted loop and both
+// have to agree with the sequence written out beside the assertion.
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
@@ -56,10 +62,19 @@ describe('a loop that exits too late says so', () => {
     )
   })
 
-  it('still accepts the largest loop the policy allows, and counts the edges exactly', () => {
+  it('holds the policy boundary at 256, counting up and counting down', () => {
+    // The three `i++` lines are a REGRESSION GUARD and pass on the merge base too: the old
+    // 258-step walk could see this far, so the boundary is where it always was and the point
+    // is that the closed form did not move it.
     accepts(`let i: i32 = 0; i < ${MAX_LOOP_TRIPS}; i++`)
     accepts(`let i: i32 = 0; i <= ${MAX_LOOP_TRIPS - 1}; i++`)
     expect(diagnose(`let i: i32 = 0; i < ${MAX_LOOP_TRIPS + 1}; i++`)).toBe(
+      `for trip count ${MAX_LOOP_TRIPS + 1} exceeds ${MAX_LOOP_TRIPS}.`,
+    )
+    // The same boundary counting DOWN, which does not pass on the merge base: `i -= 1` was
+    // "Unsupported for-update." there, so neither side of the boundary could be asserted.
+    accepts(`let i: i32 = ${MAX_LOOP_TRIPS}; i > 0; i -= 1`)
+    expect(diagnose(`let i: i32 = ${MAX_LOOP_TRIPS + 1}; i > 0; i -= 1`)).toBe(
       `for trip count ${MAX_LOOP_TRIPS + 1} exceeds ${MAX_LOOP_TRIPS}.`,
     )
     // A loop whose condition is false at the start runs zero times and is not an error.
@@ -117,22 +132,25 @@ describe('a multiplicative step is a counted loop', () => {
     // One message — "step of i is 0" — used to cover a case it did not fit and three it never
     // reached, since the other three could not be spelled at all.
     expect(diagnose('let i: i32 = 0; i < 16; i += 0')).toBe(
-      'for step "i += 0" never advances "i" — a step of 0 leaves it where it is.',
+      'for step "i += 0" never advances "i": a step of 0 leaves it where it is.',
     )
     expect(diagnose('let i: i32 = 1; i < 64; i *= 1')).toBe(
-      'for step "i *= 1" never advances "i" — multiplying or dividing by 1 leaves it where it is.',
+      'for step "i *= 1" never advances "i": multiplying or dividing by 1 leaves it where it is.',
     )
     expect(diagnose('let i: i32 = 1; i < 64; i *= 0')).toBe(
-      'for step "i *= 0" never advances "i" — multiplying by 0 pins it at 0.',
+      'for step "i *= 0" never advances "i": multiplying by 0 pins it at 0.',
     )
+    // Not "undefined on both targets": WGSL DEFINES integer `x / 0` as `x`, which is exactly
+    // why the loop is stuck rather than unpredictable.
     expect(diagnose('let i: i32 = 64; i > 1; i /= 0')).toBe(
-      'for step "i /= 0" never advances "i" — dividing by 0 is undefined on both targets.',
+      'for step "i /= 0" never advances "i": dividing by 0 cannot move it.',
     )
   })
 
   it('names the forms it takes when the update is none of them', () => {
-    // `%=` is not one of the four the update table takes, and a plain assignment is not an
-    // update shape at all — both stop in lowerUpdate, before the counting.
+    // `%=` is not one of the four the update table takes — a remainder step is a fixed point
+    // after one application, so no `for` it heads exits — and a plain assignment is not an
+    // update shape at all. Both stop in lowerUpdate, before the counting.
     expect(diagnose('let i: i32 = 0; i < 16; i %= 3')).toBe('Unsupported for-update.')
     expect(diagnose('let i: i32 = 0; i < 16; i = i * i')).toBe('Unsupported for-update.')
     // A step that lowers but is not a compile-time constant reaches the counter, which names
@@ -158,7 +176,15 @@ describe('the exact count handles every comparison', () => {
     accepts('let i: i32 = 0; i <= 16; i += 3')
     accepts('let i: i32 = 16; i > 0; i -= 3')
     accepts('let i: i32 = 16; i >= 0; i -= 3')
+    // An exact count for each of the four thresholds, so no arm of the closed form can be
+    // wrong without a test saying so. `accepts` alone cannot do that: it passes whatever
+    // number the counter produces, as long as it is at most MAX_LOOP_TRIPS.
     expect(diagnose('let i: i32 = 0; i <= 1024; i += 2')).toBe('for trip count 513 exceeds 256.')
+    expect(diagnose('let i: i32 = 0; i < 1024; i += 2')).toBe('for trip count 512 exceeds 256.')
+    // The two downward ones. Both walk to a negative bound, which the old sequence walk could
+    // not reach at all, and `>=` runs the extra trip that lands ON the bound.
+    expect(diagnose('let i: i32 = 0; i > -1024; i--')).toBe('for trip count 1024 exceeds 256.')
+    expect(diagnose('let i: i32 = 0; i >= -1024; i -= 1')).toBe('for trip count 1025 exceeds 256.')
   })
 
   it('counts !== as hitting a value, not as crossing a threshold', () => {
@@ -169,5 +195,30 @@ describe('the exact count handles every comparison', () => {
     expect(diagnose('let i: i32 = 0; i !== 9; i += 2')).toBe(
       'for (i = 0; i != 9; i += 2) does not exit.',
     )
+    // `!==` needs no induction-range check of its own, unlike the four thresholds: it only
+    // counts when the walk lands EXACTLY on the bound, so every value it visits lies between
+    // the start and the bound and the last one IS the bound. A bound the type cannot hold is
+    // therefore a bound LITERAL the type cannot hold, and the backend says so by name. Pinned
+    // here so that "this arm has no range check" stays a fact about a covered case.
+    expect(diagnose('let i: i32 = 2147483645; i !== 2147483650; i += 1').split('\n')[0]).toBe(
+      'Backend emit failed: shader-dsl [SD0017]: literal cannot be spelled by the target — i32 literal 2147483650',
+    )
+  })
+
+  it('separates a loop that never exits from one that runs out of the type', () => {
+    // 1 3 9 … 1162261467, and the next value is 3486784401, which an i32 cannot hold. The
+    // loop does reach its bound; what the hardware does on the way is overflow, not an exit.
+    // One `undefined` used to cover this and the genuinely stuck loop above, so both were
+    // told "does not exit", and only one of them was.
+    expect(diagnose('let i: i32 = 1; i < 2147483647; i *= 3')).toBe(
+      'for (i = 1; i < 2147483647; i *= 3) walks "i" outside the range of i32 before the condition fails.',
+    )
+    // The closed form has the same case: the value AFTER the final trip is computed before the
+    // condition rejects it, and 2147484000 is not an i32.
+    expect(diagnose('let i: i32 = 2147483000; i < 2147483647; i += 1000')).toBe(
+      'for (i = 2147483000; i < 2147483647; i += 1000) walks "i" outside the range of i32 before the condition fails.',
+    )
+    // A u32 loop that walks down to exactly 0 stays inside its own range and is accepted.
+    accepts('let i: u32 = u32(4); i > u32(0); i -= 1')
   })
 })

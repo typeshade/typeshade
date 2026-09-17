@@ -135,6 +135,10 @@ function readStep(update: Stmt, name: string, scope: LoweringScope): Step | unde
     if (update.bop === '/') return { op: 'div', by: c }
     return undefined
   }
+  // The only `assign` update `lowerUpdate` builds is the `i++` / `i--` pair, which it writes
+  // as `i = i + 1` / `i = i - 1`. A source-level `i = i * 2` is refused there as an unsupported
+  // for-update and never reaches this function, so there is no `*` or `/` arm here: one would
+  // read as support this surface does not have.
   if (update.s === 'assign' && isInduct(update.target, name) && update.expr.op === 'binop') {
     const e = update.expr
     if (e.bop === '+') {
@@ -149,35 +153,30 @@ function readStep(update: Stmt, name: string, scope: LoweringScope): Step | unde
       const c = foldConstNumber(e.b, scope)
       return c === undefined ? undefined : { op: 'add', by: -c }
     }
-    if (e.bop === '*') {
-      const c = isInduct(e.a, name)
-        ? foldConstNumber(e.b, scope)
-        : isInduct(e.b, name)
-          ? foldConstNumber(e.a, scope)
-          : undefined
-      return c === undefined ? undefined : { op: 'mul', by: c }
-    }
-    if (e.bop === '/' && isInduct(e.a, name)) {
-      const c = foldConstNumber(e.b, scope)
-      return c === undefined ? undefined : { op: 'div', by: c }
-    }
   }
   return undefined
 }
 
-/** How the step reads back in a diagnostic, in the source's own spelling. */
+/** How the step reads back in a diagnostic. Not the source's own spelling: `i++` and `i--`
+ *  reach here as `i += 1` and `i -= 1`, because `lowerUpdate` turns both into an add of 1 and
+ *  the counter never sees the increment form. One normal form for the four update shapes is
+ *  what lets `for step "i += 0" never advances "i"` and `for step "i *= 1" never advances "i"`
+ *  be the same sentence. */
 function stepText(name: string, step: Step): string {
   if (step.op === 'add') return step.by < 0 ? `${name} -= ${-step.by}` : `${name} += ${step.by}`
   return `${name} ${step.op === 'mul' ? '*' : '/'}= ${step.by}`
 }
 
+/** What the analysis concluded about an accepted counted loop. Nothing reads it yet: the
+ *  caller branches on `ok` and lowers the `for` it already has. So this carries the numbers a
+ *  reader would want and no more, and in particular not the step's OPERATION: a field for it
+ *  would be one more thing written and never read. `step` is the addend for an additive loop
+ *  and the factor for a multiplicative one. */
 export interface CountedLoop {
   readonly name: string
   readonly start: number
   readonly bound: number
-  /** The additive step, or the factor for a multiplicative one; see {@link CountedLoop.stepOp}. */
   readonly step: number
-  readonly stepOp: 'add' | 'mul' | 'div'
   readonly trips: number
 }
 
@@ -230,82 +229,96 @@ export function analyzeCountedFor(
   if (stall) {
     return {
       ok: false,
-      message: `for step "${stepText(init.name, step)}" never advances "${init.name}" — ${stall}`,
+      message: `for step "${stepText(init.name, step)}" never advances "${init.name}": ${stall}`,
       code: TS_CODES.LOOP_INFINITE,
     }
   }
   const trips = countTrips(start, condInfo.cop, condInfo.bound, step, k)
-  if (trips === undefined) {
-    return {
-      ok: false,
-      message: `for (${init.name} = ${start}; ${init.name} ${condInfo.cop} ${condInfo.bound}; ${stepText(init.name, step)}) does not exit.`,
-      code: TS_CODES.LOOP_INFINITE,
-    }
+  if (!trips.ok) {
+    const header = `for (${init.name} = ${start}; ${init.name} ${condInfo.cop} ${condInfo.bound}; ${stepText(init.name, step)})`
+    // Two different mistakes, and they used to share the first sentence. A loop whose step
+    // steps away from the bound never exits. A loop like `for (i = 1; i < 2147483647; i *= 3)`
+    // does reach its bound, but only after `i` has left the range of `i32`, so what the
+    // hardware actually does there is an overflow, not an exit. The second wants a bound or a
+    // start the type can hold, which is a statement about the BOUND, so it takes TS8006.
+    return trips.why === 'range'
+      ? {
+          ok: false,
+          message: `${header} walks "${init.name}" outside the range of ${k} before the condition fails.`,
+          code: TS_CODES.LOOP_BOUND,
+        }
+      : { ok: false, message: `${header} does not exit.`, code: TS_CODES.LOOP_INFINITE }
   }
-  if (trips > MAX_LOOP_TRIPS) {
+  if (trips.n > MAX_LOOP_TRIPS) {
     return {
       ok: false,
-      message: `for trip count ${trips} exceeds ${MAX_LOOP_TRIPS}.`,
+      message: `for trip count ${trips.n} exceeds ${MAX_LOOP_TRIPS}.`,
       code: TS_CODES.LOOP_BOUND,
     }
   }
   return {
     ok: true,
-    loop: { name: init.name, start, bound: condInfo.bound, step: step.by, stepOp: step.op, trips },
+    loop: { name: init.name, start, bound: condInfo.bound, step: step.by, trips: trips.n },
   }
 }
 
-/** Why a step cannot move the induction variable, or undefined when it can. Each of these was
- *  one message — "step of i is 0" — which only ever fitted the first. */
+/** Why a step cannot move the induction variable, or undefined when it can. All four cases
+ *  used to share one message, "step of i is 0", which only ever fitted the first of them. */
 function stalls(step: Step): string | undefined {
   if (step.op === 'add') return step.by === 0 ? 'a step of 0 leaves it where it is.' : undefined
   if (step.by === 1) return 'multiplying or dividing by 1 leaves it where it is.'
   if (step.by === 0) {
-    return step.op === 'mul'
-      ? 'multiplying by 0 pins it at 0.'
-      : 'dividing by 0 is undefined on both targets.'
+    return step.op === 'mul' ? 'multiplying by 0 pins it at 0.' : 'dividing by 0 cannot move it.'
   }
   return undefined
 }
 
+/** A trip count, or the reason there is not one. The two reasons were one `undefined` and
+ *  therefore one sentence: `noexit` is a step that moves away from the bound and never
+ *  satisfies it, `range` is a loop that does reach its bound but only after the induction
+ *  variable has left what its type can hold. */
+type Trips =
+  | { readonly ok: true; readonly n: number }
+  | { readonly ok: false; readonly why: 'noexit' | 'range' }
+
+const NO_EXIT: Trips = { ok: false, why: 'noexit' }
+const OUT_OF_RANGE: Trips = { ok: false, why: 'range' }
+
 /**
- * How many times the body runs, or undefined when the loop does not exit.
+ * How many times the body runs, or why it has no finite count.
  *
  * An ADDITIVE step is counted arithmetically rather than by walking the sequence, and that is
  * the point of this half of #8 A15: walking it could only look `MAX_LOOP_TRIPS + 2` steps
- * ahead, so `for (let i = 0; i < 1024; i++)` — which exits, at 1024 — was reported as a loop
- * that "does not exit". A policy violation wore the words of a non-terminating loop, and the
- * author was told the wrong thing about their program. Counted exactly, 1024 is 1024 and the
- * message says it exceeds the limit.
+ * ahead, so `for (let i = 0; i < 1024; i++)`, which exits at 1024, was reported as a loop that
+ * "does not exit". A policy violation wore the words of a non-terminating loop, and the author
+ * was told the wrong thing about their program. Counted exactly, 1024 is 1024 and the message
+ * says it exceeds the limit.
  *
- * A MULTIPLICATIVE step is still walked, and that is exact too: multiplying or dividing by a
- * factor of at least 2 reaches any 32-bit bound within 32 iterations, so a walk that has not
- * exited by then is one that runs away — the same answer, reached the same way, in a handful
- * of steps rather than a bounded guess.
+ * A MULTIPLICATIVE step is still walked, and that is exact too: each step either leaves the
+ * 32-bit range, stops moving, or fails the condition, and the first two end the walk. The
+ * budget is 64 checks rather than the 32 a factor of 2 would need, because the factor is only
+ * required to be a compile-time constant: a factor between 1 and 2 climbs more slowly (1.5
+ * needs 52 steps to cross 2^30), and such a program is refused later by the literal check
+ * rather than here. 64 covers every factor the walk can be handed and is still a handful of
+ * steps rather than a bounded guess.
  */
-function countTrips(
-  start: number,
-  cop: CmpOp,
-  bound: number,
-  step: Step,
-  kind: string,
-): number | undefined {
+function countTrips(start: number, cop: CmpOp, bound: number, step: Step, kind: string): Trips {
   const lo = kind === 'u32' ? 0 : -0x80000000
   const hi = kind === 'u32' ? 0xffffffff : 0x7fffffff
-  if (start < lo || start > hi) return undefined
-  if (!cmpHolds(cop, start, bound)) return 0
+  if (start < lo || start > hi) return OUT_OF_RANGE
+  if (!cmpHolds(cop, start, bound)) return { ok: true, n: 0 }
   if (step.op === 'add') return addTrips(start, cop, bound, step.by, lo, hi)
   // A division on an integer induction variable truncates, exactly as both targets do.
   const advance = (v: number): number => (step.op === 'mul' ? v * step.by : Math.trunc(v / step.by))
   let v = start
   for (let n = 0; n <= 64; n++) {
-    if (v < lo || v > hi) return undefined
-    if (!cmpHolds(cop, v, bound)) return n
+    if (v < lo || v > hi) return OUT_OF_RANGE
+    if (!cmpHolds(cop, v, bound)) return { ok: true, n }
     const next = advance(v)
-    if (next === v) return undefined
+    if (next === v) return NO_EXIT
     v = next
   }
-  return undefined
+  return NO_EXIT
 }
 
 /** The trip count of an additive loop, in closed form. `lo`/`hi` are the induction type's
@@ -317,30 +330,41 @@ function addTrips(
   step: number,
   lo: number,
   hi: number,
-): number | undefined {
+): Trips {
   // `==` and `!=` are about hitting one value, not about crossing a threshold.
-  if (cop === '==') return start === bound ? (bound + step === bound ? undefined : 1) : 0
+  if (cop === '==') {
+    if (start !== bound) return { ok: true, n: 0 }
+    return bound + step === bound ? NO_EXIT : { ok: true, n: 1 }
+  }
   if (cop === '!=') {
     const gap = bound - start
-    if (gap === 0) return 0
-    if (step === 0 || gap % step !== 0 || gap / step < 0) return undefined
-    return gap / step
+    if (gap === 0) return { ok: true, n: 0 }
+    if (step === 0 || gap % step !== 0 || gap / step < 0) return NO_EXIT
+    // No range check here, unlike the four threshold arms below, and it is not an omission.
+    // This arm only counts when the walk lands EXACTLY on the bound (`gap % step !== 0` is
+    // refused above), so every value it visits lies between the start and the bound, and the
+    // value after the final iteration IS the bound. Both ends are already in range: the start
+    // is checked in `countTrips`, and a bound the type cannot hold is a literal the type
+    // cannot hold, which the backend refuses by name (SD0017). The four arms below need their
+    // check because they stop at the last value that still SATISFIES the condition and then
+    // take one more step past it, which is a value no literal in the source names.
+    return { ok: true, n: gap / step }
   }
   // The remaining four are `<`, `<=`, `>`, `>=`. Normalise to "how far is the last value that
   // still satisfies the condition", then divide by the step.
   const inclusive = cop === '<=' || cop === '>='
   const goingUp = cop === '<' || cop === '<='
-  if (step === 0) return undefined
-  if (goingUp !== step > 0) return undefined // stepping away from the bound
+  if (step === 0) return NO_EXIT
+  if (goingUp !== step > 0) return NO_EXIT // stepping away from the bound
   const last = goingUp ? (inclusive ? bound : bound - 1) : inclusive ? bound : bound + 1
   const span = goingUp ? last - start : start - last
-  if (span < 0) return 0
+  if (span < 0) return { ok: true, n: 0 }
   const trips = Math.floor(span / Math.abs(step)) + 1
   // The value AFTER the final iteration has to be representable, since the loop computes it
   // before the condition rejects it.
   const end = start + trips * step
-  if (end < lo || end > hi) return undefined
-  return trips
+  if (end < lo || end > hi) return OUT_OF_RANGE
+  return { ok: true, n: trips }
 }
 
 export function loopConditionError(

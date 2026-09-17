@@ -54,6 +54,9 @@ export function shapes(n: i32): f32 {
     default:
       acc = acc * 1.
   }
+  for (let j: i32 = 0; j < 8; j += 2) {
+    acc += 1.
+  }
   return acc
 }
 `
@@ -245,7 +248,8 @@ describe('source spans — every statement kind carries one', () => {
     expect(at(body[6]!)).toBe('let w: i32 = 0')
     expect(at(body[7]!)).toMatch(/^while \(w < 4\) \{/)
     expect(at(body[8]!)).toMatch(/^switch \(n\) \{/)
-    expect(at(body[9]!)).toBe('return acc')
+    expect(at(body[9]!)).toMatch(/^for \(let j: i32 = 0; j < 8; j \+= 2\) \{/)
+    expect(at(body[10]!)).toBe('return acc')
   })
 
   it('one declarator spans the whole statement, several span one each', () => {
@@ -423,6 +427,11 @@ export function f(x: f32): f32 {
       'w', // the `while` body
       'acc', // the switch case
       'acc', // its default
+      // The `j += 2` header, which lowers through a different arm of `lowerUpdate` than `i++`
+      // does. It is here because a merge with `main` silently dropped the `withSpan` on
+      // exactly that arm and nothing noticed: `i++` kept its span and the suite stayed green.
+      'j',
+      'acc', // that loop's body
     ])
   })
 

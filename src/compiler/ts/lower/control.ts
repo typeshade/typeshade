@@ -5,7 +5,7 @@ import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { readOnlyPhrase } from '../context.js'
-import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
+import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
@@ -248,10 +248,15 @@ export function lowerSwitch(
   return { s: 'switch', scrut, cases, defaultBody }
 }
 
-/** The compound assignments a `for` update may use. Multiplication and division are here
- *  because a loop that scales its induction variable is still counted; the bitwise forms are
- *  not, because a counted loop's trip count has to be knowable and a shift or a mask is not
- *  one of the shapes {@link analyzeCountedFor} can read. */
+/** The compound assignments a `for` update may use: `+=`, `-=`, `*=` and `/=`. Multiplication
+ *  and division are here because a loop that scales its induction variable is still counted.
+ *
+ *  `%=` is arithmetic too and is deliberately not here. A remainder step does not advance a
+ *  counter: `i %= 3` is a fixed point after one application for every start, so the only
+ *  `for` it could head is one that never exits, and taking it would mean a trip counter that
+ *  has to model a sequence with no direction. The bitwise forms are out for the same reason
+ *  with a different shape: a shift or a mask is not one of the sequences
+ *  {@link analyzeCountedFor} can read a step out of. */
 const FOR_UPDATE_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.PlusEqualsToken]: '+',
   [ts.SyntaxKind.MinusEqualsToken]: '-',
@@ -329,9 +334,9 @@ export function lowerUpdate(
     }
   }
   if (ts.isBinaryExpression(expr)) {
-    // All four arithmetic compound assignments, not just `+=` (#8 A15). `i *= 2` and `i /= 2`
-    // are ordinary counted loops — a 64-wide halving reaches its bound in six iterations — and
-    // the only reason they were "Unsupported for-update" is that nothing lowered them.
+    // All four of FOR_UPDATE_OP, not just `+=` (#8 A15). `i *= 2` and `i /= 2` are ordinary
+    // counted loops — a 64-wide halving reaches its bound in six iterations — and the only
+    // reason they were "Unsupported for-update" is that nothing lowered them.
     // analyzeCountedFor reads the step back out and refuses one that cannot advance.
     const bop = FOR_UPDATE_OP[expr.operatorToken.kind]
     if (bop !== undefined) {
@@ -341,8 +346,16 @@ export function lowerUpdate(
       if (!binding) return undefined
       let rhs = lowerExpression(expr.right, sourceFile, scope, diagnostics)
       if (!rhs) return undefined
-      if (rhs.op === 'lit' && typeof rhs.value === 'number') {
-        rhs = { op: 'lit', type: binding.type, value: rhs.value }
+      // Any COMPILE-TIME-CONSTANT step is rebuilt as a literal of the induction variable's own
+      // type, not just a bare one. Retyping only a `lit` left `i *= (1 + 1)` and `i += -2` as
+      // f32 — `i *= 2.0` and `i += -2.0` into an i32 loop, which Tint and ANGLE both reject.
+      // `foldConstNumber` is the fold the bound and the trip count already use, so the step the
+      // emit carries and the step the counter reasons about are the same number by
+      // construction. A non-constant step is left alone and refused downstream, where the
+      // message can say a loop needs a constant step.
+      if (isNumericScalar(binding.type)) {
+        const folded = foldConstNumber(rhs, scope)
+        if (folded !== undefined) rhs = { op: 'lit', type: binding.type, value: folded }
       }
       // `i += 2` writes `i`, so the target carries the lvalue's span (#32) — for all four
       // operators, the same way main stamped the `+=`-only form this generalises.
@@ -358,6 +371,12 @@ export function lowerUpdate(
   }
   pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)
   return undefined
+}
+
+/** A numeric scalar the induction variable can be: the kinds a step literal can take. */
+function isNumericScalar(t: ShaderType): boolean {
+  const k = typeKey(t)
+  return k === 'f32' || k === 'i32' || k === 'u32'
 }
 
 function lowerBody(
