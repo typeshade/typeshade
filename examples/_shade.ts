@@ -147,6 +147,86 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'hillshade-twin',
+    title: 'Hillshade (source twin)',
+    blurb:
+      '`hillshade.ts` written in the source language: the Horn 3x3 gradient over a procedural height field, lit by a sun azimuth. The cartographic twin — the shading maths reads the same on both surfaces because it is all plain arithmetic.',
+    renderable: true,
+    twinOf: 'hillshade',
+  },
+  {
+    id: 'plasma-twin',
+    title: 'Plasma (source twin)',
+    blurb:
+      '`shadertoy-plasma.ts` written in the source language: three interfering sine waves, the same wave at three phase offsets becoming the three colour channels. The smallest fullscreen twin there is.',
+    renderable: true,
+    twinOf: 'plasma',
+  },
+  {
+    id: 'julia-twin',
+    title: 'Julia set (source twin)',
+    blurb:
+      '`julia.ts` written in the source language: the escape-time iteration as a `for` loop with a `break`, and the orbiting constant handed over to the pointer through a `mix`.',
+    renderable: true,
+    twinOf: 'julia',
+  },
+  {
+    id: 'mandelbrot-twin',
+    title: 'Mandelbrot set (source twin)',
+    blurb:
+      "`mandelbrot.ts` written in the source language: the same smooth escape-time colouring, with the EDSL's `.neg()` spelled as the unary minus it always was.",
+    renderable: true,
+    twinOf: 'mandelbrot',
+  },
+  {
+    id: 'domain-warp-twin',
+    title: 'Domain warping (source twin)',
+    blurb:
+      '`domain-warp.ts` written in the source language: hash, value noise and a 4-octave fbm as three plain helper functions, then fed their own output twice over. The twin with the deepest call graph.',
+    renderable: true,
+    twinOf: 'domain-warp',
+  },
+  {
+    id: 'tunnel-twin',
+    title: 'Tunnel (source twin)',
+    blurb:
+      '`tunnel.ts` written in the source language: polar coordinates with 1/r for the receding wall, twisted by an angle that grows with depth.',
+    renderable: true,
+    twinOf: 'tunnel',
+  },
+  {
+    id: 'ocean-twin',
+    title: 'Ocean horizon (source twin)',
+    blurb:
+      '`ocean.ts` written in the source language: the fBm octave accumulator as a `for` loop over three mutated locals, where the EDSL mutates three auto-vars. Sky and sea both evaluated, blended by a horizon step.',
+    renderable: true,
+    twinOf: 'ocean',
+  },
+  {
+    id: 'starfield-twin',
+    title: 'Starfield (source twin)',
+    blurb:
+      '`starfield.ts` written in the source language: three parallax layers accumulated into one mutated `vec3` local across a `for` loop, each cell hashed for whether it holds a star.',
+    renderable: true,
+    twinOf: 'starfield',
+  },
+  {
+    id: 'kaleidoscope-twin',
+    title: 'Kaleidoscope (source twin)',
+    blurb:
+      '`kaleidoscope.ts` written in the source language: the polar mirror fold through `mod`, the portable floor-mod, so the negative angles `atan2` produces wrap identically on both targets.',
+    renderable: true,
+    twinOf: 'kaleidoscope',
+  },
+  {
+    id: 'gradient-twin',
+    title: 'Gradient pass (source twin)',
+    blurb:
+      '`gradient-pass.ts` written in the source language instead of built with `fn()` / `module()` — the same shader through the other surface, with a uniform block both targets lay out and a GLSL pair that links.',
+    renderable: true,
+    twinOf: 'gradient',
+  },
+  {
     id: 'compute-reduction-twin',
     title: 'Compute reduction (source twin)',
     blurb:
