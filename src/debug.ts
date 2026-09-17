@@ -33,6 +33,15 @@ export {
   type DebugInputs,
 } from './core/debug/config.js'
 
+// Watch expressions: what is this expression, here, now. The engine half of a DAP `evaluate`
+// and of a Playground watch box, compiled by the real front end against the paused frame.
+export {
+  compileWatch,
+  DebugWatchError,
+  type CompiledWatch,
+  type DebugWatchValue,
+} from './core/debug/watch.js'
+
 // Reading a shader value back out in the types the author wrote.
 export { formatCpuValue, createValueFormatter } from './core/debug/value.js'
 

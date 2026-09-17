@@ -87,19 +87,15 @@ oracle, stopping before each statement the author wrote:
 <!-- doc-snippets: skip - a host-side snippet, not a compilation unit -->
 
 ```ts
-import { compileTsSource } from '@xgis/shader-dsl'
+import { compile } from '@xgis/shader-dsl'
 import { startDebugSession } from '@xgis/shader-dsl/debug'
 
-// `compileTsSource` rather than `compile`, because a breakpoint's `file` is matched against
-// the file the spans name, and this is what names it. `compile` has no such option yet, so
-// its spans all say `typeshade-input.ts` and a file-qualified breakpoint would match nothing.
-const r = compileTsSource(appSrc, { fileName: 'blur.shade.ts' })
-const module = {
-  consts: [...r.consts],
-  structs: r.structs.map((s) => s.decl),
-  bindings: [...r.bindings],
-  funcs: [...r.funcs],
-}
+// Name the file. A breakpoint's `file` is matched against the file the spans name, and this
+// option is what names it: compiled without it, every span says `typeshade-input.ts` and a
+// file-qualified breakpoint would match nothing. The name is not carried verbatim, because
+// TypeScript path-normalizes what it is handed; the matching normalizes both sides the same
+// way, so the spelling you pass here is the spelling a breakpoint can use.
+const { module } = compile(appSrc, { fileName: 'blur.shade.ts' })
 
 const s = startDebugSession(module, 'fs', [[0.3, 0.4]], {
   breakpoints: [{ file: 'blur.shade.ts', line: 4 }],
