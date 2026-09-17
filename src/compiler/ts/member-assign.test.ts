@@ -152,7 +152,7 @@ describe('component assignment', () => {
           return b;
         }
       `),
-    ).toBe('Cannot apply ++ to bool — ++ steps a numeric scalar.')
+    ).toBe('Cannot apply ++ to bool: ++ steps a numeric scalar (f32, i32, u32, f64).')
     expect(
       diagnose(`
         ${STRUCTS}
@@ -162,7 +162,7 @@ describe('component assignment', () => {
           return p.a;
         }
       `),
-    ).toBe('Cannot apply -- to struct:P — -- steps a numeric scalar.')
+    ).toBe('Cannot apply -- to struct:P: -- steps a numeric scalar (f32, i32, u32, f64).')
   })
 })
 
@@ -530,7 +530,7 @@ describe('what ++ and -- step', () => {
 
   it('still refuses the shapes that have no numeric step', () => {
     expect(diagnose('export function f(): bool {\n  let q = true;\n  q++;\n  return q;\n}')).toBe(
-      'Cannot apply ++ to bool — ++ steps a numeric scalar.',
+      'Cannot apply ++ to bool: ++ steps a numeric scalar (f32, i32, u32, f64).',
     )
   })
 
@@ -543,7 +543,7 @@ describe('what ++ and -- step', () => {
     expect(
       diagnose('export function f(): vec3 {\n  let v = vec3(1., 2., 3.);\n  v++;\n  return v;\n}'),
     ).toBe(
-      'Cannot apply ++ to vec3<f32> — a vector has no literal to step by. Write the addition out, e.g. v = v + vec3(1., 1., 1.).',
+      'Cannot apply ++ to vec3<f32>: a vector has no literal to step by. Write the addition out, e.g. v = v + vec3(1., 1., 1.).',
     )
     expect(
       diagnose(`
@@ -554,8 +554,43 @@ describe('what ++ and -- step', () => {
         }
       `),
     ).toBe(
-      'Cannot apply ++ to vec3<f64> — a vector has no literal to step by. Write the addition out, e.g. v = v + vec3f64(...).',
+      'Cannot apply ++ to vec3<f64>: a vector has no literal to step by. Write the addition out.',
     )
+  })
+
+  it('names an addition to write only where that addition compiles', () => {
+    // The `e.g.` clause is carried by the one vector kind whose written-out addition is
+    // accepted. `v + vec2i(1, 1)` is TS8003 (a bare literal one is not an `i32`; it takes an
+    // annotated `const one: i32 = 1` first), and no filling of `vec3f64(...)` compiles at all,
+    // so those kinds name no example rather than one the compiler then refuses. Each spelling
+    // below was compiled to check which way it goes.
+    expect(
+      diagnose('export function f(): vec3 {\n  let v = vec3(1., 2., 3.);\n  v++;\n  return v;\n}'),
+    ).toContain('e.g. v = v + vec3(1., 1., 1.)')
+    expect(
+      compileTsSource(
+        '"use typeshade";\nexport function f(x: f32): vec3 {\n  let v = vec3(x, x, x);\n  v = v + vec3(1., 1., 1.);\n  return v;\n}',
+      ).diagnostics,
+    ).toEqual([])
+
+    for (const [program, message] of [
+      [
+        'export function f(x: i32): vec2i {\n  let v = vec2i(x, x);\n  v++;\n  return v;\n}',
+        'Cannot apply ++ to vec2<i32>: a vector has no literal to step by. Write the addition out.',
+      ],
+      [
+        'export function f(x: u32): vec3u {\n  let v = vec3u(x, x, x);\n  v++;\n  return v;\n}',
+        'Cannot apply ++ to vec3<u32>: a vector has no literal to step by. Write the addition out.',
+      ],
+    ] as const) {
+      expect(diagnose(program)).toBe(message)
+    }
+    // …and why the integer kinds carry no example: the obvious one does not compile.
+    expect(
+      compileTsSource(
+        '"use typeshade";\nexport function f(x: i32): vec2i {\n  let v = vec2i(x, x);\n  v = v + vec2i(1, 1);\n  return v;\n}',
+      ).diagnostics.map((d) => d.code),
+    ).toContain('TS8003')
   })
 
   it('declares the df64 helper the f64 step calls, on a member and on an element', () => {

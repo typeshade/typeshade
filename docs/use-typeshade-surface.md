@@ -296,12 +296,12 @@ pixels[i] = 1.            // an element
 |------|-----------|
 | `let` local | yes |
 | `declare let x: storage<T>` | yes |
-| `const` local | no — `TS8005` |
-| `declare const x: uniform<T>` / `storage<T>` | no — `TS8005` |
-| a function parameter | no — `TS8018`; see the caveat below |
-| anything that is not a name (`vec3(0.).x`) | no — `TS8018` |
+| `const` local | no: `TS8005` |
+| `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
+| a function parameter | no: `TS8018`; see the caveat below |
+| anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
 
-The parameter row is about writing **through** a parameter — `p.x = 1.`, `p.xs[i] = 1.`.
+The parameter row is about writing **through** a parameter: `p.x = 1.`, `p.xs[i] = 1.`.
 Writing a parameter **whole** (`p = 1.`, `p += 1.`, `p++`) is a different matter: WGSL rejects
 it too, but this surface has always accepted it and emitted `p = 1.0;`, so refusing it now
 would stop source that compiles today. Narrowing it needs a deprecation path and is on
@@ -312,16 +312,30 @@ A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` 
 (`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
 assign that. `v.r` `v.g` `v.b` `v.a` are components like `v.x` … `v.w` and are writable.
 
-`++` and `--` step a numeric scalar or a vector. On a member or element target they lower to
-the compound form (`ps[i].a += 1.`), so the target is written once instead of read and written
-back; a bare name keeps `i = (i + 1)`. A bool, a struct, an array and a matrix are rejected
-(`TS8018`) — there is nothing to add `1` to.
+`++` and `--` step a **numeric scalar**: `f32`, `i32`, `u32` and `f64`. On a member or element
+target they lower to the compound form (`ps[i].a += 1.`), so the target is written once instead
+of read and written back; a bare name keeps `i = (i + 1)`.
+
+Everything else is rejected with `TS8018`. A bool, a struct, an array and a matrix have nothing
+to add `1` to. A **vector** is rejected too, native and emulated-double alike: the step is one
+literal of the target's type, and no vector literal has a spelling, so `v++` never emitted
+shader text on any target. Write the addition out instead:
+
+```ts
+v = v + vec3(1., 1., 1.)   // instead of v++ on a vec3
+```
+
+An `i32` or `u32` vector takes an annotated one for the same addition (`const one: i32 = 1;`
+then `v = v + vec2i(one, one)`), because a bare literal `1` inside `vec2i(…)` is `TS8003`; a
+`vec3f64` has no literal spelling at all, so its addition needs values that are already `f64`.
+The refusal names an example only for the kind whose example compiles.
 
 Lowering is the same `assign` / `assignOp` the EDSL's `v.x.assign(a)` and `o.pos.assign(v)`
 produce, so the two surfaces stay IR-equal here.
 
 Binding a value to another name **copies** it, as it does on both GPU targets: after
-`let w = v; w.x = 100.`, `v` is unchanged — on the GPU and in the CPU oracle alike.
+`let w = v; w.x = 100.`, `v` is unchanged, on the GPU and in the CPU oracle alike.
+
 ---
 
 ## 11. Vector constructors

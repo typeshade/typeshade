@@ -86,12 +86,6 @@ function normalizeExpr(e: Expr): unknown {
         field: e.field,
         base: normalizeExpr(e.base),
       }
-    case 'construct':
-      return {
-        op: 'construct',
-        type: typeKey(e.type),
-        args: e.args.map(normalizeExpr),
-      }
     case 'unop':
       return { op: 'unop', type: typeKey(e.type), a: normalizeExpr(e.a) }
     case 'compare':

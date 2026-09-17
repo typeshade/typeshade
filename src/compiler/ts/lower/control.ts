@@ -311,8 +311,8 @@ export function lowerUpdate(
         sourceFile,
         expr,
         isVec(target.type) || isVec64(target.type)
-          ? `Cannot apply ${token} to ${typeKey(target.type)} — a vector has no literal to step by. Write the addition out, e.g. v = v + ${vecCtorHint(target.type)}.`
-          : `Cannot apply ${token} to ${typeKey(target.type)} — ${token} steps a numeric scalar.`,
+          ? `Cannot apply ${token} to ${typeKey(target.type)}: a vector has no literal to step by. Write the addition out${stepHint(target.type)}.`
+          : `Cannot apply ${token} to ${typeKey(target.type)}: ${token} steps a numeric scalar (f32, i32, u32, f64).`,
         TS_CODES.ASSIGN_TARGET,
       )
       return undefined
@@ -357,22 +357,25 @@ export function lowerUpdate(
   return undefined
 }
 
-/** The types `++` and `--` can step. A numeric scalar and a native vector are what both
- *  backends add `1` to component-wise, and an emulated-double vector goes through the fp64
- *  pass. A bool, a struct, an array and a matrix cannot: `p.q++` on a struct-typed field
- *  emitted `p.q = (p.q + 1.0)`, which Tint and ANGLE both reject and the CPU oracle
- *  evaluates to undefined. The identifier arm shares the check, which closes the same hole
- *  it has always had for a bare `q++`. */
-/** The constructor an author would write to add one to a vector of this type, for the `++`
- *  refusal's message: `vec3(1., 1., 1.)`, `vec3f64(...)` for an emulated double. */
-function vecCtorHint(t: ShaderType): string {
-  if (isVec64(t)) return `vec${t.n}f64(...)`
-  if (!isVec(t)) return 'vec3(1., 1., 1.)'
-  const suffix = t.elem === 'f32' ? '' : t.elem === 'i32' ? 'i' : 'u'
-  const one = t.elem === 'f32' ? '1.' : '1'
-  return `vec${t.n}${suffix}(${Array.from({ length: t.n }, () => one).join(', ')})`
+/** The `e.g.` clause the `++` refusal on a vector carries, for the one vector kind whose
+ *  written-out addition has a spelling that compiles: a native `f32` vector, where
+ *  `v = v + vec3(1., 1., 1.)` is accepted. An `i32` or `u32` element rejects a bare literal
+ *  one with TS8003 (`v + vec2i(1, 1)`; it takes an annotated `const one: i32 = 1` first),
+ *  and an emulated-double vector has no literal spelling at all (a float literal is `f32`,
+ *  so `vec3f64(1., 1., 1.)` is TS8003 too). Those kinds get no example rather than one that
+ *  does not compile; each spelling here was checked by compiling it. */
+function stepHint(t: ShaderType): string {
+  if (!isVec(t) || t.elem !== 'f32') return ''
+  return `, e.g. v = v + vec${t.n}(${Array.from({ length: t.n }, () => '1.').join(', ')})`
 }
 
+/** The types `++` and `--` can step: a numeric scalar, and nothing else. The step is one
+ *  literal of the target's type, so a vector cannot be stepped at all (no vector literal has
+ *  a spelling, and `v++` failed in the backend with SD0017 rather than emitting), and a bool,
+ *  a struct, an array and a matrix have nothing to add `1` to: `p.q++` on a struct-typed
+ *  field emitted `p.q = (p.q + 1.0)`, which Tint and ANGLE both reject and the CPU oracle
+ *  evaluates to undefined. The identifier arm shares the check, which closes the same hole
+ *  it has always had for a bare `q++`. */
 function isSteppable(t: ShaderType): boolean {
   // A numeric SCALAR only, vectors included out. `++` builds its step as one literal of the
   // target's type, and no vector literal has a spelling: `v++` on a `vec3` and on a `vec3f64`
