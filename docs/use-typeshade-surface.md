@@ -270,9 +270,10 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §10 is reserved for issue #8's A6 (`discard`, the missing builtins, `**`),
-which is in flight on its own branch and appends here in issue order. The sections below took
-the next free numbers so the A-item branches do not all claim §9 and collide on merge.
+**Numbering:** §9 below is issue #8's A2, which reserved that number while it was in flight.
+§§10 and 13 stay reserved for A6 (`discard`, the missing builtins, `**`) and A3, which are
+still in flight on their own branches and append here in issue order. The sections took the
+next free numbers so the A-item branches do not all claim §9 and collide on merge.
 
 ---
 
@@ -356,5 +357,48 @@ oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the o
 `-3.2` above happens to agree, and an in-range source always does. So the cross-backend
 ground a portable shader can stand on is **in-range values**; clamp before you convert if the
 source might not be.
+
+---
+
+## 12. Module constants
+
+A top-level `const` is a module-scope shader constant. A scalar one folds to a single value
+at declaration; a **vector or array** one carries its value as an expression every backend
+emits and evaluates:
+
+```ts
+"use typeshade"
+
+const PI2: f32 = 6.28318 // scalar, as before
+const UP = vec3(0., 1., 0.) // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
+const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
+const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.)
+const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.))
+const K: f32 = 2.
+const V = vec3(K, K, K) // an earlier const is a valid component
+
+export function pick(i: i32): vec4 {
+  return PAL[i] * K + vec4(UP, PI2) + vec4(V, XS[0]) + SKY
+}
+```
+
+The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
+a constructor over those, or arithmetic over those with a divisor that is not zero. It may
+not call a function, read a resource, or take a component, field or element — `vec3(UP.x, 0.,
+0.)` is refused even though both writers would fold it. `XS.length` is a constant too, so an
+array constant can bound a loop. An array **of arrays** is refused: the GLSL ES 3.00 spelling
+it would produce is not one ANGLE accepts.
+
+An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
+followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and
+`const NV: vec3<i32> = vec3<i32>(N, N, N);`. Before that fix the backend's `emitConst` spelled
+every scalar constant with a float literal (`4.0`), which is why this section once limited the
+rule to `f32` components.
+
+This is the same declaration the EDSL's `constExpr(name, type, node)` produces — one
+`ConstDecl` with its `valueExpr` filled.
+
+A struct-valued and a matrix-valued constant are not accepted yet: the constant collector
+runs without the struct table, and the surface has no matrix constructor.
 
 Last updated: 2026-09-14
