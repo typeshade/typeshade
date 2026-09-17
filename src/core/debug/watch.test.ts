@@ -278,8 +278,9 @@ describe('a watch sees the bindings and the structs', () => {
 })
 
 describe('a watch over a stand-in says so', () => {
-  // Hand-built for the same reason `stub-marking.test.ts` is: `dpdx` is not reachable from
-  // "use typeshade" yet, so there is no source that can produce this module.
+  // Hand-built, as `stub-marking.test.ts` is. That was once a necessity, because `dpdx` had no
+  // source-language spelling; since #24 (A6) it does, so this is now a fixture kept for being
+  // explicit about the IR under test rather than one the grammar forces.
   const STUBBED: ModuleDecl = stampSpans({
     consts: [],
     structs: [],
@@ -319,24 +320,74 @@ describe('a watch over a stand-in says so', () => {
     expect(s.evaluate('d + clean').stubbed).toBe(true)
   })
 
-  it('cannot call a GPU-only intrinsic, because the source language cannot spell one', () => {
-    // Not a policy this module applies but the front end's. `dpdx` is not in the callable
-    // surface of `"use typeshade"` at all (docs/debugging.md §2.4 says the type map has no
-    // texture or sampler spelling either), so a watch that names one fails at compile with the
-    // compiler's own words rather than reaching the stub table. Pinned because it is the
-    // visible edge of §4.5's "the snippet is checked by the real compiler": a watch can ask
-    // exactly what the language can ask, and no more.
+  it('calls a GPU-only intrinsic now that the language can spell one, and marks the answer', () => {
+    // This test used to assert the opposite, and was right to: `dpdx` was not in the callable
+    // surface of `"use typeshade"`, so a watch naming it failed at compile. #24 (A6) added the
+    // missing WGSL builtins, so the language can ask this now, and §4.5's rule is unchanged by
+    // that: a watch asks exactly what the language can ask. What keeps it honest is no longer
+    // the grammar but §2.4's marking, which is the better answer of the two. The stub returns
+    // `0`, which is indistinguishable from a real result by value alone, and `stubbed` is the
+    // only thing that says it is fiction.
     const s = startDebugSession(STUBBED, 'fs', [2], { gpuStubs: true })
-    let err: DebugWatchError | undefined
-    try {
-      s.evaluate('dpdx(x)')
-    } catch (e) {
-      err = e as DebugWatchError
-    }
-    expect(err).toBeInstanceOf(DebugWatchError)
-    expect(err!.problems.join(' ')).toMatch(/Unknown function "dpdx\(x\)"/)
+    const v = s.evaluate('dpdx(x)')
+    expect(v.value).toBe(0)
+    expect(v.stubbed).toBe(true)
     // …while reading the value the RUN already got from that intrinsic works, and is marked.
     s.stepIn()
     expect(s.evaluate('d').stubbed).toBe(true)
+  })
+
+  it('and without gpuStubs it refuses by name rather than answering zero', () => {
+    // The default. A watch is not a second policy: it gets the same refusal the run would get,
+    // naming the intrinsic and how to opt in, because a plausible wrong number is the failure
+    // the oracle's default exists to prevent.
+    const s = startDebugSession(STUBBED, 'fs', [2])
+    expect(() => s.evaluate('dpdx(x)')).toThrow(/'dpdx' is GPU-only and not computable here/)
+    expect(() => s.evaluate('dpdx(x)')).toThrow(/gpuStubs: true/)
+  })
+})
+
+describe('a helper whose return type only became spellable upstream', () => {
+  // `zeroLiteral` writes the never-executed body of each redeclared helper, and a helper it
+  // cannot write a zero for is left out of the snippet entirely. Integer vectors were in that
+  // set: `vec3u(0, 0, 0)` did not compile, because a bare `0` was an f32 literal whatever
+  // constructor it sat in. #30 (A3) made an integer literal take the type its context declares,
+  // so the exclusion outlived its reason, and a watch calling such a helper failed with the
+  // front end's "Unknown function" for a helper the module plainly has.
+  const INTS = `"use typeshade"
+
+function ids(n: u32): vec3u {
+  return vec3u(n, n, n)
+}
+
+function signs(n: i32): vec2i {
+  return vec2i(n, n)
+}
+
+export function k(a: f32): f32 {
+  const b = a * 2.
+  return b
+}
+`
+
+  it('calls a helper returning an unsigned integer vector', () => {
+    const s = startDebugSession(compiled(INTS), 'k', [3], { precision: 'f64' })
+    const v = s.evaluate('ids(2)')
+    expect(v.value).toEqual([2, 2, 2])
+    expect(v.type).toEqual({ kind: 'vec', n: 3, elem: 'u32' })
+    // The real helper ran: the interpreter resolves by name against the running module, so this
+    // is not the zero the snippet's stub body would have returned.
+    expect(v.value).not.toEqual([0, 0, 0])
+  })
+
+  it('and one returning a signed integer vector', () => {
+    const s = startDebugSession(compiled(INTS), 'k', [3], { precision: 'f64' })
+    expect(s.evaluate('signs(-4)').value).toEqual([-4, -4])
+  })
+
+  it('still renders through the type the watch reports', () => {
+    const s = startDebugSession(compiled(INTS), 'k', [3], { precision: 'f64' })
+    const v = s.evaluate('ids(7)')
+    expect(formatCpuValue(v.value, v.type)).toBe('vec3(7, 7, 7)')
   })
 })

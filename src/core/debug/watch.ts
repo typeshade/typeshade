@@ -72,10 +72,13 @@ export interface CompiledWatch {
 
 /** The source-language spelling of a type, or `undefined` when it has none.
  *
- *  Deliberately narrower than `ShaderType`: it answers "can a parameter be declared of this
- *  type", which is a question about the SOURCE surface, not about the IR. A texture has an IR
- *  type and no spelling, and that gap is the whole reason this returns `undefined` rather than
- *  guessing.
+ *  Deliberately narrower than `ShaderType`: it answers "can a watch be handed a VALUE of this
+ *  type", which is a question about the CPU run, not about the source grammar. Since #54 (A7) a
+ *  texture and a sampler do have source spellings, so the grammar is no longer what rules them
+ *  out; what rules them out is that a CPU run has no value to bind to one. Declining them keeps
+ *  a watch honest: `textureSample` reaches its stub and fails by name rather than answering a
+ *  question about memory this run does not have. A runtime-sized array is declined for the
+ *  neighbouring reason given below.
  */
 function sourceTypeName(t: ShaderType): string | undefined {
   switch (t.kind) {
@@ -117,10 +120,14 @@ function zeroLiteral(t: ShaderType): string | undefined {
     case 'f64':
       return '0.'
     case 'vec': {
-      // Only the f32 vectors: an integer vector constructor wants `u32`/`i32`-typed elements
-      // and a bare `0` is an f32 literal until the contextual integer literal lands.
-      if (t.elem !== 'f32') return undefined
-      return `${sourceTypeName(t)!}(${Array(t.n).fill('0.').join(', ')})`
+      // Integer vectors are spellable since #30 (A6 A3, "an integer literal takes the type its
+      // context declares"): `vec3u(0, 0, 0)` used to fail because a bare `0` was an f32 literal
+      // and the constructor wanted `u32` elements. It now takes the element type from the
+      // constructor it sits in, so the only thing this still has to get right is which zero to
+      // write. A helper returning `vec3u` was being dropped from the snippet before, which a
+      // watch calling it saw as the front end's "Unknown function".
+      const zero = t.elem === 'f32' ? '0.' : '0'
+      return `${sourceTypeName(t)!}(${Array(t.n).fill(zero).join(', ')})`
     }
     default:
       return undefined

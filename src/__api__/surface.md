@@ -754,14 +754,17 @@ when
 workgroupSizeOf
 ```
 
-## `./language-service` — 31 exports
+## `./language-service` — 34 exports
 
 ```
 AMBIENT_LIB_URI
 ATTRIBUTE_DOCS
 ATTRIBUTE_NAMES
 BUILTIN_DOCS
+CONSTANT_DOCS
 createTypeshadeLanguageService
+FUNCTION_DOCS
+MATH_MEMBER_DOCS
 offsetAt
 positionAt
 rangeForSpan
@@ -790,7 +793,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 507 definitions
+## Shapes — 510 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { fileName?: string }
@@ -801,7 +804,7 @@ src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: S
 src/compiler/ts/directive.ts#hasUseTypeshadeDirective  function  (sourceFile: SourceFile) => boolean
 src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => boolean
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
-src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; wgsl?: string }
+src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
@@ -1274,6 +1277,9 @@ src/language-service/ambient.ts#SHADE_DTS  const  string
 src/language-service/ambient.ts#WGSL_BUILTIN_NAMES  const  readonly string[]
 src/language-service/docs.ts#ATTRIBUTE_DOCS  const  Readonly<Record<string, string>>
 src/language-service/docs.ts#BUILTIN_DOCS  const  Readonly<Record<string, string>>
+src/language-service/docs.ts#CONSTANT_DOCS  const  Readonly<Record<string, string>>
+src/language-service/docs.ts#FUNCTION_DOCS  const  Readonly<Record<string, string>>
+src/language-service/docs.ts#MATH_MEMBER_DOCS  const  Readonly<Record<string, string>>
 src/language-service/docs.ts#TYPE_DOCS  const  Readonly<Record<string, string>>
 src/language-service/host.ts#AMBIENT_LIB_URI  const  "typeshade:shade.d.ts"
 src/language-service/host.ts#TypeshadeLanguageServiceHost  interface  { ambientLib?: string; readDocument?: (uri: string) => string; resolveImport?: (fromUri: string, specifier: string) => string }

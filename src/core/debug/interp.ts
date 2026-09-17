@@ -471,7 +471,7 @@ export function* execBody(
       }
       case 'var': {
         const before = ctx.stubHits
-        env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type))
+        env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type, ctx.structs))
         markStub(frame, s.name, ctx.stubHits > before, true)
         break
       }

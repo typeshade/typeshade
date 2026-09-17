@@ -15,7 +15,7 @@ import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from 
  *  module — the GLSL writer dropped the uniform block while keeping the uses, and
  *  `reflect()` reported no stages for anything. A binding is a module-scope `var`, not a
  *  const, and it now says so. */
-export type BindingKind = 'param' | 'local' | 'module' | 'binding'
+export type BindingKind = 'param' | 'local' | 'module' | 'binding' | 'override'
 
 /** How a "cannot assign" diagnostic names what the target is. One helper because the three
  *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
@@ -32,6 +32,8 @@ export function readOnlyPhrase(kind: BindingKind): string {
       return 'a read-only resource'
     case 'module':
       return 'a module const'
+    case 'override':
+      return 'an override constant, set by the pipeline'
     case 'param':
     case 'local':
       return 'declared with const'
@@ -62,6 +64,8 @@ export class LoweringScope {
   private readonly structs = new Map<string, StructDecl>()
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
+  private retType: ShaderType | undefined
+  private switchDepth = 0
 
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
     this.callees = callees ?? new Map()
@@ -90,6 +94,32 @@ export class LoweringScope {
 
   inLoop(): boolean {
     return this.loopDepth > 0
+  }
+
+  /** The declared return type of the function whose body is being lowered, so `return 0` can
+   *  take it (#8 A3). Undefined outside a function body — at module-constant collection, for
+   *  instance — and for a function with no annotation. */
+  setReturnType(t: ShaderType | undefined): void {
+    this.retType = t
+  }
+
+  returnType(): ShaderType | undefined {
+    return this.retType
+  }
+
+  enterSwitch(): void {
+    this.switchDepth++
+  }
+
+  exitSwitch(): void {
+    this.switchDepth = Math.max(0, this.switchDepth - 1)
+  }
+
+  /** Whether a `break` here would leave a `switch`. Tracked apart from {@link inLoop}
+   *  because `continue` is a loop statement only: a `switch` that is not inside a loop
+   *  takes the one and refuses the other. */
+  inSwitch(): boolean {
+    return this.switchDepth > 0
   }
 
   setStructs(list: readonly StructDecl[]): void {

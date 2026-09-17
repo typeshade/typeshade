@@ -6,11 +6,15 @@ import ts from 'typescript'
 import type { BindingDecl } from '../../core/ir/nodes.js'
 import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
-import { mapTsTypeToShaderType } from './type-map.js'
+import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
+import { isOverrideType } from './overrides.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 
+/** The type names that are a resource HANDLE rather than a buffer: written bare in a
+ *  `declare const`, with no address-space wrapper. `sampler` and the texture names are the
+ *  whole set — {@link mapTsTypeToShaderType} owns what each one maps to. */
 export function isResourceCall(expr: ts.Expression): expr is ts.CallExpression {
   return (
     ts.isCallExpression(expr) &&
@@ -48,6 +52,9 @@ export function collectBindings(
         }
         continue
       }
+      // An override occupies no bind slot, so it must not take a binding number on the way
+      // past — overrides.ts collects it (#8 A7).
+      if (isOverrideType(decl.type)) continue
       if (declared && decl.type) {
         const b = fromType(decl.name.text, decl.type, isConst, sourceFile, diagnostics, next)
         if (b) {
@@ -63,6 +70,28 @@ export function collectBindings(
       }
     }
   }
+  // A repeated NAME, reported here rather than thrown from the scope later. Two
+  // `declare const tex` threw `Duplicate binding "tex" in current scope frame` out of
+  // `compile()` and out of the language service's `getDiagnostics()`, so the editor raised an
+  // exception where it had shown a squiggle.
+  const names = new Set<string>()
+  const duplicates: BindingDecl[] = []
+  for (const b of out) {
+    if (names.has(b.name)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          undefined,
+          `Duplicate resource "${b.name}".`,
+          TS_CODES.DUPLICATE_SYMBOL,
+        ),
+      )
+      duplicates.push(b)
+      continue
+    }
+    names.add(b.name)
+  }
+  for (const b of duplicates) out.splice(out.indexOf(b), 1)
   const seen = new Map<string, string>()
   for (const b of out) {
     const key = `${b.group}:${b.binding}`
@@ -90,12 +119,37 @@ function fromType(
   autoBinding: number,
 ): BindingDecl | undefined {
   if (!ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) {
-    diagnostics.push(diag(sourceFile, type, `declare "${name}" must be uniform<T> or storage<T>.`))
+    diagnostics.push(
+      diag(
+        sourceFile,
+        type,
+        `declare "${name}" must be uniform<T>, storage<T>, a texture, a sampler or override<T>.`,
+      ),
+    )
     return undefined
   }
   const kind = type.typeName.text
+  // A texture or a sampler is a HANDLE resource: it is written as the type itself, with no
+  // uniform<> or storage<> wrapper, because it lives in no address space (#8 A7). It takes
+  // the 'uniform' space the EDSL's `resource()` gives it — the field is not optional and
+  // every backend keys the declaration off the TYPE, not off the space.
+  if (HANDLE_TYPE_NAMES.has(kind)) {
+    const handle = mapTsTypeToShaderType(type, sourceFile, diagnostics)
+    if (!handle) return undefined
+    if (!isConst) {
+      diagnostics.push(diag(sourceFile, type, `"${name}" is a ${kind}; declare it const, not let.`))
+      return undefined
+    }
+    return { group: 0, binding: autoBinding, name, space: 'uniform', type: handle }
+  }
   if (kind !== 'uniform' && kind !== 'storage') {
-    diagnostics.push(diag(sourceFile, type, `declare "${name}" must be uniform<T> or storage<T>.`))
+    diagnostics.push(
+      diag(
+        sourceFile,
+        type,
+        `declare "${name}" must be uniform<T>, storage<T>, a texture, a sampler or override<T>.`,
+      ),
+    )
     return undefined
   }
   const inner = type.typeArguments?.[0]
@@ -109,6 +163,21 @@ function fromType(
       ? structT(inner.typeName.text)
       : undefined)
   if (!mapped) return undefined
+  // A handle is written BARE — `declare const smp: sampler`. Wrapped, it was accepted and took
+  // the wrapper's address space, which is not what either backend emits for one, and the doc
+  // says bare. Caught here rather than in the type map, because this is the one path that
+  // resolves a binding's declared type.
+  if (mapped.kind === 'sampler' || mapped.kind === 'texture') {
+    diagnostics.push(
+      diag(
+        sourceFile,
+        type,
+        `"${name}" is a ${mapped.kind === 'sampler' ? 'sampler' : 'texture'}; it is declared ` +
+          `bare, not inside ${kind}<...>: write "declare const ${name}: ${inner.getText(sourceFile)}".`,
+      ),
+    )
+    return undefined
+  }
   return {
     group: 0,
     binding: autoBinding,
