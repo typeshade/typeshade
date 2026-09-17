@@ -1,17 +1,19 @@
 import ts from 'typescript'
 import type { Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { typeKey } from '../../../core/ir/types.js'
+import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { readOnlyPhrase } from '../context.js'
-import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
+import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { retargetDeclaredIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
-import { lowerStatement, lowerStatements } from './statement.js'
+import { lowerLValue, lowerStatement, lowerStatements } from './statement.js'
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -134,8 +136,23 @@ function lowerForInit(
     : undefined
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
-  if (annotated && init.op === 'lit' && typeof init.value === 'number') {
-    init = { op: 'lit', type: annotated, value: init.value }
+  // The induction variable's declared type, or i32 when there is no annotation, since that is
+  // the type it must have. `for (let j: i32 = -1; …)` reaches this with a PrefixUnaryExpression
+  // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
+  // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
+  // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
+  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T)
+  if (annotated && typeKey(annotated) !== typeKey(init.type)) {
+    // The check statement.ts has always had at its own declaration site, and the reason this
+    // one was silent rather than merely wrong: nothing compared the two.
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      numericMismatch(`for-init ${name}`, annotated, init.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
   }
   const type: ShaderType = annotated ?? init.type
   const k = typeKey(type)
@@ -214,38 +231,111 @@ export function lowerSwitch(
     return undefined
   }
   const cases: { value: number; body: readonly Stmt[] }[] = []
+  const seen = new Set<number>()
   let defaultBody: readonly Stmt[] | undefined
-  for (const clause of node.caseBlock.clauses) {
-    if (ts.isDefaultClause(clause)) {
-      defaultBody = lowerStatements(clause.statements, sourceFile, scope, diagnostics)
-      continue
+  // Inside the case bodies a `break` is the switch's own, not an enclosing loop's.
+  scope.enterSwitch()
+  try {
+    for (const clause of node.caseBlock.clauses) {
+      if (ts.isDefaultClause(clause)) {
+        defaultBody = caseBody(clause.statements, sourceFile, scope, diagnostics)
+        continue
+      }
+      if (clause.statements.length === 0) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          clause,
+          'switch case fall-through is not allowed.',
+          TS_CODES.SWITCH_CASE,
+        )
+        continue
+      }
+      const value = caseValue(clause, k, sourceFile, scope, diagnostics)
+      if (value === undefined) continue
+      // Both compilers reject a repeated label, and this surface makes one easy to write
+      // without seeing it: `case 1 + 1:` beside `case 2:`, or two module constants that fold
+      // to the same number. Reported here rather than at the backend, where the message names
+      // neither the label nor the file.
+      if (seen.has(value)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          clause.expression,
+          `Duplicate switch case ${String(value)}; each label may appear once.`,
+          TS_CODES.SWITCH_CASE,
+        )
+        continue
+      }
+      seen.add(value)
+      cases.push({ value, body: caseBody(clause.statements, sourceFile, scope, diagnostics) })
     }
-    if (!clause.expression || !ts.isNumericLiteral(clause.expression)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        clause,
-        'switch case must be a numeric literal.',
-        TS_CODES.SWITCH_CASE,
-      )
-      continue
-    }
-    if (clause.statements.length === 0) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        clause,
-        'switch case fall-through is not allowed.',
-        TS_CODES.SWITCH_CASE,
-      )
-      continue
-    }
-    cases.push({
-      value: Number(clause.expression.text),
-      body: lowerStatements(clause.statements, sourceFile, scope, diagnostics),
-    })
+  } finally {
+    scope.exitSwitch()
   }
   return { s: 'switch', scrut, cases, defaultBody }
+}
+
+/** The constant a `case` label selects on. A bare literal is the common form; `case -1:` is
+ *  a PrefixUnaryExpression and `case MODE_B:` a module constant, and both fold to the same
+ *  number the IR's `cases[].value` holds — the same fold `xs[N]` and a loop bound use, so
+ *  the three places a constant has to be known at compile time agree on what counts as one.
+ *
+ *  `scrutKind` is the selector's own type, and the label has to fit it: the emitter spells
+ *  every label with the selector's suffix, so `case -1:` on a u32 selector emitted `case -1u:`
+ *  and Tint answered `no matching overload for 'operator - (u32)'`. That source was refused
+ *  before this item accepted a negative label at all, so refusing it here takes nothing back. */
+function caseValue(
+  clause: ts.CaseClause,
+  scrutKind: string,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): number | undefined {
+  const expr = lowerExpression(clause.expression, sourceFile, scope, diagnostics)
+  // `lowerExpression` already reported an unresolvable label (`case ZZZ:`), and a second
+  // diagnostic saying it is not a constant adds nothing but noise.
+  if (!expr) return undefined
+  const value = foldConstNumber(expr, scope)
+  if (value === undefined || !Number.isInteger(value)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      clause.expression,
+      'switch case must be an integer constant: a literal or a module const.',
+      TS_CODES.SWITCH_CASE,
+    )
+    return undefined
+  }
+  if (scrutKind === 'u32' && value < 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      clause.expression,
+      `switch case ${String(value)} does not fit a u32 selector.`,
+      TS_CODES.SWITCH_CASE,
+    )
+    return undefined
+  }
+  return value
+}
+
+/** Lower one clause's statements, dropping a TRAILING `break`.
+ *
+ *  The IR switch does not fall through — WGSL's does not, and {@link emitStmt} writes the
+ *  C-style `break;` GLSL needs itself — so the `break` TypeScript requires at the end of a
+ *  case carries no information here, and keeping it would emit `break; break;` in GLSL and
+ *  a dead `break;` in WGSL. Dropping only the last statement leaves an early
+ *  `if (c) { break }` inside the case exactly where the author put it. */
+function caseBody(
+  statements: readonly ts.Statement[],
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
+  const body = lowerStatements(statements, sourceFile, scope, diagnostics)
+  if (body.length > 0 && body[body.length - 1]!.s === 'break') body.pop()
+  return body
 }
 
 export function lowerUpdate(
@@ -261,61 +351,78 @@ export function lowerUpdate(
       return undefined
     }
     const targetExpr = expr.operand
-    if (!ts.isIdentifier(targetExpr)) {
+    // A member or element target (`v.x++`, `ps[i].a++`) goes through lowerLValue, which owns
+    // the writability and single-component-swizzle rules; a bare identifier keeps its own
+    // path so its wording is unchanged.
+    const viaName = ts.isIdentifier(targetExpr)
+    let target: Expr | undefined
+    if (viaName && ts.isIdentifier(targetExpr)) {
+      const binding = scope.resolve(targetExpr.text)
+      // Two different failures, kept apart as origin/main split them: an UNKNOWN name reported
+      // "it is declared with const", a statement about a declaration that does not exist.
+      if (!binding) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr,
+          `Cannot assign to unknown name "${targetExpr.text}".`,
+          TS_CODES.UNKNOWN_NAME,
+        )
+        return undefined
+      }
+      if (!binding.mutable) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr,
+          `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+          TS_CODES.CONST_ASSIGN,
+        )
+        return undefined
+      }
+      // withSpan, as origin/main's #32 gives every authored lvalue: the write position is
+      // what a stepped run and a diagnostic point at, and this branch builds the target
+      // itself rather than going through lowerLValue, which carries its own.
+      target = withSpan(
+        binding.kind === 'param'
+          ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
+          : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+        sourceFile,
+        targetExpr,
+      )
+    } else {
+      target = lowerLValue(targetExpr, sourceFile, scope, diagnostics)
+    }
+    if (!target) return undefined
+    const token = op === ts.SyntaxKind.PlusPlusToken ? '++' : '--'
+    if (!isSteppable(target.type)) {
       pushDiag(
         diagnostics,
         sourceFile,
         expr,
-        '++/-- target must be an identifier.',
+        isVec(target.type) || isVec64(target.type)
+          ? `Cannot apply ${token} to ${typeKey(target.type)}: a vector has no literal to step by. Write the addition out${stepHint(target.type)}.`
+          : `Cannot apply ${token} to ${typeKey(target.type)}: ${token} steps a numeric scalar (f32, i32, u32, f64).`,
         TS_CODES.ASSIGN_TARGET,
       )
       return undefined
     }
-    const binding = scope.resolve(targetExpr.text)
-    // Two different failures, and they were one branch until now: an UNKNOWN name reported
-    // "it is declared with const", which is a statement about a declaration that does not
-    // exist. `lowerAssign` already separates them (statement.ts) and this is the same split,
-    // down to the wording, so the two assignment paths say the same thing about `nope++` and
-    // `nope = 1`.
-    if (!binding) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        expr,
-        `Cannot assign to unknown name "${targetExpr.text}".`,
-        TS_CODES.UNKNOWN_NAME,
-      )
-      return undefined
+    const bop = op === ts.SyntaxKind.PlusPlusToken ? '+' : '-'
+    const one: Expr = { op: 'lit', type: target.type, value: 1 }
+    // A bare name keeps the assign-of-binop it has always lowered to, so its emitted text does
+    // not move. A member or element target becomes an assignOp instead, so the lvalue is
+    // written ONCE: `ps[i].a = (ps[i].a + 1.0)` repeats the storage load, and CSE hoisting
+    // that repeated read into an immutable `let` is what made such an emit invalid. An
+    // emulated-double target keeps the binop form, since the fp64 pass lowers an assignOp on
+    // a vec64 target only when the value is a vec64 too (SD0041).
+    if (viaName || isVec64(target.type)) {
+      return {
+        s: 'assign',
+        target,
+        expr: { op: 'binop', type: target.type, bop, a: target, b: one },
+      }
     }
-    if (!binding.mutable) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        expr,
-        `Cannot assign to "${targetExpr.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
-        TS_CODES.CONST_ASSIGN,
-      )
-      return undefined
-    }
-    // `i++` writes `i`, so the operand is the lvalue whose span the target carries.
-    const target: Expr = withSpan(
-      binding.kind === 'param'
-        ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
-        : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
-      sourceFile,
-      targetExpr,
-    )
-    return {
-      s: 'assign',
-      target,
-      expr: {
-        op: 'binop',
-        type: binding.type,
-        bop: op === ts.SyntaxKind.PlusPlusToken ? '+' : '-',
-        a: target,
-        b: { op: 'lit', type: binding.type, value: 1 },
-      },
-    }
+    return { s: 'assignOp', target, bop, expr: one }
   }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
     const left = expr.left
@@ -338,6 +445,42 @@ export function lowerUpdate(
   }
   pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)
   return undefined
+}
+
+/** The `e.g.` clause the `++` refusal on a vector carries, for the vector kinds whose
+ *  written-out addition has a spelling that compiles: a native vector, where
+ *  `v = v + vec3(1., 1., 1.)` is accepted and, because a literal inside `vec2i(...)` takes the
+ *  constructor's element type (#8 A3), so is `v = v + vec2i(1, 1)`. An emulated-double vector
+ *  has no literal spelling at all (a float literal is `f32`, so `vec3f64(1., 1., 1.)` is
+ *  TS8003), so it gets no example rather than one that does not compile; each spelling here
+ *  was checked by compiling it. */
+function stepHint(t: ShaderType): string {
+  if (!isVec(t)) return ''
+  const one = t.elem === 'f32' ? '1.' : t.elem === 'i32' || t.elem === 'u32' ? '1' : undefined
+  if (one === undefined) return ''
+  const suffix = t.elem === 'f32' ? '' : t.elem === 'i32' ? 'i' : 'u'
+  return `, e.g. v = v + vec${t.n}${suffix}(${Array.from({ length: t.n }, () => one).join(', ')})`
+}
+
+/** The types `++` and `--` can step: a numeric scalar, and nothing else. The step is one
+ *  literal of the target's type, so a vector cannot be stepped at all (no vector literal has
+ *  a spelling, and `v++` failed in the backend with SD0017 rather than emitting), and a bool,
+ *  a struct, an array and a matrix have nothing to add `1` to: `p.q++` on a struct-typed
+ *  field emitted `p.q = (p.q + 1.0)`, which Tint and ANGLE both reject and the CPU oracle
+ *  evaluates to undefined. The identifier arm shares the check, which closes the same hole
+ *  it has always had for a bare `q++`. */
+function isSteppable(t: ShaderType): boolean {
+  // A numeric SCALAR only, vectors included out. `++` builds its step as one literal of the
+  // target's type, and no vector literal has a spelling: `v++` on a `vec3` and on a `vec3f64`
+  // alike fails closed at emit with SD0017 ("vec constant with no valueExpr"), on `main` and on
+  // this branch, for the bare name as well as for the member and element forms this item adds.
+  // Measured against origin/main before narrowing this, so it refuses nothing that compiles —
+  // it moves a backend failure to the source, where the message can name the fix.
+  const k = typeKey(t)
+  // f64 belongs here: an emulated double is a numeric scalar the fp64 pass lowers, and `s++`
+  // on one emitted `s = df64_add(s, vec2<f32>(1.0, 0.0))` before this check existed. Leaving
+  // it out made the check reject a program that compiled — the one thing it must not do.
+  return k === 'f32' || k === 'i32' || k === 'u32' || k === 'f64'
 }
 
 function lowerBody(

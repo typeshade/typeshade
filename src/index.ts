@@ -5,7 +5,7 @@
 // used by the established low-level EDSL and backend pipeline.
 
 // TypeShade source compiler — the author-facing `"use typeshade"` surface.
-export { compile, type CompileResult } from './compiler/ts/compile.js'
+export { compile, type CompileOptions, type CompileResult } from './compiler/ts/compile.js'
 export { type TsCompilerDiagnostic } from './compiler/ts/source-file.js'
 export {
   compileTsSource,

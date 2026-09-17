@@ -4,6 +4,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { USER_FIRST_BUILTINS, isCanonicalMathFn } from '../math-alias.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -31,7 +32,10 @@ export function lowerArrayCtor(
   const n = mapped.size
   const args: Expr[] = []
   for (const arg of node.arguments) {
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    // `mapped.elem` is the position each element sits in, so an object-literal element knows
+    // which struct it builds: `array<A, 2>({ … }, { … })` is two DECLARED positions, spelled
+    // in the constructor's own type argument rather than on a variable (#8 A11).
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem)
     if (!lowered) return undefined
     args.push(lowered)
   }
@@ -101,6 +105,23 @@ export function lowerArrayFold(
   for (const arg of node.arguments) {
     if (ts.isIdentifier(arg)) {
       const decl = scope.resolveCallee(arg.text)
+      if (decl && intrinsicFirst(arg.text)) {
+        // The precedence `lowerCall` applies, applied here too: a name that was a builtin
+        // before #8 A6 stays the intrinsic even when the file declares a function of that
+        // name, so a fold cannot hand the declaration to `unrollZip` and stamp a `declRef` on
+        // the calls it builds. One stamped call would put the name in the emitter's per-module
+        // set and redirect every plain `atan(y, x)` in the file to the declaration on GLSL
+        // while the CPU oracle kept the intrinsic. There is no intrinsic-valued callback in a
+        // fold today, so the honest answer is a diagnostic that names the rule.
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          arg,
+          `"${arg.text}" is a builtin, and a declared function of that name does not shadow it; ${name} takes a function declared in this file under another name.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
       if (decl) {
         predDecls.push(decl)
         continue
@@ -169,6 +190,14 @@ export function lowerArrayFold(
     return out
   }
   return 'fallback'
+}
+
+/** A builtin name a declaration does NOT win: every canonical math id and `mod`, except the
+ *  names #8 A6 added, which resolve to the file's own function first (`USER_FIRST_BUILTINS`).
+ *  Mirrors the order `lowerCall` checks in, so a fold and a plain call agree on what a name
+ *  means. */
+function intrinsicFirst(name: string): boolean {
+  return !USER_FIRST_BUILTINS.has(name) && (name === 'mod' || isCanonicalMathFn(name))
 }
 
 function pushDiag(

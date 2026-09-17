@@ -22,7 +22,7 @@ import { TypeShadeError, formatLoc } from '../diagnostics/error.js'
 /** Render every error diagnostic on its own line — `[SD####] (fn X) message @ file:line:col`
  *  — so an aggregated validation failure shows ALL problems, not just the first. */
 function formatValidationMessage(diags: readonly Diagnostic[]): string {
-  const head = `shader-dsl [SD0020]: module validation failed (${diags.length} error${diags.length === 1 ? '' : 's'}):`
+  const head = `typeshade [SD0020]: module validation failed (${diags.length} error${diags.length === 1 ? '' : 's'}):`
   const lines = diags.map((d) => {
     const code = d.code ? `[${d.code}] ` : ''
     const fn = d.fn ? ` (fn ${d.fn})` : ''

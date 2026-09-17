@@ -1,7 +1,7 @@
 // === Function lowering: two-pass signatures then bodies ===
 
 import ts from 'typescript'
-import type { BindingDecl, FuncDecl, Stmt, Expr } from '../../../core/ir/nodes.js'
+import type { BindingDecl, FuncDecl, Stmt, Expr, OverrideDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
@@ -11,6 +11,7 @@ import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerStatements } from './statement.js'
+import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -30,6 +31,7 @@ export function lowerSourceFunctions(
   bindings: readonly BindingDecl[] = [],
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
+  overrides: readonly OverrideDecl[] = [],
 ): FuncDecl[] {
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
   const callees = new Map<string, FuncDecl>()
@@ -51,6 +53,7 @@ export function lowerSourceFunctions(
     ready.push(stmt)
   }
   const funcs: FuncDecl[] = []
+  const nodeByName = new Map<string, ts.FunctionDeclaration>()
   for (const stmt of ready) {
     const stub = callees.get(stmt.name!.text)!
     fillFunctionBody(
@@ -63,8 +66,10 @@ export function lowerSourceFunctions(
       bindings,
       structs,
       symbols,
+      overrides,
     )
     funcs.push(stub)
+    nodeByName.set(stub.name, stmt)
   }
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
   // downstream of here was looking for one. In a single file a function is called by the name
@@ -78,7 +83,103 @@ export function lowerSourceFunctions(
     })),
     diagnostics,
   )
+  checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics)
   return funcs
+}
+
+/** The ops WGSL and GLSL ES 3.00 allow only in the fragment stage: the kill, and the three
+ *  screen-space derivatives, which need the neighbouring invocations of a quad. */
+const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set(['fwidth', 'dpdx', 'dpdy'])
+
+/** Whether a function's OWN body uses a fragment-only op, by the name to report it under. */
+function fragmentOnlyOpsOf(body: readonly Stmt[]): Set<string> {
+  const found = new Set<string>()
+  const walkStmt = (s: Stmt): void => {
+    if (s.s === 'discard') found.add('discard')
+    eachStmtExpr(
+      s,
+      (e) => {
+        eachExpr(e, (x) => {
+          if (x.op === 'call' && FRAGMENT_ONLY_CALLS.has(x.fn)) found.add(x.fn)
+        })
+      },
+      walkStmt,
+    )
+  }
+  for (const s of body) walkStmt(s)
+  return found
+}
+
+/** The functions a function's body calls, by name. */
+function calleeNamesOf(body: readonly Stmt[]): Set<string> {
+  const names = new Set<string>()
+  const walkStmt = (s: Stmt): void => {
+    eachStmtExpr(
+      s,
+      (e) => {
+        eachExpr(e, (x) => {
+          if (x.op === 'call') names.add(x.fn)
+        })
+      },
+      walkStmt,
+    )
+  }
+  for (const s of body) walkStmt(s)
+  return names
+}
+
+/** `discard` and the screen-space derivatives are fragment-only, and an entry is as illegal
+ *  for using one through a helper as for using one itself: Tint rejects a vertex entry whose
+ *  call graph reaches a `discard` ("cannot be used in vertex pipeline stage … called by entry
+ *  point 'vs'"), and ANGLE rejects the GLSL. Checking an entry's own body was not enough, so
+ *  this closes over the call graph once every body is lowered — which is also the first point
+ *  at which the graph is known. A helper is still never rejected on its own: it is legal
+ *  until something calls it from the wrong stage. */
+function checkFragmentOnlyOps(
+  funcs: readonly FuncDecl[],
+  nodeByName: ReadonlyMap<string, ts.FunctionDeclaration>,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const own = new Map<string, Set<string>>()
+  const calls = new Map<string, Set<string>>()
+  for (const f of funcs) {
+    own.set(f.name, fragmentOnlyOpsOf(f.body))
+    calls.set(f.name, calleeNamesOf(f.body))
+  }
+  for (const entry of funcs) {
+    if (entry.stage !== 'vertex' && entry.stage !== 'compute') continue
+    const node = nodeByName.get(entry.name)
+    if (!node?.name) continue
+    // Breadth-first over the call graph, reporting each op once at the nearest function that
+    // uses it, so a shared helper does not report the same thing twice for one entry.
+    const seen = new Set<string>([entry.name])
+    const queue: string[] = [entry.name]
+    const reported = new Set<string>()
+    while (queue.length > 0) {
+      const name = queue.shift()!
+      for (const op of own.get(name) ?? []) {
+        if (reported.has(op)) continue
+        reported.add(op)
+        const where =
+          name === entry.name
+            ? `"${entry.name}" is a ${entry.stage} entry`
+            : `"${name}" is reachable from the ${entry.stage} entry "${entry.name}"`
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.name,
+          `"${op}" is only valid in a fragment shader; ${where}.`,
+          TS_CODES.UNSUPPORTED,
+        )
+      }
+      for (const callee of calls.get(name) ?? []) {
+        if (seen.has(callee) || !own.has(callee)) continue
+        seen.add(callee)
+        queue.push(callee)
+      }
+    }
+  }
 }
 
 export function lowerFunctionDeclaration(
@@ -290,11 +391,25 @@ export function fillFunctionBody(
   bindings: readonly BindingDecl[] = [],
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
+  overrides: readonly OverrideDecl[] = [],
 ): void {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
+  // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3),
+  // and `return { … }` knows which struct it builds (#8 A11). One field, two readers.
+  scope.setReturnType(stub.ret)
+
+  // Every module-scope define is guarded, because `scope.define` THROWS on a repeat and this
+  // is the last place a collision between two collectors can land. Each collector reports its
+  // own duplicates, so a name arriving twice here has already been diagnosed — an override
+  // beside a module const of the same name, say — and the second define would turn that
+  // diagnostic into an exception out of `compile()` and out of the language service's
+  // `getDiagnostics()`, where a squiggle belongs.
+  const defineOnce = (b: Parameters<LoweringScope['define']>[0]): void => {
+    if (!scope.hasInCurrent(b.name)) scope.define(b)
+  }
   for (const c of consts) {
-    scope.define({
+    defineOnce({
       kind: 'module',
       name: c.name,
       type: c.type,
@@ -303,13 +418,18 @@ export function fillFunctionBody(
     })
   }
   for (const b of bindings) {
-    scope.define({
+    defineOnce({
       kind: 'binding',
       name: b.name,
       type: b.type,
       mutable: b.access === 'read_write',
       space: b.space,
     })
+  }
+  // An override reads as an `overrideref`, which no pass folds: its value arrives when the
+  // pipeline is built, not when the module is compiled (#8 A7).
+  for (const o of overrides) {
+    defineOnce({ kind: 'override', name: o.name, type: o.type, mutable: false })
   }
   for (const p of stub.params) {
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })

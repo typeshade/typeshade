@@ -53,7 +53,10 @@ describe('declare uniform / storage', () => {
       declare const camera: f32;
       export function f(): f32 { return camera; }
     `)
-    expect(r.diagnostics.some((d) => /uniform<T> or storage<T>/.test(d.message))).toBe(true)
+    // The list the message offers grew with #8 A7 (a texture, a sampler and override<T> are
+    // declared bare, with no address-space wrapper), so the assertion is on what the message
+    // is ABOUT rather than on the full enumeration.
+    expect(r.diagnostics.some((d) => /must be uniform<T>, storage<T>/.test(d.message))).toBe(true)
   })
 })
 
@@ -110,7 +113,7 @@ describe('a binding is a module-scope var, not a const (#14)', () => {
     const out = [0, 0, 0, 0]
     cm.setBinding('input', [1, 2, 3, 4])
     cm.setBinding('output', out)
-    // Before the fix this threw `shader-dsl/cpu: unknown const input`: the oracle looks a
+    // Before the fix this threw `typeshade/cpu: unknown const input`: the oracle looks a
     // constref up in the CONST map, and a binding is never in it.
     cm.fns['k']!([2, 0, 0])
     expect(out).toEqual([0, 0, 6, 0])

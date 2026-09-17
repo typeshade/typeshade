@@ -119,6 +119,34 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: false,
   },
   {
+    id: 'twin-structs',
+    title: 'Twin IO structs',
+    blurb:
+      'Two IO structs with identical fields, a vertex output and a fragment input, with object literals in all three positions that declare which one they build: a return type, an annotation and a parameter type. The case matching field names alone cannot decide.',
+    renderable: true,
+  },
+  {
+    id: 'bitfield-bands',
+    title: 'Bitfield bands',
+    blurb:
+      'A fullscreen triangle whose colour is chosen by a `switch` over a band index built with `&=`, `|=`, `<<=`, `>>=` and `^=`, with `let x: f32` declared before it is assigned and the varyings returned as `{ pos, uv }` shorthand.',
+    renderable: true,
+  },
+  {
+    id: 'textured-quad',
+    title: 'Texture, sampler and overrides',
+    blurb:
+      'A fullscreen triangle sampling a `texture_2d<f32>` through a `sampler`, tinted by two `override<f32>` specialization constants — WGSL declares the handles and the overrides, GLSL ES 3.00 fuses texture and sampler into one `sampler2D` and spells each override as a `#define`.',
+    renderable: true,
+  },
+  {
+    id: 'palette-const',
+    title: 'Module vector and array constants',
+    blurb:
+      'A fullscreen triangle banded by a module-scope `array<vec4, 3>` palette and an `array<f32, 3>` of stops, with a `vec3` constant built from an earlier scalar one — every shape a module constant can now take, read from both stages.',
+    renderable: true,
+  },
+  {
     id: 'convert-grid',
     title: 'Converting constructors',
     blurb:
@@ -130,6 +158,93 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     title: 'Module constants',
     blurb:
       'A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands every spelling to Tint and to a real WebGL2 context.',
+    renderable: true,
+  },
+  {
+    id: 'hillshade-twin',
+    title: 'Hillshade (source twin)',
+    blurb:
+      '`hillshade.ts` written in the source language: the Horn 3x3 gradient over a procedural height field, lit by a sun azimuth. The cartographic twin — the shading maths reads the same on both surfaces because it is all plain arithmetic.',
+    renderable: true,
+    twinOf: 'hillshade',
+  },
+  {
+    id: 'plasma-twin',
+    title: 'Plasma (source twin)',
+    blurb:
+      '`shadertoy-plasma.ts` written in the source language: three interfering sine waves, the same wave at three phase offsets becoming the three colour channels. The smallest fullscreen twin there is.',
+    renderable: true,
+    twinOf: 'plasma',
+  },
+  {
+    id: 'julia-twin',
+    title: 'Julia set (source twin)',
+    blurb:
+      '`julia.ts` written in the source language: the escape-time iteration as a `for` loop with a `break`, and the orbiting constant handed over to the pointer through a `mix`.',
+    renderable: true,
+    twinOf: 'julia',
+  },
+  {
+    id: 'mandelbrot-twin',
+    title: 'Mandelbrot set (source twin)',
+    blurb:
+      "`mandelbrot.ts` written in the source language: the same smooth escape-time colouring, with the EDSL's `.neg()` spelled as the unary minus it always was.",
+    renderable: true,
+    twinOf: 'mandelbrot',
+  },
+  {
+    id: 'domain-warp-twin',
+    title: 'Domain warping (source twin)',
+    blurb:
+      '`domain-warp.ts` written in the source language: hash, value noise and a 4-octave fbm as three plain helper functions, then fed their own output twice over. The twin with the deepest call graph.',
+    renderable: true,
+    twinOf: 'domain-warp',
+  },
+  {
+    id: 'tunnel-twin',
+    title: 'Tunnel (source twin)',
+    blurb:
+      '`tunnel.ts` written in the source language: polar coordinates with 1/r for the receding wall, twisted by an angle that grows with depth.',
+    renderable: true,
+    twinOf: 'tunnel',
+  },
+  {
+    id: 'ocean-twin',
+    title: 'Ocean horizon (source twin)',
+    blurb:
+      '`ocean.ts` written in the source language: the fBm octave accumulator as a `for` loop over three mutated locals, where the EDSL mutates three auto-vars. Sky and sea both evaluated, blended by a horizon step.',
+    renderable: true,
+    twinOf: 'ocean',
+  },
+  {
+    id: 'starfield-twin',
+    title: 'Starfield (source twin)',
+    blurb:
+      '`starfield.ts` written in the source language: three parallax layers accumulated into one mutated `vec3` local across a `for` loop, each cell hashed for whether it holds a star.',
+    renderable: true,
+    twinOf: 'starfield',
+  },
+  {
+    id: 'kaleidoscope-twin',
+    title: 'Kaleidoscope (source twin)',
+    blurb:
+      '`kaleidoscope.ts` written in the source language: the polar mirror fold through `mod`, the portable floor-mod, so the negative angles `atan2` produces wrap identically on both targets.',
+    renderable: true,
+    twinOf: 'kaleidoscope',
+  },
+  {
+    id: 'gradient-twin',
+    title: 'Gradient pass (source twin)',
+    blurb:
+      '`gradient-pass.ts` written in the source language instead of built with `fn()` / `module()` — the same shader through the other surface, with a uniform block both targets lay out and a GLSL pair that links.',
+    renderable: true,
+    twinOf: 'gradient',
+  },
+  {
+    id: 'cutout',
+    title: 'Cutout (source language)',
+    blurb:
+      "`discard` in a helper the fragment entry calls, with `fwidth` softening the rim and `saturate`, `exp2` and `**` shaping the falloff — the example that carries #8 A6's spellings to Tint and a real WebGL2 context. Renders a circular cutout with a radial centre-to-rim gradient.",
     renderable: true,
   },
   {

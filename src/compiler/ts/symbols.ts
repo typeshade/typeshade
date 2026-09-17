@@ -19,7 +19,16 @@ import type { ShaderType } from '../../core/ir/types.js'
  *  constant (`const K: f32 = 2.`), `binding` a resource (`uniform<T>` / `storage<T>`), `struct`
  *  a data class and `field` one of its members; `local` and `param` are function-scoped. */
 export type DeclaredSymbolKind =
-  'local' | 'param' | 'const' | 'binding' | 'function' | 'struct' | 'field'
+  | 'local'
+  | 'param'
+  | 'const'
+  | 'binding'
+  | 'function'
+  | 'struct'
+  | 'field'
+  // A specialization constant (#8 A7). Its own kind rather than 'const': its value is not
+  // known until a pipeline is built, so an editor should not offer it as a folded number.
+  | 'override'
 
 /** One parameter of a declared function, in declaration order. */
 export interface DeclaredParam {

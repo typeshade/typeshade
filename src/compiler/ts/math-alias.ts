@@ -28,12 +28,40 @@ export const MATH_FN_ARITY: Readonly<Record<string, number>> = {
   clamp: 3, mix: 3, smoothstep: 3, step: 2, length: 1, normalize: 1,
   fract: 1, degrees: 1, radians: 1, inverseSqrt: 1, distance: 2,
   dot: 2, cross: 2, mod: 2,
+  // Builtins the IR already spells on every target (src/core/intrinsics.ts) that this
+  // surface had no name for: exp2 and fwidth are portable, saturate, dpdx, dpdy and fma
+  // have a per-target INTRINSICS entry. `select` is NOT here — it is an Expr op, the same
+  // node `c ? a : b` lowers to, not a call, and lowerCall handles it on its own.
+  exp2: 1, saturate: 1, fwidth: 1, dpdx: 1, dpdy: 1, fma: 3,
 }
 
 export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   E: Math.E, LN10: Math.LN10, LN2: Math.LN2, LOG10E: Math.LOG10E,
   LOG2E: Math.LOG2E, PI: Math.PI, SQRT1_2: Math.SQRT1_2, SQRT2: Math.SQRT2,
 }
+
+/** The builtin names #8 A6 added to this surface, plus the two scalar casts it added.
+ *
+ *  A name in this set must NOT shadow a function the file declares. Before A6 each of these
+ *  was an ordinary unknown name, so `export function saturate(x: f32) { … }` followed by
+ *  `saturate(x)` called the author's function; the builtin is only an addition if it still
+ *  does. The names that were already builtins (`min`, `max`, `mix`, `clamp`, `f32`, …) keep
+ *  their precedence, since changing that would move the meaning of a program that compiles
+ *  today — the same additivity argument, pointing the other way.
+ *
+ *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
+ *  a cast or the select Expr. */
+export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
+  'exp2',
+  'saturate',
+  'fwidth',
+  'dpdx',
+  'dpdy',
+  'fma',
+  'select',
+  'bool',
+  'f64',
+])
 
 export function resolveMathFn(jsName: string): string | undefined {
   const id = MATH_FN_ALIAS[jsName]
