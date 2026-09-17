@@ -9,7 +9,7 @@
 
 import type { CpuValue } from '../cpu-runtime.js'
 import { zeroOf } from '../cpu-runtime.js'
-import type { FuncDecl, ModuleDecl, Stmt } from '../ir/index.js'
+import type { FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js'
 import type { SourceSpan } from '../ir/span.js'
 import { sourceSpanOf } from '../ir/span.js'
 import type { CpuPrecision } from '../oracle.js'
@@ -61,6 +61,10 @@ export interface DebugStackFrame {
    *  variables view showing this map is showing what the frame HAS, which is a superset of
    *  what the next statement can name. */
   readonly locals: ReadonlyMap<string, CpuValue>
+  /** The declared type of every name this frame can hold, so {@link formatCpuValue} can render
+   *  a local the way its author spelled it. A name absent from `locals` but present here has
+   *  not been declared yet at this pause. */
+  readonly localTypes: ReadonlyMap<string, ShaderType>
 }
 
 /** A stopped run: where it is, and everything visible from there.
@@ -91,10 +95,16 @@ export interface DebugPause {
    *  run throws naming it rather than reading as a zero. A name the module does not declare
    *  cannot appear at all, since `startDebugSession` rejects one.
    *
-   *  What is NOT checked yet is the shape of a supplied value: a number where a struct is
-   *  declared is stored as given and produces `NaN` when a field of it is read. That check
-   *  belongs with the invocation builder of §4.3 and lands with it. */
+   *  A value supplied through {@link startDebugSessionFromConfig} has been checked against its
+   *  declared type and had any absent struct field filled in. One supplied straight to
+   *  {@link startDebugSession} has not: this entry point stores what it is given, so a number
+   *  where a struct is declared produces `NaN` when a field of it is read. The configuration
+   *  layer is where that check lives, which is also where a caller gets every problem at once
+   *  rather than the first. */
   readonly bindings: ReadonlyMap<string, CpuValue>
+  /** Each binding's declared type, for the same reason {@link DebugStackFrame.localTypes}
+   *  exists. */
+  readonly bindingTypes: ReadonlyMap<string, ShaderType>
 }
 
 /** How a run is set up.
@@ -120,6 +130,13 @@ export interface DebugSessionOptions {
   /** Breakpoints to arm before the run starts. {@link DebugSession.setBreakpoints} replaces
    *  them later. */
   readonly breakpoints?: readonly DebugBreakpoint[]
+  /** Stop before the entry's first statement. Default `true`; `false` runs to the first
+   *  breakpoint instead.
+   *
+   *  Either way a breakpoint on the entry's own first statement fires: the entry pause is
+   *  examined against the armed breakpoints like any other stop, and reports `'breakpoint'`
+   *  when one matches. */
+  readonly stopOnEntry?: boolean
   /** Stop the run after this many statement events, as a guard against a shader that cannot
    *  finish.
    *
@@ -192,7 +209,8 @@ export interface DebugSession {
  *
  *  The session stops immediately, before the entry's first statement, with
  *  `pause.reason === 'entry'` unless a breakpoint is armed on that statement, in which case
- *  the reason is `'breakpoint'`. Call {@link DebugSession.continue} to run on to the next one.
+ *  the reason is `'breakpoint'`. Pass `stopOnEntry: false` to run to the first armed
+ *  breakpoint instead, which still considers that first statement.
  *
  *  It comes back already finished, with no pause, when nothing in the run carries a source
  *  span: a module authored through the `fn()` EDSL has none, and a run stops only where there
@@ -269,6 +287,8 @@ export function startDebugSession(
     ctx,
     precision,
     opts?.breakpoints ?? [],
+    opts?.stopOnEntry ?? true,
+    new Map(m.bindings.map((b) => [b.name, b.type])),
     opts?.maxSteps,
   )
 }
@@ -283,6 +303,7 @@ class Session implements DebugSession {
   readonly precision: CpuPrecision
   private readonly run: Step<Signal>
   private readonly ctx: ReturnType<typeof makeCtx>
+  private readonly bindingTypes: ReadonlyMap<string, ShaderType>
   private breakpoints: readonly DebugBreakpoint[]
   private paused: DebugPause | undefined
   private finished = false
@@ -296,20 +317,25 @@ class Session implements DebugSession {
     ctx: ReturnType<typeof makeCtx>,
     precision: CpuPrecision,
     breakpoints: readonly DebugBreakpoint[],
+    stopOnEntry: boolean,
+    bindingTypes: ReadonlyMap<string, ShaderType>,
     maxSteps: number | undefined,
   ) {
     this.ctx = ctx
+    this.bindingTypes = bindingTypes
     this.precision = precision
     this.breakpoints = breakpoints
     this.maxSteps = maxSteps
     this.run = runFunction(decl, args, undefined, ctx)
     // `'entry'` is the reason only when nothing else claims the stop. A breakpoint on the
-    // entry's FIRST statement was previously invisible: the constructor consumed that
-    // statement as the entry pause, so a later `continue()` resumed past it and the
-    // breakpoint never reported: on a one-statement entry, a breakpoint on its only line
-    // produced no stop at all. `advance` now prefers `'breakpoint'` whenever one matches,
-    // here as on every other move.
-    this.advance('entry', () => true)
+    // entry's FIRST statement used to be invisible: the constructor consumed that statement
+    // as the entry pause, so a later `continue()` resumed past it and the breakpoint never
+    // reported. `advance` now prefers `'breakpoint'` whenever one matches, here as on every
+    // other move, which is what makes the `stopOnEntry: false` arm below honest too: it runs
+    // to the first breakpoint, and the entry's own first statement is one of the statements
+    // that can carry one.
+    if (stopOnEntry) this.advance('entry', () => true)
+    else this.advance('breakpoint', () => false)
   }
 
   get pause(): DebugPause | undefined {
@@ -412,13 +438,20 @@ class Session implements DebugSession {
       const span = sourceSpanOf(stmt)
       if (afterCall) {
         if (span === undefined || !wantAfterCall?.(frames.length)) continue
-        this.paused = snapshot('step', stmt, span, frames, this.ctx.bindings)
+        this.paused = snapshot('step', stmt, span, frames, this.ctx.bindings, this.bindingTypes)
         return this.paused
       }
       if (span === undefined) continue
       const hit = this.hits(span)
       if (!hit && !want(frames.length, span)) continue
-      this.paused = snapshot(hit ? 'breakpoint' : reason, stmt, span, frames, this.ctx.bindings)
+      this.paused = snapshot(
+        hit ? 'breakpoint' : reason,
+        stmt,
+        span,
+        frames,
+        this.ctx.bindings,
+        this.bindingTypes,
+      )
       return this.paused
     }
   }
@@ -431,6 +464,7 @@ function snapshot(
   span: SourceSpan,
   frames: readonly StepFrame[],
   bindings: Readonly<Record<string, CpuValue>>,
+  bindingTypes: ReadonlyMap<string, ShaderType>,
 ): DebugPause {
   return {
     reason,
@@ -443,8 +477,10 @@ function snapshot(
         callSpan: f.callSpan,
         span: f.current ? sourceSpanOf(f.current) : undefined,
         locals: new Map(f.env),
+        localTypes: f.types,
       }))
       .reverse(),
     bindings: new Map(Object.entries(bindings)),
+    bindingTypes,
   }
 }

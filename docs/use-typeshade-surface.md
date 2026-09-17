@@ -270,10 +270,150 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §§9 and 10 are reserved for issue #8's A2 (member and component assignment)
-and A6 (`discard`, the missing builtins, `**`), which are in flight on their own branches and
-append here in issue order. This section is §11 so the six A-item branches do not all claim
-§9 and collide on merge.
+**Numbering:** §§9, 10 and 13 below are issue #8's A2, A6 and A3, which reserved those numbers
+while they were in flight and appended here in issue order. §16 is A11. The sections took the
+next free numbers so the A-item branches did not all claim §9 and collide on merge.
+
+---
+
+## 9. Assignment targets
+
+A write lands on a name, or on a field, component or element of one. The chain may be as
+deep as the types allow; what decides whether it is legal is the **root** of the chain.
+
+```ts
+v = vec3(0., 1., 0.)      // a name
+v.x = 0.                  // a component
+v.x += 1.                 // and the compound and ++ / -- forms
+o.pos = vec4(p, 0., 1.)   // a field
+o.pos.x = 2.              // a component of a field
+ps[i].a = 1.              // a field of an element
+pixels[i] = 1.            // an element
+```
+
+| Root | Writable? |
+|------|-----------|
+| `let` local | yes |
+| `declare let x: storage<T>` | yes |
+| `const` local | no: `TS8005` |
+| `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
+| a function parameter | no: `TS8018`; see the caveat below |
+| anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
+
+The parameter row is about writing **through** a parameter: `p.x = 1.`, `p.xs[i] = 1.`.
+Writing a parameter **whole** (`p = 1.`, `p += 1.`, `p++`) is a different matter: WGSL rejects
+it too, but this surface has always accepted it and emitted `p = 1.0;`, so refusing it now
+would stop source that compiles today. Narrowing it needs a deprecation path and is on
+[issue #8](https://github.com/typeshade/typeshade/issues/8)'s "later" list; until then, a
+whole-parameter write is a bug the compiler does not catch yet.
+
+A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
+(`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
+assign that. `v.r` `v.g` `v.b` `v.a` are components like `v.x` … `v.w` and are writable.
+
+`++` and `--` step a **numeric scalar**: `f32`, `i32`, `u32` and `f64`. On a member or element
+target they lower to the compound form (`ps[i].a += 1.`), so the target is written once instead
+of read and written back; a bare name keeps `i = (i + 1)`.
+
+Everything else is rejected with `TS8018`. A bool, a struct, an array and a matrix have nothing
+to add `1` to. A **vector** is rejected too, native and emulated-double alike: the step is one
+literal of the target's type, and no vector literal has a spelling, so `v++` never emitted
+shader text on any target. Write the addition out instead:
+
+```ts
+v = v + vec3(1., 1., 1.)   // instead of v++ on a vec3
+```
+
+An `i32` or `u32` vector takes the same addition with bare literals, `v = v + vec2i(1, 1)`,
+because a literal inside a vector constructor takes the constructor's element type (§13); a
+`vec3f64` has no literal spelling at all, so its addition needs values that are already `f64`.
+The refusal names an example only for the kinds whose example compiles.
+
+Lowering is the same `assign` / `assignOp` the EDSL's `v.x.assign(a)` and `o.pos.assign(v)`
+produce, so the two surfaces stay IR-equal here.
+
+Binding a value to another name **copies** it, as it does on both GPU targets: after
+`let w = v; w.x = 100.`, `v` is unchanged, on the GPU and in the CPU oracle alike.
+
+## 10. Builtins, casts and `discard`
+
+The scalar casts are `f32(x)`, `i32(x)`, `u32(x)`, `bool(x)` and `f64(x)`. `bool(x)` is
+"x is not zero", WGSL's own conversion, and is spelled with the compare it means. `f64(x)`
+widens an `f32` to the emulated double; casting a value to the type it already has is that
+value.
+
+Free builtin functions, callable without a `Math.` prefix, are the GLSL / WGSL names the IR
+carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoothstep`, `step`,
+`length`, `dot`, `cross`, `distance`, `normalize`, `mod`, `fract`, `degrees`, `radians`,
+`inverseSqrt`):
+
+| Spelling | Meaning |
+|----------|---------|
+| `exp2(x)` | 2ˣ |
+| `saturate(x)` | `clamp(x, 0., 1.)`; GLSL ES 3.00 has no `saturate`, so it is inlined there |
+| `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL) |
+| `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
+| `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL); `atan(x)` is still one argument |
+| `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
+| `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
+
+A function the file declares wins over any name in the table above, and over `bool` and
+`f64`: those names meant the author's function before they were builtins, and an addition
+does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
+`clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way:
+a program that resolves to one today must keep resolving to it.
+
+`discard` kills the fragment:
+
+```ts
+"use typeshade"
+
+class Color {
+  @location(0) color: vec4
+}
+
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  if (p.x > 0.5) {
+    discard
+  }
+  return { color: vec4(1., 0., 0., 1.) }
+}
+```
+
+It is allowed in a fragment entry, and in a helper as long as no `@vertex` or `@compute`
+entry can reach it: the check closes over the call graph, so `discard` inside a helper a
+vertex entry calls is rejected too, naming the helper and the entry. The three screen-space
+derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
+
+`**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
+as `pow(i32, i32)`, which neither compiler accepts.
+
+`transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
+emulated-double matrix, so there is nothing to expose yet.
+
+**One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
+rather than about this table: a declared function is emitted with the name the author wrote,
+and GLSL ES 3.00 does not let a program redeclare one of ITS builtins. Measured on the compile
+gate's own WebGL2 context, a module that declares and calls `exp2` or `fwidth` compiles on
+Tint and is rejected by ANGLE with
+
+```
+ERROR: 0:5: 'exp2' : Name of a built-in function cannot be redeclared as function
+```
+
+while `saturate` and `fma` are accepted, because GLSL ES 3.00 has neither name. `bool` fails
+the same way for a different reason: it is a GLSL ES 3.00 keyword, so ANGLE reports
+`'bool' : syntax error` on a module that declares a function of that name, although the
+declaration still wins on WGSL and on the CPU. None of this is new: those names are the GLSL
+builtins and keywords they always were, and a module declaring one emitted the same GLSL
+before this item existed. It is, though, the one way the precedence rule above can hand you a
+WGSL-only module. The fix is to rename the function; the compiler does not warn about it yet.
+
+The same precedence holds for a function handed to a fold. `zip(xs, ys, atan2)` beside a
+declared `atan2` is refused with the rule named, because `atan2` is a name the intrinsic wins
+and a fold has no intrinsic-valued callback; `zip(xs, ys, fma)` beside a declared `fma` calls
+the declaration, as a plain `fma(a, b, c)` would.
 
 ---
 
@@ -310,5 +450,369 @@ oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the o
 `-3.2` above happens to agree, and an in-range source always does. So the cross-backend
 ground a portable shader can stand on is **in-range values**; clamp before you convert if the
 source might not be.
+
+---
+
+## 12. Module constants
+
+A top-level `const` is a module-scope shader constant. A scalar one folds to a single value
+at declaration; a **vector or array** one carries its value as an expression every backend
+emits and evaluates:
+
+```ts
+"use typeshade"
+
+const PI2: f32 = 6.28318 // scalar, as before
+const UP = vec3(0., 1., 0.) // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
+const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
+const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.)
+const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.))
+const K: f32 = 2.
+const V = vec3(K, K, K) // an earlier const is a valid component
+
+export function pick(i: i32): vec4 {
+  return PAL[i] * K + vec4(UP, PI2) + vec4(V, XS[0]) + SKY
+}
+```
+
+The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
+a constructor over those, or arithmetic over those with a divisor that is not zero. It may
+not call a function, read a resource, or take a component, field or element — `vec3(UP.x, 0.,
+0.)` is refused even though both writers would fold it. `XS.length` is a constant too, so an
+array constant can bound a loop. An array **of arrays** is refused: the GLSL ES 3.00 spelling
+it would produce is not one ANGLE accepts.
+
+An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
+followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and
+`const NV: vec3<i32> = vec3<i32>(N, N, N);`. Before that fix the backend's `emitConst` spelled
+every scalar constant with a float literal (`4.0`), which is why this section once limited the
+rule to `f32` components.
+
+This is the same declaration the EDSL's `constExpr(name, type, node)` produces — one
+`ConstDecl` with its `valueExpr` filled.
+
+A struct-valued and a matrix-valued constant are not accepted yet: the constant collector
+runs without the struct table, and the surface has no matrix constructor.
+
+---
+
+## 13. Integer literals
+
+A number written without a decimal point takes the type the position around it **declares**.
+It is WGSL's abstract-integer rule, narrowed to the places where a type is actually stated:
+
+```ts
+"use typeshade"
+
+const N: u32 = 16 // the declared type — on the IR; see the note below
+
+class Id {
+  id: u32
+}
+
+export function g(a: i32): i32 {
+  return a
+}
+
+export function positions(i: i32, c: bool, xs: array<f32, 4>): u32 {
+  let j: i32 = -1 // the declared type, sign and all
+  let x: u32 = N // the assignment target's type…
+  x = 2 // …here
+  const s: Id = { id: 0 } // the struct field's type
+  const v = vec3u(1, 2, 3) // the constructor's element type
+  const t: u32 = c ? 1 : 2 // through both arms, from the position around it
+  let acc = 0.
+  for (let k = 0; k < 4; k++) {
+    // i32, the type an induction variable must have
+    acc += xs[0] // an index is an i32
+  }
+  return u32(g(1) + j) + x + s.id + v.x + t + u32(acc) + u32(min(i, 4))
+  //         ^ the parameter's type              ^ the kind of the call's other arguments
+}
+
+export function ret(): u32 {
+  return 0 // the declared return type
+}
+```
+
+Only a declared **integer** type changes anything. In every float position the literal stays
+an `f32` exactly as before — `g(2)` where `g` takes an `f32` is `g(2.0)`, `mix(a, b, 1)` is
+`mix(a, b, 1.0)`, and a call whose arguments are all written numbers (`min(1, 2)`) is
+untouched.
+
+A minus sign in front of a literal is part of the literal for this purpose. `let j: i32 = -1`
+and `for (let j: i32 = -1; …)` take `i32` the way `let j: i32 = 1` does; the negative form used
+to be told to cast an integer the author had already written, and inside a `for` init it emitted
+`var j: i32 = -1.0`, which no backend accepts (issue #40).
+
+A declaration is the one position with a carve-out, kept from before this item: a single
+literal written as a float but valued as a whole number takes the declared integer type there,
+so `let y: i32 = 0.`, `let y: u32 = 0.`, `let y: i32 = 1e3` and `for (let k: u32 = 0.; …)`
+compile as they always did. Only a single literal does. `let y: i32 = 2.5 + 0.5` and
+`let y: i32 = -1.` are the mismatches they always were, and `let y: i32 = 1.5` is reported at
+the source where it used to fail in the backend. A return, an argument and a field never had
+the carve-out.
+
+Two classes of emitted text move with this item, and neither was a program before: an integer
+literal beside an integer peer in a builtin call (`min(i, 4.0)` is `min(i, 4u)` now), and a
+`for` init that spelled a float literal into an integer `var` (`for (var k: i32 = -1.0; …)`
+is `-1` now).
+
+A literal that is not an integer stays what it is and is diagnosed against the declared type:
+`return 1.5` in a `u32` function is still a type mismatch, and so is passing an `i32` value
+where a `u32` is declared. There is no implicit conversion between types — only a literal,
+which has no type of its own until something states one.
+
+Three edges of the rule, each of which the diagnostics still cover:
+
+- **It is about how the number is WRITTEN, not what it folds to.** `return 2 + 3` in a `u32`
+  function is `return 5u;`, but `return 2.5 + 0.5` is a type mismatch — every leaf of the
+  arithmetic has to be an integer literal.
+- **The value has to fit.** `return -1` in a `u32` function, or `2147483648` in an `i32` one,
+  is left exactly as written and reported as the mismatch it always was.
+- **A literal in a builtin call's FIRST argument does not retype the call.** An intrinsic's
+  result type is its first argument's, so `min(1, i)` with an `i32` `i` still types the call
+  `f32` and emits `min(1.0, i)` — which WGSL does not accept. The position this rule is for is
+  the other one, `min(i, 4)`, where the literal is not what decides the type. Fixing the first
+  position means changing how every intrinsic's result type is decided, which is not additive.
+
+`const N: u32 = 16` is the **front end** only: the `ConstDecl` it builds carries `u32` and
+`16`, and the backend's `emitConst` still spells every scalar constant with a float literal,
+so the emitted line reads `const N: u32 = 16.0;`. That half is issue #13, with #17 as its fix.
+
+## 14. TypeScript shapes the parser already had
+
+Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
+them, the object-literal shorthand, is an expression rather than a statement).
+None of them is a new operation: `Stmt.var.init` has always been optional, `assignOp` has
+always taken any `BinOp`, `construct` does not record how a field was spelled, and `switch`
+was already lowered; only the source language refused them.
+
+```ts
+"use typeshade"
+
+const PALETTE_WARM = 1.
+
+export function band(seed: i32, t: f32): vec3 {
+  let bits: i32 = seed
+  bits <<= 1
+  bits &= 3
+  bits |= 0
+  bits ^= 0
+  bits >>= 0
+
+  let rgb: vec3
+  rgb = vec3(0., 0., 0.)
+  switch (bits) {
+    case 0:
+      rgb = vec3(0.1, 0.1, 0.12)
+      break
+    case 1: {
+      if (t > 0.5) {
+        rgb = vec3(PALETTE_WARM, 0.55, 0.2)
+        break
+      }
+      rgb = vec3(0.5, 0.3, 0.1)
+      break
+    }
+    default:
+      rgb = vec3(0.85, 0.85, 0.9)
+  }
+  return rgb
+}
+```
+
+**`let x: f32` with no initializer** declares a mutable local and leaves the value for a
+later assignment: WGSL's `var x: f32;`, GLSL's `float x;`, and the EDSL's `Var(f32T)`. The
+annotation is what carries the type, so it is required; a `const` still needs its value.
+Note what the two targets do with a read that happens _before_ the first assignment: WGSL
+zero-initialises, GLSL ES 3.00 leaves it undefined. That divergence is the EDSL's today as
+well; assign before you read. Both CPU backends follow WGSL and bind the zero of the declared
+type at the declaration: `0.`, `false` for a `bool`, an array of zeros, and a struct with
+every field zeroed, recursively through a nested struct and an array of structs.
+
+**`&=`, `|=`, `^=`, `<<=`, `>>=`** compound the bitwise operators onto an `i32` or `u32`
+target. For `&=`, `|=` and `^=` the right-hand side takes the target's type (`y &= 3` on a
+`u32` is `y &= 3u`) and must have it. A SHIFT amount is a `u32` whatever the target is, which
+is WGSL's only scalar overload: `y <<= 1` emits `y <<= 1u`, and an `i32` amount is passed
+through the `u32(...)` cast rather than refused (`y <<= k` emits `y <<= u32(k)`). A negative
+shift amount is refused, as is a negative value on a `u32` target. A float target is refused
+here; `>>>=`, like `>>>`, is not supported.
+
+**`{ pos, uv }`** is the shorthand for `{ pos: pos, uv: uv }` and builds the identical
+struct; the shape `return { pos, uv }` is naturally written in.
+
+**`switch`** takes the `break` TypeScript requires at the end of a case. It is dropped in
+lowering, because the IR switch does not fall through and each backend writes its own case
+terminator; a `break` that leaves a case _early_ is kept and emitted. A case label is an
+integer constant: a literal, a negative literal, or a module `const`. A label has to fit the
+selector, so `case -1:` is refused for a `u32` one, and a label may appear only once: two
+that fold to the same number (`case 2:` beside `case 1 + 1:`) is an error here rather than at
+the backend. Two labels on one body (`case 0: case 1:`) is still refused, and so is `continue`
+in a `switch` that no loop encloses.
+
+**A case body does not fall through, whatever TypeScript would do with it.** A body that does
+not end in `break` still ends its case here, since the IR switch has no fall-through and
+neither does WGSL's. So `case 2: { if (c) { …; break } x = … }` runs its last line and leaves,
+where plain TypeScript would carry on into the next case. Write the `break`; the language
+does not warn about a missing one yet, since a body without one is what an author porting
+from WGSL writes.
+
+**One emit change, and the only one in this section.** `break` at the end of a case inside a
+loop was already accepted before this item, since the enclosing loop made it legal, and it
+reached the backends as a statement: WGSL emitted `case 0: { r = 1.0; break; }` and GLSL
+`r = 1.0; break; break;`. Both are valid programs, and both now lose that trailing `break`,
+because the drop is what makes a case body mean the same thing inside a loop and outside one.
+The behaviour is identical on all three backends; only the text is one statement shorter.
+
+## 15. Textures, samplers and overrides
+
+Three declarations the surface had no spelling for. None of them is a new IR shape: a
+`texture`/`sampler` `ShaderType` and `ModuleDecl.overrides` have been there all along, and the
+EDSL builds them with `resource(name, texture2dfT, …)` and `overrideConst(name, type, default)`.
+
+```ts
+"use typeshade"
+
+declare const tex: texture_2d<f32>
+declare const atlas: texture_2d_array<f32>
+declare const smp: sampler
+const tint: override<f32> = 0.85
+declare const bias: override<f32>
+
+class Color {
+  @location(0) color: vec4
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): Color {
+  const a = textureSample(tex, smp, uv)
+  const b = textureSample(atlas, smp, uv, 1)
+  const c = textureSampleLevel(tex, smp, uv, 0.)
+  const d = textureLoad(tex, vec2i(i32(0), i32(0)), 0) // vec2i(0, 0) is A3, not yet landed
+  const size = textureDimensions(tex)
+  const layers = textureNumLayers(atlas)
+  const k = tint + bias + f32(size.x) + f32(layers)
+  return { color: (a + b + c + d) * k }
+}
+```
+
+**A texture and a sampler are written bare**, with no `uniform<>` or `storage<>` wrapper, because a
+handle lives in no address space. They take the next binding slot in declaration order like any
+other resource, and must be `const`. `texture_2d<T>` and `texture_2d_array<T>` take `f32`, `i32`
+or `u32`; the element decides both the WGSL spelling and which reads apply.
+
+**The read a call becomes is decided by the texture, not by the argument count.**
+`textureSample(atlas, smp, uv, 1)` on an array texture is the neutral id `textureSampleArray`,
+which WGSL spells with the layer as its own argument and GLSL ES 3.00 folds into a `vec3`
+coordinate, which is the same choice the EDSL's overloads make. A **layer** is an `i32` and a
+`textureLoad` **level** is a `u32`, so `textureLoad(t, c, 0)` emits `textureLoad(t, c, 0u)`
+rather than the `0.0` that no backend accepts.
+
+Sampling is float-only: an integer texture has no filtering, so `textureSample` on one is
+refused and names `textureLoad` instead. On GLSL ES 3.00 the texture and the sampler fuse into
+one `sampler2D`, and the sampler argument disappears from the call.
+
+**An override is a specialization constant**: the pipeline sets it, so no pass folds it and it
+occupies no binding slot. `const q: override<f32> = 0.5` states the default; `declare const q:
+override<f32>` has nowhere to put one and takes the type's zero. It must be a scalar
+(`f32`, `i32`, `u32`, `bool`) and the default must be a literal of that type, since the declaration
+each backend emits carries it, so it has to be known here, and `override<bool> = 1` is refused
+rather than emitted as `override q: bool = 1.0;`, which neither compiler accepts. WGSL emits
+`override q: f32 = 0.5;`; GLSL ES 3.00 has no equivalent and emits a `#define`.
+
+**An override may not take the name of a struct field or a resource.** That `#define` is a
+preprocessor substitution, so it rewrites every later occurrence of the name, a declaration
+included: an override called `uv` beside a `@location(0) uv` varying emitted `#define uv 0.85`
+above `in vec2 uv;`, which ANGLE reads as `in vec2 0.85;`. The collision is refused at the
+declaration; the WGSL was always fine, which is exactly why nothing caught it.
+
+**A layer and a mip level are whole numbers of 0 or more.** A fractional or negative one is
+refused rather than emitted: WGSL rejects it and GLSL ES 3.00 silently rounds, so the two
+targets would disagree about the same source. That is the rule the EDSL raises `SD0015` for.
+
+**These five names are reserved**: `textureSample`, `textureSampleLevel`, `textureLoad`,
+`textureDimensions`, `textureNumLayers`. A function you declare with one of those names is
+refused, the way `mod` and `clamp` have always been. A name that was *only* a user function
+before this item is the one thing that changes here.
+
+Left for later: `texture_2d_ms<f32>`, whose multisampled load neither backend here reaches, and
+the storage-texture forms.
+
+## 16. Object literals take the declared struct
+
+Which struct `{ … }` builds comes from the type the position **declares**: a function's
+return type, a `let`/`const` annotation, or a parameter type.
+
+```ts
+"use typeshade"
+
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+class FsIn {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+export function shade(o: FsIn): f32 {
+  return o.uv.x
+}
+
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  const p = vec2(0., 0.)
+  return { pos: vec4(p, 0., 1.), uv: p } // the return type says VsOut
+}
+
+export function pick(): f32 {
+  const a: FsIn = { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } // the annotation says FsIn
+  return shade(a) + shade({ pos: a.pos, uv: a.uv }) // the parameter says FsIn
+}
+```
+
+Matching the field **names** against the struct table is the fallback, for a position that
+declares nothing (`const o = { … }` with no annotation). It stays because it is often enough,
+but it could never answer the case above: `VsOut` and `FsIn` have the same fields, so the name
+set does not distinguish them and the literal was rejected inside a function that states
+exactly which one it returns.
+
+A declared struct also improves the diagnostics, because there is something to name:
+
+| | before | after |
+| --- | --- | --- |
+| `return { a: 1. }` for a two-field `P` | `Object literal { a } does not match a known struct.` | `Missing field "b" for struct P.` |
+| `return { a: 1., c: 2. }` | `Object literal { a, c } does not match a known struct.` | `Struct P has no field "c".` |
+
+The context reaches **inward**: the struct is resolved before the field values are lowered, so
+a nested literal is built against the type of the field it fills. `{ i: { x: 1. } }` for an
+`Outer { i: Inner }` picks `Inner` even where a same-shaped `InnerTwin` exists.
+
+**Three more positions declare a type without an annotation of their own**, and each one
+takes it:
+
+| | where the type comes from |
+| --- | --- |
+| `o = { a: 3., b: 4. }` | the target's own declaration, carried to the assignment |
+| `c ? { … } : { … }` | the ternary's position, passed to both arms |
+| `array<Q, 2>({ … }, { … })` | the constructor's type argument |
+
+What is left to name matching is a position that declares nothing at all: a literal as an
+operand, an index, or the base of a property access. A twin is unresolvable there, as before.
+
+A contextual type that is not a struct is ignored here rather than reported, because
+`const o: f32 = { a: 1. }` is a mistake about the declaration. That does not always mean the
+declaration is what names it: the literal is lowered first, so with twins in scope the
+fallback fails before the declaration's check runs and you get
+`Object literal { a, b } does not match a known struct.` plus `Unknown identifier "o".`
+instead. The position still owns the mistake; it does not always get to be the one that
+reports it.
+
+A **repeated** field keeps taking the last value, in every position, as it always has:
+`{ a: 1., a: 2., b: 3. }` builds `P(2., 3.)`. TypeScript's own `TS1117` reports it in the
+editor, so the compiler does not repeat the complaint.
+
 
 Last updated: 2026-09-14

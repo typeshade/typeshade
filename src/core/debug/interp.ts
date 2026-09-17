@@ -46,7 +46,7 @@
 // `for`. The condition of an `if`, a `for` or a `switch` is evaluated as part of pausing on
 // that statement, never on its own: a shader statement is the unit the author wrote.
 
-import type { Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '../ir/index.js'
+import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt, StructDecl } from '../ir/index.js'
 import type { SourceSpan } from '../ir/span.js'
 import {
   type CpuValue,
@@ -74,6 +74,10 @@ export interface StepFrame {
   /** The span of the call that created this frame; absent on the entry frame. */
   readonly callSpan: SourceSpan | undefined
   readonly env: Map<string, CpuValue>
+  /** The declared type of every name this frame can hold: its parameters, and every `let` or
+   *  `var` its body declares. Without it a pause has values and no way to render them: a
+   *  `vec3` and a three-element array are the same `number[]` at runtime. */
+  readonly types: ReadonlyMap<string, ShaderType>
   /** The statement this frame is about to execute, set at every pause. */
   current: Stmt | undefined
 }
@@ -346,6 +350,7 @@ export function* runFunction(
     fnSpan: decl.span,
     callSpan,
     env,
+    types: declaredTypes(decl),
     current: undefined,
   }
   ctx.frames.push(frame)
@@ -395,7 +400,7 @@ export function* execBody(
         env.set(s.name, yield* evalExpr(s.expr, env, ctx))
         break
       case 'var':
-        env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type))
+        env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type, ctx.structs))
         break
       case 'assign':
         yield* setLValue(s.target, yield* evalExpr(s.expr, env, ctx), env, ctx)
@@ -483,6 +488,52 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     ctx.consts.set(c.name, c.valueExpr ? drain(evalExpr(c.valueExpr, new Map(), ctx)) : c.cpuValue)
   }
   return ctx
+}
+
+/** Every name a call to `decl` can hold, with the type it was declared at: the parameters,
+ *  then every `let` and `var` in the body, at every depth.
+ *
+ *  Flat, because the evaluator's environment is: `oracle.ts` keeps one `Map` per call with no
+ *  per-block child scope, since the only way to reference a binding is the node the builder
+ *  returned and the host language already scoped that lexically. A name declared twice in two
+ *  sibling blocks therefore has one entry here, the last one seen, the same conflation the
+ *  environment itself makes, so the type a pause reports always matches the value beside it.
+ *
+ *  Computed once per frame push. A body is walked in full, which is linear in its statements
+ *  and happens once per call rather than once per pause.
+ */
+function declaredTypes(decl: FuncDecl): ReadonlyMap<string, ShaderType> {
+  const out = new Map<string, ShaderType>()
+  for (const p of decl.params) out.set(p.name, p.type)
+  const walk = (body: readonly Stmt[]): void => {
+    for (const s of body) {
+      switch (s.s) {
+        case 'let':
+          out.set(s.name, s.expr.type)
+          break
+        case 'var':
+          out.set(s.name, s.type)
+          break
+        case 'if':
+          for (const arm of s.arms) walk(arm.body)
+          if (s.elseBody) walk(s.elseBody)
+          break
+        case 'for':
+          walk([s.init])
+          walk([s.update])
+          walk(s.body)
+          break
+        case 'switch':
+          for (const c of s.cases) walk(c.body)
+          if (s.defaultBody) walk(s.defaultBody)
+          break
+        default:
+          break
+      }
+    }
+  }
+  walk(decl.body)
+  return out
 }
 
 /** Run a generator to completion, discarding its pauses. */

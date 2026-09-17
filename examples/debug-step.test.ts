@@ -297,11 +297,13 @@ function zeroBindings(m: ModuleDecl): Record<string, CpuValue> {
   const out: Record<string, CpuValue> = {}
   for (const b of m.bindings) {
     // A runtime-sized array has no zero; give it a short one so the two walks index the same
-    // memory and a write on one side is visible on that side only.
+    // memory and a write on one side is visible on that side only. A SIZED one needs no case
+    // here: `zeroOf` builds its elements (#8 A10 gave it an array arm, since the source
+    // language's init-less `let arr: array<f32, 3>` reaches it).
     out[b.name] =
       b.type.kind === 'array' && b.type.size === undefined
         ? ([0, 0, 0, 0, 0, 0, 0, 0] as CpuValue)
-        : zeroOf(b.type as { kind: string; n?: number })
+        : zeroOf(b.type)
   }
   return out
 }

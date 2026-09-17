@@ -9,6 +9,7 @@ import { expandMath } from '../math-expand.js'
 import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
 import { lowerScalarCast } from '../numeric.js'
+import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -141,8 +142,11 @@ export function lowerUserCall(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const args: Expr[] = []
-  for (const arg of node.arguments) {
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+  for (const [i, arg] of node.arguments.entries()) {
+    // The parameter's type is the context for `g({ a: 1., b: 2. })` (#8 A11). Read by index
+    // before the arity check below, so a call with too many arguments still lowers each one
+    // and reports the arity rather than a cascade.
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, decl.params[i]?.type)
     if (!lowered) return undefined
     args.push(lowered)
   }
@@ -157,6 +161,8 @@ export function lowerUserCall(
     return undefined
   }
   for (let i = 0; i < args.length; i++) {
+    // `g(1)` takes the parameter's type when it is i32 or u32 (#8 A3).
+    args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, decl.params[i]!.type)
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
       pushDiag(
         diagnostics,
