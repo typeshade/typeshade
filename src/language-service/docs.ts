@@ -1,10 +1,15 @@
-// === One Markdown sentence per GPU type, attribute and builtin (design doc §5) ===
+// === One Markdown sentence per GPU type, attribute, builtin function, and constant (design doc §5) ===
 //
 // Shared by `hover.ts` (a documentation lookup) and `completions.ts` (an item's
 // `documentation` field), so the two never describe the same name two different ways.
 
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
-import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
+import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js'
+import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
+
+// Re-export these tables so `ambient.ts` can import from `docs.ts` without an import cycle.
+export const ATTRIBUTE_NAMES = COMPILER_ATTRIBUTE_NAMES
+export const WGSL_BUILTIN_NAMES = SOT_WGSL_BUILTIN_NAMES
 
 /** One Markdown sentence per GPU type name in `SUPPORTED_TYPE_NAMES`. */
 export const TYPE_DOCS: Readonly<Record<string, string>> = {
@@ -16,22 +21,22 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   vec2: 'A two-component vector of `f32`.',
   vec3: 'A three-component vector of `f32`.',
   vec4: 'A four-component vector of `f32`.',
-  vec2f: 'A two-component vector of `f32` — same type as `vec2`.',
-  vec3f: 'A three-component vector of `f32` — same type as `vec3`.',
-  vec4f: 'A four-component vector of `f32` — same type as `vec4`.',
+  vec2f: 'A two-component vector of `f32`, same type as `vec2`.',
+  vec3f: 'A three-component vector of `f32`, same type as `vec3`.',
+  vec4f: 'A four-component vector of `f32`, same type as `vec4`.',
   vec2i: 'A two-component vector of `i32`.',
   vec3i: 'A three-component vector of `i32`.',
   vec4i: 'A four-component vector of `i32`.',
   vec2u: 'A two-component vector of `u32`.',
   vec3u: 'A three-component vector of `u32`.',
   vec4u: 'A four-component vector of `u32`.',
-  vec2d: 'A two-component vector of `f64` — same type as `vec2f64`.',
-  vec3d: 'A three-component vector of `f64` — same type as `vec3f64`.',
-  vec4d: 'A four-component vector of `f64` — same type as `vec4f64`.',
+  vec2d: 'A two-component vector of `f64`, same type as `vec2f64`.',
+  vec3d: 'A three-component vector of `f64`, same type as `vec3f64`.',
+  vec4d: 'A four-component vector of `f64`, same type as `vec4f64`.',
   vec2f64: 'A two-component vector of `f64`.',
   vec3f64: 'A three-component vector of `f64`.',
   vec4f64: 'A four-component vector of `f64`.',
-  mat4: '4x4 matrix of `f32`, column-major — same type as `mat4x4`.',
+  mat4: '4x4 matrix of `f32`, column-major, same type as `mat4x4`.',
   mat4x4: '4x4 matrix of `f32` (or `f64` as `mat4x4<f64>`), column-major.',
 }
 
@@ -66,9 +71,197 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   clip_distances: "Per-vertex clip distances against the pipeline's enabled user clip planes.",
 }
 
-/** Every documented type name — asserted in `docs.test.ts` to equal `SUPPORTED_TYPE_NAMES`. */
+/** One Markdown sentence per builtin function: free math functions, expansions, casts, vector
+ * constructors, array, fill, uniform, storage, and random. Shared by `hover.ts` and `completions.ts`. */
+export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
+  exp2: 'Returns `2` raised to the power of `x`, componentwise over vectors.',
+  saturate:
+    'Clamps `x` to the range [0, 1], componentwise over vectors. GLSL ES 3.00 has no `saturate`, so it compiles to `clamp(x, 0.0, 1.0)` there.',
+  fwidth:
+    'Returns the sum of the absolute screen-space derivatives of `x` in both directions, `abs(dpdx(x)) + abs(dpdy(x))`, componentwise over vectors. Fragment stage only; the CPU oracle returns zero.',
+  dpdx: 'Returns the partial derivative of `x` with respect to the window x coordinate, componentwise over vectors. Fragment stage only (`dFdx` on GLSL); the CPU oracle returns zero.',
+  dpdy: 'Returns the partial derivative of `x` with respect to the window y coordinate, componentwise over vectors. Fragment stage only (`dFdy` on GLSL); the CPU oracle returns zero.',
+  fma: 'Returns `a * b + c`, componentwise over vectors. GLSL ES 3.00 has no `fma`, so the product and sum are inlined there.',
+  select:
+    "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. Compiles to the same code as a ternary over `cond`.",
+  bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
+  f64: 'Widens an `f32` to the emulated double `f64`. A value that is already `f64` is returned as it is; cast an integer to `f32` first.',
+  textureSample:
+    'Samples a float texture at `uv` through the sampler `smp` with the implicit level of detail, in the fragment stage only. On a `texture_2d_array` the fourth argument picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate.',
+  textureSampleLevel:
+    'Samples a float texture at `uv` through the sampler `smp` at an explicit mip `level`. On a `texture_2d_array` the layer comes before the level. Compiles to `textureSampleLevel` on WGSL and `textureLod` on GLSL.',
+  textureLoad:
+    'Reads one texel at the integer `coord` and mip `level` without filtering. On a `texture_2d_array` the layer comes before the level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL.',
+  textureDimensions: "Returns the width and height of the texture's base mip level as a `vec2u`.",
+  textureNumLayers:
+    'Returns the number of layers of a `texture_2d_array` as a `u32`. A plain 2D texture has no layers and is refused.',
+  sin: 'Returns the sine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
+  cos: 'Returns the cosine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
+  tan: 'Returns the tangent of `x` (in radians), componentwise over vectors. Accepts `f32` and integer scalar/vector operands only.',
+  asin: 'Returns the arcsine of `x` (in radians), componentwise over vectors. Returns `NaN` for values outside the domain `[-1, 1]`.',
+  acos: 'Returns the arccosine of `x` (in radians), componentwise over vectors. Returns `NaN` for values outside the domain `[-1, 1]`.',
+  atan: 'Returns the arctangent of `x` (in radians), componentwise over vectors.',
+  atan2:
+    'Returns the arctangent of `y/x` (in radians), using the signs of both arguments to determine the quadrant, taking arguments in the order `(y, x)`. Compiles to `atan2(y, x)` on WGSL and `atan(y, x)` on GLSL.',
+  sinh: 'Returns the hyperbolic sine of `x`, componentwise over vectors.',
+  cosh: 'Returns the hyperbolic cosine of `x`, componentwise over vectors.',
+  tanh: 'Returns the hyperbolic tangent of `x`, componentwise over vectors.',
+  asinh: 'Returns the inverse hyperbolic sine of `x`, componentwise over vectors.',
+  acosh:
+    'Returns the inverse hyperbolic cosine of `x`, componentwise over vectors. Returns `NaN` for values below 1 (the domain is `[1, ∞)`).',
+  atanh:
+    'Returns the inverse hyperbolic tangent of `x`, componentwise over vectors. The domain is `(-1, 1)`; returns `±Infinity` at `±1` and `NaN` at or beyond magnitude 1.',
+  exp: 'Returns the exponential function (e raised to the power of `x`), componentwise over vectors.',
+  log: 'Returns the natural logarithm of `x`, componentwise over vectors.',
+  log2: 'Returns the base-2 logarithm of `x`, componentwise over vectors.',
+  pow: 'Returns `x` raised to the power of `y`, componentwise over vectors. A negative base with a non-integer exponent produces NaN.',
+  sqrt: 'Returns the square root of `x`, componentwise over vectors. Also accepts `f64` operands.',
+  inverseSqrt:
+    'Returns the reciprocal of the square root of `x` (1/sqrt(x)), componentwise over vectors. WGSL spells this `inverseSqrt`, GLSL spells it `inversesqrt`.',
+  log10: 'Returns the base-10 logarithm of `x` (log(x) times `LOG10E`), for `f32` scalars only.',
+  log1p:
+    'Returns the natural logarithm of (1 plus `x`), computed as `log(x + 1)`, for `f32` scalars only.',
+  expm1:
+    'Returns e raised to the power of `x` minus 1, computed as `exp(x) - 1`, for `f32` scalars only.',
+  cbrt: 'Returns the cube root of `x`, computed as `pow(x, 1/3)`, for `f32` scalars only. A negative `x` produces NaN.',
+  hypot:
+    'Returns the Euclidean length of the vector formed from 2 or 3 `f32` scalar arguments, computed via `length`, for `f32` scalars only.',
+  abs: 'Returns the absolute value of `x`, componentwise over vectors. Also accepts `f64` operands.',
+  sign: 'Returns -1 if `x` is negative, 1 if positive, and 0 if zero, componentwise over vectors.',
+  floor:
+    'Returns the largest integer not greater than `x`, componentwise over vectors. Also accepts `f64` operands.',
+  ceil: 'Returns the smallest integer not less than `x`, componentwise over vectors.',
+  round:
+    'Rounds `x` to the nearest integer, with halfway cases rounding to the nearest even integer, componentwise over vectors.',
+  trunc: 'Returns `x` truncated toward zero, componentwise over vectors.',
+  fract:
+    'Returns the fractional part of `x` as `x` minus `floor(x)`, in the range [0, 1), componentwise over vectors. Also accepts `f64` operands.',
+  mod: 'Returns the floor-modulo remainder of `x` divided by `y`, with the sign of `y`, componentwise over vectors. `mod(-7, 3)` returns 2, not -1 like the `%` operator, which uses truncating modulo.',
+  min: 'Returns the lesser of `a` and `b`, componentwise over vectors. If one argument is NaN, the other is returned. Also accepts `f64` operands.',
+  max: 'Returns the greater of `a` and `b`, componentwise over vectors. If one argument is NaN, the other is returned. Also accepts `f64` operands.',
+  clamp:
+    'Clamps `x` to the range [low, high], computed as `min(max(x, low), high)`, componentwise over vectors.',
+  mix: 'Returns `a * (1 - t) + b * t`. `t` is a scalar or the same shape as `a` and `b`. `f64` vectors accept an `f32` blend factor.',
+  step: 'Returns 0 when `x` is less than `edge`, and 1 otherwise. `edge` comes first, followed by `x`. Componentwise over vectors.',
+  smoothstep:
+    'Applies Hermite interpolation between `edge0` and `edge1`, clamped to `[0, 1]`. Returns 0 when `x` is less than or equal to `edge0`, 1 when greater than or equal to `edge1`, and interpolates smoothly between. Componentwise over vectors.',
+  length:
+    'Returns the length (magnitude) of a vector, computed as the square root of the sum of squared components.',
+  distance: 'Returns the Euclidean distance between `a` and `b`, computed as `length(a - b)`.',
+  dot: 'Returns the dot product of two vectors: the sum of products of corresponding components. Reduces a vector to a scalar.',
+  cross:
+    'Computes the cross product of two `vec3` values, returning a `vec3`. Undefined for other vector shapes.',
+  normalize:
+    "Returns a unit vector in the same direction as the input, computed by dividing each component by the vector's length. The zero vector produces NaN when normalized. Also accepts `f64` operands.",
+  degrees: 'Converts `x` from radians to degrees, multiplying by 180/π.',
+  radians: 'Converts `x` from degrees to radians, multiplying by π/180.',
+  f32: 'Casts a number to `f32` single-precision floating-point by inlining a literal value rounded to 32-bit precision. This is equivalent to `Math.fround(x)`.',
+  i32: "Casts a number to `i32` signed 32-bit integer by truncating toward zero. Literal values outside [-2^31, 2^31-1] are a compile error; at runtime, out-of-range values wrap via two's-complement.",
+  u32: "Casts a number to `u32` unsigned 32-bit integer by truncating toward zero. Literal values outside [0, 2^32-1] are a compile error; at runtime, out-of-range values wrap via two's-complement.",
+  vec2: 'Builds a `vec2` from two scalars or broadcasts a single scalar to both components.',
+  vec3: 'Builds a `vec3` from three scalars, a `vec2` and a scalar, or broadcasts a single scalar to all three components.',
+  vec4: 'Builds a `vec4` from four scalars, a `vec3` and a scalar, a `vec2` and two scalars, or broadcasts a single scalar to all four components.',
+  vec2f: 'A two-component vector of `f32`, same type as `vec2`.',
+  vec3f: 'A three-component vector of `f32`, same type as `vec3`.',
+  vec4f: 'A four-component vector of `f32`, same type as `vec4`.',
+  vec2i:
+    'Builds a `vec2i` from two `i32` scalars, broadcasts a single `i32` scalar, or converts from a `vec2` of a different element kind.',
+  vec3i:
+    'Builds a `vec3i` from three `i32` scalars, a `vec2i` and a scalar, broadcasts a single `i32` scalar, or converts from a `vec3` of a different element kind.',
+  vec4i:
+    'Builds a `vec4i` from four `i32` scalars, a `vec3i` and a scalar, a `vec2i` and two scalars, broadcasts a single `i32` scalar, or converts from a `vec4` of a different element kind.',
+  vec2u:
+    'Builds a `vec2u` from two `u32` scalars, broadcasts a single `u32` scalar, or converts from a `vec2` of a different element kind.',
+  vec3u:
+    'Builds a `vec3u` from three `u32` scalars, a `vec2u` and a scalar, broadcasts a single `u32` scalar, or converts from a `vec3` of a different element kind.',
+  vec4u:
+    'Builds a `vec4u` from four `u32` scalars, a `vec3u` and a scalar, a `vec2u` and two scalars, broadcasts a single `u32` scalar, or converts from a `vec4` of a different element kind.',
+  vec2f64:
+    'Builds a `vec2f64` from two `f64` scalars or broadcasts a single `f64` scalar to both components; emulated in software on both GPU targets.',
+  vec3f64:
+    'Builds a `vec3f64` from three `f64` scalars, a `vec2f64` and a scalar, or broadcasts a single `f64` scalar; emulated in software on both GPU targets.',
+  vec4f64:
+    'Builds a `vec4f64` from four `f64` scalars, a `vec3f64` and a scalar, a `vec2f64` and two scalars, or broadcasts a single `f64` scalar; emulated in software on both GPU targets.',
+  array:
+    'Builds an `array<T, N>` from exactly N values of type T; requires type arguments `array<T, N>(v1, v2, ..., vN)`.',
+  fill: 'Creates an `array<T, N>` where every element is the given value; requires type arguments `fill<T, N>(value)`.',
+  uniform:
+    'Declares a uniform binding of type T; use `declare const name: uniform<T>` or `const name = uniform<T>()`.',
+  storage:
+    'Declares a storage binding of type T; use `declare const name: storage<T>` for read-only or `declare let name: storage<T>` for read-write access.',
+  random:
+    'Returns a deterministic pseudo-random `f32` in the range [0, 1) from an `f32`, `vec2` or `vec3` seed, computed as a hash of the seed on the GPU (`fract(sin(dot(seed, k)) * s)`), so the same seed always gives the same value. There is no unseeded form: `Math.random()` without a seed does not compile.',
+}
+
+/** One Markdown sentence per language constant: the mathematical constants PI, TAU, E, LN2, LN10,
+ * LOG2E, and LOG10E. Shared by `hover.ts` and `completions.ts`. */
+export const CONSTANT_DOCS: Readonly<Record<string, string>> = {
+  discard:
+    'Discards the current fragment, so nothing is written for it. Allowed in a fragment entry and in a helper that only fragment entries reach; compiles to `discard;` on both targets.',
+  PI: "The mathematical constant π, inlined as a compile-time `f32` literal (approximately 3.14159). The value matches JavaScript's `Math.PI`.",
+  TAU: 'The mathematical constant 2π (tau), inlined as a compile-time `f32` literal (approximately 6.28318). Defined as 2 times `PI`.',
+  E: "The mathematical constant e, inlined as a compile-time `f32` literal (approximately 2.71828). The value matches JavaScript's `Math.E`.",
+  LN2: "The natural logarithm of 2, inlined as a compile-time `f32` literal (approximately 0.69315). The value matches JavaScript's `Math.LN2`.",
+  LN10: "The natural logarithm of 10, inlined as a compile-time `f32` literal (approximately 2.30259). The value matches JavaScript's `Math.LN10`.",
+  LOG2E:
+    "The base-2 logarithm of e, inlined as a compile-time `f32` literal (approximately 1.44270). The value matches JavaScript's `Math.LOG2E`.",
+  LOG10E:
+    "The base-10 logarithm of e, inlined as a compile-time `f32` literal (approximately 0.43429). The value matches JavaScript's `Math.LOG10E`.",
+}
+
+/** Documentation for `Math` object members: functions aliasing free functions (fround, random)
+ * and readonly constants (E, LN10, LN2, LOG10E, LOG2E, PI, SQRT1_2, SQRT2). */
+export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
+  fround: FUNCTION_DOCS.f32,
+  random:
+    'Not a GPU builtin: a call with no seed does not compile, because a shader has no random source. Write `random(seed)` with an `f32`, `vec2` or `vec3` seed for a deterministic hash in the range [0, 1).',
+  abs: FUNCTION_DOCS.abs,
+  acos: FUNCTION_DOCS.acos,
+  acosh: FUNCTION_DOCS.acosh,
+  asin: FUNCTION_DOCS.asin,
+  asinh: FUNCTION_DOCS.asinh,
+  atan: FUNCTION_DOCS.atan,
+  atanh: FUNCTION_DOCS.atanh,
+  atan2: FUNCTION_DOCS.atan2,
+  ceil: FUNCTION_DOCS.ceil,
+  cos: FUNCTION_DOCS.cos,
+  cosh: FUNCTION_DOCS.cosh,
+  exp: FUNCTION_DOCS.exp,
+  floor: FUNCTION_DOCS.floor,
+  log: FUNCTION_DOCS.log,
+  log2: FUNCTION_DOCS.log2,
+  max: FUNCTION_DOCS.max,
+  min: FUNCTION_DOCS.min,
+  pow: FUNCTION_DOCS.pow,
+  round: FUNCTION_DOCS.round,
+  sign: FUNCTION_DOCS.sign,
+  sin: FUNCTION_DOCS.sin,
+  sinh: FUNCTION_DOCS.sinh,
+  sqrt: FUNCTION_DOCS.sqrt,
+  tan: FUNCTION_DOCS.tan,
+  tanh: FUNCTION_DOCS.tanh,
+  trunc: FUNCTION_DOCS.trunc,
+  E: CONSTANT_DOCS.E,
+  LN10: CONSTANT_DOCS.LN10,
+  LN2: CONSTANT_DOCS.LN2,
+  LOG10E: CONSTANT_DOCS.LOG10E,
+  LOG2E: CONSTANT_DOCS.LOG2E,
+  PI: CONSTANT_DOCS.PI,
+  SQRT1_2:
+    "The square root of 1/2, inlined as a compile-time `f32` literal (approximately 0.70711). The value matches JavaScript's `Math.SQRT1_2`.",
+  SQRT2:
+    "The square root of 2, inlined as a compile-time `f32` literal (approximately 1.41421). The value matches JavaScript's `Math.SQRT2`.",
+}
+
+/** Every documented type name, asserted in `docs.test.ts` to equal `SUPPORTED_TYPE_NAMES`. */
 export const DOCUMENTED_TYPE_NAMES: readonly string[] = SUPPORTED_TYPE_NAMES
-/** Every documented attribute name — asserted in `docs.test.ts` to equal `ATTRIBUTE_NAMES`. */
+/** Every documented attribute name, asserted in `docs.test.ts` to equal `ATTRIBUTE_NAMES`. */
 export const DOCUMENTED_ATTRIBUTE_NAMES: readonly string[] = ATTRIBUTE_NAMES
-/** Every documented builtin name — asserted in `docs.test.ts` to equal `WGSL_BUILTIN_NAMES`. */
+/** Every documented builtin name, asserted in `docs.test.ts` to equal `WGSL_BUILTIN_NAMES`. */
 export const DOCUMENTED_BUILTIN_NAMES: readonly string[] = WGSL_BUILTIN_NAMES
+/** Every documented function name, asserted in `docs.test.ts` to equal the declared function names in `SHADE_DTS`. */
+export const DOCUMENTED_FUNCTION_NAMES = Object.keys(FUNCTION_DOCS)
+/** Every documented constant name, asserted in `docs.test.ts` to equal the language constant names. */
+export const DOCUMENTED_CONSTANT_NAMES = Object.keys(CONSTANT_DOCS)
+/** Every documented Math member name, asserted in `docs.test.ts` to match the MathObject members in `SHADE_DTS`. */
+export const DOCUMENTED_MATH_MEMBER_NAMES = Object.keys(MATH_MEMBER_DOCS)

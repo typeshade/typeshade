@@ -342,6 +342,19 @@ span TypeScript resolved to. A function with no return annotation hovers as the 
 end gave it, which is what its TS8021 warning is about, rather than as the return type TypeScript
 infers from the body.
 
+The documentation under a builtin's signature comes from the ambient lib itself. `ambient.ts`
+writes a JSDoc block above every declaration it generates, from three tables in `docs.ts`:
+`FUNCTION_DOCS` for the free math functions, the five expansions, the scalar casts, the vector
+constructors, `array`, `fill`, `uniform`, `storage` and `random`; `CONSTANT_DOCS` for `PI`, `TAU`
+and the other language constants; `MATH_MEMBER_DOCS` for every member of `Math`. TypeScript's
+quick info carries that block, so a hover on `mix`, `vec3`, `PI` or `Math.sin` shows one to three
+sentences of semantics under the signature, and a completion item's detail carries the same text.
+`docs.test.ts` asserts that every `declare function`, every declared constant and every `Math`
+member in `SHADE_DTS` has a block, and that the key set of `FUNCTION_DOCS` equals the set of
+declared function names, so a new builtin cannot land undocumented. The GPU types, the attributes
+and the `@builtin` ids keep their lookup tables (`TYPE_DOCS`, `ATTRIBUTE_DOCS`, `BUILTIN_DOCS`),
+since those names are not declarations TypeScript would carry a JSDoc for.
+
 Three kinds of name keep TypeScript's quick info instead. One this document does not declare (an
 imported symbol, a host-side declaration) is not in this document's table at all, since a span
 means nothing without the file it indexes. One the front end could not lower is never recorded
