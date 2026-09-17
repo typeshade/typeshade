@@ -3,7 +3,7 @@
 import ts from 'typescript'
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
+import { isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, readOnlyPhrase } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -12,6 +12,7 @@ import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
+import { foldNumericLit } from '../lit-coerce.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -20,6 +21,19 @@ const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.AsteriskEqualsToken]: '*',
   [ts.SyntaxKind.SlashEqualsToken]: '/',
   [ts.SyntaxKind.PercentEqualsToken]: '%',
+}
+
+/** The bitwise compound assignments (#8 A10). Separate from {@link ASSIGN_OP} because they
+ *  carry a rule the arithmetic five do not: the target must be an integer scalar. The
+ *  `assignOp` IR node and both CPU backends have always taken them — the oracle's own
+ *  comment names `x >>= y` on an i32 target — so this is the spelling catching up, not a
+ *  new operation. */
+const BITWISE_ASSIGN_OP: Readonly<Record<number, BinOp>> = {
+  [ts.SyntaxKind.AmpersandEqualsToken]: '&',
+  [ts.SyntaxKind.BarEqualsToken]: '|',
+  [ts.SyntaxKind.CaretEqualsToken]: '^',
+  [ts.SyntaxKind.LessThanLessThanEqualsToken]: '<<',
+  [ts.SyntaxKind.GreaterThanGreaterThanEqualsToken]: '>>',
 }
 
 export function lowerStatements(
@@ -86,7 +100,12 @@ function lowerStatementNode(
   if (ts.isWhileStatement(node)) return lowerWhile(node, sourceFile, scope, diagnostics)
   if (ts.isSwitchStatement(node)) return lowerSwitch(node, sourceFile, scope, diagnostics)
   if (ts.isBreakStatement(node)) {
-    if (!scope.inLoop()) {
+    // The message has always said "loop or switch"; only the loop half was checked, so the
+    // `break` every TypeScript author ends a `case` with was rejected by the very sentence
+    // that said it was allowed (#8 A10). lowerSwitch drops a TRAILING break — the IR switch
+    // has no fall-through and each backend writes its own case terminator — so this reaches
+    // the IR only for a break that leaves the switch early, which is a real statement.
+    if (!scope.inLoop() && !scope.inSwitch()) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -217,14 +236,35 @@ function lowerVariableDeclaration(
     if (!annotated) return undefined
   }
   if (!decl.initializer) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl,
-      `"${isConst ? 'const' : 'let'} ${name}" requires an initializer.`,
-      TS_CODES.UNSUPPORTED,
-    )
-    return undefined
+    // `let x: f32;` — declare now, assign later (#8 A10). WGSL's `var x: f32;` and GLSL's
+    // `float x;` are the same statement, `Stmt.var.init` has always been optional, and the
+    // EDSL spells it `Var(f32T)`; only this surface insisted on a value. A `const` has
+    // nothing to assign later, and an unannotated `let` has no type to declare, so both
+    // keep a refusal — now one that says which of the two is missing.
+    if (isConst) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl,
+        `"const ${name}" requires an initializer.`,
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
+    if (!annotated) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl,
+        `"let ${name}" without an initializer needs a type annotation, e.g. let ${name}: f32;`,
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
+    if (!defineLocal(name, annotated, true, undefined, decl, sourceFile, scope, diagnostics)) {
+      return undefined
+    }
+    return withSpan({ s: 'var', name, type: annotated } as Stmt, sourceFile, spanNode)
   }
   // The annotation is the context for `const o: VsOut = { … }` (#8 A11).
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated)
@@ -248,8 +288,29 @@ function lowerVariableDeclaration(
   }
   const bindingType = annotated ?? init.type
   const constValue = init.op === 'lit' ? init.value : undefined
+  if (!defineLocal(name, bindingType, !isConst, constValue, decl, sourceFile, scope, diagnostics)) {
+    return undefined
+  }
+  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, spanNode)
+  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, spanNode)
+}
+
+/** Register a local binding, turning the scope's throw into a diagnostic on the declaration.
+ *  Shared by the two declaration shapes — with an initializer and without.
+ *
+ *  @returns `true` when the binding was defined, `false` after pushing a diagnostic. */
+function defineLocal(
+  name: string,
+  type: ShaderType,
+  mutable: boolean,
+  constValue: number | boolean | undefined,
+  decl: ts.VariableDeclaration,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
   try {
-    scope.define({ kind: 'local', name, type: bindingType, mutable: !isConst, constValue })
+    scope.define({ kind: 'local', name, type, mutable, constValue })
   } catch (e) {
     pushDiag(
       diagnostics,
@@ -258,18 +319,14 @@ function lowerVariableDeclaration(
       e instanceof Error ? e.message : String(e),
       TS_CODES.DUPLICATE_SYMBOL,
     )
-    return undefined
+    return false
   }
-  // #51 records the NAME's span with the declared type, for hover; the stamp below records
-  // the STATEMENT's, for stepping. Complementary, and both wanted here.
-  scope.recordDeclaration(sourceFile, decl.name, {
-    name,
-    kind: 'local',
-    type: bindingType,
-    mutable: !isConst,
-  })
-  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, spanNode)
-  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, spanNode)
+  // #51 records the NAME's span with the declared type, for hover; the caller's `withSpan`
+  // records the STATEMENT's, for stepping (#32). Complementary, and both wanted. This sits
+  // here rather than at the one call site it had, so the declaration WITHOUT an initializer
+  // (`let x: f32;`) is recorded too — the editor should know a name the language now accepts.
+  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable })
+  return true
 }
 
 function lowerExpressionStatement(
@@ -289,6 +346,21 @@ function lowerExpressionStatement(
     const bop = ASSIGN_OP[expr.operatorToken.kind]
     if (bop !== undefined)
       return lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics)
+    const bit = BITWISE_ASSIGN_OP[expr.operatorToken.kind]
+    if (bit !== undefined)
+      return lowerBitwiseAssignOp(expr.left, bit, expr.right, sourceFile, scope, diagnostics)
+    if (expr.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken) {
+      // The same refusal `a >>> b` gets in lowerBinary, so the two spellings of an
+      // unsupported operator do not disagree about why they are unsupported.
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        'Unsigned right shift >>>= is not supported.',
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
   }
   pushDiag(
     diagnostics,
@@ -322,6 +394,86 @@ function lowerAssign(
     return undefined
   }
   return { s: 'assign', target, expr: value }
+}
+
+/**
+ * Lower `y <<= 1` and its four siblings (`>>=`, `&=`, `|=`, `^=`) — #8 A10.
+ *
+ * Kept apart from {@link lowerAssignOp} for one reason: the bitwise operators are defined
+ * on integers only, and this is a form nothing accepted before, so refusing a float target
+ * here rejects no source that compiles today. (`a & b` as an EXPRESSION has no such guard
+ * and emits `(a & b)` for two `f32`s, which is not valid WGSL — a pre-existing hole that
+ * tightening would break passing source, so it is left for its own change.)
+ *
+ * @returns the `assignOp` statement, or `undefined` after pushing a diagnostic.
+ */
+function lowerBitwiseAssignOp(
+  left: ts.Expression,
+  bop: BinOp,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  const k = typeKey(target.type)
+  if (k !== 'i32' && k !== 'u32') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      left,
+      `Bitwise "${bop}=" needs an i32 or u32 target, got ${k}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  let value = lowerExpression(right, sourceFile, scope, diagnostics)
+  if (!value) return undefined
+  // A SHIFT amount is a u32 whatever the target is: WGSL's only scalar overload is
+  // `e1 << e2` with `e2: u32`, so `y <<= k` with an i32 `k` on an i32 target emitted
+  // `y <<= k;`, which Tint refuses (`no matching overload for 'operator <<= (i32, i32)'`),
+  // while the one spelling it accepts — a u32 amount — was refused here by the equality rule.
+  // An integer literal takes u32, an i32 amount goes through the `u32(...)` cast the surface
+  // already has, and GLSL ES 3.00 allows the mixed signedness that produces. `&`, `|` and `^`
+  // keep the equality rule: there both operands must be the one type on both targets.
+  const isShift = bop === '<<' || bop === '>>'
+  const want = isShift ? u32T : target.type
+  // Folded first, so a leading minus is part of the number: `y |= -2` reaches here as a unop
+  // over a literal, which the `op === 'lit'` retype below never matched, and the author was
+  // told their i32 target could not take an f32.
+  const folded = foldNumericLit(value)
+  if (folded.op === 'lit' && typeof folded.value === 'number' && Number.isInteger(folded.value)) {
+    if (folded.value < 0 && (isShift || typeKey(want) === 'u32')) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        right,
+        isShift
+          ? `Bitwise "${bop}=" needs a non-negative shift amount, got ${String(folded.value)}.`
+          : `Bitwise "${bop}=" on a u32 target needs a non-negative value, got ${String(folded.value)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    value = { op: 'lit', type: want, value: folded.value }
+  }
+  if (isShift && typeKey(value.type) === 'i32') {
+    value = { op: 'call', type: u32T, fn: 'u32', args: [value] }
+  }
+  if (typeKey(value.type) !== typeKey(want)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      isShift
+        ? `Bitwise "${bop}=" needs an i32 or u32 shift amount, got ${typeKey(value.type)}.`
+        : numericMismatch(`${bop}=`, target.type, value.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return { s: 'assignOp', target, bop, expr: value }
 }
 
 function lowerAssignOp(
@@ -373,35 +525,24 @@ function lowerAssignOp(
   return { s: 'assignOp', target, bop, expr: value }
 }
 
-function lowerLValue(
-  node: ts.Expression,
+export function lowerLValue(
+  expression: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // `(v) = a` and `(v).x = a` name the same targets `v = a` and `v.x = a` do, so the
+  // parentheses come off once, here, rather than in each branch below (where only the member
+  // walk looked through them, and the fallback message then denied its own input).
+  const node = ts.isParenthesizedExpression(expression) ? unwrapParens(expression) : expression
+  if (ts.isPropertyAccessExpression(node)) {
+    return lowerMemberLValue(node, sourceFile, scope, diagnostics)
+  }
   if (ts.isElementAccessExpression(node)) {
-    const baseName = ts.isIdentifier(node.expression) ? node.expression.text : undefined
-    const binding = baseName ? scope.resolve(baseName) : undefined
-    if (binding?.kind === 'param') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Cannot write through parameter "${baseName}" — parameters are not writable. Use a local or storage.`,
-        TS_CODES.ASSIGN_TARGET,
-      )
-      return undefined
-    }
-    if (binding && !binding.mutable) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `Cannot assign to "${baseName}" — it is ${readOnlyPhrase(binding.kind)}.`,
-        TS_CODES.CONST_ASSIGN,
-      )
-      return undefined
-    }
+    // The root of the chain decides writability, exactly as it does for a member target:
+    // `cam.xs[i] = 1.` on a uniform and `p.xs[i] = 1.` on a parameter used to reach the
+    // backend, because the binding was resolved only when the base was a bare identifier.
+    if (!checkRootWritable(node, sourceFile, scope, diagnostics)) return undefined
     const idx = lowerExpression(node, sourceFile, scope, diagnostics)
     if (!idx || idx.op !== 'index') return undefined
     // The lvalue carries its own span (docs/debugging.md §5 decision 3): a debugger stopped on
@@ -413,7 +554,7 @@ function lowerLValue(
       diagnostics,
       sourceFile,
       node,
-      'Assignment target must be a simple identifier.',
+      'Assignment target must be a name, or a field, component or element of one.',
       TS_CODES.ASSIGN_TARGET,
     )
     return undefined
@@ -456,6 +597,128 @@ function lowerLValue(
     sourceFile,
     node,
   )
+}
+
+/** A write through `v.x`, `ps[i].a` or `o.pos` lands on the binding at the root of the
+ *  chain, so that is the binding whose writability decides it: the same parameter and const
+ *  checks the identifier and element-access targets already make, made on the root instead
+ *  of on the chain. Returns the root identifier, or undefined for a chain rooted in
+ *  something that is not a name (a call result, a constructor). */
+function rootLValueName(node: ts.Expression): ts.Identifier | undefined {
+  if (ts.isIdentifier(node)) return node
+  if (ts.isParenthesizedExpression(node)) return rootLValueName(node.expression)
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return rootLValueName(node.expression)
+  }
+  return undefined
+}
+
+/** Lowers `v.x`, `o.pos`, `ps[i].a` and `o.pos.x` as an assignment target. The IR `assign`
+ *  target already takes a `member` — the EDSL spells the same write `o.pos.assign(v)`, and
+ *  WGSL, GLSL ES 3.00 and the CPU oracle all assign a struct field or a single vector
+ *  component in place — so the member expression `lowerExpression` already builds for the
+ *  read is the target verbatim. Two things are checked that a read does not care about: the
+ *  root binding must be writable, and a swizzle target must name exactly one component,
+ *  which is what WGSL allows (`v.xy = …` is rejected there too). */
+function unwrapParens(node: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(node) ? unwrapParens(node.expression) : node
+}
+
+/** The writability of the binding at the root of a member or element chain, diagnosed. Shared
+ *  by both branches of {@link lowerLValue} so a write through a field and a write through an
+ *  element answer the same way: a write lands on the root, so the root is what has to accept
+ *  it. Returns false having pushed a diagnostic. */
+function checkRootWritable(
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const root = rootLValueName(node)
+  if (!root) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Assignment target must be a name, or a field, component or element of one.',
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return false
+  }
+  const binding = scope.resolve(root.text)
+  if (!binding) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to unknown name "${root.text}".`,
+      // The same code as the bare-identifier arm above, for the same sentence: the root of a
+      // chain that names nothing is an unresolved identifier, not a target of the wrong shape.
+      TS_CODES.UNKNOWN_NAME,
+    )
+    return false
+  }
+  if (binding.kind === 'param') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot write through parameter "${root.text}" — parameters are not writable. Use a local or storage.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return false
+  }
+  if (!binding.mutable) {
+    // readOnlyPhrase, not a local ternary: #18 gave a binding its own BindingKind, so the
+    // message can say WHICH of the two a name is — and the root of a chain deserves the same
+    // sentence a bare name gets.
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${root.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+      TS_CODES.CONST_ASSIGN,
+    )
+    return false
+  }
+  return true
+}
+
+function lowerMemberLValue(
+  node: ts.PropertyAccessExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (!checkRootWritable(node.expression, sourceFile, scope, diagnostics)) return undefined
+  const target = lowerExpression(node, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  if (target.op !== 'member') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${truncate(node.getText(sourceFile))}" — it is not a field, component or element.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  // Only a `vec` base reaches here with a multi-character field: parseSwizzle rejects every
+  // other base (a vec64 included) before a member is built, and a struct field name of more
+  // than one character is a field, not a swizzle.
+  const base = target.base.type
+  if (isVec(base) && target.field.length > 1) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to the swizzle ".${target.field}" — WGSL writes one component at a time. ` +
+        `Assign each component (e.g. v.x = …; v.y = …), or build a whole ${typeKey(base)} and assign that.`,
+      TS_CODES.ASSIGN_TARGET,
+    )
+    return undefined
+  }
+  return target
 }
 
 function lowerIf(

@@ -1,7 +1,10 @@
 # Debugging a `"use typeshade"` shader
 
 Status: **decided, open to revision against a measurement.** Written against `5f20c5e` on
-`main`; §5 records eleven decisions the owner has taken. It proposes the layer that lets an
+`main`; §5 records eleven decisions the owner has taken. Milestones 1, 2 and 3 have shipped:
+the IR carries source spans, `@xgis/shader-dsl/debug` steps one invocation of a
+`"use typeshade"` shader, and one launch configuration describes that run for an IDE, the
+Playground and a headless test alike. It proposes the layer that lets an
 author set a breakpoint in a `.shade.ts` file and step through it, and it fixes the
 compiler-side work that every viable design needs first.
 
@@ -365,8 +368,15 @@ hold it, in order of preference:
    exactly what it returns today. There is then one traversal, and the non-stepping path pays
    one resume per statement. Whether that cost is acceptable on the hot path is a measurement,
    not a guess, and `src/core/measure.ts` cannot supply it: its axes are op count and emit
-   size, neither of which is interpreter throughput. The milestone 2 pull request adds a
-   benchmark of its own, which is what it did. If the cost is unacceptable, option 2.
+   size, neither of which is interpreter throughput. Milestone 2 added a benchmark of its own,
+   `scripts/bench-stepping.ts` (`bun run bench:stepping`), and measured the generator walk at
+   **about five times** the tree-walk. Say it that loosely on purpose: the script's own median
+   has come back anywhere from 4.7x to 5.8x on different runs of the same tree, and individual
+   repetitions inside one run span roughly 4x to 7x. Quoting two significant figures from one
+   sample is what produced the 3.1x an earlier draft carried and the 4.1x a reviewer measured
+   against it, neither wrong and both over-precise. Run the script and read the band it prints
+   rather than trusting a number written down here. Several-fold on every use of the reference
+   backend is the cost option 1 would impose, so the answer is option 3.
 2. **Generate both from one description.** Not worth it here: the walk is one `switch` with
    thirteen arms, and a code generator over it would be more machinery than the duplication.
 3. **A second walk with a differential gate.** A stepped run must return the same value as
@@ -385,8 +395,8 @@ Phase 21, per the note above the table of contents.
 | #   | What                                                                                                                                                                                                                                                         | Why it is separable                                                                    |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | M1  | Source spans on the IR (§3): `SourceSpan`, a `span?` field on every `Stmt` and `FuncDecl`, on an authored `call` expression and on an assignment's target, capture in the source compiler, propagation through the passes, a public `sourceSpanOf` read API. | Every approach needs it. It moves no emitted byte and nothing depends on the debugger. |
-| M2  | The stepping mode of the CPU oracle (§2.1), on a `./debug` subpath: pauses at statement boundaries with the span, the frame environment as a readable snapshot, step over / in / out / continue, breakpoints by span.                                        | Usable headlessly the day it lands; no editor work required to test it.                |
-| M3  | The launch configuration (§4) as a published TypeScript type plus a baked JSON Schema, the invocation builder for the three stages, binding defaults from `zeroOf`, and a value formatter that renders `CpuValue` in shader types.                           | This is what the two adapters share; baking it here is what stops them diverging.      |
+| M2  | **Shipped.** The stepping mode of the CPU oracle (§2.1), on a `./debug` subpath: pauses at statement boundaries with the span, the frame environment as a readable snapshot, step over / in / out / continue, breakpoints by span.                           | Usable headlessly the day it lands; no editor work required to test it.                |
+| M3  | **Shipped.** The launch configuration (§4) as a published TypeScript type plus a baked JSON Schema, the invocation builder for the three stages, binding defaults from `zeroOf`, and a value formatter that renders `CpuValue` in shader types.              | This is what the two adapters share; baking it here is what stops them diverging.      |
 | M4  | Derivative policy (`derivatives: "zero" \| "quad"`) and, once the grammar has textures, the texture value shapes of §4.4.                                                                                                                                    | §5 decision 4 sets the first; the second waits on the language surface.                |
 
 **In `typeshade/vscode-typeshade`** (not created by this work; it is the repository
@@ -624,9 +634,14 @@ or from the engine.
 }
 ```
 
-`program` and `entry` are required. Everything else has a default, and the default is the
-zero of the type, which is what the Playground's "Run on the CPU" does today and what
-`zeroOf` (`src/core/cpu-runtime.ts`) already computes from a `ShaderType`.
+**`entry` is the only required key.** `program` is part of the launch envelope an IDE fills in
+and the engine ignores: the engine is handed a module that is already compiled, so it has no
+use for a path. An adapter should still set it, and should hand the same string to the compiler
+as `fileName`, because that is what makes the module's spans name the file a breakpoint's
+`file` is matched against. Everything else has a default, and the default is the zero of the
+type, which is what the Playground's "Run on the CPU" does today and what `zeroOf`
+(`src/core/cpu-runtime.ts`) already computes from a `ShaderType`. Two builtins are the
+exception, for the reason §4.2 gives.
 
 ### 4.2 The invocation
 
@@ -643,6 +658,13 @@ entry actually declares.
 | `@vertex`   | `vertex_index`, `instance_index`; `inputs` for each `@location(n)` vertex attribute, by field name                                                                                                          | `0`, `0`, zeros                  |
 | `@fragment` | `position` (a `vec4`: x, y in pixels with the half-pixel centre the author must supply themselves, then z, w), `front_facing`, `sample_index`; `inputs` for each interpolated `@location(n)`, by field name | `[0,0,0,1]`, `true`, `0`, zeros  |
 | `@compute`  | `global_invocation_id`, `local_invocation_id`, `workgroup_id`, `local_invocation_index`, `num_workgroups`, and `dispatch`                                                                                   | all zeros, with derivation below |
+
+The two fragment defaults that are not zeros are the reason this table is worth reading rather
+than assuming. `position`'s `w` is the perspective divisor, so a zero there makes every
+perspective-divided value in a default run `NaN`, which reads as a bug in the shader;
+`front_facing` false is a back-facing fragment, which for a single-sided draw is the case that
+never runs. Both are keyed by builtin id rather than by stage, so a struct field carrying
+`@builtin("position")` gets the same value a loose parameter does.
 
 Four builtins the front end accepts as an entry input have no row above: `sample_mask`
 (fragment), `subgroup_invocation_id` and `subgroup_size` (compute), and `clip_distances`, which
@@ -754,6 +776,15 @@ recorded here as decisions rather than proposals, and the sections above follow 
    stand-in rather than a computed value**, so no one mistakes `0` for a result.
    `derivatives: "quad"` is an opt-in for later, when someone has a derivative bug, carrying
    the divergence caveat of §2.4.
+
+   Which milestone delivers which half is worth writing down, because neither M2 nor M3
+   delivers both. M2 shipped `DebugSession.stubbedIntrinsics`, a run-wide list of intrinsic
+   NAMES: it answers "did anything stand in during this session, and what", which is a banner,
+   not a marking. Marking a VALUE needs to distinguish one local from another, and a name
+   cannot; that is `DebugStackFrame.stubbedLocals`, and it is not in M3 either. This decision
+   is met when both are in, and until then a variables view can say that the run stubbed
+   something but not which number it stubbed.
+
 5. **The debugger runs the module before the optimizer**, because the author is debugging the
    program they wrote. The passes it does run are the ones `compileModule` runs: `validate`,
    then `autoVars`, then, once decision 6 makes `f32` the default, `froundF32`. That third one

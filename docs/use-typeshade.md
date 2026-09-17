@@ -81,6 +81,77 @@ rather than lowered: the counter a `while` becomes, a value `autoVars` materiali
 front end expands a shorthand into. That is what a debugger reads to stop on the line an author
 wrote; `docs/debugging.md` is the design.
 
+`@xgis/shader-dsl/debug` is the layer that reads them. It steps one invocation on the CPU
+oracle, stopping before each statement the author wrote:
+
+<!-- doc-snippets: skip - a host-side snippet, not a compilation unit -->
+
+```ts
+import { compileTsSource } from '@xgis/shader-dsl'
+import { startDebugSession } from '@xgis/shader-dsl/debug'
+
+// `compileTsSource` rather than `compile`, because a breakpoint's `file` is matched against
+// the file the spans name, and this is what names it. `compile` has no such option yet, so
+// its spans all say `typeshade-input.ts` and a file-qualified breakpoint would match nothing.
+const r = compileTsSource(appSrc, { fileName: 'blur.shade.ts' })
+const module = {
+  consts: [...r.consts],
+  structs: r.structs.map((s) => s.decl),
+  bindings: [...r.bindings],
+  funcs: [...r.funcs],
+}
+
+const s = startDebugSession(module, 'fs', [[0.3, 0.4]], {
+  breakpoints: [{ file: 'blur.shade.ts', line: 4 }],
+})
+s.pause.span.line // 3, the entry's first statement; s.pause.reason is 'entry'
+s.continue()
+s.pause.span.line // 4, and s.pause.reason is now 'breakpoint'
+;[...s.pause.frames[0].locals] // [['uv', [0.3, 0.4]], ['r', 0.5]]
+s.stepIn() // line 5
+```
+
+Lines are zero-based, as `SourceSpan` and the language service are. A breakpoint matches the
+line a statement STARTS on, so one on a blank line or on a closing brace never fires.
+
+One invocation, not a frame: a full 1920x1080 pass is about two million of them, and stepping
+is for the one that is wrong. It is the same walk over the same IR the WGSL and GLSL writers
+emit, checked against the oracle over every registered example, so what it shows is what the
+program computes rather than a second opinion about it.
+
+Positional arguments are what `startDebugSession` takes, which means a caller has to know that
+`fs`'s third parameter is the one carrying `@location(1)`. `startDebugSessionFromConfig` takes
+the run as data instead, keyed by what the author declared, and that is the one call an
+editor's debug adapter or a `launch.json` makes:
+
+<!-- doc-snippets: skip - a host-side snippet, not a compilation unit -->
+
+```ts
+import { startDebugSessionFromConfig } from '@xgis/shader-dsl/debug'
+
+const s = startDebugSessionFromConfig(module, {
+  entry: 'fs',
+  invocation: { position: [100.5, 50.5, 0, 1], inputs: { uv: [0.5, 0.25] } },
+  bindings: { camera: { pos: [0, 0, 5] } },
+  breakpoints: [{ file: 'blur.shade.ts', line: 4 }],
+})
+```
+
+`entry` is the only key you have to write. Every other value defaults to the zero of its
+declared type, with two exceptions that a zero would misrepresent: a fragment `position`
+defaults to `[0, 0, 0, 1]`, because a `w` of zero makes every perspective divide `NaN`, and
+`front_facing` defaults to `true`, because `false` is the case a single-sided draw never runs.
+A compute entry derives `local_invocation_id`, `workgroup_id` and `local_invocation_index`
+from the `global_invocation_id` you give it and the entry's own `@compute([x, y, z])` size, and
+`num_workgroups` from `dispatch`; supply one of a derived pair yourself and it is checked
+rather than overwritten, so an id that contradicts its derivation is an error naming both.
+
+A configuration that does not fit the module throws a `DebugConfigError` before the shader runs
+a statement, and it reports every problem it can see at once: a misspelled builtin alongside a
+uniform of the wrong shape, rather than one error per attempt. `DEBUG_LAUNCH_SCHEMA` is the
+same shape as JSON Schema, for validating a `launch.json` in an editor that reads one.
+`docs/debugging.md` §4 is the reference for both.
+
 A file without `"use typeshade"` is a `TS8001` error from both entry points. Pass
 `requireDirective: false` to `compileTsSource` to get the silently empty result instead, for a
 probe that only reads `hasDirective`.

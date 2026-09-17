@@ -175,8 +175,32 @@ export function lowerObjectLiteral(
   // against the type of the field it fills. That is what carries the context inward: a nested
   // `{ i: { x: 1. } }` used to lower its inner literal with nothing, so a twin at the inner
   // level was as unresolvable as the outer one was before this item.
-  const props: { name: string; node: ts.PropertyAssignment }[] = []
+  const props: { name: string; value: ts.Expression }[] = []
   for (const prop of node.properties) {
+    // `{ pos, uv }` is `{ pos: pos, uv: uv }` — the shorthand TypeScript gives a property
+    // whose value is its own name, and the shape `return { pos, uv }` is written in (#8 A10).
+    // The name is the field and the same identifier is the value, so it lowers through the
+    // ordinary identifier path and reaches matchStruct exactly as the long form does.
+    if (ts.isShorthandPropertyAssignment(prop)) {
+      // `{ a = 1. }` parses as a shorthand carrying an "object assignment initializer", which
+      // is only legal in a destructuring PATTERN. TypeScript itself reports it in an
+      // expression, but this surface does not run the checker, so without this the `= 1.` was
+      // read as nothing at all and the field silently took the value of `a`.
+      if (prop.objectAssignmentInitializer) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          prop,
+          `"${prop.name.text} = ..." is a destructuring default, not a field value. Write "${prop.name.text}: ..." instead.`,
+          TS_CODES.UNSUPPORTED,
+        )
+        return undefined
+      }
+      // The value IS the name, so it joins the list like any other — the struct is resolved
+      // before any of them is lowered.
+      props.push({ name: prop.name.text, value: prop.name })
+      continue
+    }
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) {
       pushDiag(
         diagnostics,
@@ -187,7 +211,7 @@ export function lowerObjectLiteral(
       )
       return undefined
     }
-    props.push({ name: prop.name.text, node: prop })
+    props.push({ name: prop.name.text, value: prop.initializer })
   }
   const names = props.map((p) => p.name)
   const declared = contextual?.kind === 'struct' ? scope.structByName(contextual.name) : undefined
@@ -226,13 +250,7 @@ export function lowerObjectLiteral(
   const fieldType = new Map(match.fields.map((f) => [f.name, f.type]))
   const given: { name: string; expr: Expr }[] = []
   for (const p of props) {
-    const expr = lowerExpression(
-      p.node.initializer,
-      sourceFile,
-      scope,
-      diagnostics,
-      fieldType.get(p.name),
-    )
+    const expr = lowerExpression(p.value, sourceFile, scope, diagnostics, fieldType.get(p.name))
     if (!expr) return undefined
     given.push({ name: p.name, expr })
   }

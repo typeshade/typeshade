@@ -4,5 +4,9 @@ coverage
 **/__emit-goldens__
 *.tsbuildinfo
 package-lock.json
+
+# Hand-aligned tables, and shader snippets whose float literals (`vec3(0., 1., 0.)`) Prettier
+# rewrites to `vec3(0, 1, 0)` — which changes what the example says. Formatted by hand.
+docs/use-typeshade-surface.md
 # Shader source, not TypeScript: prettier cannot parse a decorated top-level function.
 *.shade.ts

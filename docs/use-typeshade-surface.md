@@ -270,9 +270,71 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §§9, 10 and 12 to 15 are reserved for issue #8's A2, A6, A9, A3, A10 and A7,
-which are in flight on their own branches and append here in issue order. The sections below
-took the next free numbers so the A-item branches do not all claim §9 and collide on merge.
+**Numbering:** §9 below is issue #8's A2, which reserved that number while it was in flight.
+§§10 and 13 stay reserved for A6 (`discard`, the missing builtins, `**`) and A3, which are
+still in flight on their own branches and append here in issue order. The sections took the
+next free numbers so the A-item branches do not all claim §9 and collide on merge.
+
+---
+
+## 9. Assignment targets
+
+A write lands on a name, or on a field, component or element of one. The chain may be as
+deep as the types allow; what decides whether it is legal is the **root** of the chain.
+
+```ts
+v = vec3(0., 1., 0.)      // a name
+v.x = 0.                  // a component
+v.x += 1.                 // and the compound and ++ / -- forms
+o.pos = vec4(p, 0., 1.)   // a field
+o.pos.x = 2.              // a component of a field
+ps[i].a = 1.              // a field of an element
+pixels[i] = 1.            // an element
+```
+
+| Root | Writable? |
+|------|-----------|
+| `let` local | yes |
+| `declare let x: storage<T>` | yes |
+| `const` local | no: `TS8005` |
+| `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
+| a function parameter | no: `TS8018`; see the caveat below |
+| anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
+
+The parameter row is about writing **through** a parameter: `p.x = 1.`, `p.xs[i] = 1.`.
+Writing a parameter **whole** (`p = 1.`, `p += 1.`, `p++`) is a different matter: WGSL rejects
+it too, but this surface has always accepted it and emitted `p = 1.0;`, so refusing it now
+would stop source that compiles today. Narrowing it needs a deprecation path and is on
+[issue #8](https://github.com/typeshade/typeshade/issues/8)'s "later" list; until then, a
+whole-parameter write is a bug the compiler does not catch yet.
+
+A swizzle target names exactly **one** component. `v.xy = …` and `c.rg = …` are rejected
+(`TS8018`), which is what WGSL does: assign each component, or build the whole vector and
+assign that. `v.r` `v.g` `v.b` `v.a` are components like `v.x` … `v.w` and are writable.
+
+`++` and `--` step a **numeric scalar**: `f32`, `i32`, `u32` and `f64`. On a member or element
+target they lower to the compound form (`ps[i].a += 1.`), so the target is written once instead
+of read and written back; a bare name keeps `i = (i + 1)`.
+
+Everything else is rejected with `TS8018`. A bool, a struct, an array and a matrix have nothing
+to add `1` to. A **vector** is rejected too, native and emulated-double alike: the step is one
+literal of the target's type, and no vector literal has a spelling, so `v++` never emitted
+shader text on any target. Write the addition out instead:
+
+```ts
+v = v + vec3(1., 1., 1.)   // instead of v++ on a vec3
+```
+
+An `i32` or `u32` vector takes an annotated one for the same addition (`const one: i32 = 1;`
+then `v = v + vec2i(one, one)`), because a bare literal `1` inside `vec2i(…)` is `TS8003`; a
+`vec3f64` has no literal spelling at all, so its addition needs values that are already `f64`.
+The refusal names an example only for the kind whose example compiles.
+
+Lowering is the same `assign` / `assignOp` the EDSL's `v.x.assign(a)` and `o.pos.assign(v)`
+produce, so the two surfaces stay IR-equal here.
+
+Binding a value to another name **copies** it, as it does on both GPU targets: after
+`let w = v; w.x = 100.`, `v` is unchanged, on the GPU and in the CPU oracle alike.
 
 ---
 
@@ -309,6 +371,138 @@ oracle gives `4294967040`, `ivec3(vec3(1e30)).x` reads `-2147483648` where the o
 `-3.2` above happens to agree, and an in-range source always does. So the cross-backend
 ground a portable shader can stand on is **in-range values**; clamp before you convert if the
 source might not be.
+
+---
+
+## 12. Module constants
+
+A top-level `const` is a module-scope shader constant. A scalar one folds to a single value
+at declaration; a **vector or array** one carries its value as an expression every backend
+emits and evaluates:
+
+```ts
+"use typeshade"
+
+const PI2: f32 = 6.28318 // scalar, as before
+const UP = vec3(0., 1., 0.) // → const UP: vec3<f32> = vec3<f32>(0.0, 1.0, 0.0);
+const SKY: vec4 = vec4(0.4, 0.6, 0.9, 1.)
+const XS: array<f32, 3> = array<f32, 3>(1., 2., 3.)
+const PAL = array<vec4, 2>(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.))
+const K: f32 = 2.
+const V = vec3(K, K, K) // an earlier const is a valid component
+
+export function pick(i: i32): vec4 {
+  return PAL[i] * K + vec4(UP, PI2) + vec4(V, XS[0]) + SKY
+}
+```
+
+The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
+a constructor over those, or arithmetic over those with a divisor that is not zero. It may
+not call a function, read a resource, or take a component, field or element — `vec3(UP.x, 0.,
+0.)` is refused even though both writers would fold it. `XS.length` is a constant too, so an
+array constant can bound a loop. An array **of arrays** is refused: the GLSL ES 3.00 spelling
+it would produce is not one ANGLE accepts.
+
+An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
+followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and
+`const NV: vec3<i32> = vec3<i32>(N, N, N);`. Before that fix the backend's `emitConst` spelled
+every scalar constant with a float literal (`4.0`), which is why this section once limited the
+rule to `f32` components.
+
+This is the same declaration the EDSL's `constExpr(name, type, node)` produces — one
+`ConstDecl` with its `valueExpr` filled.
+
+A struct-valued and a matrix-valued constant are not accepted yet: the constant collector
+runs without the struct table, and the surface has no matrix constructor.
+
+---
+
+## 14. TypeScript shapes the parser already had
+
+Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
+them, the object-literal shorthand, is an expression rather than a statement).
+None of them is a new operation: `Stmt.var.init` has always been optional, `assignOp` has
+always taken any `BinOp`, `construct` does not record how a field was spelled, and `switch`
+was already lowered; only the source language refused them.
+
+```ts
+"use typeshade"
+
+const PALETTE_WARM = 1.
+
+export function band(seed: i32, t: f32): vec3 {
+  let bits: i32 = seed
+  bits <<= 1
+  bits &= 3
+  bits |= 0
+  bits ^= 0
+  bits >>= 0
+
+  let rgb: vec3
+  rgb = vec3(0., 0., 0.)
+  switch (bits) {
+    case 0:
+      rgb = vec3(0.1, 0.1, 0.12)
+      break
+    case 1: {
+      if (t > 0.5) {
+        rgb = vec3(PALETTE_WARM, 0.55, 0.2)
+        break
+      }
+      rgb = vec3(0.5, 0.3, 0.1)
+      break
+    }
+    default:
+      rgb = vec3(0.85, 0.85, 0.9)
+  }
+  return rgb
+}
+```
+
+**`let x: f32` with no initializer** declares a mutable local and leaves the value for a
+later assignment: WGSL's `var x: f32;`, GLSL's `float x;`, and the EDSL's `Var(f32T)`. The
+annotation is what carries the type, so it is required; a `const` still needs its value.
+Note what the two targets do with a read that happens _before_ the first assignment: WGSL
+zero-initialises, GLSL ES 3.00 leaves it undefined. That divergence is the EDSL's today as
+well; assign before you read. Both CPU backends follow WGSL and bind the zero of the declared
+type at the declaration: `0.`, `false` for a `bool`, an array of zeros, and a struct with
+every field zeroed, recursively through a nested struct and an array of structs.
+
+**`&=`, `|=`, `^=`, `<<=`, `>>=`** compound the bitwise operators onto an `i32` or `u32`
+target. For `&=`, `|=` and `^=` the right-hand side takes the target's type (`y &= 3` on a
+`u32` is `y &= 3u`) and must have it. A SHIFT amount is a `u32` whatever the target is, which
+is WGSL's only scalar overload: `y <<= 1` emits `y <<= 1u`, and an `i32` amount is passed
+through the `u32(...)` cast rather than refused (`y <<= k` emits `y <<= u32(k)`). A negative
+shift amount is refused, as is a negative value on a `u32` target. A float target is refused
+here; `>>>=`, like `>>>`, is not supported.
+
+**`{ pos, uv }`** is the shorthand for `{ pos: pos, uv: uv }` and builds the identical
+struct; the shape `return { pos, uv }` is naturally written in.
+
+**`switch`** takes the `break` TypeScript requires at the end of a case. It is dropped in
+lowering, because the IR switch does not fall through and each backend writes its own case
+terminator; a `break` that leaves a case _early_ is kept and emitted. A case label is an
+integer constant: a literal, a negative literal, or a module `const`. A label has to fit the
+selector, so `case -1:` is refused for a `u32` one, and a label may appear only once: two
+that fold to the same number (`case 2:` beside `case 1 + 1:`) is an error here rather than at
+the backend. Two labels on one body (`case 0: case 1:`) is still refused, and so is `continue`
+in a `switch` that no loop encloses.
+
+**A case body does not fall through, whatever TypeScript would do with it.** A body that does
+not end in `break` still ends its case here, since the IR switch has no fall-through and
+neither does WGSL's. So `case 2: { if (c) { …; break } x = … }` runs its last line and leaves,
+where plain TypeScript would carry on into the next case. Write the `break`; the language
+does not warn about a missing one yet, since a body without one is what an author porting
+from WGSL writes.
+
+**One emit change, and the only one in this section.** `break` at the end of a case inside a
+loop was already accepted before this item, since the enclosing loop made it legal, and it
+reached the backends as a statement: WGSL emitted `case 0: { r = 1.0; break; }` and GLSL
+`r = 1.0; break; break;`. Both are valid programs, and both now lose that trailing `break`,
+because the drop is what makes a case body mean the same thing inside a loop and outside one.
+The behaviour is identical on all three backends; only the text is one statement shorter.
+
+---
 
 ## 16. Object literals take the declared struct
 
@@ -374,5 +568,6 @@ says so.
 A **repeated** field keeps taking the last value, in every position, as it always has:
 `{ a: 1., a: 2., b: 3. }` builds `P(2., 3.)`. TypeScript's own `TS1117` reports it in the
 editor, so the compiler does not repeat the complaint.
+
 
 Last updated: 2026-09-14

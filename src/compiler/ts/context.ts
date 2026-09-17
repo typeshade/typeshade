@@ -63,6 +63,7 @@ export class LoweringScope {
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
   private retType: ShaderType | undefined
+  private switchDepth = 0
 
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
     this.callees = callees ?? new Map()
@@ -106,6 +107,21 @@ export class LoweringScope {
 
   returnType(): ShaderType | undefined {
     return this.retType
+  }
+
+  enterSwitch(): void {
+    this.switchDepth++
+  }
+
+  exitSwitch(): void {
+    this.switchDepth = Math.max(0, this.switchDepth - 1)
+  }
+
+  /** Whether a `break` here would leave a `switch`. Tracked apart from {@link inLoop}
+   *  because `continue` is a loop statement only: a `switch` that is not inside a loop
+   *  takes the one and refuses the other. */
+  inSwitch(): boolean {
+    return this.switchDepth > 0
   }
 
   setStructs(list: readonly StructDecl[]): void {
