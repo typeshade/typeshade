@@ -46,7 +46,7 @@ export function isIntegerLiteralTree(node: ts.Expression): boolean {
  *  `u32` function reported a type mismatch before this item and then became a silent `-1`
  *  that only the backend refused. Out of range, the expression is left exactly as it was and
  *  the type check that always covered it fires again. */
-function fitsTarget(v: number, target: ShaderType): boolean {
+export function fitsTarget(v: number, target: ShaderType): boolean {
   if (!Number.isInteger(v)) return false
   return typeKey(target) === 'u32' ? v >= 0 && v <= 4294967295 : v >= -2147483648 && v <= 2147483647
 }

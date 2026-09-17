@@ -816,6 +816,76 @@ A **repeated** field keeps taking the last value, in every position, as it alway
 editor, so the compiler does not repeat the complaint.
 
 
+## 17. What a `for` loop may say, and what it is told
+
+A `for` must be **counted**: an integer induction variable, a constant bound, a constant step,
+and at most 256 trips. That has not changed. Three things about it have.
+
+**The step may scale, not only add.** The four update forms are `+=`, `-=`, `*=` and `/=`:
+
+```ts
+"use typeshade"
+
+export function shrink(): f32 {
+  let a = 0.
+  for (let i: i32 = 64; i > 1; i /= 2) {
+    a += 1. // 64 32 16 8 4 2, six trips
+  }
+  for (let j: i32 = 1; j < 64; j *= 2) {
+    a += 1.
+  }
+  for (let k: i32 = 8; k > 0; k -= 2) {
+    a += 1.
+  }
+  return a
+}
+```
+
+A halving loop over a mip chain or a doubling one over a binary reduction is an ordinary
+counted loop: it reaches its bound in six iterations, and the only reason it was
+`Unsupported for-update.` is that nothing read it. `%=` is arithmetic too and stays out, not
+for want of a lowering: a remainder step is a fixed point after one application, whatever the
+start, so no `for` it heads would exit.
+
+**A loop that exits too late is told that, not that it does not exit.** The trip count is
+computed rather than walked, so the answer is exact at any size:
+
+| | before | after |
+| --- | --- | --- |
+| `for (let i: i32 = 0; i < 1024; i++)` | `for (i = 0; i < 1024; step 1) does not exit.` | `for trip count 1024 exceeds 256.` |
+| `for (let i: i32 = 0; i < 16; i--)` | `for (i = 0; i < 16; step -1) does not exit.` | `for (i = 0; i < 16; i -= 1) does not exit.` |
+
+The old counter walked the sequence and could only look 258 steps ahead, so a policy violation
+and a non-terminating loop shared one message. They are different mistakes and the fix for each
+is different: the first wants a smaller bound, the second a step that moves toward it. The
+second row is the loop that really does not exit, so it keeps its sentence; what changes there
+is only how the step is spelled back, since `i--` and `i -= 1` reach the counter as one step.
+
+**A loop that runs out of its type is a third answer**, and it used to wear the second one.
+`for (let i: i32 = 1; i < 2147483647; i *= 3)` does reach its bound, but only once `i` has
+passed what an `i32` holds, so what the hardware does on the way is an overflow and not an
+exit. It says `walks "i" outside the range of i32 before the condition fails.` and carries
+`TS8006` rather than `TS8007`, because that is a statement about the bound and not about
+termination.
+
+A step that cannot advance the variable says which way it fails: `i += 0`, `i *= 1`, `i *= 0`
+and `i /= 0` each get their own reason instead of one sentence about a step of 0. `i /= 0` is
+stuck rather than unpredictable, and the message says so: WGSL defines integer `x / 0` as `x`.
+
+A step the induction type cannot **hold** is refused at the source rather than retyped:
+`i *= 2.5` on an `i32` counter reads `does not fit "i", which is i32: 2.5 is not a whole
+number.`, and `i += 3000000000` reads `is outside its range.` Both used to become a literal of
+the counter's type that only the backend could refuse, naming a number the source does not
+contain. A step **written** as a float but valued as a whole number (`i += 2.0`) is still
+accepted, exactly as §13 accepts `let y: i32 = 0.`
+
+**What this does not cover.** A `while` is not trip-counted. It needs a compile-time-constant
+bound in its condition, but nothing checks that its body moves toward that bound, so
+`let w: i32 = 0; while (w < 4) { a += 1. }` compiles today with no diagnostic and spins on the
+device. And the multiplicative step has no `fn()` EDSL spelling, so `ir-equality.test.ts` has
+no twin to pin `i *= 2` against; the CPU trip count in `loop-shapes.test.ts` stands in for that
+until `forRange` takes a step operation.
+
 ## 18. A list as an array's initializer
 
 An `array<T, N>` takes a list where its type is written, in a function body and at module

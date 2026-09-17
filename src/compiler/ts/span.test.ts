@@ -8,7 +8,9 @@
 // invented would be worse than one that is sometimes absent.
 
 import { describe, expect, it } from 'vitest'
+import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
+import { compileTsSources } from './module.js'
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../../core/ir/nodes.js'
 import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js'
 import { autoVars } from '../../core/passes/opt/index.js'
@@ -53,6 +55,9 @@ export function shapes(n: i32): f32 {
       acc = 0.
     default:
       acc = acc * 1.
+  }
+  for (let j: i32 = 0; j < 8; j += 2) {
+    acc += 1.
   }
   return acc
 }
@@ -245,7 +250,8 @@ describe('source spans — every statement kind carries one', () => {
     expect(at(body[6]!)).toBe('let w: i32 = 0')
     expect(at(body[7]!)).toMatch(/^while \(w < 4\) \{/)
     expect(at(body[8]!)).toMatch(/^switch \(n\) \{/)
-    expect(at(body[9]!)).toBe('return acc')
+    expect(at(body[9]!)).toMatch(/^for \(let j: i32 = 0; j < 8; j \+= 2\) \{/)
+    expect(at(body[10]!)).toBe('return acc')
   })
 
   it('one declarator spans the whole statement, several span one each', () => {
@@ -423,6 +429,11 @@ export function f(x: f32): f32 {
       'w', // the `while` body
       'acc', // the switch case
       'acc', // its default
+      // The `j += 2` header, which lowers through a different arm of `lowerUpdate` than `i++`
+      // does. It is here because a merge with `main` silently dropped the `withSpan` on
+      // exactly that arm and nothing noticed: `i++` kept its span and the suite stayed green.
+      'j',
+      'acc', // that loop's body
     ])
   })
 
@@ -589,5 +600,97 @@ describe('source spans — survival through the passes that rebuild nodes', () =
     expect(irEqual(f, stripped)).toBe(true)
     // …and it still sees a real difference.
     expect(irEqual(f, { ...f, name: 'other' })).toBe(false)
+  })
+})
+
+// ═══ Which file a span names ═══
+//
+// A span's `file` is the only part of it that is not derived from the text: it is whatever the
+// caller said the source was called. Through `compileTsSource` a caller could always say;
+// through `compile`, the one entry point most hosts use, it could not, so every span came back
+// named `typeshade-input.ts`. That placeholder is harmless for a compile whose output is
+// shader text and wrong for one whose output is stepped — `DebugBreakpoint.file` is matched
+// against `span.file` — which is what `CompileOptions.fileName` is for.
+
+describe('naming the compiled file', () => {
+  const NAMED = `"use typeshade"
+
+export function fs(): f32 {
+  const a = 1.
+  return a
+}
+`
+
+  it('compile() still defaults to the placeholder', () => {
+    const { module } = compile(NAMED)
+    for (const s of byName(module, 'fs').body) {
+      expect(sourceSpanOf(s)!.file).toBe('typeshade-input.ts')
+    }
+  })
+
+  it('compile() names every span and every diagnostic when told the file name', () => {
+    const { module, diagnostics } = compile(NAMED, { fileName: 'shaders/blur.shade.ts' })
+    expect(diagnostics).toEqual([])
+    const fs = byName(module, 'fs')
+    expect(sourceSpanOf(fs)!.file).toBe('shaders/blur.shade.ts')
+    for (const s of fs.body) expect(sourceSpanOf(s)!.file).toBe('shaders/blur.shade.ts')
+  })
+
+  it('names the diagnostics of a source that does not compile', () => {
+    const { diagnostics } = compile(`"use typeshade"\nexport function fs(): f32 { return q }\n`, {
+      fileName: '/abs/path/broken.ts',
+    })
+    const errors = diagnostics.filter((d) => d.category === 'error')
+    expect(errors.length).toBeGreaterThan(0)
+    for (const d of errors) expect(d.fileName).toBe('/abs/path/broken.ts')
+  })
+
+  it('carries the name through, path-normalized the way TypeScript normalizes it', () => {
+    // Nothing here RESOLVES a path — no directory is consulted and nothing is read off disk —
+    // but the name is not carried verbatim either: a span's `file` is
+    // `ts.SourceFile.fileName`, and `ts.createSourceFile` rewrites separators and `./`
+    // segments. Pinned as an exact table because an adapter matching a breakpoint against
+    // this string needs to know which of the two it is, and because the debug side reproduces
+    // this same rule (`core/debug/file-name.ts`) to compare the two.
+    const named = (name: string): string =>
+      sourceSpanOf(byName(compile(NAMED, { fileName: name }).module, 'fs').body[0]!)!.file
+    expect(named('a.ts')).toBe('a.ts')
+    expect(named('/home/u/a.ts')).toBe('/home/u/a.ts')
+    expect(named('file:///home/u/a.ts')).toBe('file:///home/u/a.ts')
+    expect(named('./a.ts')).toBe('a.ts')
+    expect(named('C:\\shaders\\a.ts')).toBe('C:/shaders/a.ts')
+    expect(named('shaders/../a.ts')).toBe('a.ts')
+  })
+
+  it('does not move the emitted text', () => {
+    // The name is provenance, like the span that carries it. Two compiles of one source under
+    // two names are the same program.
+    const a = compile(NAMED, { fileName: 'one.ts' })
+    const b = compile(NAMED, { fileName: 'two.ts' })
+    expect(a.wgsl).toBe(b.wgsl)
+    expect(a.wgsl).toBe(compile(NAMED).wgsl)
+    expect(a.glsl).toEqual(b.glsl)
+  })
+
+  it('a multi-file program names each file its own statements came from', () => {
+    // `compileTsSources` parses each input under its own name already, so this is a lock, not
+    // a fix: it is what makes a cross-file `SourceSpan` mean anything, and nothing tested it.
+    const r = compileTsSources([
+      {
+        fileName: 'lib/util.ts',
+        source: `"use typeshade";\nexport function half(x: f32): f32 {\n  const h = x * 0.5;\n  return h;\n}\n`,
+      },
+      {
+        fileName: 'app/main.ts',
+        source: `"use typeshade";\nimport { half } from "../lib/util";\nexport function fs(): f32 {\n  const a = 2.;\n  return half(a);\n}\n`,
+      },
+    ])
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const filesOf = (name: string): string[] => {
+      const f = r.funcs.find((x) => x.name === name)!
+      return [sourceSpanOf(f), ...f.body.map((s) => sourceSpanOf(s))].map((sp) => sp!.file)
+    }
+    expect(new Set(filesOf('half'))).toEqual(new Set(['lib/util.ts']))
+    expect(new Set(filesOf('fs'))).toEqual(new Set(['app/main.ts']))
   })
 })
