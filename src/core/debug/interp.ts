@@ -400,7 +400,7 @@ export function* execBody(
         env.set(s.name, yield* evalExpr(s.expr, env, ctx))
         break
       case 'var':
-        env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type))
+        env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type, ctx.structs))
         break
       case 'assign':
         yield* setLValue(s.target, yield* evalExpr(s.expr, env, ctx), env, ctx)

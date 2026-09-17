@@ -208,7 +208,7 @@ Class fields carry `@location` / `@builtin`; field `@align` is a deliberate erro
 **Status:** done (`lower/control.ts`, `loop-bound.ts`, `index-bound.ts`;
 `control-flow.test.ts`, `for-loop.test.ts`, `loop-bound.test.ts`, `switch-array.test.ts`,
 `index-bound.test.ts`). Unbounded and non-inductive loops are rejected
-(`TS8006`–`TS8008`), `break` outside a loop is `TS8009`.
+(`TS8006`–`TS8008`), `break` outside a loop or a `switch` is `TS8009`.
 
 ### Phase 10 — Diagnostics + Source Mapping 🟨 partial
 

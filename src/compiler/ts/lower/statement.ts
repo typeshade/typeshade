@@ -3,7 +3,7 @@
 import ts from 'typescript'
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { isVec, isVec64, typeKey } from '../../../core/ir/types.js'
+import { isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, readOnlyPhrase } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -12,6 +12,7 @@ import { lowerExpression } from './expression.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
+import { foldNumericLit } from '../lit-coerce.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -20,6 +21,19 @@ const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.AsteriskEqualsToken]: '*',
   [ts.SyntaxKind.SlashEqualsToken]: '/',
   [ts.SyntaxKind.PercentEqualsToken]: '%',
+}
+
+/** The bitwise compound assignments (#8 A10). Separate from {@link ASSIGN_OP} because they
+ *  carry a rule the arithmetic five do not: the target must be an integer scalar. The
+ *  `assignOp` IR node and both CPU backends have always taken them — the oracle's own
+ *  comment names `x >>= y` on an i32 target — so this is the spelling catching up, not a
+ *  new operation. */
+const BITWISE_ASSIGN_OP: Readonly<Record<number, BinOp>> = {
+  [ts.SyntaxKind.AmpersandEqualsToken]: '&',
+  [ts.SyntaxKind.BarEqualsToken]: '|',
+  [ts.SyntaxKind.CaretEqualsToken]: '^',
+  [ts.SyntaxKind.LessThanLessThanEqualsToken]: '<<',
+  [ts.SyntaxKind.GreaterThanGreaterThanEqualsToken]: '>>',
 }
 
 export function lowerStatements(
@@ -77,7 +91,12 @@ function lowerStatementNode(
   if (ts.isWhileStatement(node)) return lowerWhile(node, sourceFile, scope, diagnostics)
   if (ts.isSwitchStatement(node)) return lowerSwitch(node, sourceFile, scope, diagnostics)
   if (ts.isBreakStatement(node)) {
-    if (!scope.inLoop()) {
+    // The message has always said "loop or switch"; only the loop half was checked, so the
+    // `break` every TypeScript author ends a `case` with was rejected by the very sentence
+    // that said it was allowed (#8 A10). lowerSwitch drops a TRAILING break — the IR switch
+    // has no fall-through and each backend writes its own case terminator — so this reaches
+    // the IR only for a break that leaves the switch early, which is a real statement.
+    if (!scope.inLoop() && !scope.inSwitch()) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -208,14 +227,35 @@ function lowerVariableDeclaration(
     if (!annotated) return undefined
   }
   if (!decl.initializer) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl,
-      `"${isConst ? 'const' : 'let'} ${name}" requires an initializer.`,
-      TS_CODES.UNSUPPORTED,
-    )
-    return undefined
+    // `let x: f32;` — declare now, assign later (#8 A10). WGSL's `var x: f32;` and GLSL's
+    // `float x;` are the same statement, `Stmt.var.init` has always been optional, and the
+    // EDSL spells it `Var(f32T)`; only this surface insisted on a value. A `const` has
+    // nothing to assign later, and an unannotated `let` has no type to declare, so both
+    // keep a refusal — now one that says which of the two is missing.
+    if (isConst) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl,
+        `"const ${name}" requires an initializer.`,
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
+    if (!annotated) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl,
+        `"let ${name}" without an initializer needs a type annotation, e.g. let ${name}: f32;`,
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
+    if (!defineLocal(name, annotated, true, undefined, decl, sourceFile, scope, diagnostics)) {
+      return undefined
+    }
+    return withSpan({ s: 'var', name, type: annotated } as Stmt, sourceFile, spanNode)
   }
   let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
   if (!init) return undefined
@@ -238,8 +278,29 @@ function lowerVariableDeclaration(
   }
   const bindingType = annotated ?? init.type
   const constValue = init.op === 'lit' ? init.value : undefined
+  if (!defineLocal(name, bindingType, !isConst, constValue, decl, sourceFile, scope, diagnostics)) {
+    return undefined
+  }
+  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, spanNode)
+  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, spanNode)
+}
+
+/** Register a local binding, turning the scope's throw into a diagnostic on the declaration.
+ *  Shared by the two declaration shapes — with an initializer and without.
+ *
+ *  @returns `true` when the binding was defined, `false` after pushing a diagnostic. */
+function defineLocal(
+  name: string,
+  type: ShaderType,
+  mutable: boolean,
+  constValue: number | boolean | undefined,
+  decl: ts.VariableDeclaration,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
   try {
-    scope.define({ kind: 'local', name, type: bindingType, mutable: !isConst, constValue })
+    scope.define({ kind: 'local', name, type, mutable, constValue })
   } catch (e) {
     pushDiag(
       diagnostics,
@@ -248,18 +309,14 @@ function lowerVariableDeclaration(
       e instanceof Error ? e.message : String(e),
       TS_CODES.DUPLICATE_SYMBOL,
     )
-    return undefined
+    return false
   }
-  // #51 records the NAME's span with the declared type, for hover; the stamp below records
-  // the STATEMENT's, for stepping. Complementary, and both wanted here.
-  scope.recordDeclaration(sourceFile, decl.name, {
-    name,
-    kind: 'local',
-    type: bindingType,
-    mutable: !isConst,
-  })
-  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, spanNode)
-  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, spanNode)
+  // #51 records the NAME's span with the declared type, for hover; the caller's `withSpan`
+  // records the STATEMENT's, for stepping (#32). Complementary, and both wanted. This sits
+  // here rather than at the one call site it had, so the declaration WITHOUT an initializer
+  // (`let x: f32;`) is recorded too — the editor should know a name the language now accepts.
+  scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable })
+  return true
 }
 
 function lowerExpressionStatement(
@@ -279,6 +336,21 @@ function lowerExpressionStatement(
     const bop = ASSIGN_OP[expr.operatorToken.kind]
     if (bop !== undefined)
       return lowerAssignOp(expr.left, bop, expr.right, sourceFile, scope, diagnostics)
+    const bit = BITWISE_ASSIGN_OP[expr.operatorToken.kind]
+    if (bit !== undefined)
+      return lowerBitwiseAssignOp(expr.left, bit, expr.right, sourceFile, scope, diagnostics)
+    if (expr.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken) {
+      // The same refusal `a >>> b` gets in lowerBinary, so the two spellings of an
+      // unsupported operator do not disagree about why they are unsupported.
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        'Unsigned right shift >>>= is not supported.',
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
   }
   pushDiag(
     diagnostics,
@@ -312,6 +384,86 @@ function lowerAssign(
     return undefined
   }
   return { s: 'assign', target, expr: value }
+}
+
+/**
+ * Lower `y <<= 1` and its four siblings (`>>=`, `&=`, `|=`, `^=`) — #8 A10.
+ *
+ * Kept apart from {@link lowerAssignOp} for one reason: the bitwise operators are defined
+ * on integers only, and this is a form nothing accepted before, so refusing a float target
+ * here rejects no source that compiles today. (`a & b` as an EXPRESSION has no such guard
+ * and emits `(a & b)` for two `f32`s, which is not valid WGSL — a pre-existing hole that
+ * tightening would break passing source, so it is left for its own change.)
+ *
+ * @returns the `assignOp` statement, or `undefined` after pushing a diagnostic.
+ */
+function lowerBitwiseAssignOp(
+  left: ts.Expression,
+  bop: BinOp,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
+  const target = lowerLValue(left, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  const k = typeKey(target.type)
+  if (k !== 'i32' && k !== 'u32') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      left,
+      `Bitwise "${bop}=" needs an i32 or u32 target, got ${k}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  let value = lowerExpression(right, sourceFile, scope, diagnostics)
+  if (!value) return undefined
+  // A SHIFT amount is a u32 whatever the target is: WGSL's only scalar overload is
+  // `e1 << e2` with `e2: u32`, so `y <<= k` with an i32 `k` on an i32 target emitted
+  // `y <<= k;`, which Tint refuses (`no matching overload for 'operator <<= (i32, i32)'`),
+  // while the one spelling it accepts — a u32 amount — was refused here by the equality rule.
+  // An integer literal takes u32, an i32 amount goes through the `u32(...)` cast the surface
+  // already has, and GLSL ES 3.00 allows the mixed signedness that produces. `&`, `|` and `^`
+  // keep the equality rule: there both operands must be the one type on both targets.
+  const isShift = bop === '<<' || bop === '>>'
+  const want = isShift ? u32T : target.type
+  // Folded first, so a leading minus is part of the number: `y |= -2` reaches here as a unop
+  // over a literal, which the `op === 'lit'` retype below never matched, and the author was
+  // told their i32 target could not take an f32.
+  const folded = foldNumericLit(value)
+  if (folded.op === 'lit' && typeof folded.value === 'number' && Number.isInteger(folded.value)) {
+    if (folded.value < 0 && (isShift || typeKey(want) === 'u32')) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        right,
+        isShift
+          ? `Bitwise "${bop}=" needs a non-negative shift amount, got ${String(folded.value)}.`
+          : `Bitwise "${bop}=" on a u32 target needs a non-negative value, got ${String(folded.value)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    value = { op: 'lit', type: want, value: folded.value }
+  }
+  if (isShift && typeKey(value.type) === 'i32') {
+    value = { op: 'call', type: u32T, fn: 'u32', args: [value] }
+  }
+  if (typeKey(value.type) !== typeKey(want)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      isShift
+        ? `Bitwise "${bop}=" needs an i32 or u32 shift amount, got ${typeKey(value.type)}.`
+        : numericMismatch(`${bop}=`, target.type, value.type),
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return { s: 'assignOp', target, bop, expr: value }
 }
 
 function lowerAssignOp(
