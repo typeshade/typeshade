@@ -326,6 +326,13 @@ function lowerExpressionStatement(
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
   const expr = node.expression
+  // `discard;` — WGSL's fragment kill, which the IR already carries as its own statement and
+  // both writers spell (`discard;` in WGSL, `discard;` in GLSL ES 3.00). It reads to the TS
+  // parser as an expression statement naming `discard`, so it is caught here, before the
+  // identifier is looked up as a value and reported as unknown.
+  if (ts.isIdentifier(expr) && expr.text === 'discard' && !scope.resolve('discard')) {
+    return { s: 'discard' }
+  }
   if (ts.isPrefixUnaryExpression(expr) || ts.isPostfixUnaryExpression(expr)) {
     return lowerUpdate(expr, sourceFile, scope, diagnostics)
   }

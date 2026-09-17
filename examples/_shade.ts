@@ -234,6 +234,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     twinOf: 'gradient',
   },
   {
+    id: 'cutout',
+    title: 'Cutout (source language)',
+    blurb:
+      "`discard` in a helper the fragment entry calls, with `fwidth` softening the rim and `saturate`, `exp2` and `**` shaping the falloff — the example that carries #8 A6's spellings to Tint and a real WebGL2 context. Renders a circular cutout with a radial centre-to-rim gradient.",
+    renderable: true,
+  },
+  {
     id: 'compute-reduction-twin',
     title: 'Compute reduction (source twin)',
     blurb:
