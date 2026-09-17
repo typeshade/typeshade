@@ -126,6 +126,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'textured-quad',
+    title: 'Texture, sampler and overrides',
+    blurb:
+      'A fullscreen triangle sampling a `texture_2d<f32>` through a `sampler`, tinted by two `override<f32>` specialization constants — WGSL declares the handles and the overrides, GLSL ES 3.00 fuses texture and sampler into one `sampler2D` and spells each override as a `#define`.',
+    renderable: true,
+  },
+  {
     id: 'palette-const',
     title: 'Module vector and array constants',
     blurb:
