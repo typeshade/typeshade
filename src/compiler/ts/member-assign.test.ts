@@ -559,11 +559,11 @@ describe('what ++ and -- step', () => {
   })
 
   it('names an addition to write only where that addition compiles', () => {
-    // The `e.g.` clause is carried by the one vector kind whose written-out addition is
-    // accepted. `v + vec2i(1, 1)` is TS8003 (a bare literal one is not an `i32`; it takes an
-    // annotated `const one: i32 = 1` first), and no filling of `vec3f64(...)` compiles at all,
-    // so those kinds name no example rather than one the compiler then refuses. Each spelling
-    // below was compiled to check which way it goes.
+    // The `e.g.` clause is carried by the vector kinds whose written-out addition is accepted:
+    // the native ones. `v + vec2i(1, 1)` compiles since #8 A3 typed a literal inside a vector
+    // constructor from its element, and no filling of `vec3f64(...)` compiles at all, so that
+    // kind names no example rather than one the compiler then refuses. Each spelling below was
+    // compiled to check which way it goes.
     expect(
       diagnose('export function f(): vec3 {\n  let v = vec3(1., 2., 3.);\n  v++;\n  return v;\n}'),
     ).toContain('e.g. v = v + vec3(1., 1., 1.)')
@@ -573,24 +573,24 @@ describe('what ++ and -- step', () => {
       ).diagnostics,
     ).toEqual([])
 
-    for (const [program, message] of [
+    for (const [program, hint] of [
       [
         'export function f(x: i32): vec2i {\n  let v = vec2i(x, x);\n  v++;\n  return v;\n}',
-        'Cannot apply ++ to vec2<i32>: a vector has no literal to step by. Write the addition out.',
+        'e.g. v = v + vec2i(1, 1)',
       ],
       [
         'export function f(x: u32): vec3u {\n  let v = vec3u(x, x, x);\n  v++;\n  return v;\n}',
-        'Cannot apply ++ to vec3<u32>: a vector has no literal to step by. Write the addition out.',
+        'e.g. v = v + vec3u(1, 1, 1)',
       ],
     ] as const) {
-      expect(diagnose(program)).toBe(message)
+      expect(diagnose(program)).toContain(hint)
     }
-    // …and why the integer kinds carry no example: the obvious one does not compile.
+    // ...and the integer example is one that compiles, which is what earns it the clause.
     expect(
       compileTsSource(
         '"use typeshade";\nexport function f(x: i32): vec2i {\n  let v = vec2i(x, x);\n  v = v + vec2i(1, 1);\n  return v;\n}',
-      ).diagnostics.map((d) => d.code),
-    ).toContain('TS8003')
+      ).diagnostics,
+    ).toEqual([])
   })
 
   it('declares the df64 helper the f64 step calls, on a member and on an element', () => {

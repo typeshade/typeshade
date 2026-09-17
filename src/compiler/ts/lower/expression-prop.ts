@@ -7,6 +7,7 @@ import type { LoweringScope } from '../context.js'
 import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js'
 import { parseSwizzle } from '../swizzle.js'
 import { numericMismatch } from '../numeric.js'
+import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -248,16 +249,23 @@ export function lowerObjectLiteral(
     }
   }
   const fieldType = new Map(match.fields.map((f) => [f.name, f.type]))
-  const given: { name: string; expr: Expr }[] = []
+  const given: { name: string; expr: Expr; node: ts.Expression }[] = []
   for (const p of props) {
     const expr = lowerExpression(p.value, sourceFile, scope, diagnostics, fieldType.get(p.name))
     if (!expr) return undefined
-    given.push({ name: p.name, expr })
+    given.push({ name: p.name, expr, node: p.value })
   }
   const byName = new Map(given.map((g) => [g.name, g.expr]))
+  const nodeByName = new Map(given.map((g) => [g.name, g.node]))
   const args: Expr[] = []
   for (const field of match.fields) {
-    const expr = byName.get(field.name)
+    // `{ id: 0 }` takes the field's type when it is i32 or u32 (#8 A3). Distinct from the
+    // context this item passes down: that decides which STRUCT a nested literal builds, this
+    // retypes an integer literal once the field's own type is known. Both need the struct
+    // resolved first, which is why they sit on the same side of that decision.
+    const named = byName.get(field.name)
+    const namedNode = nodeByName.get(field.name)
+    const expr = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named
     if (!expr) {
       pushDiag(
         diagnostics,

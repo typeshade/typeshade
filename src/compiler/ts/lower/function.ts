@@ -395,8 +395,10 @@ export function fillFunctionBody(
 ): void {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
-  // The declared return type, so a `return { … }` knows which struct it builds (#8 A11).
+  // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3),
+  // and `return { … }` knows which struct it builds (#8 A11). One field, two readers.
   scope.setReturnType(stub.ret)
+
   // Every module-scope define is guarded, because `scope.define` THROWS on a repeat and this
   // is the last place a collision between two collectors can land. Each collector reports its
   // own duplicates, so a name arriving twice here has already been diagnosed — an override

@@ -270,10 +270,9 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §§9 and 10 below are issue #8's A2 and A6, which reserved those numbers while
-they were in flight. §13 stays reserved for A3, which is still in flight on its own branch and
-appends here in issue order. §16 is A15, on its own branch. §17 is A11. The sections took the
-next free numbers so the A-item branches do not all claim §9 and collide on merge.
+**Numbering:** §§9, 10 and 13 below are issue #8's A2, A6 and A3, which reserved those numbers
+while they were in flight and appended here in issue order. §16 is A11. The sections took the
+next free numbers so the A-item branches did not all claim §9 and collide on merge.
 
 ---
 
@@ -325,10 +324,10 @@ shader text on any target. Write the addition out instead:
 v = v + vec3(1., 1., 1.)   // instead of v++ on a vec3
 ```
 
-An `i32` or `u32` vector takes an annotated one for the same addition (`const one: i32 = 1;`
-then `v = v + vec2i(one, one)`), because a bare literal `1` inside `vec2i(…)` is `TS8003`; a
+An `i32` or `u32` vector takes the same addition with bare literals, `v = v + vec2i(1, 1)`,
+because a literal inside a vector constructor takes the constructor's element type (§13); a
 `vec3f64` has no literal spelling at all, so its addition needs values that are already `f64`.
-The refusal names an example only for the kind whose example compiles.
+The refusal names an example only for the kinds whose example compiles.
 
 Lowering is the same `assign` / `assignOp` the EDSL's `v.x.assign(a)` and `o.pos.assign(v)`
 produce, so the two surfaces stay IR-equal here.
@@ -497,6 +496,90 @@ runs without the struct table, and the surface has no matrix constructor.
 
 ---
 
+## 13. Integer literals
+
+A number written without a decimal point takes the type the position around it **declares**.
+It is WGSL's abstract-integer rule, narrowed to the places where a type is actually stated:
+
+```ts
+"use typeshade"
+
+const N: u32 = 16 // the declared type — on the IR; see the note below
+
+class Id {
+  id: u32
+}
+
+export function g(a: i32): i32 {
+  return a
+}
+
+export function positions(i: i32, c: bool, xs: array<f32, 4>): u32 {
+  let j: i32 = -1 // the declared type, sign and all
+  let x: u32 = N // the assignment target's type…
+  x = 2 // …here
+  const s: Id = { id: 0 } // the struct field's type
+  const v = vec3u(1, 2, 3) // the constructor's element type
+  const t: u32 = c ? 1 : 2 // through both arms, from the position around it
+  let acc = 0.
+  for (let k = 0; k < 4; k++) {
+    // i32, the type an induction variable must have
+    acc += xs[0] // an index is an i32
+  }
+  return u32(g(1) + j) + x + s.id + v.x + t + u32(acc) + u32(min(i, 4))
+  //         ^ the parameter's type              ^ the kind of the call's other arguments
+}
+
+export function ret(): u32 {
+  return 0 // the declared return type
+}
+```
+
+Only a declared **integer** type changes anything. In every float position the literal stays
+an `f32` exactly as before — `g(2)` where `g` takes an `f32` is `g(2.0)`, `mix(a, b, 1)` is
+`mix(a, b, 1.0)`, and a call whose arguments are all written numbers (`min(1, 2)`) is
+untouched.
+
+A minus sign in front of a literal is part of the literal for this purpose. `let j: i32 = -1`
+and `for (let j: i32 = -1; …)` take `i32` the way `let j: i32 = 1` does; the negative form used
+to be told to cast an integer the author had already written, and inside a `for` init it emitted
+`var j: i32 = -1.0`, which no backend accepts (issue #40).
+
+A declaration is the one position with a carve-out, kept from before this item: a single
+literal written as a float but valued as a whole number takes the declared integer type there,
+so `let y: i32 = 0.`, `let y: u32 = 0.`, `let y: i32 = 1e3` and `for (let k: u32 = 0.; …)`
+compile as they always did. Only a single literal does. `let y: i32 = 2.5 + 0.5` and
+`let y: i32 = -1.` are the mismatches they always were, and `let y: i32 = 1.5` is reported at
+the source where it used to fail in the backend. A return, an argument and a field never had
+the carve-out.
+
+Two classes of emitted text move with this item, and neither was a program before: an integer
+literal beside an integer peer in a builtin call (`min(i, 4.0)` is `min(i, 4u)` now), and a
+`for` init that spelled a float literal into an integer `var` (`for (var k: i32 = -1.0; …)`
+is `-1` now).
+
+A literal that is not an integer stays what it is and is diagnosed against the declared type:
+`return 1.5` in a `u32` function is still a type mismatch, and so is passing an `i32` value
+where a `u32` is declared. There is no implicit conversion between types — only a literal,
+which has no type of its own until something states one.
+
+Three edges of the rule, each of which the diagnostics still cover:
+
+- **It is about how the number is WRITTEN, not what it folds to.** `return 2 + 3` in a `u32`
+  function is `return 5u;`, but `return 2.5 + 0.5` is a type mismatch — every leaf of the
+  arithmetic has to be an integer literal.
+- **The value has to fit.** `return -1` in a `u32` function, or `2147483648` in an `i32` one,
+  is left exactly as written and reported as the mismatch it always was.
+- **A literal in a builtin call's FIRST argument does not retype the call.** An intrinsic's
+  result type is its first argument's, so `min(1, i)` with an `i32` `i` still types the call
+  `f32` and emits `min(1.0, i)` — which WGSL does not accept. The position this rule is for is
+  the other one, `min(i, 4)`, where the literal is not what decides the type. Fixing the first
+  position means changing how every intrinsic's result type is decided, which is not additive.
+
+`const N: u32 = 16` is the **front end** only: the `ConstDecl` it builds carries `u32` and
+`16`, and the backend's `emitConst` still spells every scalar constant with a float literal,
+so the emitted line reads `const N: u32 = 16.0;`. That half is issue #13, with #17 as its fix.
+
 ## 14. TypeScript shapes the parser already had
 
 Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
@@ -582,10 +665,6 @@ reached the backends as a statement: WGSL emitted `case 0: { r = 1.0; break; }` 
 because the drop is what makes a case body mean the same thing inside a loop and outside one.
 The behaviour is identical on all three backends; only the text is one statement shorter.
 
-
-
-Last updated: 2026-09-14
-
 ## 15. Textures, samplers and overrides
 
 Three declarations the surface had no spelling for. None of them is a new IR shape: a
@@ -660,8 +739,7 @@ before this item is the one thing that changes here.
 Left for later: `texture_2d_ms<f32>`, whose multisampled load neither backend here reaches, and
 the storage-texture forms.
 
-
-## 17. Object literals take the declared struct
+## 16. Object literals take the declared struct
 
 Which struct `{ … }` builds comes from the type the position **declares**: a function's
 return type, a `let`/`const` annotation, or a parameter type.

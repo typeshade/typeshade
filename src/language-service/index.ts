@@ -28,5 +28,12 @@ export {
 } from './service.js'
 
 export { SHADE_DTS, WGSL_BUILTIN_NAMES, ATTRIBUTE_NAMES } from './ambient.js'
-export { TYPE_DOCS, ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js'
+export {
+  TYPE_DOCS,
+  ATTRIBUTE_DOCS,
+  BUILTIN_DOCS,
+  FUNCTION_DOCS,
+  CONSTANT_DOCS,
+  MATH_MEMBER_DOCS,
+} from './docs.js'
 export { positionAt, offsetAt, rangeForSpan, spanForRange } from './positions.js'
