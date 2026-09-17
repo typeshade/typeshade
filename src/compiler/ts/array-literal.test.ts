@@ -78,10 +78,10 @@ export function fs(): Out {
   })
 
   it('takes an integer element type, which the call form cannot spell', () => {
-    // The call form lowers each argument on its own, so `array<i32, 3>(1, 2, 3)` emits
-    // `array<i32, 3>(1.0, 2.0, 3.0)` — float literals in an i32 array, which Tint rejects
-    // (that is #8 A3's to fix at the call site). The list is lowered AGAINST the annotation,
-    // so it knows what each element must be.
+    // The call form lowers each argument on its own, so `array<i32, 3>(1, 2, 3)` still emits
+    // `array<i32, 3>(1.0, 2.0, 3.0)` — float literals in an i32 array, which Tint rejects.
+    // #8 A3 has landed and did not close that; it is a gap in the call site, not in the list.
+    // The list is lowered AGAINST the annotation, so it knows what each element must be.
     expect(wgslOf(src('  const xs: array<i32, 3> = [1, 2, 3];\n  return xs[0];', 'i32'))).toContain(
       'array<i32, 3>(1, 2, 3)',
     )
@@ -169,6 +169,76 @@ describe('what a list is refused for', () => {
   it('names the two spellings that do work when a list is written elsewhere', () => {
     expect(diagnose(src('  return sum([1., 2.]);'))).toBe(
       'A list is only an initializer: write it as "const xs: array<T, 2> = [...]", or call array<T, 2>(...) here.',
+    )
+  })
+
+  it('takes the element type by the rule a scalar declaration uses, and reports what it refuses', () => {
+    // `retargetDeclaredIntLit` is #8 A3's own helper, so an element and a scalar declaration
+    // answer the same question the same way. Before this, all three of these were retyped to a
+    // literal the element type cannot spell and only the BACKEND caught them, as
+    // `TS8015 Backend emit failed: SD0017` naming a number the source does not contain.
+    expect(diagnose(src('  const xs: array<i32, 2> = [1.5, 2];\n  return xs[0];', 'i32'))).toBe(
+      'array<i32, 2> element 0 must be i32, got f32. There is no implicit conversion; cast it.',
+    )
+    expect(diagnose(src('  const xs: array<u32, 2> = [-1, 2];\n  return xs[0];', 'u32'))).toBe(
+      'array<u32, 2> element 0 must be u32, got f32. There is no implicit conversion; cast it.',
+    )
+    expect(
+      diagnose(src('  const xs: array<i32, 2> = [3000000000, 2];\n  return xs[0];', 'i32')),
+    ).toBe(
+      'array<i32, 2> element 0 must be i32, got f32. There is no implicit conversion; cast it.',
+    )
+    // And what that rule ACCEPTS stays accepted: a single literal written as a float but
+    // valued as a whole number, exactly as §13 accepts `const x: i32 = 1.`
+    expect(wgslOf(src('  const xs: array<i32, 2> = [1., 2.];\n  return xs[0];', 'i32'))).toContain(
+      'array<i32, 2>(1, 2)',
+    )
+  })
+
+  it('refuses an array of arrays, because GLSL ES 3.00 has none', () => {
+    // Measured through the compile gate on both spellings of the same program: the list and
+    // `array<array<f32, 2>, 2>(...)` each pass Tint and each fail the WebGL2 context with
+    // "arrays of arrays supported in GLSL ES 3.10 and above only". Accepting the list would
+    // ship a declaration that compiles on one target and not the other. The same rule
+    // `module-const.ts` already applies to a module-scope array constant.
+    expect(
+      diagnose(
+        src('  const xs: array<array<f32, 2>, 2> = [[1., 2.], [3., 4.]];\n  return xs[0][0];'),
+      ),
+    ).toBe(
+      'array<array<f32,2>, 2> is an array of arrays, which GLSL ES 3.00 does not have. ' +
+        'Flatten it: one array<f32, N> indexed by row * width + column.',
+    )
+    // A list where the element type does not take one says which type is wanted, rather than
+    // the generic "a list is only an initializer", which reads as if the annotation were the
+    // thing missing.
+    expect(diagnose(src('  const xs: array<f32, 2> = [[1.], 2.];\n  return xs[0];'))).toBe(
+      'array<f32, 2> element 0 must be f32, and a list is not one.',
+    )
+  })
+
+  it('takes a list at module scope too, against the same annotation', () => {
+    // Refused before with "a list is only an initializer" and then `Unknown identifier` on
+    // every use. The node is the array `construct` that `array<f32, 3>(...)` already produced
+    // here, which ConstDecl.valueExpr has carried since #8 A9, so this reaches no new path.
+    const r = compileTsSource(`"use typeshade";
+      const STOPS: array<f32, 3> = [0., 0.5, 1.];
+      export function f(): f32 {
+        return STOPS[1];
+      }
+    `)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('array<f32, 3>(0.0, 0.5, 1.0)')
+    // Without the annotation there is no type to fill, and the message says so for a module
+    // const in its own words rather than pointing at a local.
+    const bare = compileTsSource(`"use typeshade";
+      const STOPS = [0., 0.5, 1.];
+      export function f(): f32 {
+        return STOPS[1];
+      }
+    `)
+    expect(bare.diagnostics.map((d) => d.message)).toContain(
+      'Module const "STOPS" needs an array type annotation to take a list, e.g. const STOPS: array<f32, 3> = [...].',
     )
   })
 })

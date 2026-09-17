@@ -15,7 +15,7 @@ import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from 
  *  module — the GLSL writer dropped the uniform block while keeping the uses, and
  *  `reflect()` reported no stages for anything. A binding is a module-scope `var`, not a
  *  const, and it now says so. */
-export type BindingKind = 'param' | 'local' | 'module' | 'binding'
+export type BindingKind = 'param' | 'local' | 'module' | 'binding' | 'override'
 
 /** How a "cannot assign" diagnostic names what the target is. One helper because the three
  *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
@@ -32,6 +32,8 @@ export function readOnlyPhrase(kind: BindingKind): string {
       return 'a read-only resource'
     case 'module':
       return 'a module const'
+    case 'override':
+      return 'an override constant, set by the pipeline'
     case 'param':
     case 'local':
       return 'declared with const'
@@ -62,6 +64,8 @@ export class LoweringScope {
   private readonly structs = new Map<string, StructDecl>()
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
+  private retType: ShaderType | undefined
+  private switchDepth = 0
 
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
     this.callees = callees ?? new Map()
@@ -92,6 +96,35 @@ export class LoweringScope {
     return this.loopDepth > 0
   }
 
+  /** The declared return type of the function whose body is being lowered, so a `return` can
+   *  be checked and typed against it: `return 0` takes it (#8 A3) and `return { … }` takes the
+   *  struct it names (#8 A11). Undefined outside a function body — at module-constant
+   *  collection, for instance. INSIDE one it is always set, `parseSignature` supplying `voidT`
+   *  for a function with no annotation, which is the distinction that decides whether a bare
+   *  `return 0` is retyped. */
+  setReturnType(t: ShaderType | undefined): void {
+    this.retType = t
+  }
+
+  returnType(): ShaderType | undefined {
+    return this.retType
+  }
+
+  enterSwitch(): void {
+    this.switchDepth++
+  }
+
+  exitSwitch(): void {
+    this.switchDepth = Math.max(0, this.switchDepth - 1)
+  }
+
+  /** Whether a `break` here would leave a `switch`. Tracked apart from {@link inLoop}
+   *  because `continue` is a loop statement only: a `switch` that is not inside a loop
+   *  takes the one and refuses the other. */
+  inSwitch(): boolean {
+    return this.switchDepth > 0
+  }
+
   setStructs(list: readonly StructDecl[]): void {
     this.structs.clear()
     for (const s of list) this.structs.set(s.name, s)
@@ -99,6 +132,14 @@ export class LoweringScope {
 
   fieldType(structName: string, field: string): ShaderType | undefined {
     return this.structs.get(structName)?.fields.find((f) => f.name === field)?.type
+  }
+
+  /** The collected struct with this name, or undefined. The lookup a CONTEXTUAL type needs:
+   *  a declared `vec4`-shaped `VsOut` names its struct outright, where {@link matchStruct} can
+   *  only guess from the field names and cannot answer at all when two structs share a shape
+   *  (#8 A11). */
+  structByName(name: string): StructDecl | undefined {
+    return this.structs.get(name)
   }
 
   matchStruct(fieldNames: readonly string[]): StructDecl | undefined {

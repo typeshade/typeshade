@@ -6,7 +6,8 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
-import { foldNumericLit } from '../lit-coerce.js'
+import { foldNumericLit, isIntScalar, retargetDeclaredIntLit } from '../lit-coerce.js'
+import { USER_FIRST_BUILTINS, isCanonicalMathFn } from '../math-alias.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -34,7 +35,10 @@ export function lowerArrayCtor(
   const n = mapped.size
   const args: Expr[] = []
   for (const arg of node.arguments) {
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    // `mapped.elem` is the position each element sits in, so an object-literal element knows
+    // which struct it builds: `array<A, 2>({ … }, { … })` is two DECLARED positions, spelled
+    // in the constructor's own type argument rather than on a variable (#8 A11).
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem)
     if (!lowered) return undefined
     args.push(lowered)
   }
@@ -78,6 +82,23 @@ export function lowerArrayLiteral(
     )
     return undefined
   }
+  if (target.elem.kind === 'array') {
+    // An array OF arrays, refused for the reason `module-const.ts` already refuses one: the
+    // GLSL ES 3.00 writer spells the element type inline and ANGLE answers "arrays of arrays
+    // supported in GLSL ES 3.10 and above only", while Tint accepts the WGSL. Measured through
+    // the compile gate on both spellings of the same program: `[[1., 2.], [3., 4.]]` and
+    // `array<array<f32, 2>, 2>(...)` each pass Tint and each fail the WebGL2 context, so
+    // accepting the list here would ship a declaration that compiles on one target and not the
+    // other. The call form is refused nowhere yet and is a separate gap.
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `array<${typeKey(target.elem)}, ${target.size ?? node.elements.length}> is an array of arrays, which GLSL ES 3.00 does not have. Flatten it: one array<${typeKey(target.elem.elem)}, N> indexed by row * width + column.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   if (target.size === undefined) {
     pushDiag(
       diagnostics,
@@ -114,16 +135,37 @@ export function lowerArrayLiteral(
   }
   const args: Expr[] = []
   for (const [i, element] of node.elements.entries()) {
+    // A list as an ELEMENT is named here rather than left to the generic "a list is only an
+    // initializer" refusal, which reads as if the declaration were missing when it is the
+    // element type that does not take one. The only element type that could take a list is
+    // another array, and that is refused above, so this arm says which type is wanted.
+    if (ts.isArrayLiteralExpression(element)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        element,
+        `array<${typeKey(target.elem)}, ${target.size}> element ${i} must be ${typeKey(target.elem)}, and a list is not one.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
     let lowered = lowerExpression(element, sourceFile, scope, diagnostics)
     if (!lowered) return undefined
-    // Only a number the author WROTE is retyped. `i32(2)` is a written type, not a literal
-    // waiting for one, so it stays i32 and is reported against an f32 element below — the same
-    // line the scalar declaration draws for `const x: f32 = i32(2)`.
+    // An element takes the element type by exactly the rule a scalar declaration uses, which
+    // is `retargetDeclaredIntLit` itself (#8 A3): what is WRITTEN as an integer and FITS is
+    // retyped, and a single literal written as a float but valued as a whole number is kept,
+    // the way `const x: i32 = 1.` is. Everything else is left alone and reported by the
+    // element check below, so `[1.5, 2]`, `[-1, 2]` into a u32 array and `[3000000000, 2]`
+    // get the element message rather than reaching the backend as an unspellable literal.
+    // `i32(2)` states its own type and is not a literal waiting for one, so it stays i32 and
+    // is reported against an f32 element, the same line `const x: f32 = i32(2)` draws.
+    lowered = retargetDeclaredIntLit(lowered, element, target.elem)
     if (isBareNumericLiteral(element) && isNumericScalar(target.elem)) {
-      // Folded first, so a leading minus is part of the number: `-1` reaches here as a unop
-      // over a literal, and an i32 array would otherwise be told its element is an f32.
+      // Folded first, so a leading minus is part of the number: `-1.` reaches here as a unop
+      // over a literal, and an f64 array would otherwise be told its element is an f32. Only
+      // where the retarget above declined, which for a float element type is always.
       const folded = foldNumericLit(lowered)
-      if (folded.op === 'lit' && typeof folded.value === 'number') {
+      if (folded.op === 'lit' && typeof folded.value === 'number' && !isIntScalar(target.elem)) {
         lowered = { op: 'lit', type: target.elem, value: folded.value }
       }
     }
@@ -210,6 +252,23 @@ export function lowerArrayFold(
   for (const arg of node.arguments) {
     if (ts.isIdentifier(arg)) {
       const decl = scope.resolveCallee(arg.text)
+      if (decl && intrinsicFirst(arg.text)) {
+        // The precedence `lowerCall` applies, applied here too: a name that was a builtin
+        // before #8 A6 stays the intrinsic even when the file declares a function of that
+        // name, so a fold cannot hand the declaration to `unrollZip` and stamp a `declRef` on
+        // the calls it builds. One stamped call would put the name in the emitter's per-module
+        // set and redirect every plain `atan(y, x)` in the file to the declaration on GLSL
+        // while the CPU oracle kept the intrinsic. There is no intrinsic-valued callback in a
+        // fold today, so the honest answer is a diagnostic that names the rule.
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          arg,
+          `"${arg.text}" is a builtin, and a declared function of that name does not shadow it; ${name} takes a function declared in this file under another name.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
       if (decl) {
         predDecls.push(decl)
         continue
@@ -278,6 +337,14 @@ export function lowerArrayFold(
     return out
   }
   return 'fallback'
+}
+
+/** A builtin name a declaration does NOT win: every canonical math id and `mod`, except the
+ *  names #8 A6 added, which resolve to the file's own function first (`USER_FIRST_BUILTINS`).
+ *  Mirrors the order `lowerCall` checks in, so a fold and a plain call agree on what a name
+ *  means. */
+function intrinsicFirst(name: string): boolean {
+  return !USER_FIRST_BUILTINS.has(name) && (name === 'mod' || isCanonicalMathFn(name))
 }
 
 function pushDiag(

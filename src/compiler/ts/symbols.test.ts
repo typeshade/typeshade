@@ -207,15 +207,17 @@ describe('DeclaredSymbol table: a for-init declarator', () => {
     expect(i.mutable).toBe(true)
   })
 
-  it('records nothing for an unannotated `let i = 0`, which the front end rejects today', () => {
-    // A bare integer literal lowers to f32 today, so the loop-induction check (i32 or u32
-    // only) rejects `let i = 0` before it is ever defined, and no symbol is recorded. A3
-    // (#30) may change what a bare integer literal lowers to; when it does, this becomes an
-    // ordinary i32 local and the assertion below is the one to update.
+  it('records an unannotated `let i = 0` as the i32 it now is', () => {
+    // This is the update the previous version of this test asked for in as many words: a bare
+    // integer literal lowered to f32, the loop-induction check (i32 or u32 only) rejected
+    // `let i = 0` before it was ever defined, and no symbol was recorded. A3 gives a for-init
+    // literal the i32 an induction variable must have, so it is an ordinary local now.
     const r = compileTsSource(header('let i = 0'))
-    expect(r.diagnostics.map((d) => d.code)).toContain(TS_CODES.LOOP_INDUCTION)
-    expect(r.diagnostics.some((d) => d.message.includes('got f32'))).toBe(true)
-    expect(r.symbols.filter((s) => s.name === 'i')).toEqual([])
+    expect(errorsOf(r.diagnostics)).toEqual([])
+    const i = only(r.symbols, 'i')
+    expect(i.kind).toBe('local')
+    expect(typeKey(i.type)).toBe('i32')
+    expect(i.mutable).toBe(true)
   })
 })
 

@@ -41,14 +41,25 @@ const COMPARE: Readonly<Record<number, CmpOp>> = {
   [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '!=',
 }
 
+/**
+ * Lower one TypeScript expression.
+ *
+ * `contextual` is the type the POSITION declares, when it declares one: a function's return
+ * type, a `let`/`const` annotation, or a parameter type. Exactly one expression shape reads
+ * it — an object literal, whose struct cannot be inferred from the literal itself (#8 A11) —
+ * and every other shape ignores it, which is why it is an optional trailing argument rather
+ * than a parameter threaded through the whole walk. A caller that has no type to offer passes
+ * nothing and gets the behaviour it always had.
+ */
 export function lowerExpression(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  contextual?: ShaderType,
 ): Expr | undefined {
   if (ts.isParenthesizedExpression(node))
-    return lowerExpression(node.expression, sourceFile, scope, diagnostics)
+    return lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual)
   if (ts.isIdentifier(node)) return lowerIdentifier(node, sourceFile, scope, diagnostics)
   if (ts.isNumericLiteral(node)) return { op: 'lit', type: f32T, value: Number(node.text) }
   if (node.kind === ts.SyntaxKind.TrueKeyword) return { op: 'lit', type: boolT, value: true }
@@ -71,7 +82,7 @@ export function lowerExpression(
       return lowerPrefixUnary(node, sourceFile, scope, diagnostics)
   }
   if (ts.isObjectLiteralExpression(node))
-    return lowerObjectLiteral(node, sourceFile, scope, diagnostics)
+    return lowerObjectLiteral(node, sourceFile, scope, diagnostics, contextual)
   if (ts.isBinaryExpression(node)) return lowerBinary(node, sourceFile, scope, diagnostics)
   if (ts.isCallExpression(node)) {
     const call = lowerCall(node, sourceFile, scope, diagnostics)
@@ -84,7 +95,8 @@ export function lowerExpression(
   if (ts.isPropertyAccessExpression(node))
     return lowerPropertyAccess(node, sourceFile, scope, diagnostics)
   if (ts.isElementAccessExpression(node)) return lowerIndex(node, sourceFile, scope, diagnostics)
-  if (ts.isConditionalExpression(node)) return lowerSelect(node, sourceFile, scope, diagnostics)
+  if (ts.isConditionalExpression(node))
+    return lowerSelect(node, sourceFile, scope, diagnostics, contextual)
   if (ts.isArrayLiteralExpression(node)) {
     // A list is lowered against a declared `array<T, N>` (#8 A16), which only a declaration
     // gives it; anywhere else there is no type to fill, so say which spelling does work rather
@@ -139,6 +151,10 @@ function lowerIdentifier(
     case 'binding':
     case 'local':
       return { op: 'varref', type: binding.type, name: binding.name }
+    // A specialization constant is its own IR node: the optimizer must never fold an
+    // overrideref, since its value is not known until the pipeline is built (#8 A7).
+    case 'override':
+      return { op: 'overrideref', type: binding.type, name: binding.name }
     default: {
       const never: never = binding.kind
       throw new Error(`shader-dsl: unhandled BindingKind ${String(never)}`)
@@ -219,6 +235,38 @@ function lowerBinary(
     }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
   }
+  // `a ** b` is WGSL's and GLSL's pow(a, b); TypeScript's exponent operator is the only
+  // arithmetic token with no binop of its own. pow is component-wise over equal types on both
+  // targets, so the two operands must agree — and it is defined for FLOATS only, so an
+  // integer pair is refused here rather than emitted as `pow(i32, i32)`, which Tint answers
+  // with "no matching call to 'pow(i32, i32)'" and ANGLE with "no matching overloaded
+  // function".
+  if (node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken) {
+    if (typeKey(left.type) !== typeKey(right.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Type mismatch: cannot ** ${typeKey(left.type)} and ${typeKey(right.type)}. ` +
+          '** is pow(a, b), which takes two values of one type; ' +
+          'splat the exponent, e.g. v ** vec3(2.).',
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    if (!isFloatPowOperand(left.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Cannot ** ${typeKey(left.type)}. ** is pow(a, b), which WGSL and GLSL ES 3.00 define ` +
+          'for f32 only; cast first, e.g. f32(a) ** f32(b).',
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: left.type, fn: 'pow', args: [left, right] }
+  }
   const bit = BITWISE[node.operatorToken.kind]
   if (bit !== undefined) {
     if (typeKey(left.type) !== typeKey(right.type)) {
@@ -280,6 +328,13 @@ function lowerBinary(
   }
   pushDiag(diagnostics, sourceFile, node, 'Unsupported binary operator.', TS_CODES.UNSUPPORTED)
   return undefined
+}
+
+/** `pow` is float-only on both targets: an f32 scalar, or a vector of f32. An emulated-double
+ *  is out too — there is no df64 pow. */
+function isFloatPowOperand(t: ShaderType): boolean {
+  if (t.kind === 'vec') return t.elem === 'f32'
+  return typeKey(t) === 'f32'
 }
 
 function pushDiag(
