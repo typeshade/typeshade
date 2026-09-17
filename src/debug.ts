@@ -20,6 +20,22 @@ export {
   type DebugStackFrame,
 } from './core/debug/session.js'
 
+// The launch configuration: one shape for an IDE's launch.json, the Playground's form and a
+// headless test, with the resolver that turns it into a started session.
+export {
+  startDebugSessionFromConfig,
+  resolveInvocation,
+  resolveBindings,
+  DebugConfigError,
+  DEBUG_LAUNCH_SCHEMA,
+  type DebugLaunchConfig,
+  type DebugInvocation,
+  type DebugInputs,
+} from './core/debug/config.js'
+
+// Reading a shader value back out in the types the author wrote.
+export { formatCpuValue, createValueFormatter } from './core/debug/value.js'
+
 // The span an author's breakpoint resolves against, and the reader for it, re-exported here
 // so a debug adapter needs one import, not two.
 export { sourceSpanOf, type SourceSpan } from './core/ir/span.js'

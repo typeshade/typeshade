@@ -10,6 +10,7 @@ import { f32, f32T, fn, Var, type ModuleDecl } from '../ir/index.js'
 import type { SourceSpan } from '../ir/span.js'
 import { startDebugSession, type DebugPause } from './session.js'
 import { compileModule } from '../oracle.js'
+import { formatCpuValue } from './value.js'
 
 const FILE = 'unit.shade.ts'
 
@@ -680,5 +681,80 @@ export function f(a: f32): f32 {
     })
     s.continue()
     expect(s.result).toBe(6)
+  })
+})
+
+describe('a pause carries the declared type of every name it reports', () => {
+  // `DebugStackFrame.localTypes` and `DebugPause.bindingTypes` exist so a variables view can
+  // render `b` as the author spelled it, `vec2(...)`, rather than as the bare array the
+  // interpreter stores. Nothing else asserted them, so emptying both maps left the suite
+  // green while every rendered value silently lost its type.
+  const TYPED = `"use typeshade"
+declare const scale: uniform<f32>
+declare const tint: uniform<vec3f>
+export function f(a: f32, b: vec2f): f32 {
+  const s = a * scale
+  let acc = 0.
+  if (s > 0.) {
+    const inner = s + 1.
+    acc = inner
+  }
+  let last = acc * b.x
+  return last + tint.x
+}
+`
+  const session = (): ReturnType<typeof startDebugSession> =>
+    startDebugSession(compiled(TYPED), 'f', [3, [0.5, 0.25]], {
+      bindings: { scale: 2, tint: [1, 0.5, 0.25] },
+      precision: 'f64',
+    })
+
+  it('names every local the frame can hold, parameters and later declarations alike', () => {
+    const s = session()
+    // Walk order: the two parameters, then each declaration as it is written, including the
+    // one inside the `if` body and both spellings (`const` lowers to `let`, `let` to `var`).
+    expect([...s.pause!.frames[0]!.localTypes.keys()]).toEqual([
+      'a',
+      'b',
+      's',
+      'acc',
+      'inner',
+      'last',
+    ])
+    // At the entry pause only the parameters have values: the rest are declared-but-not-yet,
+    // which is the asymmetry `localTypes`' JSDoc promises.
+    expect([...s.pause!.frames[0]!.locals.keys()]).toEqual(['a', 'b'])
+  })
+
+  it('types a vector local as its author spelled it, where an untyped render cannot', () => {
+    const s = session()
+    const f = s.pause!.frames[0]!
+    const b = f.locals.get('b')!
+    expect(formatCpuValue(b, f.localTypes.get('b'))).toBe('vec2(0.5, 0.25)')
+    // Without the map the same value renders as storage, which is the regression.
+    expect(formatCpuValue(b)).toBe('[0.5, 0.25]')
+  })
+
+  it('keeps reporting a type once the declaration it belongs to has run', () => {
+    const s = session()
+    // Step past `const s` and `let acc` so both hold values, then read them back.
+    while (s.pause && !s.pause.frames[0]!.locals.has('acc')) s.stepIn()
+    const f = s.pause!.frames[0]!
+    expect(formatCpuValue(f.locals.get('s')!, f.localTypes.get('s'))).toBe('6')
+    expect(formatCpuValue(f.locals.get('acc')!, f.localTypes.get('acc'))).toBe('0')
+    // `inner` is declared inside the `if` and still unassigned here, so it is typed but has
+    // no value: a variables view can list it without inventing a zero for it.
+    expect(f.localTypes.has('inner')).toBe(true)
+    expect(f.locals.has('inner')).toBe(false)
+  })
+
+  it('types the bindings too, and only the ones the module declares', () => {
+    const s = session()
+    const p = s.pause!
+    expect([...p.bindingTypes.keys()]).toEqual(['scale', 'tint'])
+    expect(formatCpuValue(p.bindings.get('tint')!, p.bindingTypes.get('tint'))).toBe(
+      'vec3(1, 0.5, 0.25)',
+    )
+    expect(formatCpuValue(p.bindings.get('scale')!, p.bindingTypes.get('scale'))).toBe('2')
   })
 })
