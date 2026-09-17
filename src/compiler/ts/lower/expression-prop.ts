@@ -171,7 +171,11 @@ export function lowerObjectLiteral(
   diagnostics: TsCompilerDiagnostic[],
   contextual?: ShaderType,
 ): Expr | undefined {
-  const given: { name: string; expr: Expr }[] = []
+  // The struct is resolved BEFORE the initializers are lowered, so each one can be lowered
+  // against the type of the field it fills. That is what carries the context inward: a nested
+  // `{ i: { x: 1. } }` used to lower its inner literal with nothing, so a twin at the inner
+  // level was as unresolvable as the outer one was before this item.
+  const props: { name: string; node: ts.PropertyAssignment }[] = []
   for (const prop of node.properties) {
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) {
       pushDiag(
@@ -183,11 +187,9 @@ export function lowerObjectLiteral(
       )
       return undefined
     }
-    const expr = lowerExpression(prop.initializer, sourceFile, scope, diagnostics)
-    if (!expr) return undefined
-    given.push({ name: prop.name.text, expr })
+    props.push({ name: prop.name.text, node: prop })
   }
-  const names = given.map((g) => g.name)
+  const names = props.map((p) => p.name)
   const declared = contextual?.kind === 'struct' ? scope.structByName(contextual.name) : undefined
   const match = declared ?? scope.matchStruct(names)
   if (!match) {
@@ -200,30 +202,39 @@ export function lowerObjectLiteral(
     )
     return undefined
   }
-  // With a declared struct, a field the literal does not name is a MISSING FIELD, reported
-  // below against that struct. Without one the name set is the only evidence there is, so an
-  // extra name means the fallback picked the wrong struct and says so here rather than
-  // reporting a missing field of a struct the author never mentioned.
-  if (!declared && names.length !== match.fields.length) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Object literal { ${names.join(', ')} } does not match a known struct.`,
-      TS_CODES.UNKNOWN_NAME,
-    )
-    return undefined
+  // Only where the struct is DECLARED. On the fallback path `matchStruct` has already equated
+  // the struct's field count with the literal's UNIQUE name count and checked that every field
+  // is among those names, so a name it does not have cannot reach here — and the count guard
+  // that used to stand beside this could fire on one input alone, a REPEATED field.
+  // `const o = { a: 1., a: 2., b: 3. }` emitted `P(2.0, 3.0)` before this item and would have
+  // been refused after it, while the same literal in a return position stayed accepted. A
+  // repeated field is TypeScript's own TS1117 and the editor says so; the compiler keeps
+  // taking the last, in every position, as it always did.
+  if (declared) {
+    for (const p of props) {
+      if (match.fields.some((f) => f.name === p.name)) continue
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Struct ${match.name} has no field "${p.name}".`,
+        TS_CODES.STRUCT_FIELD,
+      )
+      return undefined
+    }
   }
-  for (const g of given) {
-    if (match.fields.some((f) => f.name === g.name)) continue
-    pushDiag(
-      diagnostics,
+  const fieldType = new Map(match.fields.map((f) => [f.name, f.type]))
+  const given: { name: string; expr: Expr }[] = []
+  for (const p of props) {
+    const expr = lowerExpression(
+      p.node.initializer,
       sourceFile,
-      node,
-      `Struct ${match.name} has no field "${g.name}".`,
-      TS_CODES.STRUCT_FIELD,
+      scope,
+      diagnostics,
+      fieldType.get(p.name),
     )
-    return undefined
+    if (!expr) return undefined
+    given.push({ name: p.name, expr })
   }
   const byName = new Map(given.map((g) => [g.name, g.expr]))
   const args: Expr[] = []

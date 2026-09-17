@@ -312,8 +312,8 @@ source might not be.
 
 ## 16. Object literals take the declared struct
 
-Which struct `{ … }` builds comes from the type the position **declares** — a function's
-return type, a `let`/`const` annotation, or a parameter type:
+Which struct `{ … }` builds comes from the type the position **declares**: a function's
+return type, a `let`/`const` annotation, or a parameter type.
 
 ```ts
 "use typeshade"
@@ -355,10 +355,24 @@ A declared struct also improves the diagnostics, because there is something to n
 | | before | after |
 | --- | --- | --- |
 | `return { a: 1. }` for a two-field `P` | `Object literal { a } does not match a known struct.` | `Missing field "b" for struct P.` |
-| `return { a: 1., c: 2. }` | the same sentence | `Struct P has no field "c".` |
+| `return { a: 1., c: 2. }` | `Object literal { a, c } does not match a known struct.` | `Struct P has no field "c".` |
+
+The context reaches **inward**: the struct is resolved before the field values are lowered, so
+a nested literal is built against the type of the field it fills. `{ i: { x: 1. } }` for an
+`Outer { i: Inner }` picks `Inner` even where a same-shaped `InnerTwin` exists.
+
+**Three positions declare a type, and they are the three above.** These four do not, and each
+behaves as it did before this item, falling back to name matching: an assignment target
+(`o = { … }`, since the annotation is on the declaration and not on the assignment), a ternary
+arm, an array or vector constructor argument, and a literal in any other expression position.
+A twin is unresolvable in all four.
 
 A contextual type that is not a struct is ignored here rather than reported: `const o: f32 =
 { a: 1. }` is a mistake about the declaration, and the declaration's own type check is what
 says so.
+
+A **repeated** field keeps taking the last value, in every position, as it always has:
+`{ a: 1., a: 2., b: 3. }` builds `P(2., 3.)`. TypeScript's own `TS1117` reports it in the
+editor, so the compiler does not repeat the complaint.
 
 Last updated: 2026-09-14

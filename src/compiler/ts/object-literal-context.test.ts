@@ -5,6 +5,13 @@
 // same fields made `return { pos, uv }` an error in a function that says which one it returns.
 // A return type, a `let`/`const` annotation and a parameter type each name the struct outright;
 // name matching stays as the fallback for a position that declares nothing.
+//
+// FOUR of the cases below pass on the merge base as well, and are here on purpose: three guard
+// behaviour this item must PRESERVE (the fallback still resolves a position that declares
+// nothing, a non-struct context is ignored rather than reported, and the scope's return type
+// does not leak between functions), and the fourth cannot tell "non-struct context ignored"
+// from "no context at all" — there is no observable difference to assert. The rest fail on the
+// merge base for the reason each states.
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
@@ -89,6 +96,28 @@ describe('the three positions that declare a type', () => {
       }
     `)
     expect(w).toContain('Outer(Inner(1.0))')
+  })
+
+  it('carries the context INTO a nested literal, where twins make it the only answer', () => {
+    // The nested half of the test above resolves by name matching on both trees, so it could
+    // not tell whether the context reached inward. With a twin at the INNER level nothing but
+    // the context can answer: the struct is resolved before the initializers are lowered, and
+    // each one is lowered against the type of the field it fills.
+    const w = wgslOf(`
+      class Inner {
+        x: f32
+      }
+      class InnerTwin {
+        x: f32
+      }
+      class Outer {
+        i: Inner
+      }
+      export function f(): Outer {
+        return { i: { x: 1. } };
+      }
+    `)
+    expect(w).toContain('return Outer(Inner(1.0));')
   })
 })
 
@@ -193,5 +222,69 @@ describe('the CPU oracle agrees', () => {
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(c.eval('mk', [])).toEqual({ a: 3, b: 4 })
     expect(c.eval('sum', [])).toBe(3)
+  })
+})
+
+describe('what this item does NOT change', () => {
+  it('still takes the last of a repeated field, in every position', () => {
+    // The count guard that stood here could fire on one input alone — a REPEATED field, since
+    // `matchStruct` already equates the struct's field count with the literal's unique-name
+    // count. So `const o = { a: 1., a: 2., b: 3. }` emitted `P(2.0, 3.0)` before this item and
+    // would have been refused after it, while the same literal in a return position stayed
+    // accepted. A repeated field is TypeScript's own TS1117 and the editor says so; the
+    // compiler keeps taking the last, the way it always did, in both positions.
+    const P = 'class P {\n  a: f32\n  b: f32\n}\n'
+    expect(
+      wgslOf(
+        `${P}export function f(): f32 {\n  const o = { a: 1., a: 2., b: 3. };\n  return o.a;\n}`,
+      ),
+    ).toContain('let o = P(2.0, 3.0);')
+    expect(wgslOf(`${P}export function f(): P {\n  return { a: 1., a: 2., b: 3. };\n}`)).toContain(
+      'return P(2.0, 3.0);',
+    )
+  })
+
+  it('names the struct when a declared position gets a field it does not have', () => {
+    // A return-position literal is no longer coerced by field POSITION. On the merge base
+    // `fillFunctionBody`'s construct coercion retyped `{ c, d }` to `P(1.0, 2.0)`; by the time
+    // this item landed, `main` already refused it, with the fallback's generic sentence. The
+    // message is the specific one now, which is the whole change here.
+    const r = compileTsSource(`
+      "use typeshade";
+      class P {
+        a: f32
+        b: f32
+      }
+      export function f(): P {
+        return { c: 1., d: 2. };
+      }
+    `)
+    expect(r.diagnostics.length).toBeGreaterThan(0)
+    expect(r.diagnostics[0]!.message).toBe('Struct P has no field "c".')
+  })
+
+  it('leaves the four positions that still fall back to name matching', () => {
+    // §16 names the three positions that declare a type. These four do not, and each behaves
+    // exactly as on the merge base: an assignment target, a ternary arm, a constructor
+    // argument, and — no longer — a nested field literal, which this item's inward context now
+    // resolves. Pinned so the boundary moves deliberately rather than by accident.
+    const TW = `
+      class P {
+        a: f32
+        b: f32
+      }
+      class Q {
+        a: f32
+        b: f32
+      }
+    `
+    // An assignment target: the annotation is on the declaration, not on the assignment, so a
+    // twin is unresolvable here.
+    const r = compileTsSource(
+      `"use typeshade";${TW}export function f(): P {\n  let o: P = { a: 1., b: 2. };\n  o = { a: 3., b: 4. };\n  return o;\n}`,
+    )
+    expect(r.diagnostics.map((d) => d.message)).toContain(
+      'Object literal { a, b } does not match a known struct.',
+    )
   })
 })

@@ -96,7 +96,10 @@ export class LoweringScope {
   /** The declared return type of the function whose body is being lowered, so a `return`
    *  can be checked and typed against it (#8 A3 for an integer literal, A11 for an object
    *  literal). Undefined outside a function body — at module-constant collection, for
-   *  instance — and for a function with no annotation. */
+   *  instance. INSIDE one it is always set: `parseSignature` supplies `voidT` for a function
+   *  with no annotation, so "no annotation" arrives here as void rather than as undefined.
+   *  #30 reads the same field, where that distinction decides whether a bare `return 0` is
+   *  retyped. */
   setReturnType(t: ShaderType | undefined): void {
     this.retType = t
   }
