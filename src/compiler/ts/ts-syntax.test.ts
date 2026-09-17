@@ -8,7 +8,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
-import { compile } from './compile.js'
+import { compile, type CompileResult } from './compile.js'
+import { compileModuleJs } from '../../core/cpu-codegen.js'
 import { typeKey } from '../../core/ir/types.js'
 import type { Stmt } from '../../core/ir/nodes.js'
 import { stripSpans } from '../../core/testing/strip-spans.js'
@@ -29,6 +30,21 @@ function bodyOf(source: string): readonly Stmt[] {
   const r = compileTsSource(`"use typeshade";\n${source}`)
   expect(r.diagnostics).toEqual([])
   return r.funcs[r.funcs.length - 1]!.body
+}
+
+/** The generated-JS twin of `compile().eval`. `compile().eval` runs the INTERPRETER
+ *  (`compileModule`), so an assertion through it alone leaves the codegen's own zero builder,
+ *  `zeroLit`, unpinned: the two have separate zero tables and only a second assertion per case
+ *  holds them together. `gpuStubs` matches what `evalEntry` passes the interpreter, so the two
+ *  calls differ in nothing but the backend. */
+function evalJs(c: CompileResult, name: string, args: readonly unknown[] = []): unknown {
+  return compileModuleJs(c.module, { gpuStubs: true }).fns[name]!(...(args as never[]))
+}
+
+function compiled(source: string): CompileResult {
+  const c = compile(source)
+  expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+  return c
 }
 
 describe('a let that declares before it assigns', () => {
@@ -532,10 +548,16 @@ describe('switch, with the break TypeScript requires', () => {
 describe('an init-less local on the CPU oracle', () => {
   // `zeroOf` and `zeroLit` had no array arm, so an init-less `var xs: array<f32, 3>` bound the
   // scalar 0 and the first `xs[0] = 1.` threw "Attempted to assign to readonly property" out of
-  // the oracle — on a program both GPU targets compile. A bool bound 0 where WGSL gives false.
-  // Both are reachable only because this item added the init-less declaration.
+  // the oracle — on a program both GPU targets compile. A bool bound 0 where WGSL gives false,
+  // and a struct bound `{}`, so every field read `undefined`. All three are reachable only
+  // because this item added the init-less declaration.
+  //
+  // Each case asserts on BOTH CPU backends: `compile().eval` is the interpreter (`zeroOf`),
+  // `evalJs` the generated JS (`zeroLit`). They are two separate zero tables, so an assertion
+  // through one leaves the other free to disagree — the bit-identity contract cpu-codegen.ts
+  // opens with is exactly what a single-backend assertion here would stop enforcing.
   it('gives an array its elements, so an indexed write works', () => {
-    const c = compile(`
+    const c = compiled(`
       "use typeshade";
       export function f(): f32 {
         let arr: array<f32, 3>;
@@ -544,19 +566,70 @@ describe('an init-less local on the CPU oracle', () => {
         return arr[0] + arr[1];
       }
     `)
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(c.eval('f', [])).toBe(3)
+    expect(evalJs(c, 'f')).toBe(3)
   })
 
   it('gives a bool `false`, which is what WGSL zero-initialises it to', () => {
-    const c = compile(`
+    const c = compiled(`
       "use typeshade";
       export function f(): bool {
         let b: bool;
         return b;
       }
     `)
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(c.eval('f', [])).toBe(false)
+    expect(evalJs(c, 'f')).toBe(false)
+  })
+
+  // WGSL's `var s: S;` zero-initialises every field; `{}` left them absent, so `s.a` read
+  // `undefined` and any arithmetic on it went to NaN, silently, on a program Tint accepts.
+  it('gives a struct every field zeroed, not an empty object', () => {
+    const c = compiled(`
+      "use typeshade";
+      type P = { a: f32, b: i32, flag: bool, v: vec2f };
+      export function f(): f32 {
+        let s: P;
+        return s.a + f32(s.b) + s.v.x + s.v.y;
+      }
+      export function g(): bool {
+        let s: P;
+        return s.flag;
+      }
+    `)
+    expect(c.eval('f', [])).toBe(0)
+    expect(evalJs(c, 'f')).toBe(0)
+    expect(c.eval('g', [])).toBe(false)
+    expect(evalJs(c, 'g')).toBe(false)
+  })
+
+  it('zeroes a nested struct and an array of structs, all the way down', () => {
+    const c = compiled(`
+      "use typeshade";
+      type Inner = { k: f32, v: vec2f };
+      type Outer = { a: f32, inner: Inner };
+      type Cell = { a: f32, b: i32 };
+      type Row = { xs: array<f32, 3>, n: i32 };
+      export function nested(): f32 {
+        let s: Outer;
+        return s.a + s.inner.k + s.inner.v.x;
+      }
+      export function cells(): f32 {
+        let xs: array<Cell, 2>;
+        return xs[0].a + f32(xs[1].b);
+      }
+      export function arrayField(): f32 {
+        let s: Row;
+        s.xs[2] = 7.;
+        return s.xs[0] + s.xs[2] + f32(s.n);
+      }
+    `)
+    expect(c.eval('nested', [])).toBe(0)
+    expect(evalJs(c, 'nested')).toBe(0)
+    expect(c.eval('cells', [])).toBe(0)
+    expect(evalJs(c, 'cells')).toBe(0)
+    // The array field must be a real array, or the write throws the way the scalar 0 did.
+    expect(c.eval('arrayField', [])).toBe(7)
+    expect(evalJs(c, 'arrayField')).toBe(7)
   })
 })

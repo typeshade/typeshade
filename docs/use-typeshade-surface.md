@@ -402,7 +402,9 @@ later assignment: WGSL's `var x: f32;`, GLSL's `float x;`, and the EDSL's `Var(f
 annotation is what carries the type, so it is required; a `const` still needs its value.
 Note what the two targets do with a read that happens _before_ the first assignment: WGSL
 zero-initialises, GLSL ES 3.00 leaves it undefined. That divergence is the EDSL's today as
-well; assign before you read.
+well; assign before you read. Both CPU backends follow WGSL and bind the zero of the declared
+type at the declaration: `0.`, `false` for a `bool`, an array of zeros, and a struct with
+every field zeroed, recursively through a nested struct and an array of structs.
 
 **`&=`, `|=`, `^=`, `<<=`, `>>=`** compound the bitwise operators onto an `i32` or `u32`
 target. For `&=`, `|=` and `^=` the right-hand side takes the target's type (`y &= 3` on a

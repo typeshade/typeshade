@@ -315,7 +315,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         env.set(s.name, evalExpr(s.expr, env, ctx))
         break
       case 'var':
-        env.set(s.name, s.init ? evalExpr(s.init, env, ctx) : zeroOf(s.type))
+        env.set(s.name, s.init ? evalExpr(s.init, env, ctx) : zeroOf(s.type, ctx.structs))
         break
       case 'assign':
         setLValue(s.target, evalExpr(s.expr, env, ctx), env, ctx)
