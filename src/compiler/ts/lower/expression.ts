@@ -95,7 +95,8 @@ export function lowerExpression(
   if (ts.isPropertyAccessExpression(node))
     return lowerPropertyAccess(node, sourceFile, scope, diagnostics)
   if (ts.isElementAccessExpression(node)) return lowerIndex(node, sourceFile, scope, diagnostics)
-  if (ts.isConditionalExpression(node)) return lowerSelect(node, sourceFile, scope, diagnostics)
+  if (ts.isConditionalExpression(node))
+    return lowerSelect(node, sourceFile, scope, diagnostics, contextual)
   pushDiag(
     diagnostics,
     sourceFile,

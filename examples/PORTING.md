@@ -159,7 +159,7 @@ first. No example in the 36 is waiting on any of them:
 | ~~**A8** element-converting constructors~~ (landed)                                               | 0      |
 | ~~**A9** module-level vector constants~~ (landed)                                                 | 0      |
 | ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed)                                         | 0      |
-| ~~**A11** object-literal contextual typing~~ (landed, in the three positions that declare a type) | 0      |
+| ~~**A11** object-literal contextual typing~~ (landed, in every position that declares a type)      | 0      |
 | **S5** `arrayLength`                                                                              | 0      |
 | **S7** `mat2` / `mat3`                                                                            | 0      |
 

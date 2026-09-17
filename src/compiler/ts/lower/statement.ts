@@ -388,7 +388,12 @@ function lowerAssign(
 ): Stmt | undefined {
   const target = lowerLValue(left, sourceFile, scope, diagnostics)
   if (!target) return undefined
-  const value = lowerExpression(right, sourceFile, scope, diagnostics)
+  // The target's type is the context for the right-hand side, so `o = { x: 1., y: 2. }` knows
+  // which struct it builds the same way `const o: A = { … }` does (#8 A11). An assignment
+  // target is a DECLARED position: the name was annotated where it was declared, and the
+  // lvalue carries that type here. Without this the literal fell through to the
+  // unique-struct fallback and a second struct of the same shape refused it.
+  const value = lowerExpression(right, sourceFile, scope, diagnostics, target.type)
   if (!value) return undefined
   if (typeKey(target.type) !== typeKey(value.type)) {
     pushDiag(

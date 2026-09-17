@@ -712,15 +712,25 @@ The context reaches **inward**: the struct is resolved before the field values a
 a nested literal is built against the type of the field it fills. `{ i: { x: 1. } }` for an
 `Outer { i: Inner }` picks `Inner` even where a same-shaped `InnerTwin` exists.
 
-**Three positions declare a type, and they are the three above.** These four do not, and each
-behaves as it did before this item, falling back to name matching: an assignment target
-(`o = { … }`, since the annotation is on the declaration and not on the assignment), a ternary
-arm, an array or vector constructor argument, and a literal in any other expression position.
-A twin is unresolvable in all four.
+**Three more positions declare a type without an annotation of their own**, and each one
+takes it:
 
-A contextual type that is not a struct is ignored here rather than reported: `const o: f32 =
-{ a: 1. }` is a mistake about the declaration, and the declaration's own type check is what
-says so.
+| | where the type comes from |
+| --- | --- |
+| `o = { a: 3., b: 4. }` | the target's own declaration, carried to the assignment |
+| `c ? { … } : { … }` | the ternary's position, passed to both arms |
+| `array<Q, 2>({ … }, { … })` | the constructor's type argument |
+
+What is left to name matching is a position that declares nothing at all: a literal as an
+operand, an index, or the base of a property access. A twin is unresolvable there, as before.
+
+A contextual type that is not a struct is ignored here rather than reported, because
+`const o: f32 = { a: 1. }` is a mistake about the declaration. That does not always mean the
+declaration is what names it: the literal is lowered first, so with twins in scope the
+fallback fails before the declaration's check runs and you get
+`Object literal { a, b } does not match a known struct.` plus `Unknown identifier "o".`
+instead. The position still owns the mistake; it does not always get to be the one that
+reports it.
 
 A **repeated** field keeps taking the last value, in every position, as it always has:
 `{ a: 1., a: 2., b: 3. }` builds `P(2., 3.)`. TypeScript's own `TS1117` reports it in the

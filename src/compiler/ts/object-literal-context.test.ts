@@ -6,12 +6,13 @@
 // A return type, a `let`/`const` annotation and a parameter type each name the struct outright;
 // name matching stays as the fallback for a position that declares nothing.
 //
-// FOUR of the cases below pass on the merge base as well, and are here on purpose: three guard
-// behaviour this item must PRESERVE (the fallback still resolves a position that declares
-// nothing, a non-struct context is ignored rather than reported, and the scope's return type
-// does not leak between functions), and the fourth cannot tell "non-struct context ignored"
-// from "no context at all" — there is no observable difference to assert. The rest fail on the
-// merge base for the reason each states.
+// SIX positions take a declared type: the three annotations above, plus three that carry one
+// without an annotation of their own (an assignment target, both arms of a ternary, and an
+// array constructor's element type). A few of the cases below pass on the merge base as well,
+// and are here on purpose, to guard behaviour this item must PRESERVE: the fallback still
+// resolves a position that declares nothing, a non-struct context is still left to the
+// declaration, and the scope's return type does not leak between functions. The rest fail on
+// the merge base for the reason each states.
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
@@ -204,6 +205,20 @@ describe('with a declared struct, the field diagnostics name it', () => {
     expect(r.diagnostics.length).toBeGreaterThan(0)
     expect(r.diagnostics[0]!.message).toContain('let/const o')
   })
+
+  it('but the declaration only gets to report it when the fallback resolves first', () => {
+    // The literal is lowered before the declaration's type check runs, so with TWINS in scope
+    // the fallback fails first and its own generic message is what leads, followed by the
+    // knock-on for a name that never got defined. The declaration is still the position that
+    // OWNS the mistake; it just does not always get to be the one that names it.
+    const r = compileTsSource(
+      `"use typeshade";${TWINS}export function f(): f32 {\n  const o: f32 = { a: 1., b: 2. };\n  return o;\n}`,
+    )
+    expect(r.diagnostics.map((d) => d.message)).toEqual([
+      'Object literal { a, b } does not match a known struct.',
+      'Unknown identifier "o".',
+    ])
+  })
 })
 
 describe('the CPU oracle agrees', () => {
@@ -263,28 +278,45 @@ describe('what this item does NOT change', () => {
     expect(r.diagnostics[0]!.message).toBe('Struct P has no field "c".')
   })
 
-  it('leaves the four positions that still fall back to name matching', () => {
-    // §16 names the three positions that declare a type. These four do not, and each behaves
-    // exactly as on the merge base: an assignment target, a ternary arm, a constructor
-    // argument, and — no longer — a nested field literal, which this item's inward context now
-    // resolves. Pinned so the boundary moves deliberately rather than by accident.
-    const TW = `
-      class P {
-        a: f32
-        b: f32
-      }
-      class Q {
-        a: f32
-        b: f32
-      }
-    `
-    // An assignment target: the annotation is on the declaration, not on the assignment, so a
-    // twin is unresolvable here.
+  it('leaves the positions that declare nothing to name matching', () => {
+    // An element access, a binary operand, an index: nothing there declares a struct, so the
+    // fallback is still what answers, exactly as on the merge base. Pinned so the boundary
+    // moves deliberately rather than by accident.
     const r = compileTsSource(
-      `"use typeshade";${TW}export function f(): P {\n  let o: P = { a: 1., b: 2. };\n  o = { a: 3., b: 4. };\n  return o;\n}`,
+      `"use typeshade";${TWINS}export function f(): f32 {\n  return ({ a: 1., b: 2. }).a;\n}`,
     )
     expect(r.diagnostics.map((d) => d.message)).toContain(
       'Object literal { a, b } does not match a known struct.',
     )
+  })
+})
+
+describe('a position that declares a type through something else', () => {
+  it('an assignment target carries the type its declaration gave it', () => {
+    // The annotation is on the DECLARATION, but the lvalue carries that type to the
+    // assignment, so `o = { … }` is a declared position too. Refused against a twin before.
+    const w = wgslOf(
+      `${TWINS}export function f(): P {\n  let o: P = { a: 1., b: 2. };\n  o = { a: 3., b: 4. };\n  return o;\n}`,
+    )
+    expect(w).toContain('o = P(3.0, 4.0);')
+    // The other twin from the same literal, so it is the target deciding and not an order.
+    const wq = wgslOf(
+      `${TWINS}export function f(): Q {\n  let o: Q = { a: 1., b: 2. };\n  o = { a: 3., b: 4. };\n  return o;\n}`,
+    )
+    expect(wq).toContain('o = Q(3.0, 4.0);')
+  })
+
+  it("both arms of a ternary sit in the ternary's own position", () => {
+    const w = wgslOf(
+      `${TWINS}export function f(c: bool): Q {\n  return c ? { a: 1., b: 2. } : { a: 3., b: 4. };\n}`,
+    )
+    expect(w).toContain('select(Q(3.0, 4.0), Q(1.0, 2.0), c)')
+  })
+
+  it('an array constructor names its element type in its own type argument', () => {
+    const w = wgslOf(
+      `${TWINS}export function f(): f32 {\n  const xs = array<Q, 2>({ a: 1., b: 2. }, { a: 3., b: 4. });\n  return xs[0].a;\n}`,
+    )
+    expect(w).toContain('array<Q, 2>(Q(1.0, 2.0), Q(3.0, 4.0))')
   })
 })
