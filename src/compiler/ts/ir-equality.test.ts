@@ -201,6 +201,8 @@ describe('IR equality: use typeshade vs fn()', () => {
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('cap', { i: u32T }, u32T, ({ i }) => min(i, u32(4)))
     assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
   it('a module vector const matches the EDSL constExpr declaration', () => {
     const tsResult = compileTsSource(`
       "use typeshade";
