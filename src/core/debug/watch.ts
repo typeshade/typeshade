@@ -35,6 +35,7 @@
 
 import type { CpuValue } from '../cpu-runtime.js'
 import type { Expr, ModuleDecl, StructDecl } from '../ir/nodes.js'
+import { eachExpr } from '../ir/visit.js'
 import type { ShaderType } from '../ir/types.js'
 import { typeKey } from '../ir/types.js'
 import { compileTsSource } from '../../compiler/ts/source-file.js'
@@ -265,32 +266,23 @@ export function compileWatch(
   return { expr: stmt.expr, type: stmt.expr.type, reads: bound.filter((n) => reads.has(n)) }
 }
 
-/** Every name the expression reads, so a caller binds what it uses and nothing else. */
+/** Every name the expression reads, so a caller binds what it uses and nothing else.
+ *
+ *  The walk is `eachExpr` (`core/ir/visit.ts`), the IR's own, rather than a private copy of it.
+ *  It used to be a private copy, and the copy is what made `c ? a : b` fail: it had no `select`
+ *  arm, so the names inside a conditional were never collected, the watch compiled, and it then
+ *  died at evaluation with `unbound c` because `reads` is what decides which frame values get
+ *  bound. `matchExpr` was missing for the same reason and happens to be unreachable here, since
+ *  the source front end never builds one; unreachable today is not a property worth relying on.
+ *
+ *  A hand-maintained second walk over a union that grows cannot be kept right by care, because
+ *  its `default` arm makes every omission compile. `eachExpr` is the walk every pass already
+ *  uses and is exhaustive by construction, so a new `Expr` shape reaches this the day it lands.
+ */
 function collectReads(e: Expr, into: Set<string>): void {
-  if (e.op === 'varref' || e.op === 'param') into.add(e.name)
-  for (const child of childExprs(e)) collectReads(child, into)
-}
-
-function childExprs(e: Expr): readonly Expr[] {
-  switch (e.op) {
-    case 'binop':
-    case 'compare':
-    case 'logical':
-      return [e.a, e.b]
-    case 'unop':
-      return [e.a]
-    case 'call':
-    case 'construct':
-      return e.args
-    case 'member':
-      return [e.base]
-    case 'select':
-      return [e.cond, e.ifTrue, e.ifFalse]
-    case 'index':
-      return [e.base, e.idx]
-    default:
-      return []
-  }
+  eachExpr(e, (x) => {
+    if (x.op === 'varref' || x.op === 'param') into.add(x.name)
+  })
 }
 
 /** A watch's answer.
