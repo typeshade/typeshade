@@ -739,14 +739,17 @@ when
 workgroupSizeOf
 ```
 
-## `./language-service` — 31 exports
+## `./language-service` — 34 exports
 
 ```
 AMBIENT_LIB_URI
 ATTRIBUTE_DOCS
 ATTRIBUTE_NAMES
 BUILTIN_DOCS
+CONSTANT_DOCS
 createTypeshadeLanguageService
+FUNCTION_DOCS
+MATH_MEMBER_DOCS
 offsetAt
 positionAt
 rangeForSpan
@@ -775,7 +778,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 492 definitions
+## Shapes — 495 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileResult  interface  { diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
@@ -1244,6 +1247,9 @@ src/language-service/ambient.ts#SHADE_DTS  const  string
 src/language-service/ambient.ts#WGSL_BUILTIN_NAMES  const  readonly string[]
 src/language-service/docs.ts#ATTRIBUTE_DOCS  const  Readonly<Record<string, string>>
 src/language-service/docs.ts#BUILTIN_DOCS  const  Readonly<Record<string, string>>
+src/language-service/docs.ts#CONSTANT_DOCS  const  Readonly<Record<string, string>>
+src/language-service/docs.ts#FUNCTION_DOCS  const  Readonly<Record<string, string>>
+src/language-service/docs.ts#MATH_MEMBER_DOCS  const  Readonly<Record<string, string>>
 src/language-service/docs.ts#TYPE_DOCS  const  Readonly<Record<string, string>>
 src/language-service/host.ts#AMBIENT_LIB_URI  const  "typeshade:shade.d.ts"
 src/language-service/host.ts#TypeshadeLanguageServiceHost  interface  { ambientLib?: string; readDocument?: (uri: string) => string; resolveImport?: (fromUri: string, specifier: string) => string }

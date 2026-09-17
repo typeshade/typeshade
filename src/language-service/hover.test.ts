@@ -331,3 +331,60 @@ describe('spellShaderType', () => {
     })
   }
 })
+
+describe('builtin JSDoc in hover', () => {
+  const service = createTypeshadeLanguageService()
+
+  it('mix function hover shows its documentation', () => {
+    const source = '"use typeshade"\nexport function f(): f32 {\n  return mix(1., 2., 0.5)\n}\n'
+    service.openDocument('/test.ts', source)
+    const hover = service.getHover(
+      '/test.ts',
+      service.positionAt('/test.ts', source.indexOf('mix')),
+    )
+    expect(hover?.contents).toContain('a * (1 - t) + b * t')
+  })
+
+  it('Math.sin hover shows its documentation', () => {
+    const source = '"use typeshade"\nexport function f(x: f32): f32 {\n  return Math.sin(x)\n}\n'
+    service.openDocument('/test.ts', source)
+    const hover = service.getHover(
+      '/test.ts',
+      service.positionAt('/test.ts', source.indexOf('sin')),
+    )
+    expect(hover?.contents).toContain('sine')
+    expect(hover?.contents).toContain('radians')
+  })
+
+  it('PI constant hover shows its documentation', () => {
+    const source = '"use typeshade"\nexport const p = PI\n'
+    service.openDocument('/test.ts', source)
+    const hover = service.getHover('/test.ts', service.positionAt('/test.ts', source.indexOf('PI')))
+    expect(hover?.contents).toContain('mathematical constant π')
+  })
+
+  it('vec3 constructor hover shows its documentation', () => {
+    const source = '"use typeshade"\nexport function f(): vec3 {\n  return vec3(1., 2., 3.)\n}\n'
+    service.openDocument('/test.ts', source)
+    const hover = service.getHover(
+      '/test.ts',
+      service.positionAt('/test.ts', source.indexOf('vec3')),
+    )
+    // Either the JSDoc is shown, or the type definition - both are acceptable
+    expect(
+      hover?.contents?.includes('Builds a `vec3`') ||
+        hover?.contents?.includes('A three-component vector'),
+    ).toBe(true)
+  })
+
+  it('smoothstep function hover shows its documentation', () => {
+    const source =
+      '"use typeshade"\nexport function f(x: f32): f32 {\n  return smoothstep(0., 1., x)\n}\n'
+    service.openDocument('/test.ts', source)
+    const hover = service.getHover(
+      '/test.ts',
+      service.positionAt('/test.ts', source.indexOf('smoothstep')),
+    )
+    expect(hover?.contents).toContain('Hermite interpolation')
+  })
+})
