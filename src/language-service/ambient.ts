@@ -25,6 +25,18 @@ import { SCALAR_CAST } from '../compiler/ts/numeric.js'
 import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js'
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js'
+import { FUNCTION_DOCS, CONSTANT_DOCS, ATTRIBUTE_DOCS, MATH_MEMBER_DOCS } from './docs.js'
+
+// Renders a documentation string as a JSDoc block. Single line (single-line JSDoc) when
+// it fits in 100 columns, otherwise a multi-line block with ` * ` prefixes. Throws if the
+// text contains the string `*/`.
+function renderJSDoc(text: string): string {
+  if (text.includes('*/')) throw new Error(`JSDoc text contains '*/' which is not allowed: ${text}`)
+  const singleLine = `/** ${text} */`
+  if (singleLine.length <= 100) return singleLine
+  const lines = text.split('\n')
+  return `/**\n${lines.map((line) => ` * ${line}`).join('\n')}\n */`
+}
 
 type VecElem = 'f32' | 'i32' | 'u32' | 'f64'
 
@@ -260,19 +272,112 @@ const vecTypeAliases = [...VEC_TYPE_ELEM.entries()]
   .filter(Boolean)
   .join('\n')
 
-const vecCtors = VEC_CTOR_NAMES.map((name) =>
-  vecCtorOverloads(name, VEC_TYPE_ELEM.get(name)!),
-).join('\n')
+const vecCtors = VEC_CTOR_NAMES.map((name) => {
+  const overloads = vecCtorOverloads(name, VEC_TYPE_ELEM.get(name)!)
+  const doc = FUNCTION_DOCS[name]
+  if (!doc) return overloads
+  // Add JSDoc before every overload
+  return overloads
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^declare function (\w+)/)
+      if (!match) return line
+      return `${renderJSDoc(doc)}\n${line}`
+    })
+    .join('\n')
+}).join('\n')
 
-const scalarCasts = SCALAR_CAST_NAMES.map(
-  (name) => `declare function ${name}(x: number): ${name}`,
-).join('\n')
+const scalarCasts = SCALAR_CAST_NAMES.map((name) => {
+  const line = `declare function ${name}(x: number): ${name}`
+  const doc = FUNCTION_DOCS[name]
+  if (!doc) return line
+  return `${renderJSDoc(doc)}\n${line}`
+}).join('\n')
 
-const freeMath = FREE_MATH_NAMES.map(freeMathSignature).join('\n')
-const expandFns = EXPAND_NAMES.map(
-  (name) => `declare function ${name}<T extends Numeric>(...args: T[]): T`,
-).join('\n')
-const langConsts = LANG_CONST_NAMES.map((name) => `declare const ${name}: number`).join('\n')
+const freeMath = FREE_MATH_NAMES.map((name) => {
+  const sig = freeMathSignature(name)
+  return sig
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^declare function (\w+)/)
+      if (!match) return line
+      const doc = FUNCTION_DOCS[match[1]]
+      if (!doc) return line
+      return `${renderJSDoc(doc)}\n${line}`
+    })
+    .join('\n')
+}).join('\n')
+
+const expandFns = EXPAND_NAMES.map((name) => {
+  const line = `declare function ${name}<T extends Numeric>(...args: T[]): T`
+  const doc = FUNCTION_DOCS[name]
+  if (!doc) return line
+  return `${renderJSDoc(doc)}\n${line}`
+}).join('\n')
+
+// Add the random function declaration with JSDoc
+const randomDeclaration = FUNCTION_DOCS.random
+  ? `${renderJSDoc(FUNCTION_DOCS.random)}\ndeclare function random(seed: number | vec2 | vec3): f32`
+  : 'declare function random(seed: number | vec2 | vec3): f32'
+
+const langConsts = LANG_CONST_NAMES.map((name) => {
+  const line = `declare const ${name}: number`
+  const doc = CONSTANT_DOCS[name]
+  if (!doc) return line
+  return `${renderJSDoc(doc)}\n${line}`
+}).join('\n')
+
+// Build MathObject interface members with JSDoc
+const mathMethodNames = [
+  'abs',
+  'acos',
+  'acosh',
+  'asin',
+  'asinh',
+  'atan',
+  'atanh',
+  'ceil',
+  'cos',
+  'cosh',
+  'exp',
+  'floor',
+  'fround',
+  'log',
+  'log2',
+  'round',
+  'sign',
+  'sin',
+  'sinh',
+  'sqrt',
+  'tan',
+  'tanh',
+  'trunc',
+]
+const mathMethods = mathMethodNames
+  .map((name) => {
+    const line = `  ${name}(x: number): number`
+    const doc = MATH_MEMBER_DOCS[name]
+    if (!doc) return line
+    return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`
+  })
+  .join('\n')
+
+const mathSpecialMethods = [
+  `  ${renderJSDoc(MATH_MEMBER_DOCS.atan2).split('\n').join('\n  ')}\n  atan2(y: number, x: number): number`,
+  `  ${renderJSDoc(MATH_MEMBER_DOCS.max).split('\n').join('\n  ')}\n  max(a: number, b: number): number`,
+  `  ${renderJSDoc(MATH_MEMBER_DOCS.min).split('\n').join('\n  ')}\n  min(a: number, b: number): number`,
+  `  ${renderJSDoc(MATH_MEMBER_DOCS.pow).split('\n').join('\n  ')}\n  pow(base: number, exponent: number): number`,
+  `  ${renderJSDoc(MATH_MEMBER_DOCS.random).split('\n').join('\n  ')}\n  random(): number`,
+].join('\n')
+
+const mathConstants = ['E', 'LN10', 'LN2', 'LOG10E', 'LOG2E', 'PI', 'SQRT1_2', 'SQRT2']
+  .map((name) => {
+    const line = `  readonly ${name}: number`
+    const doc = MATH_MEMBER_DOCS[name]
+    if (!doc) return line
+    return `  ${renderJSDoc(doc).split('\n').join('\n  ')}\n${line}`
+  })
+  .join('\n')
 
 /**
  * The unique-symbol tags `SHADE_DTS` brands the vector and matrix types with: `vecTag` on the
@@ -379,7 +484,9 @@ declare const arrayTag: unique symbol
 type array<T, N extends number = number> = { readonly [arrayTag]: readonly [T, N]; readonly length: N } & {
   [index: number]: T
 }
+${renderJSDoc(FUNCTION_DOCS.array)}
 declare function array<T, N extends number>(...values: readonly T[]): array<T, N>
+${renderJSDoc(FUNCTION_DOCS.fill)}
 declare function fill<T, N extends number>(value: T): array<T, N>
 
 /** Transparent: a binding's declared value type IS \`T\` everywhere it is referenced in a
@@ -387,7 +494,9 @@ declare function fill<T, N extends number>(value: T): array<T, N>
  * type alias is an identity rather than an opaque wrapper. */
 type uniform<T> = T
 type storage<T> = T
+${renderJSDoc(FUNCTION_DOCS.uniform)}
 declare function uniform<T>(): T
+${renderJSDoc(FUNCTION_DOCS.storage)}
 declare function storage<T>(): T
 
 /** Specialization constants (#8 A7). Transparent for the same reason as \`uniform<T>\`: a
@@ -405,19 +514,23 @@ type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
 type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
 type sampler = { readonly [samplerTag]: true }
 
+${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(tex: texture_2d<f32>, smp: sampler, uv: vec2): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(
   tex: texture_2d_array<f32>,
   smp: sampler,
   uv: vec2,
   layer: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSampleLevel)}
 declare function textureSampleLevel(
   tex: texture_2d<f32>,
   smp: sampler,
   uv: vec2,
   level: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSampleLevel)}
 declare function textureSampleLevel(
   tex: texture_2d_array<f32>,
   smp: sampler,
@@ -425,14 +538,18 @@ declare function textureSampleLevel(
   layer: number,
   level: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E>(tex: texture_2d<E>, coord: vec2i, level: number): vec4
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E>(
   tex: texture_2d_array<E>,
   coord: vec2i,
   layer: number,
   level: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
 
 ${vecCtors}
@@ -443,6 +560,8 @@ ${freeMath}
 
 ${expandFns}
 
+${randomDeclaration}
+
 ${langConsts}
 
 // ── Spellings whose shape the generated tables above cannot express (#8 A6) ──
@@ -451,60 +570,33 @@ ${langConsts}
 // POSITIVE §6 forbids. They are written by hand because the generators derive a signature
 // from an arity alone: \`select\`'s third argument is a bool, \`atan\` has two arities, \`bool\`
 // takes a bool as well as a number, and \`discard\` is a statement, not a call.
+${renderJSDoc(FUNCTION_DOCS.select)}
 declare function select<T extends Numeric>(falseValue: T, trueValue: T, cond: bool): T
+${renderJSDoc(FUNCTION_DOCS.atan2)}
 declare function atan<T extends Numeric>(y: T, x: T): T
+${renderJSDoc(FUNCTION_DOCS.bool)}
 declare function bool(x: number | bool): bool
+${renderJSDoc(CONSTANT_DOCS.discard)}
 declare const discard: void
 
 interface MathObject {
-${Object.keys({
-  abs: 0,
-  acos: 0,
-  acosh: 0,
-  asin: 0,
-  asinh: 0,
-  atan: 0,
-  atanh: 0,
-  ceil: 0,
-  cos: 0,
-  cosh: 0,
-  exp: 0,
-  floor: 0,
-  fround: 0,
-  log: 0,
-  log2: 0,
-  round: 0,
-  sign: 0,
-  sin: 0,
-  sinh: 0,
-  sqrt: 0,
-  tan: 0,
-  tanh: 0,
-  trunc: 0,
-})
-  .map((name) => `  ${name}(x: number): number`)
-  .join('\n')}
-  atan2(y: number, x: number): number
-  max(a: number, b: number): number
-  min(a: number, b: number): number
-  pow(base: number, exponent: number): number
-  random(): number
-  readonly E: number
-  readonly LN10: number
-  readonly LN2: number
-  readonly LOG10E: number
-  readonly LOG2E: number
-  readonly PI: number
-  readonly SQRT1_2: number
-  readonly SQRT2: number
+${mathMethods}
+${mathSpecialMethods}
+${mathConstants}
 }
 declare const Math: MathObject
 
+${renderJSDoc(ATTRIBUTE_DOCS.builtin)}
 declare function builtin(name: string): (target: unknown, context?: unknown) => void
+${renderJSDoc(ATTRIBUTE_DOCS.location)}
 declare function location(n: number): (target: unknown, context?: unknown) => void
+${renderJSDoc(ATTRIBUTE_DOCS.vertex)}
 declare function vertex(target: Function, context?: unknown): void
+${renderJSDoc(ATTRIBUTE_DOCS.fragment)}
 declare function fragment(target: Function, context?: unknown): void
+${renderJSDoc(ATTRIBUTE_DOCS.compute)}
 declare function compute(workgroupSize: readonly number[]): (target: Function, context?: unknown) => void
+${renderJSDoc(ATTRIBUTE_DOCS.compute)}
 declare function compute(target: Function, context?: unknown): void
 
 interface Array<T> {

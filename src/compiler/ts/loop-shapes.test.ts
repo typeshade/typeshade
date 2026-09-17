@@ -198,10 +198,13 @@ describe('the exact count handles every comparison', () => {
     // `!==` needs no induction-range check of its own, unlike the four thresholds: it only
     // counts when the walk lands EXACTLY on the bound, so every value it visits lies between
     // the start and the bound and the last one IS the bound. A bound the type cannot hold is
-    // therefore a bound LITERAL the type cannot hold, and the backend says so by name. Pinned
-    // here so that "this arm has no range check" stays a fact about a covered case.
-    expect(diagnose('let i: i32 = 2147483645; i !== 2147483650; i += 1').split('\n')[0]).toBe(
-      'Backend emit failed: shader-dsl [SD0017]: literal cannot be spelled by the target — i32 literal 2147483650',
+    // therefore a bound LITERAL the type cannot hold, and it is refused where it is spelled:
+    // an integer literal outside i32 does not take the induction variable's type (#8 A3), so
+    // it stays f32 and the comparison itself is what says no. Pinned here so that "this arm
+    // has no range check" stays a fact about a covered case.
+    expect(diagnose('let i: i32 = 2147483645; i !== 2147483650; i += 1')).toBe(
+      'Type mismatch: cannot compare i32 and f32 — no implicit int/float conversion. ' +
+        'Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).',
     )
   })
 

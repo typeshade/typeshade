@@ -106,10 +106,10 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 32  | `fp64-sine-sweep`     | generic      | blocked      | **A6-f64**                   | 13 / 36        |
 | 33  | `gradient`            | generic      | **portable** | —                            | —              |
 | 34  | `override-quality`    | generic      | **portable** | —                            | —              |
-| 35  | `texture-array-lod`   | generic      | blocked      | **A3**, ~~A7-tex~~           | 1 / 36         |
+| 35  | `texture-array-lod`   | generic      | **portable** | —                            | —              |
 | 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
 
-**Portable today: 12 of 36.** The twins measured 11; A7 adds `override-quality`, whose source form compiles with `override<T>`. The earlier figure was 14 — up from 2 once
+**Portable today: 13 of 36.** The twins measured 11; A7 adds `override-quality`, whose source form compiles with `override<T>`, and A3 adds `texture-array-lod`, whose `vec2i(0, 0)` was the last thing holding it after A7. The earlier figure was 14 — up from 2 once
 [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the single largest
 blocker — and then all twelve unwritten twins were written out. Three of them do not compile,
 and rows 11, 16 and 17 above carry the blockers that stopped them (**B-negint**, **B-scope**).
@@ -132,9 +132,9 @@ correct shader_, and one of the three passed every gate in this repository excep
 | **N2**          | an f64 literal — `let z: f64 = 0.` and `f64Val * 2.` both fail       | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-cancellation` |
 | **A6-deriv**    | ~~`fwidth`, and `dpdx` / `dpdy`~~ — **landed** (#8 A6)               | A6              | 5      | `graticule`, `fp64-loran`, `color-ramp`, `truchet`, `heart`                                                                                                               |
 | **L-loop**      | a loop bound that is not a compile-time constant                     | later (M22·S31) | 4      | `fp64-mercator-tiles`, `fbm-clouds`, `metaballs`, `fp64-mandelbrot`                                                                                                       |
-| **A3**          | an integer literal taking the declared type (`vec2i(0, 0)`)          | A3              | 1      | `texture-array-lod`                                                                                                                                                       |
+| **A3**          | ~~an integer literal taking the declared type~~ — **landed** (#8 A3) | A3              | 0      | — (`texture-array-lod` compiles)                                                                                                                                          |
 | **A6-discard**  | ~~the `discard` statement~~ — **landed** (#8 A6)                     | A6              | 1      | `discard-cutout`                                                                                                                                                          |
-| **A7-tex**      | ~~`texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`~~ — **landed** (#8 A7) | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
+| **A7-tex**      | ~~`texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`~~ — **landed** (#8 A7) | A7              | 0      | — (`texture-array-lod` compiles)                                                                                                                                          |
 | **A7-override** | ~~`override<T>` specialization constants~~ — **landed** (#8 A7)      | A7              | 0      | — (`override-quality` compiles)                                                                                                                                           |
 | **B-scope**     | a local name bound in two block scopes of one function ([#38])       | **a bug**       | 2      | `raymarch-sphere`, `raymarch-boxes`                                                                                                                                       |
 | **B-negint**    | a negative integer literal in a local or `for` declaration ([#40])   | **a bug**       | 1      | `voronoi`                                                                                                                                                                 |
@@ -482,6 +482,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `for (let i: i32 = 64; i > 1; i /= 2)`, `i *= 2`, `i -= 1`                                                      | ✓ since #8 A15: `+=`, `-=`, `*=` and `/=` are all update forms                                          |
 | `for (let i: i32 = 0; i < 1024; i++)`                                                                           | ✗ `for trip count 1024 exceeds 256.` since #8 A15; it used to say the loop "does not exit"              |
 | `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                              |
+| `vec2i(1, 2)`, `return 0` in a u32 fn, `g(1)`, `{ id: 0 }`, `c ? 1 : 2`, `min(i, 4)`                            | ✓ since #8 A3 (`min(i, 4)` used to emit the invalid `min(i, 4.0)`)                                      |
 | `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                       |
 | `const UP = vec3(0., 1., 0.)`, `const XS = array<f32, 3>(…)` (module vector / array const)                      | ✓ since #8 A9 — through `ConstDecl.valueExpr`, the field the EDSL's `constExpr` fills                   |
 | `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                           |

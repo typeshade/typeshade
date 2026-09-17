@@ -395,6 +395,9 @@ export function fillFunctionBody(
 ): void {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
+  // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3).
+  scope.setReturnType(stub.ret)
+
   // Every module-scope define is guarded, because `scope.define` THROWS on a repeat and this
   // is the last place a collision between two collectors can land. Each collector reports its
   // own duplicates, so a name arriving twice here has already been diagnosed — an override

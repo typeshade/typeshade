@@ -345,9 +345,10 @@ function addTrips(
     // refused above), so every value it visits lies between the start and the bound, and the
     // value after the final iteration IS the bound. Both ends are already in range: the start
     // is checked in `countTrips`, and a bound the type cannot hold is a literal the type
-    // cannot hold, which the backend refuses by name (SD0017). The four arms below need their
-    // check because they stop at the last value that still SATISFIES the condition and then
-    // take one more step past it, which is a value no literal in the source names.
+    // cannot hold, which is refused where it is spelled (an integer literal outside i32 does
+    // not take the induction variable's type, so the comparison is a type mismatch). The four
+    // arms below need their check because they stop at the last value that still SATISFIES
+    // the condition and then take one more step past it, which is a value no literal names.
     return { ok: true, n: gap / step }
   }
   // The remaining four are `<`, `<=`, `>`, `>=`. Normalise to "how far is the last value that
