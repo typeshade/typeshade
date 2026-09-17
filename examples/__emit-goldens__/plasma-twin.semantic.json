@@ -1,0 +1,37 @@
+{
+  "twin": "plasma-twin",
+  "of": "plasma",
+  "equal": false,
+  "diff": {
+    "interface": [],
+    "resources": [],
+    "constants": [
+      "-lit f32=0.7",
+      "-lit f32=0.7",
+      "-lit f32=1",
+      "-lit f32=1",
+      "-lit f32=10",
+      "-lit f32=10",
+      "-lit f32=10",
+      "-lit f32=10",
+      "-lit f32=10",
+      "-lit f32=10",
+      "-lit f32=4",
+      "-lit f32=4",
+      "-lit u32=1",
+      "-lit u32=1"
+    ],
+    "controlFlow": [
+      "+fs#0 let v#0 = (.time:f32 (varref U:struct:Uniforms))",
+      "+fs#1 let v#1 = (.uv:vec2<f32> (param vo:struct:st#0))",
+      "+fs#2 let v#2 = (+:f32 (+:f32 (call sin:f32 (+:f32 (*:f32 (.x:f32 (varref v#1:vec2<f32>)) (lit:f32)) (varref v#0:f32))) (call sin:f32 (+:f32 (*:f32 (.y:f32 (varref v#1:vec2<f32>)) (lit:f32)) (varref v#0:f32)))) (call sin:f32 (+:f32 (*:f32 (+:f32 (.x:f32 (varref v#1:vec2<f32>)) (.y:f32 (varref v#1:vec2<f32>))) (lit:f32)) (*:f32 (varref v#0:f32) (lit:f32)))))",
+      "+fs#3 let v#3 = (+:vec3<f32> (*:vec3<f32> (construct:vec3<f32> (call sin:f32 (varref v#2:f32)) (call sin:f32 (+:f32 (varref v#2:f32) (lit:f32))) (call sin:f32 (+:f32 (varref v#2:f32) (lit:f32)))) (lit:f32)) (lit:f32))",
+      "+fs#4 return (construct:vec4<f32> (varref v#3:vec3<f32>) (lit:f32))",
+      "+vs#0 let v#0 = (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32))",
+      "+vs#1 let v#1 = (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32))",
+      "+vs#2 return (construct:struct:st#0 (construct:vec4<f32> (varref v#0:f32) (varref v#1:f32) (lit:f32) (lit:f32)) (construct:vec2<f32> (+:f32 (*:f32 (varref v#0:f32) (lit:f32)) (lit:f32)) (+:f32 (*:f32 (varref v#1:f32) (lit:f32)) (lit:f32))))",
+      "-fs#0 return (construct:vec4<f32> (+:vec3<f32> (*:vec3<f32> (construct:vec3<f32> (call sin:f32 (+:f32 (+:f32 (call sin:f32 (+:f32 (*:f32 (.x:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (lit:f32)) (.time:f32 (varref U:struct:Uniforms)))) (call sin:f32 (+:f32 (*:f32 (.y:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (lit:f32)) (.time:f32 (varref U:struct:Uniforms))))) (call sin:f32 (+:f32 (*:f32 (+:f32 (.x:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (.y:f32 (.uv:vec2<f32> (param vo:struct:st#0)))) (lit:f32)) (*:f32 (.time:f32 (varref U:struct:Uniforms)) (lit:f32)))))) (call sin:f32 (+:f32 (+:f32 (+:f32 (call sin:f32 (+:f32 (*:f32 (.x:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (lit:f32)) (.time:f32 (varref U:struct:Uniforms)))) (call sin:f32 (+:f32 (*:f32 (.y:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (lit:f32)) (.time:f32 (varref U:struct:Uniforms))))) (call sin:f32 (+:f32 (*:f32 (+:f32 (.x:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (.y:f32 (.uv:vec2<f32> (param vo:struct:st#0)))) (lit:f32)) (*:f32 (.time:f32 (varref U:struct:Uniforms)) (lit:f32))))) (lit:f32))) (call sin:f32 (+:f32 (+:f32 (+:f32 (call sin:f32 (+:f32 (*:f32 (.x:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (lit:f32)) (.time:f32 (varref U:struct:Uniforms)))) (call sin:f32 (+:f32 (*:f32 (.y:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (lit:f32)) (.time:f32 (varref U:struct:Uniforms))))) (call sin:f32 (+:f32 (*:f32 (+:f32 (.x:f32 (.uv:vec2<f32> (param vo:struct:st#0))) (.y:f32 (.uv:vec2<f32> (param vo:struct:st#0)))) (lit:f32)) (*:f32 (.time:f32 (varref U:struct:Uniforms)) (lit:f32))))) (lit:f32)))) (lit:f32)) (lit:f32)) (lit:f32))",
+      "-vs#0 return (construct:struct:st#0 (construct:vec4<f32> (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32) (lit:f32)) (construct:vec2<f32> (+:f32 (*:f32 (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32)) (lit:f32)) (+:f32 (*:f32 (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32)) (lit:f32))))"
+    ]
+  }
+}
