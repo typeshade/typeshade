@@ -91,12 +91,29 @@ function isArrayValued(t: ShaderType): boolean {
 const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32'
 
 /** The zero value literal for a `var` with no initializer — mirrors
- *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → {},
- *  everything else → 0). */
-function zeroLit(t: ShaderType): string {
+ *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → every field zeroed
+ *  recursively, array → N zeros of its element, bool → false, everything else → 0). The two
+ *  must agree exactly: the interpreter and this generator are the two CPU backends, and a
+ *  `var` that starts as `0` in one and as `[0, 0, 0]` in the other is the bit-identity
+ *  contract broken at the declaration. The array, bool and struct arms all arrived with #8
+ *  A10, which gave the source language the init-less declaration that reaches them. */
+function zeroLit(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): string {
   if (t.kind === 'vec' || t.kind === 'vec64') return `new Array(${t.n}).fill(0)`
   if (t.kind === 'mat') return `new Array(${t.n * t.n}).fill(0)`
-  if (t.kind === 'struct') return '{}'
+  // Field by field, exactly as the interpreter's `zeroOf` builds it: the old `{}` left every
+  // field absent, so `let s: S;` then `s.a` read `undefined` here and on the interpreter
+  // alike, where WGSL's `var s: S;` reads 0. Recursion covers a nested struct and an array of
+  // structs. An undeclared struct name keeps `{}`, the same fallback `zeroOf` takes.
+  if (t.kind === 'struct') {
+    const decl = structs.get(t.name)
+    if (decl === undefined) return '{}'
+    const fields = decl.fields.map((f) => `${q(f.name)}: ${zeroLit(f.type, structs)}`)
+    return `{${fields.join(', ')}}`
+  }
+  if (t.kind === 'array') {
+    return `[${Array.from({ length: t.size ?? 0 }, () => zeroLit(t.elem, structs)).join(', ')}]`
+  }
+  if (t.kind === 'scalar' && t.scalar === 'bool') return 'false'
   return '0'
 }
 
@@ -371,7 +388,7 @@ function emitStmt(s: Stmt, S: FnCtx): string {
     }
     case 'var': {
       const id = declareVar(s.name, S)
-      return `${id} = ${s.init ? bindExpr(emitExpr(s.init, S), s.type) : zeroLit(s.type)};`
+      return `${id} = ${s.init ? bindExpr(emitExpr(s.init, S), s.type) : zeroLit(s.type, S.mod.structs)};`
     }
     case 'assign':
       return `${emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S)};`
@@ -430,7 +447,7 @@ function emitStmt(s: Stmt, S: FnCtx): string {
 function emitForInit(s: Stmt, S: FnCtx): string {
   if (s.s === 'let') return `${declareVar(s.name, S)} = ${emitExpr(s.expr, S)}`
   if (s.s === 'var')
-    return `${declareVar(s.name, S)} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type)}`
+    return `${declareVar(s.name, S)} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type, S.mod.structs)}`
   throw new CodegenUnsupported(`for-init ${s.s}`)
 }
 

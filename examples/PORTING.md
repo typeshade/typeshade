@@ -153,15 +153,20 @@ first. No example in the 36 is waiting on any of them:
 
 | Issue #8 item                                                  | Blocks |
 | -------------------------------------------------------------- | ------ |
-| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed) | 0      |
+| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed) | 0      | 0      |
 | ~~**A4** `type` / `interface` structs~~ (landed)               | 0      |
 | **A5** `@align` / `@size` field decorators                     | 0      |
 | ~~**A8** element-converting constructors~~ (landed)            | 0      |
 | ~~**A9** module-level vector constants~~ (landed)              | 0      |
-| **A10** uninitialised `let`, `switch`, `<<=`                   | 0      |
+| ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed)      | 0      |
 | **A11** object-literal contextual typing                       | 0      |
 | **S5** `arrayLength`                                           | 0      |
 | **S7** `mat2` / `mat3`                                         | 0      |
+
+A10 has landed even though it blocks nothing here: the 36 EDSL examples were written
+through a surface that spells these differently, so the corpus could not have shown the gap.
+`bitfield-bands.shade.ts` is the coverage instead: a `.shade.ts` example the compile gate
+hands to Tint and to a real WebGL2 context.
 
 A2 in particular: every `.assign()` in the corpus targets a whole value, never a component.
 What reads as member assignment in the IR walk (`construct`, `lit`, `binop` targets) is the
@@ -480,7 +485,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                             |
 | `m: mat3`                                                                                                       | ✗ `Unknown type "mat3"`                                                                                 |
 | `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                    |
-| `let x: f32;` then `x = 1.`                                                                                     | ✗ `"let x" requires an initializer`                                                                     |
+| `let x: f32;` then `x = 1.`                                                                                     | ✓ since #8 A10; the annotation carries the type, so it is required                                      |
 | `v.x = 1.` / `o.pos = …` / `ps[i].a = 1.` / `v.x += 1.`                                                         | ✓ since #8 A2 (`v.xy = …` is still rejected, as WGSL rejects it)                                        |
 | `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                       |
 | `declare const params: uniform<vec4u>` (non-struct uniform)                                                     | ✓                                                                                                       |

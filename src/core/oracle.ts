@@ -334,7 +334,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         env.set(s.name, bindValue(evalExpr(s.expr, env, ctx), s.expr.type))
         break
       case 'var':
-        env.set(s.name, s.init ? bindValue(evalExpr(s.init, env, ctx), s.type) : zeroOf(s.type))
+        env.set(s.name, s.init ? bindValue(evalExpr(s.init, env, ctx), s.type) : zeroOf(s.type, ctx.structs))
         break
       case 'assign':
         // Through bindValue, as `let`/`var` are: an aggregate is copied into the target
