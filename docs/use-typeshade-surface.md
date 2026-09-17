@@ -294,14 +294,14 @@ carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoot
 | `saturate(x)` | `clamp(x, 0., 1.)`; GLSL ES 3.00 has no `saturate`, so it is inlined there |
 | `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL) |
 | `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
-| `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL) — `atan(x)` is still one argument |
+| `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL); `atan(x)` is still one argument |
 | `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
 | `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
 
 A function the file declares wins over any name in the table above, and over `bool` and
 `f64`: those names meant the author's function before they were builtins, and an addition
 does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
-`clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way —
+`clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way:
 a program that resolves to one today must keep resolving to it.
 
 `discard` kills the fragment:
@@ -343,11 +343,18 @@ Tint and is rejected by ANGLE with
 ERROR: 0:5: 'exp2' : Name of a built-in function cannot be redeclared as function
 ```
 
-while `saturate` and `fma` are accepted, because GLSL ES 3.00 has neither name. This is not
-new — those two names are the GLSL builtins they always were, and a module declaring one
-emitted the same GLSL before this item existed — but it is the one way the precedence rule
-above can hand you a WGSL-only module. The fix is to rename the function; the compiler does
-not warn about it yet.
+while `saturate` and `fma` are accepted, because GLSL ES 3.00 has neither name. `bool` fails
+the same way for a different reason: it is a GLSL ES 3.00 keyword, so ANGLE reports
+`'bool' : syntax error` on a module that declares a function of that name, although the
+declaration still wins on WGSL and on the CPU. None of this is new: those names are the GLSL
+builtins and keywords they always were, and a module declaring one emitted the same GLSL
+before this item existed. It is, though, the one way the precedence rule above can hand you a
+WGSL-only module. The fix is to rename the function; the compiler does not warn about it yet.
+
+The same precedence holds for a function handed to a fold. `zip(xs, ys, atan2)` beside a
+declared `atan2` is refused with the rule named, because `atan2` is a name the intrinsic wins
+and a fold has no intrinsic-valued callback; `zip(xs, ys, fma)` beside a declared `fma` calls
+the declaration, as a plain `fma(a, b, c)` would.
 
 ---
 
