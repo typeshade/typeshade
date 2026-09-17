@@ -83,7 +83,16 @@ function lowerStatementNode(
   if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics)
   if (ts.isReturnStatement(node)) {
     if (!node.expression) return { s: 'return' }
-    const expr = lowerExpression(node.expression, sourceFile, scope, diagnostics)
+    // The declared return type is the context an object literal needs: `return { pos, uv }`
+    // in a function declared VsOut builds a VsOut, even when another struct has the same
+    // fields (#8 A11).
+    const expr = lowerExpression(
+      node.expression,
+      sourceFile,
+      scope,
+      diagnostics,
+      scope.returnType(),
+    )
     if (!expr) return undefined
     // `return 0` takes the declared return type when that type is i32 or u32 (#8 A3).
     const ret = scope.returnType()
@@ -260,7 +269,8 @@ function lowerVariableDeclaration(
     }
     return withSpan({ s: 'var', name, type: annotated } as Stmt, sourceFile, spanNode)
   }
-  let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+  // The annotation is the context for `const o: VsOut = { … }` (#8 A11).
+  let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated)
   if (!init) return undefined
   if (annotated) {
     if (init.op === 'lit' && typeof init.value === 'boolean' && typeKey(annotated) === 'bool') {
@@ -388,7 +398,12 @@ function lowerAssign(
 ): Stmt | undefined {
   const target = lowerLValue(left, sourceFile, scope, diagnostics)
   if (!target) return undefined
-  let value = lowerExpression(right, sourceFile, scope, diagnostics)
+  // The target's type is the context for the right-hand side, so `o = { x: 1., y: 2. }` knows
+  // which struct it builds the same way `const o: A = { … }` does (#8 A11). An assignment
+  // target is a DECLARED position: the name was annotated where it was declared, and the
+  // lvalue carries that type here. Without this the literal fell through to the
+  // unique-struct fallback and a second struct of the same shape refused it.
+  let value = lowerExpression(right, sourceFile, scope, diagnostics, target.type)
   if (!value) return undefined
   // `x = 2` takes the target's type when it is i32 or u32 (#8 A3); the compound form already
   // did through lowerAssignOp.

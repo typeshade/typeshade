@@ -6,6 +6,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { readOnlyPhrase } from '../context.js'
 import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
+import { fitsTarget, isIntScalar } from '../lit-coerce.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -460,8 +461,31 @@ export function lowerUpdate(
       // emit carries and the step the counter reasons about are the same number by
       // construction. A non-constant step is left alone and refused downstream, where the
       // message can say a loop needs a constant step.
+      //
+      // A step the induction type cannot HOLD is refused here rather than retyped. `i *= 2.5`
+      // on an i32 counter used to become `{ op: 'lit', type: i32, value: 2.5 }`, which only
+      // the backend caught, as SD0017 out of `compile()` naming a literal the author's source
+      // does not contain. `fitsTarget` is #30's own predicate, the one `retargetDeclaredIntLit`
+      // uses to decide the same question at a declaration, so the two sites agree on what an
+      // integer type can hold.
       if (isFoldableStepType(binding.type)) {
         const folded = foldConstNumber(rhs, scope)
+        if (
+          folded !== undefined &&
+          isIntScalar(binding.type) &&
+          !fitsTarget(folded, binding.type)
+        ) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            expr,
+            `for step "${left.text} ${bop}= ${String(folded)}" does not fit "${left.text}", ` +
+              `which is ${typeKey(binding.type)}: ${String(folded)} ` +
+              `${Number.isInteger(folded) ? 'is outside its range' : 'is not a whole number'}.`,
+            TS_CODES.TYPE_MISMATCH,
+          )
+          return undefined
+        }
         if (folded !== undefined) rhs = { op: 'lit', type: binding.type, value: folded }
       }
       // `i += 2` writes `i`, so the target carries the lvalue's span (#32) — for all four

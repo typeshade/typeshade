@@ -1,5 +1,6 @@
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
+import type { ShaderType } from '../../../core/ir/types.js'
 import { f32T, i32T, structT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
@@ -148,13 +149,34 @@ export function lowerPropertyAccess(
   return { op: 'member', type: sw.type, base, field: sw.field }
 }
 
+/**
+ * Lower `{ pos: …, uv: … }` into the `construct` of the struct it builds.
+ *
+ * WHICH struct comes from `contextual` when the position declares one — a function's return
+ * type, a `let`/`const` annotation, a parameter type (#8 A11). Matching the field NAMES
+ * against the struct table is the fallback for a position that declares nothing, and it is
+ * only a fallback because it cannot answer at all when two structs have the same shape: a
+ * vertex `VsOut` and a fragment `FsIn` with the same fields made `return { pos, uv }` an
+ * error in a function that says exactly which one it returns.
+ *
+ * A contextual type that is not a struct is ignored rather than reported here: the mismatch
+ * belongs to the position's own type check, which says what was declared and what it got.
+ *
+ * @param contextual - the type the position declares, if it declares one.
+ * @returns the `construct`, or `undefined` after pushing a diagnostic.
+ */
 export function lowerObjectLiteral(
   node: ts.ObjectLiteralExpression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  contextual?: ShaderType,
 ): Expr | undefined {
-  const given: { name: string; expr: Expr; node: ts.Expression }[] = []
+  // The struct is resolved BEFORE the initializers are lowered, so each one can be lowered
+  // against the type of the field it fills. That is what carries the context inward: a nested
+  // `{ i: { x: 1. } }` used to lower its inner literal with nothing, so a twin at the inner
+  // level was as unresolvable as the outer one was before this item.
+  const props: { name: string; value: ts.Expression }[] = []
   for (const prop of node.properties) {
     // `{ pos, uv }` is `{ pos: pos, uv: uv }` — the shorthand TypeScript gives a property
     // whose value is its own name, and the shape `return { pos, uv }` is written in (#8 A10).
@@ -175,9 +197,9 @@ export function lowerObjectLiteral(
         )
         return undefined
       }
-      const expr = lowerExpression(prop.name, sourceFile, scope, diagnostics)
-      if (!expr) return undefined
-      given.push({ name: prop.name.text, expr, node: prop.name })
+      // The value IS the name, so it joins the list like any other — the struct is resolved
+      // before any of them is lowered.
+      props.push({ name: prop.name.text, value: prop.name })
       continue
     }
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) {
@@ -190,12 +212,11 @@ export function lowerObjectLiteral(
       )
       return undefined
     }
-    const expr = lowerExpression(prop.initializer, sourceFile, scope, diagnostics)
-    if (!expr) return undefined
-    given.push({ name: prop.name.text, expr, node: prop.initializer })
+    props.push({ name: prop.name.text, value: prop.initializer })
   }
-  const names = given.map((g) => g.name)
-  const match = scope.matchStruct(names)
+  const names = props.map((p) => p.name)
+  const declared = contextual?.kind === 'struct' ? scope.structByName(contextual.name) : undefined
+  const match = declared ?? scope.matchStruct(names)
   if (!match) {
     pushDiag(
       diagnostics,
@@ -206,11 +227,42 @@ export function lowerObjectLiteral(
     )
     return undefined
   }
+  // Only where the struct is DECLARED. On the fallback path `matchStruct` has already equated
+  // the struct's field count with the literal's UNIQUE name count and checked that every field
+  // is among those names, so a name it does not have cannot reach here — and the count guard
+  // that used to stand beside this could fire on one input alone, a REPEATED field.
+  // `const o = { a: 1., a: 2., b: 3. }` emitted `P(2.0, 3.0)` before this item and would have
+  // been refused after it, while the same literal in a return position stayed accepted. A
+  // repeated field is TypeScript's own TS1117 and the editor says so; the compiler keeps
+  // taking the last, in every position, as it always did.
+  if (declared) {
+    for (const p of props) {
+      if (match.fields.some((f) => f.name === p.name)) continue
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Struct ${match.name} has no field "${p.name}".`,
+        TS_CODES.STRUCT_FIELD,
+      )
+      return undefined
+    }
+  }
+  const fieldType = new Map(match.fields.map((f) => [f.name, f.type]))
+  const given: { name: string; expr: Expr; node: ts.Expression }[] = []
+  for (const p of props) {
+    const expr = lowerExpression(p.value, sourceFile, scope, diagnostics, fieldType.get(p.name))
+    if (!expr) return undefined
+    given.push({ name: p.name, expr, node: p.value })
+  }
   const byName = new Map(given.map((g) => [g.name, g.expr]))
   const nodeByName = new Map(given.map((g) => [g.name, g.node]))
   const args: Expr[] = []
   for (const field of match.fields) {
-    // `{ id: 0 }` takes the field's type when it is i32 or u32 (#8 A3).
+    // `{ id: 0 }` takes the field's type when it is i32 or u32 (#8 A3). Distinct from the
+    // context this item passes down: that decides which STRUCT a nested literal builds, this
+    // retypes an integer literal once the field's own type is known. Both need the struct
+    // resolved first, which is why they sit on the same side of that decision.
     const named = byName.get(field.name)
     const namedNode = nodeByName.get(field.name)
     const expr = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named

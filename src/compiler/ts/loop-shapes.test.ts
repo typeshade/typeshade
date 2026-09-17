@@ -147,6 +147,27 @@ describe('a multiplicative step is a counted loop', () => {
     )
   })
 
+  it('refuses a step the induction type cannot hold, at the source', () => {
+    // These used to be retyped to a literal the type cannot spell — `{ op: 'lit', type: i32,
+    // value: 2.5 }` — and only the BACKEND caught them, as an SD0017 out of compile() naming
+    // a literal the author's source does not contain. `fitsTarget` is the predicate #8 A3
+    // uses at a declaration, so a step and an initializer agree on what an integer holds.
+    expect(diagnose('let i: i32 = 1; i < 64; i *= 2.5')).toBe(
+      'for step "i *= 2.5" does not fit "i", which is i32: 2.5 is not a whole number.',
+    )
+    expect(diagnose('let i: i32 = 0; i < 16; i += 3000000000')).toBe(
+      'for step "i += 3000000000" does not fit "i", which is i32: 3000000000 is outside its range.',
+    )
+    expect(diagnose('let i: u32 = u32(0); i < u32(16); i += -1')).toBe(
+      'for step "i += -1" does not fit "i", which is u32: -1 is outside its range.',
+    )
+    // A step WRITTEN as a float but valued as a whole number is still accepted, because it was
+    // before: `i += 2.0` emitted `i += 2` on the merge base and still does. Refusing it here
+    // would take back source that compiles.
+    accepts('let i: i32 = 0; i < 16; i += 2.0')
+    accepts('let i: i32 = 0; i < 16; i += (1.5 + 1.5)')
+  })
+
   it('names the forms it takes when the update is none of them', () => {
     // `%=` is not one of the four the update table takes — a remainder step is a fixed point
     // after one application, so no `for` it heads exits — and a plain assignment is not an

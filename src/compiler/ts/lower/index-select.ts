@@ -58,10 +58,15 @@ export function lowerSelect(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  contextual?: ShaderType,
 ): Expr | undefined {
   const cond = lowerExpression(node.condition, sourceFile, scope, diagnostics)
-  let ifTrue = lowerExpression(node.whenTrue, sourceFile, scope, diagnostics)
-  let ifFalse = lowerExpression(node.whenFalse, sourceFile, scope, diagnostics)
+  // Both arms sit in the ternary's own position, so both take its context (#8 A11). A
+  // `return c ? { … } : { … }` in a function declared `A` is two object literals in a
+  // declared position, not two literals in none; without this each fell through to the
+  // unique-struct fallback and was refused twice over.
+  let ifTrue = lowerExpression(node.whenTrue, sourceFile, scope, diagnostics, contextual)
+  let ifFalse = lowerExpression(node.whenFalse, sourceFile, scope, diagnostics, contextual)
   if (!cond || !ifTrue || !ifFalse) return undefined
   if (typeKey(cond.type) !== 'bool') {
     pushDiag(
