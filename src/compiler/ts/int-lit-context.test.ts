@@ -254,10 +254,11 @@ describe('a float context is untouched', () => {
     // the guard an f32 context would receive a single `lit 2` where a `binop` was built
     // before, and `fn()` — the IR-equality oracle — would stop matching.
     //
-    // Written `1 + 1`, NOT `1. + 1.`: the second reaches `isIntegerLiteralTree` first, which
-    // rejects any text carrying a `.`, so the guard is never consulted and deleting it left
-    // this green. `1 + 1` is an integer tree in an f32 position, which is exactly the pair
-    // only the guard separates.
+    // Written `1 + 1`, NOT `1. + 1.`: the guard is the first statement of `retargetIntLitCtx`,
+    // so the second does reach it, but with the guard deleted `isIntegerLiteralTree` stops it
+    // one line later (it rejects any text carrying a `.`), which is why deleting the guard left
+    // that spelling green. `1 + 1` is an integer tree in an f32 position, which is exactly the
+    // pair only the guard separates.
     const e = returnExpr('export function f(): f32 {\n  return 1 + 1;\n}')
     expect(e.op).toBe('binop')
     const u = returnExpr('export function f(): u32 {\n  return 1 + 1;\n}')
@@ -310,6 +311,26 @@ describe('a declaration keeps the acceptance it had before this item', () => {
     // …and out of range is still out of range, written as a float or not.
     expect(diagnose('export function f(): u32 {\n  let y: u32 = -1.;\n  return y;\n}')).toContain(
       'no implicit int/float conversion',
+    )
+  })
+
+  it('is a single literal, not a folded expression', () => {
+    // The old rule was `init.op === 'lit'` on the lowered IR, which a `binop` or a `unop`
+    // never matched. A fallback that folded first accepted `2.5 + 0.5` as an i32 `3` and
+    // `-1.` as `-1`, ten shapes that had always been a mismatch; folding is gone, so each of
+    // these keeps the diagnostic it has on main.
+    for (const init of ['2.5 + 0.5', '6. / 2.', '-1.', '0. + 1.']) {
+      expect(
+        diagnose(`export function f(): i32 {\n  let y: i32 = ${init};\n  return y;\n}`),
+        init,
+      ).toContain('no implicit int/float conversion')
+    }
+    // …while the integer-written forms of the same values still take the declared type.
+    expect(wgslOf('export function f(): i32 {\n  let y: i32 = 2 + 1;\n  return y;\n}')).toContain(
+      'var y: i32 = 3;',
+    )
+    expect(wgslOf('export function f(): i32 {\n  let y: i32 = -1;\n  return y;\n}')).toContain(
+      'var y: i32 = -1;',
     )
   })
 })

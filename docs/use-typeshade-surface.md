@@ -404,6 +404,19 @@ and `for (let j: i32 = -1; …)` take `i32` the way `let j: i32 = 1` does; the n
 to be told to cast an integer the author had already written, and inside a `for` init it emitted
 `var j: i32 = -1.0`, which no backend accepts (issue #40).
 
+A declaration is the one position with a carve-out, kept from before this item: a single
+literal written as a float but valued as a whole number takes the declared integer type there,
+so `let y: i32 = 0.`, `let y: u32 = 0.`, `let y: i32 = 1e3` and `for (let k: u32 = 0.; …)`
+compile as they always did. Only a single literal does. `let y: i32 = 2.5 + 0.5` and
+`let y: i32 = -1.` are the mismatches they always were, and `let y: i32 = 1.5` is reported at
+the source where it used to fail in the backend. A return, an argument and a field never had
+the carve-out.
+
+Two classes of emitted text move with this item, and neither was a program before: an integer
+literal beside an integer peer in a builtin call (`min(i, 4.0)` is `min(i, 4u)` now), and a
+`for` init that spelled a float literal into an integer `var` (`for (var k: i32 = -1.0; …)`
+is `-1` now).
+
 A literal that is not an integer stays what it is and is diagnosed against the declared type:
 `return 1.5` in a `u32` function is still a type mismatch, and so is passing an `i32` value
 where a `u32` is declared. There is no implicit conversion between types — only a literal,

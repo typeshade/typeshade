@@ -108,9 +108,10 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  program that compiles today is lowered differently. What the `isIntScalar` guard protects
  *  is the IR SHAPE, which is what `fn()` is the oracle for: without it the fold inside
  *  {@link retargetIntLit} would run against an f32 target and rewrite `1 + 1` into a single
- *  `lit 2` at sites that built a `binop` before. `1 + 1`, not `1. + 1.`: the float-written form
- *  never reaches the guard at all, since {@link isIntegerLiteralTree} rejects the `.` first, so
- *  it cannot tell whether the guard is there. The emitted TEXT would not move either way — the
+ *  `lit 2` at sites that built a `binop` before. `1 + 1`, not `1. + 1.`: the guard is this
+ *  function's first statement, so the float-written form does reach it, but with the guard
+ *  deleted it is stopped one line later by {@link isIntegerLiteralTree}, which rejects the `.`,
+ *  so that form cannot tell whether the guard is there. The emitted TEXT would not move either way — the
  *  emit-level constant folder collapses both — so only an IR assertion can see the difference,
  *  and `int-lit-context.test.ts` carries one, on `1 + 1`.
  *
@@ -143,16 +144,20 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
  *  `1000`. {@link retargetIntLitCtx} alone refuses those, because {@link isIntegerLiteralTree}
  *  rejects any text carrying `.` or `e` — which turned three shapes that compiled into TS8003.
  *
- *  So the fallback is exactly the old rule and nothing wider: a folded `lit`, an integral
- *  value, inside the target's range. A non-integral one (`let y: i32 = 1.5`) is left alone and
- *  keeps its mismatch, as it had at emit before. Only the two DECLARATION sites use this — a
+ *  So the fallback is exactly the old rule and nothing wider: a single `lit` as lowered, an
+ *  integral value, inside the target's range. A non-integral one (`let y: i32 = 1.5`) is left
+ *  alone and keeps its mismatch, as it had at emit before, and so is any arithmetic or a
+ *  negated float (`2.5 + 0.5`, `-1.`): those lower to a `binop` or a `unop`, which the old
+ *  rule never matched either. Only the two DECLARATION sites use this — a
  *  return, an argument and a field never had the acceptance, so there is nothing there to
  *  preserve. */
 export function retargetDeclaredIntLit(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
   const byContext = retargetIntLitCtx(expr, node, target)
   if (byContext !== expr || !isIntScalar(target)) return byContext
-  const folded = foldNumericLit(expr)
-  if (folded.op !== 'lit' || typeof folded.value !== 'number') return expr
-  if (!fitsTarget(folded.value, target)) return expr
-  return { op: 'lit', type: target, value: folded.value }
+  // The lowered expression itself, NOT a folded one: `-1.` lowers to a `unop` and `2. + 3.` to
+  // a `binop`, and neither matched `init.op === 'lit'` before this item, so neither is accepted
+  // now. Folding first widened the rule to ten shapes that had always been a mismatch.
+  if (expr.op !== 'lit' || typeof expr.value !== 'number') return expr
+  if (!fitsTarget(expr.value, target)) return expr
+  return { op: 'lit', type: target, value: expr.value }
 }
