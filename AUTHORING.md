@@ -78,6 +78,13 @@ you never write costs nothing in your bundle:
   obfuscate the emitted source.
 - `@xgis/shader-dsl/compute` has the runner that dispatches a portable compute kernel on
   whichever backend the host has.
+- `@xgis/shader-dsl/debug` steps one invocation of a `"use typeshade"` shader on the CPU
+  oracle: it stops at each statement the author wrote, reports the source span and the
+  frame's locals, and resolves breakpoints by line. It also carries the launch configuration
+  that describes such a run as data, keyed by what the entry declares rather than by argument
+  position, with a baked JSON Schema for a `launch.json` and a formatter that renders a value
+  in the shader type its author wrote. It is what an editor's debug adapter and the
+  Playground's step panel are both built on. See `docs/debugging.md`.
 
 This package ships the authoring surface. The shaders themselves live in your repository
 and import the package like any other dependency.

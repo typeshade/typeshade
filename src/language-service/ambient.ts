@@ -129,16 +129,99 @@ function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
  * path, so a second `f32` overload here would be dead vocabulary, never a real ambiguity). */
 const FREE_MATH_NAMES = Object.keys(MATH_FN_ARITY).filter((name) => name !== 'f32')
 
+/** The vector arities every native GPU vector type comes in, in order. */
+const VEC_ARITIES: readonly (2 | 3 | 4)[] = [2, 3, 4]
+
+/** The two vector families `mix` declares a vector-with-scalar overload for, and nothing else.
+ *
+ * WHICH SHAPES ARE REAL, measured by emitting one module per shape: `mix(vecN<f32>, vecN<f32>,
+ * f32)` is the only vector-beside-scalar call in this vocabulary that both Tint and ANGLE's GLSL
+ * ES 3.00 translator accept, and `mix(vecNf64, vecNf64, f32)` is the one the fp64 emitter
+ * lowers, which is why the `f64` vectors are here too (`core/passes/fp64-lower.ts` refuses every
+ * other vec64 form itself, with "mix() on vec64 needs a scalar f32 interpolant"). The `i32` and
+ * `u32` vectors get none, since WGSL's and GLSL's `mix` are float only, and neither do
+ * `clamp(vecN, s, s)`, `min`/`max(vecN, s)`, `pow(vecN, s)` or `step(vecN, s)`: the front end
+ * lowers all of those to a call Tint rejects with "no matching call", so declaring them here
+ * would make the editor green on a program that does not reach the GPU.
+ *
+ * WHAT THE DECLARATION ADMITS is wider than the shape it is named for, knowingly. `t: number`
+ * takes any scalar, and narrowing it to `f32` closes nothing, measured: the scalar brands are
+ * OPTIONAL (see `scalarBrands` below), so an `i32`, a `u32` and an `f64` are each assignable to
+ * `f32` as well. `mix(vec3, vec3, i32)`, the `u32` form and the `f64` form are therefore accepted
+ * here while Tint refuses them ("no matching call to 'mix(vec3<f32>, vec3<f32>, i32)'"), and a
+ * blend factor whose vector brand arithmetic already erased, `mix(a, b, c * 2.)` with a `vec2`
+ * `c`, is a fourth: it types as `number` and matches this overload outright, so the TS2769 rule
+ * in `diagnostics.ts` is never consulted about it. Nothing on the declaration side can close any
+ * of the four; the front-end argument check for the math builtins is where they belong (#57).
+ * `ambient.test.ts` pins all four as known silent, so a later fix flips them deliberately. */
+const F32_VEC_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f32', n))
+
+/** The `f64` vector names, the second family {@link mixSignature} declares an overload for. */
+const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f64', n))
+
+/**
+ * `mix(a, b, t)`, whose `t` is a BLEND FACTOR rather than a third value of `a`'s type: WGSL
+ * spells it `mix(e1: vecN<T>, e2: vecN<T>, e3: T)` and GLSL ES 3.00 `mix(genType, genType,
+ * float)`, and the compiler lowers `mix(u.bottom.rgb, u.top.rgb, t)` with a scalar `t` to
+ * exactly that call. The generic `mix<T extends Numeric>(a: T, b: T, t: T)` this vocabulary had
+ * before demanded a vector there, so the line every gradient, hillshade and ocean shader is
+ * written in drew TS2345 in the editor while it compiled, emitted and ran.
+ *
+ * Declared as CONCRETE overloads, one per vector arity in each of the two families
+ * {@link F32_VEC_TYPE_NAMES} and {@link VEC64_TYPE_NAMES} name, ahead of the generic same-shape
+ * one. Concrete is the point: a parameter TypeScript does not have to infer cannot collapse `T`,
+ * so neither the vector arguments nor `t` are measured against a type another argument settled,
+ * which is where the second-hand messages inside these calls came from (`'0.55' is not
+ * assignable to '0.3'`). The same-shape generic overload stays last and still carries
+ * `mix(vecN, vecN, vecN)`, `mix(f32, f32, f32)` and the `i32`/`u32` vectors, so nothing this
+ * lib accepted before is rejected now.
+ *
+ * The `f64` arm is the one the generic overload could never have carried: `Numeric` does not
+ * include the `vec64` family at all, so `mix(a, b, t)` on three `vec3f64` reported TS2741
+ * ("Property '[vec64Tag]' is missing in type 'vec2'") beside its TS2769, on a program
+ * `compileTsSource` lowers and the fp64 emitter turns into a `df64_v3_mix` call.
+ */
+function mixSignature(): string {
+  const vectorWithScalar = (v: string): string =>
+    `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`
+  return [
+    ...F32_VEC_TYPE_NAMES.map(vectorWithScalar),
+    ...VEC64_TYPE_NAMES.map(vectorWithScalar),
+    scalarMathOverload('mix', 3),
+    'declare function mix<T extends Numeric>(a: T, b: T, t: T): T',
+  ].join('\n')
+}
+
+/**
+ * The all-scalar shape of one math function, declared ahead of its generic overload.
+ *
+ * `T extends Numeric` has a PRIMITIVE constraint (`Numeric` includes `number`), which is exactly
+ * the condition under which TypeScript keeps a literal argument's literal type as an inference
+ * candidate instead of widening it. With no scalar overload to resolve to, `smoothstep(0.3,
+ * 0.55, h)` on an `f32` `h` therefore settled `T` to `0.3` and reported the perfectly good
+ * `0.55` against it, and `step(horizon, y)` on a `const horizon = 0.58` reported `y`. A concrete
+ * `(a0: number, a1: number, ...) => number` matches first for every all-scalar call, infers
+ * nothing, and returns `number` rather than a literal type. A vector argument is not a `number`,
+ * so the overload cannot swallow a vector call: those still resolve to the generic one.
+ */
+function scalarMathOverload(name: string, arity: number): string {
+  const params = Array.from({ length: arity }, (_, i) => `a${i}: number`).join(', ')
+  return `declare function ${name}(${params}): number`
+}
+
 /** Real GLSL semantics for the handful of free math functions whose signature is not simply
- * "same numeric type in, same numeric type out" — `dot`/`distance`/`length` reduce a vector to
- * a scalar, `cross` is vec3-only, `normalize` preserves its vector's shape. Declared by hand
- * because `MATH_FN_ARITY` records arity only, not shape. */
+ * "same numeric type in, same numeric type out": `dot`/`distance`/`length` reduce a vector to
+ * a scalar, `cross` is vec3-only, `normalize` preserves its vector's shape, and `mix` takes a
+ * scalar blend factor beside two vectors (see {@link mixSignature}). Declared by hand because
+ * `MATH_FN_ARITY` records arity only, not shape. An entry here replaces the generated pair
+ * outright, so a name listed must declare its own all-scalar overload too when it wants one. */
 const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   dot: 'declare function dot<T extends Numeric>(a: T, b: T): number',
   distance: 'declare function distance<T extends Numeric>(a: T, b: T): number',
   length: 'declare function length<T extends Numeric>(a: T): number',
   normalize: 'declare function normalize<T extends Numeric>(a: T): T',
   cross: 'declare function cross(a: vec3, b: vec3): vec3',
+  mix: mixSignature(),
 }
 
 function freeMathSignature(name: string): string {
@@ -146,7 +229,7 @@ function freeMathSignature(name: string): string {
   if (special) return special
   const arity = MATH_FN_ARITY[name]!
   const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ')
-  return `declare function ${name}<T extends Numeric>(${params}): T`
+  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends Numeric>(${params}): T`
 }
 
 const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS)
@@ -307,6 +390,51 @@ type storage<T> = T
 declare function uniform<T>(): T
 declare function storage<T>(): T
 
+/** Specialization constants (#8 A7). Transparent for the same reason as \`uniform<T>\`: a
+ * function body reads the override as a plain value of its type. */
+type override<T> = T
+
+declare const textureTag: unique symbol
+declare const samplerTag: unique symbol
+/** The texture and sampler HANDLES. Opaque tags, not identities: a texture is not a value
+ * you can do arithmetic on, and the only things that accept one are the texture reads below,
+ * which is exactly what the compiler enforces. \`E\` is the sampled element kind and
+ * \`A\` whether the view is an array, so \`textureNumLayers\` can refuse a plain 2D texture in
+ * the editor the way the compiler refuses it. */
+type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
+type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
+type sampler = { readonly [samplerTag]: true }
+
+declare function textureSample(tex: texture_2d<f32>, smp: sampler, uv: vec2): vec4
+declare function textureSample(
+  tex: texture_2d_array<f32>,
+  smp: sampler,
+  uv: vec2,
+  layer: number,
+): vec4
+declare function textureSampleLevel(
+  tex: texture_2d<f32>,
+  smp: sampler,
+  uv: vec2,
+  level: number,
+): vec4
+declare function textureSampleLevel(
+  tex: texture_2d_array<f32>,
+  smp: sampler,
+  uv: vec2,
+  layer: number,
+  level: number,
+): vec4
+declare function textureLoad<E>(tex: texture_2d<E>, coord: vec2i, level: number): vec4
+declare function textureLoad<E>(
+  tex: texture_2d_array<E>,
+  coord: vec2i,
+  layer: number,
+  level: number,
+): vec4
+declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
+
 ${vecCtors}
 
 ${scalarCasts}
@@ -316,6 +444,17 @@ ${freeMath}
 ${expandFns}
 
 ${langConsts}
+
+// ── Spellings whose shape the generated tables above cannot express (#8 A6) ──
+// Each of these IS accepted by the compiler and documented in §10 of the surface document;
+// without a declaration here the editor red-squiggles valid source, which is the false
+// POSITIVE §6 forbids. They are written by hand because the generators derive a signature
+// from an arity alone: \`select\`'s third argument is a bool, \`atan\` has two arities, \`bool\`
+// takes a bool as well as a number, and \`discard\` is a statement, not a call.
+declare function select<T extends Numeric>(falseValue: T, trueValue: T, cond: bool): T
+declare function atan<T extends Numeric>(y: T, x: T): T
+declare function bool(x: number | bool): bool
+declare const discard: void
 
 interface MathObject {
 ${Object.keys({

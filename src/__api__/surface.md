@@ -458,6 +458,32 @@ StageTiming
 summarize
 ```
 
+## `./debug` — 21 exports
+
+```
+CpuPrecision
+CpuStruct
+CpuValue
+createValueFormatter
+DEBUG_LAUNCH_SCHEMA
+DebugBreakpoint
+DebugConfigError
+DebugInputs
+DebugInvocation
+DebugLaunchConfig
+DebugPause
+DebugSession
+DebugSessionOptions
+DebugStackFrame
+formatCpuValue
+resolveBindings
+resolveInvocation
+SourceSpan
+sourceSpanOf
+startDebugSession
+startDebugSessionFromConfig
+```
+
 ## `./emit-prod` — 19 exports
 
 ```
@@ -759,7 +785,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 486 definitions
+## Shapes — 502 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileResult  interface  { diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
@@ -769,7 +795,7 @@ src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: S
 src/compiler/ts/directive.ts#hasUseTypeshadeDirective  function  (sourceFile: SourceFile) => boolean
 src/compiler/ts/directive.ts#isUseTypeshadeDirective  function  (node: Node) => boolean
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
-src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; wgsl?: string }
+src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
@@ -808,6 +834,22 @@ src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
 src/core/cpu-runtime.ts#CpuValue  type  number | boolean | number[] | CpuStruct
 src/core/cpu-runtime.ts#ORACLE_BUILTIN_NAMES  const  ReadonlySet<string>
 src/core/cpu-runtime.ts#ORACLE_GPU_STUB_NAMES  const  ReadonlySet<string>
+src/core/debug/config.ts#DEBUG_LAUNCH_SCHEMA  const  Readonly<Record<string, unknown>>
+src/core/debug/config.ts#DebugConfigError  class  { cause?: unknown; message: string; name: string; problems: readonly string[]; stack?: string }
+src/core/debug/config.ts#DebugInputs  interface  DebugInputs
+src/core/debug/config.ts#DebugInvocation  interface  { dispatch?: readonly [number, number, number]; inputs?: DebugInputs }
+src/core/debug/config.ts#DebugLaunchConfig  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; derivatives?: "zero" | "quad"; entry: string; invocation?: DebugInvocation; name?: string; precision?: CpuPrecision; program?: string; request?: "launch"; stopOnEntry?: boolean; type?: "typeshade" }
+src/core/debug/config.ts#resolveBindings  function  (m: ModuleDecl, given: Readonly<Record<string, CpuValue>>, structs: ReadonlyMap<string, StructDecl>, problems: string[], entry?: FuncDecl) => Record<string, CpuValue>
+src/core/debug/config.ts#resolveInvocation  function  (decl: FuncDecl, invocation: DebugInvocation, structs: ReadonlyMap<string, StructDecl>, problems: string[]) => CpuValue[]
+src/core/debug/config.ts#startDebugSessionFromConfig  function  (m: ModuleDecl, config: DebugLaunchConfig) => DebugSession
+src/core/debug/session.ts#DebugBreakpoint  interface  { file?: string; line: number }
+src/core/debug/session.ts#DebugPause  interface  { bindingTypes: ReadonlyMap<string, ShaderType>; bindings: ReadonlyMap<string, CpuValue>; frames: readonly DebugStackFrame[]; reason: "entry" | "step" | "breakpoint"; span: SourceSpan; stmt: Stmt }
+src/core/debug/session.ts#DebugSession  interface  { continue: () => DebugPause; discarded: boolean; done: boolean; pause: DebugPause; precision: CpuPrecision; result: CpuValue; setBreakpoints: (breakpoints: readonly DebugBreakpoint[]) => void; stepIn: () => DebugPause; stepOut: () => DebugPause; stepOver: () => DebugPause; stubbedIntrinsics: readonly string[]; terminate: () => void }
+src/core/debug/session.ts#DebugSessionOptions  interface  { bindings?: Readonly<Record<string, CpuValue>>; breakpoints?: readonly DebugBreakpoint[]; gpuStubs?: boolean; maxSteps?: number; precision?: CpuPrecision; stopOnEntry?: boolean }
+src/core/debug/session.ts#DebugStackFrame  interface  { callSpan: SourceSpan; fnName: string; fnSpan: SourceSpan; localTypes: ReadonlyMap<string, ShaderType>; locals: ReadonlyMap<string, CpuValue>; span: SourceSpan }
+src/core/debug/session.ts#startDebugSession  function  (m: ModuleDecl, entry: string, args?: readonly CpuValue[], opts?: DebugSessionOptions) => DebugSession
+src/core/debug/value.ts#createValueFormatter  function  (m: { readonly structs: readonly StructDecl[]; }, precision?: CpuPrecision) => (value: CpuValue, type?: ShaderType) => string
+src/core/debug/value.ts#formatCpuValue  function  (value: CpuValue, type?: ShaderType, structs?: ReadonlyMap<string, StructDecl>, precision?: CpuPrecision) => string
 src/core/decode-log.ts#DecodedName  interface  { authored: readonly string[]; emitted: string }
 src/core/decode-log.ts#decodeShaderLog  function  (log: string, renames: ReadonlyMap<string, string>) => string
 src/core/decode-log.ts#invertRenames  function  (renames: ReadonlyMap<string, string>) => ReadonlyMap<string, DecodedName>
@@ -1245,7 +1287,7 @@ src/language-service/types.ts#TypeshadeSemanticTokenModifier  type  "entry" | "d
 src/language-service/types.ts#TypeshadeSemanticTokenType  type  "string" | "number" | "function" | "keyword" | "type" | "struct" | "builtin" | "variable" | "resource" | "parameter" | "property" | "decorator" | "operator"
 src/language-service/types.ts#TypeshadeSeverity  type  "error" | "warning" | "information" | "hint"
 src/language-service/types.ts#TypeshadeSignatureHelp  interface  { activeParameter: number; activeSignature: number; signatures: readonly { readonly label: string; readonly documentation?: string; readonly parameters: readonly { label: string; documentation?: string; }[]; }[] }
-src/language-service/types.ts#TypeshadeSymbolKind  type  "function" | "struct" | "variable" | "field" | "resource" | "constant" | "parameter" | "entry"
+src/language-service/types.ts#TypeshadeSymbolKind  type  "function" | "struct" | "entry" | "variable" | "field" | "resource" | "constant" | "parameter"
 src/language-service/types.ts#TypeshadeTextEdit  interface  { newText: string; range: TypeshadeRange }
 src/language-service/types.ts#TypeshadeTextSpan  interface  { length: number; start: number }
 ```

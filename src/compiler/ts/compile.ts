@@ -79,6 +79,7 @@ export function compile(source: string): CompileResult {
     structs: r.structs.map((s) => s.decl),
     bindings: [...r.bindings],
     funcs: [...r.funcs],
+    overrides: [...r.overrides],
   }
   const diagnostics = [...r.diagnostics]
   const firstError = (): TsCompilerDiagnostic | undefined =>

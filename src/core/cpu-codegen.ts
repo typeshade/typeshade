@@ -55,6 +55,8 @@ import {
   intDiv,
   intRem,
   type NumKind,
+  cloneValue,
+  isAggregateType,
   convertComponent,
   convertComponents,
   elemKindOf,
@@ -89,12 +91,29 @@ function isArrayValued(t: ShaderType): boolean {
 const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32'
 
 /** The zero value literal for a `var` with no initializer — mirrors
- *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → {},
- *  everything else → 0). */
-function zeroLit(t: ShaderType): string {
+ *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → every field zeroed
+ *  recursively, array → N zeros of its element, bool → false, everything else → 0). The two
+ *  must agree exactly: the interpreter and this generator are the two CPU backends, and a
+ *  `var` that starts as `0` in one and as `[0, 0, 0]` in the other is the bit-identity
+ *  contract broken at the declaration. The array, bool and struct arms all arrived with #8
+ *  A10, which gave the source language the init-less declaration that reaches them. */
+function zeroLit(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): string {
   if (t.kind === 'vec' || t.kind === 'vec64') return `new Array(${t.n}).fill(0)`
   if (t.kind === 'mat') return `new Array(${t.n * t.n}).fill(0)`
-  if (t.kind === 'struct') return '{}'
+  // Field by field, exactly as the interpreter's `zeroOf` builds it: the old `{}` left every
+  // field absent, so `let s: S;` then `s.a` read `undefined` here and on the interpreter
+  // alike, where WGSL's `var s: S;` reads 0. Recursion covers a nested struct and an array of
+  // structs. An undeclared struct name keeps `{}`, the same fallback `zeroOf` takes.
+  if (t.kind === 'struct') {
+    const decl = structs.get(t.name)
+    if (decl === undefined) return '{}'
+    const fields = decl.fields.map((f) => `${q(f.name)}: ${zeroLit(f.type, structs)}`)
+    return `{${fields.join(', ')}}`
+  }
+  if (t.kind === 'array') {
+    return `[${Array.from({ length: t.size ?? 0 }, () => zeroLit(t.elem, structs)).join(', ')}]`
+  }
+  if (t.kind === 'scalar' && t.scalar === 'bool') return 'false'
   return '0'
 }
 
@@ -105,6 +124,9 @@ interface ModCtx {
   constId: Map<string, string>
   /** override name → its JS local id in the factory (`$O_<i>`). */
   overrideId: Map<string, string>
+  /** The names the module actually declares as functions, so a call the front end resolved
+   *  to one (`declRef`) can be routed to it rather than to a builtin of the same name. */
+  fnNames: Set<string>
 }
 
 /** Per-fn codegen state: the flat env → JS locals mapping + the hoist list. */
@@ -204,6 +226,12 @@ function emitExpr(e: Expr, S: FnCtx): string {
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
           return `$.${e.fn === 'u32' ? 'u32Sat' : 'i32Sat'}(${args[0]})`
         }
+      }
+      // A call the front end resolved to a declared function (`declRef`) goes to that
+      // function, which is what the emitted shader calls; the interpreter makes the same
+      // choice, so the two stay bit-identical. An intrinsic call has no declRef.
+      if (e.declRef !== undefined && S.mod.fnNames.has(e.fn)) {
+        return `$.F[${q(e.fn)}](${args.join(', ')})`
       }
       if (BUILTINS[e.fn]) return `$.B[${q(e.fn)}](${args.join(', ')})`
       if (GPU_STUBS[e.fn]) return `$.gpuStub(${[q(e.fn), ...args].join(', ')})`
@@ -349,18 +377,30 @@ function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
   throw new CodegenUnsupported(`assignment target ${target.op}`)
 }
 
+/** The right-hand side of any STORE — a `let`/`var` binding or an assignment to an existing
+ *  name: an aggregate is COPIED, as `var w = v` and `w = v` both are on the GPU targets,
+ *  through the SAME cloneValue the interpreter calls, so the two stay bit-identical. A scalar
+ *  store emits exactly the source it emitted before.
+ *
+ *  The binding half alone was not enough: `w = v` stored the same array under the second name,
+ *  so a later `w.x = 100.` reached through to `v` and the CPU said 100 where both GPU targets
+ *  say 3. */
+function bindExpr(src: string, t: ShaderType): string {
+  return isAggregateType(t) ? `$.clone(${src})` : src
+}
+
 function emitStmt(s: Stmt, S: FnCtx): string {
   switch (s.s) {
     case 'let': {
       const id = declareVar(s.name, S)
-      return `${id} = ${emitExpr(s.expr, S)};`
+      return `${id} = ${bindExpr(emitExpr(s.expr, S), s.expr.type)};`
     }
     case 'var': {
       const id = declareVar(s.name, S)
-      return `${id} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type)};`
+      return `${id} = ${s.init ? bindExpr(emitExpr(s.init, S), s.type) : zeroLit(s.type, S.mod.structs)};`
     }
     case 'assign':
-      return `${emitAssignExpr(s.target, emitExpr(s.expr, S), S)};`
+      return `${emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S)};`
     case 'assignOp': {
       const kind = numKindOf(s.target.type)
       const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`
@@ -416,12 +456,13 @@ function emitStmt(s: Stmt, S: FnCtx): string {
 function emitForInit(s: Stmt, S: FnCtx): string {
   if (s.s === 'let') return `${declareVar(s.name, S)} = ${emitExpr(s.expr, S)}`
   if (s.s === 'var')
-    return `${declareVar(s.name, S)} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type)}`
+    return `${declareVar(s.name, S)} = ${s.init ? emitExpr(s.init, S) : zeroLit(s.type, S.mod.structs)}`
   throw new CodegenUnsupported(`for-init ${s.s}`)
 }
 
 function emitForUpdate(s: Stmt, S: FnCtx): string {
-  if (s.s === 'assign') return emitAssignExpr(s.target, emitExpr(s.expr, S), S)
+  if (s.s === 'assign')
+    return emitAssignExpr(s.target, bindExpr(emitExpr(s.expr, S), s.expr.type), S)
   if (s.s === 'assignOp') {
     const kind = numKindOf(s.target.type)
     const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`
@@ -455,6 +496,8 @@ interface CodegenRuntime {
   /** WGSL integer `/` and `%` (#2274) — the SAME helpers `scalarBin` calls. */
   intDiv: typeof intDiv
   intRem: typeof intRem
+  /** Aggregate copy at a `let` / `var` binding — the SAME helper the interpreter calls. */
+  clone: typeof cloneValue
   /** Element-converting vector constructor components — the SAME helpers the interpreter's
    *  `construct` case calls, so the two CPU backends convert identically. */
   cvt: typeof convertComponent
@@ -523,6 +566,7 @@ export function compileModuleJs(
     structs: new Map(mv.structs.map((s) => [s.name, s])),
     constId: new Map(),
     overrideId: new Map(),
+    fnNames: new Set(mv.funcs.map((f) => f.name)),
   }
 
   // ── Module-scope decls (consts + overrides) as factory-local `const`s ──
@@ -590,6 +634,7 @@ export function compileModuleJs(
     negVec: (a) => a.map((v) => -v),
     u32Sat: f32ToU32Sat,
     i32Sat: f32ToI32Sat,
+    clone: cloneValue,
     cvt: convertComponent,
     cvtVec: convertComponents,
     intDiv,
