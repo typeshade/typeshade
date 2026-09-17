@@ -514,19 +514,23 @@ type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
 type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
 type sampler = { readonly [samplerTag]: true }
 
+${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(tex: texture_2d<f32>, smp: sampler, uv: vec2): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(
   tex: texture_2d_array<f32>,
   smp: sampler,
   uv: vec2,
   layer: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSampleLevel)}
 declare function textureSampleLevel(
   tex: texture_2d<f32>,
   smp: sampler,
   uv: vec2,
   level: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSampleLevel)}
 declare function textureSampleLevel(
   tex: texture_2d_array<f32>,
   smp: sampler,
@@ -534,14 +538,18 @@ declare function textureSampleLevel(
   layer: number,
   level: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E>(tex: texture_2d<E>, coord: vec2i, level: number): vec4
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E>(
   tex: texture_2d_array<E>,
   coord: vec2i,
   layer: number,
   level: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
 
 ${vecCtors}
@@ -562,9 +570,13 @@ ${langConsts}
 // POSITIVE §6 forbids. They are written by hand because the generators derive a signature
 // from an arity alone: \`select\`'s third argument is a bool, \`atan\` has two arities, \`bool\`
 // takes a bool as well as a number, and \`discard\` is a statement, not a call.
+${renderJSDoc(FUNCTION_DOCS.select)}
 declare function select<T extends Numeric>(falseValue: T, trueValue: T, cond: bool): T
+${renderJSDoc(FUNCTION_DOCS.atan2)}
 declare function atan<T extends Numeric>(y: T, x: T): T
+${renderJSDoc(FUNCTION_DOCS.bool)}
 declare function bool(x: number | bool): bool
+${renderJSDoc(CONSTANT_DOCS.discard)}
 declare const discard: void
 
 interface MathObject {

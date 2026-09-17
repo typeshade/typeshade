@@ -74,6 +74,27 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
 /** One Markdown sentence per builtin function: free math functions, expansions, casts, vector
  * constructors, array, fill, uniform, storage, and random. Shared by `hover.ts` and `completions.ts`. */
 export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
+  exp2: 'Returns `2` raised to the power of `x`, componentwise over vectors.',
+  saturate:
+    'Clamps `x` to the range [0, 1], componentwise over vectors. GLSL ES 3.00 has no `saturate`, so it compiles to `clamp(x, 0.0, 1.0)` there.',
+  fwidth:
+    'Returns the sum of the absolute screen-space derivatives of `x` in both directions, `abs(dpdx(x)) + abs(dpdy(x))`, componentwise over vectors. Fragment stage only; the CPU oracle returns zero.',
+  dpdx: 'Returns the partial derivative of `x` with respect to the window x coordinate, componentwise over vectors. Fragment stage only (`dFdx` on GLSL); the CPU oracle returns zero.',
+  dpdy: 'Returns the partial derivative of `x` with respect to the window y coordinate, componentwise over vectors. Fragment stage only (`dFdy` on GLSL); the CPU oracle returns zero.',
+  fma: 'Returns `a * b + c`, componentwise over vectors. GLSL ES 3.00 has no `fma`, so the product and sum are inlined there.',
+  select:
+    "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. Compiles to the same code as a ternary over `cond`.",
+  bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
+  f64: 'Widens an `f32` to the emulated double `f64`. A value that is already `f64` is returned as it is; cast an integer to `f32` first.',
+  textureSample:
+    'Samples a float texture at `uv` through the sampler `smp` with the implicit level of detail, in the fragment stage only. On a `texture_2d_array` the fourth argument picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate.',
+  textureSampleLevel:
+    'Samples a float texture at `uv` through the sampler `smp` at an explicit mip `level`. On a `texture_2d_array` the layer comes before the level. Compiles to `textureSampleLevel` on WGSL and `textureLod` on GLSL.',
+  textureLoad:
+    'Reads one texel at the integer `coord` and mip `level` without filtering. On a `texture_2d_array` the layer comes before the level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL.',
+  textureDimensions: "Returns the width and height of the texture's base mip level as a `vec2u`.",
+  textureNumLayers:
+    'Returns the number of layers of a `texture_2d_array` as a `u32`. A plain 2D texture has no layers and is refused.',
   sin: 'Returns the sine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   cos: 'Returns the cosine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   tan: 'Returns the tangent of `x` (in radians), componentwise over vectors. Accepts `f32` and integer scalar/vector operands only.',
@@ -175,6 +196,8 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
 /** One Markdown sentence per language constant: the mathematical constants PI, TAU, E, LN2, LN10,
  * LOG2E, and LOG10E. Shared by `hover.ts` and `completions.ts`. */
 export const CONSTANT_DOCS: Readonly<Record<string, string>> = {
+  discard:
+    'Discards the current fragment, so nothing is written for it. Allowed in a fragment entry and in a helper that only fragment entries reach; compiles to `discard;` on both targets.',
   PI: "The mathematical constant π, inlined as a compile-time `f32` literal (approximately 3.14159). The value matches JavaScript's `Math.PI`.",
   TAU: 'The mathematical constant 2π (tau), inlined as a compile-time `f32` literal (approximately 6.28318). Defined as 2 times `PI`.',
   E: "The mathematical constant e, inlined as a compile-time `f32` literal (approximately 2.71828). The value matches JavaScript's `Math.E`.",
