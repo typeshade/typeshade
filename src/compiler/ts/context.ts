@@ -96,9 +96,12 @@ export class LoweringScope {
     return this.loopDepth > 0
   }
 
-  /** The declared return type of the function whose body is being lowered, so `return 0` can
-   *  take it (#8 A3). Undefined outside a function body — at module-constant collection, for
-   *  instance — and for a function with no annotation. */
+  /** The declared return type of the function whose body is being lowered, so a `return` can
+   *  be checked and typed against it: `return 0` takes it (#8 A3) and `return { … }` takes the
+   *  struct it names (#8 A11). Undefined outside a function body — at module-constant
+   *  collection, for instance. INSIDE one it is always set, `parseSignature` supplying `voidT`
+   *  for a function with no annotation, which is the distinction that decides whether a bare
+   *  `return 0` is retyped. */
   setReturnType(t: ShaderType | undefined): void {
     this.retType = t
   }
@@ -129,6 +132,14 @@ export class LoweringScope {
 
   fieldType(structName: string, field: string): ShaderType | undefined {
     return this.structs.get(structName)?.fields.find((f) => f.name === field)?.type
+  }
+
+  /** The collected struct with this name, or undefined. The lookup a CONTEXTUAL type needs:
+   *  a declared `vec4`-shaped `VsOut` names its struct outright, where {@link matchStruct} can
+   *  only guess from the field names and cannot answer at all when two structs share a shape
+   *  (#8 A11). */
+  structByName(name: string): StructDecl | undefined {
+    return this.structs.get(name)
   }
 
   matchStruct(fieldNames: readonly string[]): StructDecl | undefined {

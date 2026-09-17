@@ -142,8 +142,11 @@ export function lowerUserCall(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const args: Expr[] = []
-  for (const arg of node.arguments) {
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+  for (const [i, arg] of node.arguments.entries()) {
+    // The parameter's type is the context for `g({ a: 1., b: 2. })` (#8 A11). Read by index
+    // before the arity check below, so a call with too many arguments still lowers each one
+    // and reports the arity rather than a cascade.
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, decl.params[i]?.type)
     if (!lowered) return undefined
     args.push(lowered)
   }

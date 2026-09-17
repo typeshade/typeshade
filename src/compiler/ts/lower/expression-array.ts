@@ -32,7 +32,10 @@ export function lowerArrayCtor(
   const n = mapped.size
   const args: Expr[] = []
   for (const arg of node.arguments) {
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    // `mapped.elem` is the position each element sits in, so an object-literal element knows
+    // which struct it builds: `array<A, 2>({ … }, { … })` is two DECLARED positions, spelled
+    // in the constructor's own type argument rather than on a variable (#8 A11).
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem)
     if (!lowered) return undefined
     args.push(lowered)
   }

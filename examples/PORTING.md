@@ -151,17 +151,17 @@ why they were filed rather than worked around.
 Worth stating, because these rank high in issue #8 and would be natural things to reach for
 first. No example in the 36 is waiting on any of them:
 
-| Issue #8 item                                                  | Blocks |
-| -------------------------------------------------------------- | ------ |
-| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed) | 0      | 0      |
-| ~~**A4** `type` / `interface` structs~~ (landed)               | 0      |
-| **A5** `@align` / `@size` field decorators                     | 0      |
-| ~~**A8** element-converting constructors~~ (landed)            | 0      |
-| ~~**A9** module-level vector constants~~ (landed)              | 0      |
-| ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed)      | 0      |
-| **A11** object-literal contextual typing                       | 0      |
-| **S5** `arrayLength`                                           | 0      |
-| **S7** `mat2` / `mat3`                                         | 0      |
+| Issue #8 item                                                                                     | Blocks |
+| ------------------------------------------------------------------------------------------------- | ------ |
+| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed)                                    | 0      |
+| ~~**A4** `type` / `interface` structs~~ (landed)                                                  | 0      |
+| **A5** `@align` / `@size` field decorators                                                        | 0      |
+| ~~**A8** element-converting constructors~~ (landed)                                               | 0      |
+| ~~**A9** module-level vector constants~~ (landed)                                                 | 0      |
+| ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed)                                         | 0      |
+| ~~**A11** object-literal contextual typing~~ (landed, in every position that declares a type)      | 0      |
+| **S5** `arrayLength`                                                                              | 0      |
+| **S7** `mat2` / `mat3`                                                                            | 0      |
 
 A10 has landed even though it blocks nothing here: the 36 EDSL examples were written
 through a surface that spells these differently, so the corpus could not have shown the gap.

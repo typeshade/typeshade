@@ -271,8 +271,8 @@ the org profile, or any other front-facing page. Those pages carry only examples
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
 **Numbering:** §§9, 10 and 13 below are issue #8's A2, A6 and A3, which reserved those numbers
-while they were in flight and appended here in issue order. The sections took the next free
-numbers so the A-item branches did not all claim §9 and collide on merge.
+while they were in flight and appended here in issue order. §16 is A11. The sections took the
+next free numbers so the A-item branches did not all claim §9 and collide on merge.
 
 ---
 
@@ -738,5 +738,81 @@ before this item is the one thing that changes here.
 
 Left for later: `texture_2d_ms<f32>`, whose multisampled load neither backend here reaches, and
 the storage-texture forms.
+
+## 16. Object literals take the declared struct
+
+Which struct `{ … }` builds comes from the type the position **declares**: a function's
+return type, a `let`/`const` annotation, or a parameter type.
+
+```ts
+"use typeshade"
+
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+class FsIn {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+export function shade(o: FsIn): f32 {
+  return o.uv.x
+}
+
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  const p = vec2(0., 0.)
+  return { pos: vec4(p, 0., 1.), uv: p } // the return type says VsOut
+}
+
+export function pick(): f32 {
+  const a: FsIn = { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } // the annotation says FsIn
+  return shade(a) + shade({ pos: a.pos, uv: a.uv }) // the parameter says FsIn
+}
+```
+
+Matching the field **names** against the struct table is the fallback, for a position that
+declares nothing (`const o = { … }` with no annotation). It stays because it is often enough,
+but it could never answer the case above: `VsOut` and `FsIn` have the same fields, so the name
+set does not distinguish them and the literal was rejected inside a function that states
+exactly which one it returns.
+
+A declared struct also improves the diagnostics, because there is something to name:
+
+| | before | after |
+| --- | --- | --- |
+| `return { a: 1. }` for a two-field `P` | `Object literal { a } does not match a known struct.` | `Missing field "b" for struct P.` |
+| `return { a: 1., c: 2. }` | `Object literal { a, c } does not match a known struct.` | `Struct P has no field "c".` |
+
+The context reaches **inward**: the struct is resolved before the field values are lowered, so
+a nested literal is built against the type of the field it fills. `{ i: { x: 1. } }` for an
+`Outer { i: Inner }` picks `Inner` even where a same-shaped `InnerTwin` exists.
+
+**Three more positions declare a type without an annotation of their own**, and each one
+takes it:
+
+| | where the type comes from |
+| --- | --- |
+| `o = { a: 3., b: 4. }` | the target's own declaration, carried to the assignment |
+| `c ? { … } : { … }` | the ternary's position, passed to both arms |
+| `array<Q, 2>({ … }, { … })` | the constructor's type argument |
+
+What is left to name matching is a position that declares nothing at all: a literal as an
+operand, an index, or the base of a property access. A twin is unresolvable there, as before.
+
+A contextual type that is not a struct is ignored here rather than reported, because
+`const o: f32 = { a: 1. }` is a mistake about the declaration. That does not always mean the
+declaration is what names it: the literal is lowered first, so with twins in scope the
+fallback fails before the declaration's check runs and you get
+`Object literal { a, b } does not match a known struct.` plus `Unknown identifier "o".`
+instead. The position still owns the mistake; it does not always get to be the one that
+reports it.
+
+A **repeated** field keeps taking the last value, in every position, as it always has:
+`{ a: 1., a: 2., b: 3. }` builds `P(2., 3.)`. TypeScript's own `TS1117` reports it in the
+editor, so the compiler does not repeat the complaint.
+
 
 Last updated: 2026-09-14
