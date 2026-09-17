@@ -15,7 +15,7 @@
 // so the projection math matches the f64 mirror, while the WGSL backend emits
 // the truncated shader constants — the two-tolerance reality, structural.
 
-import type { BinOp, ShaderType } from './ir/index.js'
+import type { BinOp, ShaderType, StructDecl } from './ir/index.js'
 
 /** A value as the CPU backends ({@link compileModule} and {@link compileModuleJs})
  *  represent it: a plain JavaScript value, never a typed array or a GPU buffer. A scalar
@@ -570,12 +570,36 @@ function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
   return (a as number) + ((b as number) - (a as number)) * (t as number)
 }
 
-export function zeroOf(type: { kind: string; n?: number }): CpuValue {
+export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDecl>): CpuValue {
   // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
-  if (type.kind === 'vec' || type.kind === 'vec64') return new Array(type.n as number).fill(0)
-  if (type.kind === 'mat') return new Array((type.n as number) * (type.n as number)).fill(0)
-  if (type.kind === 'struct') return {} // fields populated by member assignments
-  if (type.kind === 'scalar') return 0
+  if (type.kind === 'vec' || type.kind === 'vec64') return new Array(type.n).fill(0)
+  if (type.kind === 'mat') return new Array(type.n * type.n).fill(0)
+  // A STRUCT zero-initialises field by field, the way WGSL's `var s: S;` does. The bare `{}`
+  // this used to return left every field absent, so an init-less `var s: S` read `s.a` as
+  // `undefined` on both CPU backends while the GPU read 0 — the same family as the array arm
+  // below, and reachable for the same reason. Recursion covers a nested struct and an array
+  // of structs. A caller with no struct table (a debug session filling in a missing argument)
+  // keeps the old `{}`.
+  if (type.kind === 'struct') {
+    const decl = structs?.get(type.name)
+    if (decl === undefined) return {}
+    const obj: Record<string, CpuValue> = {}
+    for (const f of decl.fields) obj[f.name] = zeroOf(f.type, structs)
+    return obj as CpuValue
+  }
+  // An ARRAY needs its own elements, not the scalar 0 the fallthrough gave it: an init-less
+  // `var xs: array<f32, 3>` bound the number 0, and the first `xs[0] = 1.` threw
+  // "Attempted to assign to readonly property" out of the oracle on a program both GPU
+  // targets compile. Newly reachable from "use typeshade" with #8 A10, which gave the surface
+  // the init-less declaration. A runtime-sized array has no length to build, so it starts
+  // empty and grows the way a storage binding's does.
+  if (type.kind === 'array') {
+    const n = type.size ?? 0
+    return Array.from({ length: n }, () => zeroOf(type.elem, structs)) as CpuValue
+  }
+  // WGSL zero-initialises a bool to `false`, and the oracle's comparisons take a boolean —
+  // the scalar 0 read back as a number where every other backend has a bool.
+  if (type.kind === 'scalar' && type.scalar === 'bool') return false
   return 0
 }
 

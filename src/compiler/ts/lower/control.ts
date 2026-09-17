@@ -5,7 +5,7 @@ import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { readOnlyPhrase } from '../context.js'
-import { analyzeCountedFor, loopConditionError } from '../loop-bound.js'
+import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
@@ -214,38 +214,111 @@ export function lowerSwitch(
     return undefined
   }
   const cases: { value: number; body: readonly Stmt[] }[] = []
+  const seen = new Set<number>()
   let defaultBody: readonly Stmt[] | undefined
-  for (const clause of node.caseBlock.clauses) {
-    if (ts.isDefaultClause(clause)) {
-      defaultBody = lowerStatements(clause.statements, sourceFile, scope, diagnostics)
-      continue
+  // Inside the case bodies a `break` is the switch's own, not an enclosing loop's.
+  scope.enterSwitch()
+  try {
+    for (const clause of node.caseBlock.clauses) {
+      if (ts.isDefaultClause(clause)) {
+        defaultBody = caseBody(clause.statements, sourceFile, scope, diagnostics)
+        continue
+      }
+      if (clause.statements.length === 0) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          clause,
+          'switch case fall-through is not allowed.',
+          TS_CODES.SWITCH_CASE,
+        )
+        continue
+      }
+      const value = caseValue(clause, k, sourceFile, scope, diagnostics)
+      if (value === undefined) continue
+      // Both compilers reject a repeated label, and this surface makes one easy to write
+      // without seeing it: `case 1 + 1:` beside `case 2:`, or two module constants that fold
+      // to the same number. Reported here rather than at the backend, where the message names
+      // neither the label nor the file.
+      if (seen.has(value)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          clause.expression,
+          `Duplicate switch case ${String(value)}; each label may appear once.`,
+          TS_CODES.SWITCH_CASE,
+        )
+        continue
+      }
+      seen.add(value)
+      cases.push({ value, body: caseBody(clause.statements, sourceFile, scope, diagnostics) })
     }
-    if (!clause.expression || !ts.isNumericLiteral(clause.expression)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        clause,
-        'switch case must be a numeric literal.',
-        TS_CODES.SWITCH_CASE,
-      )
-      continue
-    }
-    if (clause.statements.length === 0) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        clause,
-        'switch case fall-through is not allowed.',
-        TS_CODES.SWITCH_CASE,
-      )
-      continue
-    }
-    cases.push({
-      value: Number(clause.expression.text),
-      body: lowerStatements(clause.statements, sourceFile, scope, diagnostics),
-    })
+  } finally {
+    scope.exitSwitch()
   }
   return { s: 'switch', scrut, cases, defaultBody }
+}
+
+/** The constant a `case` label selects on. A bare literal is the common form; `case -1:` is
+ *  a PrefixUnaryExpression and `case MODE_B:` a module constant, and both fold to the same
+ *  number the IR's `cases[].value` holds — the same fold `xs[N]` and a loop bound use, so
+ *  the three places a constant has to be known at compile time agree on what counts as one.
+ *
+ *  `scrutKind` is the selector's own type, and the label has to fit it: the emitter spells
+ *  every label with the selector's suffix, so `case -1:` on a u32 selector emitted `case -1u:`
+ *  and Tint answered `no matching overload for 'operator - (u32)'`. That source was refused
+ *  before this item accepted a negative label at all, so refusing it here takes nothing back. */
+function caseValue(
+  clause: ts.CaseClause,
+  scrutKind: string,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): number | undefined {
+  const expr = lowerExpression(clause.expression, sourceFile, scope, diagnostics)
+  // `lowerExpression` already reported an unresolvable label (`case ZZZ:`), and a second
+  // diagnostic saying it is not a constant adds nothing but noise.
+  if (!expr) return undefined
+  const value = foldConstNumber(expr, scope)
+  if (value === undefined || !Number.isInteger(value)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      clause.expression,
+      'switch case must be an integer constant: a literal or a module const.',
+      TS_CODES.SWITCH_CASE,
+    )
+    return undefined
+  }
+  if (scrutKind === 'u32' && value < 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      clause.expression,
+      `switch case ${String(value)} does not fit a u32 selector.`,
+      TS_CODES.SWITCH_CASE,
+    )
+    return undefined
+  }
+  return value
+}
+
+/** Lower one clause's statements, dropping a TRAILING `break`.
+ *
+ *  The IR switch does not fall through — WGSL's does not, and {@link emitStmt} writes the
+ *  C-style `break;` GLSL needs itself — so the `break` TypeScript requires at the end of a
+ *  case carries no information here, and keeping it would emit `break; break;` in GLSL and
+ *  a dead `break;` in WGSL. Dropping only the last statement leaves an early
+ *  `if (c) { break }` inside the case exactly where the author put it. */
+function caseBody(
+  statements: readonly ts.Statement[],
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
+  const body = lowerStatements(statements, sourceFile, scope, diagnostics)
+  if (body.length > 0 && body[body.length - 1]!.s === 'break') body.pop()
+  return body
 }
 
 export function lowerUpdate(
