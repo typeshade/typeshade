@@ -777,13 +777,13 @@ recorded here as decisions rather than proposals, and the sections above follow 
    `derivatives: "quad"` is an opt-in for later, when someone has a derivative bug, carrying
    the divergence caveat of §2.4.
 
-   Which milestone delivers which half is worth writing down, because neither M2 nor M3
-   delivers both. M2 shipped `DebugSession.stubbedIntrinsics`, a run-wide list of intrinsic
-   NAMES: it answers "did anything stand in during this session, and what", which is a banner,
-   not a marking. Marking a VALUE needs to distinguish one local from another, and a name
-   cannot; that is `DebugStackFrame.stubbedLocals`, and it is not in M3 either. This decision
-   is met when both are in, and until then a variables view can say that the run stubbed
-   something but not which number it stubbed.
+   Which increment delivers which half is worth writing down, because it took two. M2 shipped
+   `DebugSession.stubbedIntrinsics`, a run-wide list of intrinsic NAMES: it answers "did
+   anything stand in during this session, and what", which is a banner, not a marking. Marking
+   a VALUE needs to distinguish one local from another, and a name cannot; that is
+   `DebugStackFrame.stubbedLocals`, which M3 did not carry and the increment after it does.
+   Both are in now, so the marking half of this decision is met; `derivatives: "quad"` is
+   still M4's.
 
 5. **The debugger runs the module before the optimizer**, because the author is debugging the
    program they wrote. The passes it does run are the ones `compileModule` runs: `validate`,

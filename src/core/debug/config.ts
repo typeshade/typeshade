@@ -95,7 +95,12 @@ export interface DebugLaunchConfig {
   readonly name?: string
   /** The `.shade.ts` file. Optional: the engine is handed a compiled module, so it ignores
    *  this, and `entry` is the only key it requires. An adapter reads it to know what to
-   *  compile. */
+   *  compile.
+   *
+   *  An adapter should also hand it back to the compiler as `CompileOptions.fileName`. That is
+   *  what makes the module's spans name this file, and a {@link DebugBreakpoint} carrying a
+   *  path is matched against those spans: compiled without it, every span says
+   *  `typeshade-input.ts` and a file-qualified breakpoint arms nothing. */
   readonly program?: string
   /** The entry point to invoke, by name. Required. */
   readonly entry: string

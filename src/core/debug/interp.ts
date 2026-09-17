@@ -78,6 +78,13 @@ export interface StepFrame {
    *  `var` its body declares. Without it a pause has values and no way to render them: a
    *  `vec3` and a three-element array are the same `number[]` at runtime. */
   readonly types: ReadonlyMap<string, ShaderType>
+  /** The names in THIS frame whose current value came, directly or through arithmetic, from a
+   *  GPU stub rather than from the shader's own data — `docs/debugging.md` §2.4's "mark it in
+   *  the variables view as a stand-in rather than a computed value". Maintained at every
+   *  assignment: a name is added when the value assigned to it was stub-derived and removed
+   *  when it is next assigned something that was not, so it describes the value a pause is
+   *  showing, not the history of the run. */
+  readonly stubbed: Set<string>
   /** The statement this frame is about to execute, set at every pause. */
   current: Stmt | undefined
 }
@@ -115,13 +122,21 @@ export interface StepCtx {
   readonly bindingNames: Set<string>
   readonly gpuStubs: boolean
   readonly frames: StepFrame[]
-  /** The INTRINSICS that stood in during this run, by name: `dpdx`, `textureSample`.
+  /** The INTRINSICS that stood in at some point during this run, by name: `dpdx`,
+   *  `textureSample`.
    *
    *  Not, as this said before a review caught it, "names whose value came from a stub". It
    *  holds `e.fn`, the intrinsic's own name, so it answers whether anything stood in and what,
-   *  and cannot distinguish one local from another. Marking a VALUE is `docs/debugging.md`
-   *  §2.4's other half and arrives with the milestone that delivers it. */
+   *  and cannot distinguish one local from another. For which of a frame's names is currently
+   *  showing a stand-in VALUE, which is `docs/debugging.md` §2.4's other half, see
+   *  {@link StepFrame.stubbed}. */
   readonly stubbed: Set<string>
+  /** How many times a stub has produced a value, or a stub-derived name has been read, since
+   *  the run began. Never read as a total: a statement reads it before and after evaluating an
+   *  expression, and a change across those two reads means that expression touched a stub
+   *  somewhere inside it, at any depth and through any number of calls. That is what makes
+   *  taint propagate without threading a second return value through `evalExpr`. */
+  stubHits: number
 }
 
 /** A generator that yields statement pauses and finally produces `T`. */
@@ -170,7 +185,10 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       throw new Error(`typeshade/debug: host-provided global '${e.name}' has no CPU value`)
     case 'param':
     case 'varref': {
-      if (env.has(e.name)) return env.get(e.name) as CpuValue
+      if (env.has(e.name)) {
+        if (ctx.frames[ctx.frames.length - 1]?.stubbed.has(e.name)) ctx.stubHits++
+        return env.get(e.name) as CpuValue
+      }
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
       if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name)
       throw new Error(`typeshade/debug: unbound ${e.name}`)
@@ -225,7 +243,15 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
     }
     case 'call': {
       const args: CpuValue[] = []
-      for (const a of e.args) args.push(yield* evalExpr(a, env, ctx))
+      // Measured per argument, so that stepping INTO the callee shows which of its parameters
+      // is holding a stand-in. Without it a `dpdx` result crossing a call boundary would go
+      // unmarked for the whole of the callee's frame.
+      const argStubbed: boolean[] = []
+      for (const a of e.args) {
+        const before = ctx.stubHits
+        args.push(yield* evalExpr(a, env, ctx))
+        argStubbed.push(ctx.stubHits > before)
+      }
       if (e.fn === 'u32' || e.fn === 'i32') {
         const src = e.args[0]!.type
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
@@ -242,10 +268,11 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
           )
         }
         ctx.stubbed.add(e.fn)
+        ctx.stubHits++
         return stub(...args)
       }
       const decl = ctx.decls.get(e.fn)
-      if (decl) return yield* callFunction(decl, args, e.span, ctx)
+      if (decl) return yield* callFunction(decl, args, e.span, ctx, argStubbed)
       throw new Error(`typeshade/debug: unknown fn ${e.fn}`)
     }
     case 'member': {
@@ -322,8 +349,9 @@ export function* callFunction(
   args: readonly CpuValue[],
   callSpan: SourceSpan | undefined,
   ctx: StepCtx,
+  stubbedArgs?: readonly boolean[],
 ): Step<CpuValue> {
-  const r = yield* runFunction(decl, args, callSpan, ctx)
+  const r = yield* runFunction(decl, args, callSpan, ctx, stubbedArgs)
   // The callee's frame has been popped by now (`runFunction`'s `finally`), so this event
   // reports the CALLER, stopped part-way through the statement that made the call. See
   // `StepEvent.afterCall`.
@@ -342,6 +370,7 @@ export function* runFunction(
   args: readonly CpuValue[],
   callSpan: SourceSpan | undefined,
   ctx: StepCtx,
+  stubbedArgs?: readonly boolean[],
 ): Step<Signal> {
   const env = new Map<string, CpuValue>()
   decl.params.forEach((p, i) => env.set(p.name, args[i] as CpuValue))
@@ -351,6 +380,7 @@ export function* runFunction(
     callSpan,
     env,
     types: declaredTypes(decl),
+    stubbed: new Set(decl.params.filter((_, i) => stubbedArgs?.[i]).map((p) => p.name)),
     current: undefined,
   }
   ctx.frames.push(frame)
@@ -359,6 +389,43 @@ export function* runFunction(
   } finally {
     ctx.frames.pop()
   }
+}
+
+/** The variable an assignment target ultimately writes into: `p` for `p.pos.x`, `out` for
+ *  `out[i]`. `undefined` when the target bottoms out in something that is not a name, which
+ *  `setLValue` rejects anyway. */
+function rootName(target: Expr): string | undefined {
+  let e = target
+  for (;;) {
+    if (e.op === 'varref' || e.op === 'param') return e.name
+    if (e.op === 'member' || e.op === 'index') {
+      e = e.base
+      continue
+    }
+    return undefined
+  }
+}
+
+/** Whether an assignment to `target` replaces the whole variable, rather than one field or
+ *  element of it. It decides whether a clean assignment may CLEAR the mark: `p = vec2(0., 0.)`
+ *  replaces everything the stub touched, while `p.x = 0.` leaves `p.y` as it was, and calling
+ *  `p` clean on the strength of one component would under-report. Marking stays conservative
+ *  in the direction that cannot mislead — it may say "stand-in" about a value that has since
+ *  become real, never the reverse. */
+function whole(target: Expr): boolean {
+  return target.op === 'varref' || target.op === 'param'
+}
+
+/** Add or remove one name from the frame's stub-derived set. */
+function markStub(
+  frame: StepFrame | undefined,
+  name: string | undefined,
+  derived: boolean,
+  canClear: boolean,
+): void {
+  if (!frame || name === undefined) return
+  if (derived) frame.stubbed.add(name)
+  else if (canClear) frame.stubbed.delete(name)
 }
 
 function* setLValue(
@@ -396,20 +463,38 @@ export function* execBody(
     if (frame) frame.current = s
     yield { stmt: s, frames: ctx.frames }
     switch (s.s) {
-      case 'let':
+      case 'let': {
+        const before = ctx.stubHits
         env.set(s.name, yield* evalExpr(s.expr, env, ctx))
+        markStub(frame, s.name, ctx.stubHits > before, true)
         break
-      case 'var':
+      }
+      case 'var': {
+        const before = ctx.stubHits
         env.set(s.name, s.init ? yield* evalExpr(s.init, env, ctx) : zeroOf(s.type, ctx.structs))
+        markStub(frame, s.name, ctx.stubHits > before, true)
         break
-      case 'assign':
-        yield* setLValue(s.target, yield* evalExpr(s.expr, env, ctx), env, ctx)
+      }
+      case 'assign': {
+        const before = ctx.stubHits
+        const value = yield* evalExpr(s.expr, env, ctx)
+        // Measured across `setLValue` too, so the target's OWN base and index expressions
+        // count: in `out[i] = 1.` the `1.` is real but, if `i` is a stand-in, the element it
+        // landed in is fiction and `out` is no longer trustworthy. Marking it is the
+        // conservative direction.
+        yield* setLValue(s.target, value, env, ctx)
+        markStub(frame, rootName(s.target), ctx.stubHits > before, whole(s.target))
         break
+      }
       case 'assignOp': {
+        const before = ctx.stubHits
         const cur = yield* evalExpr(s.target, env, ctx)
         const kind = numKindOf(s.target.type)
         const rhs = yield* evalExpr(s.expr, env, ctx)
+        // The old value is an input here, so a `+=` onto a stub-derived name stays stub-derived
+        // whatever the right-hand side is — which the read of `s.target` above already counted.
         yield* setLValue(s.target, applyBin(s.bop, cur, rhs, kind), env, ctx)
+        markStub(frame, rootName(s.target), ctx.stubHits > before, whole(s.target))
         break
       }
       case 'return':
@@ -481,6 +566,7 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     structs: new Map(m.structs.map((s) => [s.name, s])),
     bindingNames: new Set(m.bindings.map((b) => b.name)),
     gpuStubs,
+    stubHits: 0,
     frames: [],
     stubbed: new Set<string>(),
   }
