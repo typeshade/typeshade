@@ -221,6 +221,9 @@ describe('IR equality: use typeshade vs fn()', () => {
       member(o, 'a', f32T).assign(x)
       return member(o, 'a', f32T)
     })
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
   it('a let with no initializer matches EDSL Var(name, type)', () => {
     // #8 A10. `Var('x', f32T)` is the EDSL's declare-then-assign, and it builds the same
     // init-less `Stmt.var` the source language now builds.
