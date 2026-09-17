@@ -140,6 +140,7 @@ export function compileTsSources(
       consts: [],
       bindings: [],
       structs: [],
+      overrides: [],
       symbols: [],
     }
   }
@@ -165,6 +166,7 @@ export function compileTsSources(
       consts: [],
       bindings: [],
       structs: [],
+      overrides: [],
       symbols,
     }
   }
@@ -206,6 +208,7 @@ export function compileTsSources(
       consts: [],
       bindings: [],
       structs: [],
+      overrides: [],
       symbols,
     }
   }
@@ -283,6 +286,7 @@ export function compileTsSources(
     consts,
     bindings: [],
     structs: [],
+    overrides: [],
     symbols,
     wgsl,
   }

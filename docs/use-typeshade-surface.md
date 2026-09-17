@@ -270,9 +270,9 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §9 below is issue #8's A2, which reserved that number while it was in flight.
-§§10 and 13 stay reserved for A6 (`discard`, the missing builtins, `**`) and A3, which are
-still in flight on their own branches and append here in issue order. The sections took the
+**Numbering:** §§9 and 10 below are issue #8's A2 and A6, which reserved those numbers while
+they were in flight. §13 stays reserved for A3, which is still in flight on its own branch and
+appends here in issue order. §16 is A15, on its own branch. §17 is A11. The sections took the
 next free numbers so the A-item branches do not all claim §9 and collide on merge.
 
 ---
@@ -335,6 +335,86 @@ produce, so the two surfaces stay IR-equal here.
 
 Binding a value to another name **copies** it, as it does on both GPU targets: after
 `let w = v; w.x = 100.`, `v` is unchanged, on the GPU and in the CPU oracle alike.
+
+## 10. Builtins, casts and `discard`
+
+The scalar casts are `f32(x)`, `i32(x)`, `u32(x)`, `bool(x)` and `f64(x)`. `bool(x)` is
+"x is not zero", WGSL's own conversion, and is spelled with the compare it means. `f64(x)`
+widens an `f32` to the emulated double; casting a value to the type it already has is that
+value.
+
+Free builtin functions, callable without a `Math.` prefix, are the GLSL / WGSL names the IR
+carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoothstep`, `step`,
+`length`, `dot`, `cross`, `distance`, `normalize`, `mod`, `fract`, `degrees`, `radians`,
+`inverseSqrt`):
+
+| Spelling | Meaning |
+|----------|---------|
+| `exp2(x)` | 2ˣ |
+| `saturate(x)` | `clamp(x, 0., 1.)`; GLSL ES 3.00 has no `saturate`, so it is inlined there |
+| `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL) |
+| `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
+| `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL); `atan(x)` is still one argument |
+| `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
+| `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
+
+A function the file declares wins over any name in the table above, and over `bool` and
+`f64`: those names meant the author's function before they were builtins, and an addition
+does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
+`clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way:
+a program that resolves to one today must keep resolving to it.
+
+`discard` kills the fragment:
+
+```ts
+"use typeshade"
+
+class Color {
+  @location(0) color: vec4
+}
+
+@fragment
+export function fs(@builtin("position") p: vec4): Color {
+  if (p.x > 0.5) {
+    discard
+  }
+  return { color: vec4(1., 0., 0., 1.) }
+}
+```
+
+It is allowed in a fragment entry, and in a helper as long as no `@vertex` or `@compute`
+entry can reach it: the check closes over the call graph, so `discard` inside a helper a
+vertex entry calls is rejected too, naming the helper and the entry. The three screen-space
+derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
+
+`**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
+as `pow(i32, i32)`, which neither compiler accepts.
+
+`transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
+emulated-double matrix, so there is nothing to expose yet.
+
+**One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
+rather than about this table: a declared function is emitted with the name the author wrote,
+and GLSL ES 3.00 does not let a program redeclare one of ITS builtins. Measured on the compile
+gate's own WebGL2 context, a module that declares and calls `exp2` or `fwidth` compiles on
+Tint and is rejected by ANGLE with
+
+```
+ERROR: 0:5: 'exp2' : Name of a built-in function cannot be redeclared as function
+```
+
+while `saturate` and `fma` are accepted, because GLSL ES 3.00 has neither name. `bool` fails
+the same way for a different reason: it is a GLSL ES 3.00 keyword, so ANGLE reports
+`'bool' : syntax error` on a module that declares a function of that name, although the
+declaration still wins on WGSL and on the CPU. None of this is new: those names are the GLSL
+builtins and keywords they always were, and a module declaring one emitted the same GLSL
+before this item existed. It is, though, the one way the precedence rule above can hand you a
+WGSL-only module. The fix is to rename the function; the compiler does not warn about it yet.
+
+The same precedence holds for a function handed to a fold. `zip(xs, ys, atan2)` beside a
+declared `atan2` is refused with the rule named, because `atan2` is a name the intrinsic wins
+and a fold has no intrinsic-valued callback; `zip(xs, ys, fma)` beside a declared `fma` calls
+the declaration, as a plain `fma(a, b, c)` would.
 
 ---
 
@@ -502,9 +582,86 @@ reached the backends as a statement: WGSL emitted `case 0: { r = 1.0; break; }` 
 because the drop is what makes a case body mean the same thing inside a loop and outside one.
 The behaviour is identical on all three backends; only the text is one statement shorter.
 
----
 
-## 16. Object literals take the declared struct
+
+Last updated: 2026-09-14
+
+## 15. Textures, samplers and overrides
+
+Three declarations the surface had no spelling for. None of them is a new IR shape: a
+`texture`/`sampler` `ShaderType` and `ModuleDecl.overrides` have been there all along, and the
+EDSL builds them with `resource(name, texture2dfT, …)` and `overrideConst(name, type, default)`.
+
+```ts
+"use typeshade"
+
+declare const tex: texture_2d<f32>
+declare const atlas: texture_2d_array<f32>
+declare const smp: sampler
+const tint: override<f32> = 0.85
+declare const bias: override<f32>
+
+class Color {
+  @location(0) color: vec4
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): Color {
+  const a = textureSample(tex, smp, uv)
+  const b = textureSample(atlas, smp, uv, 1)
+  const c = textureSampleLevel(tex, smp, uv, 0.)
+  const d = textureLoad(tex, vec2i(i32(0), i32(0)), 0) // vec2i(0, 0) is A3, not yet landed
+  const size = textureDimensions(tex)
+  const layers = textureNumLayers(atlas)
+  const k = tint + bias + f32(size.x) + f32(layers)
+  return { color: (a + b + c + d) * k }
+}
+```
+
+**A texture and a sampler are written bare**, with no `uniform<>` or `storage<>` wrapper, because a
+handle lives in no address space. They take the next binding slot in declaration order like any
+other resource, and must be `const`. `texture_2d<T>` and `texture_2d_array<T>` take `f32`, `i32`
+or `u32`; the element decides both the WGSL spelling and which reads apply.
+
+**The read a call becomes is decided by the texture, not by the argument count.**
+`textureSample(atlas, smp, uv, 1)` on an array texture is the neutral id `textureSampleArray`,
+which WGSL spells with the layer as its own argument and GLSL ES 3.00 folds into a `vec3`
+coordinate, which is the same choice the EDSL's overloads make. A **layer** is an `i32` and a
+`textureLoad` **level** is a `u32`, so `textureLoad(t, c, 0)` emits `textureLoad(t, c, 0u)`
+rather than the `0.0` that no backend accepts.
+
+Sampling is float-only: an integer texture has no filtering, so `textureSample` on one is
+refused and names `textureLoad` instead. On GLSL ES 3.00 the texture and the sampler fuse into
+one `sampler2D`, and the sampler argument disappears from the call.
+
+**An override is a specialization constant**: the pipeline sets it, so no pass folds it and it
+occupies no binding slot. `const q: override<f32> = 0.5` states the default; `declare const q:
+override<f32>` has nowhere to put one and takes the type's zero. It must be a scalar
+(`f32`, `i32`, `u32`, `bool`) and the default must be a literal of that type, since the declaration
+each backend emits carries it, so it has to be known here, and `override<bool> = 1` is refused
+rather than emitted as `override q: bool = 1.0;`, which neither compiler accepts. WGSL emits
+`override q: f32 = 0.5;`; GLSL ES 3.00 has no equivalent and emits a `#define`.
+
+**An override may not take the name of a struct field or a resource.** That `#define` is a
+preprocessor substitution, so it rewrites every later occurrence of the name, a declaration
+included: an override called `uv` beside a `@location(0) uv` varying emitted `#define uv 0.85`
+above `in vec2 uv;`, which ANGLE reads as `in vec2 0.85;`. The collision is refused at the
+declaration; the WGSL was always fine, which is exactly why nothing caught it.
+
+**A layer and a mip level are whole numbers of 0 or more.** A fractional or negative one is
+refused rather than emitted: WGSL rejects it and GLSL ES 3.00 silently rounds, so the two
+targets would disagree about the same source. That is the rule the EDSL raises `SD0015` for.
+
+**These five names are reserved**: `textureSample`, `textureSampleLevel`, `textureLoad`,
+`textureDimensions`, `textureNumLayers`. A function you declare with one of those names is
+refused, the way `mod` and `clamp` have always been. A name that was *only* a user function
+before this item is the one thing that changes here.
+
+Left for later: `texture_2d_ms<f32>`, whose multisampled load neither backend here reaches, and
+the storage-texture forms.
+
+
+## 17. Object literals take the declared struct
 
 Which struct `{ … }` builds comes from the type the position **declares**: a function's
 return type, a `let`/`const` annotation, or a parameter type.

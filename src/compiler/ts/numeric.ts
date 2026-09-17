@@ -4,6 +4,7 @@ import ts from 'typescript'
 import type { BinOp, Expr } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
 import {
+  boolT,
   f32T,
   f64T,
   i32T,
@@ -20,6 +21,8 @@ export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
   i32: i32T,
   u32: u32T,
+  bool: boolT,
+  f64: f64T,
 }
 
 export function isNumericScalarType(t: ShaderType): boolean {
@@ -152,9 +155,49 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
   return `Type mismatch: cannot ${op} ${pair}. Types must match.`
 }
 
+/** A scalar cast: `f32(x)`, `i32(x)`, `u32(x)`, and now `bool(x)` and `f64(x)`, the two WGSL
+ *  spells that this surface had no name for. `bool` and `f64` are handled before the integer
+ *  truncation below: `f64(0.1)` keeps the whole double (truncating it to 0 would be the exact
+ *  precision the emulation exists to carry), and `bool(0)` is the literal `false`, not `0`. A
+ *  cast of a value that already has the target type is that value — `f64(x)` with `x: f64`
+ *  emits nothing, as WGSL's identity conversion does — which also keeps the fp64 pass from
+ *  seeing a widen it would have to undo. `bool(x)` becomes the compare `x != 0`, which is
+ *  what WGSL's bool conversion means and what all three backends already evaluate. Every
+ *  other name keeps its behaviour exactly. */
 export function lowerScalarCast(name: string, arg: Expr): Expr | string {
   const type = SCALAR_CAST[name]
   if (!type) return `Unknown scalar cast "${name}".`
+  if (name === 'bool') {
+    if (typeKey(arg.type) === 'bool') return arg
+    if (!isNumericScalarType(arg.type)) {
+      return `bool() takes a numeric scalar, got ${typeKey(arg.type)}.`
+    }
+    if (arg.op === 'lit' && typeof arg.value === 'number') {
+      return { op: 'lit', type: boolT, value: arg.value !== 0 }
+    }
+    // WGSL's `bool(x)` is "x is not zero", and that is what this lowers to: the IR has no
+    // bool-cast intrinsic (the EDSL's `bool()` builds a boolean literal, not a cast), so
+    // rather than add one to the core the surface spells the conversion with the compare it
+    // already has. `x != 0` is the same value on all three backends and needs nothing new in
+    // the CPU oracle, where an unknown `bool` call would have thrown.
+    return {
+      op: 'compare',
+      type: boolT,
+      cop: '!=',
+      a: arg,
+      b: { op: 'lit', type: arg.type, value: 0 },
+    }
+  }
+  if (name === 'f64') {
+    if (isF64(arg.type)) return arg
+    if (arg.op === 'lit' && typeof arg.value === 'number') {
+      return { op: 'lit', type: f64T, value: arg.value }
+    }
+    if (typeKey(arg.type) !== 'f32') {
+      return `f64() widens an f32, got ${typeKey(arg.type)}. Cast to f32 first, e.g. f64(f32(x)).`
+    }
+    return { op: 'call', type: f64T, fn: 'f64', args: [arg] }
+  }
   if (arg.op === 'lit' && typeof arg.value === 'number') {
     const v = arg.value
     if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`

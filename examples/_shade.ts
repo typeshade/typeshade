@@ -133,6 +133,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'textured-quad',
+    title: 'Texture, sampler and overrides',
+    blurb:
+      'A fullscreen triangle sampling a `texture_2d<f32>` through a `sampler`, tinted by two `override<f32>` specialization constants — WGSL declares the handles and the overrides, GLSL ES 3.00 fuses texture and sampler into one `sampler2D` and spells each override as a `#define`.',
+    renderable: true,
+  },
+  {
     id: 'palette-const',
     title: 'Module vector and array constants',
     blurb:
@@ -232,6 +239,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       '`gradient-pass.ts` written in the source language instead of built with `fn()` / `module()` — the same shader through the other surface, with a uniform block both targets lay out and a GLSL pair that links.',
     renderable: true,
     twinOf: 'gradient',
+  },
+  {
+    id: 'cutout',
+    title: 'Cutout (source language)',
+    blurb:
+      "`discard` in a helper the fragment entry calls, with `fwidth` softening the rim and `saturate`, `exp2` and `**` shaping the falloff — the example that carries #8 A6's spellings to Tint and a real WebGL2 context. Renders a circular cutout with a radial centre-to-rim gradient.",
+    renderable: true,
   },
   {
     id: 'compute-reduction-twin',

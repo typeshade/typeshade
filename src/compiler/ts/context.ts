@@ -15,7 +15,7 @@ import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from 
  *  module — the GLSL writer dropped the uniform block while keeping the uses, and
  *  `reflect()` reported no stages for anything. A binding is a module-scope `var`, not a
  *  const, and it now says so. */
-export type BindingKind = 'param' | 'local' | 'module' | 'binding'
+export type BindingKind = 'param' | 'local' | 'module' | 'binding' | 'override'
 
 /** How a "cannot assign" diagnostic names what the target is. One helper because the three
  *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
@@ -32,6 +32,8 @@ export function readOnlyPhrase(kind: BindingKind): string {
       return 'a read-only resource'
     case 'module':
       return 'a module const'
+    case 'override':
+      return 'an override constant, set by the pipeline'
     case 'param':
     case 'local':
       return 'declared with const'
