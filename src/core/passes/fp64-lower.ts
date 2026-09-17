@@ -705,6 +705,12 @@ function lowerStmt(s: Stmt, ctx: LowerCtx): Stmt {
       if (isF64(s.target.type)) {
         const fnName = BINOP_FN[s.bop]
         if (fnName === undefined) throw dslError('SD0041', `compound assign '${s.bop}=' on f64`)
+        // Registered the way the vec64 arm above registers its own: this arm EMITS a call to
+        // `fnName`, so the module must carry its helper. Without this the emitted shader called
+        // df64_add / df64_sub with no declaration anywhere and no `_fp64` binding, which Tint
+        // rejects — reachable through every compound write to an f64 lvalue (`xs[i] += y` on a
+        // storage array, and with #8 A2 the member and element `++` / `--` forms as well).
+        ctx.used.add(fnName)
         const target = walk(s.target)
         const rhs = isF64(s.expr.type)
           ? walk(s.expr)
