@@ -2,10 +2,40 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
-import { Switch, Var, constExpr, fn } from '../../core/ir/builder.js'
-import { uniformStruct } from '../../core/sot.js'
-import { constRef, f32, u32, vec3 } from '../../core/ir/node.js'
-import { f32T, i32T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import { Switch, Var, constExpr, fn, overrideConst } from '../../core/ir/builder.js'
+import { resource, uniformStruct } from '../../core/sot.js'
+import {
+  atan2,
+  constRef,
+  exp2,
+  f32,
+  fma,
+  fwidth,
+  member,
+  pow,
+  saturate,
+  select,
+  textureSample,
+  toF64,
+  u32,
+  vec3,
+} from '../../core/ir/node.js'
+import {
+  boolT,
+  f32T,
+  f64T,
+  i32T,
+  mat4x4fT,
+  samplerT,
+  structT,
+  texture2dArrayfT,
+  vec2fT,
+  vec3fT,
+  vec3uT,
+  vec3f64T,
+  vec4fT,
+  typeKey,
+} from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -86,6 +116,13 @@ function normalizeExpr(e: Expr): unknown {
         a: normalizeExpr(e.a),
         b: normalizeExpr(e.b),
       }
+    case 'member':
+      return {
+        op: 'member',
+        type: typeKey(e.type),
+        field: e.field,
+        base: normalizeExpr(e.base),
+      }
     case 'unop':
       return { op: 'unop', type: typeKey(e.type), a: normalizeExpr(e.a) }
     case 'compare':
@@ -103,6 +140,16 @@ function normalizeExpr(e: Expr): unknown {
         lop: e.lop,
         a: normalizeExpr(e.a),
         b: normalizeExpr(e.b),
+      }
+    case 'call':
+      return { op: 'call', type: typeKey(e.type), fn: e.fn, args: e.args.map(normalizeExpr) }
+    case 'select':
+      return {
+        op: 'select',
+        type: typeKey(e.type),
+        cond: normalizeExpr(e.cond),
+        ifTrue: normalizeExpr(e.ifTrue),
+        ifFalse: normalizeExpr(e.ifFalse),
       }
     default:
       return { op: e.op }
@@ -174,6 +221,46 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a component assignment matches the EDSL v.x.assign(a)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function paint(a: f32): vec3 {
+        let v = vec3(0., 0., 0.);
+        v.x = a;
+        return v;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('paint', { a: f32T }, vec3fT, ({ a }, bld) => {
+      const v = bld.var('v', vec3fT, vec3(0, 0, 0))
+      v.x.assign(a)
+      return v
+    })
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a struct-field assignment matches the EDSL o.a.assign(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      class P {
+        a: f32
+      }
+      export function put(p: P, x: f32): f32 {
+        let o: P = p;
+        o.a = x;
+        return o.a;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const P = structT('P')
+    const edsl = fn('put', { p: P, x: f32T }, f32T, ({ p, x }, bld) => {
+      const o = bld.var('o', P, p)
+      member(o, 'a', f32T).assign(x)
+      return member(o, 'a', f32T)
+    })
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 
@@ -257,6 +344,147 @@ describe('IR equality: use typeshade vs fn()', () => {
       return r
     })
 
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a texture sample matches the EDSL textureSample', () => {
+    // #8 A7. The neutral id is chosen from the texture's own dim on both surfaces, so an
+    // array sample is `textureSampleArray` either way — that is the seam this pins.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      declare const atlas: texture_2d_array<f32>
+      declare const smp: sampler
+      export function sample(uv: vec2): vec4 {
+        return textureSample(atlas, smp, uv, 1);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 0 })
+    const smp = resource('smp', samplerT, { group: 0, binding: 1 })
+    const edsl = fn('sample', { uv: vec2fT }, vec4fT, ({ uv }) =>
+      textureSample(atlas.node, smp.node, uv, 1),
+    )
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('an override read matches the EDSL overrideConst handle', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      const quality: override<f32> = 0.5
+      export function q(): f32 {
+        return quality;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const quality = overrideConst('quality', f32T, 0.5)
+    const edsl = fn('q', {}, f32T, () => quality.node)
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('select(f, t, c) matches the EDSL select(c, t, f)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function pick(a: f32, b: f32, c: bool): f32 {
+        return select(a, b, c);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('pick', { a: f32T, b: f32T, c: boolT }, f32T, ({ a, b, c }) => select(c, b, a))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('saturate(x) matches the EDSL saturate(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function clampUnit(x: f32): f32 {
+        return saturate(x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('clampUnit', { x: f32T }, f32T, ({ x }) => saturate(x))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('f64(x) matches the EDSL toF64(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function widen(x: f32): f64 {
+        return f64(x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('widen', { x: f32T }, f64T, ({ x }) => toF64(x))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a ** b matches the EDSL pow(a, b)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function square(x: f32): f32 {
+        return x ** x;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('square', { x: f32T }, f32T, ({ x }) => pow(x, x))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('atan(y, x) matches the EDSL atan2(y, x), in that order', () => {
+    // Distinct arguments on purpose: atan2(y, x) and atan2(x, y) differ, and a scalar eval of
+    // equal arguments could not tell them apart. This is the one place an argument-order
+    // mistake in the remap would be invisible.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function angle(y: f32, x: f32): f32 {
+        return atan(y, x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('angle', { y: f32T, x: f32T }, f32T, ({ y, x }) => atan2(y, x))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('exp2(x) matches the EDSL exp2(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(x: f32): f32 {
+        return exp2(x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    assertSameCore(
+      tsResult.funcs[0]!,
+      fn('f', { x: f32T }, f32T, ({ x }) => exp2(x)),
+    )
+  })
+
+  it('fwidth(x), a derivative, matches the EDSL fwidth(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(x: f32): f32 {
+        return fwidth(x);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    assertSameCore(
+      tsResult.funcs[0]!,
+      fn('f', { x: f32T }, f32T, ({ x }) => fwidth(x)),
+    )
+  })
+
+  it('fma(a, b, c) matches the EDSL fma with the same argument order', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32, b: f32, c: f32): f32 {
+        return fma(a, b, c);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('f', { a: f32T, b: f32T, c: f32T }, f32T, ({ a, b, c }) => fma(a, b, c))
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 

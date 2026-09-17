@@ -214,21 +214,46 @@ export function collectLocals(body: readonly Stmt[], out: Set<string>): void {
   }
 }
 
-/** True iff `e` references a local (a varref whose name is in `locals`). */
+/** The ops that NAME a storage location, and so can be the root of an assignment lvalue or
+ *  the thing a hoist has to be invalidated against. A `varref` is a local or an EDSL-authored
+ *  binding read; a `constref` is how the `"use typeshade"` front end spells a binding read
+ *  (#14 is changing that, and this must be right either way); an `externref` is a host-bound
+ *  global; a `param` is a function parameter, which the front end does let a program assign
+ *  to. `overrideref` is left out deliberately: a specialization constant can never be an
+ *  assignment target, so widening to it could only suppress a valid hoist. */
+function rootName(e: Expr): string | undefined {
+  if (e.op === 'varref' || e.op === 'constref' || e.op === 'externref' || e.op === 'param') {
+    return e.name
+  }
+  return undefined
+}
+
+/** True iff `e` reads any of `names` — through a varref, or through any of the other ops that
+ *  name a storage location (see {@link rootName}).
+ *
+ *  Every caller passes a set that is the union of the function's locals and the roots
+ *  {@link collectMutatedRoots} found, so this is the "not invariant across a store" test as
+ *  much as it is the "is a local" one. It matched `varref` alone until #8 A2, which let the
+ *  `"use typeshade"` surface write through a member or element of a storage binding: the
+ *  front end spells that binding read as a `constref`, so neither the root nor the read was
+ *  seen, and CSE hoisted `ps[i]` into an immutable `let` ACROSS its own store —
+ *  `let _cse1 = ps[i]; _cse1.b = …`, which Tint rejects with "cannot assign to value of type
+ *  'f32'". The same hole existed for a parameter root. */
 export function refsLocal(e: Expr, locals: ReadonlySet<string>): boolean {
   let yes = false
   eachExpr(e, (x) => {
-    if (x.op === 'varref' && locals.has(x.name)) yes = true
+    const name = rootName(x)
+    if (name !== undefined && locals.has(name)) yes = true
   })
   return yes
 }
 
-/** The root varref name written by an assignment lvalue (`buf.v`/`arr[i]` -> `buf`/`arr`). */
+/** The root name written by an assignment lvalue (`buf.v`/`arr[i]` -> `buf`/`arr`), for any
+ *  root {@link rootName} recognises. */
 function targetRoot(e: Expr): string | undefined {
-  if (e.op === 'varref') return e.name
   if (e.op === 'member') return targetRoot(e.base)
   if (e.op === 'index') return targetRoot(e.base)
-  return undefined
+  return rootName(e)
 }
 
 /** Is `e` worth binding to a temp when it repeats?

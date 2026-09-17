@@ -499,6 +499,51 @@ declare function uniform<T>(): T
 ${renderJSDoc(FUNCTION_DOCS.storage)}
 declare function storage<T>(): T
 
+/** Specialization constants (#8 A7). Transparent for the same reason as \`uniform<T>\`: a
+ * function body reads the override as a plain value of its type. */
+type override<T> = T
+
+declare const textureTag: unique symbol
+declare const samplerTag: unique symbol
+/** The texture and sampler HANDLES. Opaque tags, not identities: a texture is not a value
+ * you can do arithmetic on, and the only things that accept one are the texture reads below,
+ * which is exactly what the compiler enforces. \`E\` is the sampled element kind and
+ * \`A\` whether the view is an array, so \`textureNumLayers\` can refuse a plain 2D texture in
+ * the editor the way the compiler refuses it. */
+type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
+type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
+type sampler = { readonly [samplerTag]: true }
+
+declare function textureSample(tex: texture_2d<f32>, smp: sampler, uv: vec2): vec4
+declare function textureSample(
+  tex: texture_2d_array<f32>,
+  smp: sampler,
+  uv: vec2,
+  layer: number,
+): vec4
+declare function textureSampleLevel(
+  tex: texture_2d<f32>,
+  smp: sampler,
+  uv: vec2,
+  level: number,
+): vec4
+declare function textureSampleLevel(
+  tex: texture_2d_array<f32>,
+  smp: sampler,
+  uv: vec2,
+  layer: number,
+  level: number,
+): vec4
+declare function textureLoad<E>(tex: texture_2d<E>, coord: vec2i, level: number): vec4
+declare function textureLoad<E>(
+  tex: texture_2d_array<E>,
+  coord: vec2i,
+  layer: number,
+  level: number,
+): vec4
+declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
+
 ${vecCtors}
 
 ${scalarCasts}
@@ -510,6 +555,17 @@ ${expandFns}
 ${randomDeclaration}
 
 ${langConsts}
+
+// ── Spellings whose shape the generated tables above cannot express (#8 A6) ──
+// Each of these IS accepted by the compiler and documented in §10 of the surface document;
+// without a declaration here the editor red-squiggles valid source, which is the false
+// POSITIVE §6 forbids. They are written by hand because the generators derive a signature
+// from an arity alone: \`select\`'s third argument is a bool, \`atan\` has two arities, \`bool\`
+// takes a bool as well as a number, and \`discard\` is a statement, not a call.
+declare function select<T extends Numeric>(falseValue: T, trueValue: T, cond: bool): T
+declare function atan<T extends Numeric>(y: T, x: T): T
+declare function bool(x: number | bool): bool
+declare const discard: void
 
 interface MathObject {
 ${mathMethods}

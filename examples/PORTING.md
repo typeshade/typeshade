@@ -105,11 +105,11 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 31  | `fp64-cancellation`   | generic      | blocked      | **A6-f64**, N2               | 13 / 36        |
 | 32  | `fp64-sine-sweep`     | generic      | blocked      | **A6-f64**                   | 13 / 36        |
 | 33  | `gradient`            | generic      | **portable** | —                            | —              |
-| 34  | `override-quality`    | generic      | blocked      | **A7-override**              | 1 / 36         |
-| 35  | `texture-array-lod`   | generic      | blocked      | **A3**, A7-tex               | 1 / 36         |
+| 34  | `override-quality`    | generic      | **portable** | —                            | —              |
+| 35  | `texture-array-lod`   | generic      | blocked      | **A3**, ~~A7-tex~~           | 1 / 36         |
 | 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
 
-**Portable today: 11 of 36.** The measured figure was 14 — up from 2 once
+**Portable today: 12 of 36.** The twins measured 11; A7 adds `override-quality`, whose source form compiles with `override<T>`. The earlier figure was 14 — up from 2 once
 [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the single largest
 blocker — and then all twelve unwritten twins were written out. Three of them do not compile,
 and rows 11, 16 and 17 above carry the blockers that stopped them (**B-negint**, **B-scope**).
@@ -127,15 +127,15 @@ correct shader_, and one of the three passed every gate in this repository excep
 
 | Code            | Missing feature                                                      | Issue #8        | Blocks | Examples                                                                                                                                                                  |
 | --------------- | -------------------------------------------------------------------- | --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A6-f64**      | the `f64()` cast — there is no f32 → f64 promotion at all            | A6, seam S1     | 13     | every `fp64-*`                                                                                                                                                            |
+| **A6-f64**      | ~~the `f64()` cast~~ — **landed** (#8 A6); N1 and N2 still block the family | A6, seam S1     | 13     | every `fp64-*`                                                                                                                                                            |
 | **N1**          | component read on a `vec2<f64>` (`c.x`)                              | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-rtc`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`          |
 | **N2**          | an f64 literal — `let z: f64 = 0.` and `f64Val * 2.` both fail       | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-cancellation` |
-| **A6-deriv**    | `fwidth`, and `dpdx` / `dpdy` to hand-roll it with                   | A6              | 5      | `graticule`, `fp64-loran`, `color-ramp`, `truchet`, `heart`                                                                                                               |
+| **A6-deriv**    | ~~`fwidth`, and `dpdx` / `dpdy`~~ — **landed** (#8 A6)               | A6              | 5      | `graticule`, `fp64-loran`, `color-ramp`, `truchet`, `heart`                                                                                                               |
 | **L-loop**      | a loop bound that is not a compile-time constant                     | later (M22·S31) | 4      | `fp64-mercator-tiles`, `fbm-clouds`, `metaballs`, `fp64-mandelbrot`                                                                                                       |
 | **A3**          | an integer literal taking the declared type (`vec2i(0, 0)`)          | A3              | 1      | `texture-array-lod`                                                                                                                                                       |
-| **A6-discard**  | the `discard` statement                                              | A6              | 1      | `discard-cutout`                                                                                                                                                          |
-| **A7-tex**      | `texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad` | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
-| **A7-override** | `override<T>` specialization constants                               | A7              | 1      | `override-quality`                                                                                                                                                        |
+| **A6-discard**  | ~~the `discard` statement~~ — **landed** (#8 A6)                     | A6              | 1      | `discard-cutout`                                                                                                                                                          |
+| **A7-tex**      | ~~`texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`~~ — **landed** (#8 A7) | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
+| **A7-override** | ~~`override<T>` specialization constants~~ — **landed** (#8 A7)      | A7              | 0      | — (`override-quality` compiles)                                                                                                                                           |
 | **B-scope**     | a local name bound in two block scopes of one function ([#38])       | **a bug**       | 2      | `raymarch-sphere`, `raymarch-boxes`                                                                                                                                       |
 | **B-negint**    | a negative integer literal in a local or `for` declaration ([#40])   | **a bug**       | 1      | `voronoi`                                                                                                                                                                 |
 
@@ -151,17 +151,17 @@ why they were filed rather than worked around.
 Worth stating, because these rank high in issue #8 and would be natural things to reach for
 first. No example in the 36 is waiting on any of them:
 
-| Issue #8 item                                             | Blocks |
-| --------------------------------------------------------- | ------ |
-| **A2** member / component assignment (`v.x = 0.`)         | 0      |
-| ~~**A4** `type` / `interface` structs~~ (landed)          | 0      |
-| **A5** `@align` / `@size` field decorators                | 0      |
-| ~~**A8** element-converting constructors~~ (landed)       | 0      |
-| ~~**A9** module-level vector constants~~ (landed)         | 0      |
-| ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed) | 0      |
-| **A11** object-literal contextual typing                  | 0      |
-| **S5** `arrayLength`                                      | 0      |
-| **S7** `mat2` / `mat3`                                    | 0      |
+| Issue #8 item                                                  | Blocks |
+| -------------------------------------------------------------- | ------ |
+| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed) | 0      | 0      |
+| ~~**A4** `type` / `interface` structs~~ (landed)               | 0      |
+| **A5** `@align` / `@size` field decorators                     | 0      |
+| ~~**A8** element-converting constructors~~ (landed)            | 0      |
+| ~~**A9** module-level vector constants~~ (landed)              | 0      |
+| ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed)      | 0      |
+| **A11** object-literal contextual typing                       | 0      |
+| **S5** `arrayLength`                                           | 0      |
+| **S7** `mat2` / `mat3`                                         | 0      |
 
 A10 has landed even though it blocks nothing here: the 36 EDSL examples were written
 through a surface that spells these differently, so the corpus could not have shown the gap.
@@ -172,6 +172,8 @@ A2 in particular: every `.assign()` in the corpus targets a whole value, never a
 What reads as member assignment in the IR walk (`construct`, `lit`, `binop` targets) is the
 auto-var pattern — an EDSL value node that `autoVars` later materialises into a `var` — and
 it ports to a plain `let x = …; x = …`, which already compiles. No example assigns to `v.x`.
+It has landed anyway (`v.x = 0.`, `o.pos = …`, `ps[i].a = 1.`, `v.x += 1.`), because it is
+what a GLSL port reaches for first; it unblocks no row of the table above.
 And no example uses a matrix at all, so `mat2`/`mat3` cannot be on this corpus's path.
 
 ## What it takes to unlock the corpus
@@ -182,6 +184,10 @@ additionally blocked the GLSL form of all 33 renderable examples, making every r
 bound — and that one is now spent: a source-compiled binding reaches its stages, so a row
 below that says "portable" means the GLSL form emits too. What the rows still do not claim is
 that the emitted shader is CORRECT; only Tint and WebGL2 answer that.
+
+Since the table was written, **A6-deriv**, **A6-discard** and **A6-f64** (the cast) have
+landed in #8 A6. The fp64 family is still held by **N1** and **N2**, which no issue item
+covers, so its rows have not moved.
 
 | After landing      | Portable |
 | ------------------ | -------- |
@@ -456,20 +462,20 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `0.5 * p.xyz`                                                                                                   | ✓ since #19, operand order kept as written                                                              |
 | `c *= 0.5` (c: vec3)                                                                                            | ✓ since #19                                                                                             |
 | `a * b` (both vec3)                                                                                             | ✓                                                                                                       |
-| `f64(p.x)`                                                                                                      | ✗ `Unknown function "f64(p.x)"` — `SCALAR_CAST` holds only f32/i32/u32                                  |
+| `f64(p.x)`                                                                                                      | ✓ since #8 A6 — the cast exists; an f64 LITERAL still does not (N2)                                     |
 | `u.cx * u.cx` (f64 uniform field)                                                                               | ✓ — f64 **arithmetic** works; only the cast and the literal are missing                                 |
 | `u.cx * 2.`                                                                                                     | ✗ `Type mismatch: cannot * f64 and f32. Types must match.` — #19 reworded this; f64 is a different item |
 | `let zx: f64 = 0.`                                                                                              | ✗ `cannot let/const zx f64 and f32`                                                                     |
 | `u.c.x` where `c: vec2<f64>`                                                                                    | ✗ `.x on vec2<f64> — swizzle requires vec2/vec3/vec4`                                                   |
 | `vec2f64(u.c)`                                                                                                  | ✓ — the constructor exists, the component read does not                                                 |
-| `fwidth(p.x)` / `dpdx(p.x)` / `dpdy(p.x)`                                                                       | ✗ `Unknown function`                                                                                    |
-| `exp2(x)` / `saturate(x)` / `select(a,b,c)`                                                                     | ✗ `Unknown function`                                                                                    |
+| `fwidth(p.x)` / `dpdx(p.x)` / `dpdy(p.x)`                                                                       | ✓ since #8 A6                                                                                           |
+| `exp2(x)` / `saturate(x)` / `select(a,b,c)`                                                                     | ✓ since #8 A6 — plus `fma(a,b,c)`, `atan(y,x)`, `bool(i)` and `a ** b`                                  |
 | `sign` `round` `trunc` `ceil` `degrees` `radians` `inverseSqrt`                                                 | ✓                                                                                                       |
 | `mod` `atan2` `distance` `normalize` `cross` `dot` `length`                                                     | ✓                                                                                                       |
 | `c ? 1. : 0.`                                                                                                   | ✓ — and it lowers to `select(...)`, so it is the spelling for the EDSL's `.select()`                    |
-| `discard`                                                                                                       | ✗ `Unsupported expression statement "discard"` — in an entry and in a helper alike                      |
-| `declare const tex: texture_2d<f32>` / `sampler`                                                                | ✗ `TS8099 declare "tex" must be uniform<T> or storage<T>`                                               |
-| `declare const quality: override<f32>`                                                                          | ✗ same TS8099                                                                                           |
+| `discard`                                                                                                       | ✓ since #8 A6 — in an entry and in a helper the entry calls                                             |
+| `declare const tex: texture_2d<f32>` / `sampler`                                                                | ✓ since #8 A7 — written bare, no uniform<> wrapper                                                      |
+| `declare const quality: override<f32>`                                                                          | ✓ since #8 A7 — default 0 without an initializer, or `= 1.` to state one                                |
 | `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a constant bound`                                                       |
 | `for (let i: u32 = 0; i < WINDOW; i++)` with `const WINDOW: u32 = 8`                                            | ✓ — a module const **is** a constant bound                                                              |
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                       |
@@ -484,7 +490,7 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `m: mat3`                                                                                                       | ✗ `Unknown type "mat3"`                                                                                 |
 | `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                    |
 | `let x: f32;` then `x = 1.`                                                                                     | ✓ since #8 A10; the annotation carries the type, so it is required                                      |
-| `v.x = 1.`                                                                                                      | ✗ `Assignment target must be a simple identifier`                                                       |
+| `v.x = 1.` / `o.pos = …` / `ps[i].a = 1.` / `v.x += 1.`                                                         | ✓ since #8 A2 (`v.xy = …` is still rejected, as WGSL rejects it)                                        |
 | `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                       |
 | `declare const params: uniform<vec4u>` (non-struct uniform)                                                     | ✓                                                                                                       |
 | `@compute([8, 8, 1])`, a struct return by object literal, a helper returning a struct, a helper taking a struct | ✓                                                                                                       |

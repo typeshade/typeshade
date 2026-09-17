@@ -439,9 +439,14 @@ export const BUILTINS: Record<string, Builtin> = {
 export const GPU_STUBS: Record<string, Builtin> = {
   textureSample: () => [0, 0, 0, 1],
   textureSampleLevel: () => [0, 0, 0, 1],
-  fwidth: () => 0,
-  dpdx: () => 0,
-  dpdy: () => 0,
+  // Component-wise on both targets, so the STUB has to keep the argument's shape even though
+  // its value is a placeholder: `dpdx(v)` on a vec2 is a vec2 of zeros, not the scalar 0.
+  // Returning a bare 0 made `dpdx(v).x` undefined and `length(fwidth(v))` throw
+  // "v.reduce is not a function" — a TypeError out of the oracle for a shader that emits and
+  // runs. Newly reachable from "use typeshade" with #8 A6, which gave the surface these names.
+  fwidth: (x) => zeroLike(x),
+  dpdx: (x) => zeroLike(x),
+  dpdy: (x) => zeroLike(x),
   textureLoad: () => [0, 0, 0, 1],
   // 2d-array reads (#1651) — same placeholder/throw contract as their 2d twins:
   // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.
@@ -468,10 +473,49 @@ export const GPU_STUBS: Record<string, Builtin> = {
 // 4294967040, not 4294967295). The mathematical 2^32−1 / 2^31−1 are NOT
 // f32-representable, so a float source can never produce them on the GPU; the
 // lower i32 bound −2^31 IS representable and stays exact.
+/** A value type that is held as a MUTABLE JavaScript object here — a vector, a matrix and an
+ *  emulated-double vector are `number[]`, an array is an array, a struct is a plain object.
+ *  A scalar and a bool are immutable JS primitives and never need copying. */
+export function isAggregateType(t: ShaderType): boolean {
+  return (
+    t.kind === 'vec' ||
+    t.kind === 'vec64' ||
+    t.kind === 'mat' ||
+    t.kind === 'array' ||
+    t.kind === 'struct'
+  )
+}
+
+/** A deep copy of a CPU value, for binding one aggregate to another name.
+ *
+ *  WGSL and GLSL both give `var w = v` VALUE semantics: `w` is a fresh copy, and writing
+ *  `w.x` leaves `v` alone. Both CPU backends used to bind the same underlying array or object
+ *  to the new name, so `let w = v; w.x = 100.` mutated `v` on the CPU and neither GPU — a
+ *  silent divergence in the one thing the oracle exists to guarantee. It was reachable only
+ *  through a raw `w[0] = …` until #8 A2 gave the `"use typeshade"` surface `w.x = …`.
+ *
+ *  Applied at a `let` / `var` binding whose type {@link isAggregateType} admits, by the
+ *  interpreter and by the generated code alike, so the two stay bit-identical. A scalar
+ *  binding is untouched, which is the overwhelming majority of them. */
+export function cloneValue(v: CpuValue): CpuValue {
+  if (Array.isArray(v)) return v.map(cloneValue) as CpuValue
+  if (typeof v === 'object' && v !== null) {
+    const out: Record<string, CpuValue> = {}
+    for (const [k, x] of Object.entries(v as Record<string, CpuValue>)) out[k] = cloneValue(x)
+    return out as CpuValue
+  }
+  return v
+}
+
 export const f32ToU32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(4294967040, Math.max(0, Math.trunc(v)))
 export const f32ToI32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(2147483520, Math.max(-2147483648, Math.trunc(v)))
+
+/** A zero of the same shape as `v`: component-wise for a vector or matrix, the scalar 0
+ *  otherwise. Used by the derivative stubs, which have no real value to give but must not
+ *  change the shape the rest of the expression is typed for. */
+const zeroLike = (v: CpuValue): CpuValue => (isArr(v) ? (v as number[]).map(() => 0) : 0)
 
 /** One component of an element-CONVERTING vector constructor, `vecN<T>(v: vecN<S>)`
  *  (`vec3<f32>(v)` in WGSL, `vec3(uv)` in GLSL ES 3.00). WGSL converts every component the
