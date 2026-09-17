@@ -105,11 +105,11 @@ waiting on its own feature, it is waiting on the corpus-wide one.
 | 31  | `fp64-cancellation`   | generic      | blocked      | **A6-f64**, N2               | 13 / 36        |
 | 32  | `fp64-sine-sweep`     | generic      | blocked      | **A6-f64**                   | 13 / 36        |
 | 33  | `gradient`            | generic      | **portable** | —                            | —              |
-| 34  | `override-quality`    | generic      | blocked      | **A7-override**              | 1 / 36         |
-| 35  | `texture-array-lod`   | generic      | blocked      | **A3**, A7-tex               | 1 / 36         |
+| 34  | `override-quality`    | generic      | **portable** | —                            | —              |
+| 35  | `texture-array-lod`   | generic      | blocked      | **A3**, ~~A7-tex~~           | 1 / 36         |
 | 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
 
-**Portable today: 11 of 36.** The measured figure was 14 — up from 2 once
+**Portable today: 12 of 36.** The twins measured 11; A7 adds `override-quality`, whose source form compiles with `override<T>`. The earlier figure was 14 — up from 2 once
 [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the single largest
 blocker — and then all twelve unwritten twins were written out. Three of them do not compile,
 and rows 11, 16 and 17 above carry the blockers that stopped them (**B-negint**, **B-scope**).
@@ -134,8 +134,8 @@ correct shader_, and one of the three passed every gate in this repository excep
 | **L-loop**      | a loop bound that is not a compile-time constant                     | later (M22·S31) | 4      | `fp64-mercator-tiles`, `fbm-clouds`, `metaballs`, `fp64-mandelbrot`                                                                                                       |
 | **A3**          | an integer literal taking the declared type (`vec2i(0, 0)`)          | A3              | 1      | `texture-array-lod`                                                                                                                                                       |
 | **A6-discard**  | ~~the `discard` statement~~ — **landed** (#8 A6)                     | A6              | 1      | `discard-cutout`                                                                                                                                                          |
-| **A7-tex**      | `texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad` | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
-| **A7-override** | `override<T>` specialization constants                               | A7              | 1      | `override-quality`                                                                                                                                                        |
+| **A7-tex**      | ~~`texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`~~ — **landed** (#8 A7) | A7              | 1      | `texture-array-lod`                                                                                                                                                       |
+| **A7-override** | ~~`override<T>` specialization constants~~ — **landed** (#8 A7)      | A7              | 0      | — (`override-quality` compiles)                                                                                                                                           |
 | **B-scope**     | a local name bound in two block scopes of one function ([#38])       | **a bug**       | 2      | `raymarch-sphere`, `raymarch-boxes`                                                                                                                                       |
 | **B-negint**    | a negative integer literal in a local or `for` declaration ([#40])   | **a bug**       | 1      | `voronoi`                                                                                                                                                                 |
 
@@ -151,22 +151,29 @@ why they were filed rather than worked around.
 Worth stating, because these rank high in issue #8 and would be natural things to reach for
 first. No example in the 36 is waiting on any of them:
 
-| Issue #8 item                                       | Blocks |
-| --------------------------------------------------- | ------ |
-| **A2** member / component assignment (`v.x = 0.`)   | 0      |
-| ~~**A4** `type` / `interface` structs~~ (landed)    | 0      |
-| **A5** `@align` / `@size` field decorators          | 0      |
-| ~~**A8** element-converting constructors~~ (landed) | 0      |
-| ~~**A9** module-level vector constants~~ (landed)   | 0      |
-| **A10** uninitialised `let`, `switch`, `<<=`        | 0      |
-| **A11** object-literal contextual typing            | 0      |
-| **S5** `arrayLength`                                | 0      |
-| **S7** `mat2` / `mat3`                              | 0      |
+| Issue #8 item                                                  | Blocks |
+| -------------------------------------------------------------- | ------ |
+| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed) | 0      | 0      |
+| ~~**A4** `type` / `interface` structs~~ (landed)               | 0      |
+| **A5** `@align` / `@size` field decorators                     | 0      |
+| ~~**A8** element-converting constructors~~ (landed)            | 0      |
+| ~~**A9** module-level vector constants~~ (landed)              | 0      |
+| ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed)      | 0      |
+| **A11** object-literal contextual typing                       | 0      |
+| **S5** `arrayLength`                                           | 0      |
+| **S7** `mat2` / `mat3`                                         | 0      |
+
+A10 has landed even though it blocks nothing here: the 36 EDSL examples were written
+through a surface that spells these differently, so the corpus could not have shown the gap.
+`bitfield-bands.shade.ts` is the coverage instead: a `.shade.ts` example the compile gate
+hands to Tint and to a real WebGL2 context.
 
 A2 in particular: every `.assign()` in the corpus targets a whole value, never a component.
 What reads as member assignment in the IR walk (`construct`, `lit`, `binop` targets) is the
 auto-var pattern — an EDSL value node that `autoVars` later materialises into a `var` — and
 it ports to a plain `let x = …; x = …`, which already compiles. No example assigns to `v.x`.
+It has landed anyway (`v.x = 0.`, `o.pos = …`, `ps[i].a = 1.`, `v.x += 1.`), because it is
+what a GLSL port reaches for first; it unblocks no row of the table above.
 And no example uses a matrix at all, so `mat2`/`mat3` cannot be on this corpus's path.
 
 ## What it takes to unlock the corpus
@@ -467,8 +474,8 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `mod` `atan2` `distance` `normalize` `cross` `dot` `length`                                                     | ✓                                                                                                       |
 | `c ? 1. : 0.`                                                                                                   | ✓ — and it lowers to `select(...)`, so it is the spelling for the EDSL's `.select()`                    |
 | `discard`                                                                                                       | ✓ since #8 A6 — in an entry and in a helper the entry calls                                             |
-| `declare const tex: texture_2d<f32>` / `sampler`                                                                | ✗ `TS8099 declare "tex" must be uniform<T> or storage<T>`                                               |
-| `declare const quality: override<f32>`                                                                          | ✗ same TS8099                                                                                           |
+| `declare const tex: texture_2d<f32>` / `sampler`                                                                | ✓ since #8 A7 — written bare, no uniform<> wrapper                                                      |
+| `declare const quality: override<f32>`                                                                          | ✓ since #8 A7 — default 0 without an initializer, or `= 1.` to state one                                |
 | `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a constant bound`                                                       |
 | `for (let i: u32 = 0; i < WINDOW; i++)` with `const WINDOW: u32 = 8`                                            | ✓ — a module const **is** a constant bound                                                              |
 | `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                       |
@@ -482,8 +489,8 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
 | `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                             |
 | `m: mat3`                                                                                                       | ✗ `Unknown type "mat3"`                                                                                 |
 | `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                    |
-| `let x: f32;` then `x = 1.`                                                                                     | ✗ `"let x" requires an initializer`                                                                     |
-| `v.x = 1.`                                                                                                      | ✗ `Assignment target must be a simple identifier`                                                       |
+| `let x: f32;` then `x = 1.`                                                                                     | ✓ since #8 A10; the annotation carries the type, so it is required                                      |
+| `v.x = 1.` / `o.pos = …` / `ps[i].a = 1.` / `v.x += 1.`                                                         | ✓ since #8 A2 (`v.xy = …` is still rejected, as WGSL rejects it)                                        |
 | `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                       |
 | `declare const params: uniform<vec4u>` (non-struct uniform)                                                     | ✓                                                                                                       |
 | `@compute([8, 8, 1])`, a struct return by object literal, a helper returning a struct, a helper taking a struct | ✓                                                                                                       |

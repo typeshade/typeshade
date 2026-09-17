@@ -37,7 +37,7 @@
 // Treat this oracle as the ALGEBRA half of a two-oracle contract; the f32 half lives
 // on the GPU.
 
-import type { Expr, Stmt, ModuleDecl, StructDecl } from './ir/index.js'
+import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType } from './ir/index.js'
 import { validate } from './passes/validate.js'
 import { autoVars } from './passes/opt/index.js'
 import { froundF32 } from './passes/precision.js'
@@ -54,6 +54,8 @@ import {
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
+  cloneValue,
+  isAggregateType,
   convertComponent,
   convertComponents,
   elemKindOf,
@@ -317,17 +319,36 @@ const NORMAL: Signal = { kind: 'normal' }
 // `var` declared in one branch can't be read from another. (A future
 // "read a binding by name" API would expose the divergence from WGSL block
 // scoping; don't add one without per-block scopes here.)
+/** A value about to be STORED under a name — bound to a `let`/`var`, or assigned to an
+ *  existing one: copied when it is an aggregate, so the store has the value semantics both
+ *  GPU targets give it. A freshly built value would not need the copy, but telling those
+ *  apart statically is the kind of special case that drifts from the generator; both backends
+ *  apply the one rule.
+ *
+ *  The binding half alone was not enough. `w = v` assigns without binding, so it stored the
+ *  same array under the second name and a later `w.x = 100.` reached through to `v` — the CPU
+ *  said 100 where both GPU targets say 3. The rule belongs at every store, not at declaration
+ *  sites only. */
+function bindValue(v: CpuValue, t: ShaderType): CpuValue {
+  return isAggregateType(t) ? cloneValue(v) : v
+}
+
 function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): Signal {
   for (const s of body) {
     switch (s.s) {
       case 'let':
-        env.set(s.name, evalExpr(s.expr, env, ctx))
+        // An aggregate is COPIED into the new name, as `var w = v` is on both GPU targets;
+        // binding the same array/object would make a later `w.x = …` mutate `v` here and
+        // not there (cloneValue, cpu-runtime.ts). A scalar binds as before.
+        env.set(s.name, bindValue(evalExpr(s.expr, env, ctx), s.expr.type))
         break
       case 'var':
-        env.set(s.name, s.init ? evalExpr(s.init, env, ctx) : zeroOf(s.type))
+        env.set(s.name, s.init ? bindValue(evalExpr(s.init, env, ctx), s.type) : zeroOf(s.type, ctx.structs))
         break
       case 'assign':
-        setLValue(s.target, evalExpr(s.expr, env, ctx), env, ctx)
+        // Through bindValue, as `let`/`var` are: an aggregate is copied into the target
+        // rather than shared with the source.
+        setLValue(s.target, bindValue(evalExpr(s.expr, env, ctx), s.expr.type), env, ctx)
         break
       case 'assignOp': {
         const cur = evalExpr(s.target, env, ctx)
@@ -335,6 +356,9 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         // (oracle.ts binop case): `x >>= y` on an i32 target is an ARITHMETIC
         // shift; the flag was once applied to one of the two eval sites only.
         const kind = numKindOf(s.target.type)
+        // No bindValue here, in either backend: applyBin builds its result with `.map()`, so
+        // an aggregate one is always a fresh array and there is nothing to alias. A clone
+        // would be a copy per compound assignment in a hot loop, bought for nothing.
         setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx), kind), env, ctx)
         break
       }

@@ -1,7 +1,7 @@
 // === Function lowering: two-pass signatures then bodies ===
 
 import ts from 'typescript'
-import type { BindingDecl, FuncDecl, Stmt, Expr } from '../../../core/ir/nodes.js'
+import type { BindingDecl, FuncDecl, Stmt, Expr, OverrideDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
@@ -31,6 +31,7 @@ export function lowerSourceFunctions(
   bindings: readonly BindingDecl[] = [],
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
+  overrides: readonly OverrideDecl[] = [],
 ): FuncDecl[] {
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
   const callees = new Map<string, FuncDecl>()
@@ -65,6 +66,7 @@ export function lowerSourceFunctions(
       bindings,
       structs,
       symbols,
+      overrides,
     )
     funcs.push(stub)
     nodeByName.set(stub.name, stmt)
@@ -389,11 +391,21 @@ export function fillFunctionBody(
   bindings: readonly BindingDecl[] = [],
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
+  overrides: readonly OverrideDecl[] = [],
 ): void {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
+  // Every module-scope define is guarded, because `scope.define` THROWS on a repeat and this
+  // is the last place a collision between two collectors can land. Each collector reports its
+  // own duplicates, so a name arriving twice here has already been diagnosed — an override
+  // beside a module const of the same name, say — and the second define would turn that
+  // diagnostic into an exception out of `compile()` and out of the language service's
+  // `getDiagnostics()`, where a squiggle belongs.
+  const defineOnce = (b: Parameters<LoweringScope['define']>[0]): void => {
+    if (!scope.hasInCurrent(b.name)) scope.define(b)
+  }
   for (const c of consts) {
-    scope.define({
+    defineOnce({
       kind: 'module',
       name: c.name,
       type: c.type,
@@ -402,13 +414,18 @@ export function fillFunctionBody(
     })
   }
   for (const b of bindings) {
-    scope.define({
+    defineOnce({
       kind: 'binding',
       name: b.name,
       type: b.type,
       mutable: b.access === 'read_write',
       space: b.space,
     })
+  }
+  // An override reads as an `overrideref`, which no pass folds: its value arrives when the
+  // pipeline is built, not when the module is compiled (#8 A7).
+  for (const o of overrides) {
+    defineOnce({ kind: 'override', name: o.name, type: o.type, mutable: false })
   }
   for (const p of stub.params) {
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })

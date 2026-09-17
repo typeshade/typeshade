@@ -2,10 +2,40 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
-import { constExpr, fn } from '../../core/ir/builder.js'
-import { uniformStruct } from '../../core/sot.js'
-import { atan2, constRef, exp2, f32, fma, fwidth, pow, saturate, select, toF64, vec3 } from '../../core/ir/node.js'
-import { boolT, f32T, f64T, mat4x4fT, vec3fT, vec3uT, vec3f64T, typeKey } from '../../core/ir/types.js'
+import { Switch, Var, constExpr, fn, overrideConst } from '../../core/ir/builder.js'
+import { resource, uniformStruct } from '../../core/sot.js'
+import {
+  atan2,
+  constRef,
+  exp2,
+  f32,
+  fma,
+  fwidth,
+  member,
+  pow,
+  saturate,
+  select,
+  textureSample,
+  toF64,
+  u32,
+  vec3,
+} from '../../core/ir/node.js'
+import {
+  boolT,
+  f32T,
+  f64T,
+  i32T,
+  mat4x4fT,
+  samplerT,
+  structT,
+  texture2dArrayfT,
+  vec2fT,
+  vec3fT,
+  vec3uT,
+  vec3f64T,
+  vec4fT,
+  typeKey,
+} from '../../core/ir/types.js'
 import type { FuncDecl, Stmt, Expr } from '../../core/ir/nodes.js'
 
 function assertSameCore(a: FuncDecl, b: FuncDecl): void {
@@ -52,6 +82,13 @@ function normalizeStmt(s: Stmt): unknown {
         })),
         elseBody: s.elseBody ? normalizeBody(s.elseBody) : undefined,
       }
+    case 'switch':
+      return {
+        s: 'switch',
+        scrut: normalizeExpr(s.scrut),
+        cases: s.cases.map((c) => ({ value: c.value, body: normalizeBody(c.body) })),
+        defaultBody: s.defaultBody ? normalizeBody(s.defaultBody) : undefined,
+      }
     default:
       return { s: s.s }
   }
@@ -78,6 +115,13 @@ function normalizeExpr(e: Expr): unknown {
         bop: e.bop,
         a: normalizeExpr(e.a),
         b: normalizeExpr(e.b),
+      }
+    case 'member':
+      return {
+        op: 'member',
+        type: typeKey(e.type),
+        field: e.field,
+        base: normalizeExpr(e.base),
       }
     case 'unop':
       return { op: 'unop', type: typeKey(e.type), a: normalizeExpr(e.a) }
@@ -177,6 +221,167 @@ describe('IR equality: use typeshade vs fn()', () => {
     `)
     expect(tsResult.diagnostics).toEqual([])
     const edsl = fn('scale', { v: vec3f64T }, vec3f64T, ({ v }) => v.mul(0.1))
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a component assignment matches the EDSL v.x.assign(a)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function paint(a: f32): vec3 {
+        let v = vec3(0., 0., 0.);
+        v.x = a;
+        return v;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const edsl = fn('paint', { a: f32T }, vec3fT, ({ a }, bld) => {
+      const v = bld.var('v', vec3fT, vec3(0, 0, 0))
+      v.x.assign(a)
+      return v
+    })
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a struct-field assignment matches the EDSL o.a.assign(x)', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      class P {
+        a: f32
+      }
+      export function put(p: P, x: f32): f32 {
+        let o: P = p;
+        o.a = x;
+        return o.a;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+    const P = structT('P')
+    const edsl = fn('put', { p: P, x: f32T }, f32T, ({ p, x }, bld) => {
+      const o = bld.var('o', P, p)
+      member(o, 'a', f32T).assign(x)
+      return member(o, 'a', f32T)
+    })
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a let with no initializer matches EDSL Var(name, type)', () => {
+    // #8 A10. `Var('x', f32T)` is the EDSL's declare-then-assign, and it builds the same
+    // init-less `Stmt.var` the source language now builds.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(a: f32): f32 {
+        let x: f32;
+        x = a;
+        return x;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const edsl = fn('f', { a: f32T }, f32T, ({ a }, bld) => {
+      const x = Var('x', f32T)
+      bld.assign(x, a)
+      return x
+    })
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a bitwise compound assignment matches EDSL assignOp', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(i: i32): i32 {
+        let y: i32 = i;
+        y <<= 2;
+        return y;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const edsl = fn('f', { i: i32T }, i32T, ({ i }, bld) => {
+      const y = Var('y', i32T, i)
+      // `u32(2)`, not a bare `2` and not `i32(2)`: the EDSL's own literal lift gives a number
+      // f32 and does not consult the target of an assignOp, while the source language types a
+      // SHIFT amount as u32 whatever the target is, which is WGSL's only scalar overload. The
+      // written-out cast is what makes the two sides the same IR here.
+      bld.assignOp(y, '<<', u32(2))
+      return y
+    })
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a switch whose cases end in break matches EDSL Switch().case().default()', () => {
+    // The trailing `break` the source language requires is dropped in lowering, so the two
+    // surfaces build the same case bodies — which is the point of accepting it at all.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      export function f(x: i32): f32 {
+        let r: f32 = 0.;
+        switch (x) {
+          case 0: r = 1.; break;
+          case 1: r = 2.; break;
+          default: r = 3.;
+        }
+        return r;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const edsl = fn('f', { x: i32T }, f32T, ({ x }) => {
+      const r = Var('r', f32T, f32(0))
+      // `r.assign(...)` rather than the outer builder's: a case body runs inside the switch's
+      // own builder, and the outer handle would push the statement next to the switch.
+      Switch(x)
+        .case(0, () => {
+          r.assign(f32(1))
+        })
+        .case(1, () => {
+          r.assign(f32(2))
+        })
+        .default(() => {
+          r.assign(f32(3))
+        })
+      return r
+    })
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('a texture sample matches the EDSL textureSample', () => {
+    // #8 A7. The neutral id is chosen from the texture's own dim on both surfaces, so an
+    // array sample is `textureSampleArray` either way — that is the seam this pins.
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      declare const atlas: texture_2d_array<f32>
+      declare const smp: sampler
+      export function sample(uv: vec2): vec4 {
+        return textureSample(atlas, smp, uv, 1);
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 0 })
+    const smp = resource('smp', samplerT, { group: 0, binding: 1 })
+    const edsl = fn('sample', { uv: vec2fT }, vec4fT, ({ uv }) =>
+      textureSample(atlas.node, smp.node, uv, 1),
+    )
+
+    assertSameCore(tsResult.funcs[0]!, edsl)
+  })
+
+  it('an override read matches the EDSL overrideConst handle', () => {
+    const tsResult = compileTsSource(`
+      "use typeshade";
+      const quality: override<f32> = 0.5
+      export function q(): f32 {
+        return quality;
+      }
+    `)
+    expect(tsResult.diagnostics).toEqual([])
+
+    const quality = overrideConst('quality', f32T, 0.5)
+    const edsl = fn('q', {}, f32T, () => quality.node)
+
     assertSameCore(tsResult.funcs[0]!, edsl)
   })
 
