@@ -10,6 +10,7 @@ import type { DeclaredSymbolSink } from './symbols.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { foldConstNumber, foldConstValue } from './loop-bound.js'
 import { lowerExpression } from './lower/expression.js'
+import { lowerArrayLiteral } from './lower/expression-array.js'
 import { isResourceCall } from './bindings.js'
 import { isOverrideType } from './overrides.js'
 import { TS_CODES } from './codes.js'
@@ -227,7 +228,29 @@ function lowerOne(
   const annotated = decl.type
     ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     : undefined
-  const init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+  // A list is lowered AGAINST the annotation, at module scope for the same reason as in a
+  // function body (#8 A16): it carries no type of its own. The node it produces is the array
+  // `construct` that `array<f32, 3>(...)` already produced here, which `valueExprConst` has
+  // carried since #8 A9, so this reaches no new path. Without it the list fell through to the
+  // generic "a list is only an initializer" refusal and then a second `Unknown identifier` for
+  // a name that never got defined, neither of which says what to write.
+  let init: Expr | undefined
+  if (ts.isArrayLiteralExpression(decl.initializer)) {
+    if (!annotated) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          decl,
+          `Module const "${name}" needs an array type annotation to take a list, e.g. const ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
+          TS_CODES.UNKNOWN_TYPE,
+        ),
+      )
+      return undefined
+    }
+    init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics)
+  } else {
+    init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+  }
   if (!init) return undefined
   const folded = foldConstValue(init, scope)
   if (typeof folded !== 'number' && typeof folded !== 'boolean') {
