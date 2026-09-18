@@ -23,6 +23,14 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   operand deciding the shape: `dot` of integer vectors is an integer, and a written number in a
   call's first position takes an integer peer's kind, so `min(1, i)` with an `i32` `i` is an
   `i32` call instead of the `min(1.0, i)` WGSL refused.
+- **A class whose members are all static is a namespace of functions, and a static field is a
+  module constant** (§26, roadmap 0.3 item T3,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): `class Util { static half(x) { ... } }`
+  was refused for having no fields, and `static PI = 3.14` was refused with "declare it as a
+  module const". The utility class compiles now and carries no struct into the emit, and a
+  static field is the constant `Util_PI` on both targets and both CPU paths, folded by the same
+  rules a top-level const follows. An instance member on a fieldless class keeps the
+  empty-struct refusal, since a method needs a receiver.
 - **A type alias is another name for its target** (§2, roadmap 0.3 item T2,
   [#92](https://github.com/typeshade/typeshade/issues/92)): `type Meters = f32`,
   `type Color = vec3`, `type Grid = array<f32, 16>`, `type Point = Camera`. Before this the
