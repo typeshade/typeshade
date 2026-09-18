@@ -174,7 +174,10 @@ describe('what a type alias still does not do', () => {
     )
   })
 
-  it('a union and a generic alias keep their refusals', () => {
+  it('a union of two types and a generic alias keep their refusals', () => {
+    // The union says what it is and what to write instead now (roadmap 0.3 item T10, #92),
+    // rather than "unsupported type syntax"; a union whose members name ONE type is the case
+    // that is no longer refused, and union.test.ts holds it.
     expect(
       errorsOf(
         file(
@@ -182,7 +185,10 @@ describe('what a type alias still does not do', () => {
           `  return vec4(1., 0., 0., 1.)`,
         ),
       )[0],
-    ).toContain('Unsupported type syntax "f32 | i32"')
+    ).toContain(
+      'A union is more than one type and a GPU value has exactly one, so "f32 | i32" would ' +
+        'have to be f32 in one place and i32 in another. Write one function per type.',
+    )
     expect(
       errorsOf(
         file(

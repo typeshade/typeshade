@@ -326,6 +326,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'tuple-and-brand',
+    title: 'A tuple and a branded alias',
+    blurb:
+      "A tuple is a list of a length the type fixes, which is what `array<T, N>` is, so `[f32, f32]` IS `array<f32, 2>` (§28): it is returned, taken as a parameter and written as a list at the call site, and the emitted WGSL and GLSL know only the array. A brand, `f32 & { readonly [m]: 'm' }`, is the nominal-typing idiom; it carries no data, so it is erased and the parameter is an f32.",
+    renderable: true,
+  },
+  {
     id: 'ray-class',
     title: 'Class methods',
     blurb:

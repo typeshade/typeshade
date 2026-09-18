@@ -1,7 +1,7 @@
 // === TypeScript type node -> TypeShade ShaderType (Phase 2+) ===
 
 import ts from 'typescript'
-import type { ShaderType } from '../../core/ir/types.js'
+import { typeKey, type ShaderType } from '../../core/ir/types.js'
 import {
   f32T,
   f64T,
@@ -253,12 +253,31 @@ function mapType(
     return undefined
   }
 
+  // A tuple is a list of a length the type fixes, which is what `array<T, N>` is (roadmap 0.3
+  // item T10, #92). Both targets take a fixed array in every position a tuple is written in,
+  // a return included, so refusing `[f32, f32]` would be this compiler's limit and not the
+  // GPU's. A tuple of several types is the one with no representation, and it says so.
+  if (ts.isTupleTypeNode(typeNode)) return mapTuple(typeNode, sourceFile, diagnostics, resolving)
+
+  // A union is more than one type, and a value has exactly one. The exception is the common
+  // case: members that all denote the same type. `0 | 1 | 2` is an i32, `true | false` a bool,
+  // `Meters | f32` an f32.
+  if (ts.isUnionTypeNode(typeNode)) return mapUnion(typeNode, sourceFile, diagnostics, resolving)
+
+  // An intersection with a brand is TypeScript's nominal-typing idiom, and a brand carries no
+  // data: `f32 & { [m]: 'm' }` is an f32 that only a Meters may be passed to. Erase the brands
+  // and what is left is the one type the value has.
+  if (ts.isIntersectionTypeNode(typeNode)) {
+    return mapIntersection(typeNode, sourceFile, diagnostics, resolving)
+  }
+
   if (isKeywordTypeSyntax(typeNode)) {
+    const text = typeNode.getText(sourceFile)
     pushDiag(
       diagnostics,
       sourceFile,
       typeNode,
-      `Keyword type "${typeNode.getText(sourceFile)}" is not a TypeShade type.`,
+      KEYWORD_ADVICE[typeNode.kind] ?? `Keyword type "${text}" is not a TypeShade type.`,
     )
     return undefined
   }
@@ -268,6 +287,204 @@ function mapType(
     sourceFile,
     typeNode,
     `Unsupported type syntax "${typeNode.getText(sourceFile)}".`,
+  )
+  return undefined
+}
+
+/** The keyword types a developer reaches for out of TypeScript habit, each with the shader
+ *  type that is the thing they meant (roadmap 0.3 item T10, #92). The rest keep the general
+ *  sentence: there is no useful advice to give for `any` beyond naming a type. */
+const KEYWORD_ADVICE: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
+  [ts.SyntaxKind.NumberKeyword]:
+    'A number on the GPU has a width. Write f32 for a float, i32 or u32 for an integer.',
+  [ts.SyntaxKind.BooleanKeyword]: 'TypeShade spells the boolean "bool".',
+  [ts.SyntaxKind.StringKeyword]:
+    'A string has no GPU representation: there is nothing for it to be at run time. Text that ' +
+    'picks between cases is an enum, whose members are numbers.',
+  [ts.SyntaxKind.SymbolKeyword]:
+    'A symbol is a JS runtime value, and the GPU has no such type. A symbol used only as a ' +
+    'brand key is erased, so "f32 & { readonly [k]: \'m\' }" is an f32; a symbol held as a ' +
+    'value is not.',
+  [ts.SyntaxKind.NullKeyword]:
+    'There is no null on the GPU: a value of a type always exists. Carry a bool saying whether ' +
+    'the value means anything.',
+  [ts.SyntaxKind.UndefinedKeyword]:
+    'There is no undefined on the GPU: a value of a type always exists. Carry a bool saying ' +
+    'whether the value means anything.',
+}
+
+/** The type a literal type node denotes as a value: `1` an i32, `1.5` an f32, `true` a bool.
+ *  Integer literals give i32 for the same reason an enum member does (T1): the shape they are
+ *  written in, `0 | 1 | 2`, is the one an enum has. A string literal and `null` have no GPU
+ *  representation, and return undefined so the caller can say which one it found. */
+function literalBase(node: ts.TypeNode): ShaderType | undefined {
+  if (!ts.isLiteralTypeNode(node)) return undefined
+  const lit = node.literal
+  if (lit.kind === ts.SyntaxKind.TrueKeyword || lit.kind === ts.SyntaxKind.FalseKeyword) {
+    return boolT
+  }
+  if (ts.isNumericLiteral(lit)) return numericBase(lit.text)
+  if (ts.isPrefixUnaryExpression(lit) && ts.isNumericLiteral(lit.operand)) {
+    return numericBase(lit.operand.text)
+  }
+  return undefined
+}
+
+/** `1.` and `1e3` are floats the way a shader author writes them; `1` is an integer. */
+const numericBase = (text: string): ShaderType => (/[.eE]/.test(text) ? f32T : i32T)
+
+const isNullish = (node: ts.TypeNode): boolean =>
+  node.kind === ts.SyntaxKind.NullKeyword ||
+  node.kind === ts.SyntaxKind.UndefinedKeyword ||
+  (ts.isLiteralTypeNode(node) && node.literal.kind === ts.SyntaxKind.NullKeyword)
+
+const isStringLiteralType = (node: ts.TypeNode): boolean =>
+  ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)
+
+function mapUnion(
+  typeNode: ts.UnionTypeNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
+): ShaderType | undefined {
+  // Mapped without diagnostics: a member that names nothing is reported once below, as part of
+  // the sentence about the union, rather than as its own complaint about a type nobody wrote
+  // on its own line.
+  const mapped = typeNode.types.map(
+    (m) => literalBase(m) ?? mapType(m, sourceFile, undefined, resolving),
+  )
+  const first = mapped[0]
+  if (
+    first !== undefined &&
+    mapped.every((t) => t !== undefined && typeKey(t) === typeKey(first))
+  ) {
+    return first
+  }
+  const text = typeNode.getText(sourceFile)
+  if (typeNode.types.some(isStringLiteralType)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `A string has no GPU representation, so "${text}" names no type a value can have. ` +
+        `Write the cases as an enum, whose members are numbers.`,
+    )
+    return undefined
+  }
+  if (typeNode.types.some(isNullish)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `There is no null on the GPU, so "${text}" names no type: a value of a type always ` +
+        `exists. Drop it from the union, and carry a bool saying whether the value means ` +
+        `anything.`,
+    )
+    return undefined
+  }
+  const a = typeNode.types[0]?.getText(sourceFile) ?? '?'
+  const b = typeNode.types.find((t) => t.getText(sourceFile) !== a)?.getText(sourceFile) ?? '?'
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    typeNode,
+    `A union is more than one type and a GPU value has exactly one, so "${text}" would have ` +
+      `to be ${a} in one place and ${b} in another. Write one function per type.`,
+  )
+  return undefined
+}
+
+function mapTuple(
+  typeNode: ts.TupleTypeNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
+): ShaderType | undefined {
+  const text = typeNode.getText(sourceFile)
+  const elements = typeNode.elements
+  if (elements.length === 0) {
+    pushDiag(diagnostics, sourceFile, typeNode, `"${text}" holds nothing, so it names no type.`)
+    return undefined
+  }
+  const loose = elements.find(
+    (e) =>
+      ts.isRestTypeNode(e) ||
+      ts.isOptionalTypeNode(e) ||
+      (ts.isNamedTupleMember(e) && (e.dotDotDotToken ?? e.questionToken) !== undefined),
+  )
+  if (loose !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      loose,
+      `"${text}" does not fix its length, and every array on the GPU outside storage has a ` +
+        `length known at compile time. Write the elements out, or declare array<T, N>.`,
+    )
+    return undefined
+  }
+  const parts = elements.map((e) => (ts.isNamedTupleMember(e) ? e.type : e))
+  const mapped = parts.map((p) => mapType(p, sourceFile, undefined, resolving))
+  const bad = mapped.findIndex((t) => t === undefined)
+  // The element says why it names no type, on its own span. Re-run it for the message rather
+  // than complaining about the tuple, which is not what is wrong.
+  if (bad >= 0) return mapType(parts[bad], sourceFile, diagnostics, resolving)
+  const head = mapped[0]
+  if (head === undefined) return undefined
+  const odd = mapped.findIndex((t) => t !== undefined && typeKey(t) !== typeKey(head))
+  if (odd > 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${text}" holds a ${parts[0]?.getText(sourceFile) ?? '?'} and a ` +
+        `${parts[odd]?.getText(sourceFile) ?? '?'}. A list of one type is array<T, N>; a list ` +
+        `of several is a struct, so declare one with a field per element and return that.`,
+    )
+    return undefined
+  }
+  return arrayT(head, elements.length)
+}
+
+/** Whether `node` is a brand: an object type whose every member is a property that no GPU
+ *  value could carry, under a computed (symbol) key or typed as a string literal. Both are
+ *  the nominal-typing idiom, both hold no data, and both are erased. */
+function isBrandType(node: ts.TypeNode): boolean {
+  if (!ts.isTypeLiteralNode(node)) return false
+  return node.members.every(
+    (m) =>
+      ts.isPropertySignature(m) &&
+      (ts.isComputedPropertyName(m.name) || (m.type !== undefined && isStringLiteralType(m.type))),
+  )
+}
+
+function mapIntersection(
+  typeNode: ts.IntersectionTypeNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
+): ShaderType | undefined {
+  const carriers = typeNode.types.filter((t) => !isBrandType(t))
+  if (carriers.length === 1) return mapType(carriers[0], sourceFile, diagnostics, resolving)
+  const text = typeNode.getText(sourceFile)
+  if (carriers.length === 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${text}" is brands alone. A brand says which values a type accepts; it carries no ` +
+        `data, so something has to carry the value. Intersect it with f32, vec3 or a struct.`,
+    )
+    return undefined
+  }
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    typeNode,
+    `An intersection is one value in every one of its types at once, and ` +
+      `${carriers[0]?.getText(sourceFile) ?? '?'} and ` +
+      `${carriers[1]?.getText(sourceFile) ?? '?'} have different layouts, so no GPU value is ` +
+      `both. Only a brand is erased: a property under a "unique symbol" key, or one typed as ` +
+      `a string literal.`,
   )
   return undefined
 }

@@ -56,6 +56,14 @@ export function collectBindings(
       // An override occupies no bind slot, so it must not take a binding number on the way
       // past — overrides.ts collects it (#8 A7).
       if (isOverrideType(decl.type)) continue
+      // `declare const brand: unique symbol` is the key of a nominal brand (roadmap 0.3 item
+      // T10, #92). It declares no value: what uses it is a type, `f32 & { [brand]: 'm' }`,
+      // which type-map.ts erases back to the f32. Nothing reaches the GPU, so nothing is
+      // collected, and refusing it would refuse the type it exists for.
+      if (decl.type?.kind === ts.SyntaxKind.TypeOperator) {
+        const op = decl.type as ts.TypeOperatorNode
+        if (op.operator === ts.SyntaxKind.UniqueKeyword) continue
+      }
       if (declared && decl.type) {
         const b = fromType(decl.name.text, decl.type, isConst, sourceFile, diagnostics, next)
         if (b) {

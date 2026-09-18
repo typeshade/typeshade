@@ -5,7 +5,7 @@ import type { TsCompilerDiagnostic } from './source-file.js'
 import { TS_CODES, type TsCode } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 
-const HOST_GLOBALS = new Set([
+export const HOST_GLOBALS: ReadonlySet<string> = new Set([
   'console',
   'window',
   'document',

@@ -29,6 +29,7 @@ import {
   mathResultType,
 } from './expression-misc.js'
 import { makeDiagnostic } from '../diagnostic.js'
+import { HOST_GLOBALS } from '../semantic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { checkMathArgs, mathTakesElem } from './math-args.js'
 
@@ -182,6 +183,11 @@ export function lowerCall(
     }
   }
 
+  // `Symbol('k')`, `fetch(url)`: the semantic pass already said the callee is a host API, and
+  // lowering the arguments adds a second complaint about the same line — one about a string
+  // that is only there because the call is (roadmap 0.3 item T10, #92).
+  if (ts.isIdentifier(callee) && HOST_GLOBALS.has(callee.text)) return undefined
+
   const args: Expr[] = []
   for (const arg of node.arguments) {
     const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
@@ -250,6 +256,10 @@ export function lowerCall(
     return lowerTextureCall(intrinsicId, args, node, sourceFile, diagnostics)
   }
   if (!intrinsicId) {
+    // A call to a function this file declares and could not lower says nothing here: the
+    // declaration already said why it names no callee, and "Unknown function" on top of that
+    // is both a second complaint about one mistake and untrue (roadmap 0.3 item T10, #92).
+    if (ts.isIdentifier(callee) && scope.declarationRefused(callee.text)) return undefined
     pushDiag(
       diagnostics,
       sourceFile,

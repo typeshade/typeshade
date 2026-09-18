@@ -65,6 +65,10 @@ export function collectLocalFunctions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
+  /** The file's refused-declaration set (roadmap 0.3 item T10, #92), which each refusal below
+   *  adds its emitted name to, so a call to it in the same body says nothing on top of the
+   *  reason this function already gave. */
+  refused?: Set<string>,
 ): LocalFunction[] {
   const out: LocalFunction[] = []
   for (const decl of decls) {
@@ -73,6 +77,9 @@ export function collectLocalFunctions(
     if (!ts.isIdentifier(decl.name)) continue
     const local = decl.name.text
     const shown = ownerName === '' ? local : `${local}" in "${ownerName}`
+    const refuse = (): void => {
+      refused?.add(localFnName(ownerName, local))
+    }
     if (!isConst(decl)) {
       push(
         diagnostics,
@@ -82,6 +89,7 @@ export function collectLocalFunctions(
           `point at another one, which no shader value does.`,
         TS_CODES.FUNCTION_SHAPE,
       )
+      refuse()
       continue
     }
     if (decl.type) {
@@ -93,6 +101,7 @@ export function collectLocalFunctions(
           `them, not as a type on the const.`,
         TS_CODES.FUNCTION_SHAPE,
       )
+      refuse()
       continue
     }
     if (ts.isArrowFunction(node) && !ts.isBlock(node.body) && !node.type) {
@@ -104,6 +113,7 @@ export function collectLocalFunctions(
           `"(x: f32): f32 => ...".`,
         TS_CODES.FUNCTION_SHAPE,
       )
+      refuse()
       continue
     }
     if (node.asteriskToken || node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)) {
@@ -114,13 +124,17 @@ export function collectLocalFunctions(
         `"${local}" is a plain function or nothing: no async, no generator.`,
         TS_CODES.FUNCTION_SHAPE,
       )
+      refuse()
       continue
     }
     const name = localFnName(ownerName, local)
     const params = parseParams(node.parameters, sourceFile, diagnostics, structs, undefined, {
       owner: shown,
     })
-    if (!params) continue
+    if (!params) {
+      refuse()
+      continue
+    }
     if (
       refuseCapture(
         node,
@@ -131,10 +145,14 @@ export function collectLocalFunctions(
         diagnostics,
       )
     ) {
+      refuse()
       continue
     }
     const ret = parseReturnType(node.type, shown, node, sourceFile, diagnostics, structs, undefined)
-    if (!ret) continue
+    if (!ret) {
+      refuse()
+      continue
+    }
     const stub: FuncDecl = { name, params, ret, body: [] }
     ;(stub as { span?: unknown }).span = spanOf(sourceFile, node)
     ;(stub as { nameSpan?: unknown }).nameSpan = spanOf(sourceFile, decl.name)

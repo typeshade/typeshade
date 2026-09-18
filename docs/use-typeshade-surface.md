@@ -2095,6 +2095,64 @@ through its chain; a field that changes type on the way down; a generic base, wh
 declaration per argument set and belongs with generics; and a base that is a call rather than a
 name, which is the mixin pattern.
 
+## 28. What TypeScript writes that the GPU has no word for
+
+Roadmap 0.3 item T10. Five shapes were "TS8099 Unsupported expression" or "TS8002 Unsupported
+type syntax", each followed by two or three more diagnostics about the same one mistake. The
+rule applied to them is the one the rest of this document is written to: the constraint has to
+be the target's. Three of the five turned out not to be constraints at all.
+
+**A tuple is a list of a length the type fixes, which is what `array<T, N>` is.** `[f32, f32]`
+IS `array<f32, 2>`, the same type written the way a TypeScript developer writes a pair, named
+elements included. Both targets take it wherever the array goes, a return included: WGSL writes
+`fn bounds() -> array<f32, 2>` and GLSL ES 3.00 writes `float[2] bounds()`, which ESSL 300 has
+and ESSL 100 did not. `examples/tuple-and-brand.shade.ts` is the gate's evidence for the pair.
+
+```ts
+function bounds(scale: f32): [near: f32, far: f32] {
+  return [0.05 * scale, 8. * scale]
+}
+function mid(span: [f32, f32]): f32 {
+  return (span[0] + span[1]) * 0.5
+}
+const depth = mid([0.05, 8.])           // a list, in a position that declares the type
+```
+
+A list now takes its type from any position that declares one, not from a `const` alone: a
+return, an argument, a struct field. Where nothing declares one, `array<T, N>(...)` still says
+it.
+
+**A union whose members all name one type names it too.** `0 | 1 | 2` is an `i32`, for the
+reason an enum member is one; `0.5 | 1.5` is an `f32`; `true | false` is a `bool`; `Meters |
+f32` where `Meters` is an alias of `f32` is an `f32`.
+
+**A brand is erased.** `f32 & { readonly [m]: 'm' }` with `declare const m: unique symbol` is
+TypeScript's nominal-typing idiom: the brand exists so that only a `Meters` may be passed, and
+carries no data. The parameter is an `f32`, the `declare` reaches no binding, and the emitted
+code never hears about it. `{ readonly __brand: 'm' }` is the same idiom and is erased the same
+way. `tsc` is what enforces the distinction, which is where it belongs.
+
+**Refused, each in one sentence naming the reason and what to write instead.**
+
+| Written | Why there is nothing for it to be |
+| --- | --- |
+| `f32 \| vec3` | a value has exactly one type, and the emitted code would have to pick. Write one function per type. |
+| `'lo' \| 'hi'` | a string has no GPU representation. Write the cases as an enum, whose members are numbers. |
+| `f32 \| null` | a value of a type always exists. Carry a bool saying whether it means anything. |
+| `[f32, vec3]` | a list of several types is a struct. Declare one with a field per element. |
+| `[f32, ...f32[]]` | every array outside storage has a length known at compile time. |
+| `symbol` | a symbol is a JS runtime value. Only a brand key is erased. |
+| `f32 & vec3` | two carriers have different layouts, so no one value is both. |
+| `d instanceof B` | a struct is its fields and nothing else, and dispatch is static, so there is no type tag to read. Give the struct a field saying which kind it holds. |
+| `'x' in b` | a struct has exactly the fields its type declares, so the answer is in the type. Write the field access. |
+| `number`, `boolean` | a number on the GPU has a width: `f32`, `i32`, `u32`. The boolean is spelled `bool`. |
+
+**And one mistake reads as one sentence.** A parameter whose annotation was refused no longer
+adds that it "requires a TypeShade type annotation", which it has; a return no longer adds
+"Unsupported return type"; a call to a function this file declares and could not lower no
+longer says "Unknown function", which was untrue — the function is there, and its declaration
+already said why. A call to a name nothing declares still says so.
+
 ---
 
 Last updated: 2026-09-18

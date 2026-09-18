@@ -13,7 +13,7 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { LoweringScope } from '../context.js'
+import { LoweringScope, refusedDeclarationsOf } from '../context.js'
 import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -102,6 +102,9 @@ export function lowerSourceFunctions(
   const isAmbient = (node: ts.FunctionDeclaration): boolean =>
     node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false
   const callees = new Map<string, FuncDecl>()
+  // The names this file declares as functions and could not lower, so a call to one says
+  // nothing instead of "Unknown function" — the declaration already said why (T10, #92).
+  const refused = refusedDeclarationsOf(callees)
   const ready: { node: ts.FunctionDeclaration; stub: FuncDecl; prefix: string }[] = []
   for (const { node: stmt, irName, prefix } of decls) {
     if (
@@ -113,7 +116,11 @@ export function lowerSourceFunctions(
       continue
     }
     const stub = parseSignature(stmt, sourceFile, diagnostics, structs, irName)
-    if (!stub) continue
+    if (!stub) {
+      refused.add(irName ?? stmt.name?.text ?? '')
+      if (stmt.name !== undefined) refused.add(stmt.name.text)
+      continue
+    }
     if (callees.has(stub.name)) {
       pushDiag(
         diagnostics,
@@ -158,7 +165,15 @@ export function lowerSourceFunctions(
     ownerName: string,
     bound: ReadonlySet<string>,
   ): void => {
-    const found = collectLocalFunctions(decls, ownerName, bound, sourceFile, diagnostics, structs)
+    const found = collectLocalFunctions(
+      decls,
+      ownerName,
+      bound,
+      sourceFile,
+      diagnostics,
+      structs,
+      refused,
+    )
     if (found.length === 0) return
     let alias = aliasesOf.get(ownerName)
     if (!alias) {
@@ -583,10 +598,11 @@ export function parseParams(
       )
       return undefined
     }
-    const pType = mapTsTypeToShaderType(p.type, sourceFile, diagnostics)
-    if (refuseAtomicDeclaration(pType, p.type ?? p, sourceFile, diagnostics, 'a parameter'))
-      return undefined
-    if (!pType) {
+    // The annotation is read first so that a missing one, which has no span of its own to
+    // point at, is the parameter's complaint and everything else is the annotation's. Before,
+    // both were pushed: a parameter written `x: f32 | vec3` said why the union names no type
+    // AND that the parameter "requires a TypeShade type annotation", which it has (T10, #92).
+    if (p.type === undefined) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -596,6 +612,10 @@ export function parseParams(
       )
       return undefined
     }
+    const pType = mapTsTypeToShaderType(p.type, sourceFile, diagnostics)
+    if (refuseAtomicDeclaration(pType, p.type, sourceFile, diagnostics, 'a parameter'))
+      return undefined
+    if (!pType) return undefined
     const builtinArg = builtinDecoratorArg(decoratorsOf(p))
     let builtin: string | undefined
     if (builtinArg) {
@@ -706,16 +726,9 @@ export function parseReturnType(
       const mapped = mapTsTypeToShaderType(typeNode, sourceFile, diagnostics)
       if (refuseAtomicDeclaration(mapped, typeNode, sourceFile, diagnostics, 'a return type'))
         return undefined
-      if (!mapped) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          typeNode,
-          `Unsupported return type for "${name}".`,
-          TS_CODES.UNKNOWN_TYPE,
-        )
-        return undefined
-      }
+      // The annotation said why it names no type, on its own span. "Unsupported return type
+      // for f" repeated that on the same span and named nothing the first one had not (T10).
+      if (!mapped) return undefined
       ret = mapped
     }
     if (stage && ret.kind === 'struct') {

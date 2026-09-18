@@ -13,6 +13,20 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **A tuple, a literal union and a brand are shapes TypeScript writes and the GPU already has**
+  (§28, roadmap 0.3 item T10, [#92](https://github.com/typeshade/typeshade/issues/92)). A tuple
+  is a list of a length the type fixes, which is what `array<T, N>` is, so `[f32, f32]` IS
+  `array<f32, 2>`, named elements included; both targets take it wherever the array goes, a
+  return included, spelled `array<f32, 2>` on WGSL and `float[2]` on GLSL ES 3.00. A union whose
+  members all name one type names it too: `0 | 1 | 2` is an `i32`, `0.5 | 1.5` an `f32`,
+  `true | false` a `bool`. A brand, `f32 & { readonly [m]: 'm' }` with
+  `declare const m: unique symbol`, is erased: the parameter is an `f32` and the `declare`
+  reaches no binding. `examples/tuple-and-brand.shade.ts` is the gate's evidence, on Tint and on
+  WebGL2.
+- **A list takes its type from the position it is written in.** It was accepted in a `const`
+  with an array annotation and nowhere else; a return declared `array<f32, 2>`, an argument
+  whose parameter declares one, and a struct field take it now. Every such position already
+  carried its declared type into the expression lowering.
 - **The examples show all three struct spellings** (§2): 32 example files declared a `class`,
   none declared an `interface` or an object type alias, and 14 of those structs were plain data
   with no decorator and no method. `hello-camera.shade.ts` declared `class Camera` while §2
@@ -316,6 +330,17 @@ got 1`.
   imports, and publishes with provenance. [`RELEASING.md`](RELEASING.md) is the checklist.
 
 ### Changed
+
+- **The honest refusals: one mistake reads as one sentence** (§28, roadmap 0.3 item T10,
+  [#92](https://github.com/typeshade/typeshade/issues/92)). `symbol`, a union of two types, a
+  tuple of several, a capturing closure and `instanceof` each say the reason and what to write
+  instead, in place of "Unsupported expression" or "Unsupported type syntax"; `instanceof` used
+  to report "Unknown identifier B" about the base class, the one part of the line spelled right.
+  And nothing follows them: a parameter whose annotation was refused no longer adds that it
+  "requires a TypeShade type annotation", which it has; a return no longer adds "Unsupported
+  return type"; a call to a function this file declares and could not lower no longer says
+  "Unknown function", which was untrue. A call to a name nothing declares still says so.
+  `number`, `boolean`, `string` and a string expression name the shader type that is meant.
 
 - **The package is `typeshade`.** It was `@xgis/shader-dsl`, a workspace of the X-GIS monorepo,
   which was never published to npm. Every `Exported from …` JSDoc line, every documentation and
