@@ -244,6 +244,21 @@ export function collectStructs(
         diagnostics.push(memberNameDiag(sourceFile, member, stmt.name.text))
         continue
       }
+      // The same rule an interface member already had: a struct field is always present in
+      // the buffer the host fills, so `y?: f32` describes a layout WGSL has no form for.
+      // Measured before this: a class took the `?` and emitted the field as required, with no
+      // diagnostic, so the three spellings of one struct disagreed about it silently.
+      if (member.questionToken) {
+        diagnostics.push(
+          diag(
+            sourceFile,
+            member,
+            `Optional field "${member.name.text}?" on "${structName}" is not supported: a ` +
+              `struct field is always present in the buffer the host fills.`,
+          ),
+        )
+        continue
+      }
       if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
         diagnostics.push(
           classDiag(
