@@ -143,8 +143,15 @@ describe('X-GIS #1681 B1 — tsconfig self-containment', () => {
     const cfg = readTsconfig(resolve(PKG_DIR, 'tsconfig.json'))
     expect(cfg.compilerOptions?.['composite']).toBe(true)
     expect(cfg.compilerOptions?.['outDir']).toBe('./dist')
-    expect(cfg.include).toEqual(['src/**/*.ts'])
-    expect(cfg.exclude).toEqual(['src/**/*.test.ts'])
+    expect(cfg.include).toEqual(['src/**/*.ts', 'examples/**/*.ts'])
+    // The three PATTERNS, not the whole list: the per-file `examples/*.ts` entries beside
+    // them are "everything unreachable from examples/index.ts", and repeating them here
+    // would make this arm a second copy of a list `src/publish-manifest.test.ts` D4 already
+    // recomputes from the closure. Witnesses, not an authority.
+    expect(cfg.exclude).toContain('src/**/*.test.ts')
+    expect(cfg.exclude).toContain('examples/**/*.test.ts')
+    expect(cfg.exclude).toContain('examples/**/*.shade.ts')
+    expect(cfg.exclude!.length).toBeGreaterThan(3)
     expect(cfg.extends).toBe('./tsconfig.base.json')
     // a `//` sequence inside a string must survive the stripper
     expect(JSON.parse(stripJsonComments('{"a":"http://x"} // trailing'))).toEqual({

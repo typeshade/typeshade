@@ -28,6 +28,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 - **`src/__api__/surface.md`**, a committed snapshot of every public export and its shape, with
   `bun run bake:api-surface` to re-bake it. A public-surface change cannot land without
   appearing in a diff.
+- The package ships **built output**. `tsc --build` emits `dist/src/…`, `dist/examples/…` and
+  `dist/shade.d.ts`; the manifest inside the npm tarball is derived from the repository's own
+  `exports` map by `scripts/publish-manifest.ts` and points every subpath at it. In this
+  repository, and for a git-submodule consumer, `exports` still resolves to `./src/*.ts`.
+- **`typeshade/shade`**, a types-only subpath resolving to `dist/shade.d.ts`. It is the ambient
+  authoring declarations, written out of `SHADE_DTS` at build time, so a `tsc` user outside the
+  language service can put `"types": ["typeshade/shade"]` in a `lib: []` project. README has
+  what it covers and what it does not.
+- **Releases are cut by creating a GitHub release.** `.github/workflows/publish.yml` re-runs
+  CI, builds, checks the tag against `package.json`, proves the packed tarball installs and
+  imports, and publishes with provenance. [`RELEASING.md`](RELEASING.md) is the checklist.
 
 ### Changed
 
@@ -54,6 +65,12 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **`typescript` is a required peer dependency** (`>=5.0.0 <6`), not an optional one.
+  `src/index.ts` re-exports `compile` from a module that imports `typescript` at module scope,
+  so `import { emitModule } from 'typeshade'` failed with `ERR_MODULE_NOT_FOUND` on a clean
+  install. The upper bound is measured: unbounded, npm resolved TypeScript 7.0.2, whose default
+  export carries no `SyntaxKind`, and the package threw at module load. No source changed: the
+  manifest was describing the package wrongly.
 - f64 vector constructors compose and validate their element types, and the canonical
   `vecNf64` type names resolve.
 

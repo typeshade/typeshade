@@ -641,12 +641,23 @@ Document versions, for either adapter:
 ## 9. Packaging
 
 - `package.json` `exports` has the `"./language-service": "./src/language-service/index.ts"`
-  subpath now; the built `.js`/`.d.ts` under it still waits on the package publishing a `dist/`.
-- `typescript` is a `peerDependencies` entry (`>=5.0.0`), marked optional in
-  `peerDependenciesMeta` rather than a plain `dependencies` entry: a consumer that never touches
-  `./language-service` installs nothing extra, and one that does supplies its own `typescript`.
-  `AGENTS.md`'s "no runtime dependencies" line is true of the package's core subpaths only now;
-  `./language-service` is the one exception.
+  subpath, and it now has built `.js`/`.d.ts` behind it: `tsc --build` emits
+  `dist/src/language-service/index.js` + `.d.ts`, and the manifest inside the npm tarball —
+  derived from this same `exports` map by `scripts/publish-manifest.ts` — points the subpath
+  there. In the repository and for a submodule consumer the subpath still resolves to source.
+- `typescript` is a `peerDependencies` entry, and as of the packaging work it is `>=5.0.0 <6`
+  and NO LONGER optional. The `peerDependenciesMeta` optional flag was written on the premise
+  that "a consumer that never touches `./language-service` installs nothing extra", and that
+  premise is false: `src/compiler/ts/source-file.ts` imports `typescript` at module scope and
+  `src/index.ts` re-exports `compile` from it, so a bare `import { emitModule } from 'typeshade'`
+  loads the parser too. Measured on an installed tarball with no `typescript` present:
+  `ERR_MODULE_NOT_FOUND: Cannot find package 'typescript' imported from
+dist/src/compiler/ts/source-file.js`. npm installs a required peer automatically, so
+  `npm install typeshade` now yields a working package. The upper bound is measured as well —
+  npm resolved `>=5.0.0` to TypeScript 7.0.2, whose default export carries no `SyntaxKind`, and
+  the package threw `Cannot read properties of undefined (reading 'PlusToken')` at module load.
+  `AGENTS.md` no longer claims "no runtime dependencies"; the IR and the backends still have
+  none, and the `"use typeshade"` front end is the exception.
 - Deferred: there is still no `shade.d.ts` file in the package, and no `"types"` entry pointing
   at one. The ambient declarations exist only as the `SHADE_DTS` string exported from
   `./language-service` (`ambient.ts`), which the service loads itself as a virtual library file.

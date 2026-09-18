@@ -4,7 +4,9 @@
 
 ## Purpose
 
-A zero-dependency TypeScript shader DSL. A shader is authored once as a typed node graph
+A near-zero-dependency TypeScript shader DSL (`typescript` itself is the one runtime peer, for
+the `"use typeshade"` front end; the IR and the three backends need nothing). A shader is
+authored once as a typed node graph
 (the IR). Three backends emit it over one shared tree walk: a WGSL writer, a GLSL ES 3.00
 writer, and a CPU f64 oracle that evaluates the same IR on the host in double precision.
 The authoring surface is plain TypeScript: `const x = expr`, method operators, `.assign()`,
@@ -14,8 +16,8 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 
 | File | What it is |
 | --- | --- |
-| `package.json` | `typeshade`, ESM, no runtime dependencies. `main` and `exports` point at `src/index.ts`; consumers compile the TypeScript. Scripts: `build`, `test`, `gate:compile`. |
-| `tsconfig.json` | Standalone project. It extends the package-local `tsconfig.base.json`; nothing tracked here may name a path outside this tree, or the vendored copy stops compiling. `tsc --build` (`bun run build`) is the canonical type check. |
+| `package.json` | `typeshade`, ESM. One runtime dependency: `typescript`, as a REQUIRED peer pinned to `>=5.0.0 <6`, because `compile()` is a TypeScript front end, so the `.` entry imports the parser at module scope and TypeScript 7 throws on import. `main` and `exports` point at `src/index.ts`: in THIS tree, and for a submodule consumer, the package resolves to source. The npm tarball is different: `scripts/publish-manifest.ts` derives a dist-facing manifest from the same `exports` map at publish time. Scripts: `build`, `test`, `gate:compile`, `bake:api-surface`, `manifest:publish`. |
+| `tsconfig.json` | Standalone project, and the EMITTING one: `rootDir: "."` / `outDir: "./dist"` over `src/` plus the `examples/index.ts` closure, so `dist/` mirrors the source tree (`dist/src/…`, `dist/examples/…`) and the `../src/…` specifiers `tsc` copies verbatim into the emitted examples still resolve. It extends the package-local `tsconfig.base.json`; nothing tracked here may name a path outside this tree, or the vendored copy stops compiling. `tsc --build` (`bun run build`) is the canonical type check. |
 | `vitest.config.ts` | Test config: `src/**` and `examples/**` specs, 30 s timeout because the df64 property suites run 8 to 16 s. |
 | `scripts/compile-gate.ts` | `bun run gate:compile`. Emits every registered example and hands the WGSL to Tint (Chromium's headless WebGPU) and both GLSL ES 3.00 stages to a real WebGL2 context. Each compiler is fed a broken shader first, so an instrument that cannot fail cannot pass. |
 | `.github/workflows/ci.yml` | Type check, unit suite and compile gate on every push and pull request. |
@@ -58,8 +60,12 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 
 ## Dependencies
 
-- None at runtime. Dev only: `typescript`, `vitest`, `@types/node`, `@webgpu/types` and
-  `playwright` for the compile gate.
+- One at runtime: `typescript`, a REQUIRED peer (`>=5.0.0 <6`). `src/compiler/ts/source-file.ts`
+  imports it at module scope and `src/index.ts` re-exports `compile` from there, so it is not
+  optional and not confined to `./language-service`; the upper bound is measured, not cautious
+  (TypeScript 7's default export has no `SyntaxKind`, and the package throws on import). The IR,
+  the emitter and the three backends still need nothing. Dev only: `vitest`, `@types/node`,
+  `@webgpu/types` and `playwright` for the compile gate.
 - No dependency on any host. What a host must supply, such as the projection spec list, is
   injected through `configureProjections()`.
 
