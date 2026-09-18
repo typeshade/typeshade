@@ -153,6 +153,7 @@ export function dispatchCompute(
               const ctx: StepCtx = {
                 ...base,
                 privates: privatesOf(),
+                lockstep: true,
                 frames: [],
                 stubbed: new Set<string>(),
                 stubHits: 0,

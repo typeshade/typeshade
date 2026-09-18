@@ -116,6 +116,18 @@ export const BARRIER_INTRINSICS: ReadonlySet<string> = new Set([
  */
 export const isBarrierIntrinsic = (name: string): boolean => BARRIER_INTRINSICS.has(name)
 
+/** The error every CPU path throws when a barrier runs outside a `dispatch`: a barrier waits
+ *  for the other invocations of the workgroup, and one invocation run alone, by a direct
+ *  `fns` call or by a debug session, has none. The values after it would be ones no workgroup
+ *  produces, so the run refuses and names the fix.
+ *
+ *  Exported from `typeshade`.
+ */
+export const barrierOutsideDispatch = (fn: string): Error =>
+  new Error(
+    `typeshade/cpu: ${fn}() waits for the other invocations of the workgroup, which a direct call has none of; run the entry with dispatch(name, workgroups)`,
+  )
+
 /** Whether `name` is one of the {@link ATOMIC_INTRINSICS}.
  *
  *  Exported from `typeshade`.

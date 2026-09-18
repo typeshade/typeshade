@@ -21,7 +21,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   workgroup in lockstep at each barrier, the compute builtins filled in, workgroup memory zero
   per workgroup and per-invocation variables at their initializers; a workgroup whose
   invocations disagree about a barrier is an error naming the line and the counts. A direct
-  `fns` call on a kernel with a barrier names `dispatch`. The `workgroup-reduce` example sums
+  `fns` call or a debug session on a kernel with a barrier names `dispatch`. The `workgroup-reduce` example sums
   64 values through workgroup memory, WGSL-only.
 - **Module variables** (roadmap 0.2 item 5, design #82): `let tile: workgroup<array<f32, 64>>`
   is WGSL's `var<workgroup>`, memory one workgroup's invocations share, zero at the start of

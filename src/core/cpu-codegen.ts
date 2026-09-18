@@ -64,7 +64,7 @@ import {
   zeroOf,
 } from './cpu-runtime.js'
 import { compileModule, type CpuModule } from './oracle.js'
-import { isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
+import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
 import { dispatchCompute } from './debug/dispatch.js'
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
@@ -735,9 +735,7 @@ export function compileModuleJs(
       return step.result
     },
     barrier: (fn) => {
-      throw new Error(
-        `typeshade/cpu: ${fn}() waits for the other invocations of the workgroup, which a direct call has none of; run the entry with dispatch(name, workgroups)`,
-      )
+      throw barrierOutsideDispatch(fn)
     },
     clone: cloneValue,
     cvt: convertComponent,

@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 418 exports
+## `.` — 419 exports
 
 ```
 abs
@@ -37,6 +37,7 @@ autoVars
 AxisValues
 Backend
 BARRIER_INTRINSICS
+barrierOutsideDispatch
 BindEntry
 BindGroup
 BindingDecl
@@ -813,7 +814,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 526 definitions
+## Shapes — 527 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { fileName?: string }
@@ -934,6 +935,7 @@ src/core/intrinsics.ts#INTRINSIC_HELPERS  const  Readonly<Record<string, { reado
 src/core/intrinsics.ts#IntrinsicTarget  type  "wgsl" | "glsl"
 src/core/intrinsics.ts#PORTABLE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#PRE_EMIT_INTRINSICS  const  ReadonlySet<string>
+src/core/intrinsics.ts#barrierOutsideDispatch  const  (fn: string) => Error
 src/core/intrinsics.ts#intrinsicNeedsAtomArgs  const  (name: string) => boolean
 src/core/intrinsics.ts#isAtomicIntrinsic  const  (name: string) => boolean
 src/core/intrinsics.ts#isBarrierIntrinsic  const  (name: string) => boolean

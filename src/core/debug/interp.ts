@@ -66,7 +66,7 @@ import {
   convertComponents,
   atomicStep,
 } from '../cpu-runtime.js'
-import { isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js'
+import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js'
 
 /** One call frame of a paused run, innermost last. Mutable on purpose: the session reads a
  *  frame's `current` at each pause, and a snapshot is taken there rather than here. */
@@ -123,6 +123,9 @@ export interface StepCtx {
   /** The per-invocation (`private`) variables, at their initializers from `makeCtx`: one
    *  table per invocation, which is why they are not in `vars`. */
   readonly privates: Record<string, CpuValue>
+  /** Whether this run is one invocation of a workgroup `dispatch` holds in lockstep, which is
+   *  the only run a barrier means anything in. `makeCtx` says no; `dispatch` says yes. */
+  readonly lockstep: boolean
   readonly structs: Map<string, StructDecl>
   /** The module's declared uniform and storage names, so a binding nobody supplied is NAMED
    *  rather than reported as an unbound local. Since #18 a binding read is a `varref` like any
@@ -254,9 +257,13 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
     case 'call': {
       // A barrier is where `dispatch` holds the invocation, at the yield before this
       // statement; by the time the statement runs every invocation of the workgroup has
-      // arrived, so the call itself is a no-op. A session stepping one invocation alone runs
-      // straight through it, with no one to wait for.
-      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) return 0
+      // arrived, so the call itself is a no-op. A session stepping one invocation alone has
+      // no one to wait for, and the values past the barrier would be ones no workgroup
+      // produces (the zeros the others never wrote), so it refuses as the oracle does.
+      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) {
+        if (!ctx.lockstep) throw barrierOutsideDispatch(e.fn)
+        return 0
+      }
       // An atomic builtin takes its first argument as a LOCATION (roadmap 0.2 item 4); the
       // oracle's `evalAtomic` is mirrored here step for step so the two walks stay
       // bit-identical over a kernel that counts with `atomicAdd`.
@@ -660,6 +667,7 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     bindings: {},
     vars: {},
     privates: {},
+    lockstep: false,
     structs: new Map(m.structs.map((s) => [s.name, s])),
     bindingNames: new Set(m.bindings.map((b) => b.name)),
     gpuStubs,

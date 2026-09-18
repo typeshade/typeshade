@@ -164,9 +164,11 @@ export function fs(): vec4 { return vec4(1.) }
     expect(() => cm.dispatch('fs', 1)).toThrow('dispatch runs a @compute entry; "fs" is fragment')
   })
 
-  it('the debugger steps one invocation straight through a barrier', () => {
+  it('the debugger, stepping one invocation alone, refuses the barrier with the same words', () => {
+    // Alone, invocation 0 would add the zeros the others never wrote and show a sum no
+    // workgroup produces; the oracle-vs-step sweep over the examples holds the three paths to
+    // one answer.
     const r = compile(REDUCE)
-    const sums = [0]
     const s = startDebugSession(
       r.module,
       'reduce',
@@ -175,12 +177,9 @@ export function fs(): vec4 { return vec4(1.) }
         [0, 0, 0],
         [0, 0, 0],
       ],
-      { bindings: { src: Array.from({ length: 64 }, () => 1), sums } },
+      { bindings: { src: Array.from({ length: 64 }, () => 1), sums: [0] } },
     )
-    s.continue()
-    expect(s.done).toBe(true)
-    // Alone, invocation 0 adds the zeros the others never wrote: its own 1 survives.
-    expect(sums).toEqual([1])
+    expect(() => s.continue()).toThrow('run the entry with dispatch(name, workgroups)')
   })
 })
 

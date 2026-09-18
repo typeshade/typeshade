@@ -1341,7 +1341,8 @@ some returning before it or waiting at a different one, are a program WGSL forbi
 hangs on. `dispatch` throws instead, naming the barrier's line and the counts:
 `workgroupBarrier() at line 14 was reached by 61 of 64 invocations of workgroup (0, 0, 0); 3
 returned before it.` This is the first divergence report roadmap item 21 asks for. The debug
-stepper, which steps one invocation alone, runs straight through a barrier.
+stepper steps one invocation alone and refuses a barrier with the same words as a direct call:
+the values past it would be ones no workgroup produces.
 
 **Also in this step.** A call that returns nothing can no longer initialize a local:
 `const x = store(1)` emitted `let x = store(1u);`, which Tint refuses, with no diagnostic; it is

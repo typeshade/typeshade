@@ -61,7 +61,7 @@ import {
   elemKindOf,
   atomicStep,
 } from './cpu-runtime.js'
-import { isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
+import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js'
 
 // Preserve the historical `typeshade` oracle surface: the value-model
@@ -218,11 +218,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     case 'call': {
       // A barrier waits for the other invocations of the workgroup, and a function called one
       // invocation at a time has none; `dispatch` runs the workgroup in lockstep (#82).
-      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) {
-        throw new Error(
-          `typeshade/cpu: ${e.fn}() waits for the other invocations of the workgroup, which a direct call has none of; run the entry with dispatch(name, workgroups)`,
-        )
-      }
+      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) throw barrierOutsideDispatch(e.fn)
       // An atomic builtin takes its first argument as a LOCATION, not a value: the read and
       // the write-back go through one resolved reference (roadmap 0.2 item 4). A module that
       // declares its own `atomicAdd` carries `declRef` and takes the declared-function path.
