@@ -13,6 +13,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **A plain top-level `let` is a per-invocation variable** (§24, from the review of #82):
+  `let seed: u32 = 7` emits `var<private> seed: u32 = 7u;`, a plain global on GLSL ES 3.00, and
+  starts over at every host-facing call on the CPU, exactly as `perInvocation<u32>` does. That
+  wrapper stays as the explicit spelling and `workgroup<T>` stays required, since workgroup
+  memory has no TypeScript counterpart. Without an annotation the type is the initializer's by
+  the `const` rule. For both spellings an array takes a list and a struct an object literal as a
+  constant initializer, and a math builtin over constants counts as one (#73). A `let` with
+  neither type nor initializer, a resource type without `declare`, and a list without an array
+  type are TS8033 with the fix. Before this a plain top-level `let` was TS8014.
 - **Barriers and `dispatch`** (roadmap 0.2 item 5, design #82, step 2): `workgroupBarrier()`
   and `storageBarrier()` as statements, in a compute entry or a helper and never inside an
   `if` or `switch` body (TS8034 with the reason), emitted bare on WGSL and treated as effects
@@ -113,6 +122,12 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **A multi-file program's module variables reached the WGSL.** `compileTsSources` took the
+  bare-functions emit whenever the entry had no module constant, so an entry with a
+  per-invocation or workgroup variable and no `const` emitted functions that read a variable
+  the text never declared. It now emits the module form when either exists. A top-level `let`
+  in a file that is not the entry is TS8014 with where the declaration goes, instead of
+  vanishing (roadmap item 14 carries the other files' declarations).
 - **A call that returns nothing cannot initialize a local**: `const x = store(1)` emitted
   `let x = store(1u);`, which Tint refuses, with no diagnostic; it is TS8003 now with "call it
   on its own line".
