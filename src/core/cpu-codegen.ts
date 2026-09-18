@@ -60,8 +60,10 @@ import {
   convertComponent,
   convertComponents,
   elemKindOf,
+  atomicStep,
 } from './cpu-runtime.js'
 import { compileModule, type CpuModule } from './oracle.js'
+import { isAtomicIntrinsic } from './intrinsics.js'
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
  *  bit-identically. Caught by compileModuleJs → that fn falls back to the
@@ -216,6 +218,9 @@ function emitExpr(e: Expr, S: FnCtx): string {
       return e.lop === '&&' ? `(${a} && ${b})` : `(${a} || ${b})`
     }
     case 'call': {
+      // An atomic builtin's first argument is a LOCATION (roadmap 0.2 item 4): the runtime
+      // reads and writes it back in one step, mirroring the interpreter's `evalAtomic`.
+      if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return emitAtomic(e, S)
       const args = e.args.map((a) => emitExpr(a, S))
       // f32→u32/i32 SATURATES per WGSL — the SAME static-type branch the
       // interpreter takes (oracle.ts 'call'), baked at compile time so the
@@ -357,6 +362,30 @@ function emitConstruct(e: Extract<Expr, { op: 'construct' }>, S: FnCtx): string 
 
 /** Assignment as an EXPRESSION (no trailing `;`) — used for for-loop updates
  *  and, with `;` appended, for statements. Mirrors setLValue. */
+/** `atomicAdd(xs[i], v)` and its family. The generated code hands the runtime the container
+ *  and the key of the location, or a getter and a setter for a JS local, so the read and the
+ *  write-back happen once, in one `atomicStep`, the way the interpreter's `refOf` does. */
+function emitAtomic(e: Extract<Expr, { op: 'call' }>, S: FnCtx): string {
+  const loc = e.args[0]
+  if (loc === undefined) throw new CodegenUnsupported(`${e.fn} without a location`)
+  const fn = q(e.fn)
+  const kind = q(numKindOf(loc.type))
+  const arg = e.args[1] === undefined ? '0' : emitExpr(e.args[1], S)
+  if (loc.op === 'index') {
+    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${emitExpr(loc.idx, S)}, ${arg}, ${kind})`
+  }
+  if (loc.op === 'member') {
+    const key = isArrayValued(loc.base.type) ? String(FIELD_IDX[loc.field] ?? -1) : q(loc.field)
+    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${key}, ${arg}, ${kind})`
+  }
+  if (loc.op === 'varref' || loc.op === 'param') {
+    const id = S.varId.get(loc.name)
+    if (id === undefined) return `$.atomicAt(${fn}, $.bindings, ${q(loc.name)}, ${arg}, ${kind})`
+    return `$.atomicRef(${fn}, () => ${id}, ($v) => (${id} = $v), ${arg}, ${kind})`
+  }
+  throw new CodegenUnsupported(`atomic location ${loc.op}`)
+}
+
 function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
   if (target.op === 'varref' || target.op === 'param') {
     const id = S.varId.get(target.name) ?? declareVar(target.name, S)
@@ -493,6 +522,22 @@ interface CodegenRuntime {
   negVec: (a: number[]) => number[]
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue
   vecMatThrow: () => never
+  /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
+  atomicAt: (
+    fn: string,
+    base: CpuValue,
+    key: string | number,
+    arg: number,
+    kind: NumKind,
+  ) => CpuValue
+  /** The same on a JS local, through the getter and setter the generated code closes over. */
+  atomicRef: (
+    fn: string,
+    get: () => CpuValue,
+    set: (v: CpuValue) => void,
+    arg: number,
+    kind: NumKind,
+  ) => CpuValue
   /** WGSL saturating f32→u32/i32 (float sources only — see cpu-runtime). */
   u32Sat: typeof f32ToU32Sat
   i32Sat: typeof f32ToI32Sat
@@ -637,6 +682,17 @@ export function compileModuleJs(
     negVec: (a) => a.map((v) => -v),
     u32Sat: f32ToU32Sat,
     i32Sat: f32ToI32Sat,
+    atomicAt: (fn, base, key, arg, kind) => {
+      const obj = base as unknown as Record<string | number, CpuValue>
+      const step = atomicStep(fn, obj[key] as number, arg, kind)
+      if (fn !== 'atomicLoad') obj[key] = step.next
+      return step.result
+    },
+    atomicRef: (fn, get, set, arg, kind) => {
+      const step = atomicStep(fn, get() as number, arg, kind)
+      if (fn !== 'atomicLoad') set(step.next)
+      return step.result
+    },
     clone: cloneValue,
     cvt: convertComponent,
     cvtVec: convertComponents,

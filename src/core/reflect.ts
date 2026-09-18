@@ -64,6 +64,9 @@ function typeLayout(
   switch (t.kind) {
     case 'scalar':
       return { size: 4, align: 4 }
+    // An atomic<u32> / atomic<i32> occupies its integer's 4 bytes (WGSL §14.4.1).
+    case 'atomic':
+      return { size: 4, align: 4 }
     // f64 (emulated double) occupies its lowered vec2<f32> slot — hi then lo,
     // 8 bytes, 8-aligned — under BOTH layouts, so reflecting the authored module
     // and the lowered module yield byte-identical offsets. Hosts pack with

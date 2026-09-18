@@ -64,7 +64,9 @@ import {
   elemKindOf,
   convertComponent,
   convertComponents,
+  atomicStep,
 } from '../cpu-runtime.js'
+import { isAtomicIntrinsic } from '../intrinsics.js'
 
 /** One call frame of a paused run, innermost last. Mutable on purpose: the session reads a
  *  frame's `current` at each pause, and a snapshot is taken there rather than here. */
@@ -242,6 +244,10 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       return a ? true : ((yield* evalExpr(e.b, env, ctx)) as boolean)
     }
     case 'call': {
+      // An atomic builtin takes its first argument as a LOCATION (roadmap 0.2 item 4); the
+      // oracle's `evalAtomic` is mirrored here step for step so the two walks stay
+      // bit-identical over a kernel that counts with `atomicAdd`.
+      if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return yield* evalAtomic(e, env, ctx)
       const args: CpuValue[] = []
       // Measured per argument, so that stepping INTO the callee shows which of its parameters
       // is holding a stand-in. Without it a `dpdx` result crossing a call boundary would go
@@ -426,6 +432,65 @@ function markStub(
   if (!frame || name === undefined) return
   if (derived) frame.stubbed.add(name)
   else if (canClear) frame.stubbed.delete(name)
+}
+
+/** The stepping twin of the oracle's `refOf`: one resolved read-and-write handle on an atomic
+ *  location, so the index expression is evaluated once. */
+function* refOf(
+  target: Expr,
+  env: Map<string, CpuValue>,
+  ctx: StepCtx,
+): Step<{ readonly get: () => CpuValue; readonly set: (v: CpuValue) => void }> {
+  if (target.op === 'varref' || target.op === 'param') {
+    const name = target.name
+    if (env.has(name)) return { get: () => env.get(name) as CpuValue, set: (v) => env.set(name, v) }
+    if (name in ctx.bindings) {
+      return {
+        get: () => ctx.bindings[name] as CpuValue,
+        set: (v) => {
+          ctx.bindings[name] = v
+        },
+      }
+    }
+    if (ctx.bindingNames.has(name)) throw noValueFor(name)
+    throw new Error(`typeshade/debug: unbound ${name}`)
+  }
+  if (target.op === 'member') {
+    const base = yield* evalExpr(target.base, env, ctx)
+    const key: string | number = isArr(base) ? FIELD_IDX[target.field]! : target.field
+    const obj = base as unknown as Record<string | number, CpuValue>
+    return {
+      get: () => obj[key] as CpuValue,
+      set: (v) => {
+        obj[key] = v
+      },
+    }
+  }
+  if (target.op === 'index') {
+    const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[]
+    const i = (yield* evalExpr(target.idx, env, ctx)) as number
+    return {
+      get: () => base[i] as CpuValue,
+      set: (v) => {
+        base[i] = v
+      },
+    }
+  }
+  throw new Error(`typeshade/debug: bad atomic location ${target.op}`)
+}
+
+function* evalAtomic(
+  e: Extract<Expr, { op: 'call' }>,
+  env: Map<string, CpuValue>,
+  ctx: StepCtx,
+): Step<CpuValue> {
+  const loc = e.args[0]
+  if (loc === undefined) throw new Error(`typeshade/debug: ${e.fn} needs a location`)
+  const ref = yield* refOf(loc, env, ctx)
+  const arg = e.args[1] === undefined ? 0 : ((yield* evalExpr(e.args[1], env, ctx)) as number)
+  const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type))
+  if (e.fn !== 'atomicLoad') ref.set(step.next)
+  return step.result
 }
 
 function* setLValue(

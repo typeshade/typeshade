@@ -114,6 +114,13 @@ function glslType(t: ShaderType): string {
         )
       return `${glslType(t.elem)}[${t.size}]`
     }
+    // GLSL ES 3.00 has no storage buffers and no atomic memory functions (those are ES 3.10);
+    // a module carrying one is refused by the storageBuffer capability first, and this arm
+    // fails closed for a hand-built module that reaches it another way.
+    case 'atomic':
+      throw new UnsupportedFeatureError(
+        `glsl-es300: atomic<${t.elem}> has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
+      )
     case 'texture': {
       // GLSL fuses texture+sampler into one combined sampler. '2d-array' (X-GIS #1651) is
       // CORE GLSL ES 3.00 — sampler2DArray, no extension, no Capability. So are the

@@ -59,7 +59,9 @@ import {
   convertComponent,
   convertComponents,
   elemKindOf,
+  atomicStep,
 } from './cpu-runtime.js'
+import { isAtomicIntrinsic } from './intrinsics.js'
 
 // Preserve the historical `typeshade` oracle surface: the value-model
 // types + the builtin/stub name sets moved to cpu-runtime.ts (single authority),
@@ -184,6 +186,10 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return a ? true : (evalExpr(e.b, env, ctx) as boolean)
     }
     case 'call': {
+      // An atomic builtin takes its first argument as a LOCATION, not a value: the read and
+      // the write-back go through one resolved reference (roadmap 0.2 item 4). A module that
+      // declares its own `atomicAdd` carries `declRef` and takes the declared-function path.
+      if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return evalAtomic(e, env, ctx)
       const args = e.args.map((a) => evalExpr(a, env, ctx))
       // f32→u32/i32 SATURATES per WGSL (integer sources keep wrapping — see
       // cpu-runtime's f32To*Sat). The value alone cannot tell the sources apart,
@@ -282,6 +288,69 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return evalExpr(hit ? hit[1] : e.default, env, ctx)
     }
   }
+}
+
+/** A read-and-write handle on an assignment target, resolved ONCE: an atomic builtin reads
+ *  the location and writes it back as one step, and resolving `xs[i]` twice would evaluate an
+ *  index expression that may itself carry an atomic call twice. A bare binding name writes
+ *  the host's binding table, so a counter in `storage<atomic<u32>>` is read back by the host
+ *  the way an array element is. */
+function refOf(
+  target: Expr,
+  env: Map<string, CpuValue>,
+  ctx: Ctx,
+): { readonly get: () => CpuValue; readonly set: (v: CpuValue) => void } {
+  if (target.op === 'varref' || target.op === 'param') {
+    const name = target.name
+    if (env.has(name)) return { get: () => env.get(name) as CpuValue, set: (v) => env.set(name, v) }
+    if (name in ctx.bindings) {
+      return {
+        get: () => ctx.bindings[name] as CpuValue,
+        set: (v) => {
+          ctx.bindings[name] = v
+        },
+      }
+    }
+    throw new Error(`typeshade/cpu: unbound ${name}`)
+  }
+  if (target.op === 'member') {
+    const base = evalExpr(target.base, env, ctx)
+    const key: string | number = isArr(base) ? FIELD_IDX[target.field]! : target.field
+    const obj = base as unknown as Record<string | number, CpuValue>
+    return {
+      get: () => obj[key] as CpuValue,
+      set: (v) => {
+        obj[key] = v
+      },
+    }
+  }
+  if (target.op === 'index') {
+    const base = evalExpr(target.base, env, ctx) as CpuValue[]
+    const i = evalExpr(target.idx, env, ctx) as number
+    return {
+      get: () => base[i] as CpuValue,
+      set: (v) => {
+        base[i] = v
+      },
+    }
+  }
+  throw new Error(`typeshade/cpu: bad atomic location ${target.op}`)
+}
+
+/** `atomicAdd(xs[i], v)` and its family: one {@link atomicStep} on the resolved location. The
+ *  location's element kind decides the wrap; `atomicLoad` writes nothing back. */
+function evalAtomic(
+  e: Extract<Expr, { op: 'call' }>,
+  env: Map<string, CpuValue>,
+  ctx: Ctx,
+): CpuValue {
+  const loc = e.args[0]
+  if (loc === undefined) throw new Error(`typeshade/cpu: ${e.fn} needs a location`)
+  const ref = refOf(loc, env, ctx)
+  const arg = e.args[1] === undefined ? 0 : (evalExpr(e.args[1], env, ctx) as number)
+  const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type))
+  if (e.fn !== 'atomicLoad') ref.set(step.next)
+  return step.result
 }
 
 function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ctx: Ctx): void {

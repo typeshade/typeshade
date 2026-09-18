@@ -73,6 +73,52 @@ const storageFetchGlsl =
   (a: readonly string[]): string =>
     `${fn}(${a[0]}, int(${a[1]}))`
 
+/** The atomic builtins (roadmap 0.2 item 4), with the arity and result of each: `atomicLoad`
+ *  takes the location alone and returns its value; `atomicStore` takes a value and returns
+ *  nothing; the eight read-modify-write forms take a value and return the value the location
+ *  held BEFORE the update. Every one takes its first argument as a LOCATION (`xs[i]`, a storage
+ *  struct field, a bare atomic binding), which WGSL spells as a pointer, `&xs[i]`, and which the
+ *  CPU backends resolve once and write back through. GLSL ES 3.00 has no atomics.
+ *
+ *  Exported from `typeshade`.
+ */
+export const ATOMIC_INTRINSICS: Readonly<
+  Record<string, { readonly arity: 1 | 2; readonly returns: 'value' | 'void' }>
+> = {
+  atomicLoad: { arity: 1, returns: 'value' },
+  atomicStore: { arity: 2, returns: 'void' },
+  atomicAdd: { arity: 2, returns: 'value' },
+  atomicSub: { arity: 2, returns: 'value' },
+  atomicMin: { arity: 2, returns: 'value' },
+  atomicMax: { arity: 2, returns: 'value' },
+  atomicAnd: { arity: 2, returns: 'value' },
+  atomicOr: { arity: 2, returns: 'value' },
+  atomicXor: { arity: 2, returns: 'value' },
+  atomicExchange: { arity: 2, returns: 'value' },
+}
+
+/** Whether `name` is one of the {@link ATOMIC_INTRINSICS}.
+ *
+ *  Exported from `typeshade`.
+ */
+export const isAtomicIntrinsic = (name: string): boolean =>
+  Object.prototype.hasOwnProperty.call(ATOMIC_INTRINSICS, name)
+
+const atomicSpellings = (): Record<string, Spelling> =>
+  Object.fromEntries(
+    Object.entries(ATOMIC_INTRINSICS).map(([name, sig]): [string, Spelling] => [
+      name,
+      {
+        wgsl: (a) => (sig.arity === 1 ? `${name}(&${a[0]})` : `${name}(&${a[0]}, ${a[1]})`),
+        glsl: () => {
+          throw new Error(
+            `glsl-es300: ${name} has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
+          )
+        },
+      },
+    ]),
+  )
+
 /** The spelling of each builtin id on each target, keyed by id. Only builtins whose spelling
  *  differs between WGSL and GLSL ES 3.00 have an entry; a builtin with no entry is spelled the
  *  same way on both targets, as `name(args)`. The wgsl and glsl members of an entry each take
@@ -263,6 +309,10 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
       )
     },
   },
+  // atomicLoad(&x), atomicAdd(&x, v), ... — the location argument is a pointer on WGSL, and
+  // the front end restricts it to what the builtins accept (an atomic in storage). GLSL ES
+  // 3.00 has no atomic memory functions; the column fails closed like arrayLength's.
+  ...atomicSpellings(),
   textureDimensions: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: (a) =>
