@@ -54,12 +54,12 @@ export const TS_CODES = {
    *  (`cyclic dependency found: 'a' -> 'b' -> 'a'`); before this the front end accepted it
    *  and emitted it with zero diagnostics. */
   RECURSION: 'TS8031',
-  /** `.length` on an `array<T>` with no `N`, anywhere: a `storage` binding or a field of one,
-   *  a `uniform<array<T>>`, a local, or a parameter. It folded to the literal `0`, which made
-   *  `gid.x >= xs.length` true for every invocation and the kernel a silent no-op in valid
-   *  WGSL. The message differs by shape: only a storage array can reach `arrayLength` (which
-   *  takes `ptr<storage, …>` and neither surface spells yet, #46); everything else needs an
-   *  explicit size. */
+  /** `.length`, or `arrayLength(x)`, on an `array<T>` with no `N` that is not in storage: a
+   *  `uniform<array<T>>`, a local, or a parameter. `.length` once folded to the literal `0`,
+   *  which made `gid.x >= xs.length` true for every invocation and the kernel a silent no-op
+   *  in valid WGSL. A runtime-sized storage array now reads its length from the buffer as
+   *  `arrayLength(&x)` (#46); the shapes that have no runtime length need an explicit size,
+   *  which is what this says. */
   UNSIZED_ARRAY_LENGTH: 'TS8032',
   UNSUPPORTED: 'TS8099',
 } as const

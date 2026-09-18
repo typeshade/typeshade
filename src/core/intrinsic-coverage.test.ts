@@ -99,8 +99,17 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
 
   it('every INTRINSICS entry is GENUINELY divergent (wgsl ≠ glsl) — a portable one belongs in the set, not the map', () => {
     const args = ['a', 'b', 'c'] // enough positional args for every entry's spelling
+    // A column that THROWS (a builtin one target has no form for, such as `arrayLength` on
+    // GLSL ES 3.00, which has no storage buffers) is the most divergent spelling there is.
+    const spell = (f: (a: readonly string[]) => string): string | undefined => {
+      try {
+        return f(args)
+      } catch {
+        return undefined
+      }
+    }
     const notDivergent = Object.entries(INTRINSICS)
-      .filter(([, s]) => s.wgsl(args) === s.glsl(args))
+      .filter(([, s]) => spell(s.wgsl) === spell(s.glsl))
       .map(([k]) => k)
     expect(notDivergent).toEqual([])
   })
@@ -118,6 +127,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "abs",
         "acos",
         "acosh",
+        "arrayLength",
         "asin",
         "asinh",
         "atan",

@@ -13,6 +13,12 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **`arrayLength`** (#46): `xs.length` on a runtime-sized storage array, and the explicit
+  `arrayLength(xs)`, read the bound buffer's length at run time as WGSL `arrayLength(&xs)`, a
+  `u32`. The operand is the binding or a trailing array field of a storage struct; an element,
+  a sized array or an array outside storage is refused with the fix that applies. The CPU
+  oracle reads the bound array's length. GLSL ES 3.00 has no form, and the `array-length`
+  example is WGSL-only.
 - **A call as a statement** in `"use typeshade"` (#47): `store(gid.x)` with its result dropped
   lowers to the IR's new `call` statement, which WGSL spells bare for a user function and
   behind `_ = ` for a value-returning builtin, GLSL ES 3.00 spells bare, and the CPU oracle,

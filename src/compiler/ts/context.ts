@@ -56,6 +56,10 @@ export interface Binding {
    *  so pointing a `uniform<array<f32>>` author at it sends them to an intrinsic Tint would
    *  refuse on their program (#46). Absent for a local, a param or a module const. */
   readonly space?: AddressSpace
+  /** For a `kind: 'local'` bound to a bare name, the name it copies: `const a = src` records
+   *  `aliasOf: 'src'`, so a question about what `a` denotes (is it a storage array, for
+   *  `arrayLength`) follows the chain to the binding instead of stopping at the local (#46). */
+  readonly aliasOf?: string
 }
 
 export class LoweringScope {

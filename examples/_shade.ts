@@ -262,6 +262,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: false,
     twinOf: 'compute-reduction',
   },
+  {
+    id: 'array-length',
+    title: 'Runtime array length',
+    blurb:
+      "The bounds guard every kernel over a runtime-sized storage array needs: `src.length` reads the bound buffer's length as WGSL `arrayLength(&src)`, a `u32`, so the guard is real where it once folded to `gid.x >= 0u` and returned every invocation (#46). WGSL-only: GLSL ES 3.00 has no storage buffers.",
+    renderable: false,
+  },
 ]
 
 /**

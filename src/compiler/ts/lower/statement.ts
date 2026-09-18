@@ -322,7 +322,22 @@ function lowerVariableDeclaration(
   }
   const bindingType = annotated ?? init.type
   const constValue = init.op === 'lit' ? init.value : undefined
-  if (!defineLocal(name, bindingType, !isConst, constValue, decl, sourceFile, scope, diagnostics)) {
+  // `const a = src` keeps the name it copies, so `a.length` on a storage array is answered the
+  // way `src.length` is (#46). Only a bare name; an element or a field is a different value.
+  const aliasOf = init.op === 'varref' ? init.name : undefined
+  if (
+    !defineLocal(
+      name,
+      bindingType,
+      !isConst,
+      constValue,
+      decl,
+      sourceFile,
+      scope,
+      diagnostics,
+      aliasOf,
+    )
+  ) {
     return undefined
   }
   if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, spanNode)
@@ -342,9 +357,17 @@ function defineLocal(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  aliasOf?: string,
 ): boolean {
   try {
-    scope.define({ kind: 'local', name, type, mutable, constValue })
+    scope.define({
+      kind: 'local',
+      name,
+      type,
+      mutable,
+      constValue,
+      ...(aliasOf !== undefined ? { aliasOf } : {}),
+    })
   } catch (e) {
     pushDiag(
       diagnostics,

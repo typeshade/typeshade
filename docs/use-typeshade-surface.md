@@ -236,7 +236,7 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
-| `.length` on an `array<T>` with no `N`, anywhere | `TS8032`. For a `storage` array the length is the bound buffer's and needs `arrayLength` (unspelled today); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
+| `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 
 ---
 
@@ -273,7 +273,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 **Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
 which reserved those numbers while they were in flight and appended here in issue order. The
 sections took the next free numbers so the A-item branches did not all claim §9 and collide on
-merge. §19 is issue #47.
+merge. §19 is issue #47, §20 is issue #46.
 
 ---
 
@@ -995,6 +995,61 @@ guarded the call site would run the effect on a path that never called.
 **What this does not cover.** The portable compute tier (§ the `portable` kernel shape) refuses
 a call statement anywhere in the entry's reach: its single store is a plain assignment written
 in the entry, and a store hidden in a callee is not one the fragment-GPGPU lowering can follow.
+
+---
+
+## 20. The length of a runtime-sized storage array
+
+A `storage<array<T>>` has no size in its type; its length is the length of the buffer the
+host binds. `xs.length` on such an array reads it at run time, and `arrayLength(xs)` spells
+the same read explicitly. Both are a `u32`, as the WGSL builtin is.
+
+```ts
+"use typeshade"
+declare const src: storage<array<f32>>
+declare let dst: storage<array<f32>>
+
+@compute([64, 1, 1])
+export function scale_all(@builtin("global_invocation_id") gid: vec3u): void {
+  if (gid.x >= src.length) {
+    return
+  }
+  dst[gid.x] = src[gid.x] * 2.
+}
+```
+
+```wgsl
+if ((gid.x >= arrayLength(&src))) {
+  return;
+}
+```
+
+**What the operand may be** is what WGSL's `arrayLength` accepts: a pointer to a runtime-sized
+array in the storage space, which is the binding itself or a trailing array field of a storage
+struct (`arrayLength(b.xs)` for `declare const b: storage<Buf>`). Measured on Tint,
+`arrayLength(&src[0])` is refused and `arrayLength(&b.xs)` accepted, and the front end draws
+the same line: an element, a sized array or a value that is not an array is refused (TS8003)
+with what it is. A local that copies the binding (`const a = src`) denotes what the binding
+denotes, so `a.length` reads the same length.
+
+**An unsized array that is not in storage has no runtime length.** A `uniform<array<f32>>`, a
+local `array<f32>` or a parameter typed `array<f32>` was already invalid GPU code (Tint:
+"runtime-sized arrays can only be used in the <storage> address space"), and `.length` or
+`arrayLength` on one is refused (TS8032) with the one fix that works: give the type a size,
+`array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
+
+**The CPU oracle** reads the bound buffer's length, so `compile().eval` and the debug stepper
+agree with the GPU. **GLSL ES 3.00 has no form**: it has no storage buffer and no runtime-sized
+array (`.length()` on one is GLSL ES 3.10), so a module with a runtime-sized storage array emits
+WGSL alone, as it did before this. The `array-length` example is registered WGSL-only for that
+reason, like `compute-reduction-twin`.
+
+**A loop over such an array is still not written as `for (…; i < src.length; …)`**: §17 asks a
+`for` to compare its counter to a constant bound, and a runtime length is not one. Guard the
+invocation with `if` and index by `gid.x`, as the example does.
+
+A function you declare with the name `arrayLength` keeps winning the call, the way the names
+§10 added do, so no program that compiled before this section compiles differently.
 
 ---
 
