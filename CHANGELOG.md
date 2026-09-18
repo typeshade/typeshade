@@ -13,6 +13,19 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Methods that change their object** (§26, design #86 step 2): a method that assigns to a
+  field of `this` (or `++`/`--` on one, or calls such a method on `this`) takes and returns the
+  struct, `fn Particle_step(self_in: Particle, dt: f32) -> Particle` working on the copy
+  `self_`, and a call of it is a statement that writes the receiver back:
+  `ps[gid.x].step(dt)` is `ps[gid.x] = Particle_step(ps[gid.x], dt)`. The receiver is a `let`
+  local, a module variable, a storage element, or `this` in a constructor or another changing
+  method; a `const`, a parameter, a dropped value, and a call in expression position are
+  TS8035 with the fix. Such a method returns nothing; a write to `this` in one that returns a
+  value is TS8035 with the rule. The effect table counts the write-back. The `particle-step`
+  example steps a storage array of particles through `tick`, `step` and `bounce`. In the
+  editor, hover on a method reads `(method) Ray.at(t: f32): vec3` at its declaration and at a
+  call, and go to definition lands on it, which the TypeScript checker gives for free and a
+  test now pins.
 - **Classes with methods, a constructor and static functions** (§26, design #86 step 1): a
   method is a function whose first parameter is the struct, `Ray_at(self_: Ray, t: f32)`, with
   `this` read as `self_` (WGSL reserves `self`) and `r.at(1.)` called as `Ray_at(r, 1.0)`; a static function is

@@ -24,7 +24,13 @@ import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { checkRecursion } from '../recursion.js'
-import { collectClassFunctions, ctorPrologue, selfRef, type Receiver } from './class-methods.js'
+import {
+  SELF_IN,
+  collectClassFunctions,
+  ctorPrologue,
+  selfRef,
+  type Receiver,
+} from './class-methods.js'
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -331,13 +337,13 @@ export function parseParams(
       )
       return undefined
     }
-    if (opts.forbidSelf && p.name.text === 'self_') {
+    if (opts.forbidSelf && (p.name.text === 'self_' || p.name.text === SELF_IN)) {
       pushDiag(
         diagnostics,
         sourceFile,
         p,
-        `"self_" is the name ${opts.owner ?? 'the method'} gives its object in the emitted ` +
-          `function; rename the parameter.`,
+        `"${p.name.text}" is a name ${opts.owner ?? 'the method'} gives its object in the ` +
+          `emitted function; rename the parameter.`,
         TS_CODES.CLASS_MEMBER,
       )
       return undefined
@@ -619,9 +625,7 @@ export function fillFunctionBody(
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.
   const prologue: Stmt[] = []
   if (receiver !== undefined) {
-    if (receiver.asLocal) {
-      prologue.push(...ctorPrologue(receiver, scope, sourceFile, diagnostics))
-    } else {
+    if (receiver.mode === 'param') {
       scope.define({
         kind: 'param',
         name: 'this',
@@ -629,6 +633,13 @@ export function fillFunctionBody(
         mutable: false,
         irName: 'self_',
       })
+    } else {
+      // A method that changes its object arrives as `self_in` and works on the copy `self_`;
+      // the parameter is bound so the name stays its own in the body.
+      if (receiver.mode === 'copy') {
+        scope.define({ kind: 'param', name: SELF_IN, type: receiver.type, mutable: false })
+      }
+      prologue.push(...ctorPrologue(receiver, scope, sourceFile, diagnostics))
     }
   }
   // A method's stub carries `self_` ahead of the declared parameters; a constructor's carries
@@ -670,9 +681,9 @@ export function fillFunctionBody(
     recordDeclaration(symbols, sourceFile, nameNode, { name: p.name, kind: 'param', type: p.type })
   })
   let body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
-  if (receiver?.asLocal) {
-    // A constructor returns the struct it built: a bare `return` inside it returns `self`, and
-    // one more `return self` closes the body.
+  if (receiver !== undefined && receiver.mode !== 'param') {
+    // A constructor returns the struct it built, and a method that changes its object returns
+    // the copy: a bare `return` inside either returns `self_`, and one more closes the body.
     const self = selfRef(receiver.type)
     for (const r of collectReturns(body)) if (!r.expr) (r as { expr?: Expr }).expr = self
     body = [...prologue, ...body, { s: 'return', expr: self }]

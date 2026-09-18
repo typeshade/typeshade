@@ -388,3 +388,62 @@ describe('builtin JSDoc in hover', () => {
     expect(hover?.contents).toContain('Hermite interpolation')
   })
 })
+
+describe('getHover: class members (#86 step 3)', () => {
+  // The TypeScript checker knows a class's members, so the service adds nothing for them; this
+  // pins what an editor shows, so a change in the ambient lib or the hover path that broke it
+  // would say so here rather than in a screenshot.
+  const source = `"use typeshade"
+class Ray {
+  origin: vec3
+  dir: vec3
+  constructor(origin: vec3, dir: vec3) {
+    this.origin = origin
+    this.dir = dir
+  }
+  at(t: f32): vec3 {
+    return this.origin + this.dir * t
+  }
+  advance(t: f32): void {
+    this.origin = this.at(t)
+  }
+  static up(): vec3 {
+    return vec3(0., 1., 0.)
+  }
+}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let r = new Ray(vec3(uv, 0.), vec3(0., 0., 1.))
+  r.advance(1.)
+  return vec4(r.at(2.) + Ray.up(), 1.)
+}
+`
+  const service = createTypeshadeLanguageService()
+  service.openDocument('m.ts', source)
+  const hoverAt = (needle: string, plus = 0) =>
+    service.getHover('m.ts', service.positionAt('m.ts', source.indexOf(needle) + plus))?.contents
+
+  it('a method reads as the class member at its declaration and at a call', () => {
+    expect(hoverAt('at(t: f32)')).toBe('```ts\n(method) Ray.at(t: f32): vec3\n```')
+    expect(hoverAt('r.at(2.)', 2)).toBe('```ts\n(method) Ray.at(t: f32): vec3\n```')
+    expect(hoverAt('r.advance(1.)', 2)).toBe('```ts\n(method) Ray.advance(t: f32): void\n```')
+    expect(hoverAt('Ray.up()', 4)).toBe('```ts\n(method) Ray.up(): vec3\n```')
+  })
+
+  it('the constructor, a field through this, and a local holding the class', () => {
+    expect(hoverAt('new Ray(', 4)).toBe('```ts\nconstructor Ray(origin: vec3, dir: vec3): Ray\n```')
+    expect(hoverAt('this.origin = origin', 5)).toBe('```ts\n(property) Ray.origin: vec3<f32>\n```')
+    expect(hoverAt('let r', 4)).toBe('```ts\nlet r: Ray\n```')
+  })
+
+  it('go to definition from a call lands on the method', () => {
+    const defs = service.getDefinition(
+      'm.ts',
+      service.positionAt('m.ts', source.indexOf('r.at(2.)') + 2),
+    )
+    expect(defs).toEqual([
+      { uri: 'm.ts', range: { start: { line: 8, character: 2 }, end: { line: 8, character: 4 } } },
+    ])
+    expect(service.getDiagnostics('m.ts')).toEqual([])
+  })
+})

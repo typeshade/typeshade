@@ -311,6 +311,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       'A `class Ray` with a constructor, a method and a static function, and a `class Sphere` whose `hit(ray)` method returns the distance along the ray (§26). Each method is a function whose first parameter is the struct, so both targets carry it as written; a fullscreen triangle shades the sphere by its normal.',
     renderable: true,
   },
+  {
+    id: 'particle-step',
+    title: 'Methods that change their object',
+    blurb:
+      'A `class Particle` whose `step`, `bounce` and `tick` assign to `this`, called on a storage element: each takes and returns the struct and the call statement writes the receiver back, `ps[gid.x] = Particle_tick(ps[gid.x], dt)` (§26). WGSL-only: a storage buffer and a compute stage have no WebGL2 form.',
+    renderable: false,
+  },
 ]
 
 /**

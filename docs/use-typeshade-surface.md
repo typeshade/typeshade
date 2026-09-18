@@ -238,7 +238,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, inside an `if` or `switch` body, or used as a value (§25) |
-| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A getter or setter, a static field, an arrow-function field, a decorator on a method, `this` outside a method or assigned inside one, a method called on the class or a static function on a value, a member the class does not have (§26) |
+| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A getter or setter, a static field, an arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, or used as a value (§26) |
 
 ---
 
@@ -1438,11 +1438,47 @@ declared without an initializer is today.
 naming both. `self_` is the name the object takes in the emitted function (`self` itself is
 on WGSL's reserved-word list, as `this` is); a parameter called `self_` is refused.
 
-**`this`.** Inside a method `this` reads the object and nothing writes it: a method that
-assigns to `this` is TS8035 with the reason, since the copy-back that lets a method change
-its object is the next step of #86. Until then build the changed value and return it, or
-assign the field in the constructor, where `this` is the local being built. `this` in a
-static function or a top-level function is TS8035.
+**A method that changes its object.** WGSL passes a struct by value, so a method that
+assigns to `this` takes and returns the struct, and a call of it is a statement that writes
+the receiver back. `Particle.step(dt)` below is `fn Particle_step(self_in: Particle, dt: f32)
+-> Particle`: it starts with `var self_ = self_in`, runs the body on that copy and returns it,
+and the statement `ps[gid.x].step(dt)` is `ps[gid.x] = Particle_step(ps[gid.x], dt)`. The
+receiver has to be a place a function may write: a `let` local, a module variable, a storage
+element, or `this` inside a constructor or another changing method. Which methods change their
+object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
+`++`/`--` on one), and one that calls such a method on `this`. Such a method returns nothing,
+so its caller can write the object back; one that returns a value reads its object only, and
+a write to `this` inside it is TS8035 with that rule. The effect table (§19) counts the
+write-back as it counts any assignment, so a kernel that steps a storage element is a writer.
+
+```ts
+class Particle {
+  pos: vec2
+  vel: vec2
+  step(dt: f32): void {
+    this.pos = this.pos + this.vel * dt
+  }
+}
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  ps[gid.x].step(0.5)
+}
+```
+
+```wgsl
+fn Particle_step(self_in: Particle, dt: f32) -> Particle {
+  var self_: Particle = self_in;
+  self_.pos = (self_.pos + (self_.vel * dt));
+  return self_;
+}
+fn k(...) {
+  ps[gid.x] = Particle_step(ps[gid.x], 0.5);
+}
+```
+
+**`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a
+constructor or a method that changes its object, it is the local being built or copied.
+`this` in a static function or a top-level function is TS8035.
 
 **Access modifiers** `private`, `protected`, `public` and `readonly` on a field or a method are
 accepted and mean nothing to the shader; TypeScript enforces them.
@@ -1451,15 +1487,20 @@ accepted and mean nothing to the shader; TypeScript enforces them.
 module `const`), a field holding an arrow function (a method), a decorator on a method (an
 entry is a top-level function), an `async`, generator or `abstract` method, two constructors
 or two methods of one name (no overloads), a call of a method on the class or of a static
-function on a value, a member the class does not have, and a field called as a method. A
-class with only static functions and no fields is not a struct (TS8010): write them as
-functions. `extends` stays refused (§2). A `new` on anything but a class the file declares
-stays TS8013.
+function on a value, a member the class does not have, a field called as a method, a method
+that changes its object called on a `const`, a parameter or a value that is dropped, or used
+as a value, and a parameter named `self_` or `self_in`. A class with only static functions
+and no fields is not a struct (TS8010): write them as functions. `extends` stays refused
+(§2). A `new` on anything but a class the file declares stays TS8013.
 
-**Not yet.** A method that changes its object (step 2 of #86: `r.advance(t)` lowered to
-`r = Ray_advance(r, t)` on an assignable receiver), a cycle through method calls in the
-recursion check (Tint still refuses it, as a backend diagnostic), and the language service's
-hover spelling a method as `Ray.at(t: f32): vec3` (step 3).
+**In the editor.** Hover on a method, at its declaration or a call, reads `(method) Ray.at(t:
+f32): vec3`; on `new Ray(...)`, `constructor Ray(origin: vec3, dir: vec3): Ray`; go to
+definition from `r.at` lands on the method. The TypeScript checker already knows a class's
+members, so the language service adds nothing for them and the compiler's symbols record each
+method under its class name.
+
+**Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
+backend diagnostic), and `return this` from a changing method (split the chain).
 
 ---
 

@@ -10,8 +10,13 @@
 // targets spell every one of these as written, and the IR is unchanged: the oracle, the codegen
 // and the debug stepper see functions.
 //
-// A method that assigns to `this` is the next step of #86 (the copy-back on an assignable
-// receiver) and is refused here with that reason; `this` in a method reads only.
+// A method that assigns to `this` (step 2 of #86) takes and returns the struct: `Ray_advance(
+// self_in: Ray, t: f32) -> Ray` starts with `var self_ = self_in`, runs the body on that local
+// and returns it, and the call statement `r.advance(2.)` lowers to `r = Ray_advance(r, 2.)`.
+// The receiver has to be a place a function may write (a `let` local, a module variable, a
+// storage element); a `const`, a parameter or a temporary is refused with the fix. Such a
+// method returns nothing, so its caller can write the object back; one that returns a value
+// reads its object only.
 //
 // The object's name in the emitted function is `self_`, not `self`: Tint refuses `self`, which
 // is on WGSL's reserved-word list (as `this` is), and GLSL ES 3.00 takes either.
@@ -23,21 +28,24 @@ import type { SourceSpan } from '../../../core/ir/span.js'
 import { boolT, f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { CollectedStruct, FieldInit } from '../structs.js'
-import { irNameOf, type LoweringScope } from '../context.js'
+import { irNameOf, readOnlyPhrase, type LoweringScope } from '../context.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf, withSpan } from '../span.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerUserCall } from './expression-misc.js'
+import { lowerLValue } from './statement.js'
 import { parseParams, parseReturnType } from './function.js'
 
-/** What `this` is while a member's body is lowered: the struct type, whether it is the local a
- *  constructor builds (`asLocal`) or the read-only first parameter of a method, the field
- *  initializers a constructor assigns first, and how messages name the member. */
+/** What `this` is while a member's body is lowered: the struct type; whether it is the
+ *  read-only first parameter of a method (`param`), the local a constructor builds from the
+ *  zero struct (`ctor`), or the local a method that changes its object copies its parameter
+ *  into and returns (`copy`); the field initializers a constructor assigns first; and how
+ *  messages name the member. */
 export interface Receiver {
   readonly type: ShaderType
-  readonly asLocal: boolean
+  readonly mode: 'param' | 'ctor' | 'copy'
   readonly fieldInits: readonly FieldInit[]
   readonly shown: string
 }
@@ -52,7 +60,14 @@ export interface ClassFunction {
   readonly shown: string
   readonly node: ts.MethodDeclaration | ts.ConstructorDeclaration | undefined
   readonly receiver: Receiver | undefined
+  /** A method that changes its object: it takes and returns the struct, and a call of it is
+   *  a statement that writes the receiver back. */
+  readonly mutates: boolean
 }
+
+/** The name the struct arrives under in a method that changes its object; the body works on
+ *  `self_`, a copy of it. */
+export const SELF_IN = 'self_in'
 
 /** The emitted name of a method or a static function: `Ray_at`. */
 export const methodFnName = (struct: string, member: string): string => `${struct}_${member}`
@@ -88,6 +103,83 @@ function namesConstructed(sourceFile: ts.SourceFile): Set<string> {
   return out
 }
 
+function unparen(e: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(e) ? unparen(e.expression) : e
+}
+
+/** Whether a write target (`this.x`, `this.xs[i].y`, `(this).z`) is rooted in `this`. */
+function rootedInThis(e: ts.Expression): boolean {
+  const n = unparen(e)
+  if (n.kind === ts.SyntaxKind.ThisKeyword) return true
+  if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) {
+    return rootedInThis(n.expression)
+  }
+  return false
+}
+
+/** Whether a method's body writes its object: an assignment or `++`/`--` rooted in `this`, or
+ *  a call of one of `mutating` (the class's methods already known to write) on `this`. */
+function writesThis(body: ts.Block, mutating: ReadonlySet<string>): boolean {
+  let found = false
+  const walk = (n: ts.Node): void => {
+    if (found) return
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      n.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      rootedInThis(n.left)
+    ) {
+      found = true
+      return
+    }
+    if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken ||
+        n.operator === ts.SyntaxKind.MinusMinusToken) &&
+      rootedInThis(n.operand)
+    ) {
+      found = true
+      return
+    }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      unparen(n.expression.expression).kind === ts.SyntaxKind.ThisKeyword &&
+      mutating.has(n.expression.name.text)
+    ) {
+      found = true
+      return
+    }
+    ts.forEachChild(n, walk)
+  }
+  walk(body)
+  return found
+}
+
+/** The methods of a class that change their object, to a fixpoint: one that writes a field
+ *  directly, and one that calls such a method on `this`. */
+function mutatingMethodsOf(methods: readonly ts.MethodDeclaration[]): Set<string> {
+  const out = new Set<string>()
+  const candidates = methods.filter(
+    (m) =>
+      m.body !== undefined &&
+      ts.isIdentifier(m.name) &&
+      !(m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword) ?? false),
+  )
+  for (;;) {
+    let grew = false
+    for (const m of candidates) {
+      const name = (m.name as ts.Identifier).text
+      if (out.has(name)) continue
+      if (writesThis(m.body!, out)) {
+        out.add(name)
+        grew = true
+      }
+    }
+    if (!grew) return out
+  }
+}
+
 /** The functions every class in `structs` contributes, with their signatures parsed and
  *  their bodies still empty: a method (`self` first), a static function, and a constructor for
  *  a class that declares one, has a field initializer, or is constructed with `new`. */
@@ -102,6 +194,7 @@ export function collectClassFunctions(
     const name = struct.decl.name
     const selfT = structT(name)
     const members = struct.members
+    const mutating = mutatingMethodsOf(members?.methods ?? [])
     for (const method of members?.methods ?? []) {
       if (!ts.isIdentifier(method.name)) continue
       const member = method.name.text
@@ -154,10 +247,14 @@ export function collectClassFunctions(
         undefined,
       )
       if (!ret) continue
+      // A method that changes its object takes and returns the struct, so its caller can write
+      // the object back; it has to return nothing itself. One that returns a value keeps its
+      // object read-only, and a write inside it is refused where it stands (statement.ts).
+      const copies = !isStatic && mutating.has(member) && typeKey(ret) === 'void'
       const stub: FuncDecl = {
         name: methodFnName(name, member),
-        params: isStatic ? params : [{ name: 'self_', type: selfT }, ...params],
-        ret,
+        params: isStatic ? params : [{ name: copies ? SELF_IN : 'self_', type: selfT }, ...params],
+        ret: copies ? selfT : ret,
         body: [],
       }
       ;(stub as { span?: SourceSpan }).span = spanOf(sourceFile, method)
@@ -168,7 +265,10 @@ export function collectClassFunctions(
         struct,
         shown,
         node: method,
-        receiver: isStatic ? undefined : { type: selfT, asLocal: false, fieldInits: [], shown },
+        receiver: isStatic
+          ? undefined
+          : { type: selfT, mode: copies ? 'copy' : 'param', fieldInits: [], shown },
+        mutates: copies,
       }
       registry.set(stub, cf)
       out.push(cf)
@@ -193,7 +293,8 @@ export function collectClassFunctions(
       struct,
       shown,
       node: ctor,
-      receiver: { type: selfT, asLocal: true, fieldInits, shown },
+      receiver: { type: selfT, mode: 'ctor', fieldInits, shown },
+      mutates: false,
     }
     registry.set(stub, cf)
     out.push(cf)
@@ -241,9 +342,11 @@ export function zeroExprOf(type: ShaderType, scope: LoweringScope): Expr | undef
   }
 }
 
-/** The statements a constructor starts with: `var self: T` at the zero struct, spelled out
- *  where {@link zeroExprOf} can so GLSL starts from zero too, then each field initializer
- *  assigned in declaration order. Defines `this` as that local. */
+/** The statements a member that builds its object starts with. A constructor: `var self_: T`
+ *  at the zero struct, spelled out where {@link zeroExprOf} can so GLSL starts from zero too,
+ *  then each field initializer assigned in declaration order. A method that changes its
+ *  object: `var self_ = self_in`, the copy the body works on and returns. Defines `this` as
+ *  that local either way. */
 export function ctorPrologue(
   receiver: Receiver,
   scope: LoweringScope,
@@ -257,6 +360,16 @@ export function ctorPrologue(
     mutable: true,
     irName: 'self_',
   })
+  if (receiver.mode === 'copy') {
+    return [
+      {
+        s: 'var',
+        name: irNameOf(self),
+        type: receiver.type,
+        init: { op: 'param', type: receiver.type, name: SELF_IN },
+      },
+    ]
+  }
   const zero = zeroExprOf(receiver.type, scope)
   const out: Stmt[] = [
     zero
@@ -397,5 +510,82 @@ export function lowerClassCall(
     )
     return undefined
   }
+  if (cf.mutates) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${shown}" changes its object and returns nothing; call it on its own line.`,
+    )
+    return undefined
+  }
   return lowerUserCall(node, decl!, sourceFile, scope, diagnostics, { shown, leading: [recv] })
+}
+
+/** A call statement of a method that changes its object, `r.advance(2.)`: the receiver is
+ *  lowered as a place and written back, `r = Ray_advance(r, 2.0)`. Returns the marker for any
+ *  other call statement, which takes the ordinary path. A receiver that is not a place a
+ *  function may write (a `const`, a parameter, a value that is dropped) is refused with the
+ *  fix. */
+export function lowerMutatingCall(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined | 'not-a-mutating-call' {
+  const callee = node.expression
+  if (!ts.isPropertyAccessExpression(callee)) return 'not-a-mutating-call'
+  const obj = callee.expression
+  const member = callee.name.text
+  // The receiver's type, read without reporting: a receiver that does not lower, or is not a
+  // struct, takes the ordinary path and gets its diagnostics there.
+  const peek = lowerExpression(obj, sourceFile, scope, [])
+  if (!peek || peek.type.kind !== 'struct') return 'not-a-mutating-call'
+  const name = peek.type.name
+  const decl = scope.resolveCallee(methodFnName(name, member))
+  const cf = decl === undefined ? undefined : classFunctionOf(decl)
+  if (cf === undefined || !cf.mutates) return 'not-a-mutating-call'
+  const shown = cf.shown
+  const bare = unparen(obj)
+  if (ts.isIdentifier(bare)) {
+    const b = scope.resolve(bare.text)
+    if (b !== undefined && b.kind === 'param') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${shown}" changes its object, and "${bare.text}" is a parameter, which a function ` +
+          `cannot write; copy it into a let first.`,
+      )
+      return undefined
+    }
+    if (b !== undefined && !b.mutable) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
+          `declare it with let.`,
+      )
+      return undefined
+    }
+  }
+  if (ts.isCallExpression(bare) || ts.isNewExpression(bare)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${shown}" changes its object, and this one is a value that is dropped; keep it in a ` +
+        `let and call the method on that.`,
+    )
+    return undefined
+  }
+  const target = lowerLValue(obj, sourceFile, scope, diagnostics)
+  if (!target) return undefined
+  const call = lowerUserCall(node, decl!, sourceFile, scope, diagnostics, {
+    shown,
+    leading: [target],
+  })
+  if (!call) return undefined
+  return { s: 'assign', target, expr: call }
 }
