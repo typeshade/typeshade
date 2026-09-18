@@ -275,7 +275,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 **Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
 which reserved those numbers while they were in flight and appended here in issue order. The
 sections took the next free numbers so the A-item branches did not all claim §9 and collide on
-merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, §23 is roadmap 0.2 item 4, §24 and §25 are item 5 (design #82), and §26 is design #86.
+merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, §23 is roadmap 0.2 item 4, §24 and §25 are item 5 (design #82), §26 is design #86, and §27 is item 7.
 
 ---
 
@@ -1501,6 +1501,80 @@ method under its class name.
 
 **Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
 backend diagnostic), and `return this` from a changing method (split the chain).
+
+---
+
+## 27. Boolean vectors
+
+A comparison of two vectors is componentwise and yields a vector of bools: `vec2b`, `vec3b`,
+`vec4b`, WGSL's `vec2<bool>` and GLSL's `bvec2`. Roadmap 0.2 item 7. Before this, `a < b` on
+two vectors compiled with no diagnostic as a scalar bool, which emitted `bool m = (a < b);` on
+GLSL ES 3.00 (not a program) and read as one scalar on the oracle; the same source now means
+what WGSL says it means on every target and on the CPU.
+
+```ts
+"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const a = vec3(uv, 0.5)
+  const b = vec3(0.5, 0.5, 0.5)
+  const m = a < b                       // vec3b
+  const c = select(a, b, m)             // per component: b where m is true, a elsewhere
+  if (all(m)) {
+    return vec4(1., 0., 0., 1.)
+  }
+  return vec4(c, f32(any(!m)))
+}
+```
+
+```wgsl
+let m = (a < b);
+let c = select(a, b, m);
+if (all(m)) { ... }
+return vec4<f32>(c, f32(any((m == vec3<bool>(false, false, false)))));
+```
+
+```glsl
+bvec3 m = lessThan(a, b);
+vec3 c = mix(a, b, m);
+if (all(m)) { ... }
+_ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
+```
+
+- **Comparisons.** `<`, `<=`, `>`, `>=`, `===` and `!==` on two vectors of one type yield a
+  vector of bools of that size. WGSL spells them as operators; GLSL ES 3.00 has no operator
+  form for a vector comparison, so the writer spells `lessThan`, `lessThanEqual`,
+  `greaterThan`, `greaterThanEqual`, `equal` and `notEqual`. `===` and `!==` on f32 vectors
+  round to f32 first on the CPU, as the scalar form does (X-GIS #13). An ordering (`<`, `<=`,
+  `>`, `>=`) on two bool vectors is TS8003 with the fix: `===`/`!==`, or `any`/`all`.
+- **`any(m)` and `all(m)`** reduce a vector of bools to one bool, the same builtins on both
+  targets. Over an array they stay the folds of §16, `any(xs, (x) => ...)`; a scalar or a
+  numeric vector is TS8003 naming both shapes.
+- **`select(f, t, m)`** with a vector-of-bools condition picks per component, and the arms are
+  vectors of the mask's size (TS8003 otherwise). WGSL's `select` takes the mask as is; GLSL ES
+  3.00 spells `mix(f, t, m)` for float vectors and a componentwise ternary through the vector's
+  constructor for integer and bool ones, since its `mix` with a `bvec` selector exists for
+  floats alone.
+- **`!m`** flips every component: lowered as the compare with a vector of falses that the
+  scalar `!` already is, `m == vec3<bool>(false, false, false)` on WGSL and `equal(m, bvec3(...))`
+  on GLSL.
+- **`vec2b(...)`, `vec3b(...)`, `vec4b(...)`** construct one from bools, a smaller bool vector
+  and bools, one bool broadcast, or a numeric vector of the same size (nonzero is true). A
+  component reads as a bool: `m.x`, `m.xy`.
+- **Not vectors of bools:** `&&` and `||` stay scalar (TS8003), as on both targets; combine
+  masks with `all`, `any` or a `select`. A bool vector has no arithmetic and is not
+  host-shareable, so it cannot be a binding's type.
+
+**On the CPU.** The oracle, the CPU codegen and the debug stepper share one comparison and one
+per-component pick (`compareValues`, `selectComponents` in `cpu-runtime.ts`), so a vector of
+bools is an array of booleans on all three and the differential tests hold them to one answer.
+
+**In the editor.** TypeScript types `a < b` as a plain `boolean`, whatever the operands, so the
+ambient lib takes a `bool` where it takes a bool vector (`any`, `all`, `select`'s condition) and
+the compiler decides. `vec3b` and its siblings are types and constructors there too; a component
+of a comparison's result is one thing the editor cannot type, so a mask read per component is
+built with the constructor, `vec3b(uv.x > 0.5, uv.x > 0.5, uv.y > 0.5)`, as the `bool-select`
+example does.
 
 ---
 

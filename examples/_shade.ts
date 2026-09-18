@@ -318,6 +318,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       'A `class Particle` whose `step`, `bounce` and `tick` assign to `this`, called on a storage element: each takes and returns the struct and the call statement writes the receiver back, `ps[gid.x] = Particle_tick(ps[gid.x], dt)` (§26). WGSL-only: a storage buffer and a compute stage have no WebGL2 form.',
     renderable: false,
   },
+  {
+    id: 'bool-select',
+    title: 'Boolean vectors',
+    blurb:
+      'A comparison of two vectors is a vector of bools (§27): `v.uv > vec2(0.5)` masks the screen, `select` picks a colour per channel from two palettes through it, and `all`/`any` of the mask tint the corners. WGSL spells the comparison as an operator, GLSL ES 3.00 as `lessThan`/`greaterThan` with `mix`; the gate runs both.',
+    renderable: true,
+  },
 ]
 
 /**
