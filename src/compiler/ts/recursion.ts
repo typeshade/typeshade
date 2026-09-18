@@ -80,13 +80,34 @@ interface Edge {
 /** Every call this function makes to another graph node, in source order, each paired with the
  *  call expression to anchor a diagnostic on. Nested functions are not a thing the surface has,
  *  so the whole body is one scope to walk. */
+/** The name a callee is written under when it is an identifier or a chain of them, joined the
+ *  way a namespace's members are flattened: `f`, `A.f` as `A_f`, `A.B.f` as `A_B_f`. */
+function dottedName(expr: ts.Expression): string | undefined {
+  const parts: string[] = []
+  let node: ts.Expression = expr
+  for (;;) {
+    if (ts.isIdentifier(node)) {
+      parts.unshift(node.text)
+      return parts.join('_')
+    }
+    if (!ts.isPropertyAccessExpression(node)) return undefined
+    parts.unshift(node.name.text)
+    node = node.expression
+  }
+}
+
 function edgesOf(fn: RecursionNode): Edge[] {
   const edges: Edge[] = []
   const body = fn.decl.body
   if (!body) return edges
   const walk = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      const to = fn.resolve(node.expression.text)
+    if (ts.isCallExpression(node)) {
+      // A bare call, and a call through a chain of identifiers, which is how a namespace's
+      // function is written (`A.f()`, `A.B.f()`) and how the module names it (`A_f`,
+      // `A_B_f`) (roadmap 0.3 item T4, #92). A call on a VALUE has a receiver that is not a
+      // chain of identifiers and is not in this graph; Tint still refuses its cycle.
+      const written = dottedName(node.expression)
+      const to = written === undefined ? undefined : fn.resolve(written)
       if (to !== undefined) edges.push({ to, node, sourceFile: fn.sourceFile })
     }
     ts.forEachChild(node, walk)

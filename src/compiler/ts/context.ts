@@ -95,6 +95,9 @@ export class LoweringScope {
    *  module constants named `Enum_Member`, so the only thing the lowering needs the name for
    *  is telling a mistyped member from an unknown identifier. */
   private readonly enums = new Set<string>()
+  /** The names the file declares as a `namespace` (roadmap 0.3 item T4, #92). */
+  private readonly namespaces = new Set<string>()
+  private namespacePrefix: string | undefined
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
   private atomicOperandDepth = 0
@@ -214,6 +217,18 @@ export class LoweringScope {
     return this.enums.has(name)
   }
 
+  setNamespaces(names: Iterable<string>): void {
+    this.namespaces.clear()
+    for (const n of names) this.namespaces.add(n)
+  }
+
+  /** Whether `name` is a `namespace` the file declares (roadmap 0.3 item T4, #92). Its members
+   *  are flattened to `Ns_member`, so this is what tells `Palette.warm()` from a call on a
+   *  value. */
+  isNamespace(name: string): boolean {
+    return this.namespaces.has(name)
+  }
+
   fieldType(structName: string, field: string): ShaderType | undefined {
     return this.structs.get(structName)?.fields.find((f) => f.name === field)?.type
   }
@@ -243,7 +258,46 @@ export class LoweringScope {
   }
 
   resolveCallee(name: string): FuncDecl | undefined {
-    return this.callees.get(name)
+    const direct = this.callees.get(name)
+    if (direct !== undefined) return direct
+    for (const qualified of this.qualifiedNames(name)) {
+      const hit = this.callees.get(qualified)
+      if (hit !== undefined) return hit
+    }
+    return undefined
+  }
+
+  /** The name being lowered inside `namespace A { namespace B { ... } }` is `A_B`, and a name
+   *  written inside that body may be a member of `A_B`, of `A`, or of the file (roadmap 0.3
+   *  item T4, #92). This yields the qualified spellings to try, innermost first, which is
+   *  TypeScript's own lookup rule for a namespace body. */
+  private *qualifiedNames(name: string): Generator<string> {
+    let prefix = this.namespacePrefix
+    while (prefix !== undefined && prefix !== '') {
+      yield `${prefix}_${name}`
+      const cut = prefix.lastIndexOf('_')
+      prefix = cut < 0 ? '' : prefix.slice(0, cut)
+    }
+  }
+
+  /** The namespace whose body is being lowered, flattened (`A_B`), or undefined at the top
+   *  level of the file. */
+  setNamespacePrefix(prefix: string | undefined): void {
+    this.namespacePrefix = prefix
+  }
+
+  namespaceOf(): string | undefined {
+    return this.namespacePrefix
+  }
+
+  /** `name` itself when the file declares it as a namespace, else the first
+   *  namespace-qualified spelling that it does: inside `namespace A`, `B` is `A_B`. */
+  qualifiedNamespace(name: string): string | undefined {
+    if (this.namespaces.has(name)) return name
+    for (const qualified of this.qualifiedNames(name)) {
+      if (this.namespaces.has(qualified)) return qualified
+    }
+    return undefined
   }
 
   calleeTable(): Map<string, FuncDecl> {
@@ -286,6 +340,15 @@ export class LoweringScope {
     for (let i = this.frames.length - 1; i >= 0; i--) {
       const hit = this.frames[i]!.get(name)
       if (hit) return hit
+    }
+    // Inside a namespace body a bare name may be one of its members, which the module holds
+    // under the flattened name (roadmap 0.3 item T4, #92). Tried after the frames, so a local
+    // and a parameter still win, which is TypeScript's order too.
+    for (const qualified of this.qualifiedNames(name)) {
+      for (let i = this.frames.length - 1; i >= 0; i--) {
+        const hit = this.frames[i]!.get(qualified)
+        if (hit) return hit
+      }
     }
     return undefined
   }

@@ -450,6 +450,35 @@ export function lowerNew(
  *  it names, with the receiver as the first argument for a method. Returns the marker when the
  *  receiver is not a struct value or a class name, so the caller's other member calls (the
  *  swizzles, the array folds) keep their turn. */
+/** The owner a call's receiver names, flattened: `A` for `A.f()`, `A_B` for `A.B.f()`, and
+ *  the namespace-qualified form when the body being lowered is inside one. Undefined when the
+ *  receiver is not a chain of identifiers, which is a call on a value. */
+function flattenedOwner(expr: ts.Expression, scope: LoweringScope): string | undefined {
+  const parts: string[] = []
+  let node: ts.Expression = expr
+  for (;;) {
+    if (ts.isIdentifier(node)) {
+      parts.unshift(node.text)
+      break
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      parts.unshift(node.name.text)
+      node = node.expression
+      continue
+    }
+    return undefined
+  }
+  const joined = parts.join('_')
+  // Inside a namespace body, a member namespace may be written by its short name: `B.two()`
+  // inside `namespace A` is `A_B_two`.
+  const qualified = scope.qualifiedNamespace(joined)
+  if (qualified !== undefined) return qualified
+  if (parts.length === 1) return joined
+  // A longer path that names no namespace is a field read on a value, which the receiver path
+  // below handles.
+  return undefined
+}
+
 export function lowerClassCall(
   node: ts.CallExpression,
   callee: ts.PropertyAccessExpression,
@@ -459,16 +488,27 @@ export function lowerClassCall(
 ): Expr | undefined | 'not-a-class-call' {
   const obj = callee.expression
   const member = callee.name.text
+  // `A.B.two()` names the namespace `A_B` (T4, #92): a chain of identifiers joins the way the
+  // members do. A single identifier is the class or namespace itself, as before.
+  const owner = flattenedOwner(obj, scope)
   if (
-    ts.isIdentifier(obj) &&
-    scope.resolve(obj.text) === undefined &&
-    scope.structByName(obj.text) !== undefined
+    owner !== undefined &&
+    scope.resolve(owner) === undefined &&
+    (scope.structByName(owner) !== undefined || scope.isNamespace(owner))
   ) {
-    const name = obj.text
+    const name = owner
     const shown = `${name}.${member}`
     const decl = scope.resolveCallee(methodFnName(name, member))
     const cf = decl === undefined ? undefined : classFunctionOf(decl)
     if (cf === undefined) {
+      // A namespace's member is a plain function of the module (T4, #92), so it has no
+      // ClassFunction record; the callee lookup above is the whole of its resolution.
+      if (scope.isNamespace(name)) {
+        if (decl !== undefined)
+          return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown })
+        pushDiag(diagnostics, sourceFile, callee, `"${name}" has no function "${member}".`)
+        return undefined
+      }
       pushDiag(diagnostics, sourceFile, callee, `"${name}" has no static function "${member}".`)
       return undefined
     }

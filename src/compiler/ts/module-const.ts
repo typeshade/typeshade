@@ -12,6 +12,7 @@ import { foldConstComponents, foldConstValue } from './loop-bound.js'
 import { isConstEvaluableMathFn } from './math-alias.js'
 import { lowerExpression } from './lower/expression.js'
 import { lowerArrayLiteral } from './lower/expression-array.js'
+import { eachNamespaceStatement, namespaceMemberName } from './namespaces.js'
 import { isResourceCall } from './bindings.js'
 import { isOverrideType } from './overrides.js'
 import { moduleVarSpace } from './module-vars.js'
@@ -154,7 +155,15 @@ export function collectModuleConsts(
   // carried by `valueExpr` alone and defines its binding WITHOUT a constValue — so without
   // this map a later `A / Z` could not see the zero component inside `Z`.
   const valueExprs = new Map<string, Expr>()
-  for (const stmt of sourceFile.statements) {
+  // Every statement of the file and of every namespace, with the prefix its members take
+  // (T4, #92): a const inside `namespace Palette` is `Palette_WARM`. The walk reports nothing
+  // itself; `lower/function.ts` owns the refusal of a statement a namespace cannot hold, so
+  // this one passes over what is not its own.
+  const sites: { stmt: ts.Statement; prefix: string }[] = []
+  eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
+    sites.push({ stmt, prefix })
+  })
+  for (const { stmt, prefix } of sites) {
     // A class's `static` fields are module constants named `Cls_Field` (T3, #92): ordinary
     // TypeScript for "a constant that belongs to this class", and the shape a developer
     // writes before reaching for a top-level const. Collected in source order with the
@@ -206,7 +215,16 @@ export function collectModuleConsts(
       // A `const` with a module-variable wrapper is module-vars.ts's to refuse, with the fix
       // (`let`), not this collector's to fold.
       if (moduleVarSpace(decl.type) !== undefined) continue
-      const c = lowerOne(decl, sourceFile, scope, diagnostics, valueExprs)
+      const c = lowerOne(
+        decl,
+        sourceFile,
+        scope,
+        diagnostics,
+        valueExprs,
+        prefix === '' || !ts.isIdentifier(decl.name)
+          ? undefined
+          : namespaceMemberName(prefix, decl.name.text),
+      )
       if (!c) continue
       out.push(c)
       if (c.valueExpr) valueExprs.set(c.name, c.valueExpr)
