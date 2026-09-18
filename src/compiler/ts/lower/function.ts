@@ -24,6 +24,7 @@ import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { checkRecursion } from '../recursion.js'
+import { collectClassFunctions, ctorPrologue, selfRef, type Receiver } from './class-methods.js'
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -61,8 +62,66 @@ export function lowerSourceFunctions(
     callees.set(stub.name, stub)
     ready.push(stmt)
   }
+  // A class's methods, static functions and constructor are functions of the module (#86),
+  // registered before any body is lowered so a call in either direction resolves. The emitted
+  // name is `Struct_member`; a top-level function of that name is a clash, said on both.
+  const classFns = collectClassFunctions(structs, sourceFile, diagnostics).filter((cf) => {
+    const taken = callees.get(cf.stub.name)
+    if (taken !== undefined) {
+      const at = cf.node ?? cf.struct.members?.node ?? sourceFile
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        at,
+        `"${cf.stub.name}" is both the function "${taken.name}" and the emitted name of ` +
+          `"${cf.shown}"; rename one of them.`,
+        TS_CODES.DUPLICATE_SYMBOL,
+      )
+      return false
+    }
+    callees.set(cf.stub.name, cf.stub)
+    return true
+  })
   const funcs: FuncDecl[] = []
-  const nodeByName = new Map<string, ts.FunctionDeclaration>()
+  const nodeByName = new Map<string, FunctionNode>()
+  for (const cf of classFns) {
+    if (cf.node !== undefined) {
+      fillFunctionBody(
+        cf.node,
+        cf.stub,
+        sourceFile,
+        diagnostics,
+        callees,
+        consts,
+        bindings,
+        structs,
+        symbols,
+        overrides,
+        vars,
+        cf.receiver,
+        cf.shown,
+      )
+      nodeByName.set(cf.stub.name, cf.node)
+    } else if (cf.receiver !== undefined) {
+      // A class with no constructor still answers `new P()`: the zero struct with its field
+      // initializers, and nothing else.
+      const scope = functionScope(
+        cf.stub,
+        callees,
+        consts,
+        bindings,
+        structs,
+        symbols,
+        overrides,
+        vars,
+      )
+      ;(cf.stub as { body: readonly Stmt[] }).body = [
+        ...ctorPrologue(cf.receiver, scope, sourceFile, diagnostics),
+        { s: 'return', expr: selfRef(cf.receiver.type) },
+      ]
+    }
+    funcs.push(cf.stub)
+  }
   for (const stmt of ready) {
     const stub = callees.get(stmt.name!.text)!
     fillFunctionBody(
@@ -83,14 +142,30 @@ export function lowerSourceFunctions(
   }
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
   // downstream of here was looking for one. In a single file a function is called by the name
-  // it is declared under, so the graph key and the resolver are both just `callees`.
+  // it is declared under, so the graph key and the resolver are both just `callees`. A method
+  // called through its object (`r.at(t)`) is not an identifier call and is not in this graph
+  // yet; Tint still refuses the cycle, as a backend diagnostic (#86).
   checkRecursion(
-    ready.map((stmt) => ({
-      name: stmt.name!.text,
-      decl: stmt,
-      sourceFile,
-      resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
-    })),
+    [
+      ...ready.map((stmt) => ({
+        name: stmt.name!.text,
+        decl: stmt,
+        sourceFile,
+        resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+      })),
+      ...classFns.flatMap((cf) =>
+        cf.node === undefined
+          ? []
+          : [
+              {
+                name: cf.stub.name,
+                decl: cf.node,
+                sourceFile,
+                resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+              },
+            ],
+      ),
+    ],
     diagnostics,
   )
   checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics)
@@ -147,7 +222,7 @@ function calleeNamesOf(body: readonly Stmt[]): Set<string> {
  *  until something calls it from the wrong stage. */
 function checkFragmentOnlyOps(
   funcs: readonly FuncDecl[],
-  nodeByName: ReadonlyMap<string, ts.FunctionDeclaration>,
+  nodeByName: ReadonlyMap<string, FunctionNode>,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
@@ -206,39 +281,25 @@ export function lowerFunctionDeclaration(
   return stub
 }
 
-export function parseSignature(
-  node: ts.FunctionDeclaration,
+/** The declarations a body is lowered from: a top-level function, a class method or a class
+ *  constructor (#86). All three carry `parameters`, an optional `type` and a `body`. */
+export type FunctionNode = ts.FunctionDeclaration | ts.MethodDeclaration | ts.ConstructorDeclaration
+
+/** The parameters of a signature, each with its type, `@builtin` and `@location`, checked
+ *  against `stage` when the function is an entry. Returns `undefined` after the first
+ *  parameter it cannot accept, having said why. `owner` names the function in messages;
+ *  `forbidSelf` refuses a parameter named `self_`, the name a method's object takes in the
+ *  emitted function (#86). */
+export function parseParams(
+  parameters: readonly ts.ParameterDeclaration[],
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-  structs: readonly CollectedStruct[] = [],
-): FuncDecl | undefined {
-  if (!node.name || !ts.isIdentifier(node.name)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'Function declaration must have a name.',
-      TS_CODES.FUNCTION_SHAPE,
-    )
-    return undefined
-  }
-  if (!node.body) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Function "${node.name.text}" needs a body (no ambient declarations).`,
-      TS_CODES.FUNCTION_SHAPE,
-    )
-    return undefined
-  }
-  const name = node.name.text
-  // Computed up front (rather than after the return type, as before) so the builtin/stage
-  // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
-  // know the entry stage they are validating against.
-  const stageInfo = parseStage(node, sourceFile, diagnostics)
+  structs: readonly CollectedStruct[],
+  stage: FuncDecl['stage'] | undefined,
+  opts: { readonly owner?: string; readonly forbidSelf?: boolean } = {},
+): FuncDecl['params'][number][] | undefined {
   const params: FuncDecl['params'][number][] = []
-  for (const p of node.parameters) {
+  for (const p of parameters) {
     for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d)
     if (!ts.isIdentifier(p.name)) {
       pushDiag(
@@ -270,6 +331,17 @@ export function parseSignature(
       )
       return undefined
     }
+    if (opts.forbidSelf && p.name.text === 'self_') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        p,
+        `"self_" is the name ${opts.owner ?? 'the method'} gives its object in the emitted ` +
+          `function; rename the parameter.`,
+        TS_CODES.CLASS_MEMBER,
+      )
+      return undefined
+    }
     const pType = mapTsTypeToShaderType(p.type, sourceFile, diagnostics)
     if (refuseAtomicDeclaration(pType, p.type ?? p, sourceFile, diagnostics, 'a parameter'))
       return undefined
@@ -294,28 +366,20 @@ export function parseSignature(
       )
       if (validName) {
         builtin = builtinArg.name
-        if (stageInfo.stage) {
+        if (stage) {
           checkBuiltinStage(
             diagnostics,
             sourceFile,
             builtinArg.argNode,
             builtinArg.name,
-            stageInfo.stage,
+            stage,
             'input',
           )
         }
       }
     }
-    if (stageInfo.stage && pType.kind === 'struct') {
-      checkStructBuiltinFields(
-        diagnostics,
-        sourceFile,
-        p,
-        pType.name,
-        structs,
-        stageInfo.stage,
-        'input',
-      )
+    if (stage && pType.kind === 'struct') {
+      checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input')
     }
     const location = numberDecorator(p, sourceFile, 'location')
     params.push({
@@ -325,18 +389,34 @@ export function parseSignature(
       ...(location !== undefined ? { location } : {}),
     })
   }
+  return params
+}
+
+/** The return type a signature declares: `void` for none, the mapped type otherwise, checked
+ *  against `stage` for an entry's output struct. A helper with no annotation gets the
+ *  "defaulting to void" warning at `node`; an entry does not, since its body decides. Returns
+ *  `undefined` after saying what it could not map. */
+export function parseReturnType(
+  typeNode: ts.TypeNode | undefined,
+  name: string,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  structs: readonly CollectedStruct[],
+  stage: FuncDecl['stage'] | undefined,
+): ShaderType | undefined {
   let ret: ShaderType = voidT
-  if (node.type) {
-    if (node.type.kind === ts.SyntaxKind.VoidKeyword) ret = voidT
+  if (typeNode) {
+    if (typeNode.kind === ts.SyntaxKind.VoidKeyword) ret = voidT
     else {
-      const mapped = mapTsTypeToShaderType(node.type, sourceFile, diagnostics)
-      if (refuseAtomicDeclaration(mapped, node.type, sourceFile, diagnostics, 'a return type'))
+      const mapped = mapTsTypeToShaderType(typeNode, sourceFile, diagnostics)
+      if (refuseAtomicDeclaration(mapped, typeNode, sourceFile, diagnostics, 'a return type'))
         return undefined
       if (!mapped) {
         pushDiag(
           diagnostics,
           sourceFile,
-          node.type,
+          typeNode,
           `Unsupported return type for "${name}".`,
           TS_CODES.UNKNOWN_TYPE,
         )
@@ -344,18 +424,18 @@ export function parseSignature(
       }
       ret = mapped
     }
-    if (stageInfo.stage && ret.kind === 'struct') {
+    if (stage && ret.kind === 'struct') {
       checkStructBuiltinFields(
         diagnostics,
         sourceFile,
-        node.type,
+        typeNode,
         ret.name,
         structs,
-        stageInfo.stage,
+        stage,
         'output',
       )
     }
-  } else if (!stageInfo.stage) {
+  } else if (!stage) {
     // Only a helper function gets this warning up front: an entry function's body has not been
     // lowered yet, so whether "no annotation" is actually a problem (it returns a value) is
     // decided in `fillFunctionBody`, which can also name the inferred type in the error.
@@ -369,6 +449,52 @@ export function parseSignature(
       ),
     )
   }
+  return ret
+}
+
+export function parseSignature(
+  node: ts.FunctionDeclaration,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  structs: readonly CollectedStruct[] = [],
+): FuncDecl | undefined {
+  if (!node.name || !ts.isIdentifier(node.name)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'Function declaration must have a name.',
+      TS_CODES.FUNCTION_SHAPE,
+    )
+    return undefined
+  }
+  if (!node.body) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Function "${node.name.text}" needs a body (no ambient declarations).`,
+      TS_CODES.FUNCTION_SHAPE,
+    )
+    return undefined
+  }
+  const name = node.name.text
+  // Computed up front (rather than after the return type, as before) so the builtin/stage
+  // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
+  // know the entry stage they are validating against.
+  const stageInfo = parseStage(node, sourceFile, diagnostics)
+  const params = parseParams(node.parameters, sourceFile, diagnostics, structs, stageInfo.stage)
+  if (!params) return undefined
+  const ret = parseReturnType(
+    node.type,
+    name,
+    node,
+    sourceFile,
+    diagnostics,
+    structs,
+    stageInfo.stage,
+  )
+  if (!ret) return undefined
   const decl: FuncDecl = { name, params, ret, body: [] }
   // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
   // function's span covers its `@fragment` line; `nameSpan` is just the identifier, for a
@@ -405,19 +531,19 @@ export interface ScopedConst {
   readonly valueExpr?: Expr
 }
 
-export function fillFunctionBody(
-  node: ts.FunctionDeclaration,
+/** The scope a function body is lowered in: the module's consts, bindings, overrides and
+ *  variables defined once each, the struct table, the stage and the return type. Shared by
+ *  {@link fillFunctionBody} and the constructor a class without one gets (#86). */
+export function functionScope(
   stub: FuncDecl,
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[],
   callees: Map<string, FuncDecl>,
-  consts: readonly ScopedConst[] = [],
-  bindings: readonly BindingDecl[] = [],
-  structs: readonly CollectedStruct[] = [],
-  symbols?: DeclaredSymbolSink,
-  overrides: readonly OverrideDecl[] = [],
-  vars: readonly ModuleVarDecl[] = [],
-): void {
+  consts: readonly ScopedConst[],
+  bindings: readonly BindingDecl[],
+  structs: readonly CollectedStruct[],
+  symbols: DeclaredSymbolSink | undefined,
+  overrides: readonly OverrideDecl[],
+  vars: readonly ModuleVarDecl[],
+): LoweringScope {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
   scope.setStage(stub.stage)
@@ -466,16 +592,59 @@ export function fillFunctionBody(
   for (const v of vars) {
     defineOnce({ kind: 'modvar', name: v.name, type: v.type, mutable: true, space: v.space })
   }
+  return scope
+}
+
+/** Lower `node`'s body into `stub`. For a class method or constructor (#86) `receiver` says
+ *  what `this` is: the struct-typed first parameter of a method, read as `self_`, or the local
+ *  `self_` a constructor starts from the zero struct and returns. */
+export function fillFunctionBody(
+  node: FunctionNode,
+  stub: FuncDecl,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  callees: Map<string, FuncDecl>,
+  consts: readonly ScopedConst[] = [],
+  bindings: readonly BindingDecl[] = [],
+  structs: readonly CollectedStruct[] = [],
+  symbols?: DeclaredSymbolSink,
+  overrides: readonly OverrideDecl[] = [],
+  vars: readonly ModuleVarDecl[] = [],
+  receiver?: Receiver,
+  shown?: string,
+): void {
+  const scope = functionScope(stub, callees, consts, bindings, structs, symbols, overrides, vars)
+  // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
+  // and the receiver read the same name. A user parameter called `self_` was refused at the
+  // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.
+  const prologue: Stmt[] = []
+  if (receiver !== undefined) {
+    if (receiver.asLocal) {
+      prologue.push(...ctorPrologue(receiver, scope, sourceFile, diagnostics))
+    } else {
+      scope.define({
+        kind: 'param',
+        name: 'this',
+        type: receiver.type,
+        mutable: false,
+        irName: 'self_',
+      })
+    }
+  }
+  // A method's stub carries `self_` ahead of the declared parameters; a constructor's carries
+  // exactly the declared ones.
+  const offset = stub.params.length - node.parameters.length
   // A parameter that repeats a module const, a binding or an override is refused the way a
   // `let` at the top of the body is (TS8023), on the parameter, instead of the scope's throw
   // escaping `compileTsSource` (#68). The parameter is not defined, so the body's uses of the
   // name resolve to the module-level declaration; the module is refused anyway.
   stub.params.forEach((p, i) => {
+    if (i < offset) return
     if (scope.hasInCurrent(p.name)) {
       pushDiag(
         diagnostics,
         sourceFile,
-        node.parameters[i]?.name ?? node,
+        node.parameters[i - offset]?.name ?? node,
         `Parameter "${p.name}" repeats the name of a module-level declaration; rename one of them.`,
         TS_CODES.DUPLICATE_SYMBOL,
       )
@@ -483,23 +652,31 @@ export function fillFunctionBody(
     }
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })
   })
-  if (node.name !== undefined) {
+  if (node.name !== undefined && ts.isIdentifier(node.name)) {
     recordDeclaration(symbols, sourceFile, node.name, {
-      name: stub.name,
+      name: shown ?? stub.name,
       kind: 'function',
       type: stub.ret,
-      params: stub.params.map((p) => ({ name: p.name, type: p.type })),
+      params: stub.params.slice(offset).map((p) => ({ name: p.name, type: p.type })),
     })
   }
   // The stub's parameters and the declaration's are one to one and in order: `parseSignature`
   // pushes one entry per parameter and bails out on the first it cannot accept, so it returns a
   // stub only when it accepted them all.
   stub.params.forEach((p, i) => {
-    const nameNode = node.parameters[i]?.name
+    if (i < offset) return
+    const nameNode = node.parameters[i - offset]?.name
     if (nameNode === undefined || !ts.isIdentifier(nameNode)) return
     recordDeclaration(symbols, sourceFile, nameNode, { name: p.name, kind: 'param', type: p.type })
   })
-  const body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
+  let body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
+  if (receiver?.asLocal) {
+    // A constructor returns the struct it built: a bare `return` inside it returns `self`, and
+    // one more `return self` closes the body.
+    const self = selfRef(receiver.type)
+    for (const r of collectReturns(body)) if (!r.expr) (r as { expr?: Expr }).expr = self
+    body = [...prologue, ...body, { s: 'return', expr: self }]
+  }
   ;(stub as { body: readonly Stmt[] }).body = body
   if (typeKey(stub.ret) === 'void') {
     // An entry function (`stub.stage` set) with no return type annotation was left at the
@@ -513,7 +690,7 @@ export function fillFunctionBody(
         pushDiag(
           diagnostics,
           sourceFile,
-          node.name!,
+          node.name ?? node,
           `Entry function "${stub.name}" returns a value (inferred type ${typeKey(valued.expr.type)}) but has no return type annotation; add ": ${typeKey(valued.expr.type)}" to the signature.`,
           TS_CODES.RETURN_SHAPE,
         )
@@ -526,7 +703,7 @@ export function fillFunctionBody(
       pushDiag(
         diagnostics,
         sourceFile,
-        node.name!,
+        node.name ?? node,
         `Function "${stub.name}" returns ${typeKey(stub.ret)} but has a bare "return".`,
         TS_CODES.RETURN_SHAPE,
       )
@@ -544,8 +721,8 @@ export function fillFunctionBody(
       pushDiag(
         diagnostics,
         sourceFile,
-        node.name!,
-        `Function "${stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
+        node.name ?? node,
+        `Function "${shown ?? stub.name}" return type mismatch: declared ${typeKey(stub.ret)}, got ${typeKey(r.expr.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       )
     }

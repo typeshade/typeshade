@@ -304,6 +304,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       '64 invocations sum 64 values into one through workgroup memory, with `workgroupBarrier()` ordering the rounds (§25). On the CPU it runs through `dispatch`, which holds every invocation of a workgroup at each barrier; a workgroup whose invocations disagree about a barrier is refused with the line and the counts. WGSL-only: WebGL2 has no compute stage.',
     renderable: false,
   },
+  {
+    id: 'ray-class',
+    title: 'Class methods',
+    blurb:
+      'A `class Ray` with a constructor, a method and a static function, and a `class Sphere` whose `hit(ray)` method returns the distance along the ray (§26). Each method is a function whose first parameter is the struct, so both targets carry it as written; a fullscreen triangle shades the sphere by its normal.',
+    renderable: true,
+  },
 ]
 
 /**

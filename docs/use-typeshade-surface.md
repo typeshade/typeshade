@@ -107,15 +107,14 @@ an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(t
 
 Forbidden on these classes:
 
-- `new Camera()` as a resource
+- `new Camera()` as a resource (a `new` on a class with a constructor builds a value, §26)
 - `extends` (`TS8010`: the base's fields would silently vanish from the layout)
-- methods that close over `declare` resources
-- `@compute` / `@vertex` / `@fragment` methods
-- constructors, `this` as a pipeline
+- `@compute` / `@vertex` / `@fragment` methods (an entry is a top-level function)
 - no fields at all — a struct with an empty field list has no WGSL form
 - a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
 
-Pure methods that only read `this` fields may land later as free functions. Not in the first class slice.
+Methods, a constructor and static functions are §26: each is a function of the module, and a
+method reads `this` as its first parameter.
 
 A struct is collected only when something **uses** it: a `declare` binding's `uniform<T>` /
 `storage<T>` argument, a parameter, return or local annotation, or a field of another struct
@@ -221,7 +220,7 @@ Same Expr / Stmt / FuncDecl / BindingDecl / StructDecl as the EDSL.
 5. **`@vertex` / `@fragment`** + explicit builtin and `VsIn` locations.
 6. Reflect JSON + optional `.d.ts` for `declare` names.
 
-Do not start Execution Graph or class methods before 2–4 are green.
+Do not start Execution Graph or class methods before 2–4 are green. (Class methods landed as §26.)
 
 ---
 
@@ -239,6 +238,7 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, inside an `if` or `switch` body, or used as a value (§25) |
+| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A getter or setter, a static field, an arrow-function field, a decorator on a method, `this` outside a method or assigned inside one, a method called on the class or a static function on a value, a member the class does not have (§26) |
 
 ---
 
@@ -275,7 +275,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 **Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
 which reserved those numbers while they were in flight and appended here in issue order. The
 sections took the next free numbers so the A-item branches did not all claim §9 and collide on
-merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, §23 is roadmap 0.2 item 4, and §24 and §25 are item 5 (design #82).
+merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, §23 is roadmap 0.2 item 4, §24 and §25 are item 5 (design #82), and §26 is design #86.
 
 ---
 
@@ -1363,6 +1363,103 @@ the values past it would be ones no workgroup produces.
 **Also in this step.** A call that returns nothing can no longer initialize a local:
 `const x = store(1)` emitted `let x = store(1u);`, which Tint refuses, with no diagnostic; it is
 TS8003 now with "call it on its own line".
+
+---
+
+## 26. Classes with methods, a constructor and static functions
+
+A class stays a struct (§2): its fields are the struct's fields, with their decorators and
+layout, and the object literal still builds one. What a class may now also declare are
+functions of the module: methods, a constructor and static functions. Design
+[#86](https://github.com/typeshade/typeshade/issues/86); this is its first step.
+
+```ts
+"use typeshade"
+class Ray {
+  origin: vec3
+  dir: vec3
+  hits: u32 = 0
+  constructor(origin: vec3, dir: vec3) {
+    this.origin = origin
+    this.dir = normalize(dir)
+  }
+  at(t: f32): vec3 {
+    return this.origin + this.dir * t
+  }
+  static up(): vec3 {
+    return vec3(0., 1., 0.)
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const r = new Ray(vec3(uv, 0.), vec3(0., 0., 2.))
+  return vec4(r.at(1.) + Ray.up(), f32(r.hits))
+}
+```
+
+**What each one lowers to.** A method is a function whose first parameter is the struct, and
+`this` reads as that parameter: `Ray_at(self_: Ray, t: f32) -> vec3<f32>`, with `this.origin`
+spelled `self_.origin`. The call `r.at(1.)` is `Ray_at(r, 1.0)`. A static function is a
+function with no receiver, `Ray_up()`, called on the class: `Ray.up()`. The constructor is
+`Ray_new(origin, dir) -> Ray`: it starts from the zero struct, assigns each field initializer
+in declaration order (`hits: u32 = 0`), runs the body with `this` as that local, and returns
+it; `new Ray(a, b)` is a call of it. A class with no constructor still answers `new P()` with
+the zero struct and its field initializers, spelled out on both targets since GLSL ES 3.00
+leaves a bare declaration undefined. WGSL and GLSL ES 3.00 both take a struct parameter by
+value and both spell a struct constructor, so both targets carry every one of these as
+written; the IR is the functions and structs it already had, so the oracle, the CPU codegen
+and the debug stepper run them unchanged.
+
+```wgsl
+fn Ray_at(self_: Ray, t: f32) -> vec3<f32> {
+  return (self_.origin + (self_.dir * t));
+}
+fn Ray_up() -> vec3<f32> {
+  return vec3<f32>(0.0, 1.0, 0.0);
+}
+fn Ray_new(origin: vec3<f32>, dir: vec3<f32>) -> Ray {
+  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
+  var self_: Ray = Ray(_cse0, _cse0, 0u);
+  self_.hits = 0u;
+  self_.origin = origin;
+  self_.dir = normalize(dir);
+  return self_;
+}
+```
+
+The constructor starts from the zero struct spelled out, since GLSL ES 3.00 leaves a bare
+declaration undefined where WGSL zeroes it, and a field the body never assigns has to read the
+same on both. A struct with a matrix field falls back to the bare `var self_: M;` (the zero of a
+matrix is not spelled yet), which is WGSL's zero and GLSL's undefined value, as any local
+declared without an initializer is today.
+
+**Names.** The emitted name is `Struct_member`. A top-level function of that name is TS8023,
+naming both. `self_` is the name the object takes in the emitted function (`self` itself is
+on WGSL's reserved-word list, as `this` is); a parameter called `self_` is refused.
+
+**`this`.** Inside a method `this` reads the object and nothing writes it: a method that
+assigns to `this` is TS8035 with the reason, since the copy-back that lets a method change
+its object is the next step of #86. Until then build the changed value and return it, or
+assign the field in the constructor, where `this` is the local being built. `this` in a
+static function or a top-level function is TS8035.
+
+**Access modifiers** `private`, `protected`, `public` and `readonly` on a field or a method are
+accepted and mean nothing to the shader; TypeScript enforces them.
+
+**Refused, with the fix (TS8035).** A getter or a setter (write a method), a static field (a
+module `const`), a field holding an arrow function (a method), a decorator on a method (an
+entry is a top-level function), an `async`, generator or `abstract` method, two constructors
+or two methods of one name (no overloads), a call of a method on the class or of a static
+function on a value, a member the class does not have, and a field called as a method. A
+class with only static functions and no fields is not a struct (TS8010): write them as
+functions. `extends` stays refused (§2). A `new` on anything but a class the file declares
+stays TS8013.
+
+**Not yet.** A method that changes its object (step 2 of #86: `r.advance(t)` lowered to
+`r = Ray_advance(r, t)` on an assignable receiver), a cycle through method calls in the
+recursion check (Tint still refuses it, as a backend diagnostic), and the language service's
+hover spelling a method as `Ray.at(t: f32): vec3` (step 3).
 
 ---
 

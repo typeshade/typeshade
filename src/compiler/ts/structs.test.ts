@@ -28,8 +28,12 @@ describe('data class + annotations', () => {
       }
       export function f(): f32 { return 0.; }
     `)
-    expect(r.diagnostics.some((d) => /@std140/.test(d.message) && /not applied/.test(d.message))).toBe(true)
-    expect(r.diagnostics.some((d) => /@align/.test(d.message) && /not applied/.test(d.message))).toBe(true)
+    expect(
+      r.diagnostics.some((d) => /@std140/.test(d.message) && /not applied/.test(d.message)),
+    ).toBe(true)
+    expect(
+      r.diagnostics.some((d) => /@align/.test(d.message) && /not applied/.test(d.message)),
+    ).toBe(true)
   })
 
   it('keeps @location and rejects unused @align on fields', () => {
@@ -41,7 +45,9 @@ describe('data class + annotations', () => {
       }
       export function f(): f32 { return 0.; }
     `)
-    expect(r.diagnostics.some((d) => /@align/.test(d.message) && /not applied/.test(d.message))).toBe(true)
+    expect(
+      r.diagnostics.some((d) => /@align/.test(d.message) && /not applied/.test(d.message)),
+    ).toBe(true)
     const fields = r.structs[0]!.decl.fields
     expect(fields[0]).toMatchObject({ name: 'position', location: 0 })
   })
@@ -58,15 +64,18 @@ describe('data class + annotations', () => {
     expect(r.diagnostics.some((d) => /does not belong on a data class/.test(d.message))).toBe(true)
   })
 
-  it('rejects methods on a data class', () => {
+  it('a method on a class is a function whose first parameter is the struct (#86)', () => {
+    // Before #86 this was "Data class cannot have methods"; class-methods.test.ts has the rest.
     const r = compileTsSource(`
       "use typeshade";
       class Camera {
         pos: vec3;
         forward(): vec3 { return this.pos; }
       }
-      export function f(): f32 { return 0.; }
+      export function f(c: Camera): f32 { return c.forward().x; }
     `)
-    expect(r.diagnostics.some((d) => /cannot have methods/.test(d.message))).toBe(true)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('fn Camera_forward(self_: Camera) -> vec3<f32> {')
+    expect(r.wgsl).toContain('return Camera_forward(c).x;')
   })
 })

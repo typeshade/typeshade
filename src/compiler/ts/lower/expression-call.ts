@@ -17,6 +17,7 @@ import { foldNumericLit, retargetIntLit, retargetIntLitCtx } from '../lit-coerce
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
 import { lowerAtomicCall } from './atomics.js'
+import { lowerClassCall } from './class-methods.js'
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../../core/intrinsics.js'
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js'
 import {
@@ -90,21 +91,27 @@ export function lowerCall(
       }
     } else if (callee.name.text === 'swizzle') {
       return lowerSwizzleCall(node, callee.expression, sourceFile, scope, diagnostics)
-    } else if (JS_ARRAY_METHODS.has(callee.name.text)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `JS Array method ".${callee.name.text}" is not a shader op. Use sum/min/any/all/zip/fill.`,
-        TS_CODES.UNSUPPORTED,
-      )
-      return undefined
     } else {
+      // A method of a class the file declares, or a static function on the class (#86); a
+      // receiver that is not a struct falls through to the refusals below.
+      const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics)
+      if (viaClass !== 'not-a-class-call') return viaClass
+      if (JS_ARRAY_METHODS.has(callee.name.text)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `JS Array method ".${callee.name.text}" is not a shader op. Use sum/min/any/all/zip/fill.`,
+          TS_CODES.UNSUPPORTED,
+        )
+        return undefined
+      }
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        'Method calls are not supported. Use free functions.',
+        'Method calls are not supported here: a method belongs to a class the file declares ' +
+          '(#86); anything else is a free function.',
         TS_CODES.UNSUPPORTED,
       )
       return undefined
