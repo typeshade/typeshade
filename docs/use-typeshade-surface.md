@@ -273,7 +273,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 **Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
 which reserved those numbers while they were in flight and appended here in issue order. The
 sections took the next free numbers so the A-item branches did not all claim §9 and collide on
-merge. §19 is issue #47, §20 is issue #46, §21 is issue #38 and §22 is issues #71, #68 and #20.
+merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, and §23 is roadmap 0.2 item 4.
 
 ---
 
@@ -1138,6 +1138,69 @@ export function fs(@location(0) uv: vec2): vec4 {
   return vec4(f32(bits) / 255., x, 0., 1.)
 }
 ```
+
+---
+
+## 23. Atomics
+
+Many invocations write one location at once in a histogram, a counter, a reduction. A plain
+`bins[i] = bins[i] + 1` loses counts, because two invocations read the same old value. WGSL's
+answer is the atomic type and its builtins, and this surface carries them (roadmap 0.2 item 4).
+
+**The type.** `atomic<u32>` and `atomic<i32>` are locations in storage memory, never values. They
+are declared inside a `storage<...>` binding with `let`: an array of them, a field of a storage
+struct, or a bare binding.
+
+```ts
+"use typeshade"
+class Summary {
+  count: atomic<u32>
+  maxBin: atomic<i32>
+}
+declare const src: storage<array<f32>>
+declare let bins: storage<array<atomic<u32>>>
+declare let summary: storage<Summary>
+
+@compute([64, 1, 1])
+export function histogram(@builtin("global_invocation_id") gid: vec3u): void {
+  if (gid.x >= arrayLength(src)) {
+    return
+  }
+  const bin = u32(clamp(src[gid.x], 0., 0.999) * 8.)
+  atomicAdd(bins[bin], 1)
+  const before = atomicAdd(summary.count, 1)
+  atomicMax(summary.maxBin, i32(bin))
+}
+```
+
+**The builtins.** The location is written as the plain expression, and the WGSL writer spells
+the pointer: `atomicAdd(bins[bin], 1)` emits `atomicAdd(&bins[bin], 1u)`. `atomicLoad(x)` reads
+the location; `atomicStore(x, v)` writes it and returns nothing; `atomicAdd`, `atomicSub`,
+`atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor` and `atomicExchange` each take a
+value, update the location as one indivisible step, and return the value it held before. A bare
+integer literal in the value position takes the atomic's own integer type, and integer
+arithmetic wraps at 32 bits. A result nobody binds is dropped behind WGSL's phony assignment, as
+§19 drops any builtin's.
+
+**What is refused, and told the fix.** An atomic is never read or assigned directly: `bins[i]`
+outside an atomic builtin, as a value or as an assignment target, is TS8003 naming
+`atomicLoad`, `atomicStore` and `atomicAdd`. Every atomic builtin needs read_write access, so a
+`declare const` binding is TS8005 with "declare it with let". A value of another type
+(`atomicAdd(bins[i], 1.5)`) is TS8003, a location that is not atomic is TS8003, the wrong number
+of arguments is TS8019. An atomic declared as a local, a parameter or a return type, or inside a
+`uniform<...>`, is TS8099 with where it may live; `atomic<f32>` is TS8002.
+
+**The optimizer** treats every atomic builtin as an effect: two `atomicAdd` calls on one
+location are both kept, an `atomicLoad` is never shared across a store to the same binding, and
+a helper that only calls `atomicAdd` on a binding counts as writing that binding in the effect
+table of §19. **The CPU oracle** runs invocations one after another, so its atomics are plain
+reads and writes in that order; the oracle, the CPU codegen and the debug stepper agree on every
+kernel in the tests, and a host reads the counts back from the arrays it bound. **GLSL ES 3.00**
+has no storage buffers and no atomics, so a module carrying one emits WGSL alone, like §20's; the
+`atomic-histogram` example is registered WGSL-only and the compile gate runs it on Tint.
+
+A function you declare with an atomic builtin's name keeps winning the call, the way the names
+§10 added do, so no program that compiled before this section compiles differently.
 
 ---
 

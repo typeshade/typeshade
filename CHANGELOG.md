@@ -13,6 +13,18 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Atomics** (roadmap 0.2 item 4): `atomic<u32>` and `atomic<i32>` inside a `let` storage
+  binding (an array element, a storage struct field, a bare binding), and the ten builtins
+  `atomicLoad`, `atomicStore`, `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`,
+  `atomicOr`, `atomicXor` and `atomicExchange`. The location is written as the plain expression
+  and WGSL receives the pointer, `atomicAdd(&bins[i], 1u)`; a read-modify-write returns the
+  value the location held before. A plain read or assignment of an atomic, a `const` binding,
+  a wrong value type or an atomic declared outside storage is refused with the fix. The
+  optimizer treats every atomic builtin as an effect and the effect table counts an atomic
+  write as a write to its binding; the CPU oracle, codegen and debugger run atomics as
+  in-order reads and writes. GLSL ES 3.00 has none, so such a module emits WGSL alone; the
+  `atomic-histogram` example is WGSL-only. The IR gains the `atomic` type kind, `atomicU32T`,
+  `atomicI32T`, `ATOMIC_INTRINSICS` and `isAtomicIntrinsic` on the public barrel.
 - **`arrayLength`** (#46): `xs.length` on a runtime-sized storage array, and the explicit
   `arrayLength(xs)`, read the bound buffer's length at run time as WGSL `arrayLength(&xs)`, a
   `u32`. The operand is the binding or a trailing array field of a storage struct; an element,
