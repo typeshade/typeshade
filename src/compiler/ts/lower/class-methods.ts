@@ -704,14 +704,51 @@ export function lowerNew(
 ): Expr | undefined {
   if (!ts.isIdentifier(node.expression)) return undefined
   const name = node.expression.text
-  if (scope.structByName(name) === undefined) return undefined
-  const decl = scope.resolveCallee(ctorFnName(name))
-  if (decl === undefined || classFunctionOf(decl)?.kind !== 'ctor') {
+  const struct = scope.structByName(name)
+  if (struct === undefined) return undefined
+  // A class whose members are all static is a namespace of functions and is not emitted as a
+  // struct at all (T3, #92), so a constructor for it would return a type the module never
+  // declares. Before this it emitted `fn U_new() -> U` with no `struct U` anywhere, which
+  // Tint refuses, and said nothing.
+  if (struct.fields.length === 0) {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `"${name}" has no constructor here; build it as an object literal, { field: value }.`,
+      `"${name}" declares only static members, so it is a group of functions and there is no ` +
+        `value of it to build. Call "${name}.f(...)" directly.`,
+    )
+    return undefined
+  }
+  const decl = scope.resolveCallee(ctorFnName(name))
+  const cf = decl === undefined ? undefined : classFunctionOf(decl)
+  if (decl === undefined || cf?.kind !== 'ctor') {
+    // An abstract class has no constructor function of its own (T5, #92) and the semantic pass
+    // already said why a `new` on one is refused; repeating it here in weaker words sends the
+    // author to the second message.
+    if (!scope.isAbstractStruct(name)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${name}" has no constructor here; build it as an object literal, { field: value }.`,
+      )
+    }
+    return undefined
+  }
+  // A class with no constructor of its own answers `new P()` with the zero struct and its
+  // field initializers, which is TypeScript's implicit constructor; it takes no arguments, and
+  // TypeScript says so too. The arity message alone left an author guessing which of the two
+  // ways to write it they wanted.
+  if (cf.node === undefined && (node.arguments?.length ?? 0) > 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${name}" declares no constructor, so "new ${name}()" takes no arguments, as it does in ` +
+        `TypeScript. Declare a constructor to pass values, or write the fields: ` +
+        `{ ${struct.fields.map((f) => `${f.name}: ...`).join(', ')} }.`,
+      TS_CODES.ARITY_MISMATCH,
     )
     return undefined
   }

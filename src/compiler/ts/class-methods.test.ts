@@ -253,10 +253,13 @@ describe('class members: what is refused, and what the fix is', () => {
   })
 
   it('new on anything but a class the file declares', () => {
+    // The message leads with what DOES work. Until the DX note on #86 it opened with "`new`
+    // allocates a JS object", which reads as a ban on `new` itself and sent a reader looking
+    // for a workaround they did not need: a class the file declares is built with `new`.
     expect(
       errorsOf(`"use typeshade"\nfunction g(): f32 { const d = new Date(); return 1. }${TAIL}`)[0],
     ).toBe(
-      `${TS_CODES.HOST_STMT} \`new\` allocates a JS object. Use struct types and vec constructors, or a class the file declares.`,
+      `${TS_CODES.HOST_STMT} A class this file declares is built with "new", and "Date" is not one of them. "new" on anything else allocates a JS object, which a shader has no heap for.`,
     )
     // A class of statics alone was refused here until roadmap 0.3 item T3 (#92) made it the
     // namespace of functions it is; `class-statics.test.ts` pins it, and an INSTANCE member on

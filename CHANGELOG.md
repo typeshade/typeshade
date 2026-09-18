@@ -13,6 +13,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **`new` says why, and a class of statics alone no longer emits a broken constructor** (§26,
+  [#86](https://github.com/typeshade/typeshade/issues/86)): a `new` on anything but a declared
+  class said "`new` allocates a JS object" first, which reads as a ban on `new` itself and sent
+  a reader looking for a workaround they did not need. A class the file declares is built with
+  `new`, and always was. Each refusal now names its own reason: an interface or a type alias
+  carries no constructor, an `abstract` class has no instance to build, an unknown name is a
+  host allocation, and `new P(1., 2.)` on a class with no constructor names both ways to write
+  it. The abstract case is reported once rather than twice. `new U()` on a class whose members
+  are all static emitted `fn U_new() -> U` with no `struct U` anywhere, which Tint refuses, and
+  reported nothing; it is refused with the reason.
 - **A local function is a function of the module** (§14, roadmap 0.3 item T7,
   [#92](https://github.com/typeshade/typeshade/issues/92)): `const f = (x: f32): f32 => x * 2.`
   was "TS8099 Unsupported expression" and the call after it "Unknown function". Neither target

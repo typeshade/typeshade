@@ -104,6 +104,7 @@ export class LoweringScope {
   private superMethodMap: ReadonlyMap<string, string> | undefined
   private localFns: ReadonlyMap<string, string> | undefined
   private baseNames: ReadonlyMap<string, readonly string[]> = new Map()
+  private abstractNames: ReadonlySet<string> = new Set()
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
   /** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). Its members are
@@ -283,6 +284,17 @@ export class LoweringScope {
    *  name must not hold a derived value. */
   setBases(bases: ReadonlyMap<string, readonly string[]>): void {
     this.baseNames = bases
+  }
+
+  /** The classes declared `abstract`, which are bases and never values. The semantic pass
+   *  already refuses a `new` on one, with the reason; this is what keeps the lowering from
+   *  saying it a second time in weaker words. */
+  setAbstractStructs(names: ReadonlySet<string>): void {
+    this.abstractNames = names
+  }
+
+  isAbstractStruct(name: string): boolean {
+    return this.abstractNames.has(name)
   }
 
   /** True when `derived` extends `base`, at any depth. */
