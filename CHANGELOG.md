@@ -13,6 +13,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Classes with methods, a constructor and static functions** (§26, design #86 step 1): a
+  method is a function whose first parameter is the struct, `Ray_at(self_: Ray, t: f32)`, with
+  `this` read as `self_` (WGSL reserves `self`) and `r.at(1.)` called as `Ray_at(r, 1.0)`; a static function is
+  `Ray_up()`, called as `Ray.up()`; the constructor is `Ray_new(...)`, which starts from the zero
+  struct, assigns the field initializers, runs the body and returns it, and `new Ray(a, b)`
+  calls it. A class with no constructor answers `new P()` with the zero struct, spelled out on
+  both targets. Both targets carry all of it as written and the IR is unchanged, so the three
+  CPU paths run it as functions. A method that assigns to `this` is refused with the reason
+  until step 2. TS8035 `CLASS_MEMBER` names the member shapes and the calls the rules refuse.
+  The `ray-class` example renders a sphere through `Ray` and `Sphere` methods on both targets.
 - **A plain top-level `let` is a per-invocation variable** (§24, from the review of #82):
   `let seed: u32 = 7` emits `var<private> seed: u32 = 7u;`, a plain global on GLSL ES 3.00, and
   starts over at every host-facing call on the CPU, exactly as `perInvocation<u32>` does. That
