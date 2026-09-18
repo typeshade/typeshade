@@ -43,6 +43,7 @@ import {
   refsLocal,
   isWorthHoisting,
 } from './expr-utils.js'
+import { bodyHasEffectfulCall, fnWrites, type FnWrites } from '../effects.js'
 
 /** Where one occurrence of a subexpression lives: the placement BLOCK (a path of
  *  `${stmtIndex}#${childBlockId}` steps from the fn body) and the index, within that
@@ -105,13 +106,16 @@ function placementOf(list: readonly Occurrence[]): { bp: readonly string[]; idx:
   return { bp, idx }
 }
 
-function cseFn(f: FuncDecl): FuncDecl {
+function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
   if (bodyHasRaw(f.body)) return f
+  // A call that writes a binding is not shareable: hoisting `store(i)` to one temp would
+  // make two writes one (issue #47).
+  if (bodyHasEffectfulCall(f.body, writes)) return f
   // Non-invariant names: function locals AND any mutated name (incl. a read_write
   // binding written in this fn). A read of a mutated name is not safely shareable.
   const noHoist = new Set<string>()
   collectLocals(f.body, noHoist)
-  collectMutatedRoots(f.body, noHoist)
+  collectMutatedRoots(f.body, noHoist, writes)
 
   // Count occurrences of every compound, input-only subexpression — and record WHERE
   // each one occurs, so the temp can be bound at their common block instead of fn top.
@@ -241,5 +245,6 @@ function cseFn(f: FuncDecl): FuncDecl {
  * @returns A new module with the rewritten functions; `m` is not modified.
  */
 export function cse(m: ModuleDecl): ModuleDecl {
-  return { ...m, funcs: m.funcs.map(cseFn) }
+  const writes = fnWrites(m)
+  return { ...m, funcs: m.funcs.map((f) => cseFn(f, writes)) }
 }

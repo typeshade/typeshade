@@ -372,6 +372,8 @@ function stmtSig(s: Stmt, c: Canon, locals: ReadonlyMap<string, string>): string
       return `assign${s.bop} ${E(s.target)} = ${E(s.expr)}`
     case 'return':
       return `return${s.expr === undefined ? '' : ' ' + E(s.expr)}`
+    case 'call':
+      return `call ${E(s.expr)}`
     case 'if':
       return `if arms=${s.arms.length} else=${s.elseBody ? 'y' : 'n'} conds=[${s.arms.map((a) => E(a.cond)).join(' ')}]`
     case 'for':

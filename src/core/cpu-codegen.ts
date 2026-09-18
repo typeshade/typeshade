@@ -415,6 +415,9 @@ function emitStmt(s: Stmt, S: FnCtx): string {
     case 'discard':
       // The interpreter's discard signal propagates out of the fn as `undefined`.
       return `return undefined;`
+    case 'call':
+      // Evaluated for its effect; the value is dropped, as the GPU drops it.
+      return `${emitExpr(s.expr, S)};`
     case 'if': {
       const parts: string[] = []
       s.arms.forEach((arm, i) => {

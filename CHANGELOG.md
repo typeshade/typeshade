@@ -13,6 +13,13 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **A call as a statement** in `"use typeshade"` (#47): `store(gid.x)` with its result dropped
+  lowers to the IR's new `call` statement, which WGSL spells bare for a user function and
+  behind `_ = ` for a value-returning builtin, GLSL ES 3.00 spells bare, and the CPU oracle,
+  codegen and debugger run for its effect. The optimizer gains an effect table
+  (`passes/effects.ts`): a call to a function that writes a binding is never deduplicated,
+  hoisted or dropped, and a read of that binding is never shared across it. The EDSL gets
+  `Call(node)` for the same statement.
 - The **`"use typeshade"` compiler surface**: a TypeScript source file opts in with the
   file-level directive and is compiled by `compile()` into the shared IR, then emitted as WGSL
   and GLSL ES 3.00. `compile`, `compileTsSource`, `isTypeshadeSource` and the directive helpers

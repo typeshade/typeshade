@@ -7,6 +7,7 @@
 import type { Expr, Stmt, ShaderType } from '../../ir/index.js'
 import { typeKey } from '../../ir/index.js'
 import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js'
+import { calleeWritesOf, type FnWrites } from '../effects.js'
 
 // The IR walkers moved to `core/ir/visit.ts` — `core/ir` cannot import from
 // `passes/opt`, and the builder / fp64 / GLSL backends need them too (ADR-0013:
@@ -324,21 +325,28 @@ export function isWorthHoisting(e: Expr, loadRoots?: ReadonlySet<string>): boole
  *  A read of a mutated name — including a `read_write` storage binding — is NOT
  *  invariant, so CSE / LICM must exclude any expr that references one (else they
  *  hoist a changing value and rewrite the store target into an immutable temp). */
-export function collectMutatedRoots(body: readonly Stmt[], out: Set<string>): void {
+export function collectMutatedRoots(
+  body: readonly Stmt[],
+  out: Set<string>,
+  writes?: FnWrites,
+): void {
   for (const s of body) {
+    // With the module's effect table, a call inside this statement mutates whatever its
+    // callee writes (`store(i)` writes `dst`), whether the call stands alone or feeds a `let`.
+    if (writes !== undefined) calleeWritesOf(s, writes, out)
     if (s.s === 'assign' || s.s === 'assignOp') {
       const r = targetRoot(s.target)
       if (r !== undefined) out.add(r)
     } else if (s.s === 'if') {
-      for (const a of s.arms) collectMutatedRoots(a.body, out)
-      if (s.elseBody) collectMutatedRoots(s.elseBody, out)
+      for (const a of s.arms) collectMutatedRoots(a.body, out, writes)
+      if (s.elseBody) collectMutatedRoots(s.elseBody, out, writes)
     } else if (s.s === 'for') {
-      collectMutatedRoots([s.init], out)
-      collectMutatedRoots([s.update], out)
-      collectMutatedRoots(s.body, out)
+      collectMutatedRoots([s.init], out, writes)
+      collectMutatedRoots([s.update], out, writes)
+      collectMutatedRoots(s.body, out, writes)
     } else if (s.s === 'switch') {
-      for (const c of s.cases) collectMutatedRoots(c.body, out)
-      if (s.defaultBody) collectMutatedRoots(s.defaultBody, out)
+      for (const c of s.cases) collectMutatedRoots(c.body, out, writes)
+      if (s.defaultBody) collectMutatedRoots(s.defaultBody, out, writes)
     }
   }
 }

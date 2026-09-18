@@ -341,7 +341,10 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         env.set(s.name, bindValue(evalExpr(s.expr, env, ctx), s.expr.type))
         break
       case 'var':
-        env.set(s.name, s.init ? bindValue(evalExpr(s.init, env, ctx), s.type) : zeroOf(s.type, ctx.structs))
+        env.set(
+          s.name,
+          s.init ? bindValue(evalExpr(s.init, env, ctx), s.type) : zeroOf(s.type, ctx.structs),
+        )
         break
       case 'assign':
         // Through bindValue, as `let`/`var` are: an aggregate is copied into the target
@@ -368,6 +371,10 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         return { kind: 'continue' }
       case 'discard':
         return { kind: 'discard' }
+      case 'call':
+        // Evaluated for its effect (a binding write inside the callee); the value is dropped.
+        evalExpr(s.expr, env, ctx)
+        break
       case 'if': {
         let taken = false
         for (const arm of s.arms) {

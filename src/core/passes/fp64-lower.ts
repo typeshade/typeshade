@@ -675,6 +675,8 @@ function lowerStmt(s: Stmt, ctx: LowerCtx): Stmt {
       }
       return { ...s, target: walk(s.target), expr: walk(s.expr) }
     }
+    case 'call':
+      return { ...s, expr: walk(s.expr) }
     case 'assignOp': {
       // `x += v` on a vec64 target — rewrite to `x = df64_vN_add(x, v)`.
       if (isVec64(s.target.type)) {
@@ -807,6 +809,8 @@ function stmtHasF64(s: Stmt): boolean {
       return exprHasF64(s.target) || exprHasF64(s.expr)
     case 'return':
       return s.expr !== undefined && exprHasF64(s.expr)
+    case 'call':
+      return exprHasF64(s.expr)
     case 'if':
       return (
         s.arms.some((a) => exprHasF64(a.cond) || a.body.some(stmtHasF64)) ||

@@ -59,6 +59,9 @@ function eachStmt(s: Stmt, onStmt: (s: Stmt) => void, onExpr: (e: Expr) => void)
     case 'return':
       if (s.expr) eachExpr(s.expr, onExpr)
       break
+    case 'call':
+      eachExpr(s.expr, onExpr)
+      break
     case 'if':
       for (const arm of s.arms) {
         eachExpr(arm.cond, onExpr)

@@ -14,6 +14,7 @@
 import type { Expr, ModuleDecl } from '../../ir/index.js'
 import { mapModuleExprsPerFunc } from './ir-transform.js'
 import { collectLets, collectMutatedRoots } from './expr-utils.js'
+import { fnWrites } from '../effects.js'
 
 /** A "copy" RHS = a leaf reference with no computation: param / varref / constref. */
 function isCopySource(e: Expr): e is Extract<Expr, { op: 'param' | 'varref' | 'constref' }> {
@@ -24,7 +25,7 @@ function isCopySource(e: Expr): e is Extract<Expr, { op: 'param' | 'varref' | 'c
 export function copyProp(m: ModuleDecl): ModuleDecl {
   return mapModuleExprsPerFunc(m, (f) => {
     const mutated = new Set<string>()
-    collectMutatedRoots(f.body, mutated)
+    collectMutatedRoots(f.body, mutated, fnWrites(m))
     const copies = collectLets(
       f.body,
       (name, e): e is Extract<Expr, { op: 'param' | 'varref' | 'constref' }> =>

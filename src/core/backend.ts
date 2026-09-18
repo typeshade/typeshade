@@ -231,6 +231,12 @@ export interface Backend {
    *  backend emits a comment carrying the tag; the GLSL backend throws
    *  {@link UnsupportedFeatureError}. */
   placeholderStmt(tag: string): string
+  /** Optional. The prefix a value-dropping `call` statement takes when the callee is a
+   *  value-returning builtin. WGSL treats every such builtin as `@must_use`, so a bare
+   *  `max(a, b);` is rejected and the phony assignment `_ = max(a, b);` is required, while a
+   *  user function's dropped result is accepted bare. GLSL ES 3.00 takes the bare call in
+   *  every case, so the GLSL backend omits this. */
+  readonly phonyAssign?: string
 
   // ── Module-level declaration surface ──
   // The module assembly walk (validate → assertCaps → autoVars → lowerModule →

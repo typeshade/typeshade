@@ -118,6 +118,10 @@ function preludeBlocker(
         return 'nested-return'
       case 'discard':
         return 'discard'
+      case 'call':
+        // A call kept for its effect: lifting it ahead of the `if` or `switch` that guarded
+        // the call site would run the effect on a path that never called (issue #47).
+        return 'effect-call'
       case 'raw':
         return 'raw'
       case 'break':
@@ -167,6 +171,8 @@ function stmtOwnExprCallsName(s: Stmt, name: string): boolean {
       return exprCallsName(s.target, name) || exprCallsName(s.expr, name)
     case 'return':
       return s.expr !== undefined && exprCallsName(s.expr, name)
+    case 'call':
+      return exprCallsName(s.expr, name)
     default:
       return false
   }
@@ -343,6 +349,9 @@ export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number
         case 'return':
           s2 = s.expr !== undefined ? { ...s, expr: L(s.expr) } : s
           break
+        case 'call':
+          s2 = { ...s, expr: L(s.expr) }
+          break
         case 'if':
           s2 = {
             ...s,
@@ -419,6 +428,8 @@ function renameStmt(s: Stmt, localRen: ReadonlyMap<string, string>, rw: (e: Expr
       return { ...s, target: rw(s.target), expr: rw(s.expr) }
     case 'assignOp':
       return { ...s, target: rw(s.target), expr: rw(s.expr) }
+    case 'call':
+      return { ...s, expr: rw(s.expr) }
     case 'if':
       return {
         ...s,

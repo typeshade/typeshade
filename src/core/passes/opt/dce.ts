@@ -1,7 +1,9 @@
 // ═══ Shader DSL — dead-code elimination pass (Optimization context) ═══
 //
-// Drops a function-local `let`/`var` whose name is never read. Conservative +
-// safe (exprs are pure, so an unread binding has no observable effect):
+// Drops a function-local `let`/`var` whose name is never read, and a `call` statement
+// whose call has no effect. Conservative + safe: exprs are pure EXCEPT for a call to a
+// function that writes a binding (passes/effects.ts), so an unread binding has no observable
+// effect, and a `call` statement is kept exactly when its call has one (issue #47):
 //   • "used" = any varref/param occurrence ANYWHERE in the fn (incl. an assign
 //     target — so an assigned-but-unread var is kept, not dropped). One pass; a
 //     binding dead only via another dead binding survives (iterate later).
@@ -12,6 +14,7 @@
 //     (deferred to the resource model, P4).
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { exprHasEffect, fnWrites, type FnWrites } from '../effects.js'
 
 function collectExprNames(e: Expr, out: Set<string>): void {
   switch (e.op) {
@@ -70,6 +73,9 @@ function collectStmtNames(s: Stmt, out: Set<string>): void {
     case 'return':
       if (s.expr !== undefined) collectExprNames(s.expr, out)
       break
+    case 'call':
+      collectExprNames(s.expr, out)
+      break
     case 'if':
       for (const arm of s.arms) {
         collectExprNames(arm.cond, out)
@@ -109,23 +115,26 @@ export function bodyHasRaw(body: readonly Stmt[]): boolean {
   return false
 }
 
-function dropDead(body: readonly Stmt[], used: ReadonlySet<string>): Stmt[] {
+function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWrites): Stmt[] {
   const out: Stmt[] = []
   for (const s of body) {
     if ((s.s === 'let' || s.s === 'var') && !used.has(s.name)) continue // dead local
+    // A call kept for its effect stays; one with none (`max(a, b);`, or a call a pass folded
+    // to a value) computes and drops, which is nothing.
+    if (s.s === 'call' && !exprHasEffect(s.expr, writes)) continue
     if (s.s === 'if') {
       out.push({
         ...s,
-        arms: s.arms.map((a) => ({ cond: a.cond, body: dropDead(a.body, used) })),
-        elseBody: s.elseBody ? dropDead(s.elseBody, used) : undefined,
+        arms: s.arms.map((a) => ({ cond: a.cond, body: dropDead(a.body, used, writes) })),
+        elseBody: s.elseBody ? dropDead(s.elseBody, used, writes) : undefined,
       })
     } else if (s.s === 'for') {
-      out.push({ ...s, body: dropDead(s.body, used) })
+      out.push({ ...s, body: dropDead(s.body, used, writes) })
     } else if (s.s === 'switch') {
       out.push({
         ...s,
-        cases: s.cases.map((c) => ({ value: c.value, body: dropDead(c.body, used) })),
-        defaultBody: s.defaultBody ? dropDead(s.defaultBody, used) : undefined,
+        cases: s.cases.map((c) => ({ value: c.value, body: dropDead(c.body, used, writes) })),
+        defaultBody: s.defaultBody ? dropDead(s.defaultBody, used, writes) : undefined,
       })
     } else {
       out.push(s)
@@ -134,14 +143,16 @@ function dropDead(body: readonly Stmt[], used: ReadonlySet<string>): Stmt[] {
   return out
 }
 
-function dceFn(f: FuncDecl): FuncDecl {
+function dceFn(f: FuncDecl, writes: FnWrites): FuncDecl {
   if (bodyHasRaw(f.body)) return f
   const used = new Set<string>()
   for (const s of f.body) collectStmtNames(s, used)
-  return { ...f, body: dropDead(f.body, used) }
+  return { ...f, body: dropDead(f.body, used, writes) }
 }
 
-/** Remove dead function-local bindings throughout a module. Pure (module -> module). */
+/** Remove dead function-local bindings, and effect-free `call` statements, throughout a
+ *  module. Pure (module -> module). */
 export function dce(m: ModuleDecl): ModuleDecl {
-  return { ...m, funcs: m.funcs.map(dceFn) }
+  const writes = fnWrites(m)
+  return { ...m, funcs: m.funcs.map((f) => dceFn(f, writes)) }
 }

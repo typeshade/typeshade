@@ -132,6 +132,9 @@ function walkStmt(s: Stmt, c: { calls: number; arith: number }): void {
       walkExpr(s.target, c)
       walkExpr(s.expr, c)
       break
+    case 'call':
+      walkExpr(s.expr, c)
+      break
     case 'return':
       if (s.expr !== undefined) walkExpr(s.expr, c)
       break

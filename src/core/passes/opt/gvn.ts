@@ -45,6 +45,7 @@ import {
   isWorthHoisting,
   mapStmtValue,
 } from './expr-utils.js'
+import { bodyHasEffectfulCall, fnWrites, type FnWrites } from '../effects.js'
 
 /** The varref / param root names an expression reads. */
 function rootsOf(e: Expr): Set<string> {
@@ -348,11 +349,14 @@ function recurseBlocks(
   }
 }
 
-function gvnFn(f: FuncDecl, loadRoots: ReadonlySet<string>): FuncDecl {
+function gvnFn(f: FuncDecl, loadRoots: ReadonlySet<string>, writes: FnWrites): FuncDecl {
   if (bodyHasRaw(f.body)) return f // raw WGSL is opaque
+  // A call that writes a binding is not a value to number: two `store(i)` are two writes,
+  // and a read between them sees the first (issue #47).
+  if (bodyHasEffectfulCall(f.body, writes)) return f
   const localSet = new Set<string>()
   collectLocals(f.body, localSet)
-  collectMutatedRoots(f.body, localSet)
+  collectMutatedRoots(f.body, localSet, writes)
   // Seed past any existing `_gvN` so a second fixpoint pass can't redeclare `_gv0`.
   let base = 0
   for (const n of localSet) {
@@ -366,5 +370,6 @@ function gvnFn(f: FuncDecl, loadRoots: ReadonlySet<string>): FuncDecl {
 export function gvn(m: ModuleDecl): ModuleDecl {
   // Indexing one of these is a memory load, not free addressing (X-GIS #1886).
   const loadRoots = new Set(m.bindings.map((b) => b.name))
-  return { ...m, funcs: m.funcs.map((f) => gvnFn(f, loadRoots)) }
+  const writes = fnWrites(m)
+  return { ...m, funcs: m.funcs.map((f) => gvnFn(f, loadRoots, writes)) }
 }

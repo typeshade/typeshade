@@ -252,6 +252,12 @@ export class Builder {
   discard(): void {
     this.push({ s: 'discard' })
   }
+  /** Push a call as a statement, kept for its effect and nothing else: `b.call(store(i))`.
+   *  The value is dropped; a user `fn`'s result is emitted bare, a value-returning builtin's
+   *  behind WGSL's `_ = ` phony assignment. */
+  call(node: ReadonlyNode): void {
+    this.push({ s: 'call', expr: node.expr })
+  }
   /** Push a placeholder statement carrying `tag`. A host that post-processes the module
    *  can walk the body and replace each tagged placeholder with statements of its own. A
    *  placeholder left in place emits as the comment `// __placeholder: <tag>`. */
@@ -1748,6 +1754,18 @@ export const Break = (): void => currentBuilder().break()
  *  ```
  */
 export const Discard = (): void => currentBuilder().discard()
+/** Push a call as a statement onto the innermost scope, kept for its effect and nothing else.
+ *  A `fn` whose body writes a storage binding is called this way when its result is not
+ *  wanted; without it the returned node is a discarded expression and nothing is emitted.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  Call(store(gid.x))
+ *  ```
+ */
+export const Call = (node: ReadonlyNode): void => currentBuilder().call(node)
 
 /** Author `if (cond) { body }` over the innermost active scope. Chain `.elif(c, () => …)` and
  *  `.else(() => …)` on the returned {@link IfChain}. A native `return` inside the body

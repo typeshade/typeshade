@@ -86,6 +86,24 @@ export interface PortableKernelViolations {
   readonly violations: readonly string[]
 }
 
+/** True iff `body`, nested blocks included, holds a `call` statement (a call kept for its
+ *  effect), which the tier's single-store shape has no place for. */
+function bodyHasCallStmt(body: readonly Stmt[]): boolean {
+  for (const s of body) {
+    if (s.s === 'call') return true
+    if (s.s === 'if') {
+      if (s.arms.some((a) => bodyHasCallStmt(a.body))) return true
+      if (s.elseBody && bodyHasCallStmt(s.elseBody)) return true
+    } else if (s.s === 'for') {
+      if (bodyHasCallStmt(s.body)) return true
+    } else if (s.s === 'switch') {
+      if (s.cases.some((c) => bodyHasCallStmt(c.body))) return true
+      if (s.defaultBody && bodyHasCallStmt(s.defaultBody)) return true
+    }
+  }
+  return false
+}
+
 /** Every write to `name` in `body`, recursing into control flow. A compound `assignOp`
  *  counts as a write: it is a read-modify-write of the output, not the tier's single store,
  *  and counting it is what makes the store check reject it rather than silently miss it. */
@@ -169,6 +187,9 @@ function usesGidBeyondX(body: readonly Stmt[], gid: string): boolean {
           break
         case 'return':
           if (s.expr) walkE(s.expr)
+          break
+        case 'call':
+          walkE(s.expr)
           break
         case 'if':
           for (const a of s.arms) {
@@ -320,11 +341,17 @@ export function analyzePortableKernel(
     )
   }
 
-  // ── no raw text anywhere the entry can reach ──
+  // ── no raw text, and no call kept for its effect, anywhere the entry can reach ──
   for (const f of reachableFns(m, entry)) {
     if (bodyHasRaw(f.body))
       violations.push(
         `fn '${f.name}', reachable from the portable compute entry '${entry.name}', contains a \`raw\` statement — raw text is per-target and opaque to this analyzer, so it contradicts the portability claim; express the code in the DSL, or drop \`portable\` and keep the kernel WebGPU-only`,
+      )
+    // The tier's one store is a plain assignment in the entry; a call statement is a write
+    // the analyzer would have to follow into the callee, so it is refused rather than guessed.
+    if (bodyHasCallStmt(f.body))
+      violations.push(
+        `fn '${f.name}', reachable from the portable compute entry '${entry.name}', calls a function as a statement — the portable tier's single store is a plain \`out[gid.x] = …\` written in the entry itself, so inline the call's work into that store, or drop \`portable\` and keep the kernel WebGPU-only`,
       )
   }
 

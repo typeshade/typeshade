@@ -5,7 +5,7 @@ import ts from 'typescript'
 import { lowerStatements } from './statement.js'
 import { LoweringScope } from '../context.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { f32T, i32T, boolT, typeKey } from '../../../core/ir/types.js'
+import { f32T, i32T, boolT, typeKey, u32T, voidT } from '../../../core/ir/types.js'
 import type { Stmt } from '../../../core/ir/nodes.js'
 import { stripSpans } from '../../../core/testing/strip-spans.js'
 
@@ -40,6 +40,39 @@ function lower(
   const stmts = lowerStatements(statements, sourceFile, scope, diagnostics)
   return { stmts, diagnostics, scope }
 }
+
+describe('a call as a statement (#47)', () => {
+  const store = { name: 'store', params: [{ name: 'i', type: u32T }], ret: voidT, body: [] }
+
+  it('lowers a call to a declared void function to the call statement', () => {
+    const { stmts, diagnostics } = lower('const x: u32 = 1;\nstore(x);', (s) =>
+      s.defineCallee(store),
+    )
+    expect(diagnostics).toEqual([])
+    expect(stmts).toHaveLength(2)
+    const call = stripSpans(stmts[1])
+    expect(call.s).toBe('call')
+    if (call.s !== 'call' || call.expr.op !== 'call') throw new Error('expected a call statement')
+    expect(call.expr.fn).toBe('store')
+    expect(typeKey(call.expr.type)).toBe('void')
+    expect(call.expr.args.map((a) => a.op)).toEqual(['varref'])
+  })
+
+  it('lets a value-returning builtin stand alone, as TypeScript does', () => {
+    const { stmts, diagnostics } = lower('max(1., 2.);')
+    expect(diagnostics).toEqual([])
+    const call = stripSpans(stmts[0])
+    expect(call.s === 'call' && call.expr.op === 'call' && call.expr.fn).toBe('max')
+  })
+
+  it('refuses a constructed value standing alone', () => {
+    const { stmts, diagnostics } = lower('vec3(1., 2., 3.);')
+    expect(stmts).toEqual([])
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]!.code).toBe('TS8099')
+    expect(diagnostics[0]!.message).toContain('builds a value and drops it')
+  })
+})
 
 describe('Phase 4 - statement lowering', () => {
   it('lowers const x = 0. to let with f32 lit', () => {

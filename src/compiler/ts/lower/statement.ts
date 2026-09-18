@@ -10,6 +10,7 @@ import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
+import { lowerCall } from './expression-call.js'
 import { lowerArrayLiteral } from './expression-array.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -375,6 +376,28 @@ function lowerExpressionStatement(
   // identifier is looked up as a value and reported as unknown.
   if (ts.isIdentifier(expr) && expr.text === 'discard' && !scope.resolve('discard')) {
     return { s: 'discard' }
+  }
+  // `store(gid.x);` — a call whose value is dropped, kept for its effect (#47). It lowers
+  // through the same path a call in an expression takes, so the callee, arity and argument
+  // rules are the ones every call gets; only the statement form is new. A value-returning
+  // builtin may stand alone too (`max(a, b);` is legal TypeScript), and the optimizer drops
+  // it as the nothing it computes. What may not stand alone is a value that is not a call at
+  // all: a vector constructor, a `select`, an array fold. Those build and drop, and TypeShade
+  // says so rather than emitting a statement neither target has a use for.
+  if (ts.isCallExpression(expr)) {
+    const call = lowerCall(expr, sourceFile, scope, diagnostics)
+    if (!call) return undefined
+    if (call.op !== 'call') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${truncate(node.getText(sourceFile))}" builds a value and drops it. Only a function call may stand alone as a statement; assign the value or remove the line.`,
+        TS_CODES.UNSUPPORTED,
+      )
+      return undefined
+    }
+    return { s: 'call', expr: call }
   }
   if (ts.isPrefixUnaryExpression(expr) || ts.isPostfixUnaryExpression(expr)) {
     return lowerUpdate(expr, sourceFile, scope, diagnostics)

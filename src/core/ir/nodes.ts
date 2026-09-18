@@ -260,6 +260,21 @@ export type Stmt =
   | { readonly s: 'break'; readonly span?: SourceSpan }
   | { readonly s: 'continue'; readonly span?: SourceSpan }
   | { readonly s: 'discard'; readonly span?: SourceSpan }
+  | {
+      /** A call kept for its effect and nothing else: `store(gid.x);` today, and the
+       *  `workgroupBarrier();`, `textureStore(...)` and `atomicAdd(...)` family it makes a place
+       *  for. `expr` is the `call` the front end lowered; an op other than `call` reaches here
+       *  only through a pass that folded one, and both emitters still spell it. WGSL takes a
+       *  user function's dropped result bare and needs `_ = ` before a value-returning builtin;
+       *  GLSL ES 3.00 takes the bare call in every case; the CPU backends evaluate it for its
+       *  effect. A pass that assumes expressions are pure must treat this statement as the
+       *  one place an effect is kept on purpose (see `passes/effects.ts`). */
+      readonly s: 'call'
+      readonly expr: Expr
+      /** Where this statement came from in its authored `"use typeshade"` source; absent on
+       *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
+      readonly span?: SourceSpan
+    }
   // Phase 2.5 US-007 — composer-swap marker. The polygon DSL module
   // (shaders/polygon.ts) lays down a placeholder Stmt at each
   // variant-injection site (`fill-return` / `stroke-return`); the
