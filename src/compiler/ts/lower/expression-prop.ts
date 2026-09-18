@@ -5,6 +5,8 @@ import { f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js'
+import { staticConstName } from '../module-const.js'
+import { methodFnName } from './class-methods.js'
 import { parseSwizzle } from '../swizzle.js'
 import { numericMismatch } from '../numeric.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
@@ -154,6 +156,30 @@ export function lowerPropertyAccess(
       sourceFile,
       node,
       `"Math.${prop}" is not a TypeShade alias.`,
+      TS_CODES.UNKNOWN_NAME,
+    )
+    return undefined
+  }
+  // `K.PI` on a class name: a static field is the module constant `K_PI` the collector made
+  // of it (roadmap 0.3 item T3, #92). Read before the receiver is lowered, because a class
+  // name is a type and not a value, so lowering it would report an unknown identifier.
+  if (
+    ts.isIdentifier(obj) &&
+    scope.resolve(obj.text) === undefined &&
+    scope.structByName(obj.text) !== undefined
+  ) {
+    const binding = scope.resolve(staticConstName(obj.text, prop))
+    if (binding?.kind === 'module') {
+      return { op: 'constref', type: binding.type, name: binding.name }
+    }
+    const asFunction = scope.resolveCallee(methodFnName(obj.text, prop)) !== undefined
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      asFunction
+        ? `"${obj.text}.${prop}" is a function; call it: ${obj.text}.${prop}(...).`
+        : `"${obj.text}" has no static field "${prop}".`,
       TS_CODES.UNKNOWN_NAME,
     )
     return undefined

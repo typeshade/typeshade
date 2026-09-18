@@ -7,6 +7,7 @@ import { compileTsSource, type CompileTsSourceResult } from '../compiler/ts/sour
 import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js'
 import { TS_CODES } from '../compiler/ts/codes.js'
 import { makeDiagnostic } from '../compiler/ts/diagnostic.js'
+import { emittedStructDecls } from '../compiler/ts/structs.js'
 import {
   fromCompilerDiagnostic,
   getTypeScriptDiagnostics,
@@ -352,7 +353,7 @@ export function createTypeshadeLanguageServiceWith(
       if (!hasError) {
         const moduleDecl = {
           consts: [...analysis.consts],
-          structs: analysis.structs.map((s) => s.decl),
+          structs: emittedStructDecls(analysis.structs),
           bindings: [...analysis.bindings],
           funcs: [...analysis.funcs],
           vars: [...analysis.vars],

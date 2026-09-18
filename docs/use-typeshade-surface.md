@@ -1573,6 +1573,32 @@ backend diagnostic), and `return this` from a changing method (split the chain).
 
 ---
 
+**A class whose members are all static is a namespace of functions** (roadmap 0.3 item T3,
+[#92](https://github.com/typeshade/typeshade/issues/92)). The utility class needs no fields,
+and WGSL has no empty struct, so it carries none:
+
+```ts
+class Util {
+  static half(x: f32): f32 {
+    return x * 0.5
+  }
+  static quarter(x: f32): f32 {
+    return Util.half(Util.half(x))
+  }
+}
+```
+
+emits `fn Util_half` and `fn Util_quarter` and no `struct Util` at all. An INSTANCE member on a
+fieldless class keeps the empty-struct refusal, because a method needs a receiver and the
+receiver is the struct that is not there.
+
+**A static field is the module constant `Cls_Field`.** `class K { static N: i32 = 4 }` emits
+`const K_N: i32 = 4;`, and `K.N` reads it. It folds by the rules §12 already states, so it may
+name a constant declared earlier and may bound a `for` loop, and it takes the same types a
+top-level const does. A static field with no initializer is refused: it is a constant, and a
+constant has a value. Reading a name the class does not declare says so, and naming a static
+function without calling it says to call it.
+
 ## 27. Boolean vectors
 
 A comparison of two vectors is componentwise and yields a vector of bools: `vec2b`, `vec3b`,

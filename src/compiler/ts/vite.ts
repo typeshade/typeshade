@@ -1,6 +1,7 @@
 // Vite plugin surface. No vite import — the host's Vite accepts this object.
 import { compileTsSource } from './source-file.js'
 import { packModule } from './pack.js'
+import { emittedStructDecls } from './structs.js'
 import type { ModuleDecl } from '../../core/ir/nodes.js'
 
 export interface TypeshadeViteOptions {
@@ -17,11 +18,13 @@ export function typeshadeVite(options: TypeshadeViteOptions = {}) {
       const r = compileTsSource(code, { fileName: id, requireDirective: true })
       const errors = r.diagnostics.filter((d) => d.category === 'error')
       if (errors.length) {
-        throw new Error(errors.map((d) => `${d.fileName}:${d.line}:${d.character} ${d.message}`).join('\n'))
+        throw new Error(
+          errors.map((d) => `${d.fileName}:${d.line}:${d.character} ${d.message}`).join('\n'),
+        )
       }
       const m: ModuleDecl = {
         consts: [...r.consts],
-        structs: r.structs.map((s) => s.decl),
+        structs: emittedStructDecls(r.structs),
         bindings: [...r.bindings],
         funcs: [...r.funcs],
       }

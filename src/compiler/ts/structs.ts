@@ -21,7 +21,18 @@ export type CollectedStruct = {
   /** A `class`'s methods, constructor and field initializers (#86); absent on the other two
    *  spellings and on a class that declares none. */
   readonly members?: ClassMembers
+  /** A class whose members are all static (roadmap 0.3 item T3, #92): a namespace of
+   *  functions and constants rather than a value type. It is collected so `Util.half(x)`
+   *  resolves and its statics become functions, and it is NOT emitted, because it has no
+   *  fields and WGSL has no empty struct. */
+  readonly namespace?: true
 }
+
+/** The structs a module emits: every collected one but the static-only classes, which are
+ *  namespaces of functions and have no layout. One helper, because four callers build a
+ *  module out of the collected list and all four must leave the same ones out. */
+export const emittedStructDecls = (structs: readonly CollectedStruct[]): StructDecl[] =>
+  structs.filter((s) => !s.namespace).map((s) => s.decl)
 
 /** A field declared with an initializer, `hits: u32 = 0`: what a constructor assigns before
  *  its own body runs, and what `new P()` gives a class with no constructor. */
@@ -85,6 +96,7 @@ export function collectStructs(
     spelling: StructSpelling,
     before: number,
     members?: ClassMembers,
+    isNamespace?: true,
   ): void => {
     if (declared.has(name)) {
       diagnostics.push(
@@ -98,6 +110,21 @@ export function collectStructs(
           TS_CODES.DUPLICATE_SYMBOL,
         ),
       )
+      return
+    }
+    // A class whose members are all static is a namespace of functions and constants, not a
+    // value type, so the empty-struct rule does not reach it (T3, #92). Registered so that
+    // `Util.half(x)` resolves and `collectClassFunctions` walks its statics; left out of the
+    // emitted structs by `emittedStructDecls`.
+    if (fields.length === 0 && isNamespace) {
+      declared.add(name)
+      out.push({
+        decl: { name, fields },
+        packing: 'wgsl',
+        spelling,
+        namespace: true,
+        ...(members !== undefined ? { members } : {}),
+      })
       return
     }
     if (fields.length === 0) {
@@ -174,6 +201,10 @@ export function collectStructs(
     if (heritageRejected(stmt.name.text, stmt.heritageClauses, sourceFile, diagnostics)) continue
     const before = diagnostics.length
     const fields: StructField[] = []
+    // Static members seen, which is what decides whether a fieldless class is a namespace of
+    // functions (T3) or the empty struct WGSL has no form for.
+    let staticMethods = 0
+    let staticFields = 0
     const methods: ts.MethodDeclaration[] = []
     const fieldInits: FieldInit[] = []
     let ctor: ts.ConstructorDeclaration | undefined
@@ -198,6 +229,7 @@ export function collectStructs(
       }
       if (ts.isMethodDeclaration(member)) {
         if (!member.body) continue // an overload signature
+        if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) staticMethods++
         if (!ts.isIdentifier(member.name)) {
           diagnostics.push(memberNameDiag(sourceFile, member, structName))
           continue
@@ -259,14 +291,11 @@ export function collectStructs(
         )
         continue
       }
+      // A static field is a module constant named `Cls_Field` (T3, #92); `module-const.ts`
+      // collects and folds it, exactly as it does a top-level `const`. Before this it was
+      // refused, and the fix it named was to write the const by hand.
       if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
-        diagnostics.push(
-          classDiag(
-            sourceFile,
-            member,
-            `A static field has no shader form; declare "${member.name.text}" as a module const.`,
-          ),
-        )
+        staticFields++
         continue
       }
       if (
@@ -322,7 +351,17 @@ export function collectStructs(
       methods.length > 0 || ctor !== undefined || fieldInits.length > 0
         ? { node: stmt, methods, ctor, fieldInits }
         : undefined
-    add(stmt.name.text, stmt.name, fields, 'class', before, members)
+    // Every member static and no field: a namespace (T3). An instance method or a constructor
+    // needs a receiver, so a class that declares one keeps the empty-struct refusal and its
+    // "write them as functions" fix.
+    const isNamespace =
+      fields.length === 0 &&
+      staticMethods + staticFields > 0 &&
+      methods.length === staticMethods &&
+      ctor === undefined
+        ? (true as const)
+        : undefined
+    add(stmt.name.text, stmt.name, fields, 'class', before, members, isNamespace)
   }
   return out
 }

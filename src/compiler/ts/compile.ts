@@ -4,6 +4,7 @@ import { emitGlslStages } from '../../core/backends/glsl.js'
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js'
 import { backendDiagnostic } from './diagnostic.js'
 import { evalEntry } from './eval-entry.js'
+import { emittedStructDecls } from './structs.js'
 
 /**
  * What `compile()` returns. The one rule behind every optional field: shader text and a
@@ -105,7 +106,7 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
   const r = compileTsSource(source, { fileName: options.fileName })
   const module: ModuleDecl = {
     consts: [...r.consts],
-    structs: r.structs.map((s) => s.decl),
+    structs: emittedStructDecls(r.structs),
     bindings: [...r.bindings],
     funcs: [...r.funcs],
     overrides: [...r.overrides],

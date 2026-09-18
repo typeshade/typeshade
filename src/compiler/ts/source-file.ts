@@ -16,7 +16,7 @@ import { collectModuleConsts } from './module-const.js'
 import { collectBindings } from './bindings.js'
 import { collectOverrides } from './overrides.js'
 import { collectModuleVars } from './module-vars.js'
-import { collectStructs, type CollectedStruct } from './structs.js'
+import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js'
 import type { DeclaredSymbol } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
@@ -177,7 +177,7 @@ export function compileTsSource(
     diagnostics,
     symbols,
     consts,
-    structs.map((s) => s.decl),
+    emittedStructDecls(structs),
   )
   // A name claimed by two DIFFERENT collectors. Each reports its own repeats, and none can see
   // the others, so `const q: f32 = 1.` beside `const q: override<f32> = 2.` passed all three and
@@ -202,7 +202,7 @@ export function compileTsSource(
     try {
       wgsl = emitModule({
         consts: [...consts],
-        structs: structs.map((s) => s.decl),
+        structs: emittedStructDecls(structs),
         bindings: [...bindings],
         funcs: [...funcs],
         overrides: [...overrides],
