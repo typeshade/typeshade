@@ -205,7 +205,8 @@ describe('what a module constant still is not', () => {
   it('rejects a division by a divisor it can prove is zero', () => {
     // The scalar path gets this from foldConstNumber returning undefined for `/ 0`. This path
     // only asked whether the operands were foldable, so the whole declaration compiled clean,
-    // Tint refused the WGSL, and GLSL and the CPU disagreed about the value.
+    // Tint refused the WGSL, and GLSL and the CPU disagreed about the value. Since #68 the
+    // division itself is refused where it is lowered, so the sentence names the divisor.
     for (const src of [
       'const ZERO: f32 = 0.\nconst Y = vec3(1. / ZERO, 0., 0.)',
       'const Y = vec3(1. / 0., 0., 0.)',
@@ -219,7 +220,7 @@ describe('what a module constant still is not', () => {
             return Y;
           }
         `),
-      ).toContain('non-zero divisor')
+      ).toContain('Division by zero')
     }
     // A divisor that is merely not foldable is not proven anything, and a real one still works.
     const c = compile(`
@@ -251,7 +252,7 @@ describe('what a module constant still is not', () => {
             return Y;
           }
         `),
-      ).toContain('non-zero divisor')
+      ).toContain('Division by zero')
     }
     // …and a reference whose components are all non-zero still divides, through a hop as well.
     for (const src of [

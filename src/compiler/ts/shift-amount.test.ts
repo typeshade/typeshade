@@ -1,0 +1,73 @@
+// A shift by 32 or more (#71). WGSL requires the amount of `e1 << e2` on a 32-bit integer to
+// be less than 32 when it is a constant (a shader-creation error otherwise) and masks a
+// run-time amount to its low five bits; GLSL ES 3.00 leaves both undefined. So `x << 32` is
+// `x << 0` on one target and anything on the other. Measured on `main` before this: `y <<= 32`,
+// `x >> 33` and `x >> (16 + 16)` each compiled clean and emitted `32u` or `33u` for Tint to
+// refuse.
+
+import { describe, expect, it } from 'vitest'
+import { compileTsSource } from './source-file.js'
+import { TS_CODES } from './codes.js'
+
+const errorsOf = (src: string) =>
+  compileTsSource(src)
+    .diagnostics.filter((d) => d.category === 'error')
+    .map((d) => `${d.code} ${d.message}`)
+
+const fs = (body: string, type: 'u32' | 'i32' = 'u32') => `"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let x: ${type} = ${type}(uv.x)
+  ${body}
+  return vec4(f32(x), 0., 0., 1.)
+}
+`
+
+const RANGE = 'a 32-bit integer has no bit to shift into.'
+
+describe('a shift amount of 32 or more (#71)', () => {
+  it('refuses a compound shift by 32', () => {
+    expect(errorsOf(fs('x <<= 32'))).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} Bitwise "<<=" needs a shift amount less than 32, got 32: ${RANGE}`,
+    ])
+    expect(errorsOf(fs('x >>= 40', 'i32'))).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} Bitwise ">>=" needs a shift amount less than 32, got 40: ${RANGE}`,
+    ])
+  })
+
+  it('refuses a shift expression by 33, and by an expression that folds to 32', () => {
+    expect(errorsOf(fs('x = x >> 33'))).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} A shift amount must be between 0 and 31, got 33: ${RANGE}`,
+    ])
+    expect(errorsOf(fs('x = x >> (16 + 16)'))).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} A shift amount must be between 0 and 31, got 32: ${RANGE}`,
+    ])
+  })
+
+  it('refuses a constant the author spelled through a const', () => {
+    // The declaration is dropped, so the use below it reports an unknown name as well; the
+    // first diagnostic is the one that says why.
+    const errors = errorsOf(`"use typeshade"
+const BITS: u32 = 32
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const x: u32 = u32(uv.x) << BITS
+  return vec4(f32(x), 0., 0., 1.)
+}
+`)
+    expect(errors[0]).toBe(
+      `${TS_CODES.TYPE_MISMATCH} A shift amount must be between 0 and 31, got 32: ${RANGE}`,
+    )
+  })
+
+  it('takes 0 and 31, the whole range a 32-bit integer has', () => {
+    for (const body of ['x = x >> 31', 'x <<= 0', 'x = x << 31', 'x >>= 31']) {
+      expect(errorsOf(fs(body)), body).toEqual([])
+    }
+  })
+
+  it('leaves a run-time amount alone', () => {
+    expect(errorsOf(fs('x = x << u32(uv.y)'))).toEqual([])
+    expect(errorsOf(fs('x <<= u32(uv.y)'))).toEqual([])
+  })
+})

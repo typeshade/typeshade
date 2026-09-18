@@ -27,7 +27,7 @@ import {
 export function lowerSourceFunctions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-  consts: readonly { name: string; type: ShaderType }[] = [],
+  consts: readonly ScopedConst[] = [],
   bindings: readonly BindingDecl[] = [],
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
@@ -381,13 +381,23 @@ export function parseSignature(
   return decl
 }
 
+/** What a function's scope needs of a module const: its name and type, its CPU value when it
+ *  is a scalar, and its initializer when it is not. A `ConstDecl` is one; the fields it does
+ *  not have here (`wgslValue`) are the emitter's. */
+export interface ScopedConst {
+  readonly name: string
+  readonly type: ShaderType
+  readonly cpuValue?: number | boolean
+  readonly valueExpr?: Expr
+}
+
 export function fillFunctionBody(
   node: ts.FunctionDeclaration,
   stub: FuncDecl,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   callees: Map<string, FuncDecl>,
-  consts: readonly { name: string; type: ShaderType }[] = [],
+  consts: readonly ScopedConst[] = [],
   bindings: readonly BindingDecl[] = [],
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
@@ -414,7 +424,11 @@ export function fillFunctionBody(
       name: c.name,
       type: c.type,
       mutable: false,
-      constValue: 'cpuValue' in c ? (c as { cpuValue?: number | boolean }).cpuValue : undefined,
+      // A non-scalar const's `cpuValue` is the 0 the collector writes as a placeholder beside
+      // its `valueExpr`, not a value; taking it as one made `v / Z` for any vector const `Z`
+      // a division by zero to the constant folder (#68). The initializer rides along instead.
+      constValue: c.type.kind === 'scalar' ? c.cpuValue : undefined,
+      ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
     })
   }
   for (const b of bindings) {
@@ -431,9 +445,23 @@ export function fillFunctionBody(
   for (const o of overrides) {
     defineOnce({ kind: 'override', name: o.name, type: o.type, mutable: false })
   }
-  for (const p of stub.params) {
+  // A parameter that repeats a module const, a binding or an override is refused the way a
+  // `let` at the top of the body is (TS8023), on the parameter, instead of the scope's throw
+  // escaping `compileTsSource` (#68). The parameter is not defined, so the body's uses of the
+  // name resolve to the module-level declaration; the module is refused anyway.
+  stub.params.forEach((p, i) => {
+    if (scope.hasInCurrent(p.name)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.parameters[i]?.name ?? node,
+        `Parameter "${p.name}" repeats the name of a module-level declaration; rename one of them.`,
+        TS_CODES.DUPLICATE_SYMBOL,
+      )
+      return
+    }
     scope.define({ kind: 'param', name: p.name, type: p.type, mutable: true })
-  }
+  })
   if (node.name !== undefined) {
     recordDeclaration(symbols, sourceFile, node.name, {
       name: stub.name,

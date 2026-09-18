@@ -15,13 +15,16 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
     const x = foldConstNumber(expr.a, scope)
     return x === undefined ? undefined : -x
   }
+  // `resolveIr`, not `resolve`: the node already carries the IR name, which for a local that
+  // shadows or follows another of the same source name is `p_1`, a name `resolve` does not
+  // know, or worse knows as some other declaration (#38).
   if (expr.op === 'constref') {
-    const b = scope.resolve(expr.name)
+    const b = scope.resolveIr(expr.name)
     if (b && typeof b.constValue === 'number') return b.constValue
     return undefined
   }
   if (expr.op === 'varref') {
-    const b = scope.resolve(expr.name)
+    const b = scope.resolveIr(expr.name)
     if (b && !b.mutable && typeof b.constValue === 'number') return b.constValue
     return undefined
   }
@@ -74,7 +77,7 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
 export function foldConstBool(expr: Expr, scope: LoweringScope): boolean | undefined {
   if (expr.op === 'lit' && typeof expr.value === 'boolean') return expr.value
   if (expr.op === 'varref') {
-    const b = scope.resolve(expr.name)
+    const b = scope.resolveIr(expr.name)
     if (b && !b.mutable && typeof b.constValue === 'boolean') return b.constValue
   }
   return undefined
@@ -218,11 +221,14 @@ export function analyzeCountedFor(
       code: TS_CODES.LOOP_INDUCTION,
     }
   }
+  // Messages name the counter as the author spelled it; the IR name a second `i` carries is
+  // `i_1` (#38), and `readCond`/`readStep` match on that one.
+  const shown = scope.resolveIr(init.name)?.name ?? init.name
   const start = foldConstNumber(init.init, scope)
   if (start === undefined) {
     return {
       ok: false,
-      message: `for-init "${init.name}" must start at a compile-time constant.`,
+      message: `for-init "${shown}" must start at a compile-time constant.`,
       code: TS_CODES.LOOP_BOUND,
     }
   }
@@ -230,7 +236,7 @@ export function analyzeCountedFor(
   if (!condInfo) {
     return {
       ok: false,
-      message: `for exit must compare "${init.name}" to a constant bound (e.g. ${init.name} < 16).`,
+      message: `for exit must compare "${shown}" to a constant bound (e.g. ${shown} < 16).`,
       code: TS_CODES.LOOP_BOUND,
     }
   }
@@ -238,7 +244,7 @@ export function analyzeCountedFor(
   if (step === undefined) {
     return {
       ok: false,
-      message: `for-update must be ${init.name}++ / ${init.name} += <const>, or ${init.name} *= / /= <const>.`,
+      message: `for-update must be ${shown}++ / ${shown} += <const>, or ${shown} *= / /= <const>.`,
       code: TS_CODES.LOOP_INDUCTION,
     }
   }
@@ -246,13 +252,13 @@ export function analyzeCountedFor(
   if (stall) {
     return {
       ok: false,
-      message: `for step "${stepText(init.name, step)}" never advances "${init.name}": ${stall}`,
+      message: `for step "${stepText(shown, step)}" never advances "${shown}": ${stall}`,
       code: TS_CODES.LOOP_INFINITE,
     }
   }
   const trips = countTrips(start, condInfo.cop, condInfo.bound, step, k)
   if (!trips.ok) {
-    const header = `for (${init.name} = ${start}; ${init.name} ${condInfo.cop} ${condInfo.bound}; ${stepText(init.name, step)})`
+    const header = `for (${shown} = ${start}; ${shown} ${condInfo.cop} ${condInfo.bound}; ${stepText(shown, step)})`
     // Two different mistakes, and they used to share the first sentence. A loop whose step
     // steps away from the bound never exits. A loop like `for (i = 1; i < 2147483647; i *= 3)`
     // does reach its bound, but only after `i` has left the range of `i32`, so what the
@@ -261,7 +267,7 @@ export function analyzeCountedFor(
     return trips.why === 'range'
       ? {
           ok: false,
-          message: `${header} walks "${init.name}" outside the range of ${k} before the condition fails.`,
+          message: `${header} walks "${shown}" outside the range of ${k} before the condition fails.`,
           code: TS_CODES.LOOP_BOUND,
         }
       : { ok: false, message: `${header} does not exit.`, code: TS_CODES.LOOP_INFINITE }
@@ -412,5 +418,91 @@ export function loopConditionError(
   return {
     message: 'Loop condition must compare against a compile-time constant bound (e.g. i < 16).',
     code: TS_CODES.LOOP_BOUND,
+  }
+}
+
+/** The components of a constant vector or scalar expression, or undefined when any part does not
+ *  fold: a literal, a scalar const, a vector constructor over those (one scalar splats), a
+ *  negation, and `+ - * /` over those with the vector-against-scalar broadcast the language has.
+ *  `valueExprs` is the module-constant collector's table of whole vector constants, so
+ *  `const STEP = SIZE * 0.5` folds through `SIZE`; a body has no such table and folds literals
+ *  and scalar consts alone. A division whose own divisor is zero is not folded, since its value
+ *  is the thing in question. Written for the zero-divisor proof (#68), where a false negative
+ *  (a zero this cannot see) only lets Tint refuse the module later, and a false positive would
+ *  refuse a program that runs; integer division is computed in floating point here, which can
+ *  miss an integer zero (`1 / 2`) but never invent one. */
+export function foldConstComponents(
+  e: Expr,
+  scope: LoweringScope,
+  valueExprs?: ReadonlyMap<string, Expr>,
+  seen: ReadonlySet<string> = new Set(),
+): number[] | undefined {
+  const fold = (x: Expr, s: ReadonlySet<string> = seen): number[] | undefined =>
+    foldConstComponents(x, scope, valueExprs, s)
+  switch (e.op) {
+    case 'lit':
+      return typeof e.value === 'number' ? [e.value] : undefined
+    case 'unop': {
+      const a = fold(e.a)
+      return a === undefined ? undefined : a.map((v) => -v)
+    }
+    case 'construct': {
+      if (e.type.kind !== 'vec') return undefined
+      const parts: number[] = []
+      for (const a of e.args) {
+        const c = fold(a)
+        if (c === undefined) return undefined
+        parts.push(...c)
+      }
+      if (parts.length === 1 && e.type.n > 1)
+        return Array.from({ length: e.type.n }, () => parts[0]!)
+      return parts.length === e.type.n ? parts : undefined
+    }
+    case 'constref': {
+      if (seen.has(e.name)) return undefined
+      // The collector hands the earlier consts' initializers in `valueExprs`; inside a function
+      // body the binding itself carries the one a vector const was declared with.
+      const value = valueExprs?.get(e.name) ?? scope.resolveIr(e.name)?.valueExpr
+      if (value !== undefined) return fold(value, new Set([...seen, e.name]))
+      const n = foldConstNumber(e, scope)
+      return n === undefined ? undefined : [n]
+    }
+    case 'varref': {
+      const n = foldConstNumber(e, scope)
+      return n === undefined ? undefined : [n]
+    }
+    case 'binop': {
+      const a = fold(e.a)
+      const b = fold(e.b)
+      if (a === undefined || b === undefined) return undefined
+      if (a.length !== 1 && b.length !== 1 && a.length !== b.length) return undefined
+      const n = Math.max(a.length, b.length)
+      const at = (xs: number[], i: number): number => xs[xs.length === 1 ? 0 : i]!
+      const out: number[] = []
+      for (let i = 0; i < n; i++) {
+        const x = at(a, i)
+        const y = at(b, i)
+        switch (e.bop) {
+          case '+':
+            out.push(x + y)
+            break
+          case '-':
+            out.push(x - y)
+            break
+          case '*':
+            out.push(x * y)
+            break
+          case '/':
+            if (y === 0) return undefined
+            out.push(x / y)
+            break
+          default:
+            return undefined
+        }
+      }
+      return out
+    }
+    default:
+      return undefined
   }
 }

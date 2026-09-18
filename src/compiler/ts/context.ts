@@ -2,7 +2,7 @@
 
 import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
-import type { AddressSpace } from '../../core/ir/nodes.js'
+import type { AddressSpace, Expr } from '../../core/ir/nodes.js'
 import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
 
@@ -60,10 +60,32 @@ export interface Binding {
    *  `aliasOf: 'src'`, so a question about what `a` denotes (is it a storage array, for
    *  `arrayLength`) follows the chain to the binding instead of stopping at the local (#46). */
   readonly aliasOf?: string
+  /** For a `kind: 'module'` const whose value is not a scalar (a vector, an array), the
+   *  initializer as lowered, so a division inside a function body can be proven zero
+   *  componentwise the way a module const's own initializer is (#68). A scalar const carries
+   *  its value in `constValue` instead and has no need of this. */
+  readonly valueExpr?: Expr
+  /** The name the IR knows this binding by, when it is not the source name. The IR identifies
+   *  a local by name alone within a function, and TypeScript lets two lexically disjoint
+   *  blocks, or an inner block and the block around it, declare one name; `define` gives the
+   *  second and later declarations of a name in a function `p_1`, `p_2`, ... so no two
+   *  bindings share an IR name (#38). Absent for a first declaration, whose IR name is its
+   *  source name. */
+  readonly irName?: string
 }
+
+/** The name an IR node for `b` carries: its {@link Binding.irName} when the source name was
+ *  already taken in the function, its source name otherwise. Every site that builds a
+ *  `varref` or `param` from a binding spells the name through this. */
+export const irNameOf = (b: Binding): string => b.irName ?? b.name
 
 export class LoweringScope {
   private readonly frames: Map<string, Binding>[] = [new Map()]
+  /** Every IR name a `define` in this scope has handed out, module-level names included: a
+   *  local that shadows a resource binding would otherwise be `varref dst` beside the
+   *  binding's own `varref dst`, one name to every pass. */
+  private readonly takenIr = new Set<string>()
+  private readonly byIr = new Map<string, Binding>()
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
   private readonly symbols: DeclaredSymbolSink | undefined
@@ -170,12 +192,34 @@ export class LoweringScope {
     return this.callees
   }
 
-  define(binding: Binding): void {
+  /** Bind `binding.name` in the current frame and return the binding as stored, which carries
+   *  an {@link Binding.irName} when the name was already taken anywhere in this function.
+   *  Throws on a repeat within the current frame, TypeScript's own rule; the callers that can
+   *  reach that turn it into a TS8023 on the declaration. */
+  define(binding: Binding): Binding {
     const top = this.frames[this.frames.length - 1]!
     if (top.has(binding.name)) {
       throw new Error(`Duplicate binding "${binding.name}" in current scope frame`)
     }
-    top.set(binding.name, binding)
+    const ir = this.allocIrName(binding.name)
+    const stored: Binding = ir === binding.name ? binding : { ...binding, irName: ir }
+    top.set(binding.name, stored)
+    this.byIr.set(ir, stored)
+    return stored
+  }
+
+  private allocIrName(name: string): string {
+    if (!this.takenIr.has(name)) {
+      this.takenIr.add(name)
+      return name
+    }
+    for (let n = 1; ; n++) {
+      const candidate = `${name}_${n}`
+      if (!this.takenIr.has(candidate)) {
+        this.takenIr.add(candidate)
+        return candidate
+      }
+    }
   }
 
   resolve(name: string): Binding | undefined {
@@ -184,6 +228,14 @@ export class LoweringScope {
       if (hit) return hit
     }
     return undefined
+  }
+
+  /** The binding an already-lowered IR node names. {@link resolve} answers for a SOURCE name
+   *  at the point of lowering; a reader holding a `varref` has the IR name, which after a
+   *  rename is no source name at all, or the source name of a different local. The map is
+   *  function-wide and never popped, because an IR name is unique in the function. */
+  resolveIr(name: string): Binding | undefined {
+    return this.byIr.get(name)
   }
 
   hasInCurrent(name: string): boolean {
