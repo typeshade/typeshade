@@ -28,7 +28,7 @@ import type { SourceSpan } from '../../../core/ir/span.js'
 import { boolT, f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { CollectedStruct, FieldInit } from '../structs.js'
-import { irNameOf, readOnlyPhrase, type LoweringScope } from '../context.js'
+import { irNameOf, readOnlyPhrase, type LoweringScope, type SuperCtor } from '../context.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf, withSpan } from '../span.js'
@@ -49,6 +49,15 @@ export interface Receiver {
   readonly mode: 'param' | 'ctor' | 'copy'
   readonly fieldInits: readonly FieldInit[]
   readonly shown: string
+  /** What `super(...)` in this constructor's body calls (roadmap 0.3 item T5, #92): the base's
+   *  constructor function and the fields it fills. Relative to the class that DECLARED the
+   *  body, which for an inherited constructor is not the class being built. Absent when the
+   *  chain above has no constructor, where `super()` has nothing to run. */
+  readonly superCtor?: SuperCtor
+  /** `super.m(...)` in this body, to the function that carries the base's body, lowered against
+   *  this class (roadmap 0.3 item T5, #92). Keyed by the member written, since which base
+   *  declares it depends on the class that wrote the body and not on the one being built. */
+  readonly superMethods?: ReadonlyMap<string, string>
 }
 
 /** One function a class contributes to the module. `node` is absent for the constructor a
@@ -74,6 +83,13 @@ export const SELF_IN = 'self_in'
 export const methodFnName = (struct: string, member: string): string => `${struct}_${member}`
 /** The emitted name of a constructor: `Ray_new`. */
 export const ctorFnName = (struct: string): string => `${struct}_new`
+/** The emitted name of the BASE's body of a method a class overrides, which is what
+ *  `super.at(t)` in `Ray`'s `at` calls: `Ray_super_Base_at` (roadmap 0.3 item T5, #92). The
+ *  base is named, not just the class, so a body re-lowered two steps down still counts its own
+ *  `super` from where it was written. One underscore between the parts, like every other
+ *  flattened name, because GLSL ES reserves an identifier that holds two in a row. */
+export const superFnName = (struct: string, base: string, member: string): string =>
+  `${struct}_super_${base}_${member}`
 
 const registry = new WeakMap<FuncDecl, ClassFunction>()
 
@@ -181,6 +197,222 @@ function mutatingMethodsOf(methods: readonly ts.MethodDeclaration[]): Set<string
   }
 }
 
+/** One method body a class emits, and what `super` means inside it (roadmap 0.3 item T5, #92).
+ *
+ *  A class inherits a method by lowering the BASE's node again with `this` typed as itself:
+ *  dispatch is static, a derived struct carries the base's fields under the same names, and a
+ *  base-typed variable cannot hold a derived value, so the body means on the derived class
+ *  exactly what it means on the base — including a call to a method the derived class
+ *  overrides, which resolves to the override, as it does in TypeScript.
+ *
+ *  `super.m(...)` is the same idea one step up. The body it names is emitted against this class
+ *  too, under `T_super_B_m`, where `B` is the class that DECLARED the body doing the calling.
+ *  That last part is what keeps a three-deep chain finite: `super.at` inside `B`'s body means
+ *  `A`'s `at`, whichever class the body is being lowered for. */
+interface ClassBody {
+  readonly node: ts.MethodDeclaration
+  /** The class that wrote this body, which is what `super` inside it counts from. */
+  readonly declaredIn: string
+  readonly fnName: string
+  readonly member: string
+  readonly isStatic: boolean
+  /** `super.m(...)` in this body, to the function that carries the base's body. */
+  readonly superMethods: ReadonlyMap<string, string>
+}
+
+/** The chain above `name`, nearest first, without `name` itself. */
+function ancestorsOf(
+  name: string,
+  byName: ReadonlyMap<string, CollectedStruct>,
+): readonly CollectedStruct[] {
+  const out: CollectedStruct[] = []
+  const seen = new Set<string>([name])
+  const queue = [...(byName.get(name)?.bases ?? [])]
+  while (queue.length > 0) {
+    const next = queue.shift()!
+    if (seen.has(next)) continue
+    seen.add(next)
+    const s = byName.get(next)
+    if (!s) continue
+    out.push(s)
+    queue.push(...(s.bases ?? []))
+  }
+  return out
+}
+
+/** A method with a body, by name, on `struct` itself. A body-less one is an overload signature
+ *  (T6) or an `abstract` member: neither has a body to lower. */
+function ownMethod(
+  struct: CollectedStruct | undefined,
+  member: string,
+  isStatic: boolean,
+): ts.MethodDeclaration | undefined {
+  for (const m of struct?.members?.methods ?? []) {
+    if (!m.body || !ts.isIdentifier(m.name) || m.name.text !== member) continue
+    const st = m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword) ?? false
+    if (st === isStatic) return m
+  }
+  return undefined
+}
+
+/** Every `super.<name>(` written under `node`. */
+function eachSuperMember(node: ts.Node, f: (member: string) => void): void {
+  const walk = (n: ts.Node): void => {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.expression.kind === ts.SyntaxKind.SuperKeyword
+    ) {
+      f(n.expression.name.text)
+    }
+    ts.forEachChild(n, walk)
+  }
+  walk(node)
+}
+
+/** The bodies `struct` emits, and its inherited field initializers.
+ *
+ *  The primary set is one body per method name the class has, its own before any it inherits.
+ *  From there a worklist follows each `super.m(...)`: the body it names is the nearest one
+ *  above the class that WROTE the call, emitted against this class under its own name, and its
+ *  own `super` calls are followed the same way until nothing new appears. */
+function effectiveMembers(
+  struct: CollectedStruct,
+  byName: ReadonlyMap<string, CollectedStruct>,
+): { bodies: readonly ClassBody[]; fieldInits: readonly FieldInit[] } {
+  const target = struct.decl.name
+  const chain = [struct, ...ancestorsOf(target, byName)]
+  const bodies: ClassBody[] = []
+  const emitted = new Set<string>()
+  const pending: { node: ts.MethodDeclaration; declaredIn: string; fnName: string }[] = []
+
+  const see = (node: ts.MethodDeclaration, declaredIn: string, fnName: string): void => {
+    if (emitted.has(fnName)) return
+    emitted.add(fnName)
+    pending.push({ node, declaredIn, fnName })
+  }
+  const taken = new Set<string>()
+  for (const owner of chain) {
+    for (const m of owner.members?.methods ?? []) {
+      if (!m.body || !ts.isIdentifier(m.name)) continue
+      const isStatic = m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword) ?? false
+      const key = `${isStatic ? 'static ' : ''}${m.name.text}`
+      if (taken.has(key)) continue
+      taken.add(key)
+      see(m, owner.decl.name, methodFnName(target, m.name.text))
+    }
+  }
+  /** The body `super.member` names from a body written by `declaredIn`. */
+  const above = (declaredIn: string, member: string): ts.MethodDeclaration | undefined => {
+    for (const a of ancestorsOf(declaredIn, byName)) {
+      const hit = ownMethod(a, member, false)
+      if (hit) return hit
+    }
+    return undefined
+  }
+  const superOwner = (declaredIn: string, member: string): string | undefined => {
+    for (const a of ancestorsOf(declaredIn, byName)) {
+      if (ownMethod(a, member, false)) return a.decl.name
+    }
+    return undefined
+  }
+  while (pending.length > 0) {
+    const { node, declaredIn, fnName } = pending.shift()!
+    const superMethods = new Map<string, string>()
+    eachSuperMember(node.body!, (member) => {
+      const owner = superOwner(declaredIn, member)
+      const base = above(declaredIn, member)
+      if (!owner || !base) return
+      const name = superFnName(target, owner, member)
+      superMethods.set(member, name)
+      see(base, owner, name)
+    })
+    bodies.push({
+      node,
+      declaredIn,
+      fnName,
+      member: ts.isIdentifier(node.name) ? node.name.text : '',
+      isStatic: node.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword) ?? false,
+      superMethods,
+    })
+  }
+  // A field initializer runs base first, so a derived class that initializes an inherited
+  // field wins, the way its assignment would.
+  const fieldInits: FieldInit[] = []
+  const initNames = new Set<string>()
+  const initsOf = (s: CollectedStruct | undefined, seen: Set<string>): void => {
+    if (!s || seen.has(s.decl.name)) return
+    seen.add(s.decl.name)
+    for (const base of s.bases ?? []) initsOf(byName.get(base), seen)
+    for (const f of s.members?.fieldInits ?? []) {
+      if (initNames.has(f.name)) continue
+      initNames.add(f.name)
+      fieldInits.push(f)
+    }
+  }
+  initsOf(struct, new Set())
+  return { bodies, fieldInits }
+}
+
+/** The map a constructor body needs for its own `super.m(...)` calls. */
+function ctorSuperMethods(
+  struct: CollectedStruct,
+  declaredIn: string,
+  byName: ReadonlyMap<string, CollectedStruct>,
+  ctor: ts.ConstructorDeclaration | undefined,
+): ReadonlyMap<string, string> {
+  const out = new Map<string, string>()
+  if (!ctor?.body) return out
+  eachSuperMember(ctor.body, (member) => {
+    for (const a of ancestorsOf(declaredIn, byName)) {
+      if (ownMethod(a, member, false)) {
+        out.set(member, superFnName(struct.decl.name, a.decl.name, member))
+        return
+      }
+    }
+  })
+  return out
+}
+
+/** The constructor a class uses: its own, or the nearest base's, which TypeScript inherits
+ *  when the derived class declares none (T5, #92). */
+function effectiveCtor(
+  struct: CollectedStruct,
+  byName: ReadonlyMap<string, CollectedStruct>,
+): { node: ts.ConstructorDeclaration; owner: CollectedStruct } | undefined {
+  const seen = new Set<string>()
+  const walk = (
+    s: CollectedStruct | undefined,
+  ): { node: ts.ConstructorDeclaration; owner: CollectedStruct } | undefined => {
+    if (!s || seen.has(s.decl.name)) return undefined
+    seen.add(s.decl.name)
+    if (s.members?.ctor) return { node: s.members.ctor, owner: s }
+    for (const base of s.bases ?? []) {
+      const hit = walk(byName.get(base))
+      if (hit) return hit
+    }
+    return undefined
+  }
+  return walk(struct)
+}
+
+/** The constructor `super(...)` reaches from the body `owner` declared: the nearest class above
+ *  it that has one. A class whose chain declares none gives `undefined`, and a bare `super()`
+ *  there has nothing to run, which is what TypeScript's implicit one does too. */
+function superCtorOf(
+  owner: CollectedStruct,
+  byName: ReadonlyMap<string, CollectedStruct>,
+): SuperCtor | undefined {
+  for (const base of owner.bases ?? []) {
+    const found = effectiveCtor(byName.get(base) ?? owner, byName)
+    if (!found) continue
+    const filled = byName.get(base)
+    if (!filled) continue
+    return { fn: ctorFnName(base), type: structT(base), fields: filled.decl.fields }
+  }
+  return undefined
+}
+
 /** The functions every class in `structs` contributes, with their signatures parsed and
  *  their bodies still empty: a method (`self` first), a static function, and a constructor for
  *  a class that declares one, has a field initializer, or is constructed with `new`. */
@@ -191,17 +423,24 @@ export function collectClassFunctions(
 ): ClassFunction[] {
   const out: ClassFunction[] = []
   const constructed = namesConstructed(sourceFile)
+  const byName = new Map(structs.map((s) => [s.decl.name, s]))
   for (const struct of structs) {
     const name = struct.decl.name
     const selfT = structT(name)
     const members = struct.members
-    const mutating = mutatingMethodsOf(members?.methods ?? [])
-    for (const method of members?.methods ?? []) {
+    const effective = effectiveMembers(struct, byName)
+    // An abstract class is a base and never a value, so it contributes no instance method and
+    // no constructor of its own; its bodies are lowered into each concrete class below. Its
+    // statics are functions like any other and are kept.
+    const bodies = struct.abstract ? effective.bodies.filter((b) => b.isStatic) : effective.bodies
+    const mutating = mutatingMethodsOf(bodies.map((b) => b.node))
+    for (const body of bodies) {
+      const method = body.node
       if (!ts.isIdentifier(method.name)) continue
-      const member = method.name.text
-      const shown = `${name}.${member}`
-      const isStatic =
-        method.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ?? false
+      const member = body.member
+      const isSuperBody = body.fnName !== methodFnName(name, member)
+      const shown = isSuperBody ? `super.${member}` : `${name}.${member}`
+      const isStatic = body.isStatic
       const decorated = ts.canHaveDecorators(method) ? (ts.getDecorators(method) ?? []) : []
       if (decorated.length > 0) {
         pushDiag(
@@ -251,9 +490,11 @@ export function collectClassFunctions(
       // A method that changes its object takes and returns the struct, so its caller can write
       // the object back; it has to return nothing itself. One that returns a value keeps its
       // object read-only, and a write inside it is refused where it stands (statement.ts).
-      const copies = !isStatic && mutating.has(member) && typeKey(ret) === 'void'
+      // A body reached through `super` is read-only: it has no receiver to write back to, so
+      // the copy protocol a mutating method uses has nowhere to land.
+      const copies = !isStatic && !isSuperBody && mutating.has(member) && typeKey(ret) === 'void'
       const stub: FuncDecl = {
-        name: methodFnName(name, member),
+        name: body.fnName,
         params: isStatic ? params : [{ name: copies ? SELF_IN : 'self_', type: selfT }, ...params],
         ret: copies ? selfT : ret,
         body: [],
@@ -271,14 +512,32 @@ export function collectClassFunctions(
         node: method,
         receiver: isStatic
           ? undefined
-          : { type: selfT, mode: copies ? 'copy' : 'param', fieldInits: [], shown },
+          : {
+              type: selfT,
+              mode: copies ? 'copy' : 'param',
+              fieldInits: [],
+              shown,
+              superMethods: body.superMethods,
+            },
         mutates: copies,
       }
       registry.set(stub, cf)
       out.push(cf)
     }
-    const fieldInits = members?.fieldInits ?? []
-    const ctor = members?.ctor
+    // A derived class inherits its base's field initializers and, when it declares none of its
+    // own, its constructor (T5, #92). An abstract class is never constructed, so it has no
+    // constructor function of its own; the body reaches each concrete class through the same
+    // inheritance.
+    const fieldInits = effective.fieldInits
+    // An abstract class is never `new`ed, but a derived constructor's `super(...)` calls its
+    // constructor, so one it declares itself is still emitted.
+    const found = struct.abstract
+      ? struct.members?.ctor
+        ? { node: struct.members.ctor, owner: struct }
+        : undefined
+      : effectiveCtor(struct, byName)
+    const ctor = found?.node
+    if (struct.abstract && ctor === undefined) continue
     if (ctor === undefined && fieldInits.length === 0 && !constructed.has(name)) continue
     const shown = `new ${name}`
     const params = ctor
@@ -298,7 +557,16 @@ export function collectClassFunctions(
       struct,
       shown,
       node: ctor,
-      receiver: { type: selfT, mode: 'ctor', fieldInits, shown },
+      receiver: {
+        type: selfT,
+        mode: 'ctor',
+        fieldInits,
+        shown,
+        // Relative to the class that DECLARED this body: an inherited constructor's `super`
+        // still names ITS base, not the base of the class being built.
+        ...(found ? { superCtor: superCtorOf(found.owner, byName) } : {}),
+        superMethods: ctorSuperMethods(struct, found?.owner.decl.name ?? name, byName, ctor),
+      },
       mutates: false,
     }
     registry.set(stub, cf)
@@ -484,6 +752,53 @@ function flattenedOwner(expr: ts.Expression, scope: LoweringScope): string | und
   return undefined
 }
 
+/** `super.at(t)` inside a method that overrides `at` (roadmap 0.3 item T5, #92): a call of the
+ *  base's body, which the collector lowered against this class under `Ray_super_at`, with the
+ *  object first. Refused where there is no object, where nothing above declares the method, and
+ *  where the base's version writes to its object, which would need the copy-back a plain
+ *  method call gets and `super` has no receiver to write to. */
+function lowerSuperMethodCall(
+  node: ts.CallExpression,
+  callee: ts.PropertyAccessExpression,
+  member: string,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const self = scope.resolve('this')
+  if (!self || self.type.kind !== 'struct') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      callee,
+      '"super" names the base of a method\'s class; a static function and a top-level function have none.',
+    )
+    return undefined
+  }
+  // Which base body this names was decided by the collector, from the class that WROTE the
+  // body rather than the one it is being lowered for; the scope carries that answer.
+  const fn = scope.superMethods()?.get(member)
+  const decl = fn === undefined ? undefined : scope.resolveCallee(fn)
+  if (!decl) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      callee,
+      `Nothing above this class declares a method "${member}", so "super.${member}" names no body.`,
+    )
+    return undefined
+  }
+  const leading: Expr[] = [
+    self.kind === 'param'
+      ? { op: 'param', type: self.type, name: irNameOf(self) }
+      : { op: 'varref', type: self.type, name: irNameOf(self) },
+  ]
+  return lowerUserCall(node, decl, sourceFile, scope, diagnostics, {
+    leading,
+    shown: `super.${member}`,
+  })
+}
+
 export function lowerClassCall(
   node: ts.CallExpression,
   callee: ts.PropertyAccessExpression,
@@ -493,6 +808,11 @@ export function lowerClassCall(
 ): Expr | undefined | 'not-a-class-call' {
   const obj = callee.expression
   const member = callee.name.text
+  // `super.at(t)` runs the BASE's body on this object (T5, #92). The base's body was lowered
+  // against this class under `Ray_super_at`, so the call is an ordinary one with `this` first.
+  if (obj.kind === ts.SyntaxKind.SuperKeyword) {
+    return lowerSuperMethodCall(node, callee, member, sourceFile, scope, diagnostics)
+  }
   // `A.B.two()` names the namespace `A_B` (T4, #92): a chain of identifiers joins the way the
   // members do. A single identifier is the class or namespace itself, as before.
   const owner = flattenedOwner(obj, scope)

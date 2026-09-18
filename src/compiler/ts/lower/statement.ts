@@ -11,6 +11,7 @@ import { parseSwizzle } from '../swizzle.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
 import { lowerMutatingCall } from './class-methods.js'
+import { lowerUserCall } from './expression-misc.js'
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
@@ -89,6 +90,13 @@ function lowerStatementNode(
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | Stmt[] | undefined {
   if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics)
+  if (
+    ts.isExpressionStatement(node) &&
+    ts.isCallExpression(node.expression) &&
+    node.expression.expression.kind === ts.SyntaxKind.SuperKeyword
+  ) {
+    return lowerSuperCall(node.expression, sourceFile, scope, diagnostics)
+  }
   if (ts.isReturnStatement(node)) {
     if (!node.expression) return { s: 'return' }
     // The declared return type is the context an object literal needs: `return { pos, uv }`
@@ -357,7 +365,8 @@ function lowerVariableDeclaration(
       diagnostics,
       sourceFile,
       decl,
-      numericMismatch(`let/const ${name}`, annotated, init.type),
+      numericMismatch(`let/const ${name}`, annotated, init.type) +
+        scope.inheritanceNote(annotated, init.type),
       TS_CODES.TYPE_MISMATCH,
     )
     return undefined
@@ -384,6 +393,81 @@ function lowerVariableDeclaration(
   const ir = irNameOf(bound)
   if (isConst) return withSpan({ s: 'let', name: ir, expr: init } as Stmt, sourceFile, spanNode)
   return withSpan({ s: 'var', name: ir, type: bindingType, init } as Stmt, sourceFile, spanNode)
+}
+
+/** `super(a, b)` in a derived class's constructor (roadmap 0.3 item T5, #92).
+ *
+ *  A struct here is flat: a derived one carries the base's fields, under the same names, ahead
+ *  of its own. So the base's constructor is called as the function it already is, and what it
+ *  returns is copied field by field into the object being built:
+ *
+ *      let _sup = Base_new(a, b);
+ *      self_.x = _sup.x;
+ *
+ *  The call goes through {@link lowerUserCall}, so its arguments are checked, and its defaults
+ *  filled, exactly as `new Base(a, b)` would be. A base whose chain declares no constructor
+ *  has nothing to run, and a bare `super()` there lowers to nothing, which is what TypeScript's
+ *  implicit constructor does.
+ *
+ *  Anywhere but a constructor of a class that extends one, `super(...)` is refused. */
+function lowerSuperCall(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] | undefined {
+  const self = scope.resolve('this')
+  if (!self) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      '"super(...)" belongs in a constructor; there is no object being built here.',
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  const sup = scope.superCtor()
+  if (sup === undefined) {
+    if (node.arguments.length === 0) return []
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      '"super(...)" passes arguments to a base constructor, and nothing this class extends ' +
+        'declares one. Assign the fields here instead.',
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  const decl = scope.resolveCallee(sup.fn)
+  if (!decl) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"super(...)" calls "${sup.fn}", which this module does not emit.`,
+      TS_CODES.UNKNOWN_NAME,
+    )
+    return undefined
+  }
+  const call = lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown: 'super' })
+  if (!call) return undefined
+  const ir = scope.defineTemp('_sup', sup.type)
+  const out: Stmt[] = [{ s: 'let', name: ir, expr: call }]
+  const base: Expr = { op: 'varref', type: sup.type, name: ir }
+  const selfExpr: Expr =
+    self.kind === 'param'
+      ? { op: 'param', type: self.type, name: irNameOf(self) }
+      : { op: 'varref', type: self.type, name: irNameOf(self) }
+  for (const f of sup.fields) {
+    out.push({
+      s: 'assign',
+      target: { op: 'member', type: f.type, base: selfExpr, field: f.name },
+      expr: { op: 'member', type: f.type, base, field: f.name },
+    })
+  }
+  return out
 }
 
 /** `const { x, y } = v`, and the renaming and nesting forms of it (roadmap 0.3 item T7, #92).

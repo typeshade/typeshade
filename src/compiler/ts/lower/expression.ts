@@ -177,6 +177,23 @@ export function lowerExpression(
     )
     return undefined
   }
+  // `super` (roadmap 0.3 item T5, #92). A method a class inherits is lowered into that class,
+  // so an ordinary inherited call needs no `super`; what `super` is for is a method that
+  // OVERRIDES another and wants the base's body, and a derived constructor, which TypeScript
+  // requires to call `super(...)`. Neither has a form here yet, and the generic
+  // "Unsupported expression" said nothing about what to write instead.
+  if (node.kind === ts.SyntaxKind.SuperKeyword) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"super" has no form here yet. A class inherits its base's methods already, so a call ` +
+        `that does not override needs no "super"; for one that does, give the base's body a ` +
+        `method of its own name and call that from both.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   pushDiag(
     diagnostics,
     sourceFile,

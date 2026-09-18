@@ -1863,6 +1863,89 @@ of a comparison's result is one thing the editor cannot type, so a mask read per
 built with the constructor, `vec3b(uv.x > 0.5, uv.x > 0.5, uv.y > 0.5)`, as the `bool-select`
 example does.
 
+### `extends`, `abstract` and `implements`
+
+A derived struct is its base's layout with more on the end, and a method is inherited by being
+lowered again (roadmap 0.3 item T5,
+[#92](https://github.com/typeshade/typeshade/issues/92)). Until this item every `extends` was
+refused: "A TypeShade struct is exactly the members written here, so the inherited ones would be
+dropped; write them out."
+
+```ts
+abstract class Shape {
+  center: vec2
+  constructor(center: vec2) {
+    this.center = center
+  }
+  abstract sdf(p: vec2): f32
+  coverage(p: vec2): f32 {
+    return 1. - smoothstep(0., 0.02, this.sdf(p))
+  }
+}
+class Circle extends Shape {
+  radius: f32
+  constructor(center: vec2, radius: f32) {
+    super(center)
+    this.radius = radius
+  }
+  sdf(p: vec2): f32 {
+    const d: vec2 = p - this.center
+    return length(d) - this.radius
+  }
+}
+```
+
+**Fields.** The base's come first, then the derived class's own, through a chain of any depth
+and across both spellings: a class may extend a class or an interface, and an interface may
+extend several. `implements` carries no layout and is left alone, as it always was. A field the
+derived class redeclares with the base's type is the same field and keeps its place, which is
+TypeScript's rule; one that redeclares it with a different type is refused, since a struct has
+one layout and two use sites would disagree about it.
+
+**Methods.** WGSL has no vtable, so dispatch is static and a class inherits a method by lowering
+the BASE's body again with `this` typed as itself. The emit above carries `Circle_coverage` and
+`Square_coverage`, each calling that class's own `sdf`, and no `Shape_coverage` at all. That is
+also why an inherited body calls an override, exactly as it does in TypeScript. A static
+function and a field initializer come down the same way, and a derived class with no constructor
+of its own uses the nearest one above it.
+
+**What makes the two dispatches agree.** A name typed as the base cannot hold a derived value.
+Assigning one, or passing one where a base is expected, is refused with the reason:
+
+```
+"Derived" extends "Base", and a name typed as the base cannot hold a derived value here:
+method dispatch is static, so a call through it would run "Base"'s body. Write "Derived" as
+the type.
+```
+
+With that rule the static type of every receiver is its exact class, so lowering each body per
+class means the same thing TypeScript's dynamic dispatch would.
+
+**`abstract`.** An abstract class is a base and never a value: its struct is emitted so a
+derived one can be described in terms of it, its methods reach each concrete class through
+inheritance rather than becoming functions of its own, and a constructor it declares is emitted
+because a derived `super(...)` calls it. An `abstract` member declares no body and contributes
+nothing; TypeScript already requires a concrete class to implement it.
+
+**`super`.** Both forms work. `super(a, b)` in a constructor calls the base's constructor and
+copies its fields into the object being built, which is what a flat struct makes of it:
+
+```wgsl
+let _sup = Shape_new(center);
+self_.center = _sup.center;
+```
+
+A bare `super()` where nothing above declares a constructor has nothing to run and emits
+nothing. `super.sdf(p)` in an overriding method runs the base's body on this object, emitted
+against this class as `Ring_super_Circle_sdf`. The base is named as well as the class, so a body
+re-lowered two steps down still counts its own `super` from where it was written, and a chain of
+three terminates.
+
+**Refused, each with the reason.** A base this file does not declare as a struct; a cycle, named
+through its chain; a field that changes type on the way down; a generic base, which is one
+declaration per argument set and belongs with generics; and a base that is a call rather than a
+name, which is the mixin pattern.
+
 ---
 
 Last updated: 2026-09-18

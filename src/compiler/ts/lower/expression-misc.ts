@@ -219,7 +219,8 @@ export function lowerUserCall(
         diagnostics,
         sourceFile,
         node,
-        `Argument ${i + 1 - leading.length} of "${shown}" type mismatch.`,
+        `Argument ${i + 1 - leading.length} of "${shown}" type mismatch.` +
+          scope.inheritanceNote(decl.params[i]!.type, args[i]!.type),
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined

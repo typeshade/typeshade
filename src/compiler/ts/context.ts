@@ -3,7 +3,7 @@
 import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js'
-import type { FuncDecl, StructDecl } from '../../core/ir/nodes.js'
+import type { FuncDecl, StructDecl, StructField } from '../../core/ir/nodes.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
 
 /** What a name in scope refers to.
@@ -45,6 +45,16 @@ export function readOnlyPhrase(kind: BindingKind): string {
       throw new Error(`unhandled binding kind ${String(never)}`)
     }
   }
+}
+
+/** The base constructor a `super(...)` runs, and the fields it decides (roadmap 0.3 item T5,
+ *  #92). Declared here, where both the collector that fills it and the statement lowering that
+ *  reads it can see it without either importing the other. */
+export interface SuperCtor {
+  /** The emitted name of the base's constructor function, `Base_new`. */
+  readonly fn: string
+  readonly type: ShaderType
+  readonly fields: readonly StructField[]
 }
 
 export interface Binding {
@@ -90,6 +100,9 @@ export class LoweringScope {
   private readonly takenIr = new Set<string>()
   private readonly byIr = new Map<string, Binding>()
   private ownerDecl: FuncDecl | undefined
+  private superCtorInfo: SuperCtor | undefined
+  private superMethodMap: ReadonlyMap<string, string> | undefined
+  private baseNames: ReadonlyMap<string, readonly string[]> = new Map()
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
   /** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). Its members are
@@ -252,6 +265,68 @@ export class LoweringScope {
       hit = s
     }
     return hit
+  }
+
+  /** What `super(...)` calls in the constructor body being lowered (roadmap 0.3 item T5, #92),
+   *  or undefined anywhere else, where a `super` is refused. */
+  setSuperCtor(info: SuperCtor | undefined): void {
+    this.superCtorInfo = info
+  }
+
+  superCtor(): SuperCtor | undefined {
+    return this.superCtorInfo
+  }
+
+  /** Which structs extend which (roadmap 0.3 item T5, #92), so a type mismatch between two
+   *  that are related can say what is really wrong: dispatch here is static, so a base-typed
+   *  name must not hold a derived value. */
+  setBases(bases: ReadonlyMap<string, readonly string[]>): void {
+    this.baseNames = bases
+  }
+
+  /** True when `derived` extends `base`, at any depth. */
+  extendsStruct(derived: string, base: string): boolean {
+    const seen = new Set<string>()
+    const queue = [...(this.baseNames.get(derived) ?? [])]
+    while (queue.length > 0) {
+      const next = queue.shift()!
+      if (next === base) return true
+      if (seen.has(next)) continue
+      seen.add(next)
+      queue.push(...(this.baseNames.get(next) ?? []))
+    }
+    return false
+  }
+
+  /** The sentence a mismatch between two related structs adds, or '' when they are not
+   *  related. `want` is the type the place has, `got` the type of the value. */
+  inheritanceNote(want: ShaderType, got: ShaderType): string {
+    if (want.kind !== 'struct' || got.kind !== 'struct') return ''
+    if (this.extendsStruct(got.name, want.name)) {
+      return (
+        ` "${got.name}" extends "${want.name}", and a name typed as the base cannot hold a ` +
+        `derived value here: method dispatch is static, so a call through it would run ` +
+        `"${want.name}"'s body. Write "${got.name}" as the type.`
+      )
+    }
+    if (this.extendsStruct(want.name, got.name)) {
+      return (
+        ` "${want.name}" extends "${got.name}", and a "${got.name}" has none of the fields ` +
+        `"${want.name}" adds.`
+      )
+    }
+    return ''
+  }
+
+  /** `super.m(...)` in the body being lowered, to the function that carries the base's body
+   *  (roadmap 0.3 item T5, #92). The collector decides it, because which base declares the
+   *  method depends on the class that WROTE the body, not on the one it is lowered for. */
+  setSuperMethods(map: ReadonlyMap<string, string> | undefined): void {
+    this.superMethodMap = map
+  }
+
+  superMethods(): ReadonlyMap<string, string> | undefined {
+    return this.superMethodMap
   }
 
   /** The function whose BODY is being lowered, or undefined while a signature's default is

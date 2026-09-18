@@ -13,6 +13,22 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **`extends`, `abstract` and `implements`** (§26, roadmap 0.3 item T5,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): every `extends` was refused, "A
+  TypeShade struct is exactly the members written here, so the inherited ones would be dropped",
+  and an `abstract` method was an unknown one. A derived struct is its base's layout with the
+  derived fields on the end, through a chain of any depth, on a class or an interface, and an
+  interface may extend several. A method is inherited by lowering the base's body again with
+  `this` typed as the derived class, since WGSL has no vtable and dispatch here is static; an
+  inherited body therefore calls an override, as it does in TypeScript. Static functions, field
+  initializers and constructors come down the same way. `super(a, b)` runs the base's
+  constructor and copies its fields in, and `super.m(p)` runs the base's body on this object,
+  emitted per class and named after the base so a three-deep chain terminates. An abstract class
+  is a base and never a value: no instance method of its own, and a constructor only because a
+  derived `super(...)` calls it. A name typed as the base cannot hold a derived value, which is
+  what makes static dispatch mean what TypeScript's does, and saying so is the refusal. Also
+  refused with the reason: an undeclared base, a cycle, a field that changes type on the way
+  down, a generic base and a base that is a call.
 - **An overload signature is skipped, and the implementation is lowered** (§14, roadmap 0.3
   item T6, [#92](https://github.com/typeshade/typeshade/issues/92)): a function's overloads are
   body-less declarations above the one that has a body, and each was `TS8020 Function "lum"
