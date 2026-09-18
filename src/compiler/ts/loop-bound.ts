@@ -4,6 +4,8 @@ import type { CmpOp, Expr, Stmt } from '../../core/ir/nodes.js'
 import { typeKey } from '../../core/ir/types.js'
 import type { LoweringScope } from './context.js'
 import { TS_CODES, type TsCode } from './codes.js'
+import { BUILTINS } from '../../core/cpu-runtime.js'
+import { isConstEvaluableMathFn } from './math-alias.js'
 
 export const MAX_LOOP_TRIPS = 256
 
@@ -50,6 +52,21 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
     const x = foldConstNumber(expr.args[0], scope)
     if (x === undefined) return undefined
     return expr.fn === 'f32' ? x : Math.trunc(x)
+  }
+  // A math builtin over constant arguments (issue #73). Not a declared function of the same
+  // name (`declRef`), whose body this does not run, and only the intrinsics the oracle's
+  // BUILTINS table computes, which is the value the CPU backends give the same call.
+  if (expr.op === 'call' && expr.declRef === undefined && isConstEvaluableMathFn(expr.fn)) {
+    const f = BUILTINS[expr.fn]
+    if (!f) return undefined
+    const args: number[] = []
+    for (const a of expr.args) {
+      const x = foldConstNumber(a, scope)
+      if (x === undefined) return undefined
+      args.push(x)
+    }
+    const v = f(...args)
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined
   }
   return undefined
 }

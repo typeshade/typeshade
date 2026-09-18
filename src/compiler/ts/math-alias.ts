@@ -104,3 +104,14 @@ export const LANG_CONST: Readonly<Record<string, number>> = {
 export function resolveLangConst(name: string): number | undefined {
   return Object.prototype.hasOwnProperty.call(LANG_CONST, name) ? LANG_CONST[name] : undefined
 }
+
+/** The intrinsics a module constant may call and a constant expression may fold: the math
+ *  builtins, minus the three screen-space derivatives, which have no value outside a
+ *  fragment invocation. Both WGSL (`const`) and GLSL ES 3.00 (a constant expression) accept a
+ *  builtin call over constant arguments, so a constant that calls one is emitted as the call
+ *  and the GPU computes it; the CPU oracle computes the same call through `BUILTINS`. */
+export function isConstEvaluableMathFn(name: string): boolean {
+  return (name === 'mod' || isCanonicalMathFn(name)) && !DERIVATIVES.has(name)
+}
+
+const DERIVATIVES: ReadonlySet<string> = new Set(['fwidth', 'dpdx', 'dpdy'])
