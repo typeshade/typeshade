@@ -13,6 +13,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Argument checks for the math builtins** (§10, roadmap 0.2 item 9, #57): every free math
+  builtin checks its arguments against WGSL's signature and reports the one that does not fit as
+  `TS8036`, on that argument, with the fix (splat the scalar, cast one side, give the vectors one
+  size). `dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector, `mix` on integer vectors,
+  `normalize(s)`, `cross` on a `vec2` and the rest compiled with no diagnostic before and were
+  refused by Tint. `mix`'s factor and `mod`'s divisor keep their scalar forms; `refract`'s eta,
+  `ldexp`'s exponent and the bit offsets have their own shapes. The result type follows the
+  operand deciding the shape: `dot` of integer vectors is an integer, and a written number in a
+  call's first position takes an integer peer's kind, so `min(1, i)` with an `i32` `i` is an
+  `i32` call instead of the `min(1.0, i)` WGSL refused.
 - **Builtin breadth** (§10, roadmap 0.2 item 8): `reflect`, `refract`, `faceForward`,
   `transpose`, `determinant`, `ldexp`, `countOneBits`, `reverseBits`, `countLeadingZeros`,
   `countTrailingZeros`, `firstLeadingBit`, `firstTrailingBit`, `extractBits`, `insertBits` and
