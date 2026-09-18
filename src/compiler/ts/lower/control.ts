@@ -1,11 +1,12 @@
 import ts from 'typescript'
-import type { Expr, Stmt } from '../../../core/ir/nodes.js'
+import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { readOnlyPhrase } from '../context.js'
 import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
+import { fitsTarget, isIntScalar } from '../lit-coerce.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { numericMismatch } from '../numeric.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -276,6 +277,22 @@ export function lowerSwitch(
   return { s: 'switch', scrut, cases, defaultBody }
 }
 
+/** The compound assignments a `for` update may use: `+=`, `-=`, `*=` and `/=`. Multiplication
+ *  and division are here because a loop that scales its induction variable is still counted.
+ *
+ *  `%=` is arithmetic too and is deliberately not here. A remainder step does not advance a
+ *  counter: `i %= 3` is a fixed point after one application for every start, so the only
+ *  `for` it could head is one that never exits, and taking it would mean a trip counter that
+ *  has to model a sequence with no direction. The bitwise forms are out for the same reason
+ *  with a different shape: a shift or a mask is not one of the sequences
+ *  {@link analyzeCountedFor} can read a step out of. */
+const FOR_UPDATE_OP: Readonly<Record<number, BinOp>> = {
+  [ts.SyntaxKind.PlusEqualsToken]: '+',
+  [ts.SyntaxKind.MinusEqualsToken]: '-',
+  [ts.SyntaxKind.AsteriskEqualsToken]: '*',
+  [ts.SyntaxKind.SlashEqualsToken]: '/',
+}
+
 /** The constant a `case` label selects on. A bare literal is the common form; `case -1:` is
  *  a PrefixUnaryExpression and `case MODE_B:` a module constant, and both fold to the same
  *  number the IR's `cases[].value` holds — the same fold `xs[N]` and a loop bound use, so
@@ -424,27 +441,78 @@ export function lowerUpdate(
     }
     return { s: 'assignOp', target, bop, expr: one }
   }
-  if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
-    const left = expr.left
-    if (!ts.isIdentifier(left)) return undefined
-    const binding = scope.resolve(left.text)
-    if (!binding) return undefined
-    let rhs = lowerExpression(expr.right, sourceFile, scope, diagnostics)
-    if (!rhs) return undefined
-    if (rhs.op === 'lit' && typeof rhs.value === 'number') {
-      rhs = { op: 'lit', type: binding.type, value: rhs.value }
+  if (ts.isBinaryExpression(expr)) {
+    // All four of FOR_UPDATE_OP, not just `+=` (#8 A15). `i *= 2` and `i /= 2` are ordinary
+    // counted loops — a 64-wide halving reaches its bound in six iterations — and the only
+    // reason they were "Unsupported for-update" is that nothing lowered them.
+    // analyzeCountedFor reads the step back out and refuses one that cannot advance.
+    const bop = FOR_UPDATE_OP[expr.operatorToken.kind]
+    if (bop !== undefined) {
+      const left = expr.left
+      if (!ts.isIdentifier(left)) return undefined
+      const binding = scope.resolve(left.text)
+      if (!binding) return undefined
+      let rhs = lowerExpression(expr.right, sourceFile, scope, diagnostics)
+      if (!rhs) return undefined
+      // Any COMPILE-TIME-CONSTANT step is rebuilt as a literal of the induction variable's own
+      // type, not just a bare one. Retyping only a `lit` left `i *= (1 + 1)` and `i += -2` as
+      // f32 — `i *= 2.0` and `i += -2.0` into an i32 loop, which Tint and ANGLE both reject.
+      // `foldConstNumber` is the fold the bound and the trip count already use, so the step the
+      // emit carries and the step the counter reasons about are the same number by
+      // construction. A non-constant step is left alone and refused downstream, where the
+      // message can say a loop needs a constant step.
+      //
+      // A step the induction type cannot HOLD is refused here rather than retyped. `i *= 2.5`
+      // on an i32 counter used to become `{ op: 'lit', type: i32, value: 2.5 }`, which only
+      // the backend caught, as SD0017 out of `compile()` naming a literal the author's source
+      // does not contain. `fitsTarget` is #30's own predicate, the one `retargetDeclaredIntLit`
+      // uses to decide the same question at a declaration, so the two sites agree on what an
+      // integer type can hold.
+      if (isFoldableStepType(binding.type)) {
+        const folded = foldConstNumber(rhs, scope)
+        if (
+          folded !== undefined &&
+          isIntScalar(binding.type) &&
+          !fitsTarget(folded, binding.type)
+        ) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            expr,
+            `for step "${left.text} ${bop}= ${String(folded)}" does not fit "${left.text}", ` +
+              `which is ${typeKey(binding.type)}: ${String(folded)} ` +
+              `${Number.isInteger(folded) ? 'is outside its range' : 'is not a whole number'}.`,
+            TS_CODES.TYPE_MISMATCH,
+          )
+          return undefined
+        }
+        if (folded !== undefined) rhs = { op: 'lit', type: binding.type, value: folded }
+      }
+      // `i += 2` writes `i`, so the target carries the lvalue's span (#32) — for all four
+      // operators, the same way main stamped the `+=`-only form this generalises.
+      const target: Expr = withSpan(
+        binding.kind === 'param'
+          ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
+          : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+        sourceFile,
+        left,
+      )
+      return { s: 'assignOp', target, bop, expr: rhs }
     }
-    const target: Expr = withSpan(
-      binding.kind === 'param'
-        ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
-        : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
-      sourceFile,
-      left,
-    )
-    return { s: 'assignOp', target, bop: '+', expr: rhs }
   }
   pushDiag(diagnostics, sourceFile, expr, 'Unsupported for-update.', TS_CODES.UNSUPPORTED)
   return undefined
+}
+
+/** The types a folded for-update step may be rebuilt as: a numeric scalar the target can
+ *  spell a literal of. Narrower than {@link isSteppable}, which answers a different question
+ *  and includes `f64`: an emulated double is not one literal but a `vec2<f32>` pair the fp64
+ *  pass builds, so writing `{ op: 'lit', type: f64T }` here would hand the emit a node no
+ *  backend spells. An f64 cannot head a counted `for` anyway (the induction variable must be
+ *  i32 or u32), so nothing is lost by leaving it out. */
+function isFoldableStepType(t: ShaderType): boolean {
+  const k = typeKey(t)
+  return k === 'f32' || k === 'i32' || k === 'u32'
 }
 
 /** The `e.g.` clause the `++` refusal on a vector carries, for the vector kinds whose
