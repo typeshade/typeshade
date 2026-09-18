@@ -1769,18 +1769,11 @@ declared without an initializer is today.
 naming both. `self_` is the name the object takes in the emitted function (`self` itself is
 on WGSL's reserved-word list, as `this` is); a parameter called `self_` is refused.
 
-**A method that changes its object.** WGSL passes a struct by value, so a method that
-assigns to `this` takes and returns the struct, and a call of it is a statement that writes
-the receiver back. `Particle.step(dt)` below is `fn Particle_step(self_in: Particle, dt: f32)
--> Particle`: it starts with `var self_ = self_in`, runs the body on that copy and returns it,
-and the statement `ps[gid.x].step(dt)` is `ps[gid.x] = Particle_step(ps[gid.x], dt)`. The
-receiver has to be a place a function may write: a `let` local, a module variable, a storage
-element, or `this` inside a constructor or another changing method. Which methods change their
-object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
-`++`/`--` on one), and one that calls such a method on `this`. Such a method returns nothing,
-so its caller can write the object back; one that returns a value reads its object only, and
-a write to `this` inside it is TS8035 with that rule. The effect table (§19) counts the
-write-back as it counts any assignment, so a kernel that steps a storage element is a writer.
+**A method that changes its object takes it by reference.** A method that assigns to `this`
+takes its object as a parameter the callee writes THROUGH, and the call is a plain statement.
+GLSL ES 3.00 spells that with the qualifier it has, `inout Particle self_`; WGSL has no such
+qualifier and spells it as a pointer, `self_: ptr<function, Particle>`, read through as
+`(*self_)`. The IR says which parameters are written and nothing about how a target spells it.
 
 ```ts
 class Particle {
@@ -1797,18 +1790,48 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 ```
 
 ```wgsl
-fn Particle_step(self_in: Particle, dt: f32) -> Particle {
-  var self_: Particle = self_in;
-  self_.pos = (self_.pos + (self_.vel * dt));
-  return self_;
+fn Particle_step(self_: ptr<storage, Particle, read_write>, dt: f32) {
+  (*self_).pos = ((*self_).pos + ((*self_).vel * dt));
 }
 fn k(...) {
-  ps[gid.x] = Particle_step(ps[gid.x], 0.5);
+  Particle_step(&ps[gid.x], 0.5);
 }
 ```
 
-**`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a
-constructor or a method that changes its object, it is the local being built or copied.
+```glsl
+void Particle_step(inout Particle self_, float dt) {
+  self_.pos = (self_.pos + (self_.vel * dt));
+}
+// Particle_step(ps[i], 0.5);
+```
+
+The receiver has to be a place a function may write: a `let` local, a module variable, a storage
+element, or `this` inside a constructor or another changing method. Which methods change their
+object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
+`++`/`--` on one), and one that calls such a method on `this`. Such a method returns nothing;
+one that returns a value reads its object only, and a write to `this` inside it is TS8035 with
+that rule. The effect table (§19) counts a write through a reference as it counts any other, and
+names it as the CALLER knows it: `ps[gid.x].step(dt)` writes `ps`, because `step` writes its
+receiver and the receiver is reached through `ps`.
+
+**One WGSL function per address space.** The address space is part of a WGSL pointer's type:
+`ptr<function, T>` and `ptr<storage, T, read_write>` are different types, and a function
+declared for one cannot be handed the other. So a method called on receivers in two spaces is
+emitted twice, `Particle_step_function` beside `Particle_step_storage`, each call naming the one
+it needs. One space and the function keeps its plain name, which is every module in the corpus
+but one. None of this reaches the IR or the GLSL, which writes a single `inout` function: it is
+the WGSL backend's own pass, and it is monomorphisation, the same answer §30 gives generics.
+
+This is what a method that changes its object looks like now. It took the struct and RETURNED
+it until the reference landed — `Particle_step(self_in: Particle, dt: f32) -> Particle` opening
+with `var self_ = self_in` and closing with `return self_` — and the call site read the
+receiver, called, and stored the result back: three copies of a struct for one method that moves
+a point. `examples/orbit-inout.shade.ts` is the gate's evidence for the render pair, on Tint and
+on a real WebGL2 driver; `examples/particle-step.shade.ts` for the compute one.
+
+**`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a method
+that changes its object it is that parameter, written through; inside a constructor it is the
+local being built.
 `this` in a static function or a top-level function is TS8035.
 
 **Access modifiers** `private`, `protected`, `public` and `readonly` on a field or a method are
@@ -1820,7 +1843,7 @@ entry is a top-level function), an `async`, generator or `abstract` method, two 
 or two methods of one name (no overloads), a call of a method on the class or of a static
 function on a value, a member the class does not have, a field called as a method, a method
 that changes its object called on a `const`, a parameter or a value that is dropped, or used
-as a value, and a parameter named `self_` or `self_in`. A class with only static functions
+as a value, and a parameter named `self_`. A class with only static functions
 and no fields is not a struct (TS8010): write them as functions. `extends` is a struct's base
 since roadmap item T5. A `new` on anything but a class the file declares stays TS8013, and
 says which of the four reasons it is.

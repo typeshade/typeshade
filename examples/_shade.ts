@@ -347,6 +347,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'orbit-inout',
+    title: 'A method that changes its object',
+    blurb:
+      'A `class Body` whose `step`, `turn` and `advance` assign to `this`, so each takes its object by reference (§26): GLSL ES 3.00 spells that `inout Body self_`, WGSL spells it `self_: ptr<function, Body>` and reads through it as `(*self_)`, and the call is a plain statement on both. `reach`, which only reads, keeps its object by value. The render twin of `particle-step`, so the gate links the `inout` spelling on a real WebGL2 driver.',
+    renderable: true,
+  },
+  {
     id: 'ray-class',
     title: 'Class methods',
     blurb:

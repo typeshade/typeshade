@@ -46,7 +46,7 @@ import { recordParamDefaults } from './param-defaults.js'
  *  messages name the member. */
 export interface Receiver {
   readonly type: ShaderType
-  readonly mode: 'param' | 'ctor' | 'copy'
+  readonly mode: 'param' | 'ctor' | 'inout'
   readonly fieldInits: readonly FieldInit[]
   readonly shown: string
   /** What `super(...)` in this constructor's body calls (roadmap 0.3 item T5, #92): the base's
@@ -77,7 +77,6 @@ export interface ClassFunction {
 
 /** The name the struct arrives under in a method that changes its object; the body works on
  *  `self_`, a copy of it. */
-export const SELF_IN = 'self_in'
 
 /** The emitted name of a method or a static function: `Ray_at`. */
 export const methodFnName = (struct: string, member: string): string => `${struct}_${member}`
@@ -487,16 +486,18 @@ export function collectClassFunctions(
         undefined,
       )
       if (!ret) continue
-      // A method that changes its object takes and returns the struct, so its caller can write
-      // the object back; it has to return nothing itself. One that returns a value keeps its
-      // object read-only, and a write inside it is refused where it stands (statement.ts).
-      // A body reached through `super` is read-only: it has no receiver to write back to, so
-      // the copy protocol a mutating method uses has nowhere to land.
-      const copies = !isStatic && !isSuperBody && mutating.has(member) && typeKey(ret) === 'void'
+      // A method that changes its object takes it BY REFERENCE: `mode: 'inout'` on the
+      // receiver, which GLSL ES 3.00 spells `inout Particle self_` and WGSL as a pointer. It
+      // has to return nothing itself; one that returns a value keeps its object read-only, and
+      // a write inside it is refused where it stands (statement.ts). A body reached through
+      // `super` is read-only: it has no receiver of its own to write through.
+      const writes = !isStatic && !isSuperBody && mutating.has(member) && typeKey(ret) === 'void'
       const stub: FuncDecl = {
         name: body.fnName,
-        params: isStatic ? params : [{ name: copies ? SELF_IN : 'self_', type: selfT }, ...params],
-        ret: copies ? selfT : ret,
+        params: isStatic
+          ? params
+          : [{ name: 'self_', type: selfT, ...(writes ? { mode: 'inout' as const } : {}) }, ...params],
+        ret,
         body: [],
       }
       ;(stub as { span?: SourceSpan }).span = spanOf(sourceFile, method)
@@ -514,12 +515,12 @@ export function collectClassFunctions(
           ? undefined
           : {
               type: selfT,
-              mode: copies ? 'copy' : 'param',
+              mode: writes ? 'inout' : 'param',
               fieldInits: [],
               shown,
               superMethods: body.superMethods,
             },
-        mutates: copies,
+        mutates: writes,
       }
       registry.set(stub, cf)
       out.push(cf)
@@ -633,16 +634,10 @@ export function ctorPrologue(
     mutable: true,
     irName: 'self_',
   })
-  if (receiver.mode === 'copy') {
-    return [
-      {
-        s: 'var',
-        name: irNameOf(self),
-        type: receiver.type,
-        init: { op: 'param', type: receiver.type, name: SELF_IN },
-      },
-    ]
-  }
+  // A method that changes its object writes THROUGH the parameter, so there is nothing to
+  // start: `self_` is the parameter's own name, and `this.pos = …` assigns to it. What used to
+  // be here was `var self_ = self_in`, the copy the body worked on and returned.
+  if (receiver.mode === 'inout') return []
   const zero = zeroExprOf(receiver.type, scope)
   const out: Stmt[] = [
     zero
@@ -1010,5 +1005,8 @@ export function lowerMutatingCall(
     leading: [target],
   })
   if (!call) return undefined
-  return { s: 'assign', target, expr: call }
+  // The call writes through its receiver, so there is nothing to write back: what used to be
+  // here was `r = Ray_advance(r, 2.)`, a read and a store around a function that had already
+  // done the work.
+  return { s: 'call', expr: call }
 }

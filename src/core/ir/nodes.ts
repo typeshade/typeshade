@@ -532,6 +532,17 @@ export interface FuncDecl {
     location?: number
     interpolate?: string
     attr?: string
+    /** How the function takes this parameter. Absent is by value, which is every parameter
+     *  but one that the callee writes through to the caller's own value. `'inout'` says it
+     *  does: GLSL ES 3.00 spells that `inout T name`, WGSL a pointer.
+     *
+     *  The IR says WHICH parameters are written, not how a target spells it, because the two
+     *  targets do not agree on that. GLSL's `inout` is copy-in/copy-out and takes any l-value
+     *  argument; WGSL's pointer is a reference and carries the ADDRESS SPACE in its type, so a
+     *  function taking `ptr<function, T>` cannot be handed `&buf[i]`. The WGSL backend's own
+     *  pass makes one copy of the function per address space its calls use; nothing about
+     *  that reaches here, and GLSL emits the one function. */
+    mode?: 'inout'
   }[]
   readonly ret: ShaderType
   readonly body: readonly Stmt[]

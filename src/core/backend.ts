@@ -282,11 +282,28 @@ export interface Backend {
    *  how many parentheses the shared expression walk writes, `'full'` or `'minimal'`;
    *  omitted means `'full'`. A backend forwards it to the body emitter. */
   emitFunc(f: FuncDecl, parens?: ParenMode): string
+  /** Optional. How this target spells a parameter the callee writes through
+   *  (`FuncDecl.params[i].mode === 'inout'`): GLSL ES 3.00 `inout vec3 v`, WGSL
+   *  `v: ptr<function, vec3<f32>>`. A backend that omits it takes such a parameter by value,
+   *  which is what every backend did before the mode existed. */
+  paramDecl?(p: FuncDecl['params'][number]): string
+  /** Optional, and required alongside {@link paramDecl} when the spelling is a POINTER rather
+   *  than a qualifier. `reference` is the argument a call passes for an `inout` parameter
+   *  (WGSL `&x`), and `dereference` is how the callee's body reads the parameter itself
+   *  (WGSL `(*x)`). GLSL needs neither: its `inout` argument and its uses are written plainly.
+   */
+  reference?(lvalue: string): string
+  dereference?(name: string): string
   /** The backend's emit-time optimization of the lowered module. Both shipped backends
    *  run the same optimization pipeline; the hook is per backend so that a target can
    *  choose differently without a change to the shared driver. It runs after the
    *  lowering passes and before the module is assembled into source. */
   optimize(lowered: ModuleDecl): ModuleDecl
+  /** Optional. The last rewrite before the module is spelled, run after {@link optimize} and
+   *  after every optimizer tier, for a target whose SPELLING needs a shape the IR does not
+   *  carry. WGSL uses it to give a function with a pointer parameter one copy per address
+   *  space its calls use, which is a fact about WGSL's pointer types and about nothing else. */
+  postLower?(lowered: ModuleDecl): ModuleDecl
   /** Optional. The module header carrying the source-level directives the module's
    *  declared capabilities need on this target: one line per `m.enables` entry whose
    *  `capProfile` row has a `directive` (WGSL `enable <d>;`, GLSL ES 3.00

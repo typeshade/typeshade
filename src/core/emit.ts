@@ -7,7 +7,7 @@
 // the control-flow walk (no duplicated if/for/switch/return logic that can drift).
 
 import { UnsupportedFeatureError, type Backend } from './backend.js'
-import type { Expr, Stmt, ModuleDecl, ShaderType } from './ir/index.js'
+import type { Expr, Stmt, ModuleDecl, ShaderType, FuncDecl } from './ir/index.js'
 import { stageOf } from './ir/index.js'
 import { eachExpr, eachStmtExpr } from './ir/visit.js'
 import { fragmentRequires, type EmitFragment } from './fragment.js'
@@ -161,7 +161,14 @@ function emitLeaf(
       // `override` identifier and the GLSL `#define` macro share the declared name.
       // `externref` (X-GIS #1713) likewise: its per-target spelling was already resolved into
       // `.name` by `spellExterns` during lowering, so the walk stays target-neutral.
-      return e.name
+      //
+      // A parameter this target spells as a pointer is the one name that is not itself: the
+      // body wrote `self_.pos`, and WGSL reads that through `(*self_).pos`. GLSL's `inout`
+      // needs no such thing, and its backend declares no `dereference`, so the set is empty
+      // there and this is the bare name on both targets as before.
+      return pointerParams.has(e.name) && be.dereference !== undefined
+        ? be.dereference(e.name)
+        : e.name
     case 'call': {
       // A registry spelling that splices an argument into a tighter position — `mod`'s
       // `/` operand, `pack4x8unorm`'s `.x` base — needs it as a PRIMARY: at the loose
@@ -183,7 +190,24 @@ function emitLeaf(
       // documented as never read by the emit path and freely dropped by pass rewrites, so a
       // rewrite that dropped it would silently flip the emit back. A name survives every
       // pass, since a pass that removed the declaration would remove the call with it.
-      const args = e.args.map(intrinsicNeedsAtomArgs(e.fn) ? base : r)
+      const rendered = e.args.map(intrinsicNeedsAtomArgs(e.fn) ? base : r)
+      // An argument the callee writes through is passed by reference on a target that spells
+      // the parameter as a pointer (WGSL `&x`); on one that spells it as a qualifier the
+      // argument is the l-value as written, which is what GLSL's `inout` takes.
+      const callee = declaredByName.get(e.fn)
+      const args =
+        callee === undefined || be.reference === undefined
+          ? rendered
+          : rendered.map((text, i) => {
+              if (callee.params[i]?.mode !== 'inout') return text
+              const arg = e.args[i]!
+              // A pointer this function already holds is passed straight on. Taking its
+              // address again would be `&(*self_)`, which WGSL accepts and no one writes.
+              if ((arg.op === 'varref' || arg.op === 'param') && pointerParams.has(arg.name)) {
+                return arg.name
+              }
+              return be.reference!(base(arg))
+            })
       return declaredFns.has(e.fn) ? `${e.fn}(${args.join(', ')})` : be.intrinsic(e.fn, args)
     }
     case 'member':
@@ -345,7 +369,10 @@ export function lowerForBackend(
     fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
     be,
   )
-  return level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
+  const optimized = level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
+  // After every tier, so a target whose spelling needs a shape the IR does not carry gets it
+  // whichever optimizer ran. Identity for a backend that declares none.
+  return be.postLower === undefined ? optimized : be.postLower(optimized)
 }
 
 /** Called once per pre-emit stage when profiling (X-GIS #2449). */
@@ -459,11 +486,44 @@ function resolvedOwnFns(lowered: ModuleDecl): ReadonlySet<string> {
  *  trade, the alternative is widening `emitBody`/`emitExpr`/`emitFunc` to carry the set. */
 export function withDeclaredFns<T>(lowered: ModuleDecl, emit: () => T): T {
   const previous = declaredFns
+  const previousDecls = declaredByName
   declaredFns = resolvedOwnFns(lowered)
+  declaredByName = new Map(lowered.funcs.map((f) => [f.name, f]))
   try {
     return emit()
   } finally {
     declaredFns = previous
+    declaredByName = previousDecls
+  }
+}
+
+/** The declarations behind {@link withDeclaredFns}'s names, so a call can be rendered against
+ *  its callee's parameter modes: an argument for an `inout` parameter is passed by reference on
+ *  a target that spells the parameter as a pointer. Same scoping, same reason. */
+let declaredByName: ReadonlyMap<string, FuncDecl> = new Map()
+
+/** The parameters of the function being emitted that the target spells as a POINTER, so a read
+ *  of one inside the body is dereferenced. Empty for every backend that spells an `inout`
+ *  parameter as a qualifier, and for every function that has none.
+ *
+ *  Scoped the same way and for the same reason as {@link withDeclaredFns}: the set has to be
+ *  visible inside the shared expression walk, which each backend reaches through its own
+ *  `emitFunc`. */
+let pointerParams: ReadonlySet<string> = new Set()
+
+/** Run `emit` with `f`'s pointer-spelled parameters in scope. A backend calls this from its
+ *  `emitFunc` around the body, and one that spells `inout` as a qualifier need not call it at
+ *  all: with no {@link Backend.dereference} the set is never consulted. */
+export function withPointerParams<T>(be: Backend, f: FuncDecl, emit: () => T): T {
+  const previous = pointerParams
+  pointerParams =
+    be.dereference === undefined
+      ? new Set()
+      : new Set(f.params.filter((p) => p.mode === 'inout').map((p) => p.name))
+  try {
+    return emit()
+  } finally {
+    pointerParams = previous
   }
 }
 

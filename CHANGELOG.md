@@ -11,6 +11,33 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ## [Unreleased]
 
+### Changed
+
+- **A method that changes its object takes it by reference** (§26). It took the struct and
+  RETURNED it — `Particle_step(self_in: Particle, dt: f32) -> Particle` opening with
+  `var self_ = self_in` and closing with `return self_` — and the call site read the receiver,
+  called, and stored the result back: three copies of a struct for one method that moves a
+  point. The reason the source gave was that both targets take a struct by value "so the IR is
+  unchanged". Measured on real Tint and a real WebGL2 driver, both targets have something
+  better: GLSL ES 3.00 has `inout Particle self_`, which takes any l-value argument, an array
+  element included; WGSL has a pointer, `self_: ptr<function, Particle>`, read through as
+  `(*self_)`, and it accepts `&ps[i]` into a `ptr<storage, …, read_write>` parameter.
+  `FuncDecl.params[i].mode` now says which parameters a callee writes through, and each target
+  spells it its own way. The call is a plain statement; nothing about the source changed.
+- **The WGSL backend gives such a function one copy per address space its calls use.** The
+  address space is part of a WGSL pointer's type, so a method called on both a local and a
+  storage element is emitted as `P_bump_function` and `P_bump_storage`, each call naming the
+  one it needs; one space and the function keeps its plain name. It is the backend's own pass
+  and reaches neither the IR nor the GLSL, which writes one `inout` function.
+- **The effect table counts a write through a reference** (§19). A write to a parameter used to
+  read as "owned", which was true while every parameter was by value; with `inout` it is the
+  caller's own value being written, so the callee is a writer and its call statement is not dead
+  code. A callee's name for it means nothing to the caller, so it is translated:
+  `ps[gid.x].step(dt)` writes `ps`.
+- **`examples/orbit-inout.shade.ts`** joins the corpus: the render twin of `particle-step`, so
+  the gate compiles AND links the `inout` spelling on a real WebGL2 driver rather than only
+  checking WGSL on Tint.
+
 ### Added
 
 - **Generics on a function, by monomorphisation** (§30, roadmap 0.3 item T9,

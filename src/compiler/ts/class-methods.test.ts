@@ -270,9 +270,14 @@ describe('class members: what is refused, and what the fix is', () => {
   })
 })
 
-// Step 2 of #86: a method that changes its object. It takes and returns the struct, and a call
-// of it is a statement that writes the receiver back. Measured on `main` (step 1) before this:
-// such a method was TS8035 "not supported yet".
+// Step 2 of #86: a method that changes its object. It takes its object BY REFERENCE — `inout`
+// on GLSL ES 3.00, a pointer on WGSL — and the call is a plain statement. Measured on `main`
+// (step 1) before this: such a method was TS8035 "not supported yet".
+//
+// It took the struct and RETURNED it until the reference landed, so the call site read the
+// receiver, called, and stored the result back: three copies of the struct for one method that
+// changes a field. The IR now says which parameters a callee writes through and each target
+// spells it its own way.
 describe('class members: a method that changes its object', () => {
   const PARTICLES = `"use typeshade"
 declare let ps: storage<array<Particle>>
@@ -306,28 +311,74 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 }
 `
 
-  it('takes the struct as self_in, works on the copy self_, and returns it', () => {
+  // The same class with a local receiver only, so the GLSL path (which has no compute stage)
+  // can show the `inout` spelling.
+  const RENDER_PARTICLES = `"use typeshade"
+class Particle {
+  pos: vec2
+  vel: vec2
+  age: u32 = 0
+  step(dt: f32): void {
+    this.pos = this.pos + this.vel * dt
+    this.age++
+  }
+}
+@fragment
+export function fs(): vec4 {
+  let p = new Particle()
+  p.step(1.)
+  return vec4(p.pos, f32(p.age), 1.)
+}
+`
+
+  it('takes its object by reference, and the call is a plain statement', () => {
     const r = compile(PARTICLES)
     expect(r.diagnostics).toEqual([])
     const w = r.wgsl!
+    // Written once, emitted once per address space its receivers live in: this file calls
+    // `step` on a storage element AND on a local, and WGSL's pointer types differ.
     expect(w).toContain(
-      'fn Particle_step(self_in: Particle, dt: f32) -> Particle {\n  var self_: Particle = self_in;\n  self_.pos = (self_.pos + (self_.vel * dt));\n  self_.age += 1u;\n  return self_;\n}',
+      'fn Particle_step_storage(self_: ptr<storage, Particle, read_write>, dt: f32) {\n  (*self_).pos = ((*self_).pos + ((*self_).vel * dt));\n  (*self_).age += 1u;\n}',
+    )
+    expect(w).toContain(
+      'fn Particle_step_function(self_: ptr<function, Particle>, dt: f32) {\n  (*self_).pos = ((*self_).pos + ((*self_).vel * dt));\n  (*self_).age += 1u;\n}',
     )
     // A method that calls a changing method on `this` changes its object too, to a fixpoint.
+    // It holds a pointer already, so it passes that one on rather than taking its address.
     expect(w).toContain(
-      'fn Particle_tick(self_in: Particle, dt: f32) -> Particle {\n  var self_: Particle = self_in;\n  self_ = Particle_step(self_, dt);\n  self_ = Particle_bounce(self_);\n  return self_;\n}',
+      'fn Particle_tick(self_: ptr<storage, Particle, read_write>, dt: f32) {\n  Particle_step_storage(self_, dt);\n  Particle_bounce(self_);\n}',
     )
-    // One that reads keeps the read-only parameter.
+    // One that reads keeps the read-only parameter, by value.
     expect(w).toContain('fn Particle_speed(self_: Particle) -> f32 {')
-    // The call statement writes the receiver back: a storage element and a local alike.
-    expect(w).toContain('  ps[gid.x] = Particle_tick(ps[gid.x], 0.5);')
-    expect(w).toContain('  p = Particle_step(p, 1.0);')
+    // The call statement is the call: no read of the receiver, no store back.
+    expect(w).toContain('  Particle_tick(&ps[gid.x], 0.5);')
+    expect(w).toContain('  Particle_step_function(&p, 1.0);')
+    expect(w).not.toContain('self_in')
   })
 
-  it('the write-back on a storage element is a write in the effect table', () => {
+  it('GLSL ES 3.00 spells the same thing inout, with no pointer and one function', () => {
+    const r = compile(RENDER_PARTICLES)
+    expect(r.diagnostics).toEqual([])
+    const g = r.glsl!.fragment
+    expect(g).toContain('void Particle_step(inout Particle self_, float dt) {')
+    expect(g).toContain('  self_.pos = (self_.pos + (self_.vel * dt));')
+    // The argument is the l-value as written: GLSL's inout takes one, and there is no `&`.
+    expect(g).toContain('  Particle_step(p, 1.0);')
+    expect(g).not.toContain('&')
+  })
+
+  it('a write through a reference is a write in the effect table, named as the caller knows it', () => {
     const r = compile(PARTICLES)
+    // `k` writes `ps` because `tick` writes its receiver and the receiver is reached through
+    // `ps`. The callee's own word for it, `self_`, means nothing here and is translated.
     expect([...fnWrites(r.module).get('k')!]).toEqual(['ps'])
-    expect([...fnWrites(r.module).get('Particle_step')!]).toEqual([])
+    // And the method itself writes its receiver, which is what keeps its call statement from
+    // being dropped as dead: before the effect table learned about `inout`, every one of these
+    // calls disappeared and `Particle_tick` emitted an empty body.
+    // Under its IR name: the per-address-space copies are the WGSL backend's own, made after
+    // every pass that reads this table.
+    expect([...fnWrites(r.module).get('Particle_step')!]).toEqual(['self_'])
+    expect([...fnWrites(r.module).get('Particle_speed')!]).toEqual([])
   })
 
   it('the oracle and the codegen agree on the particles', () => {
@@ -368,8 +419,12 @@ export function fs(@location(0) uv: vec2): vec4 {
 }
 `)
     expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('  self_ = C_bump(self_);\n  return self_;')
-    expect(r.wgsl).toContain('  c = C_bump(c);\n  acc = C_bump(acc);')
+    // Three places, two address spaces: the constructor's own `self_` and the local `c` are
+    // function-space, the module variable `acc` is private-space, and WGSL's pointer types
+    // differ, so `bump` is emitted once for each.
+    expect(r.wgsl).toContain('  C_bump_function(&self_);\n  return self_;')
+    expect(r.wgsl).toContain('  C_bump_function(&c);\n  C_bump_private(&acc);')
+    expect(r.wgsl).toContain('fn C_bump_private(self_: ptr<private, C>) {')
     // new C(1): x = 1, then the constructor bumps to 2; fs bumps to 3, twice is 6; acc 10 to 11.
     expect(r.eval('fs', [[1, 0]])).toEqual([6, 11, 0, 1])
   })
@@ -396,12 +451,19 @@ export function fs(@location(0) uv: vec2): vec4 {
         `${C}function g(): f32 { let c: C = { x: 1. }\n  const y = c.bump()\n  return c.x }${TAIL}`,
       ),
     ).toBe(`${M} "C.bump" changes its object and returns nothing; call it on its own line.`)
+    // `self_` only. `self_in` was the second name the old protocol used, for the copy the body
+    // worked on, and a method writes through its object now: the name is free again.
     expect(
       only(
-        `"use typeshade"\nclass D {\n  x: f32\n  f(self_in: f32): void { this.x = self_in }\n}${TAIL}`,
+        `"use typeshade"\nclass D {\n  x: f32\n  f(self_: f32): void { this.x = self_ }\n}${TAIL}`,
       ),
     ).toBe(
-      `${M} "self_in" is a name D.f gives its object in the emitted function; rename the parameter.`,
+      `${M} "self_" is a name D.f gives its object in the emitted function; rename the parameter.`,
     )
+    expect(
+      errorsOf(
+        `"use typeshade"\nclass D {\n  x: f32\n  f(self_in: f32): void { this.x = self_in }\n}${TAIL}`,
+      ),
+    ).toEqual([])
   })
 })

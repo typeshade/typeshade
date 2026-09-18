@@ -46,7 +46,11 @@ export function atomicWriteRoot(x: Expr): string | undefined {
 }
 
 function directWrites(f: FuncDecl, out: Set<string>): void {
-  const owned = new Set<string>(f.params.map((p) => p.name))
+  // A parameter the callee writes THROUGH (`mode: 'inout'`) is not owned: the write lands in
+  // the caller's own value, which is the whole point of it. Writing to any other parameter is
+  // local and invisible outside. Before `inout` existed every parameter was owned, and a
+  // method that changed its object took it by value and returned it, so this list was complete.
+  const owned = new Set<string>(f.params.filter((p) => p.mode !== 'inout').map((p) => p.name))
   collectLocals(f.body, owned)
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {
@@ -81,6 +85,45 @@ function directWrites(f: FuncDecl, out: Set<string>): void {
   walk(f.body)
 }
 
+/** What one call adds to its CALLER's write set, given what the callee writes.
+ *
+ *  A name the callee writes that is one of its own `inout` parameters means nothing to the
+ *  caller — `self_` is the callee's word for it — so it is translated into the root of the
+ *  argument passed there: `ps[gid.x].tick(dt)` writes `ps`, because `tick` writes its receiver
+ *  and the receiver is reached through `ps`. Every other name the callee writes is a module
+ *  name already, and passes through as it is.
+ *
+ *  A translated name the caller owns (its own local) is dropped from what the caller writes,
+ *  because a write to a local is invisible outside it. The CALL still has an effect — the
+ *  callee's own write set is non-empty, which is what {@link exprHasEffect} reads — so the
+ *  statement is never dropped. */
+function inheritedWrites(
+  call: Expr & { op: 'call' },
+  callee: FuncDecl,
+  calleeWrites: ReadonlySet<string>,
+  ownedByCaller: ReadonlySet<string>,
+  out: Set<string>,
+): void {
+  const throughParam = new Map<string, string | undefined>()
+  for (const [i, p] of callee.params.entries()) {
+    if (p.mode !== 'inout') continue
+    const arg = call.args[i]
+    const root = arg === undefined ? undefined : targetRoot(arg)
+    throughParam.set(
+      p.name,
+      root !== undefined && (root.op === 'varref' || root.op === 'param') ? root.name : undefined,
+    )
+  }
+  for (const name of calleeWrites) {
+    if (!throughParam.has(name)) {
+      out.add(name)
+      continue
+    }
+    const here = throughParam.get(name)
+    if (here !== undefined && !ownedByCaller.has(here)) out.add(here)
+  }
+}
+
 function calleesOf(f: FuncDecl, declared: ReadonlySet<string>, out: Set<string>): void {
   for (const s of f.body) {
     eachStmtExpr(s, (e) => {
@@ -112,6 +155,7 @@ export function fnWrites(m: ModuleDecl): FnWrites {
   const declared = new Set(m.funcs.map((f) => f.name))
   const writes = new Map<string, Set<string>>()
   const callees = new Map<string, Set<string>>()
+  const byName = new Map(m.funcs.map((f) => [f.name, f]))
   for (const f of m.funcs) {
     const w = new Set<string>()
     directWrites(f, w)
@@ -120,20 +164,45 @@ export function fnWrites(m: ModuleDecl): FnWrites {
     calleesOf(f, declared, c)
     callees.set(f.name, c)
   }
-  // Fixpoint over the call graph: a function inherits what its callees write.
+  // What each function owns, for translating a callee's parameter writes below.
+  const owned = new Map<string, Set<string>>()
+  for (const f of m.funcs) {
+    const o = new Set<string>(f.params.filter((p) => p.mode !== 'inout').map((p) => p.name))
+    collectLocals(f.body, o)
+    owned.set(f.name, o)
+  }
+  // Fixpoint over the call graph: a function inherits what its callees write, with a name a
+  // callee writes through one of its own `inout` parameters translated into the argument this
+  // caller passed there.
   let changed = true
   while (changed) {
     changed = false
     for (const f of m.funcs) {
       const w = writes.get(f.name)!
+      const before = w.size
+      for (const s of f.body) {
+        eachStmtExpr(s, (e) => {
+          eachExpr(e, (x) => {
+            if (x.op !== 'call') return
+            const callee = byName.get(x.fn)
+            if (callee === undefined) return
+            inheritedWrites(x, callee, writes.get(x.fn) ?? new Set(), owned.get(f.name)!, w)
+          })
+        })
+      }
+      // A call inside a nested block reaches the walk above through `eachStmtExpr`'s own
+      // recursion into the statement's expressions only, so the plain-name inheritance below
+      // keeps a callee's MODULE writes flowing through a branch or a loop.
       for (const callee of callees.get(f.name)!) {
+        const decl = byName.get(callee)
+        const through = new Set(
+          (decl?.params ?? []).filter((p) => p.mode === 'inout').map((p) => p.name),
+        )
         for (const name of writes.get(callee) ?? []) {
-          if (!w.has(name)) {
-            w.add(name)
-            changed = true
-          }
+          if (!through.has(name)) w.add(name)
         }
       }
+      if (w.size !== before) changed = true
     }
   }
   memo.set(m, writes)
