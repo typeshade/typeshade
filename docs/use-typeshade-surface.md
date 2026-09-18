@@ -238,6 +238,7 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
+| A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, inside an `if` or `switch` body, or used as a value (§25) |
 
 ---
 
@@ -274,7 +275,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 **Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
 which reserved those numbers while they were in flight and appended here in issue order. The
 sections took the next free numbers so the A-item branches did not all claim §9 and collide on
-merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, §23 is roadmap 0.2 item 4 and §24 is item 5 (design #82).
+merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, §23 is roadmap 0.2 item 4, and §24 and §25 are item 5 (design #82).
 
 ---
 
@@ -1271,6 +1272,80 @@ module's lifetime: zero when the module is compiled, then whatever the invocatio
 it. A barrier, and the lockstep dispatch that gives one invocation another's slot to read, is
 the next step of #82; until then each invocation should touch its own slot, as
 `workgroup-scratch.shade.ts` does. The oracle, the CPU codegen and the debug stepper agree.
+
+---
+
+## 25. Barriers, and running a workgroup on the CPU
+
+`workgroupBarrier()` and `storageBarrier()` are the two statements that make workgroup memory
+(§24) useful: every invocation of the workgroup runs the statements before the barrier, then
+every one runs on, and what each wrote before it is what every other reads after it. Roadmap
+0.2 item 5, design [#82](https://github.com/typeshade/typeshade/issues/82), step 2.
+
+```ts
+"use typeshade"
+declare const src: storage<array<f32>>
+declare let sums: storage<array<f32>>
+
+let tile: workgroup<array<f32, 64>>
+
+@compute([64, 1, 1])
+export function reduce(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+  @builtin("workgroup_id") wid: vec3u,
+): void {
+  tile[lid.x] = src[gid.x]
+  workgroupBarrier()
+  for (let stride: u32 = 32; stride > 0; stride /= 2) {
+    if (lid.x < stride) {
+      tile[lid.x] = tile[lid.x] + tile[lid.x + stride]
+    }
+    workgroupBarrier()
+  }
+  if (lid.x === 0) {
+    sums[wid.x] = tile[0]
+  }
+}
+```
+
+**A barrier is a statement.** It takes no argument and has no value: `const x = workgroupBarrier()`
+is TS8034. Both emit bare on WGSL, `workgroupBarrier();`, and never behind §19's phony
+assignment. GLSL ES 3.00 has no compute stage, so a module with one emits WGSL alone.
+
+**Where it stands.** WGSL requires a barrier in uniform control flow in the compute stage, and
+this surface states the same two rules at the call (TS8034): in a compute entry or a function it
+calls, never in a vertex or fragment entry, which has no workgroup; and never inside an `if` or
+`switch` body. A branch on a value the invocations do not share is how a workgroup waits
+forever. A `for` with §17's constant bound is uniform and allowed, which is the shape the
+reduction above needs: the loop steps by `/= 2`, one of §17's four counted steps. The optimizer
+treats a barrier as an effect (§19), so it is never dropped, merged or moved, and no read of
+workgroup memory crosses it.
+
+**Running it on the CPU.** The oracle runs one invocation per call, and a barrier has no one to
+wait for there: calling `fns.reduce(...)` on a kernel with a barrier throws and names
+`dispatch`. `compileModule(m).dispatch(entry, workgroups)` and `compileModuleJs(m).dispatch(...)`
+run a `@compute` entry over `workgroups` workgroups of its declared size (one number for a 1-D
+grid, or the three counts), every invocation of a workgroup in lockstep: each invocation runs
+until the statement it is about to execute is a barrier, and only when every live invocation of
+the workgroup has arrived do all of them run on. The builtin parameters are filled in
+(`global_invocation_id`, `local_invocation_id`, `local_invocation_index`, `workgroup_id`,
+`num_workgroups`), workgroup memory starts zero for each workgroup, a per-invocation variable
+at its initializer for each invocation, and the bindings are the ones `setBinding` supplied,
+arrays written in place and a scalar handed back. The result names the workgroups, the
+invocations and the barrier phases. A kernel with no barrier may still be run one invocation at
+a time through `fns`.
+
+**Divergence is an error.** Invocations of one workgroup that do not agree about a barrier,
+some returning before it or waiting at a different one, are a program WGSL forbids and a GPU
+hangs on. `dispatch` throws instead, naming the barrier's line and the counts:
+`workgroupBarrier() at line 14 was reached by 61 of 64 invocations of workgroup (0, 0, 0); 3
+returned before it.` This is the first divergence report roadmap item 21 asks for. The debug
+stepper, which steps one invocation alone, runs straight through a barrier.
+
+**Also in this step.** A call that returns nothing can no longer initialize a local:
+`const x = store(1)` emitted `let x = store(1u);`, which Tint refuses, with no diagnostic; it is
+TS8003 now with "call it on its own line".
 
 ---
 
