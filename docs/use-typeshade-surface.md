@@ -1054,6 +1054,31 @@ A **repeated** field keeps taking the last value, in every position, as it alway
 editor, so the compiler does not repeat the complaint.
 
 
+### `...` spreads a struct's fields
+
+`{ ...p, y: 9. }` is the fields of `p` with `y` written over one of them, so it lowers to one
+read per field of `p`'s struct (roadmap 0.3 item T7,
+[#92](https://github.com/typeshade/typeshade/issues/92)):
+
+```ts
+const q: P = { ...p, y: 9. }     // P(p.x, 9.0)
+const q: P = { y: 9., ...p }     // P(p.x, p.y)
+const q: Inner = { ...o.i, b: 9. } // Inner(o.i.a, 9.0)
+```
+
+Later wins, over a written field and over an earlier spread, which is TypeScript's own rule and
+already how a repeated field was taken. A spread may fill part of a bigger struct with the rest
+written, and the target struct is decided by an annotation or, with none, by the field names the
+literal ends up with.
+
+Three shapes have no form here. A value with no fields: a vector's components are read by name,
+so `{ ...v }` is refused. A value that is not a plain read: the spread reads its operand once
+per field, so a call would run once per field with it; bind it to a const first. And a field the
+target struct has not got, which names the field rather than saying the literal does not match.
+
+Every other spread is still a runtime operation this surface has no form for: `f(...args)` needs
+an argument count known only at run time, and `[...xs]` a list that grows.
+
 ## 17. What a `for` loop may say, and what it is told
 
 A `for` must be **counted**: an integer induction variable, a constant bound, a constant step,

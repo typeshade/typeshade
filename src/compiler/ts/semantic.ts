@@ -164,7 +164,11 @@ function visit(
       TS_CODES.HOST_STMT,
     )
   }
-  if (ts.isSpreadElement(node) || ts.isSpreadAssignment(node)) {
+  // `{ ...p }` in an object literal is the fields of `p`, which the literal lowering spreads
+  // to one read each (roadmap 0.3 item T7, #92); it says itself what it cannot spread. Every
+  // other spread is still a runtime operation this surface has no form for: `f(...args)`
+  // needs an argument count known only at run time, and `[...xs]` a list that grows.
+  if (ts.isSpreadElement(node)) {
     push(diagnostics, sourceFile, node, 'Spread is a JS runtime operation.', TS_CODES.HOST_STMT)
   }
   if (
