@@ -77,6 +77,11 @@ interface Ctx {
   overrides: Map<string, CpuValue>
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
   bindings: Record<string, CpuValue>
+  /** The module variables (roadmap 0.2 item 5): a `workgroup` one is allocated once, zero,
+   *  and lives for the module's lifetime as one implicit workgroup's memory; a `private` one
+   *  is set to its initializer or zero at the start of every host-facing call, which is one
+   *  invocation. Written in place, like a binding, so the next invocation sees it. */
+  vars: Record<string, CpuValue>
   structs: Map<string, StructDecl>
   /** Opt-in GPU stubs (X-GIS #763 O3): textureSample/fwidth return placeholder values
    *  instead of throwing. OFF by default — plausible-wrong is the worst failure
@@ -125,6 +130,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     case 'varref': {
       if (env.has(e.name)) return env.get(e.name) as CpuValue
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
+      if (e.name in ctx.vars) return ctx.vars[e.name]
       throw new Error(`typeshade/cpu: unbound ${e.name}`)
     }
     case 'binop': {
@@ -303,6 +309,14 @@ function refOf(
   if (target.op === 'varref' || target.op === 'param') {
     const name = target.name
     if (env.has(name)) return { get: () => env.get(name) as CpuValue, set: (v) => env.set(name, v) }
+    if (name in ctx.vars) {
+      return {
+        get: () => ctx.vars[name] as CpuValue,
+        set: (v) => {
+          ctx.vars[name] = v
+        },
+      }
+    }
     if (name in ctx.bindings) {
       return {
         get: () => ctx.bindings[name] as CpuValue,
@@ -355,6 +369,19 @@ function evalAtomic(
 
 function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ctx: Ctx): void {
   if (target.op === 'varref' || target.op === 'param') {
+    // A module-level name that is not shadowed by a local (a module variable, a scalar
+    // binding) is written in the module's own table, so the host and the next invocation see
+    // the value; a local is the frame's. `let`/`var` always put a local in the env first.
+    if (!env.has(target.name)) {
+      if (target.name in ctx.vars) {
+        ctx.vars[target.name] = value
+        return
+      }
+      if (target.name in ctx.bindings) {
+        ctx.bindings[target.name] = value
+        return
+      }
+    }
     env.set(target.name, value)
     return
   }
@@ -591,6 +618,7 @@ export function compileModule(
     overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
     fns: {},
     bindings: {},
+    vars: {},
     structs: new Map(m.structs.map((s) => [s.name, s])),
     gpuStubs: opts?.gpuStubs ?? false,
   }
@@ -599,6 +627,16 @@ export function compileModule(
   // through the same tree-walk; a scalar const uses its full-precision cpuValue.
   for (const c of m.consts) {
     ctx.consts.set(c.name, c.valueExpr ? evalExpr(c.valueExpr, new Map(), ctx) : c.cpuValue)
+  }
+  const vars = m.vars ?? []
+  for (const v of vars) if (v.space === 'workgroup') ctx.vars[v.name] = zeroOf(v.type, ctx.structs)
+  const privates = vars.filter((v) => v.space === 'private')
+  const initPrivates = (): void => {
+    for (const v of privates) {
+      ctx.vars[v.name] = v.init
+        ? bindValue(evalExpr(v.init, new Map(), ctx), v.type)
+        : zeroOf(v.type, ctx.structs)
+    }
   }
   for (const f of m.funcs) {
     ctx.fns[f.name] = (...args: CpuValue[]): CpuValue => {
@@ -610,8 +648,22 @@ export function compileModule(
       return r.kind === 'return' ? (r.value as CpuValue) : (undefined as unknown as CpuValue)
     }
   }
+  // A host-facing call is one invocation: its private variables start from their
+  // initializers. A call from inside the module (`ctx.fns`) is the same invocation and keeps
+  // them. Without private variables the two tables are one object, as they always were.
+  let fns = ctx.fns
+  if (privates.length > 0) {
+    fns = {}
+    for (const f of m.funcs) {
+      const inner = ctx.fns[f.name]!
+      fns[f.name] = (...args: CpuValue[]): CpuValue => {
+        initPrivates()
+        return inner(...args)
+      }
+    }
+  }
   return {
-    fns: ctx.fns,
+    fns,
     setBinding: (name, value) => {
       ctx.bindings[name] = value
     },

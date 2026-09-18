@@ -21,6 +21,7 @@ import type {
   RawStmt,
 } from './ir/index.js'
 import { ALL_CAPABILITIES } from './ir/nodes.js'
+import type { ModuleVarDecl } from './ir/nodes.js'
 import { TypeShadeError } from './diagnostics/error.js'
 import type { ParenMode } from './emit.js'
 
@@ -257,6 +258,12 @@ export interface Backend {
   emitStruct(s: StructDecl): string
   /** A resource binding declaration line. */
   emitBinding(b: BindingDecl): string
+  /** Optional. A module-scope variable that is not a resource ({@link ModuleVarDecl}). The
+   *  WGSL writer spells `var<workgroup> x: T;` and `var<private> y: T = init;`; the GLSL
+   *  writer spells a private variable as a plain global, which GLSL ES 3.00 gives every
+   *  invocation its own copy of, and fails closed on a workgroup one, since WebGL2 has no
+   *  workgroup memory. A backend that omits this cannot emit a module that declares one. */
+  emitModuleVar?(v: ModuleVarDecl): string
   /** A function declaration block: the signature and the emitted body. `parens` selects
    *  how many parentheses the shared expression walk writes, `'full'` or `'minimal'`;
    *  omitted means `'full'`. A backend forwards it to the body emitter. */

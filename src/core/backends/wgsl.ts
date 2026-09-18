@@ -275,6 +275,10 @@ export const wgslBackend: Backend = {
     const space = b.space === 'storage' ? `storage, ${b.access ?? 'read'}` : 'uniform'
     return `@group(${b.group}) @binding(${b.binding}) var<${space}> ${b.name}: ${wgslType(b.type)};`
   },
+  // `var<workgroup> tile: array<f32, 64>;` / `var<private> seed: u32 = 7u;` (roadmap 0.2
+  // item 5). The initializer is a constant expression, rendered the way a const's is.
+  emitModuleVar: (v) =>
+    `var<${v.space}> ${v.name}: ${wgslType(v.type)}${v.init ? ` = ${emitExprNeutral(v.init, wgslBackend)}` : ''};`,
   emitFunc: (f, parens) => {
     const params = f.params.map((p) => `${paramAttr(p)}${p.name}: ${wgslType(p.type)}`).join(', ')
     const ret =

@@ -39,6 +39,7 @@
 // this walk cannot see).
 
 import { stageOf } from '../ir/index.js'
+import type { ModuleVarDecl } from '../ir/nodes.js'
 import type {
   ModuleDecl,
   FuncDecl,
@@ -295,6 +296,15 @@ export function mangleModule(m: ModuleDecl): MangleResult {
     // names are visible to it, so it renames under an empty local map.
     ...(c.valueExpr !== undefined ? { valueExpr: rE(new Map())(c.valueExpr) } : {}),
   })
+  // A module variable keeps its name too: a host never binds one, but the emitted
+  // `var<workgroup> tile` reads as the author spelled it, and the varrefs to it in the bodies
+  // are module-level names `rE` leaves alone, like a binding's. Its type and its initializer
+  // are renamed with the structs and consts they mention.
+  const rVar = (v: ModuleVarDecl): ModuleVarDecl => ({
+    ...v,
+    type: renameType(v.type),
+    ...(v.init !== undefined ? { init: rE(new Map())(v.init) } : {}),
+  })
   // Binding names AND top-level binding-struct names are the host ABI — only
   // nested types (array elements) are renamed.
   const rBinding = (b: BindingDecl): BindingDecl => {
@@ -321,6 +331,7 @@ export function mangleModule(m: ModuleDecl): MangleResult {
       consts: m.consts.map(rConst),
       structs: m.structs.map(rStruct),
       bindings: m.bindings.map(rBinding),
+      ...(m.vars !== undefined ? { vars: m.vars.map(rVar) } : {}),
       funcs: m.funcs.map(rFn),
     },
     renames,

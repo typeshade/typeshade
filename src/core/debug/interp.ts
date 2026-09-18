@@ -117,6 +117,9 @@ export interface StepCtx {
   readonly overrides: Map<string, CpuValue>
   readonly decls: Map<string, FuncDecl>
   readonly bindings: Record<string, CpuValue>
+  /** The module variables (roadmap 0.2 item 5), set up by `makeCtx`: a `workgroup` one zero,
+   *  a `private` one at its initializer, since a session is one invocation. */
+  readonly vars: Record<string, CpuValue>
   readonly structs: Map<string, StructDecl>
   /** The module's declared uniform and storage names, so a binding nobody supplied is NAMED
    *  rather than reported as an unbound local. Since #18 a binding read is a `varref` like any
@@ -192,6 +195,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         return env.get(e.name) as CpuValue
       }
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
+      if (e.name in ctx.vars) return ctx.vars[e.name]
       if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name)
       throw new Error(`typeshade/debug: unbound ${e.name}`)
     }
@@ -444,6 +448,14 @@ function* refOf(
   if (target.op === 'varref' || target.op === 'param') {
     const name = target.name
     if (env.has(name)) return { get: () => env.get(name) as CpuValue, set: (v) => env.set(name, v) }
+    if (name in ctx.vars) {
+      return {
+        get: () => ctx.vars[name] as CpuValue,
+        set: (v) => {
+          ctx.vars[name] = v
+        },
+      }
+    }
     if (name in ctx.bindings) {
       return {
         get: () => ctx.bindings[name] as CpuValue,
@@ -500,6 +512,18 @@ function* setLValue(
   ctx: StepCtx,
 ): Step<void> {
   if (target.op === 'varref' || target.op === 'param') {
+    // The oracle's rule: a module-level name not shadowed by a local is written in the
+    // module's own table.
+    if (!env.has(target.name)) {
+      if (target.name in ctx.vars) {
+        ctx.vars[target.name] = value
+        return
+      }
+      if (target.name in ctx.bindings) {
+        ctx.bindings[target.name] = value
+        return
+      }
+    }
     env.set(target.name, value)
     return
   }
@@ -633,6 +657,7 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     overrides: new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default])),
     decls: new Map(m.funcs.map((f) => [f.name, f])),
     bindings: {},
+    vars: {},
     structs: new Map(m.structs.map((s) => [s.name, s])),
     bindingNames: new Set(m.bindings.map((b) => b.name)),
     gpuStubs,
@@ -642,6 +667,14 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
   }
   for (const c of m.consts) {
     ctx.consts.set(c.name, c.valueExpr ? drain(evalExpr(c.valueExpr, new Map(), ctx)) : c.cpuValue)
+  }
+  // A session is one invocation of one workgroup: workgroup memory starts zero and a private
+  // variable at its initializer, evaluated the way a const is.
+  for (const v of m.vars ?? []) {
+    ctx.vars[v.name] =
+      v.space === 'private' && v.init
+        ? drain(evalExpr(v.init, new Map(), ctx))
+        : zeroOf(v.type, ctx.structs)
   }
   return ctx
 }
