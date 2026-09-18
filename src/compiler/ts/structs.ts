@@ -8,6 +8,11 @@ import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
+import {
+  eachNamespaceStatement,
+  namespaceMemberName,
+  refuseNamespaceStatement,
+} from './namespaces.js'
 
 /** Which of the three spellings declared a struct. Only a `class` can carry a field
  *  decorator, so a diagnostic that asks for `@builtin` or `@location` has to know: on the
@@ -171,9 +176,24 @@ export function collectStructs(
     })
   }
 
-  for (const stmt of sourceFile.statements) {
+  // A class inside a `namespace` is the struct `Ns_P`, the same flattening a function and a
+  // constant already take (#107). The walk below visits the file's own statements and each
+  // namespace body, so one loop serves both; `prefix` is '' at the top level, where the struct
+  // keeps the name it was written under.
+  const seen: { stmt: ts.Statement; prefix: string }[] = []
+  eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
+    seen.push({ stmt, prefix })
+  })
+  for (const { stmt, prefix } of seen) {
     const candidate = candidateOf(stmt)
     if (candidate) {
+      if (prefix !== '') {
+        // An interface or a type alias inside a namespace is collected by REACHABILITY rather
+        // than by declaration, so flattening its name is a separate step; refused for now, with
+        // the same sentence every other namespace member had.
+        refuseNamespaceStatement(stmt, prefix, sourceFile, diagnostics)
+        continue
+      }
       if (!reachable.has(candidate.name)) continue
       if (candidate.generic) {
         diagnostics.push(
@@ -202,7 +222,7 @@ export function collectStructs(
       continue
     }
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue
-    const structName = stmt.name.text
+    const structName = prefix === '' ? stmt.name.text : namespaceMemberName(prefix, stmt.name.text)
     recordDeclaration(symbols, sourceFile, stmt.name, {
       name: structName,
       kind: 'struct',
@@ -221,7 +241,7 @@ export function collectStructs(
     }
     // A class `extends` puts the base's fields ahead of its own, just as an interface one does
     // (T5, #92); `implements` carries no layout and is left alone.
-    const bases = basesOf(stmt.name.text, stmt.heritageClauses, sourceFile, diagnostics)
+    const bases = basesOf(structName, stmt.heritageClauses, sourceFile, diagnostics)
     if (bases === undefined) continue
     const isAbstract =
       (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false) || undefined
@@ -387,7 +407,7 @@ export function collectStructs(
       ctor === undefined
         ? (true as const)
         : undefined
-    add(stmt.name.text, stmt.name, fields, 'class', before, members, isNamespace, bases, isAbstract)
+    add(structName, stmt.name, fields, 'class', before, members, isNamespace, bases, isAbstract)
   }
   return applyInheritance(out, sourceFile, nodeOf, diagnostics)
 }

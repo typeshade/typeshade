@@ -694,6 +694,22 @@ export function lowerThis(
     : { op: 'varref', type: b.type, name: irNameOf(b) }
 }
 
+/** The struct a `new` names, flattened: `P` for `new P()`, `N_P` for `new N.P()`. Undefined
+ *  when the expression is not a chain of identifiers, which is a `new` on a value. */
+function newTargetName(expr: ts.Expression): string | undefined {
+  const parts: string[] = []
+  let node: ts.Expression = expr
+  for (;;) {
+    if (ts.isIdentifier(node)) {
+      parts.unshift(node.text)
+      return parts.join('_')
+    }
+    if (!ts.isPropertyAccessExpression(node)) return undefined
+    parts.unshift(node.name.text)
+    node = node.expression
+  }
+}
+
 /** `new Ray(a, b)`: the class's constructor function. A `new` on anything that is not a class
  *  the file declares was refused by the semantic pass; here it lowers to nothing more. */
 export function lowerNew(
@@ -702,8 +718,13 @@ export function lowerNew(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  if (!ts.isIdentifier(node.expression)) return undefined
-  const name = node.expression.text
+  // `new P(...)`, and `new N.P(...)` for a class inside a namespace, which the module emits as
+  // `N_P` (#107). A bare name inside that namespace's own bodies reaches it too, through the
+  // scope's namespace chain.
+  const written = newTargetName(node.expression)
+  if (written === undefined) return undefined
+  const name = scope.qualifiedStruct(written)
+  if (name === undefined) return undefined
   const struct = scope.structByName(name)
   if (struct === undefined) return undefined
   // A class whose members are all static is a namespace of functions and is not emitted as a
