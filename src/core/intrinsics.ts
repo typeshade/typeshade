@@ -97,6 +97,37 @@ export const ATOMIC_INTRINSICS: Readonly<
   atomicExchange: { arity: 2, returns: 'value' },
 }
 
+/** The barriers (roadmap 0.2 item 5, #82): `workgroupBarrier()` and `storageBarrier()`,
+ *  statements with no value that every invocation of a workgroup reaches before any runs on.
+ *  WGSL spells them bare; GLSL ES 3.00 has no compute stage and no barrier. The CPU oracle runs
+ *  them through `dispatch`, which holds each invocation of a workgroup at the barrier until
+ *  all have arrived.
+ *
+ *  Exported from `typeshade`.
+ */
+export const BARRIER_INTRINSICS: ReadonlySet<string> = new Set([
+  'workgroupBarrier',
+  'storageBarrier',
+])
+
+/** Whether `name` is one of the {@link BARRIER_INTRINSICS}.
+ *
+ *  Exported from `typeshade`.
+ */
+export const isBarrierIntrinsic = (name: string): boolean => BARRIER_INTRINSICS.has(name)
+
+/** The error every CPU path throws when a barrier runs outside a `dispatch`: a barrier waits
+ *  for the other invocations of the workgroup, and one invocation run alone, by a direct
+ *  `fns` call or by a debug session, has none. The values after it would be ones no workgroup
+ *  produces, so the run refuses and names the fix.
+ *
+ *  Exported from `typeshade`.
+ */
+export const barrierOutsideDispatch = (fn: string): Error =>
+  new Error(
+    `typeshade/cpu: ${fn}() waits for the other invocations of the workgroup, which a direct call has none of; run the entry with dispatch(name, workgroups)`,
+  )
+
 /** Whether `name` is one of the {@link ATOMIC_INTRINSICS}.
  *
  *  Exported from `typeshade`.
@@ -313,6 +344,21 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // the front end restricts it to what the builtins accept (an atomic in storage). GLSL ES
   // 3.00 has no atomic memory functions; the column fails closed like arrayLength's.
   ...atomicSpellings(),
+  // The barriers take no argument and return nothing; GLSL ES 3.00 has no compute stage.
+  workgroupBarrier: {
+    wgsl: () => 'workgroupBarrier()',
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: workgroupBarrier has no GLSL ES 3.00 spelling (no compute stage)',
+      )
+    },
+  },
+  storageBarrier: {
+    wgsl: () => 'storageBarrier()',
+    glsl: () => {
+      throw new Error('glsl-es300: storageBarrier has no GLSL ES 3.00 spelling (no compute stage)')
+    },
+  },
   textureDimensions: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: (a) =>

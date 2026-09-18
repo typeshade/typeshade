@@ -594,6 +594,10 @@ ${renderJSDoc(FUNCTION_DOCS.atomicXor)}
 declare function atomicXor<T extends u32 | i32>(location: atomic<T>, value: T): T
 ${renderJSDoc(FUNCTION_DOCS.atomicExchange)}
 declare function atomicExchange<T extends u32 | i32>(location: atomic<T>, value: T): T
+${renderJSDoc(FUNCTION_DOCS.workgroupBarrier)}
+declare function workgroupBarrier(): void
+${renderJSDoc(FUNCTION_DOCS.storageBarrier)}
+declare function storageBarrier(): void
 
 ${vecCtors}
 

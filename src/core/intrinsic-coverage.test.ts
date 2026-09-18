@@ -191,6 +191,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "smoothstep",
         "sqrt",
         "step",
+        "storageBarrier",
         "storageFetchF32",
         "storageFetchI32",
         "storageFetchU32",
@@ -210,6 +211,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "unpack2x16snorm",
         "unpack2x16unorm",
         "unpack4x8unorm",
+        "workgroupBarrier",
       ]
     `)
   })

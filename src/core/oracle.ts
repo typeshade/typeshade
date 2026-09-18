@@ -61,12 +61,15 @@ import {
   elemKindOf,
   atomicStep,
 } from './cpu-runtime.js'
-import { isAtomicIntrinsic } from './intrinsics.js'
+import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
+import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js'
 
 // Preserve the historical `typeshade` oracle surface: the value-model
 // types + the builtin/stub name sets moved to cpu-runtime.ts (single authority),
 // re-exported here so existing importers of `./oracle` are unaffected.
 export type { CpuValue, CpuStruct } from './cpu-runtime.js'
+/** The `workgroups` a {@link CpuModule.dispatch} takes, re-exported so a caller can name it. */
+export type { WorkgroupCount } from './debug/dispatch.js'
 export { ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './cpu-runtime.js'
 
 interface Ctx {
@@ -107,6 +110,27 @@ export interface CpuModule {
   /** Supply a storage or uniform binding's value by its declared name, before invoking a
    *  function that reads it. */
   setBinding(name: string, value: CpuValue): void
+  /** Run a `@compute` entry over `workgroups` workgroups of its declared size (one number for
+   *  a 1-D grid, or the three counts), every invocation of a workgroup in lockstep at each
+   *  `workgroupBarrier()` / `storageBarrier()`, with the builtin parameters
+   *  (`global_invocation_id`, `local_invocation_id`, `local_invocation_index`, `workgroup_id`,
+   *  `num_workgroups`) filled in (roadmap 0.2 item 5). Workgroup memory starts zero for each
+   *  workgroup and a per-invocation variable at its initializer for each invocation; the
+   *  bindings are the ones {@link setBinding} supplied, arrays written in place. Throws when the
+   *  invocations of one workgroup disagree about a barrier, naming its line and the counts.
+   *  A kernel with no barrier may also be run one invocation at a time through {@link fns}. */
+  dispatch(entry: string, workgroups: WorkgroupCount): DispatchReport
+}
+
+/** What a {@link CpuModule.dispatch} ran: the workgroups, the invocations across them, and
+ *  how many barrier phases the invocations of each workgroup went through in total.
+ *
+ *  Exported from `typeshade`.
+ */
+export interface DispatchReport {
+  readonly workgroups: number
+  readonly invocations: number
+  readonly barrierPhases: number
 }
 
 function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
@@ -192,6 +216,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return a ? true : (evalExpr(e.b, env, ctx) as boolean)
     }
     case 'call': {
+      // A barrier waits for the other invocations of the workgroup, and a function called one
+      // invocation at a time has none; `dispatch` runs the workgroup in lockstep (#82).
+      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) throw barrierOutsideDispatch(e.fn)
       // An atomic builtin takes its first argument as a LOCATION, not a value: the read and
       // the write-back go through one resolved reference (roadmap 0.2 item 4). A module that
       // declares its own `atomicAdd` carries `declRef` and takes the declared-function path.
@@ -667,5 +694,6 @@ export function compileModule(
     setBinding: (name, value) => {
       ctx.bindings[name] = value
     },
+    dispatch: (entry, workgroups) => dispatchCompute(m, entry, workgroups, ctx.bindings, opts),
   }
 }

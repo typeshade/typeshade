@@ -19,12 +19,12 @@
 //   • no `raw` statement anywhere in the entry's call-graph closure: raw text is per-target
 //     and opaque to this walk, so it contradicts the portability claim outright.
 //
-// DELIBERATELY NOT CHECKED: barriers and workgroup memory. Neither is authorable in the DSL
-// today, so a check for them would be vacuously green — an assertion that carries no
-// information (CLAUDE.md §12). They join the list above on the same commit that makes them
-// authorable, not before. Atomics (roadmap 0.2 item 4) need no arm of their own: an atomic
-// lives only in a storage binding whose type is `array<atomic<T>>` or an atomic scalar, which
-// the single `array<u32>` output-binding check above already refuses.
+// Barriers, workgroup memory and atomics (roadmap 0.2 items 4 and 5) need no arm of their
+// own. A barrier is a `call` statement, which `bodyHasCallStmt` already refuses; workgroup
+// memory is a module variable the tier's single-store shape has no read or write for, so a
+// kernel touching one fails the store check; an atomic lives only in a storage binding whose
+// type is `array<atomic<T>>` or in workgroup memory, which the single `array<u32>`
+// output-binding check refuses.
 
 import {
   stageOf,

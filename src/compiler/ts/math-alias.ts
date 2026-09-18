@@ -129,6 +129,8 @@ export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   'atomicOr',
   'atomicXor',
   'atomicExchange',
+  'workgroupBarrier',
+  'storageBarrier',
   'exp2',
   'saturate',
   'fwidth',

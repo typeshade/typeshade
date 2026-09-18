@@ -1,0 +1,268 @@
+// Barriers and the lockstep dispatch (roadmap 0.2 item 5, design #82 step 2, §25).
+// `workgroupBarrier()` / `storageBarrier()` are statements every invocation of a workgroup
+// reaches before any runs on. Measured on `main` before this: the names were unknown
+// functions, and the CPU oracle had no way to run a workgroup as a workgroup. What is pinned
+// here: the WGSL each spelling emits, the placement rules, `dispatch` on both CPU modules
+// running a reduction to the right sums with the right number of barrier phases, the
+// divergence error, the direct-call refusal, the debugger stepping one invocation through,
+// the effect table keeping the barrier, and the void-value fix that rode along.
+
+import { describe, expect, it } from 'vitest'
+import { compile } from './compile.js'
+import { compileTsSource } from './source-file.js'
+import { TS_CODES } from './codes.js'
+import { compileModule } from '../../core/oracle.js'
+import { compileModuleJs } from '../../core/cpu-codegen.js'
+import { startDebugSession } from '../../core/debug/session.js'
+import { optimizeAt } from '../../core/passes/opt/optimize.js'
+import { emitModule } from '../../core/backends/wgsl.js'
+
+const REDUCE = `"use typeshade"
+declare const src: storage<array<f32>>
+declare let sums: storage<array<f32>>
+let tile: workgroup<array<f32, 64>>
+@compute([64, 1, 1])
+export function reduce(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+  @builtin("workgroup_id") wid: vec3u,
+): void {
+  tile[lid.x] = src[gid.x]
+  workgroupBarrier()
+  for (let stride: u32 = 32; stride > 0; stride /= 2) {
+    if (lid.x < stride) {
+      tile[lid.x] = tile[lid.x] + tile[lid.x + stride]
+    }
+    workgroupBarrier()
+  }
+  if (lid.x === 0) {
+    sums[wid.x] = tile[0]
+  }
+}
+`
+
+const errorsOf = (src: string) =>
+  compileTsSource(src)
+    .diagnostics.filter((d) => d.category === 'error')
+    .map((d) => `${d.code} ${d.message}`)
+
+const HEAD = `"use typeshade"
+declare let out: storage<array<f32>>
+`
+const kernel = (body: string) => `${HEAD}@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+${body}
+}
+`
+
+describe('barriers: the WGSL', () => {
+  it('spells both barriers bare, as statements', () => {
+    const r = compile(REDUCE)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('  workgroupBarrier();')
+    expect(r.wgsl).not.toContain('_ = workgroupBarrier')
+    const s = compile(
+      kernel('  out[gid.x] = 1.\n  storageBarrier()\n  out[gid.x] = out[gid.x] + 1.'),
+    )
+    expect(s.diagnostics).toEqual([])
+    expect(s.wgsl).toContain('  storageBarrier();')
+    expect(s.glsl).toBeUndefined()
+  })
+
+  it('is kept by the optimizer, once per barrier', () => {
+    const r = compile(REDUCE)
+    const w = emitModule(optimizeAt(r.module, 'O2'))
+    expect(w.match(/workgroupBarrier\(\);/g)).toHaveLength(2)
+  })
+})
+
+describe('barriers: dispatch runs a workgroup in lockstep', () => {
+  it('the oracle and the codegen reduce 128 values into two sums', () => {
+    for (const make of [compileModule, compileModuleJs]) {
+      const r = compile(REDUCE)
+      const cm = make(r.module)
+      const src = Array.from({ length: 128 }, (_, i) => i + 1)
+      const sums = [0, 0]
+      cm.setBinding('src', src)
+      cm.setBinding('sums', sums)
+      const report = cm.dispatch('reduce', 2)
+      // 1 + ... + 64 and 65 + ... + 128.
+      expect(sums, make.name).toEqual([2080, 6176])
+      // One barrier after the load and one per round of the six-round loop, per workgroup.
+      expect(report, make.name).toEqual({ workgroups: 2, invocations: 128, barrierPhases: 14 })
+    }
+  })
+
+  it('fills every compute builtin and hands a scalar binding back', () => {
+    const src = `"use typeshade"
+declare let out: storage<array<u32>>
+declare let last: storage<u32>
+@compute([4, 1, 1])
+export function k(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+  @builtin("local_invocation_index") li: u32,
+  @builtin("workgroup_id") wid: vec3u,
+  @builtin("num_workgroups") n: vec3u,
+): void {
+  out[gid.x] = lid.x * 1000 + li * 100 + wid.x * 10 + n.x
+  storageBarrier()
+  last = gid.x
+}
+`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    const cm = compileModule(r.module)
+    const out = Array.from({ length: 12 }, () => 0)
+    cm.setBinding('out', out)
+    cm.setBinding('last', 0)
+    const report = cm.dispatch('k', [3, 1, 1])
+    expect(report).toEqual({ workgroups: 3, invocations: 12, barrierPhases: 3 })
+    expect(out.slice(0, 4)).toEqual([3, 1103, 2203, 3303])
+    expect(out.slice(8, 12)).toEqual([23, 1123, 2223, 3323])
+  })
+
+  it('refuses a workgroup whose invocations do not all reach the barrier', () => {
+    const src = REDUCE.replace(
+      '  tile[lid.x] = src[gid.x]\n',
+      '  if (lid.x > 60) {\n    return\n  }\n  tile[lid.x] = src[gid.x]\n',
+    )
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    const cm = compileModule(r.module)
+    cm.setBinding(
+      'src',
+      Array.from({ length: 64 }, () => 1),
+    )
+    cm.setBinding('sums', [0])
+    expect(() => cm.dispatch('reduce', 1)).toThrow(
+      'workgroupBarrier() at line 14 was reached by 61 of 64 invocations of workgroup (0, 0, 0); 3 returned before it.',
+    )
+  })
+
+  it('a direct call on a kernel with a barrier names dispatch, on both CPU modules', () => {
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(compile(REDUCE).module)
+      cm.setBinding(
+        'src',
+        Array.from({ length: 64 }, () => 1),
+      )
+      cm.setBinding('sums', [0])
+      expect(() => cm.fns['reduce']!([0, 0, 0], [0, 0, 0], [0, 0, 0])).toThrow(
+        'run the entry with dispatch(name, workgroups)',
+      )
+    }
+  })
+
+  it('dispatch takes a compute entry only', () => {
+    const cm = compileModule(
+      compile(`"use typeshade"
+@fragment
+export function fs(): vec4 { return vec4(1.) }
+`).module,
+    )
+    expect(() => cm.dispatch('fs', 1)).toThrow('dispatch runs a @compute entry; "fs" is fragment')
+  })
+
+  it('the debugger, stepping one invocation alone, refuses the barrier with the same words', () => {
+    // Alone, invocation 0 would add the zeros the others never wrote and show a sum no
+    // workgroup produces; the oracle-vs-step sweep over the examples holds the three paths to
+    // one answer.
+    const r = compile(REDUCE)
+    const s = startDebugSession(
+      r.module,
+      'reduce',
+      [
+        [0, 0, 0],
+        [0, 0, 0],
+        [0, 0, 0],
+      ],
+      { bindings: { src: Array.from({ length: 64 }, () => 1), sums: [0] } },
+    )
+    expect(() => s.continue()).toThrow('run the entry with dispatch(name, workgroups)')
+  })
+})
+
+describe('barriers: where one may stand', () => {
+  const BRANCH = (name: string) =>
+    `${TS_CODES.BARRIER_PLACEMENT} ${name}() must be reached by every invocation of the workgroup: move it out of the if or switch. A barrier inside a branch on a value the invocations do not share is how a workgroup waits forever; a for loop with a constant bound is fine.`
+
+  it('not inside an if or a switch body', () => {
+    expect(errorsOf(kernel('  if (gid.x > 1) {\n    workgroupBarrier()\n  }'))).toEqual([
+      BRANCH('workgroupBarrier'),
+    ])
+    expect(
+      errorsOf(
+        kernel(
+          '  switch (gid.x) {\n    case 1: { storageBarrier(); break }\n    default: { break }\n  }',
+        ),
+      ),
+    ).toEqual([BRANCH('storageBarrier')])
+  })
+
+  it('inside a for loop, and inside a helper, it may', () => {
+    expect(
+      errorsOf(kernel('  for (let i: u32 = 0; i < 4; i++) {\n    workgroupBarrier()\n  }')),
+    ).toEqual([])
+    expect(
+      errorsOf(`${HEAD}function sync(): void {
+  workgroupBarrier()
+}
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  sync()
+}
+`),
+    ).toEqual([])
+  })
+
+  it('not in a vertex or fragment entry, not as a value, not with an argument', () => {
+    expect(
+      errorsOf(`${HEAD}@fragment
+export function fs(): vec4 {
+  workgroupBarrier()
+  return vec4(1.)
+}
+`),
+    ).toEqual([
+      `${TS_CODES.BARRIER_PLACEMENT} workgroupBarrier() belongs in a compute entry or a function it calls; a fragment entry has no workgroup to wait for.`,
+    ])
+    expect(errorsOf(kernel('  const x = workgroupBarrier()'))).toEqual([
+      `${TS_CODES.BARRIER_PLACEMENT} workgroupBarrier() is a statement with no value; write it on its own line.`,
+    ])
+    expect(errorsOf(kernel('  workgroupBarrier(1)'))).toEqual([
+      `${TS_CODES.ARITY_MISMATCH} workgroupBarrier expects 0 arguments, got 1.`,
+    ])
+  })
+
+  it('a function the file declares under the name keeps the call', () => {
+    const r = compileTsSource(`${HEAD}function workgroupBarrier(): void {
+  out[0] = 1.
+}
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  workgroupBarrier()
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('fn workgroupBarrier() {')
+  })
+})
+
+describe('a call that returns nothing is not a value', () => {
+  it('cannot initialize a local', () => {
+    // Before this it emitted `let x = store(1u);`, which Tint refuses, with no diagnostic.
+    expect(
+      errorsOf(`${HEAD}function store(i: u32): void {
+  out[i] = 1.
+}
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  const x = store(1)
+}
+`),
+    ).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} "store(1)" returns nothing, so it cannot initialize "x"; call it on its own line.`,
+    ])
+  })
+})

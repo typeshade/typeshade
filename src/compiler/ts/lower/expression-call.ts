@@ -17,7 +17,7 @@ import { foldNumericLit, retargetIntLit, retargetIntLitCtx } from '../lit-coerce
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
 import { lowerAtomicCall } from './atomics.js'
-import { isAtomicIntrinsic } from '../../../core/intrinsics.js'
+import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../../core/intrinsics.js'
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js'
 import {
   lowerExpandCall,
@@ -132,6 +132,17 @@ export function lowerCall(
     if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics)
     if (name === 'arrayLength') return lowerArrayLengthCall(node, sourceFile, scope, diagnostics)
     if (isAtomicIntrinsic(name)) return lowerAtomicCall(name, node, sourceFile, scope, diagnostics)
+    // In expression position only: a barrier standing alone is lowered by the statement path.
+    if (isBarrierIntrinsic(name)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${name}() is a statement with no value; write it on its own line.`,
+        TS_CODES.BARRIER_PLACEMENT,
+      )
+      return undefined
+    }
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     ctor = VEC_CTOR[name]
     if (!ctor) {

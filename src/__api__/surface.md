@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 414 exports
+## `.` — 419 exports
 
 ```
 abs
@@ -36,6 +36,8 @@ atomicU32T
 autoVars
 AxisValues
 Backend
+BARRIER_INTRINSICS
+barrierOutsideDispatch
 BindEntry
 BindGroup
 BindingDecl
@@ -95,6 +97,7 @@ DeclarableCapability
 degrees
 Diagnostic
 Discard
+DispatchReport
 distance
 div
 dot
@@ -196,6 +199,7 @@ ioStruct
 IoStruct
 isAppleGpu
 isAtomicIntrinsic
+isBarrierIntrinsic
 isF64
 isKnownIntrinsic
 isMat
@@ -426,6 +430,7 @@ WgslMessage
 wgslType
 WgslValidator
 when
+WorkgroupCount
 workgroupSizeOf
 ```
 
@@ -809,7 +814,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 522 definitions
+## Shapes — 527 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { fileName?: string }
@@ -872,6 +877,7 @@ src/core/debug/config.ts#DebugLaunchConfig  interface  { bindings?: Readonly<Rec
 src/core/debug/config.ts#resolveBindings  function  (m: ModuleDecl, given: Readonly<Record<string, CpuValue>>, structs: ReadonlyMap<string, StructDecl>, problems: string[], entry?: FuncDecl) => Record<string, CpuValue>
 src/core/debug/config.ts#resolveInvocation  function  (decl: FuncDecl, invocation: DebugInvocation, structs: ReadonlyMap<string, StructDecl>, problems: string[]) => CpuValue[]
 src/core/debug/config.ts#startDebugSessionFromConfig  function  (m: ModuleDecl, config: DebugLaunchConfig) => DebugSession
+src/core/debug/dispatch.ts#WorkgroupCount  type  number | readonly [number, number, number]
 src/core/debug/session.ts#DebugBreakpoint  interface  { file?: string; line: number }
 src/core/debug/session.ts#DebugPause  interface  { bindingTypes: ReadonlyMap<string, ShaderType>; bindings: ReadonlyMap<string, CpuValue>; frames: readonly DebugStackFrame[]; reason: "entry" | "step" | "breakpoint"; span: SourceSpan; stmt: Stmt }
 src/core/debug/session.ts#DebugSession  interface  { continue: () => DebugPause; discarded: boolean; done: boolean; evaluate: (expression: string, frameIndex?: number) => DebugWatchValue; pause: DebugPause; precision: CpuPrecision; result: CpuValue; setBreakpoints: (breakpoints: readonly DebugBreakpoint[]) => void; stepIn: () => DebugPause; stepOut: () => DebugPause; stepOver: () => DebugPause; stubbedIntrinsics: readonly string[]; terminate: () => void }
@@ -922,14 +928,17 @@ src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSign
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
 src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 1; readonly returns: "value" | "void"; }>>
+src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#INTRINSICS  const  Readonly<Record<string, Spelling>>
 src/core/intrinsics.ts#INTRINSIC_BINDING_REFS  const  Readonly<Record<string, readonly string[]>>
 src/core/intrinsics.ts#INTRINSIC_HELPERS  const  Readonly<Record<string, { readonly fn: string; readonly def: string; }>>
 src/core/intrinsics.ts#IntrinsicTarget  type  "wgsl" | "glsl"
 src/core/intrinsics.ts#PORTABLE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#PRE_EMIT_INTRINSICS  const  ReadonlySet<string>
+src/core/intrinsics.ts#barrierOutsideDispatch  const  (fn: string) => Error
 src/core/intrinsics.ts#intrinsicNeedsAtomArgs  const  (name: string) => boolean
 src/core/intrinsics.ts#isAtomicIntrinsic  const  (name: string) => boolean
+src/core/intrinsics.ts#isBarrierIntrinsic  const  (name: string) => boolean
 src/core/intrinsics.ts#isKnownIntrinsic  const  (name: string) => boolean
 src/core/intrinsics.ts#spellIntrinsic  function  (target: IntrinsicTarget, name: string, args: readonly string[]) => string
 src/core/ir/builder.ts#Break  const  () => void
@@ -1182,8 +1191,9 @@ src/core/measure.ts#countOps  function  (m: ModuleDecl) => OpCount
 src/core/measure.ts#emitSize  function  (code: string) => EmitSize
 src/core/measure.ts#optimizerReport  function  (m: ModuleDecl) => OptimizerReport
 src/core/measure.ts#profileEmit  function  (m: ModuleDecl, target?: "wgsl" | "glsl-es300") => EmitProfile
-src/core/oracle.ts#CpuModule  interface  { fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
+src/core/oracle.ts#CpuModule  interface  { dispatch: (entry: string, workgroups: WorkgroupCount) => DispatchReport; fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
 src/core/oracle.ts#CpuPrecision  type  "f64" | "f32"
+src/core/oracle.ts#DispatchReport  interface  { barrierPhases: number; invocations: number; workgroups: number }
 src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl

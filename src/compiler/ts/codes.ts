@@ -68,6 +68,11 @@ export const TS_CODES = {
    *  that is not a constant, or a `workgroup` variable reached from a vertex or fragment
    *  entry (roadmap 0.2 item 5, #82). */
   MODULE_VAR: 'TS8033',
+  /** `workgroupBarrier()` / `storageBarrier()` somewhere a barrier cannot stand (§25): in a
+   *  vertex or fragment entry, which has no workgroup; inside an `if` or `switch` body, where
+   *  a branch on a value the invocations do not share is how a workgroup waits forever; or as
+   *  a value, since a barrier is a statement (roadmap 0.2 item 5, #82). */
+  BARRIER_PLACEMENT: 'TS8034',
   UNSUPPORTED: 'TS8099',
 } as const
 

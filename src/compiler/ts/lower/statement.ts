@@ -8,6 +8,8 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, irNameOf, readOnlyPhrase, type Binding } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { refuseAtomicDeclaration } from './atomics.js'
+import { lowerBarrierStatement } from './barriers.js'
+import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
@@ -312,6 +314,18 @@ function lowerVariableDeclaration(
     init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated)
   }
   if (!init) return undefined
+  // A call that returns nothing has nothing to bind: `const x = store(1)` emitted
+  // `let x = store(1u);`, which Tint refuses, with no diagnostic.
+  if (init.type.kind === 'void') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.initializer,
+      `"${truncate(decl.initializer.getText(sourceFile))}" returns nothing, so it cannot initialize "${name}"; call it on its own line.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   if (annotated) {
     if (init.op === 'lit' && typeof init.value === 'boolean' && typeKey(annotated) === 'bool') {
       init = { op: 'lit', type: annotated, value: init.value }
@@ -426,6 +440,23 @@ function lowerExpressionStatement(
   // all: a vector constructor, a `select`, an array fold. Those build and drop, and TypeShade
   // says so rather than emitting a statement neither target has a use for.
   if (ts.isCallExpression(expr)) {
+    // A barrier is a statement and nothing else (§25): lowered here, where it stands alone,
+    // with its placement rules; in expression position `lowerCall` refuses it. A function the
+    // file declares under the name keeps the call, as with every builtin name.
+    if (
+      ts.isIdentifier(expr.expression) &&
+      isBarrierIntrinsic(expr.expression.text) &&
+      scope.resolveCallee(expr.expression.text) === undefined
+    ) {
+      const barrier = lowerBarrierStatement(
+        expr.expression.text,
+        expr,
+        sourceFile,
+        scope,
+        diagnostics,
+      )
+      return barrier ? { s: 'call', expr: barrier } : undefined
+    }
     const call = lowerCall(expr, sourceFile, scope, diagnostics)
     if (!call) return undefined
     if (call.op !== 'call') {
@@ -901,14 +932,19 @@ function lowerBranch(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
-  if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics)
-  scope.push()
+  scope.enterBranch()
   try {
-    const one = lowerStatement(node, sourceFile, scope, diagnostics)
-    if (!one) return []
-    return Array.isArray(one) ? one : [one]
+    if (ts.isBlock(node)) return lowerBlock(node, sourceFile, scope, diagnostics)
+    scope.push()
+    try {
+      const one = lowerStatement(node, sourceFile, scope, diagnostics)
+      if (!one) return []
+      return Array.isArray(one) ? one : [one]
+    } finally {
+      scope.pop()
+    }
   } finally {
-    scope.pop()
+    scope.exitBranch()
   }
 }
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { fn, module, f32, vec4, u32T, f32T, vec4fT, vec2fT } from './ir/index.js'
 import type { FuncDecl, ShaderType, Stmt } from './ir/index.js'
 import { compileModule, ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './oracle.js'
-import { ATOMIC_INTRINSICS, INTRINSICS } from './intrinsics.js'
+import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, INTRINSICS } from './intrinsics.js'
 import { pow, fract, round, unpack4x8unorm, pack4x8unorm, bitcastU32 } from './ir/index.js'
 
 // ═══ X-GIS #763 Phase O — the CPU oracle is a backend too ═══
@@ -170,8 +170,13 @@ describe('X-GIS #763 O — oracle backend parity', () => {
     // `select` is the 'select' Expr case (evalExpr) — it can never arrive as a call. The
     // atomic builtins (roadmap 0.2 item 4) arrive as calls but take their first argument as a
     // LOCATION, so the oracle's 'call' case resolves them itself (`evalAtomic`) before the
-    // BUILTINS lookup; `atomics.test.ts` runs every one of them on both CPU backends.
-    const EXPR_COVERED = new Set(['select', ...Object.keys(ATOMIC_INTRINSICS)])
+    // BUILTINS lookup; `atomics.test.ts` runs every one of them on both CPU backends. The
+    // barriers are a statement `dispatch` synchronizes at and a no-op in the walk itself.
+    const EXPR_COVERED = new Set([
+      'select',
+      ...Object.keys(ATOMIC_INTRINSICS),
+      ...BARRIER_INTRINSICS,
+    ])
     // GLSL-only synthetic: created by lowerStorageToDataTexture INSIDE the GLSL
     // emit path — compileModule never sees it (and `unknown fn` would fail loud).
     const GLSL_SYNTHETIC = new Set(['storageFetchF32', 'storageFetchU32', 'storageFetchI32'])

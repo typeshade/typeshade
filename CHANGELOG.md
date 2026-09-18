@@ -13,6 +13,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Barriers and `dispatch`** (roadmap 0.2 item 5, design #82, step 2): `workgroupBarrier()`
+  and `storageBarrier()` as statements, in a compute entry or a helper and never inside an
+  `if` or `switch` body (TS8034 with the reason), emitted bare on WGSL and treated as effects
+  by the optimizer. `compileModule(m).dispatch(entry, workgroups)` and the codegen's twin run a
+  `@compute` entry over the workgroups of its declared size with every invocation of a
+  workgroup in lockstep at each barrier, the compute builtins filled in, workgroup memory zero
+  per workgroup and per-invocation variables at their initializers; a workgroup whose
+  invocations disagree about a barrier is an error naming the line and the counts. A direct
+  `fns` call or a debug session on a kernel with a barrier names `dispatch`. The `workgroup-reduce` example sums
+  64 values through workgroup memory, WGSL-only.
 - **Module variables** (roadmap 0.2 item 5, design #82): `let tile: workgroup<array<f32, 64>>`
   is WGSL's `var<workgroup>`, memory one workgroup's invocations share, zero at the start of
   each workgroup; `let seed: perInvocation<u32> = 7` is WGSL's `var<private>`, a value each
@@ -25,7 +35,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   implicit workgroup's memory for the module's lifetime. A `const` with a wrapper, a
   `workgroup` initializer, a type the space cannot hold, a non-constant initializer or
   workgroup memory read from a vertex or fragment entry is TS8033 with the fix. Barriers and
-  the lockstep dispatch are the next step of #82.
+  the lockstep dispatch are the entry above.
 - **Atomics** (roadmap 0.2 item 4): `atomic<u32>` and `atomic<i32>` inside a `let` storage
   binding (an array element, a storage struct field, a bare binding), and the ten builtins
   `atomicLoad`, `atomicStore`, `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`,
@@ -103,6 +113,9 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **A call that returns nothing cannot initialize a local**: `const x = store(1)` emitted
+  `let x = store(1u);`, which Tint refuses, with no diagnostic; it is TS8003 now with "call it
+  on its own line".
 - **Block scope reaches the IR** (#38): two sequential `for (let i ...)` loops, a `p` in a loop
   body beside a `p` in an `if` arm, and an inner `p` that shadows an outer one or a parameter
   all lower now. The second and later declarations of a name in one function take the IR name
