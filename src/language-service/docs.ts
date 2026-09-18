@@ -123,6 +123,10 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Stores the bitwise XOR of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicXor(&bins[i], v)` on WGSL only.',
   atomicExchange:
     'Stores `value` in the atomic location as one indivisible step and returns the value it held before. Compiles to `atomicExchange(&bins[i], v)` on WGSL only.',
+  workgroupBarrier:
+    'Waits until every invocation of the workgroup has reached this line, and makes every write to workgroup memory before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. WGSL only; the CPU oracle runs the workgroup in lockstep through `dispatch`.',
+  storageBarrier:
+    'Waits until every invocation of the workgroup has reached this line, and makes every write to storage before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. WGSL only; the CPU oracle runs the workgroup in lockstep through `dispatch`.',
   sin: 'Returns the sine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   cos: 'Returns the cosine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   tan: 'Returns the tangent of `x` (in radians), componentwise over vectors. Accepts `f32` and integer scalar/vector operands only.',

@@ -352,9 +352,15 @@ function caseBody(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt[] {
-  const body = lowerStatements(statements, sourceFile, scope, diagnostics)
-  if (body.length > 0 && body[body.length - 1]!.s === 'break') body.pop()
-  return body
+  // A case body is a branch for §25's barrier rule, like an `if` arm.
+  scope.enterBranch()
+  try {
+    const body = lowerStatements(statements, sourceFile, scope, diagnostics)
+    if (body.length > 0 && body[body.length - 1]!.s === 'break') body.pop()
+    return body
+  } finally {
+    scope.exitBranch()
+  }
 }
 
 export function lowerUpdate(

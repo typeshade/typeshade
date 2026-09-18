@@ -94,6 +94,7 @@ export class LoweringScope {
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
   private atomicOperandDepth = 0
+  private branchDepth = 0
   private stage: 'vertex' | 'fragment' | 'compute' | undefined
   private retType: ShaderType | undefined
   private switchDepth = 0
@@ -121,6 +122,21 @@ export class LoweringScope {
 
   exitLoop(): void {
     this.loopDepth = Math.max(0, this.loopDepth - 1)
+  }
+
+  /** Raised while an `if` arm, an `else`, or a `switch` case body is lowered: the positions a
+   *  barrier may not stand in (§25). A loop body is not one; a `for` with a constant bound is
+   *  uniform control flow. */
+  enterBranch(): void {
+    this.branchDepth++
+  }
+
+  exitBranch(): void {
+    this.branchDepth = Math.max(0, this.branchDepth - 1)
+  }
+
+  inBranch(): boolean {
+    return this.branchDepth > 0
   }
 
   /** The stage of the entry whose body is being lowered, `undefined` for a helper function
