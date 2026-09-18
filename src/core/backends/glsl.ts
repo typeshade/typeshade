@@ -515,6 +515,11 @@ export const glslEs300Backend: Backend = {
       `glsl-es300: uniform struct binding '${b.name}' — std140 UBO is assembled by emitGlslModule (needs the struct map)`,
     )
   },
+  // GLSL ES 3.00 has the qualifier the IR's mode names: `inout T name`, copy-in/copy-out, and
+  // it takes any l-value argument — an array element included, measured on ANGLE. No pointer,
+  // so this backend declares no `reference` and no `dereference`: the argument and every use
+  // inside the body are written plainly, and the shared walk leaves both alone.
+  paramDecl: (p) => `${p.mode === 'inout' ? 'inout ' : ''}${glslType(p.type)} ${p.name}`,
   emitFunc: (f, parens) => {
     // Entry funcs are lowered to varyings + main() by emitGlslModule; a stray entry
     // reaching emitFunc means the assembly bypassed that path — fail loudly.
@@ -526,7 +531,7 @@ export const glslEs300Backend: Backend = {
       throw new UnsupportedFeatureError(
         `glsl-es300: non-entry func '${f.name}' carries stage attrs (${f.attrs.join(' ')})`,
       )
-    const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
+    const params = f.params.map((p) => glslEs300Backend.paramDecl!(p)).join(', ')
     return `${glslType(f.ret)} ${f.name}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`
   },
   // Same emit-time optimizer the WGSL backend runs (fixpoint: const/copy-prop,

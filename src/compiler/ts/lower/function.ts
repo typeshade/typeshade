@@ -51,7 +51,6 @@ import {
   refuseNamespaceStatement,
 } from '../namespaces.js'
 import {
-  SELF_IN,
   collectClassFunctions,
   ctorPrologue,
   selfRef,
@@ -661,7 +660,9 @@ export function parseParams(
       }
       if (refuseDefaultReadingAParameter(p, parameters, sourceFile, diagnostics)) return undefined
     }
-    if (opts.forbidSelf && (p.name.text === 'self_' || p.name.text === SELF_IN)) {
+    // `self_` only: `self_in` was the second name a method that changed its object used, for
+    // the copy it worked on, and there is no copy now — the object is written through.
+    if (opts.forbidSelf && p.name.text === 'self_') {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1214,11 +1215,6 @@ export function fillFunctionBody(
         irName: 'self_',
       })
     } else {
-      // A method that changes its object arrives as `self_in` and works on the copy `self_`;
-      // the parameter is bound so the name stays its own in the body.
-      if (receiver.mode === 'copy') {
-        scope.define({ kind: 'param', name: SELF_IN, type: receiver.type, mutable: false })
-      }
       // `super(...)` is a statement of this body and nowhere else (roadmap 0.3 item T5, #92).
       if (receiver.mode === 'ctor') scope.setSuperCtor(receiver.superCtor)
       prologue.push(...ctorPrologue(receiver, scope, sourceFile, diagnostics))
@@ -1268,12 +1264,15 @@ export function fillFunctionBody(
     ts.isArrowFunction(node) && !ts.isBlock(node.body)
       ? lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
       : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics)
-  if (receiver !== undefined && receiver.mode !== 'param') {
-    // A constructor returns the struct it built, and a method that changes its object returns
-    // the copy: a bare `return` inside either returns `self_`, and one more closes the body.
+  if (receiver !== undefined && receiver.mode === 'ctor') {
+    // A constructor returns the struct it built: a bare `return` inside it returns `self_`,
+    // and one more closes the body. A method that CHANGES its object returns nothing — it
+    // writes through its receiver — so its bare returns stay bare.
     const self = selfRef(receiver.type)
     for (const r of collectReturns(body)) if (!r.expr) (r as { expr?: Expr }).expr = self
     body = [...prologue, ...body, { s: 'return', expr: self }]
+  } else if (receiver !== undefined && receiver.mode === 'inout') {
+    body = [...prologue, ...body]
   }
   ;(stub as { body: readonly Stmt[] }).body = body
   if (typeKey(stub.ret) === 'void') {

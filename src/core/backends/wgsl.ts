@@ -20,6 +20,7 @@ import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backe
 import {
   emitExpr as emitExprNeutral,
   emitBody,
+  withPointerParams,
   emitModule as emitModuleDriver,
   emitModuleAt as emitModuleAtDriver,
   emitModuleFragment as emitFragmentDriver,
@@ -31,6 +32,7 @@ import { lowerModule } from '../passes/match-lower.js'
 import { fixpoint, autoVars, type OptLevel } from '../passes/opt/index.js'
 import { spellIntrinsic } from '../intrinsics.js'
 import { fp64Lower } from '../passes/fp64-lower.js'
+import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js'
 import { dslError } from '../diagnostics/error.js'
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
@@ -279,12 +281,24 @@ export const wgslBackend: Backend = {
   // item 5). The initializer is a constant expression, rendered the way a const's is.
   emitModuleVar: (v) =>
     `var<${v.space}> ${v.name}: ${wgslType(v.type)}${v.init ? ` = ${emitExprNeutral(v.init, wgslBackend)}` : ''};`,
+  // A parameter the callee writes through is a POINTER in WGSL, and the address space is part
+  // of its type: `ptr<function, T>` and `ptr<storage, T, read_write>` are different types, and
+  // a function declared for one cannot be handed the other. `ptrSpace` says which this
+  // declaration is for; `pointerSpaces` (below) is the pass that gives a function one copy per
+  // space its calls actually use, so nothing above the backend has to know.
+  paramDecl: (p) =>
+    p.mode === 'inout'
+      ? `${p.name}: ptr<${ptrSpaceOf(p)}, ${wgslType(p.type)}${ptrSpaceOf(p) === 'storage' ? ', read_write' : ''}>`
+      : `${paramAttr(p)}${p.name}: ${wgslType(p.type)}`,
+  reference: (lvalue) => `&${lvalue}`,
+  dereference: (name) => `(*${name})`,
   emitFunc: (f, parens) => {
-    const params = f.params.map((p) => `${paramAttr(p)}${p.name}: ${wgslType(p.type)}`).join(', ')
+    const params = f.params.map((p) => wgslBackend.paramDecl!(p)).join(', ')
     const ret =
       f.ret.kind === 'void' ? '' : ` -> ${f.retAttr ? `${f.retAttr} ` : ''}${wgslType(f.ret)}`
     const attrs = f.attrs && f.attrs.length ? `${f.attrs.join(' ')}\n` : ''
-    return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1, wgslBackend, parens)}\n}`
+    const body = withPointerParams(wgslBackend, f, () => emitBody(f.body, 1, wgslBackend, parens))
+    return `${attrs}fn ${f.name}(${params})${ret} {\n${body}\n}`
   },
   // WGSL's emit-time optimizer: the full pipeline run to a fixed point — const/copy
   // propagation, const-fold (incl. literal compare/logical/select), algebraic
@@ -295,6 +309,9 @@ export const wgslBackend: Backend = {
   // polygon composer's _mcSS fill/stroke), so those precision-critical paths are
   // emitted verbatim, untouched.
   optimize: (m) => fixpoint(m),
+  // One copy of a pointer-taking function per address space its calls use — see wgsl-ptr.ts.
+  // After the optimizer, since a pass that folds a call away removes a space with it.
+  postLower: (m) => pointerSpaces(m),
   // The WGSL `enable`-directive header (X-GIS #628): one `enable <ext>;` per declared cap
   // whose PROFILE ROW carries a directive (X-GIS #1670 — the host-side rows contribute
   // nothing), deduped + sorted for a deterministic byte order. Bare lines, NO trailing
@@ -379,8 +396,12 @@ export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
  *  are skipped; only the passes the spelling needs run. {@link emitFragment} runs the full
  *  set when the declarations form a module. */
 export function emitFuncs(funcs: readonly FuncDecl[]): string {
-  const lowered = fixpoint(
-    fp64Lower(lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] }))),
+  const lowered = pointerSpaces(
+    fixpoint(
+      fp64Lower(
+        lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
+      ),
+    ),
   )
   return lowered.funcs.map((f) => wgslBackend.emitFunc(f)).join('\n\n')
 }
