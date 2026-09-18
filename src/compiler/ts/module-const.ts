@@ -3,7 +3,7 @@
 import ts from 'typescript'
 import type { ConstDecl, Expr } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
-import { typeKey } from '../../core/ir/types.js'
+import { i32T, typeKey } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { LoweringScope } from './context.js'
 import type { DeclaredSymbolSink } from './symbols.js'
@@ -18,9 +18,125 @@ import { moduleVarSpace } from './module-vars.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 
-/** The module-constant name a class's static field takes: `K.PI` is `K_PI`, the same joining
- *  a method takes (`K_half`), so one class's members share one prefix in the emitted text. */
-export const staticConstName = (cls: string, field: string): string => `${cls}_${field}`
+/** The module-constant name a class's static field or an enum's member takes: `K.PI` is
+ *  `K_PI` and `Mode.Shaded` is `Mode_Shaded`, the same joining a method takes (`K_half`), so
+ *  one owner's members share one prefix in the emitted text. */
+export const staticConstName = (owner: string, member: string): string => `${owner}_${member}`
+
+/** One `enum`'s members, as the module constants they are (T1, #92).
+ *
+ *  A numeric member takes its initializer's value, or one more than the member before it, or
+ *  zero when it is the first: TypeScript's own rule, computed here so the emitted constants
+ *  carry the same numbers the editor shows. The values are `i32`, which is the type the enum's
+ *  name has wherever a type stands.
+ *
+ *  What is refused says why: a string member has no GPU representation, and a member whose
+ *  initializer this cannot fold to an integer has no constant to emit. A `declare enum` has no
+ *  members to emit at all. */
+function collectEnum(
+  stmt: ts.EnumDeclaration,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  out: ConstDecl[],
+): void {
+  const owner = stmt.name.text
+  if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        stmt.name,
+        `"declare enum ${owner}" has no members to emit; declare the enum in this file.`,
+        TS_CODES.TOP_LEVEL,
+      ),
+    )
+    return
+  }
+  let next = 0
+  // The values so far, under their BARE names, which is how TypeScript lets a member name one
+  // declared before it (`B = A * 3`). They are defined in a frame of their own for the fold
+  // and popped again, so a bare `A` means nothing outside the enum body, as in TypeScript.
+  const seen = new Map<string, number>()
+  for (const member of stmt.members) {
+    if (!ts.isIdentifier(member.name)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          member.name,
+          `Enum member "${owner}.${member.name.getText(sourceFile)}" must be a simple name.`,
+          TS_CODES.TOP_LEVEL,
+        ),
+      )
+      continue
+    }
+    const shown = `${owner}.${member.name.text}`
+    const name = staticConstName(owner, member.name.text)
+    let value = next
+    if (member.initializer !== undefined) {
+      if (ts.isStringLiteralLike(member.initializer)) {
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            member,
+            `Enum member "${shown}" has a string value, which no GPU type holds. A numeric ` +
+              `enum member is an i32 constant; give it a number, or drop the value and take ` +
+              `the position.`,
+            TS_CODES.TYPE_MISMATCH,
+          ),
+        )
+        continue
+      }
+      scope.push()
+      for (const [bare, v] of seen) {
+        scope.define({ kind: 'module', name: bare, type: i32T, mutable: false, constValue: v })
+      }
+      const init = lowerExpression(member.initializer, sourceFile, scope, diagnostics)
+      const folded = init === undefined ? undefined : foldConstValue(init, scope)
+      scope.pop()
+      if (!init) continue
+      if (typeof folded !== 'number' || !Number.isInteger(folded)) {
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            member,
+            `Enum member "${shown}" needs a value this can compute: a whole number, or ` +
+              `arithmetic over numbers and members declared before it.`,
+            TS_CODES.TYPE_MISMATCH,
+          ),
+        )
+        continue
+      }
+      value = folded
+    }
+    if (value < -2147483648 || value > 2147483647) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          member,
+          `Enum member "${shown}" is ${value}, which is outside an i32's [-2147483648, 2147483647].`,
+          TS_CODES.TYPE_MISMATCH,
+        ),
+      )
+      continue
+    }
+    next = value + 1
+    seen.set(member.name.text, value)
+    if (scope.hasInCurrent(name)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          member.name,
+          `Enum member "${shown}" collides with "${name}", which the file already declares.`,
+          TS_CODES.DUPLICATE_SYMBOL,
+        ),
+      )
+      continue
+    }
+    scope.define({ kind: 'module', name, type: i32T, mutable: false, constValue: value })
+    scope.recordDeclaration(sourceFile, member.name, { name, kind: 'const', type: i32T })
+    out.push({ name, type: i32T, wgslValue: value, cpuValue: value })
+  }
+}
 
 function isTopLevelConst(stmt: ts.Statement): stmt is ts.VariableStatement {
   return ts.isVariableStatement(stmt) && (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
@@ -71,6 +187,13 @@ export function collectModuleConsts(
         out.push(c)
         if (c.valueExpr) valueExprs.set(c.name, c.valueExpr)
       }
+      continue
+    }
+    // A numeric `enum` is a set of named integer constants (roadmap 0.3 item T1, #92): each
+    // member is the module constant `Enum_Member`, an i32, and `Mode.Shaded` reads it through
+    // the same constref a top-level const does.
+    if (ts.isEnumDeclaration(stmt)) {
+      collectEnum(stmt, sourceFile, scope, diagnostics, out)
       continue
     }
     if (!isTopLevelConst(stmt)) continue

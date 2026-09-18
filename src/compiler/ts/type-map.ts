@@ -120,6 +120,22 @@ function aliasTargetsOf(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.TypeN
 
 const ALIAS_CACHE = new WeakMap<ts.SourceFile, ReadonlyMap<string, ts.TypeNode>>()
 
+/** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). A member of a numeric
+ *  enum is an integer constant, so the enum's name as a TYPE is `i32`, the type its members
+ *  have. `module-const.ts` owns the members themselves and the refusal of a string enum. */
+function enumNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const cached = ENUM_CACHE.get(sourceFile)
+  if (cached) return cached
+  const out = new Set<string>()
+  for (const stmt of sourceFile.statements) {
+    if (ts.isEnumDeclaration(stmt)) out.add(stmt.name.text)
+  }
+  ENUM_CACHE.set(sourceFile, out)
+  return out
+}
+
+const ENUM_CACHE = new WeakMap<ts.SourceFile, ReadonlySet<string>>()
+
 export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
@@ -174,6 +190,7 @@ function mapType(
     // A type alias of anything but an object type is another name for its target (T2, #92).
     // After the builtin names, so no alias can shadow `f32` or `vec3`, and before the
     // capitalized-name arm, so the alias resolves instead of becoming a struct of its own.
+    if (enumNamesOf(sourceFile).has(name)) return i32T
     const alias = aliasTargetsOf(sourceFile).get(name)
     if (alias !== undefined) {
       if (resolving?.has(name)) {
