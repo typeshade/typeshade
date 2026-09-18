@@ -774,8 +774,9 @@ export function lowerLValue(
  *  checks the identifier and element-access targets already make, made on the root instead
  *  of on the chain. Returns the root identifier, or undefined for a chain rooted in
  *  something that is not a name (a call result, a constructor). */
-function rootLValueName(node: ts.Expression): ts.Identifier | undefined {
+function rootLValueName(node: ts.Expression): ts.Identifier | ts.ThisExpression | undefined {
   if (ts.isIdentifier(node)) return node
+  if (node.kind === ts.SyntaxKind.ThisKeyword) return node as ts.ThisExpression
   if (ts.isParenthesizedExpression(node)) return rootLValueName(node.expression)
   if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
     return rootLValueName(node.expression)
@@ -815,16 +816,32 @@ function checkRootWritable(
     )
     return false
   }
-  const binding = scope.resolve(root.text)
+  const rootName = ts.isIdentifier(root) ? root.text : 'this'
+  const binding = scope.resolve(rootName)
   if (!binding) {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `Cannot assign to unknown name "${root.text}".`,
+      rootName === 'this'
+        ? '"this" names a method\'s object; a static function and a top-level function have none.'
+        : `Cannot assign to unknown name "${rootName}".`,
       // The same code as the bare-identifier arm above, for the same sentence: the root of a
       // chain that names nothing is an unresolved identifier, not a target of the wrong shape.
       TS_CODES.UNKNOWN_NAME,
+    )
+    return false
+  }
+  if (binding.kind === 'param' && rootName === 'this') {
+    // A method's object is its first parameter, read only. The copy-back that lets a method
+    // change its object is the next step of #86.
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A method that assigns to this is not supported yet (#86, the next step); build the ` +
+        `changed ${typeKey(binding.type)} and return it, or assign the field in the constructor.`,
+      TS_CODES.CLASS_MEMBER,
     )
     return false
   }
@@ -833,7 +850,7 @@ function checkRootWritable(
       diagnostics,
       sourceFile,
       node,
-      `Cannot write through parameter "${root.text}" — parameters are not writable. Use a local or storage.`,
+      `Cannot write through parameter "${rootName}" — parameters are not writable. Use a local or storage.`,
       TS_CODES.ASSIGN_TARGET,
     )
     return false
@@ -846,7 +863,7 @@ function checkRootWritable(
       diagnostics,
       sourceFile,
       node,
-      `Cannot assign to "${root.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+      `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(binding.kind)}.`,
       TS_CODES.CONST_ASSIGN,
     )
     return false

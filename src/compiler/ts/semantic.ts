@@ -78,6 +78,12 @@ function push(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }
 
+function newsDeclaredClass(node: ts.NewExpression, sourceFile: ts.SourceFile): boolean {
+  if (!ts.isIdentifier(node.expression)) return false
+  const name = node.expression.text
+  return sourceFile.statements.some((s) => ts.isClassDeclaration(s) && s.name?.text === name)
+}
+
 function isPropertyName(node: ts.Identifier): boolean {
   const p = node.parent
   if (!p) return false
@@ -138,12 +144,14 @@ function visit(
       TS_CODES.HOST_STMT,
     )
   }
-  if (ts.isNewExpression(node)) {
+  // `new Ray(...)` on a class the file declares is that class's constructor (#86); any other
+  // `new` is a host allocation.
+  if (ts.isNewExpression(node) && !newsDeclaredClass(node, sourceFile)) {
     push(
       diagnostics,
       sourceFile,
       node,
-      '`new` allocates a JS object. Use struct types and vec constructors.',
+      '`new` allocates a JS object. Use struct types and vec constructors, or a class the file declares.',
       TS_CODES.HOST_STMT,
     )
   }

@@ -1,5 +1,6 @@
 import ts from 'typescript'
 import type { StructDecl, StructField } from '../../core/ir/nodes.js'
+import type { ShaderType } from '../../core/ir/types.js'
 import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
@@ -17,6 +18,27 @@ export type CollectedStruct = {
   readonly decl: StructDecl
   readonly packing: 'wgsl'
   readonly spelling: StructSpelling
+  /** A `class`'s methods, constructor and field initializers (#86); absent on the other two
+   *  spellings and on a class that declares none. */
+  readonly members?: ClassMembers
+}
+
+/** A field declared with an initializer, `hits: u32 = 0`: what a constructor assigns before
+ *  its own body runs, and what `new P()` gives a class with no constructor. */
+export interface FieldInit {
+  readonly name: string
+  readonly type: ShaderType
+  readonly init: ts.Expression
+}
+
+/** What a class declares beyond its fields (#86). Each method becomes a function whose first
+ *  parameter is the struct (`Ray_at(self_: Ray, t: f32)`), a static one a function with no
+ *  receiver, and the constructor `Ray_new(...)`, which starts from the zero struct. */
+export interface ClassMembers {
+  readonly node: ts.ClassDeclaration
+  readonly methods: readonly ts.MethodDeclaration[]
+  readonly ctor: ts.ConstructorDeclaration | undefined
+  readonly fieldInits: readonly FieldInit[]
 }
 
 /** An `interface X { … }` or a `type X = { … }` — the two spellings that are collected only
@@ -62,6 +84,7 @@ export function collectStructs(
     fields: StructField[],
     spelling: StructSpelling,
     before: number,
+    members?: ClassMembers,
   ): void => {
     if (declared.has(name)) {
       diagnostics.push(
@@ -84,14 +107,22 @@ export function collectStructs(
             sourceFile,
             node,
             `Struct "${name}" has no fields. WGSL requires a struct to declare at least one ` +
-              `member, so an empty one cannot be emitted.`,
+              `member, so an empty one cannot be emitted.` +
+              (members !== undefined && members.methods.length > 0
+                ? ` A class holding only functions is not a struct; write them as functions.`
+                : ''),
           ),
         )
       }
       return
     }
     declared.add(name)
-    out.push({ decl: { name, fields }, packing: 'wgsl', spelling })
+    out.push({
+      decl: { name, fields },
+      packing: 'wgsl',
+      spelling,
+      ...(members !== undefined ? { members } : {}),
+    })
   }
 
   for (const stmt of sourceFile.statements) {
@@ -143,16 +174,97 @@ export function collectStructs(
     if (heritageRejected(stmt.name.text, stmt.heritageClauses, sourceFile, diagnostics)) continue
     const before = diagnostics.length
     const fields: StructField[] = []
+    const methods: ts.MethodDeclaration[] = []
+    const fieldInits: FieldInit[] = []
+    let ctor: ts.ConstructorDeclaration | undefined
+    const methodNames = new Set<string>()
     for (const member of stmt.members) {
-      if (ts.isMethodDeclaration(member) || ts.isConstructorDeclaration(member)) {
+      // A method, a constructor and a static function are functions of the module (#86), the
+      // shapes below are what the surface does not take, each with its fix.
+      if (ts.isConstructorDeclaration(member)) {
+        if (!member.body) continue // an overload signature; the body is the declaration
+        if (ctor !== undefined) {
+          diagnostics.push(
+            classDiag(
+              sourceFile,
+              member,
+              `"${structName}" declares two constructors; a shader function has one body.`,
+            ),
+          )
+          continue
+        }
+        ctor = member
+        continue
+      }
+      if (ts.isMethodDeclaration(member)) {
+        if (!member.body) continue // an overload signature
+        if (!ts.isIdentifier(member.name)) {
+          diagnostics.push(memberNameDiag(sourceFile, member, structName))
+          continue
+        }
+        if (methodNames.has(member.name.text)) {
+          diagnostics.push(
+            classDiag(
+              sourceFile,
+              member.name,
+              `"${structName}.${member.name.text}" is declared twice; a method has one body ` +
+                `and no overloads.`,
+            ),
+          )
+          continue
+        }
+        methodNames.add(member.name.text)
+        methods.push(member)
+        continue
+      }
+      if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
+        const what = ts.isGetAccessorDeclaration(member) ? 'getter' : 'setter'
+        const shown = ts.isIdentifier(member.name) ? member.name.text : 'this member'
         diagnostics.push(
-          diag(sourceFile, member, `Data class "${stmt.name.text}" cannot have methods.`),
+          classDiag(
+            sourceFile,
+            member,
+            `A ${what} has no shader form; write "${shown}" as a method and call it.`,
+          ),
+        )
+        continue
+      }
+      if (ts.isIndexSignatureDeclaration(member)) {
+        diagnostics.push(
+          classDiag(
+            sourceFile,
+            member,
+            `An index signature has no layout; a struct is exactly the fields written here.`,
+          ),
         )
         continue
       }
       if (!ts.isPropertyDeclaration(member)) continue
       if (!ts.isIdentifier(member.name)) {
         diagnostics.push(memberNameDiag(sourceFile, member, stmt.name.text))
+        continue
+      }
+      if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
+        diagnostics.push(
+          classDiag(
+            sourceFile,
+            member,
+            `A static field has no shader form; declare "${member.name.text}" as a module const.`,
+          ),
+        )
+        continue
+      }
+      if (
+        member.initializer !== undefined &&
+        (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer))
+      ) {
+        diagnostics.push(
+          classDiag(
+            sourceFile,
+            member,
+            `A field holding a function is a method: write "${member.name.text}(...) { ... }".`,
+          ),
+        )
         continue
       }
       for (const d of member.modifiers ?? []) {
@@ -181,6 +293,9 @@ export function collectStructs(
       if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
       else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
       fields.push(field)
+      if (member.initializer !== undefined) {
+        fieldInits.push({ name: field.name, type: field.type, init: member.initializer })
+      }
       recordDeclaration(symbols, sourceFile, member.name, {
         name: field.name,
         kind: 'field',
@@ -188,9 +303,17 @@ export function collectStructs(
         struct: structName,
       })
     }
-    add(stmt.name.text, stmt.name, fields, 'class', before)
+    const members: ClassMembers | undefined =
+      methods.length > 0 || ctor !== undefined || fieldInits.length > 0
+        ? { node: stmt, methods, ctor, fieldInits }
+        : undefined
+    add(stmt.name.text, stmt.name, fields, 'class', before, members)
   }
   return out
+}
+
+function classDiag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
+  return makeDiagnostic(sf, node, message, TS_CODES.CLASS_MEMBER)
 }
 
 /** The interface / object-type-alias declaration a statement is, or undefined. Generic ones

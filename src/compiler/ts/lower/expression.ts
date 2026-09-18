@@ -11,6 +11,7 @@ import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { refuseBareAtomic } from './atomics.js'
 import { lowerCall } from './expression-call.js'
+import { lowerNew, lowerThis } from './class-methods.js'
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
@@ -63,6 +64,11 @@ export function lowerExpression(
   if (ts.isParenthesizedExpression(node))
     return lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual)
   if (ts.isIdentifier(node)) return lowerIdentifier(node, sourceFile, scope, diagnostics)
+  // `this` and `new` belong to a class with members (#86): the method's object, and the
+  // class's constructor function.
+  if (node.kind === ts.SyntaxKind.ThisKeyword)
+    return lowerThis(node, sourceFile, scope, diagnostics)
+  if (ts.isNewExpression(node)) return lowerNew(node, sourceFile, scope, diagnostics)
   if (ts.isNumericLiteral(node)) return { op: 'lit', type: f32T, value: Number(node.text) }
   if (node.kind === ts.SyntaxKind.TrueKeyword) return { op: 'lit', type: boolT, value: true }
   if (node.kind === ts.SyntaxKind.FalseKeyword) return { op: 'lit', type: boolT, value: false }

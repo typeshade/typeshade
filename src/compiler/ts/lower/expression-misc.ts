@@ -134,19 +134,32 @@ export function lowerRandomCall(
   return hashed
 }
 
+/** A call of a function the file declares. `opts.leading` are arguments already lowered
+ *  ahead of the written ones (a method's object, #86), and `opts.shown` is how messages name
+ *  the callee when the emitted name is not what the writer wrote (`Ray.at`, `new Ray`). */
 export function lowerUserCall(
-  node: ts.CallExpression,
+  node: ts.CallExpression | ts.NewExpression,
   decl: FuncDecl,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  opts: { readonly leading?: readonly Expr[]; readonly shown?: string } = {},
 ): Expr | undefined {
-  const args: Expr[] = []
-  for (const [i, arg] of node.arguments.entries()) {
+  const leading = opts.leading ?? []
+  const shown = opts.shown ?? decl.name
+  const written = node.arguments ?? []
+  const args: Expr[] = [...leading]
+  for (const [i, arg] of written.entries()) {
     // The parameter's type is the context for `g({ a: 1., b: 2. })` (#8 A11). Read by index
     // before the arity check below, so a call with too many arguments still lowers each one
     // and reports the arity rather than a cascade.
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, decl.params[i]?.type)
+    const lowered = lowerExpression(
+      arg,
+      sourceFile,
+      scope,
+      diagnostics,
+      decl.params[leading.length + i]?.type,
+    )
     if (!lowered) return undefined
     args.push(lowered)
   }
@@ -155,20 +168,20 @@ export function lowerUserCall(
       diagnostics,
       sourceFile,
       node,
-      `"${decl.name}" expects ${decl.params.length} argument(s), got ${args.length}.`,
+      `"${shown}" expects ${decl.params.length - leading.length} argument(s), got ${written.length}.`,
       TS_CODES.ARITY_MISMATCH,
     )
     return undefined
   }
-  for (let i = 0; i < args.length; i++) {
+  for (let i = leading.length; i < args.length; i++) {
     // `g(1)` takes the parameter's type when it is i32 or u32 (#8 A3).
-    args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, decl.params[i]!.type)
+    args[i] = retargetIntLitCtx(args[i]!, written[i - leading.length]!, decl.params[i]!.type)
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `Argument ${i + 1} of "${decl.name}" type mismatch.`,
+        `Argument ${i + 1 - leading.length} of "${shown}" type mismatch.`,
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined

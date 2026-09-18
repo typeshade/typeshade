@@ -246,7 +246,9 @@ export class LoweringScope {
     if (top.has(binding.name)) {
       throw new Error(`Duplicate binding "${binding.name}" in current scope frame`)
     }
-    const ir = this.allocIrName(binding.name)
+    // A binding may ask for an IR name other than its own: `this` reads as `self_` in the
+    // emitted function, since `this` and `self` are reserved words in WGSL (#86).
+    const ir = this.allocIrName(binding.irName ?? binding.name)
     const stored: Binding = ir === binding.name ? binding : { ...binding, irName: ir }
     top.set(binding.name, stored)
     this.byIr.set(ir, stored)

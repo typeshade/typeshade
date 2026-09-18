@@ -73,6 +73,12 @@ export const TS_CODES = {
    *  a branch on a value the invocations do not share is how a workgroup waits forever; or as
    *  a value, since a barrier is a statement (roadmap 0.2 item 5, #82). */
   BARRIER_PLACEMENT: 'TS8034',
+  /** A class member shape the surface does not take, or a method call the class rules refuse
+   *  (#86): a getter or setter, an overload, an arrow-function field, a static field, a
+   *  decorator on a method, `this` outside a method or inside a static one, a method that
+   *  assigns to `this` (the next step), a parameter named `self`, a call of an instance
+   *  method on the class or of a static one on a value, or a name the class does not have. */
+  CLASS_MEMBER: 'TS8035',
   UNSUPPORTED: 'TS8099',
 } as const
 
