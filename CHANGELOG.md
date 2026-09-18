@@ -23,6 +23,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   operand deciding the shape: `dot` of integer vectors is an integer, and a written number in a
   call's first position takes an integer peer's kind, so `min(1, i)` with an `i32` `i` is an
   `i32` call instead of the `min(1.0, i)` WGSL refused.
+- **`namespace`** (§26, roadmap 0.3 item T4,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): a namespace was TS8014 "Unsupported
+  top-level "ModuleDeclaration"" and is now a group of functions and constants flattened to
+  `Ns_member`, nesting in both spellings. A name inside the body is looked up as TypeScript
+  looks it up: the body, then each namespace around it, then the file. A class, an enum, a type
+  or a variable inside a namespace is refused and told where to declare it.
+- **A cycle through a dotted call is caught** (§ recursion): the check walked identifier calls
+  only, so `A.f()` calling itself, or two namespaces calling each other, compiled and left Tint
+  to refuse it and the CPU oracle to overflow. Such a call is in the graph now, under the name
+  the module emits.
 - **`enum` and `const enum`** (§12, roadmap 0.3 item T1,
   [#92](https://github.com/typeshade/typeshade/issues/92)): a numeric enum was TS8014
   "Unsupported top-level "EnumDeclaration"" and is now a set of module constants named
