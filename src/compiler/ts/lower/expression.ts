@@ -8,6 +8,7 @@ import { irNameOf, type LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
+import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { refuseBareAtomic } from './atomics.js'
 import { lowerCall } from './expression-call.js'
@@ -54,6 +55,46 @@ const COMPARE: Readonly<Record<number, CmpOp>> = {
  * than a parameter threaded through the whole walk. A caller that has no type to offer passes
  * nothing and gets the behaviour it always had.
  */
+/** `x as T`, `<T>x` and `x satisfies T`: the operand, lowered against the claimed type when
+ *  that type is one this surface knows, since the claim is the contextual type TypeScript
+ *  gives it. `as const` claims no type of its own and is the operand unchanged.
+ *
+ *  A claim that names a type the operand does not have is refused: `as` and `satisfies` emit
+ *  nothing, so the value would travel under a name it does not have, and the conversion the
+ *  author meant has a spelling of its own. */
+function lowerTypeClaim(
+  node: ts.Expression,
+  typeNode: ts.TypeNode,
+  keyword: 'as' | 'satisfies',
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  contextual: ShaderType | undefined,
+): Expr | undefined {
+  const operand = (node as ts.AsExpression | ts.SatisfiesExpression | ts.TypeAssertion).expression
+  // `as const` is a literal's own type and names nothing this surface maps.
+  const isConst =
+    ts.isTypeReferenceNode(typeNode) &&
+    ts.isIdentifier(typeNode.typeName) &&
+    typeNode.typeName.text === 'const'
+  const claimed = isConst ? undefined : mapTsTypeToShaderType(typeNode, sourceFile, /* quiet */ [])
+  const lowered = lowerExpression(operand, sourceFile, scope, diagnostics, claimed ?? contextual)
+  if (!lowered || claimed === undefined) return lowered
+  if (typeKey(lowered.type) !== typeKey(claimed)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${keyword}" states a type, it does not convert: "${node.getText(sourceFile)}" is ` +
+        `${typeKey(lowered.type)}, not ${typeNode.getText(sourceFile)}. Write ` +
+        `${typeNode.getText(sourceFile)}(...) to convert, or drop the "${keyword}".`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return lowered
+}
+
 export function lowerExpression(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
@@ -92,6 +133,24 @@ export function lowerExpression(
   if (ts.isObjectLiteralExpression(node))
     return lowerObjectLiteral(node, sourceFile, scope, diagnostics, contextual)
   if (ts.isBinaryExpression(node)) return lowerBinary(node, sourceFile, scope, diagnostics)
+  // TypeScript's type-level shapes (roadmap 0.3 item T7, #92). `x as T`, `<T>x`,
+  // `x as const`, `x satisfies T` and `x!` are claims about a type, not conversions: each
+  // emits exactly what its operand emits, which is what it does in TypeScript. A developer
+  // writes them without thinking, and before this every one was
+  // "TS8099 Unsupported expression".
+  //
+  // An assertion that names a DIFFERENT shader type is the one shape that does not pass, and
+  // for the reason the rule gives: `0.5 as i32` would have to emit a conversion, and `as`
+  // emits nothing, so a silent f32 would travel under an i32's name.
+  if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+    return lowerTypeClaim(node, node.type, 'as', sourceFile, scope, diagnostics, contextual)
+  }
+  if (ts.isSatisfiesExpression(node)) {
+    return lowerTypeClaim(node, node.type, 'satisfies', sourceFile, scope, diagnostics, contextual)
+  }
+  if (ts.isNonNullExpression(node)) {
+    return lowerExpression(node.expression, sourceFile, scope, diagnostics, contextual)
+  }
   if (ts.isCallExpression(node)) {
     const call = lowerCall(node, sourceFile, scope, diagnostics)
     // The one expression kind that carries a span in this increment: stepping into a helper

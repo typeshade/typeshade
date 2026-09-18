@@ -163,7 +163,7 @@ export function compileTsSource(
   analyzeSemantics(sourceFile, diagnostics)
   const structs = collectStructs(sourceFile, diagnostics, symbols)
   const bindings = collectBindings(sourceFile, diagnostics, symbols)
-  const consts = collectModuleConsts(sourceFile, diagnostics, symbols)
+  const consts = collectModuleConsts(sourceFile, diagnostics, symbols, emittedStructDecls(structs))
   // The names the GLSL writer spells from this module, so an override cannot shadow one with
   // its `#define`. Structs and bindings are collected above, which is why this order holds.
   const glslNames = new Set<string>([
