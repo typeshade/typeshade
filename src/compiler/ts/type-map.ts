@@ -29,6 +29,7 @@ import {
 } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { makeDiagnostic } from './diagnostic.js'
+import { boundTypeArgument } from './generics.js'
 import { TS_CODES, type TsCode } from './codes.js'
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType
@@ -169,6 +170,12 @@ function mapType(
 
   if (ts.isTypeReferenceNode(typeNode)) {
     const name = typeNameOf(typeNode)
+    // A type parameter of the instantiation being lowered, ahead of every other meaning of a
+    // name, because a type parameter shadows in TypeScript too (roadmap 0.3 item T9, #92).
+    if (name !== undefined) {
+      const bound = boundTypeArgument(name)
+      if (bound !== undefined) return bound
+    }
     if (name !== undefined && HANDLE_MAP[name]) {
       // Checked BEFORE the handle is returned: this arm runs ahead of the generic branch, so
       // `sampler<f32>` was accepted as a bare `sampler` and the type argument vanished.

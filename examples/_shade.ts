@@ -326,6 +326,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'generic-helpers',
+    title: 'Generics by monomorphisation',
+    blurb:
+      'Three generic helpers, each compiled once per set of argument types the file calls it with (§30). `pick` is called on an f32 and on a vec3, so the module carries `pick_f32` and `pick_vec3`; `head` is called on an f32 array and on a u32 one. Nothing called `pick` is emitted: a generic is not a function the module has, its instances are. A type parameter is a type wherever a type is written, a return and `array<T, N>` included.',
+    renderable: true,
+  },
+  {
     id: 'mixin-surface',
     title: 'The mixin pattern',
     blurb:

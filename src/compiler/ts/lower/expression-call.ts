@@ -179,6 +179,13 @@ export function lowerCall(
       else {
         const decl = scope.resolveCallee(name)
         if (decl) return lowerUserCall(node, decl, sourceFile, scope, diagnostics)
+        // A generic function is compiled once per set of argument types the file calls it
+        // with (roadmap 0.3 item T9, #92). The instance does not exist until a call asks for
+        // it, so the arguments are lowered here, the type arguments read off them, and the
+        // instance made before `lowerUserCall` checks the call against it.
+        if (scope.isGenericFunction(name)) {
+          return lowerGenericCall(node, name, sourceFile, scope, diagnostics)
+        }
       }
     }
   }
@@ -771,4 +778,35 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
+}
+
+/** Lower a call to a generic function: lower its arguments, ask the file's lowering for the
+ *  instance those types name, then check the call against it the way any other call is checked
+ *  (roadmap 0.3 item T9, #92). The arguments are lowered ONCE and handed on, since lowering
+ *  them again inside `lowerUserCall` would report every diagnostic in them twice. */
+function lowerGenericCall(
+  node: ts.CallExpression,
+  name: string,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const lowered: Expr[] = []
+  for (const arg of node.arguments) {
+    // No contextual type: the parameter's is what the instantiation is about to decide. A bare
+    // integer literal therefore lowers as f32 and reads T as f32; `pick<i32>(…)` is how a call
+    // says otherwise.
+    const one = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!one) return undefined
+    lowered.push(one)
+  }
+  const decl = scope.instantiateGeneric(
+    name,
+    node,
+    lowered.map((e) => e.type),
+    sourceFile,
+    diagnostics,
+  )
+  if (!decl) return undefined
+  return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { lowered, shown: name })
 }

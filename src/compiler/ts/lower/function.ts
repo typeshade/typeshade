@@ -13,11 +13,17 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { LoweringScope, refusedDeclarationsOf } from '../context.js'
+import { LoweringScope, fileFunctionsOf } from '../context.js'
 import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { isMixinDeclaration } from '../mixins.js'
+import {
+  inferFrom,
+  instanceName,
+  typeSuffix,
+  withTypeArguments,
+} from '../generics.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import {
   boundNamesOf,
@@ -107,9 +113,12 @@ export function lowerSourceFunctions(
   const isAmbient = (node: ts.FunctionDeclaration): boolean =>
     node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false
   const callees = new Map<string, FuncDecl>()
-  // The names this file declares as functions and could not lower, so a call to one says
-  // nothing instead of "Unknown function" — the declaration already said why (T10, #92).
-  const refused = refusedDeclarationsOf(callees)
+  // What this file knows about its own functions beside the callee table: the names it could
+  // not lower, so a call to one says nothing instead of "Unknown function" (T10, #92), and the
+  // generic ones with the hook that makes an instance (T9, #92).
+  const fns = fileFunctionsOf(callees)
+  const refused = fns.refused
+  const generics = new Map<string, { node: ts.FunctionDeclaration; prefix: string }>()
   const ready: { node: ts.FunctionDeclaration; stub: FuncDecl; prefix: string }[] = []
   for (const { node: stmt, irName, prefix } of decls) {
     if (
@@ -118,6 +127,16 @@ export function lowerSourceFunctions(
       !isAmbient(stmt) &&
       implemented.has(irName ?? stmt.name.text)
     ) {
+      continue
+    }
+    // A generic function is compiled once per set of argument types the file calls it with
+    // (roadmap 0.3 item T9, #92), so it has no signature of its own: `pick<T>` is not a
+    // function the module emits, `pick_f32` and `pick_vec3` are. Held aside for the
+    // instantiator below, which a call site reaches through the scope.
+    if ((stmt.typeParameters?.length ?? 0) > 0 && stmt.body && stmt.name !== undefined) {
+      const base = irName ?? stmt.name.text
+      generics.set(base, { node: stmt, prefix })
+      fns.generics.add(base)
       continue
     }
     const stub = parseSignature(stmt, sourceFile, diagnostics, structs, irName)
@@ -280,6 +299,56 @@ export function lowerSourceFunctions(
   lowerAll(diagnostics, true)
   const funcs: FuncDecl[] = []
   const nodeByName = new Map<string, FunctionNode>()
+  // One instance of a generic function per set of argument types (roadmap 0.3 item T9, #92).
+  // Made where a call asks for it rather than in a pass of its own, because a call is the only
+  // thing that says which types: `pick(1., 2.)` is what decides that `pick_f32` exists.
+  //
+  // The instance is pushed into `funcs` as it is made, which puts it ahead of the body that
+  // asked for it — WGSL wants a function declared before it is called, and the bodies below
+  // push themselves only after they are filled.
+  const instances = new Map<string, FuncDecl>()
+  fns.instantiate = (name, node, argTypes, sf, diags): FuncDecl | undefined => {
+    const generic = generics.get(name)
+    if (generic === undefined) return undefined
+    const order = (generic.node.typeParameters ?? []).map((p) => p.name.text)
+    const bound = typeArgumentsFor(generic.node, order, node, argTypes, sf, diags)
+    if (bound === undefined) return undefined
+    const emitted = instanceName(name, order.map((n) => bound.get(n)!))
+    const had = instances.get(emitted)
+    if (had !== undefined) return had
+    const stub = withTypeArguments(bound, () =>
+      parseSignature(generic.node, sf, diags, structs, emitted),
+    )
+    if (!stub) {
+      refused.add(name)
+      return undefined
+    }
+    // Registered BEFORE the body is lowered, so a generic that calls itself at the same types
+    // finds this instance rather than making another one forever.
+    instances.set(emitted, stub)
+    callees.set(emitted, stub)
+    withTypeArguments(bound, () => {
+      fillFunctionBody(
+        generic.node,
+        stub,
+        sf,
+        diags,
+        callees,
+        consts,
+        bindings,
+        structs,
+        symbols,
+        overrides,
+        vars,
+        undefined,
+        name,
+        generic.prefix === '' ? undefined : generic.prefix,
+      )
+    })
+    funcs.push(stub)
+    nodeByName.set(emitted, generic.node)
+    return stub
+  }
   for (const cf of classFns) {
     if (cf.node !== undefined) {
       fillFunctionBody(
@@ -1382,4 +1451,61 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
+}
+
+/** The type arguments one call settles: the ones it writes, or the ones its arguments show.
+ *  Reports and returns undefined for a type parameter neither reaches (roadmap 0.3 item T9,
+ *  #92). */
+function typeArgumentsFor(
+  decl: ts.FunctionDeclaration,
+  order: readonly string[],
+  node: ts.CallExpression,
+  argTypes: readonly ShaderType[],
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Map<string, ShaderType> | undefined {
+  const shown = decl.name?.text ?? 'this function'
+  const out = new Map<string, ShaderType>()
+  const written = node.typeArguments ?? []
+  if (written.length > 0) {
+    if (written.length !== order.length) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${shown}" takes ${String(order.length)} type argument(s), got ${String(written.length)}.`,
+        TS_CODES.ARITY_MISMATCH,
+      )
+      return undefined
+    }
+    for (const [i, typeNode] of written.entries()) {
+      // Mapped in the CALLER's scope, whose own type arguments are still bound: a generic
+      // calling `pick<T>(…)` passes its own T through.
+      const mapped = mapTsTypeToShaderType(typeNode, sourceFile, diagnostics)
+      if (!mapped) return undefined
+      out.set(order[i]!, mapped)
+    }
+    return out
+  }
+  const names = new Set(order)
+  for (const [i, p] of decl.parameters.entries()) {
+    const actual = argTypes[i]
+    if (p.type === undefined || actual === undefined) continue
+    inferFrom(p.type, actual, names, out)
+  }
+  const missing = order.filter((n) => !out.has(n))
+  if (missing.length > 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `This call does not say what ${missing.map((n) => `"${n}"`).join(' and ')} ` +
+        `${missing.length === 1 ? 'is' : 'are'} in "${shown}". A type argument is read off an ` +
+        `argument whose parameter is written as it, or as array<it, N>; write it instead, as ` +
+        `"${shown}<${order.map((n) => out.get(n) === undefined ? 'f32' : typeSuffix(out.get(n)!)).join(', ')}>(…)".`,
+      TS_CODES.UNKNOWN_TYPE,
+    )
+    return undefined
+  }
+  return out
 }
