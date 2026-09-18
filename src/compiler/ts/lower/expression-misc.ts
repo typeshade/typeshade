@@ -150,25 +150,35 @@ export function lowerUserCall(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-  opts: { readonly leading?: readonly Expr[]; readonly shown?: string } = {},
+  opts: {
+    readonly leading?: readonly Expr[]
+    readonly shown?: string
+    /** The written arguments, already lowered. A generic call lowers them before the callee
+     *  exists, to read the type arguments off them (T9, #92); lowering them again here would
+     *  report every diagnostic in them twice. */
+    readonly lowered?: readonly Expr[]
+  } = {},
 ): Expr | undefined {
   const leading = opts.leading ?? []
   const shown = opts.shown ?? decl.name
   const written = node.arguments ?? []
   const args: Expr[] = [...leading]
-  for (const [i, arg] of written.entries()) {
-    // The parameter's type is the context for `g({ a: 1., b: 2. })` (#8 A11). Read by index
-    // before the arity check below, so a call with too many arguments still lowers each one
-    // and reports the arity rather than a cascade.
-    const lowered = lowerExpression(
-      arg,
-      sourceFile,
-      scope,
-      diagnostics,
-      decl.params[leading.length + i]?.type,
-    )
-    if (!lowered) return undefined
-    args.push(lowered)
+  if (opts.lowered !== undefined) args.push(...opts.lowered)
+  else {
+    for (const [i, arg] of written.entries()) {
+      // The parameter's type is the context for `g({ a: 1., b: 2. })` (#8 A11). Read by index
+      // before the arity check below, so a call with too many arguments still lowers each one
+      // and reports the arity rather than a cascade.
+      const lowered = lowerExpression(
+        arg,
+        sourceFile,
+        scope,
+        diagnostics,
+        decl.params[leading.length + i]?.type,
+      )
+      if (!lowered) return undefined
+      args.push(lowered)
+    }
   }
   // A parameter with a default fills itself in here (roadmap 0.3 item T7, #92): WGSL has no
   // default arguments, so the emitted call passes every one. The fill stops at the first

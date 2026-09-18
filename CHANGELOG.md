@@ -13,6 +13,19 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Generics on a function, by monomorphisation** (§30, roadmap 0.3 item T9,
+  [#92](https://github.com/typeshade/typeshade/issues/92)). Neither target has generics, so a
+  generic declaration is compiled once per set of argument types the file calls it with:
+  `pick<T>` on an f32 and on a vec3 emits `pick_f32` and `pick_vec3`, and nothing called `pick`.
+  Two calls at the same types reach one instance, a generic nothing calls emits nothing, and a
+  generic calling a generic instantiates both. A type parameter is a type wherever a type is
+  written — a parameter, a return, inside `array<T, N>`, a local — and shadows a type of the
+  same name. The type arguments come from what the call writes, `id<u32>(1)`, or from what its
+  arguments show; a parameter neither form reaches is refused, naming the type argument as the
+  fix. The substitution binds the name where a name becomes a shader type rather than rewriting
+  the source. `examples/generic-helpers.shade.ts` is the gate's evidence, on Tint and on WebGL2.
+  A generic CLASS is not here yet.
+
 - **The mixin pattern, run when the file is compiled** (§29, roadmap 0.3 item T8,
   [#92](https://github.com/typeshade/typeshade/issues/92)). `class TintedDisc extends
   Tinted(Disc)` is a class whose base is decided by running a function; TypeScript runs it at

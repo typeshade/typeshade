@@ -4,22 +4,53 @@ import type ts from 'typescript'
 import type { ShaderType } from '../../core/ir/types.js'
 import type { AddressSpace, Expr } from '../../core/ir/nodes.js'
 import type { FuncDecl, StructDecl, StructField } from '../../core/ir/nodes.js'
+import type { TsCompilerDiagnostic } from './source-file.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
 
 /** The names a file declares as functions and could not lower, one set per callee table
  *  (roadmap 0.3 item T10, #92). It hangs off the table instead of being threaded through every
  *  scope factory because it is the other half of the same thing: what this file's calls
  *  resolve against. A call to a name in here reports nothing — the declaration said why. */
-const REFUSED_DECLS = new WeakMap<Map<string, FuncDecl>, Set<string>>()
+/** How one instance of a generic function is made (roadmap 0.3 item T9, #92). `argTypes` are
+ *  the call's arguments as they lowered, which is what the type arguments are read off when the
+ *  call site writes none. */
+export type Instantiator = (
+  name: string,
+  node: ts.CallExpression,
+  argTypes: readonly ShaderType[],
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+) => FuncDecl | undefined
 
-/** The refused-declaration set belonging to `callees`, created on first ask. */
-export function refusedDeclarationsOf(callees: Map<string, FuncDecl>): Set<string> {
-  const found = REFUSED_DECLS.get(callees)
+/** What a file's lowering knows about its own functions, beyond the callee table itself: the
+ *  names it could not lower (T10, #92) and the generic ones, with the hook that makes an
+ *  instance of one (T9, #92).
+ *
+ *  It hangs off the callee table instead of being threaded through every scope factory because
+ *  it is the rest of the same thing: what this file's calls resolve against. Every scope built
+ *  from one table reads one record. */
+export interface FileFunctions {
+  /** A call to a name in here reports nothing — its declaration already said why. */
+  readonly refused: Set<string>
+  /** The generic functions, under the emitted name a call resolves to. */
+  readonly generics: Set<string>
+  instantiate: Instantiator | undefined
+}
+
+const FILE_FUNCTIONS = new WeakMap<Map<string, FuncDecl>, FileFunctions>()
+
+/** The record belonging to `callees`, created on first ask. */
+export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
+  const found = FILE_FUNCTIONS.get(callees)
   if (found !== undefined) return found
-  const made = new Set<string>()
-  REFUSED_DECLS.set(callees, made)
+  const made: FileFunctions = { refused: new Set(), generics: new Set(), instantiate: undefined }
+  FILE_FUNCTIONS.set(callees, made)
   return made
 }
+
+/** The refused-declaration set belonging to `callees`. */
+export const refusedDeclarationsOf = (callees: Map<string, FuncDecl>): Set<string> =>
+  fileFunctionsOf(callees).refused
 
 /** What a name in scope refers to.
  *
@@ -121,6 +152,7 @@ export class LoweringScope {
   private baseNames: ReadonlyMap<string, readonly string[]> = new Map()
   private abstractNames: ReadonlySet<string> = new Set()
   private readonly callees: Map<string, FuncDecl>
+  private readonly fns: FileFunctions
   private readonly refusedDecls: Set<string>
   private readonly structs = new Map<string, StructDecl>()
   /** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). Its members are
@@ -141,13 +173,46 @@ export class LoweringScope {
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
     this.callees = callees ?? new Map()
     this.symbols = symbols
-    this.refusedDecls = refusedDeclarationsOf(this.callees)
+    this.fns = fileFunctionsOf(this.callees)
+    this.refusedDecls = this.fns.refused
   }
 
   /** Whether this file declares `name` as a function and the declaration was refused, so its
    *  body was never lowered and no callee exists (roadmap 0.3 item T10, #92). A call to it
    *  would otherwise say "Unknown function", which is untrue: the function is right there,
    *  and why it names no callee was already said on its own declaration. */
+  /** Whether this file declares `name` as a generic function, which is what tells the call
+   *  lowering to read type arguments before it looks for a callee (roadmap 0.3 item T9, #92).
+   *  A name may be reached through a namespace, the same spellings `resolveCallee` tries. */
+  isGenericFunction(name: string): boolean {
+    return this.genericName(name) !== undefined
+  }
+
+  /** Make, or find, the instance of the generic function `name` this call needs. The hook is
+   *  set by `lowerSourceFunctions`, which owns the declarations; it is called from the call
+   *  lowering, which is where an instantiation is discovered. That indirection is what lets the
+   *  two talk without `expression-call.ts` importing `function.ts`. Returns undefined when the
+   *  instantiation was refused, having said why. */
+  instantiateGeneric(
+    name: string,
+    node: ts.CallExpression,
+    argTypes: readonly ShaderType[],
+    sourceFile: ts.SourceFile,
+    diagnostics: TsCompilerDiagnostic[],
+  ): FuncDecl | undefined {
+    const written = this.genericName(name)
+    if (written === undefined) return undefined
+    return this.fns.instantiate?.(written, node, argTypes, sourceFile, diagnostics)
+  }
+
+  private genericName(name: string): string | undefined {
+    if (this.fns.generics.has(name)) return name
+    for (const qualified of this.qualifiedNames(name)) {
+      if (this.fns.generics.has(qualified)) return qualified
+    }
+    return undefined
+  }
+
   declarationRefused(name: string): boolean {
     if (this.refusedDecls.has(name)) return true
     const local = this.localFns?.get(name)

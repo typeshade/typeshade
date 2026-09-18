@@ -2229,6 +2229,56 @@ not declare, since the class expression is read where it is written; a mixin app
 a base passed to a mixin whose class extends something else, so the base would go nowhere; a
 mixin that extends its parameter and is given nothing.
 
+## 30. Generics by monomorphisation
+
+Roadmap 0.3 item T9. WGSL and GLSL ES 3.00 have no generics: a function has one signature and a
+struct one layout. TypeScript has them, and a shader author reaches for them, so a generic
+declaration is compiled **once per set of argument types the file uses it with**. That is what
+monomorphisation is, and it is the only way a generic can reach either target.
+
+```ts
+function pick<T>(c: bool, a: T, b: T): T {
+  return c ? a : b
+}
+
+const gain = pick(uv.x > 0.5, 1.2, 0.6)                    // pick_f32
+const tint = pick(uv.y > 0.5, vec3(0.9, 0.4, 0.3), …)      // pick_vec3
+```
+
+```wgsl
+fn pick_f32(c: bool, a: f32, b: f32) -> f32 { … }
+fn pick_vec3(c: bool, a: vec3<f32>, b: vec3<f32>) -> vec3<f32> { … }
+```
+
+Nothing called `pick` is emitted: a generic is not a function the module has, its instances are.
+Two calls at the same types reach one instance; a generic nothing calls emits nothing at all.
+`examples/generic-helpers.shade.ts` is the gate's evidence.
+
+**A type parameter is a type wherever a type is written**: a parameter, a return, inside
+`array<T, N>`, and a local declaration in the body. It shadows a type of the same name, the way
+TypeScript's does. The substitution is not a rewrite of the source: a type parameter is a NAME,
+and the one place a name becomes a shader type binds it there, so the declaration's own nodes
+are lowered unchanged.
+
+**What settles the type arguments** is either what the call writes, `id<u32>(1)`, or what its
+arguments show: a parameter written as the type parameter, or as `array<` it `, N>`. A generic
+calling a generic passes its own type arguments through, so `id<T>(a)` inside `relay<T>` resolves
+to whatever `relay` was instantiated at. There is no type checker here, so a parameter neither
+form reaches is refused, naming the type argument as the fix.
+
+**Arithmetic on a type parameter is TypeScript's limit, not this one.** `a + a` on an
+unconstrained `T` is `Operator '+' cannot be applied to types 'T' and 'T'` in the editor, before
+this compiler sees it. A generic here composes calls, selects, indexes and field reads;
+`<T extends number>` is the constraint that admits scalar arithmetic, and the math builtins are
+already generic over `Numeric`.
+
+**Refused, each in one sentence.** A call nothing in which says what the type parameter is; the
+wrong number of type arguments; a type argument that names no type. An argument whose type is
+not the parameter's is the ordinary mismatch, reported against the instance once it exists.
+
+A generic CLASS is not here yet: `class Pair<T>` still says that a struct is one concrete layout.
+Its instances would be `Pair_f32` and `Pair_vec3` by the same rule.
+
 ---
 
 Last updated: 2026-09-18
