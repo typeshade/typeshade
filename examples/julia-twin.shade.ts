@@ -2,7 +2,10 @@
 
 // The `"use typeshade"` twin of `julia.ts`.
 
-class Uniforms {
+// The uniform block carries no field metadata, so it is written as an interface; `VsOut` below
+// is a class because entry I/O needs `@builtin` and `@location`, which only a class field can
+// carry. Both emit the same struct.
+interface Uniforms {
   time: f32
   resolution: vec2
   zoom: f32

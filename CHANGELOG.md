@@ -13,6 +13,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **The examples show all three struct spellings** (§2): 32 example files declared a `class`,
+  none declared an `interface` or an object type alias, and 14 of those structs were plain data
+  with no decorator and no method. `hello-camera.shade.ts` declared `class Camera` while §2
+  illustrates the same struct, by name, as `type Camera = { ... }`, so the document and its own
+  example disagreed. `hello-camera` now matches §2 and one twin's uniform block is written as an
+  interface. Nothing could have caught this: the three spellings produce the identical
+  `StructDecl`, so the WGSL, the GLSL and the reflection are byte-for-byte the same, and the
+  goldens confirm it, none of them changed. `examples/struct-spelling.test.ts` is the check,
+  since a reader is the only instrument that sees the difference.
 - **An entry's return: two constraints removed, one moved into the compiler** (§3,
   [#86](https://github.com/typeshade/typeshade/issues/86)). Checked against real Tint, five
   shapes compiled with zero errors and were rejected by the backend, and one that Tint accepts
