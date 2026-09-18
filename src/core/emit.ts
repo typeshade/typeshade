@@ -7,7 +7,7 @@
 // the control-flow walk (no duplicated if/for/switch/return logic that can drift).
 
 import type { Backend } from './backend.js'
-import type { Expr, Stmt, ModuleDecl } from './ir/index.js'
+import type { Expr, Stmt, ModuleDecl, ShaderType } from './ir/index.js'
 import { stageOf } from './ir/index.js'
 import { eachExpr, eachStmtExpr } from './ir/visit.js'
 import { fragmentRequires, type EmitFragment } from './fragment.js'
@@ -42,7 +42,12 @@ const PREC_ATOM = 5
 const precOf = (bop: string): number =>
   bop === '*' || bop === '/' || bop === '%' ? 3 : bop === '+' || bop === '-' ? 2 : 0
 
-export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): string {
+export function emitExpr(
+  e: Expr,
+  be: Backend,
+  parens: ParenMode = 'full',
+  need: 0 | typeof PREC_ATOM = 0,
+): string {
   // `need` is the lowest precedence this POSITION accepts unparenthesized.
   // A binop's LEFT child accepts its own precedence (left-associative, so
   // `a-b-c` re-parses identically); its RIGHT child demands strictly more, which
@@ -102,7 +107,33 @@ export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): stri
         )
     }
   }
-  return go(e, 0)
+  return go(e, need)
+}
+
+/** Render `e` as a primary, parenthesized unless it already is one, for a template that
+ *  re-embeds it in a position tighter than an argument slot (the operands of the backend's
+ *  float `%` spelling, which repeats them inside a `/`). */
+export function emitAtom(e: Expr, be: Backend, parens: ParenMode = 'full'): string {
+  return emitExpr(e, be, parens, PREC_ATOM)
+}
+
+const isF32Typed = (t: ShaderType): boolean =>
+  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32')
+
+/** `t op= e`, or `t = floatMod(t, e)` for a float `%=` on a target whose native `%` takes
+ *  integers only (GLSL ES 3.00, issue #20). The binop walk already routes a float `%` through
+ *  `floatMod`; the two compound-assignment sites, here and in the `for` header, bypassed it
+ *  and emitted `x %= 0.7;`, which the driver rejects while the WGSL beside it is fine. */
+function assignOpText(
+  s: Extract<Stmt, { readonly s: 'assignOp' }>,
+  be: Backend,
+  parens: ParenMode,
+): string {
+  const r = (x: Expr) => emitExpr(x, be, parens)
+  if (s.bop === '%' && be.floatMod !== undefined && isF32Typed(s.target.type)) {
+    return `${r(s.target)} = ${be.floatMod(emitAtom(s.target, be, parens), emitAtom(s.expr, be, parens))}`
+  }
+  return `${r(s.target)} ${s.bop}= ${r(s.expr)}`
 }
 
 /** The non-operator half of the walk. `arg` renders a child in a position that
@@ -180,7 +211,7 @@ export function emitStmt(s: Stmt, depth: number, be: Backend, parens: ParenMode 
     case 'assign':
       return `${p}${r(s.target)} = ${r(s.expr)};`
     case 'assignOp':
-      return `${p}${r(s.target)} ${s.bop}= ${r(s.expr)};`
+      return `${p}${assignOpText(s, be, parens)};`
     case 'return':
       return s.expr !== undefined ? `${p}return ${r(s.expr)};` : `${p}return;`
     case 'break':
@@ -259,7 +290,7 @@ export function forHeader(s: Stmt, be: Backend, parens: ParenMode = 'full'): str
       ? be.localVar(s.name, s.type, r(s.init))
       : be.localVar(s.name, s.type)
   if (s.s === 'assign') return `${r(s.target)} = ${r(s.expr)}`
-  if (s.s === 'assignOp') return `${r(s.target)} ${s.bop}= ${r(s.expr)}`
+  if (s.s === 'assignOp') return assignOpText(s, be, parens)
   throw new Error(`typeshade: bad for-header stmt ${s.s}`)
 }
 
