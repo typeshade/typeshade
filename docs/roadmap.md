@@ -42,7 +42,17 @@ PyTorch's three beats are eager execution, autograd and a device the caller neve
 first two items above and the calling rule below bring them to shaders. The third beat is the
 one only a compiler with a reference implementation can play.
 
-## Two rules
+## Three rules
+
+**Ordinary TypeScript first.** What a TypeScript developer already writes is the surface, and
+finding the GPU meaning is the compiler's job. `perInvocation<T>` is where this was learned: the
+address space of a module variable was spelled by the author because that is how WGSL spells it,
+and then a plain top-level `let` turned out to carry the same information, so the compiler reads
+it from the syntax and the explicit wrapper stays as an option nobody has to reach for. The
+implementation got smaller and the file got more ordinary at the same time. A GPU concept earns a
+new spelling only when no ordinary TypeScript shape carries it. Where a shape genuinely cannot run
+on a GPU, the refusal names the reason and the ordinary-TypeScript fix, at compile time rather
+than at Tint. Section 0.3 is this rule applied to the constructs the language already has.
 
 **Make what does not compile, compile.** The priority is the order in which the missing pieces
 block real shaders, and correctness bugs in what already compiles come before new surface. A
@@ -156,7 +166,27 @@ The language can express the compute shaders people write with TypeGPU today.
 | 8   | Builtin breadth: `reflect`, `refract`, `faceForward`, `transpose`, `determinant`, `frexp`, `ldexp`, `modf`, `countOneBits`, `reverseBits`, `countLeadingZeros`, `countTrailingZeros`, `firstLeadingBit`, `firstTrailingBit`, `extractBits`, `insertBits`, the coarse and fine derivatives | S      |                                                                                                                                                                                                                                                                                             | One PR, one table, every entry in both docs tables and the oracle. `frexp` and `modf` return a struct and follow.                                                                                  |
 | 9   | Argument checks for the ambient math functions                                                                                                                                                                                                                                            | S      | [#57](https://github.com/typeshade/typeshade/issues/57)                                                                                                                                                                                                                                     | `dot(vec3, vec2)` compiles today.                                                                                                                                                                  |
 
-### 0.3 Textures
+### 0.3 The TypeScript surface
+
+`enum`, `extends`, `implements`, `abstract`, a type alias, an overload, a static function, a
+namespace, a mixin: the constructs a TypeScript developer reaches for without thinking. Design
+issue [#92](https://github.com/typeshade/typeshade/issues/92) measures each one against `main`
+and settles the one question that needs settling, which is that method dispatch is static.
+
+| #   | Item                                                                                                                                                                              | Size | Issue                                                   | Notes                                                                                                                                            |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| T1  | `enum` and `const enum`: auto-increment, explicit initializers, a member as a value and as a type                                                                                 | M    | [#92](https://github.com/typeshade/typeshade/issues/92) | Each member is the module const it already is. A string enum has no GPU representation and says so.                                              |
+| T2  | Type aliases that are not object types: `type Meters = f32`, `type Color = vec3`                                                                                                  | S    | [#92](https://github.com/typeshade/typeshade/issues/92) | Today the alias becomes a struct named after itself, so `m * 0.5` is a type mismatch.                                                            |
+| T3  | A class whose members are all static, and a static field                                                                                                                          | S    | [#92](https://github.com/typeshade/typeshade/issues/92) | The utility class. Today it is refused for having no fields.                                                                                     |
+| T4  | `namespace`, nested and flattened                                                                                                                                                 | S    | [#92](https://github.com/typeshade/typeshade/issues/92) | The same `Ns_fn` naming class methods already use.                                                                                               |
+| T5  | Inheritance: `extends` on a class and on an interface, `abstract`, `implements`                                                                                                   | L    | [#92](https://github.com/typeshade/typeshade/issues/92) | Base fields first, methods inherited and overridable, dispatch static. A base-typed variable holding a derived value is refused with the reason. |
+| T6  | Function overload signatures                                                                                                                                                      | S    | [#92](https://github.com/typeshade/typeshade/issues/92) | Skip the signatures, lower the implementation. Today each signature is a body-less function.                                                     |
+| T7  | The ordinary ergonomics: default parameter values, destructuring, an arrow-function local, `as const`, `satisfies`, spread into a struct literal, a module const of a struct type | M    | [#92](https://github.com/typeshade/typeshade/issues/92) | One PR per item.                                                                                                                                 |
+| T8  | The mixin pattern                                                                                                                                                                 | M    | [#92](https://github.com/typeshade/typeshade/issues/92) | A class expression evaluated at compile time. Needs T5.                                                                                          |
+| T9  | Generics by monomorphisation, on a function and on a class                                                                                                                        | L    | [#92](https://github.com/typeshade/typeshade/issues/92) | One compilation per set of argument types the file calls it with.                                                                                |
+| T10 | The honest refusals: `symbol`, a union of two GPU types, a tuple, a capturing closure, `instanceof`                                                                               | S    | [#92](https://github.com/typeshade/typeshade/issues/92) | One sentence naming the reason and the fix, in place of `TS8099 Unsupported expression`.                                                         |
+
+### 0.4 Textures
 
 | #   | Item                                                                                                                        | Size | Issue | Notes                                                                              |
 | --- | --------------------------------------------------------------------------------------------------------------------------- | ---- | ----- | ---------------------------------------------------------------------------------- |
@@ -165,7 +195,7 @@ The language can express the compute shaders people write with TypeGPU today.
 | 12  | `texture_cube`, `texture_cube_array`, `texture_3d`, `texture_1d`, `textureGather`, `textureSampleBias`, `textureSampleGrad` | M    |       | GLSL ES 3.00 has cube and 3d; the array and gather forms decide per target.        |
 | 13  | Multisampled load on `texture_2d_ms`                                                                                        | S    |       | The type exists and nothing reads it.                                              |
 
-### 0.4 Loops become kernels
+### 0.5 Loops become kernels
 
 | #   | Item                                                                                                                                                                                                                                                                                                                                                                                       | Size | Issue                                                   | Notes                                                                                                                                                                                                                                          |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -174,7 +204,7 @@ The language can express the compute shaders people write with TypeGPU today.
 | 16  | `typeshade/vite`: the unplugin that turns a `.shade.ts` import into the generated module under the source's export names                                                                                                                                                                                                                                                                   | M    |                                                         | Without it the second half of 1.0.0 is a runtime `compile()` call and not an import.                                                                                                                                                           |
 | 17  | Examples and guide sections for 4, 5, 6, 10, 11 and 15, and the site re-pinned                                                                                                                                                                                                                                                                                                             | M    |                                                         | The site's checks refuse an example the compiler refuses, so this is also the acceptance test.                                                                                                                                                 |
 
-### 0.5 Derivatives and verification
+### 0.6 Derivatives and verification
 
 | #   | Item                                                                                                                                                                                                                                                                           | Size | Issue | Notes                                                                          |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ----- | ------------------------------------------------------------------------------ |
@@ -184,7 +214,7 @@ The language can express the compute shaders people write with TypeGPU today.
 | 21  | Bounds proofs: an index the compiler can bound from the loop and the array length compiles; one it cannot is refused with the range it could establish                                                                                                                         | M    |       | The loop analysis of 15 already computes the bounds.                           |
 | 22  | Determinism report: `compile()` lists the operations in a module whose result may differ by driver (the transcendentals, `fma` where a target has no fused form)                                                                                                               | S    |       | The table exists in the emitter; this surfaces it.                             |
 
-### 0.6 Finish and freeze
+### 0.7 Finish and freeze
 
 | #   | Item                                                                                                                                                                                                                                                                                                                             | Size | Issue                                                   | Notes                                                                                         |
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -210,8 +240,13 @@ Items 1 to 3 are first because they are small and because everything with a side
 (atomics, barriers, `textureStore`, `console.log`) lands on the call statement. Items 4 to 6
 are the constructs a compute shader cannot do without, and they are the first WebGPU-only
 surface, so they also set the rule for target diagnostics; they are also what a reduction
-loop lowers to, so 15 depends on them. Textures come next because a renderer asks for shadow
-maps and storage writes before it asks to be called from the host. The loop-to-kernel layer
+loop lowers to, so 15 depends on them. The TypeScript surface comes next, ahead of textures, because it is the
+first rule applied to what the language already has rather than to what it lacks: every one of
+its items is a construct a developer writes on their first afternoon, and each week it is not
+there is a week of files that read like a shader language. It is also cheap in the order it is
+written, since the two bug-sized items unblock the shapes people hit first and the one item with
+a real design question, inheritance, is the last of the large ones. Textures come after because a
+renderer asks for shadow maps and storage writes before it asks to be called from the host. The loop-to-kernel layer
 comes after the language is complete so that it wraps a compiler that does not change under
 it, and derivatives and verification come after that because both are passes over the same
 IR and both are checked by the oracle the layer already runs. The freeze is last because a
@@ -224,8 +259,9 @@ above.
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 0.1.0   | `main` today: the language in `docs/use-typeshade-surface.md`, WGSL and GLSL ES 3.00, the oracle, the language service, `reflect`, the compute runner. |
 | 0.2.0   | Items 1 to 9.                                                                                                                                          |
-| 0.3.0   | Items 10 to 13.                                                                                                                                        |
-| 0.4.0   | Items 14 to 17.                                                                                                                                        |
-| 0.5.0   | Items 18 to 22.                                                                                                                                        |
-| 0.6.0   | Items 23 to 25, then release candidates until nothing moves.                                                                                           |
-| 1.0.0   | The surface in `surface.md` at 0.6, with the two meanings above holding and the three things a shader library cannot do.                               |
+| 0.3.0   | Items T1 to T10.                                                                                                                                       |
+| 0.4.0   | Items 10 to 13.                                                                                                                                        |
+| 0.5.0   | Items 14 to 17.                                                                                                                                        |
+| 0.6.0   | Items 18 to 22.                                                                                                                                        |
+| 0.7.0   | Items 23 to 25, then release candidates until nothing moves.                                                                                           |
+| 1.0.0   | The surface in `surface.md` at 0.7, with the two meanings above holding and the three things a shader library cannot do.                               |

@@ -92,10 +92,49 @@ export const SUPPORTED_TYPE_NAMES: readonly string[] = [
   ...Object.keys(TEXTURE_DIM),
 ]
 
+/** The file's type aliases that are NOT object types, by name (roadmap 0.3 item T2, #92).
+ *  `type Meters = f32`, `type Color = vec3`, `type Grid = array<f32, 16>`: ordinary TypeScript
+ *  for "another name for this type", and the shape a developer reaches for before any of the
+ *  GPU ones. An alias of an object type (`type P = { x: f32 }`) is a STRUCT and is collected by
+ *  `structs.ts`, so it is left out here; a generic alias has no one target type and is left to
+ *  the generic refusal.
+ *
+ *  Measured before this: the alias fell through to the capitalized-name arm below and became a
+ *  struct named after itself, so `type Meters = f32` made `m * 0.5` "cannot * struct:Meters and
+ *  f32" and a lowercase alias was an unknown type. */
+function aliasTargetsOf(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.TypeNode> {
+  const cached = ALIAS_CACHE.get(sourceFile)
+  if (cached) return cached
+  const out = new Map<string, ts.TypeNode>()
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isTypeAliasDeclaration(stmt)) continue
+    if (ts.isTypeLiteralNode(stmt.type)) continue
+    if ((stmt.typeParameters?.length ?? 0) > 0) continue
+    // First declaration wins, as everywhere else in the front end; TypeScript reports the
+    // duplicate itself.
+    if (!out.has(stmt.name.text)) out.set(stmt.name.text, stmt.type)
+  }
+  ALIAS_CACHE.set(sourceFile, out)
+  return out
+}
+
+const ALIAS_CACHE = new WeakMap<ts.SourceFile, ReadonlyMap<string, ts.TypeNode>>()
+
 export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
   diagnostics?: TsCompilerDiagnostic[],
+): ShaderType | undefined {
+  return mapType(typeNode, sourceFile, diagnostics, undefined)
+}
+
+/** {@link mapTsTypeToShaderType} plus the alias names already being resolved, which is how a
+ *  cycle (`type A = B; type B = A`) stops instead of recursing forever. */
+function mapType(
+  typeNode: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
 ): ShaderType | undefined {
   if (typeNode === undefined) {
     pushDiag(
@@ -124,7 +163,7 @@ export function mapTsTypeToShaderType(
       return HANDLE_MAP[name]
     }
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
-      return mapGeneric(name, typeNode, sourceFile, diagnostics)
+      return mapGeneric(name, typeNode, sourceFile, diagnostics, resolving)
     }
     if (name === undefined) {
       pushDiag(diagnostics, sourceFile, typeNode, `Unsupported type reference.`)
@@ -132,6 +171,25 @@ export function mapTsTypeToShaderType(
     }
     const mapped = SCALAR_AND_VEC_MAP[name]
     if (mapped !== undefined) return mapped
+    // A type alias of anything but an object type is another name for its target (T2, #92).
+    // After the builtin names, so no alias can shadow `f32` or `vec3`, and before the
+    // capitalized-name arm, so the alias resolves instead of becoming a struct of its own.
+    const alias = aliasTargetsOf(sourceFile).get(name)
+    if (alias !== undefined) {
+      if (resolving?.has(name)) {
+        // The chain as written, so a mutual cycle reads as one: "A -> B -> A".
+        const chain = [...resolving.values()]
+        const cycle = [...chain.slice(chain.indexOf(name)), name].join(' -> ')
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          typeNode,
+          `Type alias "${name}" is defined in terms of itself (${cycle}), so it names no type.`,
+        )
+        return undefined
+      }
+      return mapType(alias, sourceFile, diagnostics, new Set([...(resolving ?? []), name]))
+    }
     if (/^[A-Z]/.test(name)) return structT(name)
     pushDiag(
       diagnostics,
@@ -165,7 +223,8 @@ function mapGeneric(
   name: string | undefined,
   typeNode: ts.TypeReferenceNode,
   sourceFile: ts.SourceFile,
-  diagnostics?: TsCompilerDiagnostic[],
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
 ): ShaderType | undefined {
   const args = typeNode.typeArguments ?? []
   if (name === 'Array') {
@@ -178,7 +237,7 @@ function mapGeneric(
     return undefined
   }
   if (name === 'array') {
-    const elem = mapTsTypeToShaderType(args[0], sourceFile, diagnostics)
+    const elem = mapType(args[0], sourceFile, diagnostics, resolving)
     const nNode = args[1]
     const n =
       nNode && ts.isLiteralTypeNode(nNode) && ts.isNumericLiteral(nNode.literal)
@@ -188,7 +247,7 @@ function mapGeneric(
     return undefined
   }
   if (name === 'uniform' || name === 'storage') {
-    return mapTsTypeToShaderType(args[0], sourceFile, diagnostics)
+    return mapType(args[0], sourceFile, diagnostics, resolving)
   }
   // `atomic<u32>` / `atomic<i32>` (roadmap 0.2 item 4): a location in storage memory for the
   // atomic builtins. Where it may be declared is decided by the declaration sites, not here.
