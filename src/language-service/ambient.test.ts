@@ -96,6 +96,33 @@ describe('a storage array is writable in the editor, as it is in the compiler', 
   })
 })
 
+// #8 A16 made `const xs: array<f32, 3> = [1., 2., 3.]` compile, and the ambient `array`'s tag
+// was REQUIRED, so the editor answered a program the compiler accepts with TS2322 ("Property
+// '[arrayTag]' is missing in type '[number, number, number]'"). The tag is optional now. The
+// example sweep above covers the same ground through `array-literal-ramp.shade.ts`; this arm
+// names the construct, and pins what the change must NOT cost — `length` is still `N`, so the
+// sizes stay apart.
+describe('a list initializes an array in the editor, as it does in the compiler', () => {
+  const helper = (body: string): string =>
+    '"use typeshade"\n' + 'export function f(): f32 {\n' + `  ${body}\n` + '  return xs[0]\n}\n'
+
+  it('reports nothing on a list of the declared size', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', helper('const xs: array<f32, 3> = [1., 2., 3.]'))
+    expect(
+      service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
+    ).toEqual([])
+  })
+
+  it('still reports a list of the wrong size, which is what `length: N` buys', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', helper('const xs: array<f32, 3> = [1., 2.]'))
+    expect(
+      service.getDiagnostics('a.ts').some((d) => d.source === 'typescript' && d.code === 2322),
+    ).toBe(true)
+  })
+})
+
 // Issue #43: `v * s` is typed `number`, so using the product AS a vector was rejected at every
 // call. The gate above was already green on this corpus before that rule landed, because #18 paid
 // for it with an annotated local in `hello-uniform-struct.shade.ts` (`const rgb: vec3 = ...`, see

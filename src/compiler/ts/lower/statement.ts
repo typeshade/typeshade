@@ -10,6 +10,7 @@ import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
+import { lowerArrayLiteral } from './expression-array.js'
 import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
@@ -269,8 +270,30 @@ function lowerVariableDeclaration(
     }
     return withSpan({ s: 'var', name, type: annotated } as Stmt, sourceFile, spanNode)
   }
-  // The annotation is the context for `const o: VsOut = { … }` (#8 A11).
-  let init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated)
+  // `const xs: array<f32, 3> = [1., 2., 3.]` (#8 A16). A list carries no type of its own, so it
+  // is lowered AGAINST the annotation instead of on its own, and refused where there is none.
+  // From here it is the ordinary `construct` the `array<f32, 3>(...)` call builds, so the rest
+  // of this function — the type check, the binding, the span — does not know the difference.
+  // Every other initializer takes the annotation as its CONTEXT (#8 A11), which is the weaker
+  // form of the same idea: an object literal reads it to pick its struct, a bare integer
+  // literal to take its type, and everything else ignores it.
+  let init: Expr | undefined
+  if (ts.isArrayLiteralExpression(decl.initializer)) {
+    if (!annotated) {
+      const kw = isConst ? 'const' : 'let'
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl,
+        `"${kw} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
+        TS_CODES.UNKNOWN_TYPE,
+      )
+      return undefined
+    }
+    init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics)
+  } else {
+    init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated)
+  }
   if (!init) return undefined
   if (annotated) {
     if (init.op === 'lit' && typeof init.value === 'boolean' && typeKey(annotated) === 'bool') {
