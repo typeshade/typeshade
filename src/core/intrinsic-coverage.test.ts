@@ -127,6 +127,8 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "abs",
         "acos",
         "acosh",
+        "all",
+        "any",
         "arrayLength",
         "asin",
         "asinh",

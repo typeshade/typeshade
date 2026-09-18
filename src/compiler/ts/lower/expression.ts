@@ -201,6 +201,22 @@ function lowerPrefixUnary(
   if (node.operator === ts.SyntaxKind.MinusToken)
     return { op: 'unop', type: operand.type, a: operand }
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
+    // `!m` on a vector of bools is componentwise (§27): the same compare-with-false the scalar
+    // form lowers to, against a vector of falses, which WGSL spells `!m` too and GLSL `not(m)`.
+    if (operand.type.kind === 'vec' && operand.type.elem === 'bool') {
+      const no: Expr = { op: 'lit', type: boolT, value: false }
+      return {
+        op: 'compare',
+        type: operand.type,
+        cop: '==',
+        a: operand,
+        b: {
+          op: 'construct',
+          type: operand.type,
+          args: Array.from({ length: operand.type.n }, () => no),
+        },
+      }
+    }
     if (typeKey(operand.type) !== 'bool') {
       pushDiag(
         diagnostics,
@@ -372,6 +388,27 @@ function lowerBinary(
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined
+    }
+    // Two vectors compare componentwise and yield a vector of bools (§27), which `any`, `all`
+    // and `select` take. An ordering on bools has no meaning on either target.
+    if (left.type.kind === 'vec') {
+      if (left.type.elem === 'bool' && cmp !== '==' && cmp !== '!=') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `"${cmp}" has no meaning on ${typeKey(left.type)}: compare bool vectors with === or !==, or reduce them with any() or all().`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      return {
+        op: 'compare',
+        type: { kind: 'vec', n: left.type.n, elem: 'bool' },
+        cop: cmp,
+        a: left,
+        b: right,
+      }
     }
     return { op: 'compare', type: boolT, cop: cmp, a: left, b: right }
   }

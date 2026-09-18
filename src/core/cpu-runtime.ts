@@ -16,6 +16,7 @@
 // the truncated shader constants — the two-tolerance reality, structural.
 
 import type { BinOp, ShaderType, StructDecl } from './ir/index.js'
+import type { CmpOp } from './ir/nodes.js'
 
 /** A value as the CPU backends ({@link compileModule} and {@link compileModuleJs})
  *  represent it: a plain JavaScript value, never a typed array or a GPU buffer. A scalar
@@ -28,7 +29,7 @@ import type { BinOp, ShaderType, StructDecl } from './ir/index.js'
  *
  *  Exported from `typeshade`.
  */
-export type CpuValue = number | boolean | number[] | CpuStruct
+export type CpuValue = number | boolean | number[] | boolean[] | CpuStruct
 /** A struct value on the CPU: a plain object keyed by field name, holding one
  *  {@link CpuValue} per field. Calling a struct constructor in shader code
  *  (`MyStruct(a, b, …)`) produces one with its fields in declaration order; a struct-typed
@@ -246,7 +247,53 @@ const f16BitsToF32 = (h: number): number => {
   return _bitcastView.getFloat32(0, true)
 }
 
+/** Whether a comparison of values of type `t` rounds to f32 first: an f32 scalar or a vector
+ *  of f32. The GPU computes f32, so exact f64 equality would silently disagree with it. */
+export const comparesAsF32 = (t: ShaderType): boolean =>
+  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32')
+
+function compareScalars(cop: CmpOp, a: number, b: number, f32: boolean): boolean {
+  switch (cop) {
+    case '<':
+      return a < b
+    case '>':
+      return a > b
+    case '<=':
+      return a <= b
+    case '>=':
+      return a >= b
+    case '==':
+      return f32 ? Math.fround(a) === Math.fround(b) : a === b
+    case '!=':
+      return f32 ? Math.fround(a) !== Math.fround(b) : a !== b
+  }
+}
+
+/** One comparison, the way every CPU path computes it: scalars to a bool, two vectors
+ *  componentwise to a vector of bools (roadmap 0.2 item 7). `==` and `!=` on f32 operands
+ *  round to f32 first (X-GIS #13); the ordering ops keep f64. Bools compare as JS booleans. */
+export function compareValues(cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean): CpuValue {
+  if (isArr(a) && isArr(b)) {
+    return a.map((v, i) => compareScalars(cop, v as number, b[i] as number, f32))
+  }
+  return compareScalars(cop, a as number, b as number, f32)
+}
+
+/** `select(f, t, c)` with a vector-of-bools condition: the pick per component. */
+export function selectComponents(
+  cond: readonly CpuValue[],
+  ifTrue: CpuValue,
+  ifFalse: CpuValue,
+): CpuValue {
+  const t = ifTrue as CpuValue[]
+  const f = ifFalse as CpuValue[]
+  return cond.map((c, i) => (c ? t[i]! : f[i]!)) as unknown as CpuValue
+}
+
 export const BUILTINS: Record<string, Builtin> = {
+  // any(m) / all(m) over a vector of bools (roadmap 0.2 item 7).
+  any: (v) => (v as boolean[]).some((x) => x === true),
+  all: (v) => (v as boolean[]).every((x) => x === true),
   // The f32 oracle's rounding step (X-GIS #2426). NOT authorable and never emitted: `froundF32`
   // (passes/precision.ts) injects it, and only the CPU engines ever see a module carrying it.
   // It lives HERE rather than in each engine because both resolve builtins through this one
@@ -658,7 +705,8 @@ function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
 
 export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDecl>): CpuValue {
   // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
-  if (type.kind === 'vec' || type.kind === 'vec64') return new Array(type.n).fill(0)
+  if (type.kind === 'vec') return new Array(type.n).fill(type.elem === 'bool' ? false : 0)
+  if (type.kind === 'vec64') return new Array(type.n).fill(0)
   if (type.kind === 'mat') return new Array(type.n * type.n).fill(0)
   // A STRUCT zero-initialises field by field, the way WGSL's `var s: S;` does. The bare `{}`
   // this used to return left every field absent, so an init-less `var s: S` read `s.a` as

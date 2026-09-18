@@ -231,7 +231,7 @@ describe('select', () => {
         }
       `),
     ).toBe(
-      "select condition must be bool, got f32. The order is WGSL's: " +
+      "select condition must be bool or a vector of bools, got f32. The order is WGSL's: " +
         'select(falseValue, trueValue, cond).',
     )
   })

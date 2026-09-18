@@ -13,6 +13,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Boolean vectors** (§27, roadmap 0.2 item 7): a comparison of two vectors is componentwise
+  and yields `vec2b`/`vec3b`/`vec4b` (WGSL `vec3<bool>`, GLSL `bvec3`), which `any(m)` and
+  `all(m)` reduce, `select(f, t, m)` picks through per component, `!m` flips, and `vec3b(...)`
+  constructs. GLSL ES 3.00 spells the comparison as `lessThan` and its siblings and the pick as
+  `mix` for floats or a componentwise ternary otherwise. The three CPU paths share one
+  comparison and one pick, so a bool vector is an array of booleans on all of them. An ordering
+  on bool vectors, a `select` whose arms do not match the mask, and `any`/`all` on anything but
+  a bool vector or an array with a predicate are TS8003 with the fix. The `bool-select` example
+  renders on both targets.
 - **Methods that change their object** (§26, design #86 step 2): a method that assigns to a
   field of `this` (or `++`/`--` on one, or calls such a method on `this`) takes and returns the
   struct, `fn Particle_step(self_in: Particle, dt: f32) -> Particle` working on the copy
@@ -145,6 +154,10 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **A vector comparison was a scalar bool.** `a < b` on two vectors compiled with no
+  diagnostic, typed as one `bool`: GLSL ES 3.00 got `bool m = (a < b);`, which is not a program,
+  and the oracle compared the two arrays as numbers. It is a vector of bools now (§27), on every
+  target and on the CPU.
 - **A multi-file program's module variables reached the WGSL.** `compileTsSources` took the
   bare-functions emit whenever the entry had no module constant, so an entry with a
   per-invocation or workgroup variable and no `const` emitted functions that read a variable

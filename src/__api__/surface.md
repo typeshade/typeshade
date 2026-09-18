@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 419 exports
+## `.` — 422 exports
 
 ```
 abs
@@ -394,6 +394,7 @@ VariantFamilySpec
 VariantLinkResult
 VariantWgslResult
 vec2
+vec2bT
 vec2f64
 vec2f64T
 vec2fT
@@ -402,6 +403,7 @@ vec2iT
 vec2u
 vec2uT
 vec3
+vec3bT
 vec3f64
 vec3f64T
 vec3fT
@@ -410,6 +412,7 @@ vec3iT
 vec3u
 vec3uT
 vec4
+vec4bT
 vec4f64
 vec4f64T
 vec4fT
@@ -530,7 +533,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 240 exports
+## `./core/ir` — 243 exports
 
 ```
 abs
@@ -747,6 +750,7 @@ unpack4x8unorm
 UsesHandle
 Var
 vec2
+vec2bT
 vec2f64
 vec2f64T
 vec2fT
@@ -755,6 +759,7 @@ vec2iT
 vec2u
 vec2uT
 vec3
+vec3bT
 vec3f64
 vec3f64T
 vec3fT
@@ -763,6 +768,7 @@ vec3iT
 vec3u
 vec3uT
 vec4
+vec4bT
 vec4f64
 vec4f64T
 vec4fT
@@ -814,7 +820,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 527 definitions
+## Shapes — 530 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { fileName?: string }
@@ -834,7 +840,7 @@ src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: rea
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
-src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitModuleVar?: (v: ModuleVarDecl) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; phonyAssign?: string; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
+src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitModuleVar?: (v: ModuleVarDecl) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; phonyAssign?: string; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string; vectorCompare?: (cop: CmpOp, a: string, b: string) => string; vectorSelect?: (ifFalse: string, ifTrue: string, cond: string, type: ShaderType) => string }
 src/core/backend.ts#CapProfile  type  { compute?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; storageBuffer?: <no-declaration>; subgroups?: <no-declaration> }
 src/core/backend.ts#CapSupport  interface  { directive?: string; hostFeature?: string }
 src/core/backend.ts#CapSupportKind  type  "native" | "directive" | "host-feature" | "unsupported"
@@ -866,7 +872,7 @@ src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
 src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
 src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
-src/core/cpu-runtime.ts#CpuValue  type  number | boolean | number[] | CpuStruct
+src/core/cpu-runtime.ts#CpuValue  type  number | boolean | number[] | boolean[] | CpuStruct
 src/core/cpu-runtime.ts#ORACLE_BUILTIN_NAMES  const  ReadonlySet<string>
 src/core/cpu-runtime.ts#ORACLE_GPU_STUB_NAMES  const  ReadonlySet<string>
 src/core/debug/config.ts#DEBUG_LAUNCH_SCHEMA  const  Readonly<Record<string, unknown>>
@@ -1137,7 +1143,7 @@ src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
 src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "atomic"; elem: infer E extends string; } ? `atomic<${E}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
+src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
 src/core/ir/types.ts#arrayT  const  <E extends ShaderType, S extends number | undefined = undefined>(elem: E, size?: S) => { readonly kind: "array"; readonly elem: E; readonly size: S; }
 src/core/ir/types.ts#atomicI32T  const  { readonly kind: "atomic"; readonly elem: "i32"; }
@@ -1150,7 +1156,7 @@ src/core/ir/types.ts#isF64  const  (t: ShaderType) => t is { readonly kind: "f64
 src/core/ir/types.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; }
 src/core/ir/types.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } & { elem: "f64"; }
 src/core/ir/types.ts#isScalar  const  (t: ShaderType) => t is { readonly kind: "scalar"; readonly scalar: Scalar; }
-src/core/ir/types.ts#isVec  const  (t: ShaderType) => t is { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; }
+src/core/ir/types.ts#isVec  const  (t: ShaderType) => t is { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; }
 src/core/ir/types.ts#isVec64  const  (t: ShaderType) => t is { readonly kind: "vec64"; readonly n: 2 | 3 | 4; }
 src/core/ir/types.ts#mat2f64T  const  { readonly kind: "mat"; readonly n: 2; readonly elem: "f64"; }
 src/core/ir/types.ts#mat3f64T  const  { readonly kind: "mat"; readonly n: 3; readonly elem: "f64"; }
@@ -1168,14 +1174,17 @@ src/core/ir/types.ts#texture2duT  const  { readonly kind: "texture"; readonly di
 src/core/ir/types.ts#typeEq  function  (a: ShaderType, b: ShaderType) => boolean
 src/core/ir/types.ts#typeKey  function  (t: ShaderType) => string
 src/core/ir/types.ts#u32T  const  { readonly kind: "scalar"; readonly scalar: "u32"; }
+src/core/ir/types.ts#vec2bT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "bool"; }
 src/core/ir/types.ts#vec2f64T  const  { readonly kind: "vec64"; readonly n: 2; }
 src/core/ir/types.ts#vec2fT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "f32"; }
 src/core/ir/types.ts#vec2iT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "i32"; }
 src/core/ir/types.ts#vec2uT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "u32"; }
+src/core/ir/types.ts#vec3bT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "bool"; }
 src/core/ir/types.ts#vec3f64T  const  { readonly kind: "vec64"; readonly n: 3; }
 src/core/ir/types.ts#vec3fT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "f32"; }
 src/core/ir/types.ts#vec3iT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "i32"; }
 src/core/ir/types.ts#vec3uT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }
+src/core/ir/types.ts#vec4bT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "bool"; }
 src/core/ir/types.ts#vec4f64T  const  { readonly kind: "vec64"; readonly n: 4; }
 src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }
 src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }

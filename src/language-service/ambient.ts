@@ -38,7 +38,7 @@ function renderJSDoc(text: string): string {
   return `/**\n${lines.map((line) => ` * ${line}`).join('\n')}\n */`
 }
 
-type VecElem = 'f32' | 'i32' | 'u32' | 'f64'
+type VecElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
 
 /** Every `vecN`/`vecNf`/`vecNi`/`vecNu`/`vecNf64` name in `SUPPORTED_TYPE_NAMES`, mapped to its
  * element kind — derived by pattern, not retyped, so a new vector alias in `type-map.ts` is
@@ -48,7 +48,7 @@ type VecElem = 'f32' | 'i32' | 'u32' | 'f64'
  * constructor name — see `VEC_CTOR_NAMES` below. */
 const VEC_TYPE_ELEM = new Map<string, VecElem>()
 for (const name of SUPPORTED_TYPE_NAMES) {
-  const m = /^vec([234])(f64|f|i|u|d)?$/.exec(name)
+  const m = /^vec([234])(f64|f|i|u|d|b)?$/.exec(name)
   if (!m) continue
   const suffix = m[2]
   const elem: VecElem =
@@ -58,7 +58,9 @@ for (const name of SUPPORTED_TYPE_NAMES) {
         ? 'i32'
         : suffix === 'u'
           ? 'u32'
-          : 'f64'
+          : suffix === 'b'
+            ? 'bool'
+            : 'f64'
   VEC_TYPE_ELEM.set(name, elem)
 }
 
@@ -92,20 +94,20 @@ export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES
 const vecCtorOverloads = (name: string, elem: VecElem): string => {
   const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4
   const type = vecTypeName(elem, n)
+  // A component of a bool vector (§27) is a bool; of every other vector, a number.
+  const c = elem === 'bool' ? 'bool' : 'number'
   const lines: string[] = []
   if (n === 2) {
-    lines.push(`declare function ${name}(x: number, y: number): ${type}`)
+    lines.push(`declare function ${name}(x: ${c}, y: ${c}): ${type}`)
   } else if (n === 3) {
-    lines.push(`declare function ${name}(x: number, y: number, z: number): ${type}`)
-    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 2)}, z: number): ${type}`)
+    lines.push(`declare function ${name}(x: ${c}, y: ${c}, z: ${c}): ${type}`)
+    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 2)}, z: ${c}): ${type}`)
   } else {
-    lines.push(`declare function ${name}(x: number, y: number, z: number, w: number): ${type}`)
-    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 3)}, w: number): ${type}`)
-    lines.push(
-      `declare function ${name}(v: ${vecTypeName(elem, 2)}, z: number, w: number): ${type}`,
-    )
+    lines.push(`declare function ${name}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`)
+    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 3)}, w: ${c}): ${type}`)
+    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 2)}, z: ${c}, w: ${c}): ${type}`)
   }
-  lines.push(`declare function ${name}(scalar: number): ${type}`)
+  lines.push(`declare function ${name}(scalar: ${c}): ${type}`)
   // The element-CONVERTING form (#8 A8): one whole vector of this constructor's own size and
   // a different element kind. The compiler's rule (`isConvertibleVector`) is exactly "native
   // vec, same n, different elem", so the overloads are the two other native kinds — and an
@@ -122,7 +124,7 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
 
 /** The element kinds a converting constructor accepts on either side. `f64` is deliberately
  *  absent — see {@link vecCtorOverloads}. */
-const NATIVE_VEC_ELEMS: readonly VecElem[] = ['f32', 'i32', 'u32']
+const NATIVE_VEC_ELEMS: readonly VecElem[] = ['f32', 'i32', 'u32', 'bool']
 
 /** The canonical brand-type name for one (element, arity) pair — `vec2`/`vec3`/`vec4` for
  * `f32` (the default element every bare `vecN` name maps to), `vecNi`/`vecNu`/`vecNf64`
@@ -131,6 +133,7 @@ const NATIVE_VEC_ELEMS: readonly VecElem[] = ['f32', 'i32', 'u32']
 function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
   if (elem === 'f32') return `vec${n}`
   if (elem === 'f64') return `vec${n}f64`
+  if (elem === 'bool') return `vec${n}b`
   return `vec${n}${elem === 'i32' ? 'i' : 'u'}`
 }
 
@@ -420,13 +423,19 @@ type bool = boolean
 type Pick<T, K extends keyof T> = { [P in K]: T[P] }
 
 declare const vecTag: unique symbol
-type ScalarOf<S extends 'f32' | 'i32' | 'u32'> = S extends 'f32' ? f32 : S extends 'i32' ? i32 : u32
+type ScalarOf<S extends 'f32' | 'i32' | 'u32' | 'bool'> = S extends 'f32'
+  ? f32
+  : S extends 'i32'
+    ? i32
+    : S extends 'u32'
+      ? u32
+      : bool
 type ComponentKeys<N extends 2 | 3 | 4> = N extends 2
   ? 'x' | 'y' | 'r' | 'g' | 'xy' | 'rg'
   : N extends 3
     ? 'x' | 'y' | 'z' | 'r' | 'g' | 'b' | 'xy' | 'rg' | 'xyz' | 'rgb'
     : 'x' | 'y' | 'z' | 'w' | 'r' | 'g' | 'b' | 'a' | 'xy' | 'rg' | 'xyz' | 'rgb' | 'xyzw' | 'rgba'
-type VecOf<S extends 'f32' | 'i32' | 'u32', N extends 2 | 3 | 4> = {
+type VecOf<S extends 'f32' | 'i32' | 'u32' | 'bool', N extends 2 | 3 | 4> = {
   readonly [vecTag]: readonly [S, N]
 } & Pick<
   {
@@ -456,6 +465,12 @@ type vec4i = VecOf<'i32', 4>
 type vec2u = VecOf<'u32', 2>
 type vec3u = VecOf<'u32', 3>
 type vec4u = VecOf<'u32', 4>
+/** Vectors of bools (§27): what a comparison of two vectors yields, componentwise. Not
+ * \`Numeric\`: no arithmetic, only \`any\`, \`all\`, \`select\` and \`!\`. */
+type vec2b = VecOf<'bool', 2>
+type vec3b = VecOf<'bool', 3>
+type vec4b = VecOf<'bool', 4>
+type BoolVec = vec2b | vec3b | vec4b
 
 declare const vec64Tag: unique symbol
 /** \`f64\` vectors carry no swizzle members: \`swizzle.ts\`'s \`parseSwizzle\` only accepts
@@ -618,7 +633,11 @@ ${langConsts}
 // from an arity alone: \`select\`'s third argument is a bool, \`atan\` has two arities, \`bool\`
 // takes a bool as well as a number, and \`discard\` is a statement, not a call.
 ${renderJSDoc(FUNCTION_DOCS.select)}
-declare function select<T extends Numeric>(falseValue: T, trueValue: T, cond: bool): T
+declare function select<T extends Numeric>(falseValue: T, trueValue: T, cond: bool | BoolVec): T
+${renderJSDoc(FUNCTION_DOCS.any)}
+declare function any(v: bool | BoolVec): bool
+${renderJSDoc(FUNCTION_DOCS.all)}
+declare function all(v: bool | BoolVec): bool
 ${renderJSDoc(FUNCTION_DOCS.atan2)}
 declare function atan<T extends Numeric>(y: T, x: T): T
 ${renderJSDoc(FUNCTION_DOCS.bool)}
