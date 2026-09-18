@@ -17,6 +17,7 @@ import { LoweringScope, refusedDeclarationsOf } from '../context.js'
 import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { isMixinDeclaration } from '../mixins.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import {
   boundNamesOf,
@@ -83,6 +84,10 @@ export function lowerSourceFunctions(
       }
       return
     }
+    // A mixin is a function whose body is one `return class … { … }` (T8, #92). It runs when
+    // the file is compiled, in structs.ts, and emits no function of its own: a class
+    // expression is no GPU value, and there is nothing for a call to it to mean at run time.
+    if (isMixinDeclaration(stmt)) return
     decls.push({
       node: stmt,
       irName: prefix === '' ? undefined : namespaceMemberName(prefix, stmt.name?.text ?? ''),

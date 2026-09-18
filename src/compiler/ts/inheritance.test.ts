@@ -394,7 +394,7 @@ export function fs(): vec4 {
     ).toContain(note)
   })
 
-  it('a generic base and a base that is an expression, each naming its own item', () => {
+  it('a generic base names its own item, and a call is read as the mixin it looks like', () => {
     expect(
       errorsOf(
         file(
@@ -410,6 +410,8 @@ export function fs(): vec4 {
           `  const d: D = { y: 2. }\n  return vec4(d.y, 0., 0., 1.)`,
         ),
       ).join(' '),
-    ).toContain('extends an expression')
+      // A call in an `extends` is the mixin pattern now (T8, #92), so what this says is why
+      // `mix2` is not one, rather than that a base may not be an expression at all.
+    ).toContain('so its body has to be one "return class')
   })
 })

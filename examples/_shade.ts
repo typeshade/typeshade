@@ -326,6 +326,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'mixin-surface',
+    title: 'The mixin pattern',
+    blurb:
+      'A `function Tinted(Base)` whose body is one `return class extends Base { … }`, applied to two different geometry classes (§29). TypeScript runs a mixin at run time; there is no run time here, so it runs when the file is compiled and gives a list of members. Nothing named `Tinted(Disc)` reaches the emitted code: the mixin adds its field behind the base\'s and ahead of the applying class\'s own, and `TintedDisc` and `TintedBar` each carry their own copy of its `lit` method.',
+    renderable: true,
+  },
+  {
     id: 'tuple-and-brand',
     title: 'A tuple and a branded alias',
     blurb:

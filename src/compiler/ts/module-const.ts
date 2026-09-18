@@ -19,6 +19,7 @@ import { moduleVarSpace } from './module-vars.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { localFunctionOf } from './lower/local-functions.js'
+import { isMixinApplication } from './mixins.js'
 
 /** The module-constant name a class's static field or an enum's member takes: `K.PI` is
  *  `K_PI` and `Mode.Shaded` is `Mode_Shaded`, the same joining a method takes (`K_half`), so
@@ -225,6 +226,10 @@ export function collectModuleConsts(
       // `const f = (x: f32): f32 => ...` at the top level is a FUNCTION of the module, which
       // local-functions.ts collects (roadmap 0.3 item T7, #92), not a constant to fold.
       if (localFunctionOf(decl) !== undefined) continue
+      // `const AgedParticle = Aged(Particle)` names a mixin APPLICATION (T8, #92): a class,
+      // decided when the file is compiled, not a value to fold. structs.ts reads it where a
+      // class extends it.
+      if (isMixinApplication(decl, sourceFile)) continue
       const c = lowerOne(
         decl,
         sourceFile,

@@ -13,6 +13,27 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **The mixin pattern, run when the file is compiled** (§29, roadmap 0.3 item T8,
+  [#92](https://github.com/typeshade/typeshade/issues/92)). `class TintedDisc extends
+  Tinted(Disc)` is a class whose base is decided by running a function; TypeScript runs it at
+  run time and gets a constructor, and there is no run time here, so it runs at compile time and
+  gives a list of members. A mixin is a function whose body is one `return class … { … }`, whose
+  class expression may extend the function's own parameter, a declared class, or nothing. Its
+  members are spliced into the class that applied it, behind the base's and ahead of that class's
+  own, which is the order TypeScript's mixin produces; chains nest innermost first, and
+  `const Mixed = Aged(Particle)` names an application a class may extend. A mixin may carry a
+  constructor (`super(…)` included), a static function, a decorated field that reaches entry I/O,
+  and a method reading a base field. Nothing named `Tinted(Disc)` reaches the emitted code: it is
+  no layout a value has, and dispatch is static, so each applying class carries its own copy of
+  the methods. A name declared twice in the chain is an override, closest to the value winning;
+  two fields of that name with different types are reported rather than picked between.
+  `examples/mixin-surface.shade.ts` is the gate's evidence, on Tint and on WebGL2.
+- **`AnyClass` in the ambient lib**: `new (...args: any[]) => object`, the constructor type
+  TypeScript needs before it will take `class extends Base`. A mixin has to type-check in the
+  editor before it compiles, and this is so a shader author does not have to know the
+  incantation; declaring your own, as the TypeScript handbook does, reads the same to the
+  compiler, which never looks at the constraint.
+
 - **A tuple, a literal union and a brand are shapes TypeScript writes and the GPU already has**
   (§28, roadmap 0.3 item T10, [#92](https://github.com/typeshade/typeshade/issues/92)). A tuple
   is a list of a length the type fixes, which is what `array<T, N>` is, so `[f32, f32]` IS
