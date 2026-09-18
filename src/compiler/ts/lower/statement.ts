@@ -12,6 +12,7 @@ import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
 import { lowerMutatingCall } from './class-methods.js'
 import { lowerUserCall } from './expression-misc.js'
+import { localFunctionOf } from './local-functions.js'
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
@@ -232,6 +233,10 @@ function lowerVariableDeclaration(
   // `const { x, y } = uv` is the field reads it stands for (roadmap 0.3 item T7, #92): one
   // declaration per name, in the order written. Before this it was "Destructuring is not
   // supported", which is a shape a TypeScript developer reaches for without thinking.
+  // `const f = (x: f32): f32 => ...` declares a FUNCTION of the module, not a local
+  // (roadmap 0.3 item T7, #92): local-functions.ts collected it, or said why it could not, so
+  // the declaration itself emits nothing here either way.
+  if (localFunctionOf(decl) !== undefined) return undefined
   if (ts.isObjectBindingPattern(decl.name)) {
     return lowerObjectPattern(decl.name, decl, isConst, sourceFile, scope, diagnostics, spanNode)
   }

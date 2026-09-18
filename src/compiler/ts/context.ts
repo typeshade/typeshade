@@ -102,6 +102,7 @@ export class LoweringScope {
   private ownerDecl: FuncDecl | undefined
   private superCtorInfo: SuperCtor | undefined
   private superMethodMap: ReadonlyMap<string, string> | undefined
+  private localFns: ReadonlyMap<string, string> | undefined
   private baseNames: ReadonlyMap<string, readonly string[]> = new Map()
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
@@ -345,7 +346,22 @@ export class LoweringScope {
     this.callees.set(fn.name, fn)
   }
 
+  /** A local function declared in the body being lowered, from the name it is written under to
+   *  the name the module emits it as (roadmap 0.3 item T7, #92): `f` inside `fs` is `fs_f`. */
+  setLocalFunctions(map: ReadonlyMap<string, string> | undefined): void {
+    this.localFns = map
+  }
+
+  localFunctions(): ReadonlyMap<string, string> | undefined {
+    return this.localFns
+  }
+
   resolveCallee(name: string): FuncDecl | undefined {
+    const local = this.localFns?.get(name)
+    if (local !== undefined) {
+      const hit = this.callees.get(local)
+      if (hit !== undefined) return hit
+    }
     const direct = this.callees.get(name)
     if (direct !== undefined) return direct
     for (const qualified of this.qualifiedNames(name)) {

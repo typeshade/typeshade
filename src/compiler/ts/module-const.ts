@@ -18,6 +18,7 @@ import { isOverrideType } from './overrides.js'
 import { moduleVarSpace } from './module-vars.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
+import { localFunctionOf } from './lower/local-functions.js'
 
 /** The module-constant name a class's static field or an enum's member takes: `K.PI` is
  *  `K_PI` and `Mode.Shaded` is `Mode_Shaded`, the same joining a method takes (`K_half`), so
@@ -221,6 +222,9 @@ export function collectModuleConsts(
       // A `const` with a module-variable wrapper is module-vars.ts's to refuse, with the fix
       // (`let`), not this collector's to fold.
       if (moduleVarSpace(decl.type) !== undefined) continue
+      // `const f = (x: f32): f32 => ...` at the top level is a FUNCTION of the module, which
+      // local-functions.ts collects (roadmap 0.3 item T7, #92), not a constant to fold.
+      if (localFunctionOf(decl) !== undefined) continue
       const c = lowerOne(
         decl,
         sourceFile,
