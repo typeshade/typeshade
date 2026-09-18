@@ -759,6 +759,7 @@ export function functionScope(
   const scope = new LoweringScope(callees, symbols)
   scope.setNamespacePrefix(nsPrefix)
   scope.setStructs(structs.map((s) => s.decl))
+  scope.setBases(new Map(structs.filter((s) => s.bases).map((s) => [s.decl.name, s.bases!])))
   // The enum names, so a mistyped member reads as one rather than as an unknown identifier
   // (T1, #92); the members themselves are module constants and resolve through the scope.
   if (sourceFile) {
@@ -924,6 +925,8 @@ export function fillFunctionBody(
   // The body's calls are this function's, including any a filled-in default brings in
   // (roadmap 0.3 item T7, #92).
   scope.setOwner(stub)
+  // What `super.m(...)` names in this body (roadmap 0.3 item T5, #92).
+  scope.setSuperMethods(receiver?.superMethods)
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.
@@ -943,6 +946,8 @@ export function fillFunctionBody(
       if (receiver.mode === 'copy') {
         scope.define({ kind: 'param', name: SELF_IN, type: receiver.type, mutable: false })
       }
+      // `super(...)` is a statement of this body and nowhere else (roadmap 0.3 item T5, #92).
+      if (receiver.mode === 'ctor') scope.setSuperCtor(receiver.superCtor)
       prologue.push(...ctorPrologue(receiver, scope, sourceFile, diagnostics))
     }
   }

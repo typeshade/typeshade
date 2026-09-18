@@ -312,6 +312,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'shape-inheritance',
+    title: 'Inheritance',
+    blurb:
+      "An `abstract class Shape` with a concrete method and an abstract one, two classes that extend it, and one that extends a subclass and calls `super` (§26). A struct is flat, with the base's fields first, and dispatch is static: a class inherits a method by lowering the base's body again with `this` typed as itself, so `coverage` calls each class's own `sdf` and no `Shape_coverage` is emitted.",
+    renderable: true,
+  },
+  {
     id: 'ray-class',
     title: 'Class methods',
     blurb:

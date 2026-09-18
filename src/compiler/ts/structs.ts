@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { StructDecl, StructField } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
-import { structT } from '../../core/ir/types.js'
+import { structT, typeKey as typeKeyOf } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
@@ -26,6 +26,15 @@ export type CollectedStruct = {
    *  resolves and its statics become functions, and it is NOT emitted, because it has no
    *  fields and WGSL has no empty struct. */
   readonly namespace?: true
+  /** The names this declaration extends, in the order written (roadmap 0.3 item T5, #92).
+   *  Their fields stand ahead of this one's, base first, which is what makes a derived struct
+   *  a superset of its base rather than a different shape. An interface may extend several. */
+  readonly bases?: readonly string[]
+  /** An `abstract class`: a base to inherit from and never a value. Its struct is emitted, so
+   *  a derived one can be described in terms of it, and its method bodies are lowered into
+   *  each concrete class that inherits them rather than into a function of its own — an
+   *  abstract method has no body for such a function to call. */
+  readonly abstract?: true
 }
 
 /** The structs a module emits: every collected one but the static-only classes, which are
@@ -85,6 +94,9 @@ export function collectStructs(
   const reachable = reachableCandidates(sourceFile, candidates)
   const out: CollectedStruct[] = []
   const declared = new Set<string>()
+  /** Where to anchor a diagnostic about a struct's inheritance, which is reported after the
+   *  walk and so no longer has the declaration in hand. */
+  const nodeOf = new Map<string, ts.Node>()
 
   /** Records one struct, or says why it is not one. `before` is the diagnostic count from
    *  before the members were walked, so an empty field list is only reported when nothing
@@ -97,6 +109,8 @@ export function collectStructs(
     before: number,
     members?: ClassMembers,
     isNamespace?: true,
+    bases: readonly string[] = [],
+    isAbstract?: true,
   ): void => {
     if (declared.has(name)) {
       diagnostics.push(
@@ -127,7 +141,9 @@ export function collectStructs(
       })
       return
     }
-    if (fields.length === 0) {
+    // A declaration with a base gets its fields from `applyInheritance`, which reports an
+    // empty one once what it extends is known (T5, #92).
+    if (fields.length === 0 && bases.length === 0) {
       if (diagnostics.length === before) {
         diagnostics.push(
           diag(
@@ -144,11 +160,14 @@ export function collectStructs(
       return
     }
     declared.add(name)
+    nodeOf.set(name, node)
     out.push({
       decl: { name, fields },
       packing: 'wgsl',
       spelling,
       ...(members !== undefined ? { members } : {}),
+      ...(bases.length > 0 ? { bases } : {}),
+      ...(isAbstract ? { abstract: isAbstract } : {}),
     })
   }
 
@@ -167,7 +186,8 @@ export function collectStructs(
         )
         continue
       }
-      if (heritageRejected(candidate.name, candidate.heritage, sourceFile, diagnostics)) continue
+      const bases = basesOf(candidate.name, candidate.heritage, sourceFile, diagnostics)
+      if (bases === undefined) continue
       const before = diagnostics.length
       add(
         candidate.name,
@@ -175,6 +195,9 @@ export function collectStructs(
         signatureFields(candidate.members, candidate.name, sourceFile, diagnostics),
         candidate.spelling,
         before,
+        undefined,
+        undefined,
+        bases,
       )
       continue
     }
@@ -196,9 +219,12 @@ export function collectStructs(
         diagnostics.push(diag(sourceFile, d, `${text} does not belong on a data class.`))
       }
     }
-    // A class `extends` drops the base's fields just as an interface one does; `implements`
-    // carries no layout and is left alone.
-    if (heritageRejected(stmt.name.text, stmt.heritageClauses, sourceFile, diagnostics)) continue
+    // A class `extends` puts the base's fields ahead of its own, just as an interface one does
+    // (T5, #92); `implements` carries no layout and is left alone.
+    const bases = basesOf(stmt.name.text, stmt.heritageClauses, sourceFile, diagnostics)
+    if (bases === undefined) continue
+    const isAbstract =
+      (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false) || undefined
     const before = diagnostics.length
     const fields: StructField[] = []
     // Static members seen, which is what decides whether a fieldless class is a namespace of
@@ -361,9 +387,9 @@ export function collectStructs(
       ctor === undefined
         ? (true as const)
         : undefined
-    add(stmt.name.text, stmt.name, fields, 'class', before, members, isNamespace)
+    add(stmt.name.text, stmt.name, fields, 'class', before, members, isNamespace, bases, isAbstract)
   }
-  return out
+  return applyInheritance(out, sourceFile, nodeOf, diagnostics)
 }
 
 function classDiag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
@@ -450,35 +476,174 @@ function reachableCandidates(
     if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue
     eachTypeName(stmt, see)
   }
+  // A class is always collected, and a base it names must be too: an `extends` clause holds an
+  // expression rather than a type node, so the walk above does not see it (T5, #92).
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isClassDeclaration(stmt)) continue
+    eachHeritageName(stmt.heritageClauses, see)
+  }
   while (pending.length > 0) {
     const candidate = candidates.get(pending.pop()!)
     if (!candidate) continue
     for (const member of candidate.members) {
       if (ts.isPropertySignature(member) && member.type) eachTypeName(member.type, see)
     }
+    eachHeritageName(candidate.heritage, see)
   }
   return reachable
 }
 
-/** True, having reported it, when the declaration inherits — a TypeShade struct is exactly the
- *  members written in it, so a base type's fields would silently vanish from the layout. */
-function heritageRejected(
+/** The names an `extends` clause writes. `implements` is left alone: it carries no layout, so
+ *  an interface named only there is not a struct this file has to collect. */
+function eachHeritageName(
+  clauses: readonly ts.HeritageClause[] | undefined,
+  f: (name: string) => void,
+): void {
+  for (const h of clauses ?? []) {
+    if (h.token !== ts.SyntaxKind.ExtendsKeyword) continue
+    for (const type of h.types) if (ts.isIdentifier(type.expression)) f(type.expression.text)
+  }
+}
+
+/** The names an `extends` clause writes, or `undefined` after reporting one this cannot follow
+ *  (roadmap 0.3 item T5, #92). `implements` carries no layout and is left alone, as before.
+ *
+ *  Two shapes are refused here rather than resolved: a base with type arguments, which is one
+ *  declaration per argument set (T9), and a base that is a call rather than a name, which is
+ *  the mixin pattern (T8). Both name a later item, so the message says which. */
+function basesOf(
   name: string,
   clauses: readonly ts.HeritageClause[] | undefined,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): boolean {
+): readonly string[] | undefined {
   const extendsClause = clauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
-  if (!extendsClause) return false
-  diagnostics.push(
-    diag(
-      sourceFile,
-      extendsClause,
-      `"${name}" extends another type. A TypeShade struct is exactly the members written here, ` +
-        `so the inherited ones would be dropped; write them out.`,
-    ),
-  )
-  return true
+  if (!extendsClause) return []
+  const out: string[] = []
+  for (const type of extendsClause.types) {
+    if (type.typeArguments && type.typeArguments.length > 0) {
+      diagnostics.push(
+        diag(
+          sourceFile,
+          type,
+          `"${name}" extends a type with type arguments. A TypeShade struct is one concrete ` +
+            `layout, so a generic base has no single set of field types to inherit.`,
+        ),
+      )
+      return undefined
+    }
+    if (!ts.isIdentifier(type.expression)) {
+      diagnostics.push(
+        diag(
+          sourceFile,
+          type,
+          `"${name}" extends an expression. A base has to be a declared class or interface ` +
+            `here, since the layout is decided when the file is compiled.`,
+        ),
+      )
+      return undefined
+    }
+    out.push(type.expression.text)
+  }
+  return out
+}
+
+/** Splice each struct's bases into it, base fields first (roadmap 0.3 item T5, #92). Runs
+ *  after the whole file is collected, because TypeScript lets a derived declaration stand
+ *  above its base, and resolves depth first so a chain of three inherits the whole prefix.
+ *
+ *  A field the derived redeclares with the base's type is the same field and keeps the base's
+ *  place, which is TypeScript's own rule; one that redeclares it with a different type is
+ *  refused, since a struct has one layout and two use sites would disagree about it. */
+function applyInheritance(
+  structs: readonly CollectedStruct[],
+  sourceFile: ts.SourceFile,
+  nodeOf: ReadonlyMap<string, ts.Node>,
+  diagnostics: TsCompilerDiagnostic[],
+): CollectedStruct[] {
+  const byName = new Map(structs.map((s) => [s.decl.name, s]))
+  const done = new Map<string, readonly StructField[]>()
+  const onStack: string[] = []
+  const at = (n: string): ts.Node => nodeOf.get(n) ?? sourceFile
+
+  const resolve = (name: string): readonly StructField[] => {
+    const cached = done.get(name)
+    if (cached) return cached
+    const struct = byName.get(name)
+    if (!struct) return []
+    if (onStack.includes(name)) {
+      diagnostics.push(
+        diag(
+          sourceFile,
+          at(name),
+          `"${name}" extends itself, through ${[...onStack.slice(onStack.indexOf(name)), name]
+            .map((n) => `"${n}"`)
+            .join(' -> ')}. A struct cannot contain its own fields.`,
+        ),
+      )
+      done.set(name, struct.decl.fields)
+      return struct.decl.fields
+    }
+    onStack.push(name)
+    const fields: StructField[] = []
+    const seen = new Map<string, { field: StructField; from: string }>()
+    const put = (f: StructField, from: string): void => {
+      const prior = seen.get(f.name)
+      if (prior === undefined) {
+        seen.set(f.name, { field: f, from })
+        fields.push(f)
+        return
+      }
+      if (typeKeyOf(prior.field.type) === typeKeyOf(f.type)) return
+      diagnostics.push(
+        diag(
+          sourceFile,
+          at(name),
+          `"${from}" declares "${f.name}" as ${typeKeyOf(f.type)}, and "${prior.from}" declares ` +
+            `it as ${typeKeyOf(prior.field.type)}. A struct has one layout, so a field cannot ` +
+            `change type on the way down.`,
+        ),
+      )
+    }
+    for (const base of struct.bases ?? []) {
+      if (!byName.has(base)) {
+        diagnostics.push(
+          diag(
+            sourceFile,
+            at(name),
+            `"${name}" extends "${base}", which this file does not declare as a struct. A base ` +
+              `has to be a class or an interface whose fields are shader types.`,
+          ),
+        )
+        continue
+      }
+      for (const f of resolve(base)) put(f, base)
+    }
+    for (const f of struct.decl.fields) put(f, name)
+    onStack.pop()
+    done.set(name, fields)
+    return fields
+  }
+
+  const out = structs.map((s) => {
+    const fields = resolve(s.decl.name)
+    if (fields === s.decl.fields) return s
+    return { ...s, decl: { ...s.decl, fields } }
+  })
+  // The empty-struct rule is checked here for a declaration with a base, since what it
+  // inherits is only known now.
+  for (const s of out) {
+    if (s.namespace || s.decl.fields.length > 0 || (s.bases ?? []).length === 0) continue
+    diagnostics.push(
+      diag(
+        sourceFile,
+        at(s.decl.name),
+        `Struct "${s.decl.name}" has no fields, and neither has what it extends. WGSL requires ` +
+          `a struct to declare at least one member.`,
+      ),
+    )
+  }
+  return out
 }
 
 function memberNameDiag(

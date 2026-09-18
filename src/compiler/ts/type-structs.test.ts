@@ -430,15 +430,24 @@ describe('only a CONSUMPTION site makes a candidate reachable', () => {
   })
 })
 
-describe('inheritance drops fields, so it is refused', () => {
+describe("inheritance puts the base's fields first (roadmap 0.3 item T5, #92)", () => {
+  // Until T5 this was refused: "B extends another type. A TypeShade struct is exactly the
+  // members written here, so the inherited ones would be dropped; write them out." The fields
+  // are spliced in now, base first, so a derived struct is its base's layout with more on the
+  // end.
   const EXTENDS = `
     declare const u: uniform<B>
     export function f(): f32 {
-      return u.b;
+      return u.a + u.b;
     }
   `
 
-  it('rejects an interface that extends, and collects nothing for it', () => {
+  const fieldsOf = (src: string, name: string): string[] =>
+    analyze(src)
+      .structs.find((s) => s.decl.name === name)!
+      .decl.fields.map((f) => f.name)
+
+  it('on an interface, which is collected because the derived one is used', () => {
     const src = `
       interface A {
         a: f32
@@ -448,15 +457,11 @@ describe('inheritance drops fields, so it is refused', () => {
       }
       ${EXTENDS}
     `
-    expect(diagnose(src)).toBe(
-      '"B" extends another type. A TypeShade struct is exactly the members written here, so ' +
-        'the inherited ones would be dropped; write them out.',
-    )
-    // The half-built struct must not reach the emit either.
-    expect(analyze(src).structs.map((s) => s.decl.name)).not.toContain('B')
+    expect(analyze(src).diagnostics).toEqual([])
+    expect(fieldsOf(src, 'B')).toEqual(['a', 'b'])
   })
 
-  it('rejects a class that extends, which used to drop the base silently', () => {
+  it('on a class, and through a chain of three', () => {
     const src = `
       class A {
         a: f32
@@ -464,10 +469,49 @@ describe('inheritance drops fields, so it is refused', () => {
       class B extends A {
         b: f32
       }
-      ${EXTENDS}
+      class C extends B {
+        c: f32
+      }
+      declare const u: uniform<C>
+      export function f(): f32 {
+        return u.a + u.b + u.c;
+      }
     `
-    expect(diagnose(src)).toContain('"B" extends another type.')
-    expect(analyze(src).structs.map((s) => s.decl.name)).toEqual(['A'])
+    expect(analyze(src).diagnostics).toEqual([])
+    expect(fieldsOf(src, 'C')).toEqual(['a', 'b', 'c'])
+  })
+
+  it('refuses a base this file does not declare, a cycle, and a field that changes type', () => {
+    expect(
+      diagnose(`
+      class B extends Missing {
+        b: f32
+      }
+      ${EXTENDS}
+    `),
+    ).toContain('"B" extends "Missing", which this file does not declare as a struct.')
+    expect(
+      diagnose(`
+      class A extends B {
+        a: f32
+      }
+      class B extends A {
+        b: f32
+      }
+      ${EXTENDS}
+    `),
+    ).toContain('extends itself, through')
+    expect(
+      diagnose(`
+      class A {
+        b: i32
+      }
+      class B extends A {
+        b: f32
+      }
+      ${EXTENDS}
+    `),
+    ).toContain('A struct has one layout, so a field cannot change type on the way down.')
   })
 })
 
