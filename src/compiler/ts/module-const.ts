@@ -1,7 +1,7 @@
 // Top-level `const` → ModuleDecl.consts (foldable scalars).
 
 import ts from 'typescript'
-import type { ConstDecl, Expr } from '../../core/ir/nodes.js'
+import type { ConstDecl, Expr, StructDecl } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
 import { i32T, typeKey } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
@@ -147,8 +147,14 @@ export function collectModuleConsts(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   symbols?: DeclaredSymbolSink,
+  /** The file's structs, so a const of a struct type can resolve the object literal its
+   *  annotation names (roadmap 0.3 item T7, #92). Without them this scope had no struct
+   *  table at all, and `const O: P = { x: 0., y: 0. }` was "does not match a known struct"
+   *  even though the annotation said which one. */
+  structs: readonly StructDecl[] = [],
 ): ConstDecl[] {
   const scope = new LoweringScope(undefined, symbols)
+  scope.setStructs(structs)
   const out: ConstDecl[] = []
   // The value EXPRESSION of each non-scalar const declared so far, by name. A scalar const's
   // value reaches `foldConstNumber` through the scope binding, but a vector or array one is
@@ -456,7 +462,11 @@ function lowerOne(
     }
     init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics)
   } else {
-    init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+    // The annotation is the contextual type, which is how a body's `const p: P = { ... }`
+    // already knows which struct the object literal builds (§16). Before this a module const
+    // of a struct type was "Object literal { x, y } does not match a known struct" whenever
+    // the field names alone did not name one (roadmap 0.3 item T7, #92).
+    init = lowerExpression(decl.initializer, sourceFile, scope, diagnostics, annotated)
   }
   if (!init) return undefined
   const folded = foldConstValue(init, scope)

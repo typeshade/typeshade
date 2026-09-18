@@ -23,6 +23,26 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   operand deciding the shape: `dot` of integer vectors is an integer, and a written number in a
   call's first position takes an integer peer's kind, so `min(1, i)` with an `i32` `i` is an
   `i32` call instead of the `min(1.0, i)` WGSL refused.
+- **A claim about a type emits nothing** (§14, roadmap 0.3 item T7,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): `x as T`, `<T>x`, `x as const`,
+  `x satisfies T` and `x!` were each "TS8099 Unsupported expression" and are now the operand
+  they wrap, which is what they are in TypeScript. The claimed type is the contextual type for
+  what it wraps, so `satisfies P` names a struct the way an annotation does. A claim of a type
+  the operand does not have is refused with the conversion to write instead, since `as` emits
+  nothing and the value would otherwise travel under a name it does not have.
+- **A destructuring declaration is the reads it stands for** (§14, roadmap 0.3 item T7,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): `const { x, y } = v` was "TS8099
+  Destructuring is not supported" in every form, and is now one declaration per name, in the
+  order written. A struct is read by field and a vector by component or swizzle, the renaming
+  (`{ y: b }`) and nesting (`{ i: { a } }`) forms hold, and `let` keeps the names mutable. The
+  value on the right is evaluated once: a bare name is read again for each field, anything else
+  binds an internal local that takes no source name, so a program may declare `_d` and a block
+  may hold two of these. A default, a rest, a computed name, an annotation on the pattern and an
+  array pattern are refused with the read to write instead.
+- **A module const takes the struct its annotation names** (§12): `const O: P = { x: 0., y: 1. }`
+  was "Object literal { x, y } does not match a known struct" because the collector's scope
+  carried no struct table at all. It does now, so the annotation decides, nested literals
+  resolve, and two structs of one shape can be told apart at module scope.
 - **`namespace`** (§26, roadmap 0.3 item T4,
   [#92](https://github.com/typeshade/typeshade/issues/92)): a namespace was TS8014 "Unsupported
   top-level "ModuleDeclaration"" and is now a group of functions and constants flattened to

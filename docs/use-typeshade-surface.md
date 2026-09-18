@@ -571,6 +571,14 @@ runs without the struct table, and the surface has no matrix constructor.
 
 ---
 
+A module const of a struct type takes the struct its annotation names, the way a `const p: P =
+{ ... }` inside a function already did (§16). That is what lets two structs of one shape be told
+apart at module scope, where the field names alone cannot answer:
+
+```ts
+const ORIGIN: P = { x: 0., y: 1. } // → const ORIGIN: P = P(0.0, 1.0);
+```
+
 ### `enum`
 
 A numeric `enum` is a set of named integer constants, which is exactly what a module constant
@@ -778,6 +786,62 @@ reached the backends as a statement: WGSL emitted `case 0: { r = 1.0; break; }` 
 `r = 1.0; break; break;`. Both are valid programs, and both now lose that trailing `break`,
 because the drop is what makes a case body mean the same thing inside a loop and outside one.
 The behaviour is identical on all three backends; only the text is one statement shorter.
+
+### A claim about a type emits nothing
+
+`x as T`, `<T>x`, `x as const`, `x satisfies T` and `x!` are claims TypeScript makes about a
+type, not conversions, so each emits exactly what its operand emits (roadmap 0.3 item T7,
+[#92](https://github.com/typeshade/typeshade/issues/92)):
+
+```ts
+const K = 3. as const
+const half = 0.5 as f32
+const v = <vec2>vec2(1., 2.)
+const p = { x: 1., y: 2. } satisfies P
+const x = u!.x
+```
+
+The claimed type is the contextual type for what it wraps, so `satisfies P` names the struct an
+object literal builds, exactly as an annotation does.
+
+A claim that names a type the operand does not have is refused, because `as` emits nothing and
+the value would then travel under a name it does not have:
+
+```
+"as" states a type, it does not convert: "0.5 as i32" is f32, not i32. Write i32(...) to
+convert, or drop the "as".
+```
+
+That is TypeScript's own meaning of `as`, said at the one place where letting it pass would
+produce a program whose types disagree with its emit.
+
+### A destructuring declaration is the reads it stands for
+
+`const { x, y } = v` is the two reads it abbreviates, so it lowers to one declaration per name,
+in the order written (roadmap 0.3 item T7,
+[#92](https://github.com/typeshade/typeshade/issues/92)). Both shapes a shader has fields on can
+be read this way: a struct, by field name, and a vector, by component name or by a swizzle.
+
+```ts
+const { x, y: b } = uv          // let x = uv.x;  let b = uv.y;
+const { xy } = uv               // let xy = uv.xy;
+const { a, k } = u              // let a = u.a;   let k = u.k;
+const { i: { a } } = u          // let a = u.i.a;
+let { x } = uv                  // var x: f32 = uv.x;
+```
+
+The value on the right is evaluated once. A bare name is read again for each field, since
+reading a name costs nothing and names no new local; anything else is bound to an internal local
+first, so `const { x, y } = uv * 2.` emits the product once and reads `x` and `y` off it. That
+local takes an IR name of its own and no source name, so a program may declare `_d` itself and a
+block may hold two such declarations.
+
+A pattern takes no type annotation, since each name takes the type of the field it reads. Three
+shapes have no form here and name the read to write instead: a default (`{ x = 1. }`), which
+needs a value that may be absent; a rest (`{ ...r }`), since a struct is exactly its fields and
+has no remainder to name; and a computed name, which would choose a field at run time. An array
+pattern (`const [a, b] = v`) is refused and names the read to write instead: a vector by
+component, an array by index.
 
 ## 15. Textures, samplers and overrides
 
