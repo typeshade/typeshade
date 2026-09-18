@@ -186,6 +186,17 @@ function mapGeneric(
   }
   // `atomic<u32>` / `atomic<i32>` (roadmap 0.2 item 4): a location in storage memory for the
   // atomic builtins. Where it may be declared is decided by the declaration sites, not here.
+  // The module-variable wrappers (§24) belong on a top-level `let`; anywhere else they are a
+  // misplaced declaration, not a type.
+  if (name === 'workgroup' || name === 'perInvocation') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `${name}<T> declares a module variable and belongs at the top of the file: let name: ${name}<T>.`,
+    )
+    return undefined
+  }
   if (name === 'atomic') {
     const elemName = typeNameOfArg(args[0])
     if (elemName === 'u32' || elemName === 'i32') return { kind: 'atomic', elem: elemName }

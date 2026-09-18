@@ -6,7 +6,7 @@
 // in `backend.ts`). Backends provide those fragments; they do NOT re-implement
 // the control-flow walk (no duplicated if/for/switch/return logic that can drift).
 
-import type { Backend } from './backend.js'
+import { UnsupportedFeatureError, type Backend } from './backend.js'
 import type { Expr, Stmt, ModuleDecl, ShaderType } from './ir/index.js'
 import { stageOf } from './ir/index.js'
 import { eachExpr, eachStmtExpr } from './ir/visit.js'
@@ -471,6 +471,15 @@ function assembleParts(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'fu
     parts.push(lowered.overrides.map((o) => be.emitOverride!(o)).join('\n'))
   if (lowered.consts.length) parts.push(lowered.consts.map((c) => be.emitConst(c)).join('\n'))
   if (lowered.structs.length) parts.push(lowered.structs.map((s) => be.emitStruct(s)).join('\n\n'))
+  // Module variables (roadmap 0.2 item 5) sit between the structs they may be typed by and
+  // the bindings; a backend with no spelling for one fails closed rather than dropping it.
+  if (lowered.vars?.length) {
+    if (!be.emitModuleVar)
+      throw new UnsupportedFeatureError(
+        `backend '${be.id}' has no module-scope variables (var<workgroup>, var<private>)`,
+      )
+    parts.push(lowered.vars.map((v) => be.emitModuleVar!(v)).join('\n'))
+  }
   if (lowered.bindings.length) parts.push(lowered.bindings.map((b) => be.emitBinding(b)).join('\n'))
   if (lowered.funcs.length)
     parts.push(lowered.funcs.map((f) => be.emitFunc(f, parens)).join('\n\n'))

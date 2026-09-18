@@ -283,6 +283,20 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       'Many invocations count into one bin at once with `atomicAdd(bins[bin], 1)`, one indivisible step each; a storage struct field and a bare `storage<atomic<u32>>` binding show the other two shapes of location, and the value an atomic returns is what it held before. WGSL-only: GLSL ES 3.00 has no storage buffers and no atomics.',
     renderable: false,
   },
+  {
+    id: 'private-state',
+    title: 'Per-invocation state',
+    blurb:
+      "`let seed: perInvocation<u32>` is WGSL's `var<private>`, one copy per invocation that every function of the invocation shares: a random-number generator keeps its state in it instead of threading a seed through each call (§24). GLSL ES 3.00 spells it as a plain global, so it renders on both targets. Renders a hash-noise field.",
+    renderable: true,
+  },
+  {
+    id: 'workgroup-scratch',
+    title: 'Workgroup scratch memory',
+    blurb:
+      "`let tile: workgroup<array<f32, 64>>` is WGSL's `var<workgroup>`, one copy per workgroup its invocations share, here as scratch each invocation owns a slot of, beside a workgroup array of atomics and a per-invocation counter (§24). WGSL-only: WebGL2 has no compute stage and no workgroup memory.",
+    renderable: false,
+  },
 ]
 
 /**

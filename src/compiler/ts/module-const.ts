@@ -14,6 +14,7 @@ import { lowerExpression } from './lower/expression.js'
 import { lowerArrayLiteral } from './lower/expression-array.js'
 import { isResourceCall } from './bindings.js'
 import { isOverrideType } from './overrides.js'
+import { moduleVarSpace } from './module-vars.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 
@@ -41,6 +42,9 @@ export function collectModuleConsts(
       // its value is the DEFAULT a pipeline may replace, so overrides.ts owns it and folding
       // it here would bake in a value the pipeline is allowed to change (#8 A7).
       if (isOverrideType(decl.type)) continue
+      // A `const` with a module-variable wrapper is module-vars.ts's to refuse, with the fix
+      // (`let`), not this collector's to fold.
+      if (moduleVarSpace(decl.type) !== undefined) continue
       const c = lowerOne(decl, sourceFile, scope, diagnostics, valueExprs)
       if (!c) continue
       out.push(c)

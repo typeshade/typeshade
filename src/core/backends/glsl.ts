@@ -469,6 +469,17 @@ export const glslEs300Backend: Backend = {
   // map), so the bare method fails closed to keep the offset SoT in one place. Storage
   // never reaches emit via emitGlslModule/emitGlslStages (the default data-texture
   // lowering rewrites it first); the throw here is belt-and-braces for direct backend use.
+  // A private variable is a plain GLSL global, which GLSL ES 3.00 gives every invocation its
+  // own copy of, so `var<private>` is portable; workgroup memory has no WebGL2 form (roadmap
+  // 0.2 item 5), and a module that declares some is WebGPU-only.
+  emitModuleVar: (v) => {
+    if (v.space === 'workgroup')
+      throw new UnsupportedFeatureError(
+        `glsl-es300: var<workgroup> ${v.name} has no GLSL ES 3.00 form (WebGL2 has no workgroup memory); the module is WebGPU-only`,
+      )
+    const init = v.init ? ` = ${emitExprNeutral(v.init, glslEs300Backend)}` : ''
+    return `${glslType(v.type)} ${v.name}${init};`
+  },
   emitBinding: (b) => {
     if (b.type.kind === 'texture' || b.type.kind === 'sampler')
       return `uniform ${glslType(b.type)} ${b.name};`
@@ -1865,6 +1876,8 @@ function assembleGlslParts(
 
   if (lowered.consts.length)
     parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'))
+  if (lowered.vars?.length)
+    parts.push(lowered.vars.map((v) => glslEs300Backend.emitModuleVar!(v)).join('\n'))
 
   // The struct section is RESERVED here and filled at the end (X-GIS #1867). Its membership
   // depends on what the rest of the unit actually spells: since the entry writer can
@@ -1979,6 +1992,7 @@ function assembleGlslParts(
       ...lowered.bindings.map((b) => b.name),
       ...lowered.consts.map((c) => c.name),
       ...(lowered.overrides ?? []).map((o) => o.name),
+      ...(lowered.vars ?? []).map((v) => v.name),
       ...lowered.funcs.map((fn) => fn.name),
     ])
     parts.push(entries.map((f) => emitGlslEntry(f, structs, opts?.parens, globals)).join('\n\n'))

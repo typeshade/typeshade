@@ -61,6 +61,7 @@ import {
   convertComponents,
   elemKindOf,
   atomicStep,
+  zeroOf,
 } from './cpu-runtime.js'
 import { compileModule, type CpuModule } from './oracle.js'
 import { isAtomicIntrinsic } from './intrinsics.js'
@@ -129,6 +130,11 @@ interface ModCtx {
   /** The names the module actually declares as functions, so a call the front end resolved
    *  to one (`declRef`) can be routed to it rather than to a builtin of the same name. */
   fnNames: Set<string>
+  /** The module variables (roadmap 0.2 item 5), read and written through `$.vars`. */
+  varNames: Set<string>
+  /** The resource bindings, so a write to one that no local shadows lands in `$.bindings`
+   *  where the host reads it, the way the interpreter's `setLValue` writes it. */
+  bindingNames: Set<string>
 }
 
 /** Per-fn codegen state: the flat env → JS locals mapping + the hoist list. */
@@ -157,6 +163,7 @@ function declareVar(name: string, S: FnCtx): string {
 function readVar(name: string, S: FnCtx): string {
   const id = S.varId.get(name)
   if (id !== undefined) return id
+  if (S.mod.varNames.has(name)) return `$.vars[${q(name)}]`
   // Not a param/local ⇒ a storage/uniform binding (setBinding). The interpreter
   // resolves env first, then ctx.bindings; a declared local always shadows.
   return `$.bindings[${q(name)}]`
@@ -380,7 +387,10 @@ function emitAtomic(e: Extract<Expr, { op: 'call' }>, S: FnCtx): string {
   }
   if (loc.op === 'varref' || loc.op === 'param') {
     const id = S.varId.get(loc.name)
-    if (id === undefined) return `$.atomicAt(${fn}, $.bindings, ${q(loc.name)}, ${arg}, ${kind})`
+    if (id === undefined) {
+      const table = S.mod.varNames.has(loc.name) ? '$.vars' : '$.bindings'
+      return `$.atomicAt(${fn}, ${table}, ${q(loc.name)}, ${arg}, ${kind})`
+    }
     return `$.atomicRef(${fn}, () => ${id}, ($v) => (${id} = $v), ${arg}, ${kind})`
   }
   throw new CodegenUnsupported(`atomic location ${loc.op}`)
@@ -388,7 +398,14 @@ function emitAtomic(e: Extract<Expr, { op: 'call' }>, S: FnCtx): string {
 
 function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
   if (target.op === 'varref' || target.op === 'param') {
-    const id = S.varId.get(target.name) ?? declareVar(target.name, S)
+    // A module-level name no local shadows is written in the module's table, mirroring the
+    // interpreter's `setLValue`; a local, or an unknown name, is a JS local.
+    const local = S.varId.get(target.name)
+    if (local === undefined && S.mod.varNames.has(target.name))
+      return `$.vars[${q(target.name)}] = ${valueStr}`
+    if (local === undefined && S.mod.bindingNames.has(target.name))
+      return `$.bindings[${q(target.name)}] = ${valueStr}`
+    const id = local ?? declareVar(target.name, S)
     return `${id} = ${valueStr}`
   }
   if (target.op === 'member') {
@@ -514,6 +531,8 @@ interface CodegenRuntime {
   matMul: typeof matMul
   B: typeof BUILTINS
   bindings: Record<string, CpuValue>
+  /** The module variables by name (roadmap 0.2 item 5); see `ModCtx.varNames`. */
+  vars: Record<string, CpuValue>
   /** name → resolved impl (compiled fn or interpreter fallback). Populated after
    *  both halves are built so cross-fn calls see the final table. */
   F: Record<string, (...a: CpuValue[]) => CpuValue>
@@ -615,6 +634,8 @@ export function compileModuleJs(
     constId: new Map(),
     overrideId: new Map(),
     fnNames: new Set(mv.funcs.map((f) => f.name)),
+    varNames: new Set((mv.vars ?? []).map((v) => v.name)),
+    bindingNames: new Set(mv.bindings.map((b) => b.name)),
   }
 
   // ── Module-scope decls (consts + overrides) as factory-local `const`s ──
@@ -643,6 +664,19 @@ export function compileModuleJs(
   // ── Per-fn codegen (hybrid: a body that can't be emitted falls back) ──
   const fnSrcs: string[] = []
   const fallbackNames: string[] = []
+  // Module variables (roadmap 0.2 item 5). A `workgroup` one is allocated once, zero, as one
+  // implicit workgroup's memory; the `private` ones are set from their initializers at every
+  // host-facing call, which is one invocation, by the `$initPrivates` function the factory
+  // returns beside the module's own. The initializer is emitted the way a const's is.
+  const privates = (mv.vars ?? []).filter((v) => v.space === 'private')
+  if (privates.length > 0) {
+    const varEnv: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 }
+    const lines = privates.map(
+      (v) =>
+        `$.vars[${q(v.name)}] = ${v.init ? bindExpr(emitExpr(v.init, varEnv), v.type) : zeroLit(v.type, mod.structs)};`,
+    )
+    fnSrcs.push(`"$initPrivates": function() {\n${lines.join('\n')}\n}`)
+  }
   for (const f of mv.funcs) {
     try {
       const S: FnCtx = { mod, varId: new Map(), hoisted: [], n: 0 }
@@ -676,6 +710,7 @@ export function compileModuleJs(
     matMul,
     B: BUILTINS,
     bindings: {},
+    vars: {},
     F: {},
     splat: (n, v) => new Array(n).fill(v),
     swiz: (a, idx) => idx.map((i) => a[i]!),
@@ -711,6 +746,9 @@ export function compileModuleJs(
   }
 
   const jsFns = factory(runtime)
+  for (const v of mv.vars ?? [])
+    if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, mod.structs)
+  const initPrivates = jsFns['$initPrivates'] as (() => void) | undefined
 
   // Only build the interpreter twin when a fn actually needs it — its fns supply
   // the fallback bodies AND its own consts/bindings so a fallback fn (and any fn
@@ -723,8 +761,22 @@ export function compileModuleJs(
   }
   runtime.F = F
 
+  // A host-facing call is one invocation and starts its private variables over; a call from
+  // inside the module (`$.F`) is the same invocation. Without private variables the two
+  // tables are one object, as they always were.
+  let fns = F
+  if (initPrivates !== undefined) {
+    fns = {}
+    for (const f of mv.funcs) {
+      const inner = F[f.name]!
+      fns[f.name] = (...a: CpuValue[]): CpuValue => {
+        initPrivates()
+        return inner(...a)
+      }
+    }
+  }
   return {
-    fns: F,
+    fns,
     setBinding: (name, value) => {
       runtime.bindings[name] = value
       interp?.setBinding(name, value)

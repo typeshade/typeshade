@@ -1,7 +1,13 @@
 // === TypeShade source compiler entry point ===
 
 import ts from 'typescript'
-import type { BindingDecl, ConstDecl, FuncDecl, OverrideDecl } from '../../core/ir/nodes.js'
+import type {
+  BindingDecl,
+  ConstDecl,
+  FuncDecl,
+  ModuleVarDecl,
+  OverrideDecl,
+} from '../../core/ir/nodes.js'
 import { emitModule } from '../../core/backends/wgsl.js'
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js'
 import { lowerSourceFunctions } from './lower/function.js'
@@ -9,6 +15,7 @@ import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { collectBindings } from './bindings.js'
 import { collectOverrides } from './overrides.js'
+import { collectModuleVars } from './module-vars.js'
 import { collectStructs, type CollectedStruct } from './structs.js'
 import type { DeclaredSymbol } from './symbols.js'
 import { TS_CODES } from './codes.js'
@@ -78,6 +85,9 @@ export interface CompileTsSourceResult {
   /** Every `override<T>` the module declares — WGSL specialization constants, which the
    *  pipeline sets and no pass folds. Empty for a module that declares none. */
   readonly overrides: readonly OverrideDecl[]
+  /** Every module variable (`let x: workgroup<T>`, `let y: perInvocation<T> = init`, §24) the
+   *  module declares. Empty for a module that declares none. */
+  readonly vars: readonly ModuleVarDecl[]
   /** Every name the front end declared while lowering `sourceFile`, with the `ShaderType` it
    *  gave it and the UTF-16 span of the declared name: the table an editor answers "what type
    *  is this symbol" from, since TypeScript infers plain `number` for a numeric literal that
@@ -122,6 +132,7 @@ export function compileTsSource(
     bindings: [],
     structs: [] as CollectedStruct[],
     overrides: [] as OverrideDecl[],
+    vars: [] as ModuleVarDecl[],
     symbols,
   }
 
@@ -160,11 +171,13 @@ export function compileTsSource(
     ...bindings.map((b) => b.name),
   ])
   const overrides = collectOverrides(sourceFile, diagnostics, symbols, glslNames)
+  // Module variables (§24) after the consts their initializers may name.
+  const vars = collectModuleVars(sourceFile, diagnostics, symbols, consts)
   // A name claimed by two DIFFERENT collectors. Each reports its own repeats, and none can see
   // the others, so `const q: f32 = 1.` beside `const q: override<f32> = 2.` passed all three and
   // then met `scope.define`, which throws — an exception out of `compile()` and out of the
   // language service's `getDiagnostics()`. Reported here, where all three lists exist.
-  reportCrossDeclarationCollisions(sourceFile, diagnostics, consts, bindings, overrides)
+  reportCrossDeclarationCollisions(sourceFile, diagnostics, consts, bindings, overrides, vars)
   // The CollectedStructs whole, not their decls: #23's TS8029 names the spelling the author
   // used (`class`, `interface` or `type`), which only the collected form carries.
   const funcs = lowerSourceFunctions(
@@ -175,6 +188,7 @@ export function compileTsSource(
     structs,
     symbols,
     overrides,
+    vars,
   )
   let wgsl: string | undefined
   const shouldEmit = options.emit ?? true
@@ -186,6 +200,7 @@ export function compileTsSource(
         bindings: [...bindings],
         funcs: [...funcs],
         overrides: [...overrides],
+        vars: [...vars],
       })
     } catch (e) {
       // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
@@ -203,6 +218,7 @@ export function compileTsSource(
     bindings,
     structs,
     overrides,
+    vars,
     symbols,
     wgsl,
   }
@@ -227,12 +243,14 @@ function reportCrossDeclarationCollisions(
   consts: readonly { readonly name: string }[],
   bindings: readonly { readonly name: string }[],
   overrides: readonly { readonly name: string }[],
+  vars: readonly { readonly name: string }[] = [],
 ): void {
   const kindOf = new Map<string, string>()
   for (const [kind, list] of [
     ['a module const', consts],
     ['a resource', bindings],
     ['an override', overrides],
+    ['a module variable', vars],
   ] as const) {
     for (const d of list) {
       const prev = kindOf.get(d.name)

@@ -15,7 +15,7 @@ import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from 
  *  module — the GLSL writer dropped the uniform block while keeping the uses, and
  *  `reflect()` reported no stages for anything. A binding is a module-scope `var`, not a
  *  const, and it now says so. */
-export type BindingKind = 'param' | 'local' | 'module' | 'binding' | 'override'
+export type BindingKind = 'param' | 'local' | 'module' | 'binding' | 'override' | 'modvar'
 
 /** How a "cannot assign" diagnostic names what the target is. One helper because the three
  *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
@@ -34,6 +34,9 @@ export function readOnlyPhrase(kind: BindingKind): string {
       return 'a module const'
     case 'override':
       return 'an override constant, set by the pipeline'
+    // Never read-only; the arm keeps the switch exhaustive.
+    case 'modvar':
+      return 'a module variable'
     case 'param':
     case 'local':
       return 'declared with const'
@@ -55,7 +58,7 @@ export interface Binding {
    *  `arrayLength(&x)` is spelled `ptr<storage, array<E>, AM>` and exists for nothing else,
    *  so pointing a `uniform<array<f32>>` author at it sends them to an intrinsic Tint would
    *  refuse on their program (#46). Absent for a local, a param or a module const. */
-  readonly space?: AddressSpace
+  readonly space?: AddressSpace | 'workgroup' | 'private'
   /** For a `kind: 'local'` bound to a bare name, the name it copies: `const a = src` records
    *  `aliasOf: 'src'`, so a question about what `a` denotes (is it a storage array, for
    *  `arrayLength`) follows the chain to the binding instead of stopping at the local (#46). */
@@ -91,6 +94,7 @@ export class LoweringScope {
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
   private atomicOperandDepth = 0
+  private stage: 'vertex' | 'fragment' | 'compute' | undefined
   private retType: ShaderType | undefined
   private switchDepth = 0
 
@@ -117,6 +121,16 @@ export class LoweringScope {
 
   exitLoop(): void {
     this.loopDepth = Math.max(0, this.loopDepth - 1)
+  }
+
+  /** The stage of the entry whose body is being lowered, `undefined` for a helper function
+   *  and outside a body. Workgroup memory is a compute entry's alone (§24). */
+  setStage(s: 'vertex' | 'fragment' | 'compute' | undefined): void {
+    this.stage = s
+  }
+
+  currentStage(): 'vertex' | 'fragment' | 'compute' | undefined {
+    return this.stage
   }
 
   /** Raised while an atomic builtin's location argument is lowered: the one position in which

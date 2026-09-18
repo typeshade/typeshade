@@ -237,6 +237,7 @@ Do not start Execution Graph or class methods before 2–4 are green.
 | `@compute` method on a class | entries are top-level functions |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
+| A module variable declared or used where its address space forbids | `TS8033`. A `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 
 ---
 
@@ -273,7 +274,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 **Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
 which reserved those numbers while they were in flight and appended here in issue order. The
 sections took the next free numbers so the A-item branches did not all claim §9 and collide on
-merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, and §23 is roadmap 0.2 item 4.
+merge. §19 is issue #47, §20 is issue #46, §21 is issue #38, §22 is issues #71, #68 and #20, §23 is roadmap 0.2 item 4 and §24 is item 5 (design #82).
 
 ---
 
@@ -1201,6 +1202,75 @@ has no storage buffers and no atomics, so a module carrying one emits WGSL alone
 
 A function you declare with an atomic builtin's name keeps winning the call, the way the names
 §10 added do, so no program that compiled before this section compiles differently.
+
+---
+
+## 24. Module variables
+
+Two kinds of memory a kernel needs that are neither a resource nor a local: memory one
+workgroup's invocations share (WGSL's `var<workgroup>`), and a value each invocation owns for
+its whole run, across every function it calls (WGSL's `var<private>`). Roadmap 0.2 item 5,
+design [#82](https://github.com/typeshade/typeshade/issues/82).
+
+**Spelling.** A top-level `let` with a wrapper type naming the address space, the way a
+resource is a `declare const|let` with `uniform<T>` or `storage<T>`. No `declare`: `declare` stays
+the mark of a value the host provides, and a module variable is the module's own.
+
+```ts
+"use typeshade"
+declare const src: storage<array<f32>>
+declare let dst: storage<array<f32>>
+
+let tile: workgroup<array<f32, 64>>
+let seed: perInvocation<u32> = 7
+
+function next(): u32 {
+  seed = seed * 1664525 + 1013904223
+  return seed
+}
+
+@compute([64, 1, 1])
+export function k(
+  @builtin("global_invocation_id") gid: vec3u,
+  @builtin("local_invocation_id") lid: vec3u,
+): void {
+  tile[lid.x] = src[gid.x]
+  dst[gid.x] = tile[lid.x] + f32(next() >> 24)
+}
+```
+
+- `workgroup<T>` emits `var<workgroup> tile: array<f32, 64>;`. It takes no initializer (WGSL
+  forbids one) and is zero at the start of each workgroup. Only a compute entry, and the helpers
+  it calls, may read or write it; a vertex or fragment entry that names it is refused (TS8033).
+- `perInvocation<T>` emits `var<private> seed: u32 = 7u;`. It takes an optional initializer,
+  a constant expression by §12's measure (a literal, a module const, arithmetic over those), and
+  is zero without one. Any stage may use it. The name is not WGSL's `private` because TypeScript
+  reserves that word in strict mode, and every module is strict; "per invocation" is what the
+  address space means.
+- `T` is a scalar, a vector, a matrix, a sized array or a struct of those, and in
+  `workgroup<T>` an `atomic<u32>` or `atomic<i32>` (WGSL allows atomics in workgroup memory; §23's
+  builtins take a workgroup location too). A texture, a sampler, a runtime-sized array, or an
+  atomic in `perInvocation<T>` is refused with the reason (TS8033).
+
+**What stays refused.** A plain top-level `let` is still TS8014, and its message now names these
+two shapes. A `const` with a wrapper type is TS8033: a `const` is a module constant (§12). A
+repeated name, or a name a const or a binding already has, is TS8023.
+
+**In the IR and the emit.** A module variable is `ModuleDecl.vars`, not a binding: it has no
+group, no binding and no layout, and `reflect()` reports nothing for it. WGSL emits it between
+the consts and the bindings. GLSL ES 3.00 emits a per-invocation variable as a plain global,
+which is per-invocation there too, so a fragment shader that keeps generator state in one
+renders on both targets; workgroup memory has no WebGL2 form, so a module with one emits WGSL
+alone. The effect table (§19) counts a write to a module variable as a write, so a helper that
+only writes `seed` is a writer and no pass drops or moves the call.
+
+**On the CPU.** The oracle runs one invocation per call. A per-invocation variable starts from
+its initializer at every host-facing call, and keeps its value across the calls that
+invocation makes inside the module. Workgroup memory is one implicit workgroup's for the
+module's lifetime: zero when the module is compiled, then whatever the invocations left in
+it. A barrier, and the lockstep dispatch that gives one invocation another's slot to read, is
+the next step of #82; until then each invocation should touch its own slot, as
+`workgroup-scratch.shade.ts` does. The oracle, the CPU codegen and the debug stepper agree.
 
 ---
 

@@ -375,6 +375,24 @@ export interface OverrideDecl {
   readonly default: number | boolean
 }
 
+/** One entry of {@link ModuleDecl.vars}: a module-scope variable that is not a resource
+ *  (roadmap 0.2 item 5, #82). `workgroup` is WGSL's `var<workgroup>`, memory one workgroup's
+ *  invocations share, zero at the start of each workgroup and never initialised. `private` is
+ *  WGSL's `var<private>`, a value each invocation owns for its lifetime, `init` or zero at its
+ *  start. Neither has a group, a binding or a byte layout, so {@link reflect} reports nothing
+ *  for one; a host never binds it.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export interface ModuleVarDecl {
+  readonly name: string
+  readonly space: 'workgroup' | 'private'
+  readonly type: ShaderType
+  /** The initial value, a constant expression over literals and module consts. Only a
+   *  `private` variable carries one; WGSL forbids an initializer on `workgroup` memory. */
+  readonly init?: Expr
+}
+
 /** One field of a {@link StructDecl}: a plain data member of a uniform or storage struct,
  *  or, in a vertex/fragment I/O struct, a member carrying a `@builtin` or `@location`
  *  attribute. Build these with {@link builtin} and {@link location}, which fill both
@@ -697,6 +715,11 @@ export interface ModuleDecl {
   readonly structs: readonly StructDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly funcs: readonly FuncDecl[]
+  /** Module-scope variables that are not resources (roadmap 0.2 item 5, #82): the
+   *  `var<workgroup>` and `var<private>` declarations. WGSL emits each between the structs and
+   *  the bindings; GLSL ES 3.00 spells a private one as a plain global and has no form for
+   *  workgroup memory. Absent or empty leaves the emitted source unchanged. */
+  readonly vars?: readonly ModuleVarDecl[]
   /** Host-provided globals, the declarations {@link externVar} returns. Each emits
    *  nothing and appears in `reflect().requires`, so a host can check the module's
    *  expectations against what its prelude supplies. Absent or empty leaves the emitted

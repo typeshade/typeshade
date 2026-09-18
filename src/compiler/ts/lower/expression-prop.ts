@@ -44,6 +44,13 @@ export { JS_ARRAY_METHODS }
  *  shape is what `arrayLength` accepts (`ptr<storage, array<E>, AM>`); a `uniform<array<T>>`,
  *  a local or a parameter needs an explicit `N` instead. */
 export function storageRooted(e: Expr, scope: LoweringScope): boolean {
+  return rootedIn(e, scope, ['storage'])
+}
+
+/** Whether `e` bottoms out in a module-level name declared in one of `spaces`: a binding or a
+ *  module variable, a field of one, or an element of one. The atomic builtins ask for
+ *  `['storage', 'workgroup']`, the two spaces WGSL allows an atomic in (§23, §24). */
+export function rootedIn(e: Expr, scope: LoweringScope, spaces: readonly string[]): boolean {
   switch (e.op) {
     case 'varref': {
       // A local that copies a binding (`const a = src`) denotes what the binding denotes; the
@@ -51,13 +58,13 @@ export function storageRooted(e: Expr, scope: LoweringScope): boolean {
       // for a runtime-sized storage array the author could not size (#46).
       const b = scope.resolveIr(e.name)
       if (b === undefined) return false
-      if (b.space === 'storage') return true
-      return b.aliasOf !== undefined && storageRooted({ ...e, name: b.aliasOf }, scope)
+      if (b.space !== undefined && spaces.includes(b.space)) return true
+      return b.aliasOf !== undefined && rootedIn({ ...e, name: b.aliasOf }, scope, spaces)
     }
     case 'member':
-      return storageRooted(e.base, scope)
+      return rootedIn(e.base, scope, spaces)
     case 'index':
-      return storageRooted(e.base, scope)
+      return rootedIn(e.base, scope, spaces)
     default:
       return false
   }

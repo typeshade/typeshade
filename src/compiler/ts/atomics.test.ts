@@ -305,7 +305,7 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
 
   it('an atomic declared anywhere but inside a storage binding', () => {
     const where = (w: string) =>
-      `${TS_CODES.UNSUPPORTED} atomic<u32> lives in storage memory only: declare it inside a storage binding (declare let counters: storage<array<atomic<u32>>>), not as ${w}.`
+      `${TS_CODES.UNSUPPORTED} atomic<u32> lives in storage or workgroup memory only: declare it inside a storage binding (declare let counters: storage<array<atomic<u32>>>) or a workgroup variable (let tile: workgroup<array<atomic<u32>, 64>>), not as ${w}.`
     expect(errorsOf(`${HEAD}  let a: atomic<u32> = 0\n}\n`)).toEqual([where('a local')])
     expect(
       errorsOf(`"use typeshade"
