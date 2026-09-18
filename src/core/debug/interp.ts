@@ -65,6 +65,9 @@ import {
   convertComponent,
   convertComponents,
   atomicStep,
+  compareValues,
+  comparesAsF32,
+  selectComponents,
 } from '../cpu-runtime.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js'
 
@@ -231,23 +234,9 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       return isArr(a) ? a.map((v) => -(v as number)) : -(a as number)
     }
     case 'compare': {
-      const a = (yield* evalExpr(e.a, env, ctx)) as number
-      const b = (yield* evalExpr(e.b, env, ctx)) as number
-      const f32cmp = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
-      switch (e.cop) {
-        case '<':
-          return a < b
-        case '>':
-          return a > b
-        case '<=':
-          return a <= b
-        case '>=':
-          return a >= b
-        case '==':
-          return f32cmp ? Math.fround(a) === Math.fround(b) : a === b
-        default:
-          return f32cmp ? Math.fround(a) !== Math.fround(b) : a !== b
-      }
+      const a = yield* evalExpr(e.a, env, ctx)
+      const b = yield* evalExpr(e.b, env, ctx)
+      return compareValues(e.cop, a, b, comparesAsF32(e.a.type))
     }
     case 'logical': {
       const a = (yield* evalExpr(e.a, env, ctx)) as boolean
@@ -351,7 +340,12 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       return out
     }
     case 'select': {
-      const c = (yield* evalExpr(e.cond, env, ctx)) as boolean
+      const c = yield* evalExpr(e.cond, env, ctx)
+      if (isArr(c)) {
+        const t = yield* evalExpr(e.ifTrue, env, ctx)
+        const f = yield* evalExpr(e.ifFalse, env, ctx)
+        return selectComponents(c, t, f)
+      }
       return c ? yield* evalExpr(e.ifTrue, env, ctx) : yield* evalExpr(e.ifFalse, env, ctx)
     }
     case 'index': {

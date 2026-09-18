@@ -60,6 +60,9 @@ import {
   convertComponents,
   elemKindOf,
   atomicStep,
+  compareValues,
+  comparesAsF32,
+  selectComponents,
 } from './cpu-runtime.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js'
@@ -187,27 +190,15 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return isArr(a) ? a.map((v) => -(v as number)) : -(a as number)
     }
     case 'compare': {
-      const a = evalExpr(e.a, env, ctx) as number,
-        b = evalExpr(e.b, env, ctx) as number
-      // == / != reflect f32 rounding when comparing f32 operands — the GPU
-      // computes f32, so exact f64 equality silently disagrees with it on
-      // equality branches (X-GIS #13). Ordering ops keep f64 (rounding rarely flips an
-      // inequality, and f64 is the stricter mirror for thresholds).
-      const f32cmp = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
-      switch (e.cop) {
-        case '<':
-          return a < b
-        case '>':
-          return a > b
-        case '<=':
-          return a <= b
-        case '>=':
-          return a >= b
-        case '==':
-          return f32cmp ? Math.fround(a) === Math.fround(b) : a === b
-        case '!=':
-          return f32cmp ? Math.fround(a) !== Math.fround(b) : a !== b
-      }
+      // == / != reflect f32 rounding when comparing f32 operands — the GPU computes f32, so
+      // exact f64 equality silently disagrees with it on equality branches (X-GIS #13).
+      // Ordering ops keep f64. Two vectors compare componentwise into a vector of bools (§27).
+      return compareValues(
+        e.cop,
+        evalExpr(e.a, env, ctx),
+        evalExpr(e.b, env, ctx),
+        comparesAsF32(e.a.type),
+      )
     }
     // eslint-disable-next-line no-fallthrough
     case 'logical': {
@@ -305,7 +296,11 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return out
     }
     case 'select': {
-      const c = evalExpr(e.cond, env, ctx) as boolean
+      const c = evalExpr(e.cond, env, ctx)
+      // A vector-of-bools condition picks per component (§27) and needs both arms.
+      if (isArr(c)) {
+        return selectComponents(c, evalExpr(e.ifTrue, env, ctx), evalExpr(e.ifFalse, env, ctx))
+      }
       return c ? evalExpr(e.ifTrue, env, ctx) : evalExpr(e.ifFalse, env, ctx)
     }
     case 'index': {

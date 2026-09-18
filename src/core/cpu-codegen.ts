@@ -36,7 +36,7 @@
 // `unsafe-eval` host) throws so the caller can fall the whole module back to the
 // interpreter.
 
-import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, BinOp } from './ir/index.js'
+import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, BinOp, CmpOp } from './ir/index.js'
 import { validate } from './passes/validate.js'
 import { autoVars } from './passes/opt/index.js'
 import { froundF32 } from './passes/precision.js'
@@ -62,6 +62,9 @@ import {
   elemKindOf,
   atomicStep,
   zeroOf,
+  compareValues,
+  comparesAsF32,
+  selectComponents,
 } from './cpu-runtime.js'
 import { compileModule, type CpuModule } from './oracle.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
@@ -202,6 +205,11 @@ function emitExpr(e: Expr, S: FnCtx): string {
       const a = emitExpr(e.a, S)
       const b = emitExpr(e.b, S)
       const f32 = isF32(e.a.type)
+      // Two vectors compare componentwise into a vector of bools (§27), through the runtime
+      // helper the interpreter shares, so the twins cannot disagree.
+      if (isArrayValued(e.a.type)) {
+        return `$.cmpVec(${q(e.cop)}, ${a}, ${b}, ${comparesAsF32(e.a.type)})`
+      }
       switch (e.cop) {
         case '<':
           return `(${a} < ${b})`
@@ -272,6 +280,10 @@ function emitExpr(e: Expr, S: FnCtx): string {
     case 'construct':
       return emitConstruct(e, S)
     case 'select':
+      // A vector-of-bools condition picks per component (§27), both arms evaluated.
+      if (e.cond.type.kind === 'vec') {
+        return `$.selVec(${emitExpr(e.cond, S)}, ${emitExpr(e.ifTrue, S)}, ${emitExpr(e.ifFalse, S)})`
+      }
       return `(${emitExpr(e.cond, S)} ? ${emitExpr(e.ifTrue, S)} : ${emitExpr(e.ifFalse, S)})`
     case 'index':
       return `(${emitExpr(e.base, S)})[${emitExpr(e.idx, S)}]`
@@ -543,6 +555,9 @@ interface CodegenRuntime {
   splat: (n: number, v: number) => number[]
   swiz: (a: number[], idx: number[]) => number[]
   negVec: (a: number[]) => number[]
+  /** A componentwise comparison of two vectors, and a per-component select (§27). */
+  cmpVec: (cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean) => CpuValue
+  selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue
   vecMatThrow: () => never
   /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
@@ -721,6 +736,8 @@ export function compileModuleJs(
     splat: (n, v) => new Array(n).fill(v),
     swiz: (a, idx) => idx.map((i) => a[i]!),
     negVec: (a) => a.map((v) => -v),
+    cmpVec: compareValues,
+    selVec: selectComponents,
     u32Sat: f32ToU32Sat,
     i32Sat: f32ToI32Sat,
     atomicAt: (fn, base, key, arg, kind) => {

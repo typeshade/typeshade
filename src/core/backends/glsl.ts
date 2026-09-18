@@ -100,7 +100,7 @@ function glslType(t: ShaderType): string {
     case 'vec64':
       throw dslError('SD0040', `glslType(vec${t.n}<f64>)`)
     case 'vec':
-      return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec' } as const)[t.elem]}${t.n}`
+      return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec', bool: 'bvec' } as const)[t.elem]}${t.n}`
     case 'mat':
       // matNxN<f64> → DF64MatN before emit; reaching here = fp64Lower bypassed.
       if (t.elem === 'f64') throw dslError('SD0040', `glslType(mat${t.n}<f64>)`)
@@ -412,6 +412,29 @@ export const glslEs300Backend: Backend = {
   typeName: glslType,
   literal: glslLit,
   intrinsic: (name, args) => spellIntrinsic('glsl', name, args),
+  // A vector comparison is a function in GLSL ES 3.00 (§8.7), and a per-component select is
+  // `mix` with a bvec for floats and a componentwise ternary for the rest (roadmap 0.2 item 7).
+  vectorCompare: (cop, a, b) =>
+    `${
+      (
+        {
+          '<': 'lessThan',
+          '<=': 'lessThanEqual',
+          '>': 'greaterThan',
+          '>=': 'greaterThanEqual',
+          '==': 'equal',
+          '!=': 'notEqual',
+        } as const
+      )[cop]
+    }(${a}, ${b})`,
+  vectorSelect: (ifFalse, ifTrue, cond, type) => {
+    if (type.kind === 'vec' && type.elem === 'f32') return `mix(${ifFalse}, ${ifTrue}, ${cond})`
+    const n = type.kind === 'vec' ? type.n : 1
+    const comps = ['x', 'y', 'z', 'w']
+      .slice(0, n)
+      .map((k) => `((${cond}).${k} ? (${ifTrue}).${k} : (${ifFalse}).${k})`)
+    return `${glslType(type)}(${comps.join(', ')})`
+  },
   localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
   localVar: (name, type, init) =>
     init !== undefined ? `${glslType(type)} ${name} = ${init}` : `${glslType(type)} ${name}`,

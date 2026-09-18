@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, i32T, typeKey, u32T, vec2uT } from '../../../core/ir/types.js'
+import { boolT, f32T, i32T, typeKey, u32T, vec2uT } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import {
@@ -31,7 +31,7 @@ import {
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
-const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' | 'f64' }>> = {
+const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = {
   vec2: { n: 2, elem: 'f32' },
   vec2f: { n: 2, elem: 'f32' },
   vec2i: { n: 2, elem: 'i32' },
@@ -47,7 +47,15 @@ const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u
   vec4i: { n: 4, elem: 'i32' },
   vec4u: { n: 4, elem: 'u32' },
   vec4f64: { n: 4, elem: 'f64' },
+  // Vectors of bools (§27): what a vector comparison yields, and a constructor for one.
+  vec2b: { n: 2, elem: 'bool' },
+  vec3b: { n: 3, elem: 'bool' },
+  vec4b: { n: 4, elem: 'bool' },
 }
+
+/** The element kinds a vector constructor spells: the three native scalars, the emulated
+ *  double the fp64 pass assembles, and bool (§27). */
+type VecCtorElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
 
 export function lowerCall(
   node: ts.CallExpression,
@@ -58,7 +66,7 @@ export function lowerCall(
   const callee = node.expression
   let intrinsicId: string | undefined
   let viaMath = false
-  let ctor: { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' | 'f64' } | undefined
+  let ctor: { n: 2 | 3 | 4; elem: VecCtorElem } | undefined
 
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression
@@ -129,6 +137,12 @@ export function lowerCall(
       name === 'none' ||
       name === 'zip'
     ) {
+      // `any(m)` / `all(m)` over a vector of bools is the builtin (§27); over an array with a
+      // predicate it is the fold below.
+      if ((name === 'any' || name === 'all') && node.arguments.length === 1) {
+        const reduced = lowerBoolReduce(name, node, sourceFile, scope, diagnostics)
+        if (reduced !== 'not-a-bool-vector') return reduced
+      }
       const folded = lowerArrayFold(name, node, sourceFile, scope, diagnostics)
       if (folded !== 'fallback') return folded
     }
@@ -311,10 +325,11 @@ function lowerArrayLengthCall(
   return arrayLengthOf(arg, node, sourceFile, scope, diagnostics, 'arrayLength')
 }
 
-function ctorElemType(elem: 'f32' | 'i32' | 'u32' | 'f64'): ShaderType | undefined {
+function ctorElemType(elem: VecCtorElem): ShaderType | undefined {
   if (elem === 'f32') return f32T
   if (elem === 'i32') return i32T
   if (elem === 'u32') return u32T
+  if (elem === 'bool') return boolT
   return undefined
 }
 
@@ -399,12 +414,13 @@ function lowerSelectCall(
   }
   let [ifFalse, ifTrue] = lowered as [Expr, Expr]
   const cond = lowered[2]!
-  if (typeKey(cond.type) !== 'bool') {
+  const perComponent = cond.type.kind === 'vec' && cond.type.elem === 'bool'
+  if (typeKey(cond.type) !== 'bool' && !perComponent) {
     pushDiag(
       diagnostics,
       sourceFile,
       node.arguments[2]!,
-      `select condition must be bool, got ${typeKey(cond.type)}. ` +
+      `select condition must be bool or a vector of bools, got ${typeKey(cond.type)}. ` +
         "The order is WGSL's: select(falseValue, trueValue, cond).",
       TS_CODES.TYPE_MISMATCH,
     )
@@ -422,7 +438,51 @@ function lowerSelectCall(
     )
     return undefined
   }
+  // A vector of bools picks per component (§27), so the arms are vectors of its size.
+  if (perComponent && cond.type.kind === 'vec') {
+    if (ifTrue.type.kind !== 'vec' || ifTrue.type.n !== cond.type.n) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `select with a ${typeKey(cond.type)} condition picks per component and needs ` +
+          `${cond.type.n}-component arms; got ${typeKey(ifTrue.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+  }
   return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse }
+}
+
+/** `any(m)` / `all(m)` over a vector of bools (§27): the builtin of both targets, reducing the
+ *  components. Returns the marker when the one argument is not such a vector, so the array
+ *  fold of the same name (`any(xs, pred)`) keeps its turn and its diagnostics. */
+function lowerBoolReduce(
+  name: 'any' | 'all',
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined | 'not-a-bool-vector' {
+  const peek = lowerExpression(node.arguments[0]!, sourceFile, scope, [])
+  if (!peek) return 'not-a-bool-vector'
+  if (peek.type.kind !== 'vec' || peek.type.elem !== 'bool') {
+    // An array takes the fold's turn and its own message; anything else is neither shape.
+    if (peek.type.kind === 'array') return 'not-a-bool-vector'
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${name}(v) takes a vector of bools, which a comparison of two vectors gives (§27), or ` +
+        `an array with a predicate, ${name}(xs, (x) => ...); got ${typeKey(peek.type)}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
+  if (!arg) return undefined
+  return { op: 'call', type: boolT, fn: name, args: [arg] }
 }
 
 /** The texture reads this surface spells (#8 A7). They are kept out of the generic intrinsic
@@ -614,7 +674,7 @@ function arity(
   return false
 }
 
-function vectorCtorType(n: 2 | 3 | 4, elem: 'f32' | 'i32' | 'u32' | 'f64'): ShaderType {
+function vectorCtorType(n: 2 | 3 | 4, elem: VecCtorElem): ShaderType {
   if (elem === 'f64') return { kind: 'vec64', n }
   return { kind: 'vec', n, elem }
 }
@@ -623,20 +683,17 @@ function vectorCtorType(n: 2 | 3 | 4, elem: 'f32' | 'i32' | 'u32' | 'f64'): Shad
  *  vector of the constructor's own size whose element kind differs. Both sides must be native
  *  (f32 / i32 / u32) — an emulated-double vector is not converted here, since a vec64 is a
  *  pair of f32 lanes the fp64 pass assembles, not a component list to reinterpret. */
-function isConvertibleVector(
-  t: ShaderType,
-  ctor: { n: 2 | 3 | 4; elem: 'f32' | 'i32' | 'u32' | 'f64' },
-): boolean {
+function isConvertibleVector(t: ShaderType, ctor: { n: 2 | 3 | 4; elem: VecCtorElem }): boolean {
   if (ctor.elem === 'f64') return false
   return t.kind === 'vec' && t.n === ctor.n && t.elem !== ctor.elem
 }
 
-function isVectorCtorScalar(t: ShaderType, elem: 'f32' | 'i32' | 'u32' | 'f64'): boolean {
+function isVectorCtorScalar(t: ShaderType, elem: VecCtorElem): boolean {
   if (elem === 'f64') return t.kind === 'f64'
   return t.kind === 'scalar' && t.scalar === elem
 }
 
-function isVectorCtorArg(t: ShaderType, elem: 'f32' | 'i32' | 'u32' | 'f64'): boolean {
+function isVectorCtorArg(t: ShaderType, elem: VecCtorElem): boolean {
   if (elem === 'f64') return t.kind === 'f64' || t.kind === 'vec64'
   return isVectorCtorScalar(t, elem) || (t.kind === 'vec' && t.elem === elem)
 }

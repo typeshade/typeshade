@@ -56,7 +56,7 @@ export type ShaderType =
   // lo: vecN<f32> }` before emit — the EFTs are lane-valid, so componentwise
   // arithmetic runs on whole vecN hi/lo planes. Own kind, same rationale.
   | { readonly kind: 'vec64'; readonly n: 2 | 3 | 4 }
-  | { readonly kind: 'vec'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'i32' | 'u32' }
+  | { readonly kind: 'vec'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'i32' | 'u32' | 'bool' }
   // A matrix. elem 'f32' is native (matNxN<f32>); elem 'f64' is emulated double
   // precision — it lowers to `struct DF64MatN { c0..c(N-1): DF64VecN }` (columns
   // of df64), and matmul / mat·vec / transpose compose the SCALAR df64 EFTs the
@@ -252,6 +252,14 @@ export const vec3uT = { kind: 'vec', n: 3, elem: 'u32' } as const satisfies Shad
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies ShaderType
+
+/** `vec2<bool>`: what a comparison of two `vec2` values yields, componentwise (roadmap 0.2
+ *  item 7). `any`, `all` and a componentwise `select` take it. Not host-shareable. */
+export const vec2bT = { kind: 'vec', n: 2, elem: 'bool' } as const satisfies ShaderType
+/** `vec3<bool>`: the componentwise comparison of two three-component vectors. */
+export const vec3bT = { kind: 'vec', n: 3, elem: 'bool' } as const satisfies ShaderType
+/** `vec4<bool>`: the componentwise comparison of two four-component vectors. */
+export const vec4bT = { kind: 'vec', n: 4, elem: 'bool' } as const satisfies ShaderType
 /** A native `vec2<i32>`. Build a value with the {@link vec2i} constructor, for example a texel
  *  coordinate for {@link textureLoad}.
  *

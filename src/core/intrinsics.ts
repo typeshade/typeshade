@@ -531,6 +531,9 @@ export const intrinsicNeedsAtomArgs = (name: string): boolean => INTRINSICS[name
  *  Exported from `typeshade`.
  */
 export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
+  // Reductions of a vector of bools (roadmap 0.2 item 7) — same name in WGSL + GLSL ES 3.00.
+  'any',
+  'all',
   // genType1 (component-wise unary) — same name in WGSL + GLSL ES 3.00.
   'sin',
   'cos',

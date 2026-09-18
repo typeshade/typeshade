@@ -88,6 +88,11 @@ export function emitExpr(
         return full ? `(-${operand})` : wrap(`-${operand}`, PREC_UNARY)
       }
       case 'compare':
+        // Two vectors compare componentwise into a vector of bools; a target without an
+        // operator form for that (GLSL ES 3.00) spells it through `vectorCompare`.
+        if (x.a.type.kind === 'vec' && be.vectorCompare !== undefined) {
+          return be.vectorCompare(x.cop, r(x.a), r(x.b))
+        }
         return `(${r(x.a)} ${x.cop} ${r(x.b)})`
       case 'logical':
         return `(${r(x.a)} ${x.lop} ${r(x.b)})`
@@ -188,6 +193,11 @@ function emitLeaf(
     // select(false, true, cond) — the writer owns the spelling (WGSL select() vs
     // GLSL ternary). Args passed in WGSL's (false, true, cond) order.
     case 'select':
+      // A vector-of-bools condition picks per component; a target whose select is a ternary
+      // (GLSL ES 3.00) spells that through `vectorSelect`.
+      if (e.cond.type.kind === 'vec' && be.vectorSelect !== undefined) {
+        return be.vectorSelect(r(e.ifFalse), r(e.ifTrue), r(e.cond), e.type)
+      }
       return be.intrinsic('select', [r(e.ifFalse), r(e.ifTrue), r(e.cond)])
     case 'index':
       return `${base(e.base)}[${r(e.idx)}]`

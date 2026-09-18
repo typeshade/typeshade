@@ -36,6 +36,12 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   vec2u: 'A two-component vector of `u32`.',
   vec3u: 'A three-component vector of `u32`.',
   vec4u: 'A four-component vector of `u32`.',
+  vec2b:
+    'A two-component vector of `bool`: what comparing two `vec2` values yields, componentwise.',
+  vec3b:
+    'A three-component vector of `bool`: what comparing two `vec3` values yields, componentwise.',
+  vec4b:
+    'A four-component vector of `bool`: what comparing two `vec4` values yields, componentwise.',
   vec2d: 'A two-component vector of `f64`, same type as `vec2f64`.',
   vec3d: 'A three-component vector of `f64`, same type as `vec3f64`.',
   vec4d: 'A four-component vector of `f64`, same type as `vec4f64`.',
@@ -88,6 +94,8 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   dpdx: 'Returns the partial derivative of `x` with respect to the window x coordinate, componentwise over vectors. Fragment stage only (`dFdx` on GLSL); the CPU oracle returns zero.',
   dpdy: 'Returns the partial derivative of `x` with respect to the window y coordinate, componentwise over vectors. Fragment stage only (`dFdy` on GLSL); the CPU oracle returns zero.',
   fma: 'Returns `a * b + c`, componentwise over vectors. GLSL ES 3.00 has no `fma`, so the product and sum are inlined there.',
+  any: 'Whether any component of a vector of bools is true: `any(a < b)`. A scalar bool passes through. Over an array, `any(xs, (x) => ...)` is the fold.',
+  all: 'Whether every component of a vector of bools is true: `all(a === b)`. A scalar bool passes through. Over an array, `all(xs, (x) => ...)` is the fold.',
   select:
     "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. Compiles to the same code as a ternary over `cond`.",
   bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
@@ -208,6 +216,12 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Builds a `vec3u` from three `u32` scalars, a `vec2u` and a scalar, broadcasts a single `u32` scalar, or converts from a `vec3` of a different element kind.',
   vec4u:
     'Builds a `vec4u` from four `u32` scalars, a `vec3u` and a scalar, a `vec2u` and two scalars, broadcasts a single `u32` scalar, or converts from a `vec4` of a different element kind.',
+  vec2b:
+    'Builds a `vec2b` from two `bool` scalars, broadcasts a single `bool`, or converts from a `vec2` of a different element kind (nonzero is true). A comparison of two `vec2` values yields one.',
+  vec3b:
+    'Builds a `vec3b` from three `bool` scalars, a `vec2b` and a scalar, broadcasts a single `bool`, or converts from a `vec3` of a different element kind. A comparison of two `vec3` values yields one.',
+  vec4b:
+    'Builds a `vec4b` from four `bool` scalars, a `vec3b` and a scalar, a `vec2b` and two scalars, broadcasts a single `bool`, or converts from a `vec4` of a different element kind. A comparison of two `vec4` values yields one.',
   vec2f64:
     'Builds a `vec2f64` from two `f64` scalars or broadcasts a single `f64` scalar to both components; emulated in software on both GPU targets.',
   vec3f64:

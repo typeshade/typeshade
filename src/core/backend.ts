@@ -21,7 +21,7 @@ import type {
   RawStmt,
 } from './ir/index.js'
 import { ALL_CAPABILITIES } from './ir/nodes.js'
-import type { ModuleVarDecl } from './ir/nodes.js'
+import type { ModuleVarDecl, CmpOp } from './ir/nodes.js'
 import { TypeShadeError } from './diagnostics/error.js'
 import type { ParenMode } from './emit.js'
 
@@ -218,6 +218,20 @@ export interface Backend {
    *  gives a different answer for negative operands, so it is the wrong choice here. When
    *  absent, the native `%` is emitted. */
   readonly floatMod?: (a: string, b: string) => string
+  /** Optional. Spelling for a comparison of two vectors, which yields a vector of bools
+   *  (roadmap 0.2 item 7). WGSL has the operator form and omits this; GLSL ES 3.00 has only
+   *  the functions `lessThan`, `equal` and their siblings, so the GLSL backend provides it. */
+  readonly vectorCompare?: (cop: CmpOp, a: string, b: string) => string
+  /** Optional. Spelling for `select(f, t, c)` when `c` is a vector of bools and the pick is
+   *  per component. WGSL's `select` takes it and omits this; GLSL ES 3.00's ternary does not,
+   *  so the GLSL backend spells `mix(f, t, c)` for a float vector and a componentwise ternary
+   *  otherwise. `type` is the type of the result. */
+  readonly vectorSelect?: (
+    ifFalse: string,
+    ifTrue: string,
+    cond: string,
+    type: ShaderType,
+  ) => string
   /** Optional. A terminator written at the end of every `switch` case. WGSL cases do not
    *  fall through, so the WGSL backend omits this. GLSL follows C and does fall through, so
    *  the GLSL backend returns `break;`; without it every `match()` arm would run into the
