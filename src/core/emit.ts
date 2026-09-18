@@ -15,6 +15,7 @@ import { intrinsicNeedsAtomArgs } from './intrinsics.js'
 import { validate } from './passes/validate.js'
 import { assertCaps, assertBuiltins } from './passes/required-caps.js'
 import { lowerModule } from './passes/match-lower.js'
+import { selectComposite } from './passes/select-composite.js'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js'
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js'
@@ -365,8 +366,12 @@ export function lowerForBackend(
   // shared `let`, so authors write plain inline expressions and the reuse is bound for them.
   // `level` overrides the backend's default optimizer tier (used by the measurement A/B and
   // debug emit); omitted → the backend's own `optimize` (= O2 fixpoint), the production path.
+  // A conditional on a struct or a fixed-length array has no operator on EITHER target, so the
+  // rewrite into a helper function is neutral and runs here rather than in a backend (#113).
   const pre = spellExterns(
-    fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+    selectComposite(
+      fp64Lower(lowerModule(autoVars(m)), fp64Flavor ? { flavor: fp64Flavor } : undefined),
+    ),
     be,
   )
   const optimized = level === undefined ? be.optimize(pre) : optimizeAt(pre, level)

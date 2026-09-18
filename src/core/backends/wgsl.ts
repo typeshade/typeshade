@@ -33,6 +33,7 @@ import { fixpoint, autoVars, type OptLevel } from '../passes/opt/index.js'
 import { spellIntrinsic } from '../intrinsics.js'
 import { fp64Lower } from '../passes/fp64-lower.js'
 import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js'
+import { selectComposite } from '../passes/select-composite.js'
 import { dslError } from '../diagnostics/error.js'
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
@@ -397,9 +398,11 @@ export const emitFunc = (f: FuncDecl): string => wgslBackend.emitFunc(f)
  *  set when the declarations form a module. */
 export function emitFuncs(funcs: readonly FuncDecl[]): string {
   const lowered = pointerSpaces(
-    fixpoint(
+    selectComposite(
+      fixpoint(
       fp64Lower(
-        lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
+          lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
+        ),
       ),
     ),
   )

@@ -267,10 +267,15 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
     expect(g).not.toContain('_dh')
   })
 
-  // DOCUMENTED UNDER-FIX. GLSL spells `select` as a short-circuiting ternary, so hoisting an
-  // arm would make a CONDITIONAL discard unconditional — strictly worse than the bug. The
-  // guarded ctor therefore keeps its inline call, and the emitted bytes do not move.
-  it('a struct ctor inside a select ARM is left inline (guarded position)', () => {
+  // This was a DOCUMENTED UNDER-FIX while a struct conditional was spelled as a ternary:
+  // hoisting an arm out of one would have made a CONDITIONAL discard unconditional, which is
+  // worse than the bug it fixed, so the guarded ctor was left inline.
+  //
+  // It is no longer a trade. A struct conditional has no ternary on either target (#113) and is
+  // hoisted into a slot and an `if` before this pass runs, so each arm is already a statement
+  // on its own branch — and the ANGLE hoist lands INSIDE that branch. The discard stays
+  // conditional and the ctor gets its local.
+  it('a struct ctor inside a conditional ARM is hoisted within its own branch', () => {
     const GuardedS = structDecl('GuardedS', { c: vec4fT })
     const OutS = ioStruct('OutS', { color: location(0, vec4fT) })
     const helperS = discardingHelper('helper_s')
@@ -293,8 +298,9 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
       dslModule({ uses: [OutS, GuardedS], funcs: [helperS, pickS, fsS] }),
       'fragment',
     )
-    expect(g).toContain('((v > 0.0) ? GuardedS(helper_s(v)) : GuardedS(vec4(0.0, 0.0, 0.0, 1.0)))')
-    expect(g).not.toContain('_dh')
+    expect(g).toContain('  GuardedS _sel0;\n  if ((v > 0.0)) {\n    vec4 _dh0 = helper_s(v);')
+    // The discarding call is inside the branch its condition guards, which is the whole point.
+    expect(g).not.toContain('? GuardedS(')
   })
 })
 
