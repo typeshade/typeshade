@@ -82,9 +82,29 @@ export function lowerSourceFunctions(
       prefix,
     })
   })
+  // An overload signature is a declaration of the same function with no body, above the one
+  // that has it (roadmap 0.3 item T6, #92). WGSL has no overloading and TypeScript's own rule
+  // makes the implementation signature the one every call is checked against, so the
+  // signatures are skipped and the implementation is lowered. A body-less declaration with no
+  // implementation, and an ambient `declare function`, keep the error they had: neither names
+  // a function this module can emit.
+  const implemented = new Set<string>()
+  for (const { node, irName } of decls) {
+    if (node.body && node.name) implemented.add(irName ?? node.name.text)
+  }
+  const isAmbient = (node: ts.FunctionDeclaration): boolean =>
+    node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false
   const callees = new Map<string, FuncDecl>()
   const ready: { node: ts.FunctionDeclaration; stub: FuncDecl; prefix: string }[] = []
   for (const { node: stmt, irName, prefix } of decls) {
+    if (
+      !stmt.body &&
+      stmt.name !== undefined &&
+      !isAmbient(stmt) &&
+      implemented.has(irName ?? stmt.name.text)
+    ) {
+      continue
+    }
     const stub = parseSignature(stmt, sourceFile, diagnostics, structs, irName)
     if (!stub) continue
     if (callees.has(stub.name)) {
