@@ -13,6 +13,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **A local function is a function of the module** (§14, roadmap 0.3 item T7,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): `const f = (x: f32): f32 => x * 2.`
+  was "TS8099 Unsupported expression" and the call after it "Unknown function". Neither target
+  has a function value, so it becomes a function named after the body that declares it, `fs_f`,
+  which is what lets two bodies each declare an `f` while both still write `f(x)`. A local
+  function may declare one of its own, and one at the module top level or in a `namespace` is a
+  module function already, under its own name or the flattened one. It may not capture: a name
+  read from the body around it is refused with the parameter to add instead, since a shader
+  function has no environment to carry one in. An expression body with no return type, a `let`,
+  and a type on the const rather than on the function are refused with the reason.
 - **`...` spreads a struct's fields into an object literal** (§16, roadmap 0.3 item T7,
   [#92](https://github.com/typeshade/typeshade/issues/92)): `{ ...p, y: 9. }` was `TS8013 Spread
 is a JS runtime operation`, which is true of `f(...args)` and `[...xs]` and is not true of

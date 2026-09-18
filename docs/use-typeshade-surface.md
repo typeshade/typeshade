@@ -881,6 +881,44 @@ TypeScript's own rule.
 One thing the fill changes beyond the call: a default carries its calls into the body that wrote
 the call, so `g` whose body is `return f()`, where `f` defaults to `g()`, emits `f(g())` and
 calls itself. That is a call cycle, and it is refused as one, at the call that closes it.
+### A local function is a function of the module
+
+`const f = (x: f32): f32 => x * 2.` is how a TypeScript developer writes a helper needed once,
+and `const f = function (x: f32): f32 { ... }` is the older spelling of it (roadmap 0.3 item T7,
+[#92](https://github.com/typeshade/typeshade/issues/92)). Both were "TS8099 Unsupported
+expression", and the call after them "Unknown function".
+
+Neither target has a function value, so a local function is a function of the module, named
+after the body that declares it:
+
+```ts
+@fragment
+export function fs(): vec4 {
+  const f = (x: f32): f32 => x * 2.      // fn fs_f(x: f32) -> f32
+  return vec4(f(3.), 0., 0., 1.)         // fs_f(3.0)
+}
+```
+
+The name is what lets two bodies each declare an `f`, and the body still writes `f(x)`. A local
+function may declare one of its own (`fs_outer_inner`), and one written at the module top level
+is a module function already, under its own name; inside a `namespace` it takes the flattened
+one, `N_twice`.
+
+**A local function may not capture.** A shader function takes its arguments and reads the
+module; there is no environment for it to carry a name in, and no closure to allocate one. A
+name read from the body around it is refused where it is written, with the parameter to add
+instead. That is the one rule separating a local function from a function declaration.
+
+Three more shapes are refused: an expression body with no return type, since there is nothing to
+infer it from here; a `let`, which would let the name point at another function; and a type
+written on the const rather than on the function itself.
+
+### Triple-slash directives
+
+`/// <reference path="..." />` and `/// <reference types="..." />` are comments to the parser, so
+they always worked, above the `"use typeshade"` directive and below it. They are pinned by a
+test now so they keep working.
+
 ### An overload signature is skipped, and the implementation is lowered
 
 TypeScript writes a function's overloads as body-less declarations above the one that has a

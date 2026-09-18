@@ -19,6 +19,12 @@ import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import {
+  boundNamesOf,
+  collectLocalFunctions,
+  declarationsIn,
+  type LocalFunction,
+} from './local-functions.js'
+import {
   filledCallsOf,
   paramDefaultNodes,
   recordParamDefaults,
@@ -29,7 +35,7 @@ import { lowerExpression } from './expression.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { makeDiagnostic } from '../diagnostic.js'
-import { spanOf } from '../span.js'
+import { spanOf, withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { checkRecursion } from '../recursion.js'
 import {
@@ -140,6 +146,84 @@ export function lowerSourceFunctions(
     callees.set(cf.stub.name, cf.stub)
     return true
   })
+  // A local function is a function of the module, named after the body that declares it
+  // (roadmap 0.3 item T7, #92). Collected before any body is lowered, so a call to one
+  // resolves; the alias from the written name to the emitted one rides on the scope, which is
+  // what lets two bodies each declare an `f`.
+  const localFns: LocalFunction[] = []
+  const aliasesOf = new Map<string, Map<string, string>>()
+  const seeLocals = (
+    decls: readonly ts.VariableDeclaration[],
+    ownerName: string,
+    bound: ReadonlySet<string>,
+  ): void => {
+    const found = collectLocalFunctions(decls, ownerName, bound, sourceFile, diagnostics, structs)
+    if (found.length === 0) return
+    let alias = aliasesOf.get(ownerName)
+    if (!alias) {
+      alias = new Map<string, string>()
+      aliasesOf.set(ownerName, alias)
+    }
+    for (const fn of found) {
+      if (callees.has(fn.stub.name)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          fn.decl,
+          `"${fn.stub.name}" is both a function of this module and the emitted name of the ` +
+            `local "${fn.localName}"; rename one of them.`,
+          TS_CODES.DUPLICATE_SYMBOL,
+        )
+        continue
+      }
+      callees.set(fn.stub.name, fn.stub)
+      alias.set(fn.localName, fn.stub.name)
+      localFns.push(fn)
+      // A local function's own body is an owner in turn, so a helper inside a helper works.
+      seeLocals(
+        declarationsIn(fn.node.body),
+        fn.stub.name,
+        boundNamesOf(
+          fn.node,
+          fn.stub.params.map((p) => p.name),
+        ),
+      )
+    }
+  }
+  // The module top level, and each namespace body, where a `const f = (…) => …` is already a
+  // module function: it takes the namespace's flattened name (`N_f`), which is how a call to it
+  // inside that namespace resolves with no alias at all (T4, #92).
+  const topDecls = new Map<string, ts.VariableDeclaration[]>()
+  eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
+    if (!ts.isVariableStatement(stmt)) return
+    const into = topDecls.get(prefix) ?? []
+    into.push(...stmt.declarationList.declarations)
+    topDecls.set(prefix, into)
+  })
+  for (const [prefix, decls] of topDecls) seeLocals(decls, prefix, new Set())
+  for (const { node, stub } of ready) {
+    if (node.body)
+      seeLocals(
+        declarationsIn(node.body),
+        stub.name,
+        boundNamesOf(
+          node,
+          stub.params.map((p) => p.name),
+        ),
+      )
+  }
+  for (const cf of classFns) {
+    if (cf.node?.body) {
+      seeLocals(
+        declarationsIn(cf.node.body),
+        cf.stub.name,
+        boundNamesOf(
+          cf.node,
+          cf.stub.params.map((p) => p.name),
+        ),
+      )
+    }
+  }
   // Every default, lowered before any body, since a body may call a function declared after it
   // and the call needs the default already in hand (roadmap 0.3 item T7, #92). The scope is the
   // module's, with no parameters in it, which is why a default that reads one was refused at
@@ -230,9 +314,31 @@ export function lowerSourceFunctions(
       undefined,
       undefined,
       prefix === '' ? undefined : prefix,
+      aliasesOf.get(stub.name),
     )
     funcs.push(stub)
     nodeByName.set(stub.name, stmt)
+  }
+  for (const fn of localFns) {
+    fillFunctionBody(
+      fn.node,
+      fn.stub,
+      sourceFile,
+      diagnostics,
+      callees,
+      consts,
+      bindings,
+      structs,
+      symbols,
+      overrides,
+      vars,
+      undefined,
+      undefined,
+      undefined,
+      aliasesOf.get(fn.stub.name),
+    )
+    funcs.push(fn.stub)
+    nodeByName.set(fn.stub.name, fn.node)
   }
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
   // downstream of here was looking for one. In a single file a function is called by the name
@@ -391,7 +497,15 @@ export function lowerFunctionDeclaration(
 
 /** The declarations a body is lowered from: a top-level function, a class method or a class
  *  constructor (#86). All three carry `parameters`, an optional `type` and a `body`. */
-export type FunctionNode = ts.FunctionDeclaration | ts.MethodDeclaration | ts.ConstructorDeclaration
+export type FunctionNode =
+  | ts.FunctionDeclaration
+  | ts.MethodDeclaration
+  | ts.ConstructorDeclaration
+  /** A local function: `const f = (x: f32): f32 => ...` and the `function (x) { ... }` spelling
+   *  of it (roadmap 0.3 item T7, #92). Both carry `parameters`, an optional `type` and a
+   *  `body`, and an arrow's body may be an expression rather than a block. */
+  | ts.ArrowFunction
+  | ts.FunctionExpression
 
 /** The parameters of a signature, each with its type, `@builtin` and `@location`, checked
  *  against `stage` when the function is an entry. Returns `undefined` after the first
@@ -815,6 +929,21 @@ export function functionScope(
   return scope
 }
 
+/** `(x: f32): f32 => x * 2.`: the single return an expression-bodied arrow stands for. */
+function lowerArrowValue(
+  expr: ts.Expression,
+  stub: FuncDecl,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
+  const lowered = lowerExpression(expr, sourceFile, scope, diagnostics, stub.ret)
+  if (!lowered) return []
+  return [
+    withSpan({ s: 'return', expr: retargetIntLitCtx(lowered, expr, stub.ret) }, sourceFile, expr),
+  ]
+}
+
 /** Lower every default `stub`'s signature writes, in the module's scope (roadmap 0.3 item T7,
  *  #92). The result is spliced at each call that omits the argument, so it is lowered here,
  *  once, rather than at every call site: the two would be the same expression, and one
@@ -909,6 +1038,9 @@ export function fillFunctionBody(
   receiver?: Receiver,
   shown?: string,
   nsPrefix?: string,
+  /** The local functions this body declares, from the written name to the emitted one
+   *  (roadmap 0.3 item T7, #92). */
+  localFunctions?: ReadonlyMap<string, string>,
 ): void {
   const scope = functionScope(
     stub,
@@ -927,6 +1059,7 @@ export function fillFunctionBody(
   scope.setOwner(stub)
   // What `super.m(...)` names in this body (roadmap 0.3 item T5, #92).
   scope.setSuperMethods(receiver?.superMethods)
+  scope.setLocalFunctions(localFunctions)
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.
@@ -989,7 +1122,12 @@ export function fillFunctionBody(
     if (nameNode === undefined || !ts.isIdentifier(nameNode)) return
     recordDeclaration(symbols, sourceFile, nameNode, { name: p.name, kind: 'param', type: p.type })
   })
-  let body = lowerStatements(node.body!.statements, sourceFile, scope, diagnostics)
+  // An arrow with an expression body is the one return it stands for (T7, #92); every other
+  // shape carries a block.
+  let body =
+    ts.isArrowFunction(node) && !ts.isBlock(node.body)
+      ? lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
+      : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics)
   if (receiver !== undefined && receiver.mode !== 'param') {
     // A constructor returns the struct it built, and a method that changes its object returns
     // the copy: a bare `return` inside either returns `self_`, and one more closes the body.
