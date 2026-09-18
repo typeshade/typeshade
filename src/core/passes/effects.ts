@@ -15,16 +15,17 @@
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js'
 import { eachExpr, eachStmtExpr } from '../ir/visit.js'
-import { ATOMIC_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js'
+import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js'
 import { collectLocals } from './opt/expr-utils.js'
 
 /** Intrinsic ids whose call has an effect beyond its value: the atomic builtins, `atomicLoad`
- *  included, since two loads must not be shared across a store to the same location. The
- *  `workgroupBarrier`, `storageBarrier` and `textureStore` names join it when they are
- *  authorable. */
-export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>(
-  Object.keys(ATOMIC_INTRINSICS),
-)
+ *  included, since two loads must not be shared across a store to the same location, and the
+ *  two barriers, which order every read and write around them and must never be dropped,
+ *  merged or moved. `textureStore` joins it when it is authorable. */
+export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
+  ...Object.keys(ATOMIC_INTRINSICS),
+  ...BARRIER_INTRINSICS,
+])
 
 /** The module-level names each function writes, itself or through the functions it calls. */
 export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>

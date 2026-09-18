@@ -64,7 +64,8 @@ import {
   zeroOf,
 } from './cpu-runtime.js'
 import { compileModule, type CpuModule } from './oracle.js'
-import { isAtomicIntrinsic } from './intrinsics.js'
+import { isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
+import { dispatchCompute } from './debug/dispatch.js'
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
  *  bit-identically. Caught by compileModuleJs → that fn falls back to the
@@ -225,6 +226,9 @@ function emitExpr(e: Expr, S: FnCtx): string {
       return e.lop === '&&' ? `(${a} && ${b})` : `(${a} || ${b})`
     }
     case 'call': {
+      // A barrier has no meaning for one compiled invocation; the runtime throws and names
+      // `dispatch`, which runs the workgroup in lockstep on the interpreter (#82).
+      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) return `$.barrier(${q(e.fn)})`
       // An atomic builtin's first argument is a LOCATION (roadmap 0.2 item 4): the runtime
       // reads and writes it back in one step, mirroring the interpreter's `evalAtomic`.
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return emitAtomic(e, S)
@@ -549,6 +553,8 @@ interface CodegenRuntime {
     arg: number,
     kind: NumKind,
   ) => CpuValue
+  /** A barrier reached by a directly called invocation: throws, naming `dispatch`. */
+  barrier: (fn: string) => never
   /** The same on a JS local, through the getter and setter the generated code closes over. */
   atomicRef: (
     fn: string,
@@ -728,6 +734,11 @@ export function compileModuleJs(
       if (fn !== 'atomicLoad') set(step.next)
       return step.result
     },
+    barrier: (fn) => {
+      throw new Error(
+        `typeshade/cpu: ${fn}() waits for the other invocations of the workgroup, which a direct call has none of; run the entry with dispatch(name, workgroups)`,
+      )
+    },
     clone: cloneValue,
     cvt: convertComponent,
     cvtVec: convertComponents,
@@ -781,5 +792,8 @@ export function compileModuleJs(
       runtime.bindings[name] = value
       interp?.setBinding(name, value)
     },
+    // Lockstep needs the interpreter's generators; the compiled functions run one invocation
+    // to completion. The bindings are the runtime's own table, so arrays are shared.
+    dispatch: (entry, workgroups) => dispatchCompute(m, entry, workgroups, runtime.bindings, opts),
   }
 }

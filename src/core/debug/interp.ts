@@ -66,7 +66,7 @@ import {
   convertComponents,
   atomicStep,
 } from '../cpu-runtime.js'
-import { isAtomicIntrinsic } from '../intrinsics.js'
+import { isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js'
 
 /** One call frame of a paused run, innermost last. Mutable on purpose: the session reads a
  *  frame's `current` at each pause, and a snapshot is taken there rather than here. */
@@ -117,9 +117,12 @@ export interface StepCtx {
   readonly overrides: Map<string, CpuValue>
   readonly decls: Map<string, FuncDecl>
   readonly bindings: Record<string, CpuValue>
-  /** The module variables (roadmap 0.2 item 5), set up by `makeCtx`: a `workgroup` one zero,
-   *  a `private` one at its initializer, since a session is one invocation. */
+  /** The workgroup variables (roadmap 0.2 item 5), zero from `makeCtx`, shared by every
+   *  invocation of a workgroup that `dispatch` runs against one context. */
   readonly vars: Record<string, CpuValue>
+  /** The per-invocation (`private`) variables, at their initializers from `makeCtx`: one
+   *  table per invocation, which is why they are not in `vars`. */
+  readonly privates: Record<string, CpuValue>
   readonly structs: Map<string, StructDecl>
   /** The module's declared uniform and storage names, so a binding nobody supplied is NAMED
    *  rather than reported as an unbound local. Since #18 a binding read is a `varref` like any
@@ -195,6 +198,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         return env.get(e.name) as CpuValue
       }
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
+      if (e.name in ctx.privates) return ctx.privates[e.name]
       if (e.name in ctx.vars) return ctx.vars[e.name]
       if (ctx.bindingNames.has(e.name)) throw noValueFor(e.name)
       throw new Error(`typeshade/debug: unbound ${e.name}`)
@@ -248,6 +252,11 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       return a ? true : ((yield* evalExpr(e.b, env, ctx)) as boolean)
     }
     case 'call': {
+      // A barrier is where `dispatch` holds the invocation, at the yield before this
+      // statement; by the time the statement runs every invocation of the workgroup has
+      // arrived, so the call itself is a no-op. A session stepping one invocation alone runs
+      // straight through it, with no one to wait for.
+      if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) return 0
       // An atomic builtin takes its first argument as a LOCATION (roadmap 0.2 item 4); the
       // oracle's `evalAtomic` is mirrored here step for step so the two walks stay
       // bit-identical over a kernel that counts with `atomicAdd`.
@@ -448,20 +457,14 @@ function* refOf(
   if (target.op === 'varref' || target.op === 'param') {
     const name = target.name
     if (env.has(name)) return { get: () => env.get(name) as CpuValue, set: (v) => env.set(name, v) }
-    if (name in ctx.vars) {
-      return {
-        get: () => ctx.vars[name] as CpuValue,
-        set: (v) => {
-          ctx.vars[name] = v
-        },
-      }
-    }
-    if (name in ctx.bindings) {
-      return {
-        get: () => ctx.bindings[name] as CpuValue,
-        set: (v) => {
-          ctx.bindings[name] = v
-        },
+    for (const table of [ctx.privates, ctx.vars, ctx.bindings]) {
+      if (name in table) {
+        return {
+          get: () => table[name] as CpuValue,
+          set: (v) => {
+            table[name] = v
+          },
+        }
       }
     }
     if (ctx.bindingNames.has(name)) throw noValueFor(name)
@@ -515,13 +518,11 @@ function* setLValue(
     // The oracle's rule: a module-level name not shadowed by a local is written in the
     // module's own table.
     if (!env.has(target.name)) {
-      if (target.name in ctx.vars) {
-        ctx.vars[target.name] = value
-        return
-      }
-      if (target.name in ctx.bindings) {
-        ctx.bindings[target.name] = value
-        return
+      for (const table of [ctx.privates, ctx.vars, ctx.bindings]) {
+        if (target.name in table) {
+          table[target.name] = value
+          return
+        }
       }
     }
     env.set(target.name, value)
@@ -658,6 +659,7 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     decls: new Map(m.funcs.map((f) => [f.name, f])),
     bindings: {},
     vars: {},
+    privates: {},
     structs: new Map(m.structs.map((s) => [s.name, s])),
     bindingNames: new Set(m.bindings.map((b) => b.name)),
     gpuStubs,
@@ -669,12 +671,16 @@ export function makeCtx(m: ModuleDecl, gpuStubs: boolean): StepCtx {
     ctx.consts.set(c.name, c.valueExpr ? drain(evalExpr(c.valueExpr, new Map(), ctx)) : c.cpuValue)
   }
   // A session is one invocation of one workgroup: workgroup memory starts zero and a private
-  // variable at its initializer, evaluated the way a const is.
+  // variable at its initializer, evaluated the way a const is. `dispatch` rebuilds the private
+  // table per invocation and the workgroup table per workgroup from the same rule.
   for (const v of m.vars ?? []) {
-    ctx.vars[v.name] =
-      v.space === 'private' && v.init
+    if (v.space === 'private') {
+      ctx.privates[v.name] = v.init
         ? drain(evalExpr(v.init, new Map(), ctx))
         : zeroOf(v.type, ctx.structs)
+    } else {
+      ctx.vars[v.name] = zeroOf(v.type, ctx.structs)
+    }
   }
   return ctx
 }
