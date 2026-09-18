@@ -189,6 +189,44 @@ export function fs(
 - Workgroup size is the only payload on `@compute`. Default `[1, 1, 1]` if omitted as `@compute`.
 - `@compute({ workgroup: [64, 1, 1] })` is accepted as an alias.
 
+### What an entry may return
+
+The shapes are the target's, not this compiler's, and there is one constraint per stage.
+
+**A vertex entry returns the position.** A return typed `vec4` carries `@builtin("position")` on
+its own, so the smallest vertex shader needs no struct and no parameters:
+
+```ts
+@vertex
+export function vs(@builtin("vertex_index") vi: u32): vec4 {
+  return vec4(xs[i32(vi)], ys[i32(vi)], 0., 1.)
+}
+```
+
+That reaches both targets: `-> @builtin(position) vec4<f32>` on WGSL, and `gl_Position` on GLSL
+ES 3.00, where it is not a varying and links nothing. A struct return carries the position in a
+field and adds as many `@location` varyings as the program wants, which is the shape to reach
+for the moment anything travels to the fragment stage.
+
+The one constraint: a vertex entry has to produce a position, and nothing can invent one. A
+struct return with no `@builtin("position")` field, a `void` return, and a bare type that is not
+a `vec4` are each refused, naming the field or the type to write. WGSL says the same thing ("a
+vertex shader must include the 'position' builtin in its return type"); saying it here means an
+author reads it against the line they wrote instead of against generated text.
+
+**A fragment entry returns one value, or a struct of render targets.** A bare return takes
+`@location(0)` at any width, so `f32`, `vec2`, `vec3` and `vec4` are all draw-buffer formats:
+
+```ts
+@fragment
+export function fs(): f32 {
+  return 0.5
+}
+```
+
+A struct return is the multiple-render-target form, one `@location(n)` per target. A fragment
+entry may also return nothing, which is what a program that only writes to storage does.
+
 ---
 
 ## 4. What we will not do

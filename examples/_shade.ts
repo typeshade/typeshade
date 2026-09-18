@@ -319,6 +319,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'bare-position',
+    title: 'A vertex that returns only the position',
+    blurb:
+      'The smallest render pair: a vertex entry whose return is typed `vec4`, which carries `@builtin(position)` on its own, and a fragment entry that reads `@builtin(position)` and returns one colour. Nothing travels between the stages, so no I/O struct is needed. On GLSL ES 3.00 the return is `gl_Position`, which is not a varying and links nothing.',
+    renderable: true,
+  },
+  {
     id: 'ray-class',
     title: 'Class methods',
     blurb:

@@ -839,10 +839,61 @@ export function parseSignature(
     ;(decl as { retAttr?: string }).retAttr = '@builtin(position)'
     ;(decl as { retBuiltin?: string }).retBuiltin = 'position'
   }
-  if (stageInfo.stage === 'fragment' && typeKey(ret).startsWith('vec4')) {
+  // A fragment entry's output takes `@location(0)` whatever its width: `f32`, `vec2` and
+  // `vec3` are as valid a draw-buffer format as `vec4`, and only the `vec4` case used to get
+  // the attribute, so the other three emitted WGSL Tint refuses ("missing entry point IO
+  // attribute on return type") with nothing said here.
+  if (
+    stageInfo.stage === 'fragment' &&
+    (ret.kind === 'scalar' || ret.kind === 'vec') &&
+    ret.kind !== undefined
+  ) {
     ;(decl as { retAttr?: string }).retAttr = '@location(0)'
   }
+  // A vertex entry has to produce a position, and nothing here can invent one: WGSL says "a
+  // vertex shader must include the 'position' builtin in its return type", and before this the
+  // three ways to leave it out compiled clean and were refused by Tint instead.
+  if (stageInfo.stage === 'vertex') {
+    refuseVertexWithoutPosition(ret, node, name, sourceFile, diagnostics, structs)
+  }
   return decl
+}
+
+/** True, having reported it, when a `@vertex` entry's return carries no `@builtin(position)`:
+ *  a struct without such a field, or any bare type that is not the `vec4` the position is. */
+function refuseVertexWithoutPosition(
+  ret: ShaderType,
+  node: ts.Node,
+  name: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  structs: readonly CollectedStruct[],
+): void {
+  if (typeKey(ret).startsWith('vec4')) return
+  if (ret.kind === 'struct') {
+    const decl = structs.find((s) => s.decl.name === ret.name)
+    // An unknown struct was reported where it was named; do not pile on.
+    if (decl === undefined) return
+    if (decl.decl.fields.some((f) => f.builtin === 'position')) return
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${name}" is a @vertex entry, so what it returns has to carry the position: give ` +
+        `"${ret.name}" a field with @builtin("position"), typed vec4.`,
+      TS_CODES.FUNCTION_SHAPE,
+    )
+    return
+  }
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `"${name}" is a @vertex entry, so it returns the position: a vec4, which takes ` +
+      `@builtin("position") on its own, or a struct with a vec4 field that carries it. ` +
+      `${typeKey(ret) === 'void' ? 'It returns nothing' : `It returns ${typeKey(ret)}`}.`,
+    TS_CODES.FUNCTION_SHAPE,
+  )
 }
 
 /** What a function's scope needs of a module const: its name and type, its CPU value when it

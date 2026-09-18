@@ -823,11 +823,21 @@ function emitGlslEntry(
     }
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
-  if (f.ret.kind !== 'struct' && f.ret.kind !== 'void' && stage === 'vertex') {
+  if (
+    f.ret.kind !== 'struct' &&
+    f.ret.kind !== 'void' &&
+    stage === 'vertex' &&
+    retIoAttrOf(f).builtin === undefined
+  ) {
     // X-GIS #763 P8 — GLSL links inter-stage varyings BY NAME (WGSL by location). A bare
     // non-struct vertex output would emit as `out T _ret`, which can never link to a
     // fragment input named anything else. Fail closed instead of emitting a shader
     // pair that compiles and renders nothing.
+    //
+    // A bare return carrying a BUILTIN is not a varying and is not caught here: a vertex
+    // entry returning `vec4` is `@builtin(position)`, which writes `gl_Position` and links
+    // nothing. Refusing it cost the simplest vertex shader there is its WebGL2 target, on a
+    // program Tint accepts.
     throw new UnsupportedFeatureError(
       `glsl-es300: entry '${f.name}' returns a bare non-struct vertex output — GLSL links varyings by NAME; use an ioStruct so both stages share the field name`,
     )
