@@ -509,6 +509,13 @@ declare function storage<T>(): T
  * function body reads the override as a plain value of its type. */
 type override<T> = T
 
+declare const atomicTag: unique symbol
+/** An atomic integer in storage memory (roadmap 0.2 item 4). Opaque, like a texture handle:
+ * the value is reached only through \`atomicLoad\`, \`atomicStore\` and the read-modify-write
+ * builtins, which is what the compiler enforces. It is declared inside a storage binding
+ * (\`declare let bins: storage<array<atomic<u32>>>\`), never as a local or a parameter. */
+type atomic<T extends u32 | i32 = u32> = { readonly [atomicTag]: T }
+
 declare const textureTag: unique symbol
 declare const samplerTag: unique symbol
 /** The texture and sampler HANDLES. Opaque tags, not identities: a texture is not a value
@@ -559,6 +566,26 @@ ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
 ${renderJSDoc(FUNCTION_DOCS.arrayLength)}
 declare function arrayLength<T>(xs: array<T>): u32
+${renderJSDoc(FUNCTION_DOCS.atomicLoad)}
+declare function atomicLoad<T extends u32 | i32>(location: atomic<T>): T
+${renderJSDoc(FUNCTION_DOCS.atomicStore)}
+declare function atomicStore<T extends u32 | i32>(location: atomic<T>, value: T): void
+${renderJSDoc(FUNCTION_DOCS.atomicAdd)}
+declare function atomicAdd<T extends u32 | i32>(location: atomic<T>, value: T): T
+${renderJSDoc(FUNCTION_DOCS.atomicSub)}
+declare function atomicSub<T extends u32 | i32>(location: atomic<T>, value: T): T
+${renderJSDoc(FUNCTION_DOCS.atomicMin)}
+declare function atomicMin<T extends u32 | i32>(location: atomic<T>, value: T): T
+${renderJSDoc(FUNCTION_DOCS.atomicMax)}
+declare function atomicMax<T extends u32 | i32>(location: atomic<T>, value: T): T
+${renderJSDoc(FUNCTION_DOCS.atomicAnd)}
+declare function atomicAnd<T extends u32 | i32>(location: atomic<T>, value: T): T
+${renderJSDoc(FUNCTION_DOCS.atomicOr)}
+declare function atomicOr<T extends u32 | i32>(location: atomic<T>, value: T): T
+${renderJSDoc(FUNCTION_DOCS.atomicXor)}
+declare function atomicXor<T extends u32 | i32>(location: atomic<T>, value: T): T
+${renderJSDoc(FUNCTION_DOCS.atomicExchange)}
+declare function atomicExchange<T extends u32 | i32>(location: atomic<T>, value: T): T
 
 ${vecCtors}
 

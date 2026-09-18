@@ -90,6 +90,7 @@ export class LoweringScope {
   private readonly structs = new Map<string, StructDecl>()
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
+  private atomicOperandDepth = 0
   private retType: ShaderType | undefined
   private switchDepth = 0
 
@@ -116,6 +117,20 @@ export class LoweringScope {
 
   exitLoop(): void {
     this.loopDepth = Math.max(0, this.loopDepth - 1)
+  }
+
+  /** Raised while an atomic builtin's location argument is lowered: the one position in which
+   *  an expression of atomic type may stand (lower/atomics.ts, rule 2). */
+  enterAtomicOperand(): void {
+    this.atomicOperandDepth++
+  }
+
+  exitAtomicOperand(): void {
+    this.atomicOperandDepth = Math.max(0, this.atomicOperandDepth - 1)
+  }
+
+  inAtomicOperand(): boolean {
+    return this.atomicOperandDepth > 0
   }
 
   inLoop(): boolean {

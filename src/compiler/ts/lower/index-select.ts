@@ -8,6 +8,7 @@ import { TS_CODES, type TsCode } from '../codes.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { retargetIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
+import { refuseBareAtomic } from './atomics.js'
 
 export function lowerIndex(
   node: ts.ElementAccessExpression,
@@ -36,6 +37,7 @@ export function lowerIndex(
     )
     return undefined
   }
+  if (refuseBareAtomic(elem, node, sourceFile, scope, diagnostics)) return undefined
   const bound = indexBound(base.type)
   if (bound !== undefined && idx.op === 'lit' && typeof idx.value === 'number') {
     const i = idx.value

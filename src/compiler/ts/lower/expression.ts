@@ -9,6 +9,7 @@ import { resolveLangConst } from '../math-alias.js'
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
+import { refuseBareAtomic } from './atomics.js'
 import { lowerCall } from './expression-call.js'
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -151,6 +152,8 @@ function lowerIdentifier(
     // rather than a fallthrough so a fifth BindingKind cannot silently land on this arm.
     case 'binding':
     case 'local':
+      // A `storage<atomic<u32>>` binding is a location, not a value (lower/atomics.ts).
+      if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined
       return { op: 'varref', type: binding.type, name: irNameOf(binding) }
     // A specialization constant is its own IR node: the optimizer must never fold an
     // overrideref, since its value is not known until the pipeline is built (#8 A7).

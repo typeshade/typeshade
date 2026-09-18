@@ -119,6 +119,16 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
  *  a cast or the select Expr. */
 export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   'arrayLength',
+  'atomicLoad',
+  'atomicStore',
+  'atomicAdd',
+  'atomicSub',
+  'atomicMin',
+  'atomicMax',
+  'atomicAnd',
+  'atomicOr',
+  'atomicXor',
+  'atomicExchange',
   'exp2',
   'saturate',
   'fwidth',

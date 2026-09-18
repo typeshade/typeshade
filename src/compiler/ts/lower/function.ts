@@ -10,6 +10,7 @@ import { LoweringScope } from '../context.js'
 import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerStatements } from './statement.js'
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -261,6 +262,8 @@ export function parseSignature(
       return undefined
     }
     const pType = mapTsTypeToShaderType(p.type, sourceFile, diagnostics)
+    if (refuseAtomicDeclaration(pType, p.type ?? p, sourceFile, diagnostics, 'a parameter'))
+      return undefined
     if (!pType) {
       pushDiag(
         diagnostics,
@@ -318,6 +321,8 @@ export function parseSignature(
     if (node.type.kind === ts.SyntaxKind.VoidKeyword) ret = voidT
     else {
       const mapped = mapTsTypeToShaderType(node.type, sourceFile, diagnostics)
+      if (refuseAtomicDeclaration(mapped, node.type, sourceFile, diagnostics, 'a return type'))
+        return undefined
       if (!mapped) {
         pushDiag(
           diagnostics,
