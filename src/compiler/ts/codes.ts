@@ -79,6 +79,15 @@ export const TS_CODES = {
    *  assigns to `this` (the next step), a parameter named `self`, a call of an instance
    *  method on the class or of a static one on a value, or a name the class does not have. */
   CLASS_MEMBER: 'TS8035',
+  /** A math builtin called with arguments its signature does not take (#57, §10): two shapes
+   *  that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` with a vector `v`), an element
+   *  kind the builtin has no form for (`sin` on an integer vector, `mix` on one), a scalar
+   *  where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor or
+   *  `refract`'s eta of the wrong shape, `ldexp`'s exponent not an i32 of `x`'s shape, a bit
+   *  offset or count that is not a `u32`, or `transpose`/`determinant` on a non-matrix. Named
+   *  on the offending argument with the fix where one is short: splat the scalar, cast one
+   *  side, give the vectors one size. */
+  MATH_ARGUMENT: 'TS8036',
   UNSUPPORTED: 'TS8099',
 } as const
 

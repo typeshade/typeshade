@@ -30,6 +30,7 @@ import {
 } from './expression-misc.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import { checkMathArgs, mathTakesElem } from './math-args.js'
 
 const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = {
   vec2: { n: 2, elem: 'f32' },
@@ -296,6 +297,10 @@ export function lowerCall(
     )
     return undefined
   }
+  // The shapes the signature takes (roadmap 0.2 item 9, #57): one diagnostic on the argument
+  // that does not fit, with the fix.
+  const display = `${viaMath ? 'Math.' : ''}${intrinsicId === 'atan2' ? 'atan' : intrinsicId}`
+  if (!checkMathArgs(intrinsicId, display, args, node, sourceFile, diagnostics)) return undefined
   return { op: 'call', type: mathResultType(intrinsicId, args), fn: intrinsicId, args }
 }
 
@@ -382,6 +387,17 @@ function retargetIntrinsicLiterals(
   const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined
   if (!peer) return
   const target = literalPeerType(peer)
+  // The first position too, for an integer peer of a builtin that takes integers (roadmap 0.2
+  // item 9, #57): `min(1, i)` with an i32 `i` is an i32 call, as `min(i, 1)` already was. The
+  // result type follows the operand deciding the shape rather than a written number. A float
+  // peer changes nothing, and a builtin with no integer form (`pow(2, i)`) keeps its f32 first
+  // argument so the argument check names `i` as the odd one out.
+  if (peerIndex > 0 && target.kind === 'scalar' && mathTakesElem(intrinsicId, target.scalar)) {
+    const argNode = node.arguments[0]
+    if (argNode && args[0] && fixed[0] === undefined) {
+      args[0] = retargetIntLitCtx(args[0], argNode, target)
+    }
+  }
   for (let i = 1; i < args.length; i++) {
     if (fixed[i] !== undefined) continue
     // From 1, never 0: `mathResultType` is `args[0].type`, so retargeting a literal in the

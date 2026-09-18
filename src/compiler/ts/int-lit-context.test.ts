@@ -396,14 +396,22 @@ describe('what the rule deliberately does not reach', () => {
     expect(wgslOf('export function f(): u32 {\n  return 2 + 3;\n}')).toContain('return 5u;')
   })
 
-  it('never lets a literal in the first argument retype a whole intrinsic call', () => {
-    // mathResultType is args[0].type, so retargeting there retypes the call rather than the
-    // argument. A sweep of 243 programs found 24 that compiled before and errored after when
-    // it did; `max(1, i)` in an f32 position is one, and it is unchanged here.
-    expect(wgslOf('export function f(i: i32): f32 {\n  return max(1, i);\n}')).toContain(
-      'max(1.0, i)',
+  it('a literal in the first argument takes an integer peer, so the call is of that kind (#57)', () => {
+    // mathResultType is args[0].type, so retargeting there retypes the call. Until roadmap 0.2
+    // item 9 the position was left alone and `max(1, i)` emitted `max(1.0, i)`, which WGSL
+    // refuses; now the first argument that is not a written number decides.
+    expect(wgslOf('export function f(i: i32): i32 {\n  return max(1, i);\n}')).toContain(
+      'max(1, i)',
     )
-    // The position this item is actually about — the literal is not the peer — still works.
+    // In an f32 position that is the honest mismatch, on the return, instead of the invalid emit.
+    expect(diagnose('export function f(i: i32): f32 {\n  return max(1, i);\n}')).toBe(
+      'Function "f" return type mismatch: declared f32, got i32.',
+    )
+    // A float peer changes nothing.
+    expect(wgslOf('export function f(x: f32): f32 {\n  return max(1, x);\n}')).toContain(
+      'max(1.0, x)',
+    )
+    // The position the rule was first for, where the literal is not the peer, still works.
     expect(wgslOf('export function f(i: i32): i32 {\n  return min(i, 4);\n}')).toContain(
       'min(i, 4)',
     )

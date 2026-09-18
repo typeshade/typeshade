@@ -315,11 +315,14 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
       expect(
         diagnosticsOf('export function f(a: f32, b: f32, t: f32): f32 {\n  return mix(a, b, t)\n}'),
       ).toEqual([])
+      // An integer `mix` is a shape the ambient lib takes and both GPU compilers refuse (Tint:
+      // no matching call to 'mix(vec3<i32>, vec3<i32>, vec3<i32>)'); the front end's argument
+      // check says so (#57, TS8036), and the service reports it like any compiler diagnostic.
       expect(
         diagnosticsOf(
           'export function f(a: vec3i, b: vec3i, t: vec3i): vec3i {\n  return mix(a, b, t)\n}',
         ),
-      ).toEqual([])
+      ).toEqual(['typeshade TS8036: mix takes an f32, or a vector of them; got vec3<i32>.'])
     })
   })
 
@@ -486,39 +489,50 @@ describe('vector arithmetic in a later argument stays clean (the callee-span TS2
   })
 })
 
-// KNOWN SILENT, asserted as it behaves today rather than as it should behave, so a fix flips
-// these deliberately instead of a suite going red for the right reason. `mix`'s blend factor is
-// declared `t: number`, which is wider than the `f32` WGSL and GLSL ES 3.00 require, and
-// narrowing it to `f32` closes none of these: the scalar brands are OPTIONAL, so `i32`, `u32`
-// and `f64` are all assignable to `f32` too (measured). The honest place for all four is the
-// front end's argument check for the math builtins, issue #57.
-describe('mix blend factors the GPU compilers refuse that the editor accepts today (#57)', () => {
+// The four `mix` blend factors both GPU compilers refuse that the ambient lib takes. `mix`'s
+// blend factor is declared `t: number`, which is wider than the `f32` WGSL and GLSL ES 3.00
+// require, and narrowing it to `f32` closes none of these: the scalar brands are OPTIONAL, so
+// `i32`, `u32` and `f64` are all assignable to `f32` too (measured). They were pinned here as
+// silent until the front end's argument check for the math builtins (#57, TS8036, roadmap 0.2
+// item 9); three are that diagnostic now, reported by the service like any compiler
+// diagnostic. The `f64` form belongs to the fp64 pass and stays caught at emit only (SD0041).
+describe('mix blend factors the GPU compilers refuse (#57)', () => {
   const diagnosticsOf = (body: string): string[] => {
     const service = createTypeshadeLanguageService()
     service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
     return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
   }
 
-  const silent: Readonly<Record<string, string>> = {
+  const factor = (t: string): string =>
+    `typeshade TS8036: mix takes this argument as vec3<f32>, the first argument's type, or as a scalar f32; got ${t}.`
+  const reported: Readonly<Record<string, readonly [string, readonly string[]]>> = {
     // Tint: no matching call to 'mix(vec3<f32>, vec3<f32>, i32)'
-    'mix(vec3, vec3, i32)':
+    'mix(vec3, vec3, i32)': [
       'export function f(a: vec3, b: vec3, t: i32): vec3 {\n  return mix(a, b, t)\n}',
+      [factor('i32')],
+    ],
     // Tint: no matching call to 'mix(vec3<f32>, vec3<f32>, u32)'
-    'mix(vec3, vec3, u32)':
+    'mix(vec3, vec3, u32)': [
       'export function f(a: vec3, b: vec3, t: u32): vec3 {\n  return mix(a, b, t)\n}',
-    // An `f64` blend factor is caught by the compiler only at emit, as SD0041.
-    'mix(vec3, vec3, f64)':
+      [factor('u32')],
+    ],
+    // An `f64` blend factor is the fp64 pass's, caught by the compiler only at emit, as SD0041.
+    'mix(vec3, vec3, f64)': [
       'export function f(a: vec3, b: vec3, t: f64): vec3 {\n  return mix(a, b, t)\n}',
+      [],
+    ],
     // A blend factor whose vector brand the arithmetic already erased: `c * 2.` types as
     // `number`, so it matches `mix(vec3, vec3, number)` outright and the TS2769 rule in
-    // `diagnostics.ts` is never consulted. Tint: no matching call to
-    // 'mix(vec3<f32>, vec3<f32>, vec2<f32>)'.
-    'mix(vec3, vec3, vec2 * f32)':
+    // `diagnostics.ts` is never consulted; the front end still knows the shape. Tint: no
+    // matching call to 'mix(vec3<f32>, vec3<f32>, vec2<f32>)'.
+    'mix(vec3, vec3, vec2 * f32)': [
       'export function f(a: vec3, b: vec3, c: vec2): vec3 {\n  return mix(a, b, c * 2.)\n}',
+      [factor('vec2<f32>')],
+    ],
   }
-  for (const [name, body] of Object.entries(silent)) {
-    it(`${name}: silent today, and this pins that`, () => {
-      expect(diagnosticsOf(body)).toEqual([])
+  for (const [name, [body, expected]] of Object.entries(reported)) {
+    it(`${name}: ${expected.length === 0 ? 'left to the fp64 pass' : 'TS8036 on the factor'}`, () => {
+      expect(diagnosticsOf(body)).toEqual(expected)
     })
   }
 })

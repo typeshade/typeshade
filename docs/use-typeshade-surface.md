@@ -239,6 +239,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, inside an `if` or `switch` body, or used as a value (§25) |
 | A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A getter or setter, a static field, an arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, or used as a value (§26) |
+| A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
 ---
 
@@ -386,6 +387,24 @@ the sign bit, and the results are WGSL's in every pinned case (32 for the zero c
 ones for the first bit of a zero, the clamped offset and count). The helpers were run on
 ANGLE against the CPU functions over 1632 values, and the `bit-bump` example carries them
 through the compile gate. A module that calls none of the eight carries none of the helpers.
+
+**The arguments are checked (roadmap 0.2 item 9, #57, TS8036).** Until then the builtins were
+lowered by arity alone: `dot(a, b)` with a `vec3` and a `vec2`, or `clamp(v, 0., 1.)` with a
+vector `v`, drew no diagnostic and emitted a call Tint refuses with "no matching call". The
+rules are WGSL's, one per signature shape. The componentwise builtins (`min`, `max`, `clamp`,
+`pow`, `step`, `smoothstep`, `atan(y, x)`, `fma`, `distance`, `dot`, `reflect`, `faceForward`
+and the rest) take arguments of one type: a scalar beside a vector is refused with the splat to
+write (`vec3(x)`), two kinds of one shape with the cast (`f32(x)` or `i32(x)`), two vector sizes
+as such. `mix(a, b, t)` alone takes `t` as the vectors' type or a scalar of their element kind,
+and `mod(x, y)` a scalar `y` against a vector `x`. `refract` takes a scalar eta, `ldexp` an `i32`
+exponent (a `vec3i` for a `vec3` `x`), `extractBits` and `insertBits` a `u32` offset and count,
+`cross` two `vec3`; `normalize`, `dot` and the geometry four take vectors only, `transpose` and
+`determinant` a matrix. Each builtin has its element kinds: the float ones refuse an integer
+(`sin(vec3i)`, `mix` on integer vectors), `abs`, `min`, `max` and `clamp` take any number, `sign`
+an `f32` or `i32`, the bit builtins an `i32` or `u32`. The diagnostic sits on the offending
+argument. An emulated double (`f64`, `vec3f64`) is left to the fp64 pass, whose lifting rules are
+its own. The result type follows the operand deciding the shape: `dot` of integer vectors is that
+integer, and a written number in the first position takes an integer peer's kind (§13).
 
 A function the file declares wins over any name in the table above, and over `bool` and
 `f64`: those names meant the author's function before they were builtins, and an addition
@@ -606,11 +625,14 @@ Three edges of the rule, each of which the diagnostics still cover:
   arithmetic has to be an integer literal.
 - **The value has to fit.** `return -1` in a `u32` function, or `2147483648` in an `i32` one,
   is left exactly as written and reported as the mismatch it always was.
-- **A literal in a builtin call's FIRST argument does not retype the call.** An intrinsic's
-  result type is its first argument's, so `min(1, i)` with an `i32` `i` still types the call
-  `f32` and emits `min(1.0, i)` — which WGSL does not accept. The position this rule is for is
-  the other one, `min(i, 4)`, where the literal is not what decides the type. Fixing the first
-  position means changing how every intrinsic's result type is decided, which is not additive.
+- **A written number in a builtin call's FIRST argument takes an integer peer's kind (#57).**
+  An intrinsic's result type is its first argument's, and until roadmap 0.2 item 9 that position
+  was never retargeted, so `min(1, i)` with an `i32` `i` typed the call `f32` and emitted
+  `min(1.0, i)`, which WGSL does not accept. Now the first argument that is not a written number
+  decides: `min(1, i)` is an `i32` call and `clamp(0, i, 10)` a `u32` one for a `u32` `i`, as
+  `min(i, 4)` already was. A float peer changes nothing, and a builtin with no integer form
+  (`pow(2, i)`) keeps its `f32` first argument, so the argument check (TS8036) names `i` as the
+  odd one out.
 
 `const N: u32 = 16` is the **front end** only: the `ConstDecl` it builds carries `u32` and
 `16`, and the backend's `emitConst` still spells every scalar constant with a float literal,

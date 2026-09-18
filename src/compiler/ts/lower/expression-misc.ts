@@ -191,8 +191,14 @@ export function lowerUserCall(
 }
 
 export function mathResultType(fn: string, args: readonly Expr[]): ShaderType {
+  const first = args[0]!.type
+  // `dot` keeps the vectors' element kind (WGSL: dot(vecN<T>, vecN<T>) -> T), so an integer
+  // dot product is an integer (#57); the float reductions are f32.
+  if (fn === 'dot' && first.kind === 'vec' && first.elem !== 'f32' && first.elem !== 'bool') {
+    return { kind: 'scalar', scalar: first.elem }
+  }
   if (fn === 'length' || fn === 'distance' || fn === 'dot' || fn === 'determinant') return f32T
-  return args[0]!.type
+  return first
 }
 
 function pushDiag(

@@ -460,8 +460,8 @@ arguments TypeScript never reached (it stops at the first argument that fails a 
 One false negative is left and is not otherwise visible: an argument AFTER the one this rule
 dropped, wrong in a way that is not a vector shape (a string, a scalar of the wrong kind), is
 still hidden, since TypeScript never reported it in the first place. For a user function and the
-vector constructors the front end's own argument check (`TS8003`, `TS8019`) says it anyway; for
-the ambient math functions nothing does, and a front-end argument check for them is the fix (#57).
+vector constructors the front end's own argument check (`TS8003`, `TS8019`) says it anyway, and
+for the math builtins the front end's `TS8036` does (#57, roadmap 0.2 item 9).
 
 What stays open, measured by running the service over every `.shade.ts` file on
 `feat/porting-twins` (the corpus in issue #43, which carries the gradient twin too, and whose copy
@@ -515,17 +515,18 @@ TS2769 too, but do not depend on it: `mathResultType` keys a call's result on it
 so `min(s, vecN)`, `max(s, vecN)`, `step(s, vecN)` and `smoothstep(s, s, vecN)` are already the
 front end's own `TS8003`.
 
-Four shapes both GPU compilers refuse are SILENT in the editor today, recorded here rather than
-fixed here (#57). `mix`'s blend factor is declared `t: number`, wider than the `f32` WGSL and GLSL
-ES 3.00 require, and narrowing it to `f32` closes none of them, measured: the scalar brands are
-optional (see the bullet above), so an `i32`, a `u32` and an `f64` are each assignable to `f32`
-too. `mix(vec3, vec3, i32)` (Tint: `no matching call to 'mix(vec3<f32>, vec3<f32>, i32)'`), the
-`u32` form, and the `f64` form, which the compiler catches only at emit as `SD0041`, therefore all
-pass; so does a blend factor whose vector brand the arithmetic already erased, `mix(a, b, c * 2.)`
-with a `vec2` `c`, which types as `number`, matches the declared overload outright, and never
-reaches the TS2769 rule to be judged. Nothing on the declaration side can close any of the four:
-the front end's argument check for the math builtins is where all four belong, and
-`ambient.test.ts` pins them as known silent so that fix flips them deliberately.
+Four shapes both GPU compilers refuse were silent in the editor until the front end's argument
+check for the math builtins (#57, `TS8036`, roadmap 0.2 item 9), and nothing on the declaration
+side could have closed them. `mix`'s blend factor is declared `t: number`, wider than the `f32`
+WGSL and GLSL ES 3.00 require, and narrowing it to `f32` closes none of them, measured: the scalar
+brands are optional (see the bullet above), so an `i32`, a `u32` and an `f64` are each assignable
+to `f32` too. `mix(vec3, vec3, i32)` (Tint: `no matching call to 'mix(vec3<f32>, vec3<f32>,
+i32)'`), the `u32` form, and the `f64` form therefore all passed TypeScript; so did a blend
+factor whose vector brand the arithmetic already erased, `mix(a, b, c * 2.)` with a `vec2` `c`,
+which types as `number`, matches the declared overload outright, and never reaches the TS2769
+rule to be judged. The `i32`, `u32` and erased-vector forms are the compiler's `TS8036` now, which
+the service reports like any compiler diagnostic; the `f64` form belongs to the fp64 pass and is
+still caught only at emit, as `SD0041`. `ambient.test.ts` pins each.
 
 Two more gaps the ambient lib cannot close by itself, because both are about names the lib was
 never going to declare: a misspelled attribute (`@vertx`) has no ambient declaration to resolve
@@ -562,6 +563,7 @@ each meaning copied from that file's own comment):
 | `TS8033` | `MODULE_VAR`                | A module variable (a top-level `let`, per-invocation unless `workgroup<T>`) where its address space forbids: no type and no initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, a non-constant initializer, or workgroup memory read from a vertex or fragment entry.   |
 | `TS8034` | `BARRIER_PLACEMENT`         | `workgroupBarrier()` or `storageBarrier()` where a barrier cannot stand: in a vertex or fragment entry, which has no workgroup; inside an `if` or `switch` body, where a branch on a value the invocations do not share is how a workgroup waits forever; or used as a value, since a barrier is a statement.                                          |
 | `TS8035` | `CLASS_MEMBER`              | A class member shape the surface does not take, or a method call the class rules refuse (#86): a getter or setter, an overload, an arrow-function field, a static field, a decorator on a method, `this` outside a method or assigned in one, a method called on the class or a static function on a value, or a member the class lacks.               |
+| `TS8036` | `MATH_ARGUMENT`             | A math builtin called with arguments its signature does not take (#57): two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind it has no form for, a scalar where a vector is due, `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix.  |
 | `TS8099` | `UNSUPPORTED`               | Catch-all for a diagnostic whose site does not yet deserve its own code; the one code that is not assigned sequentially, so it stays parked past the sequential range instead of at its head.                                                                                                                                                          |
 
 ## 7. Adapter contracts
