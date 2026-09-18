@@ -203,9 +203,6 @@ describe('class members: what is refused, and what the fix is', () => {
     expect(only(C('  get y(): f32 { return this.x }'))).toBe(
       `${M} A getter has no shader form; write "y" as a method and call it.`,
     )
-    expect(only(C('  static N: f32 = 1.'))).toBe(
-      `${M} A static field has no shader form; declare "N" as a module const.`,
-    )
     expect(only(C('  f = (): f32 => 1.'))).toBe(
       `${M} A field holding a function is a method: write "f(...) { ... }".`,
     )
@@ -255,14 +252,17 @@ describe('class members: what is refused, and what the fix is', () => {
     )
   })
 
-  it('new on anything but a class the file declares, and a class of statics alone', () => {
+  it('new on anything but a class the file declares', () => {
     expect(
       errorsOf(`"use typeshade"\nfunction g(): f32 { const d = new Date(); return 1. }${TAIL}`)[0],
     ).toBe(
       `${TS_CODES.HOST_STMT} \`new\` allocates a JS object. Use struct types and vec constructors, or a class the file declares.`,
     )
-    expect(only(`"use typeshade"\nclass M { static f(): f32 { return 1. } }${TAIL}`)).toBe(
-      `${TS_CODES.STRUCT_FIELD} Struct "M" has no fields. WGSL requires a struct to declare at least one member, so an empty one cannot be emitted. A class holding only functions is not a struct; write them as functions.`,
+    // A class of statics alone was refused here until roadmap 0.3 item T3 (#92) made it the
+    // namespace of functions it is; `class-statics.test.ts` pins it, and an INSTANCE member on
+    // a fieldless class keeps this refusal, which the same file pins.
+    expect(errorsOf(`"use typeshade"\nclass M { static f(): f32 { return 1. } }${TAIL}`)).toEqual(
+      [],
     )
   })
 })

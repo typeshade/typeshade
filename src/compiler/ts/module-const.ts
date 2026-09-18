@@ -18,6 +18,10 @@ import { moduleVarSpace } from './module-vars.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 
+/** The module-constant name a class's static field takes: `K.PI` is `K_PI`, the same joining
+ *  a method takes (`K_half`), so one class's members share one prefix in the emitted text. */
+export const staticConstName = (cls: string, field: string): string => `${cls}_${field}`
+
 function isTopLevelConst(stmt: ts.Statement): stmt is ts.VariableStatement {
   return ts.isVariableStatement(stmt) && (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
 }
@@ -35,6 +39,40 @@ export function collectModuleConsts(
   // this map a later `A / Z` could not see the zero component inside `Z`.
   const valueExprs = new Map<string, Expr>()
   for (const stmt of sourceFile.statements) {
+    // A class's `static` fields are module constants named `Cls_Field` (T3, #92): ordinary
+    // TypeScript for "a constant that belongs to this class", and the shape a developer
+    // writes before reaching for a top-level const. Collected in source order with the
+    // top-level ones, so either may name the other by the rules already in force here.
+    if (ts.isClassDeclaration(stmt) && stmt.name) {
+      for (const member of stmt.members) {
+        if (!ts.isPropertyDeclaration(member) || !ts.isIdentifier(member.name)) continue
+        if (!member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) continue
+        if (!member.initializer) {
+          diagnostics.push(
+            makeDiagnostic(
+              sourceFile,
+              member,
+              `Static field "${stmt.name.text}.${member.name.text}" needs an initializer: it ` +
+                `is a module constant, and a constant has a value.`,
+              TS_CODES.TOP_LEVEL,
+            ),
+          )
+          continue
+        }
+        const c = lowerOne(
+          member,
+          sourceFile,
+          scope,
+          diagnostics,
+          valueExprs,
+          staticConstName(stmt.name.text, member.name.text),
+        )
+        if (!c) continue
+        out.push(c)
+        if (c.valueExpr) valueExprs.set(c.name, c.valueExpr)
+      }
+      continue
+    }
     if (!isTopLevelConst(stmt)) continue
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue
     for (const decl of stmt.declarationList.declarations) {
@@ -146,7 +184,7 @@ function isValueExprType(t: ShaderType): boolean {
  *  both CPU backends all take the path they already had for it. */
 function valueExprConst(
   name: string,
-  decl: ts.VariableDeclaration,
+  decl: ConstSite,
   init: Expr,
   annotated: ShaderType | undefined,
   sourceFile: ts.SourceFile,
@@ -203,12 +241,20 @@ function valueExprConst(
   return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: init }
 }
 
+/** A declaration this collector folds: a top-level `const`, or a class's `static` field,
+ *  which is the module constant `Cls_Field` (roadmap 0.3 item T3, #92). Both carry the three
+ *  things folding needs: a name, an optional annotation and an initializer. */
+type ConstSite = ts.VariableDeclaration | ts.PropertyDeclaration
+
 function lowerOne(
-  decl: ts.VariableDeclaration,
+  decl: ConstSite,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
   valueExprs: ReadonlyMap<string, Expr>,
+  /** The name the constant takes in the IR when it is not the name it was written under: a
+   *  static field `PI` of a class `K` is the module constant `K_PI`. */
+  irName?: string,
 ): ConstDecl | undefined {
   if (!ts.isIdentifier(decl.name)) {
     diagnostics.push(
@@ -221,7 +267,7 @@ function lowerOne(
     )
     return undefined
   }
-  const name = decl.name.text
+  const name = irName ?? decl.name.text
   if (scope.hasInCurrent(name)) {
     diagnostics.push(
       makeDiagnostic(
