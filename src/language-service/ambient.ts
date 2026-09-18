@@ -557,6 +557,8 @@ ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
+${renderJSDoc(FUNCTION_DOCS.arrayLength)}
+declare function arrayLength<T>(xs: array<T>): u32
 
 ${vecCtors}
 

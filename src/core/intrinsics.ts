@@ -247,6 +247,22 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // GLSL's textureSize(sampler2DArray, lod) returns an ivec3 whose extra component the
   // uvec2() constructor legally DROPS (GLSL ES 3.00 §5.4.2). Escape hatch if a driver
   // ever objects: spell the truncation explicitly as `uvec2(textureSize(t, l).xy)`.
+  // arrayLength(&x) — the runtime length of a storage array (#46). WGSL takes a POINTER to a
+  // runtime-sized array in the storage space: the binding itself or a trailing struct member,
+  // and nothing else (Tint refuses `arrayLength(src)` and `arrayLength(&src[0])`). The front
+  // end restricts the operand to exactly that shape, so `&` before the rendered argument is
+  // always a pointer to what the builtin accepts. GLSL ES 3.00 has no storage buffer and no
+  // runtime-sized array, so there is no `.length()` to spell (that is GLSL ES 3.10); a module
+  // carrying one never reaches this column, since the capability gate refuses it first, and
+  // the spelling fails closed rather than inventing text ANGLE cannot parse.
+  arrayLength: {
+    wgsl: (a) => `arrayLength(&${a[0]})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: arrayLength has no GLSL ES 3.00 spelling (no storage buffers, no runtime-sized arrays)',
+      )
+    },
+  },
   textureDimensions: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: (a) =>

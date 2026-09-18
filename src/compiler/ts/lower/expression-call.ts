@@ -15,7 +15,7 @@ import {
 import { SCALAR_CAST, literalPeerType } from '../numeric.js'
 import { foldNumericLit, retargetIntLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
-import { JS_ARRAY_METHODS } from './expression-prop.js'
+import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js'
 import {
   lowerExpandCall,
@@ -128,6 +128,7 @@ export function lowerCall(
     const shadowed = USER_FIRST_BUILTINS.has(name) ? scope.resolveCallee(name) : undefined
     if (shadowed) return lowerUserCall(node, shadowed, sourceFile, scope, diagnostics)
     if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics)
+    if (name === 'arrayLength') return lowerArrayLengthCall(node, sourceFile, scope, diagnostics)
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     ctor = VEC_CTOR[name]
     if (!ctor) {
@@ -265,6 +266,30 @@ export function lowerCall(
 
 /** The scalar type a vector constructor's components must have, or undefined for the
  *  emulated-double constructor, whose components the fp64 pass assembles. */
+/** `arrayLength(src)`: the explicit spelling of what `src.length` reads on a runtime-sized
+ *  storage array (#46). One argument, and `arrayLengthOf` decides whether it is what the
+ *  builtin takes, so the call and the property agree. */
+function lowerArrayLengthCall(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (node.arguments.length !== 1) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `arrayLength expects 1 argument, got ${node.arguments.length}.`,
+      TS_CODES.ARITY_MISMATCH,
+    )
+    return undefined
+  }
+  const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
+  if (!arg) return undefined
+  return arrayLengthOf(arg, node, sourceFile, scope, diagnostics, 'arrayLength')
+}
+
 function ctorElemType(elem: 'f32' | 'i32' | 'u32' | 'f64'): ShaderType | undefined {
   if (elem === 'f32') return f32T
   if (elem === 'i32') return i32T

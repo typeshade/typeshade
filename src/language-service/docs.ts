@@ -95,6 +95,8 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   textureDimensions: "Returns the width and height of the texture's base mip level as a `vec2u`.",
   textureNumLayers:
     'Returns the number of layers of a `texture_2d_array` as a `u32`. A plain 2D texture has no layers and is refused.',
+  arrayLength:
+    'Returns the number of elements of a runtime-sized storage array as a `u32`, read from the buffer the host bound; `xs.length` on such an array reads the same thing. The argument must be the storage binding itself or a trailing array field of one. Compiles to `arrayLength(&xs)` on WGSL; GLSL ES 3.00 has no storage buffers, so a module using it emits WGSL alone.',
   sin: 'Returns the sine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   cos: 'Returns the cosine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   tan: 'Returns the tangent of `x` (in radians), componentwise over vectors. Accepts `f32` and integer scalar/vector operands only.',

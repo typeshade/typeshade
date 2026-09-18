@@ -391,6 +391,10 @@ export const BUILTINS: Record<string, Builtin> = {
     return _bitcastView.getFloat32(0, true)
   },
   // pack a vec4<f32> (each in [0,1]) into u32 RGBA8; component 0 → low byte.
+  // The length of the buffer the host bound (#46): the operand evaluates to the bound array
+  // itself (or the struct member holding it), and its length is the answer the GPU gives.
+  // Computable, so it lives here and not among the GPU_STUBS below.
+  arrayLength: (xs) => (xs as readonly CpuValue[]).length,
   pack4x8unorm: (v) => {
     const a = v as number[]
     const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff
