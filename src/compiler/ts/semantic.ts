@@ -86,18 +86,48 @@ function newTarget(
   node: ts.NewExpression,
   sourceFile: ts.SourceFile,
 ): 'class' | 'abstract' | 'type' | 'host' {
-  if (!ts.isIdentifier(node.expression)) return 'host'
-  const name = node.expression.text
-  for (const s of sourceFile.statements) {
-    if (ts.isClassDeclaration(s) && s.name?.text === name) {
-      return s.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
-        ? 'abstract'
-        : 'class'
+  const written = newTargetName(node.expression)
+  if (written === undefined) return 'host'
+  // The name as written, and the short name a dotted one ends in: `new N.P()` names the class
+  // `P` inside `N`, which the class walk below finds under its own name (#107).
+  const short = written.slice(written.lastIndexOf('_') + 1)
+  let found: 'class' | 'abstract' | 'type' | undefined
+  const walk = (statements: readonly ts.Statement[], inNamespace: boolean): void => {
+    for (const s of statements) {
+      if (ts.isModuleDeclaration(s) && s.body) {
+        if (ts.isModuleBlock(s.body)) walk(s.body.statements, true)
+        else if (ts.isModuleDeclaration(s.body)) walk([s.body], true)
+        continue
+      }
+      // A namespace's class answers to its short name; a top-level one only to what was
+      // written, so `new N.P()` never resolves to a top-level `P`.
+      const want = inNamespace ? short : written
+      if (ts.isClassDeclaration(s) && s.name?.text === want) {
+        found ??= s.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
+          ? 'abstract'
+          : 'class'
+      }
+      if (ts.isInterfaceDeclaration(s) && s.name.text === want) found ??= 'type'
+      if (ts.isTypeAliasDeclaration(s) && s.name.text === want) found ??= 'type'
     }
-    if (ts.isInterfaceDeclaration(s) && s.name.text === name) return 'type'
-    if (ts.isTypeAliasDeclaration(s) && s.name.text === name) return 'type'
   }
-  return 'host'
+  walk(sourceFile.statements, false)
+  return found ?? 'host'
+}
+
+/** The name a `new` writes, joined the way the module flattens it: `P`, `N_P`. */
+function newTargetName(expr: ts.Expression): string | undefined {
+  const parts: string[] = []
+  let node: ts.Expression = expr
+  for (;;) {
+    if (ts.isIdentifier(node)) {
+      parts.unshift(node.text)
+      return parts.join('_')
+    }
+    if (!ts.isPropertyAccessExpression(node)) return undefined
+    parts.unshift(node.name.text)
+    node = node.expression
+  }
 }
 
 function isPropertyName(node: ts.Identifier): boolean {

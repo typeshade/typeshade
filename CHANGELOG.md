@@ -13,6 +13,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **A class inside a `namespace`** (§26, [#107](https://github.com/typeshade/typeshade/issues/107)):
+  a class there was "a class inside "N" has no flattened form. Declare it at the top level of
+  the file", which was the one place left where declaring a class and constructing it did not
+  work. It takes the same `Ns_member` flattening a function and a constant already take, so the
+  struct is `N_P`, a method `N_P_at`, the constructor `N_P_new`, and `new N.P(...)` and
+  `new P(...)` inside the namespace both call it. Nesting nests the name, and a namespace struct
+  works as a field, a parameter, a return and a binding type. Two shapes are refused rather than
+  guessed at: a short name two namespaces both declare, and, where a top-level declaration
+  shares the name, the top-level one wins and the other is written `N.P`.
 - **`new` says why, and a class of statics alone no longer emits a broken constructor** (§26,
   [#86](https://github.com/typeshade/typeshade/issues/86)): a `new` on anything but a declared
   class said "`new` allocates a JS object" first, which reads as a ban on `new` itself and sent

@@ -406,6 +406,16 @@ export class LoweringScope {
     return this.namespacePrefix
   }
 
+  /** The struct a written name means: itself when the file declares it, else the first
+   *  namespace-qualified spelling that it does, so `P` inside `namespace N` is `N_P` (#107). */
+  qualifiedStruct(name: string): string | undefined {
+    if (this.structByName(name) !== undefined) return name
+    for (const qualified of this.qualifiedNames(name)) {
+      if (this.structByName(qualified) !== undefined) return qualified
+    }
+    return undefined
+  }
+
   /** `name` itself when the file declares it as a namespace, else the first
    *  namespace-qualified spelling that it does: inside `namespace A`, `B` is `A_B`. */
   qualifiedNamespace(name: string): string | undefined {

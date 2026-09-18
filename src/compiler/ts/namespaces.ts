@@ -107,8 +107,8 @@ export function refuseNamespaceStatement(
     makeDiagnostic(
       sourceFile,
       stmt,
-      `A namespace holds functions, constants and namespaces; ${what} inside "${prefix}" has ` +
-        `no flattened form. Declare it at the top level of the file.`,
+      `A namespace holds functions, constants, classes and namespaces; ${what} inside ` +
+        `"${prefix}" has no flattened form. Declare it at the top level of the file.`,
       TS_CODES.TOP_LEVEL,
     ),
   )

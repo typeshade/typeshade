@@ -1862,6 +1862,33 @@ namespace Palette {
 emits `const Palette_WARM` and `fn Palette_tint`. Nesting flattens too, in both spellings:
 `namespace A { export namespace B { ... } }` and `namespace A.B { ... }` both give `A_B_member`.
 
+A namespace holds a class too, under the same flattening (#107):
+
+```ts
+namespace Scene {
+  export class Camera {
+    pos: vec3
+    zoom: f32
+  }
+}
+declare const cam: uniform<Scene.Camera>
+```
+
+emits `struct Scene_Camera`, and everything named after a struct follows: a method is
+`Scene_Camera_at`, the constructor `Scene_Camera_new`, and `new Scene.Camera(...)` calls it.
+Inside the namespace's own bodies the short name works, `new Camera(...)`, and a nested
+namespace nests the name, `A_B_Inner`.
+
+The short name is read from anywhere in the file, which is more than TypeScript's lexical rule
+allows, so the two places it could disagree are refused rather than guessed at. A short name two
+namespaces both declare says which ones and asks for the one you mean. A top-level declaration
+of the same name wins, which is what TypeScript does outside the namespace; write `N.P` for the
+other one. Resolving it exactly needs the enclosing namespace, which a type annotation does not
+carry to the mapper today.
+
+An enum, a type alias, an interface and a variable inside a namespace keep their refusal: each
+is collected by a route that has no declaration site to flatten from, which is its own step.
+
 A name inside a namespace body is looked up the way TypeScript looks it up: the body first, then
 the namespace and each one around it, then the file. So `WARM` above is `Palette.WARM`, a local
 of the same name shadows it, a member namespace may be written by its short name inside its

@@ -74,10 +74,11 @@ export function lowerSourceFunctions(
   const decls: { node: ts.FunctionDeclaration; irName: string | undefined; prefix: string }[] = []
   eachNamespaceStatement(sourceFile.statements, sourceFile, diagnostics, (stmt, prefix) => {
     if (!ts.isFunctionDeclaration(stmt)) {
-      // A namespace holds functions, constants and namespaces. The consts are module-const.ts's
-      // and the rest has no flattened form; only the namespace's own statements are refused
+      // A namespace holds functions, constants, classes and namespaces. The consts are
+      // module-const.ts's and the classes are structs.ts's, under the same flattened name
+      // (#107); the rest has no flattened form. Only the namespace's own statements are refused
       // here, since a top-level statement of any kind is semantic.ts's to judge.
-      if (prefix !== '' && !isNamespaceConst(stmt)) {
+      if (prefix !== '' && !isNamespaceConst(stmt) && !ts.isClassDeclaration(stmt)) {
         refuseNamespaceStatement(stmt, prefix, sourceFile, diagnostics)
       }
       return

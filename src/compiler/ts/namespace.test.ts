@@ -139,17 +139,9 @@ describe('a namespace does not hide a cycle', () => {
 })
 
 describe('what a namespace does not hold', () => {
-  it('a class, an enum, a type or a variable says where to declare it', () => {
-    expect(
-      errorsOf(
-        file(
-          `namespace A {\n  export class P {\n    x: f32\n  }\n}\n`,
-          `  return vec4(1., 0., 0., 1.)`,
-        ),
-      ),
-    ).toEqual([
-      `${TS_CODES.TOP_LEVEL} A namespace holds functions, constants and namespaces; a class inside "A" has no flattened form. Declare it at the top level of the file.`,
-    ])
+  it('an enum, a type or a variable says where to declare it', () => {
+    // A class inside a namespace was refused here too, until #107 gave it the same flattening
+    // its functions and constants take; `namespace-class.test.ts` pins that.
     expect(
       errorsOf(
         file(`namespace A {\n  export enum E {\n    X,\n  }\n}\n`, `  return vec4(1., 0., 0., 1.)`),

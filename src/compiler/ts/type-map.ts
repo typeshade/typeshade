@@ -181,8 +181,23 @@ function mapType(
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
       return mapGeneric(name, typeNode, sourceFile, diagnostics, resolving)
     }
+    // `N.P` names the class `P` inside the namespace `N`, which the module emits as `N_P`
+    // (#107). A dotted type name reaches here before the "unsupported reference" arm, which is
+    // what it used to be.
     if (name === undefined) {
-      pushDiag(diagnostics, sourceFile, typeNode, `Unsupported type reference.`)
+      const dotted = dottedTypeName(typeNode.typeName)
+      if (dotted !== undefined && namespaceStructsOf(sourceFile).flattened.has(dotted)) {
+        return structT(dotted)
+      }
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        typeNode,
+        dotted === undefined
+          ? `Unsupported type reference.`
+          : `"${typeNode.getText(sourceFile)}" names no struct this file declares. A class ` +
+              `inside a namespace is written "${dotted.split('_').join('.')}".`,
+      )
       return undefined
     }
     const mapped = SCALAR_AND_VEC_MAP[name]
@@ -206,6 +221,27 @@ function mapType(
         return undefined
       }
       return mapType(alias, sourceFile, diagnostics, new Set([...(resolving ?? []), name]))
+    }
+    // A class declared inside a namespace is reachable by its short name from that namespace's
+    // own bodies, which is where almost every use of it is (#107). The file's own declarations
+    // win, and a short name two namespaces both declare is refused rather than guessed at:
+    // resolving it properly needs the enclosing namespace, which a type annotation does not
+    // carry here.
+    const ns = namespaceStructsOf(sourceFile)
+    if (!ns.topLevel.has(name)) {
+      const candidates = ns.short.get(name)
+      if (candidates !== undefined && candidates.length === 1) return structT(candidates[0]!)
+      if (candidates !== undefined && candidates.length > 1) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          typeNode,
+          `"${name}" is declared in ${candidates.length} namespaces (${candidates
+            .map((c) => `"${c.split('_').join('.')}"`)
+            .join(', ')}). Write the one you mean.`,
+        )
+        return undefined
+      }
     }
     if (/^[A-Z]/.test(name)) return structT(name)
     pushDiag(
@@ -350,6 +386,67 @@ function typeNameOfArg(node: ts.TypeNode | undefined): string | undefined {
   if (!node) return undefined
   if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) return node.typeName.text
   return undefined
+}
+
+/** `N.P` as the flattened `N_P`, or undefined when the type name is not a chain of
+ *  identifiers. */
+function dottedTypeName(name: ts.EntityName): string | undefined {
+  const parts: string[] = []
+  let node: ts.EntityName = name
+  for (;;) {
+    if (ts.isIdentifier(node)) {
+      parts.unshift(node.text)
+      return parts.join('_')
+    }
+    parts.unshift(node.right.text)
+    node = node.left
+  }
+}
+
+interface NamespaceStructs {
+  /** Every flattened name a namespace class takes: `N_P`, `A_B_P`. */
+  readonly flattened: ReadonlySet<string>
+  /** The short name each was written under, to the flattened names that carry it. */
+  readonly short: ReadonlyMap<string, string[]>
+  /** Every struct name the file declares at its top level, which wins over a short name. */
+  readonly topLevel: ReadonlySet<string>
+}
+
+const NS_STRUCT_CACHE = new WeakMap<ts.SourceFile, NamespaceStructs>()
+
+/** The classes a file declares inside its namespaces, by both names (#107). Cached per source
+ *  file the way the alias and enum tables are, since every annotation in the file asks. */
+function namespaceStructsOf(sourceFile: ts.SourceFile): NamespaceStructs {
+  const hit = NS_STRUCT_CACHE.get(sourceFile)
+  if (hit) return hit
+  const flattened = new Set<string>()
+  const short = new Map<string, string[]>()
+  const topLevel = new Set<string>()
+  for (const stmt of sourceFile.statements) {
+    if (ts.isClassDeclaration(stmt) && stmt.name) topLevel.add(stmt.name.text)
+    if (ts.isInterfaceDeclaration(stmt)) topLevel.add(stmt.name.text)
+    if (ts.isTypeAliasDeclaration(stmt)) topLevel.add(stmt.name.text)
+  }
+  const walk = (statements: readonly ts.Statement[], prefix: string): void => {
+    for (const stmt of statements) {
+      if (ts.isModuleDeclaration(stmt) && stmt.body) {
+        const inner = prefix === '' ? stmt.name.text : `${prefix}_${stmt.name.text}`
+        if (ts.isModuleBlock(stmt.body)) walk(stmt.body.statements, inner)
+        else if (ts.isModuleDeclaration(stmt.body)) walk([stmt.body], inner)
+        continue
+      }
+      if (prefix === '' || !ts.isClassDeclaration(stmt) || !stmt.name) continue
+      const full = `${prefix}_${stmt.name.text}`
+      flattened.add(full)
+      const prior = short.get(stmt.name.text)
+      if (prior) prior.push(full)
+      else short.set(stmt.name.text, [full])
+    }
+  }
+  walk(sourceFile.statements, '')
+  const value: NamespaceStructs = { flattened, short, topLevel }
+  NS_STRUCT_CACHE.set(sourceFile, value)
+  return value
 }
 
 function isKeywordTypeSyntax(node: ts.TypeNode): boolean {
