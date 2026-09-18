@@ -4,7 +4,6 @@ import ts from 'typescript'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { TS_CODES, type TsCode } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
-import { isModuleVarStatement } from './module-vars.js'
 
 const HOST_GLOBALS = new Set([
   'console',
@@ -228,27 +227,16 @@ export function analyzeSemantics(
     if (ts.isVariableStatement(stmt)) {
       const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
       const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0
-      if (isLet) {
-        const declared = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)
-        // A module variable (§24) is a top-level `let` with an address-space wrapper, the one
-        // shape of top-level `let` that is a shader global; `module-vars.ts` collects it.
-        if (!declared && !isModuleVarStatement(stmt)) {
-          push(
-            diagnostics,
-            sourceFile,
-            stmt,
-            'Top-level let is not a shader global. Use `const` for a module constant, ' +
-              '`let name: workgroup<T>` or `let name: perInvocation<T> = init` for a module ' +
-              'variable, or put the value inside a function.',
-            TS_CODES.TOP_LEVEL,
-          )
-        }
-      } else if (!isConst) {
+      // A top-level `let` is a module variable (§24): plain, the per-invocation one; with a
+      // wrapper, the space the wrapper names. `module-vars.ts` collects it and owns its
+      // refusals, and a `declare let` is a binding.
+      if (!isLet && !isConst) {
         push(
           diagnostics,
           sourceFile,
           stmt,
-          'Top-level var is not allowed. Use `const` for a module constant.',
+          'Top-level var is not allowed. Use `let` for a per-invocation variable or `const` ' +
+            'for a module constant.',
           TS_CODES.TOP_LEVEL,
         )
       }

@@ -204,8 +204,8 @@ describe('module variables: what is refused, and what the fix is', () => {
   })
 
   it('an initializer that is not a constant, or of another type', () => {
-    expect(only(`"use typeshade"\nlet t: perInvocation<f32> = sin(1.)${TAIL}`)).toBe(
-      `${TS_CODES.MODULE_VAR} "t" needs a constant initializer (a literal, a module const, or arithmetic over those); "sin(1.)" is not one. Assign it inside the entry.`,
+    expect(only(`"use typeshade"\nlet t: perInvocation<f32> = select(1., 2., true)${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "t" needs a constant initializer (a literal, a module const, arithmetic or a math builtin over those); "select(1., 2., true)" is not one. Assign it inside the entry.`,
     )
     expect(only(`"use typeshade"\nlet t: perInvocation<u32> = 1.5${TAIL}`)).toBe(
       `${TS_CODES.MODULE_VAR} "t" is declared u32 but its initializer is f32.`,
@@ -221,12 +221,6 @@ export function fs(): vec4 { return vec4(t, 0., 0., 1.) }
 `),
     ).toBe(
       `${TS_CODES.MODULE_VAR} "t" is workgroup memory, which only a compute entry has; a fragment entry cannot read or write it.`,
-    )
-  })
-
-  it('a plain top-level let is still refused, and the message now names the module variable', () => {
-    expect(only(`"use typeshade"\nlet t: f32 = 1.${TAIL}`)).toBe(
-      `${TS_CODES.TOP_LEVEL} Top-level let is not a shader global. Use \`const\` for a module constant, \`let name: workgroup<T>\` or \`let name: perInvocation<T> = init\` for a module variable, or put the value inside a function.`,
     )
   })
 
@@ -255,5 +249,143 @@ export function fs(): vec4 { return vec4(t, 0., 0., 1.) }
     const r = compile(`"use typeshade"\nlet t: perInvocation<i32> = -3${TAIL}`)
     expect(r.diagnostics).toEqual([])
     expect(r.wgsl).toContain('var<private> t: i32 = -3;')
+  })
+})
+
+// A plain top-level `let` is the per-invocation variable (§24, from review of #82): what a
+// module-level `let` means to a TypeScript reader, a value this run of the program owns, and in a
+// shader the run is the invocation. `perInvocation<T>` stays as the explicit spelling and
+// `workgroup<T>` stays required. Measured on `main` before this: `let counter: f32 = 0.` at the
+// top of a file was TS8014.
+describe('a plain top-level let is the per-invocation variable', () => {
+  it('spells the same var<private> as perInvocation<T>, and the CPU backends agree', () => {
+    const plain = KERNEL.replace('let seed: perInvocation<u32> = 7', 'let seed: u32 = 7').replace(
+      'let acc: perInvocation<vec2> = vec2(SCALE, 0.)',
+      'let acc: vec2 = vec2(SCALE, 0.)',
+    )
+    expect(plain).not.toContain('perInvocation')
+    const a = compile(KERNEL)
+    const b = compile(plain)
+    expect(b.diagnostics).toEqual([])
+    expect(b.wgsl).toBe(a.wgsl)
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(b.module)
+      const out = [0, 0, 0]
+      cm.setBinding('src', [1, 2, 3])
+      cm.setBinding('out', out)
+      for (let g = 0; g < 3; g++) cm.fns['k']!([g, 0, 0], [g, 0, 0])
+      expect(out, make.name).toEqual([15, 19, 23])
+    }
+  })
+
+  it("without an annotation the type is the initializer's, by the rule a const follows", () => {
+    const r = compile(`"use typeshade"
+let v = 1.5
+let n = 7
+let on = true
+let c = vec2(1., 2.)
+${TAIL}`)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('var<private> v: f32 = 1.5;')
+    // A bare integer literal is f32, as `const N = 7` is; `let n: u32 = 7` is the integer.
+    expect(r.wgsl).toContain('var<private> n: f32 = 7.0;')
+    expect(r.wgsl).toContain('var<private> on: bool = true;')
+    expect(r.wgsl).toContain('var<private> c: vec2<f32> = vec2<f32>(1.0, 2.0);')
+  })
+
+  it('no initializer is zero; an array and a struct take a constant one', () => {
+    const src = `"use typeshade"
+declare let out: storage<array<f32>>
+class P { a: f32; b: vec2 }
+let hits: u32
+let a: array<f32, 2> = [1., 2.]
+let z: array<f32, 2> = [0., 0.]
+let p: P = { a: 1., b: vec2(2., 3.) }
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  z[0] = a[0] + a[1] + p.b.y
+  out[gid.x] = z[0] + a[1] + f32(hits)
+}
+`
+    const r = compile(src)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('var<private> hits: u32;')
+    expect(r.wgsl).toContain('var<private> a: array<f32, 2> = array<f32, 2>(1.0, 2.0);')
+    expect(r.wgsl).toContain('var<private> p: P = P(1.0, vec2<f32>(2.0, 3.0));')
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(r.module)
+      const out = [0, 0]
+      cm.setBinding('out', out)
+      cm.fns['k']!([1, 0, 0])
+      // 1 + 2 + 3, plus a[1], plus zero hits.
+      expect(out, make.name).toEqual([0, 8])
+    }
+  })
+
+  it('a math builtin over constants is a constant initializer, as it is for a const (#73)', () => {
+    const r = compile(`"use typeshade"\nlet t: f32 = sin(1.)${TAIL}`)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('var<private> t: f32 = sin(1.0);')
+  })
+
+  it('on GLSL ES 3.00 it is a plain global, and the oracle agrees', () => {
+    const r = compile(`"use typeshade"
+let seed: u32 = 7
+function next(): u32 {
+  seed = seed * 3 + 1
+  return seed
+}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  seed = u32(uv.x)
+  const a = next()
+  const b = next()
+  return vec4(f32(a), f32(b), f32(seed), 1.)
+}
+`)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('var<private> seed: u32 = 7u;')
+    expect(r.glsl?.fragment).toContain('uint seed = 7u;')
+    expect(r.eval('fs', [[2, 0]])).toEqual([7, 22, 22, 1])
+  })
+
+  it('what is refused, and what the fix is', () => {
+    const only = (src: string) => {
+      const errors = errorsOf(src)
+      expect(errors, src).toHaveLength(1)
+      return errors[0]!
+    }
+    expect(only(`"use typeshade"\nlet t${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "t" needs a type or an initializer: let t: f32, or let t = 0.`,
+    )
+    expect(only(`"use typeshade"\nlet t = [1., 2.]${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "t" needs an array type to take a list: let t: array<f32, 2> = [...].`,
+    )
+    expect(only(`"use typeshade"\nlet x: storage<array<f32>>${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "x" is a storage binding the host provides, and needs declare: declare let x: storage<array<f32>>.`,
+    )
+    expect(only(`"use typeshade"\nlet u: uniform<vec4>${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "u" is a uniform binding the host provides, and needs declare: declare let u: uniform<vec4>.`,
+    )
+    expect(only(`"use typeshade"\nlet t: texture_2d<f32>${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "t" cannot be texture_2d<f32>: a texture is a resource, declared bare with "declare const".`,
+    )
+    expect(only(`"use typeshade"\nlet t: atomic<u32>${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "t" cannot be atomic<u32>: an atomic lives in storage or workgroup memory, not in a per-invocation variable.`,
+    )
+    expect(only(`"use typeshade"\nlet t: u32 = 1.5${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} "t" is declared u32 but its initializer is f32.`,
+    )
+    expect(only(`"use typeshade"\nlet [a, b] = [1., 2.]${TAIL}`)).toBe(
+      `${TS_CODES.MODULE_VAR} A module variable is one name with one type, let name: T = init; "[a, b]" has no shader form.`,
+    )
+    // An override is a const; overrides.ts says so and this collector stays out of its way.
+    expect(only(`"use typeshade"\nlet q: override<f32> = 1.${TAIL}`)).toBe(
+      `${TS_CODES.TOP_LEVEL} override "q" must be const, not let.`,
+    )
+    // A top-level var is still nothing.
+    expect(errorsOf(`"use typeshade"\nvar t: f32 = 1.${TAIL}`)[0]).toBe(
+      `${TS_CODES.TOP_LEVEL} Top-level var is not allowed. Use \`let\` for a per-invocation variable or \`const\` for a module constant.`,
+    )
   })
 })
