@@ -10,6 +10,7 @@ import { foldConstComponents, foldConstNumber } from '../loop-bound.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
+import { lowerArrayLiteral } from './expression-array.js'
 import { refuseBareAtomic } from './atomics.js'
 import { lowerCall } from './expression-call.js'
 import { lowerNew, lowerThis } from './class-methods.js'
@@ -165,14 +166,21 @@ export function lowerExpression(
   if (ts.isConditionalExpression(node))
     return lowerSelect(node, sourceFile, scope, diagnostics, contextual)
   if (ts.isArrayLiteralExpression(node)) {
-    // A list is lowered against a declared `array<T, N>` (#8 A16), which only a declaration
-    // gives it; anywhere else there is no type to fill, so say which spelling does work rather
-    // than repeating the generic "Unsupported expression".
+    // A list is lowered against a declared `array<T, N>` (#8 A16), which a declaration gives
+    // it — and so does any other position that declares one: a return whose function is
+    // declared `array<f32, 2>`, an argument whose parameter is, a field of a struct being
+    // built. Those are exactly the positions a tuple is written in (roadmap 0.3 item T10,
+    // #92), and each already carries its declared type here as `contextual`.
+    if (contextual?.kind === 'array') {
+      return lowerArrayLiteral(node, contextual, sourceFile, scope, diagnostics)
+    }
+    // With no type declared anywhere there is nothing to fill, so say which spelling does work
+    // rather than repeating the generic "Unsupported expression".
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `A list is only an initializer: write it as "const xs: array<T, ${node.elements.length}> = [...]", or call array<T, ${node.elements.length}>(...) here.`,
+      `A list takes its type from the position it is written in: declare one, as "const xs: array<T, ${node.elements.length}> = [...]" or a return type, or call array<T, ${node.elements.length}>(...) here.`,
       TS_CODES.UNSUPPORTED,
     )
     return undefined
@@ -194,6 +202,18 @@ export function lowerExpression(
     )
     return undefined
   }
+  if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A string has no GPU representation: there is nothing for it to be at run time, and no ` +
+        `instruction takes one. Text that picks between cases is an enum, whose members are ` +
+        `numbers; text a human reads belongs on the host.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   pushDiag(
     diagnostics,
     sourceFile,
@@ -202,6 +222,20 @@ export function lowerExpression(
     TS_CODES.UNSUPPORTED,
   )
   return undefined
+}
+
+/** The two operators that ask what a value is at run time, and why neither can (roadmap 0.3
+ *  item T10, #92). Both are read before the operands are lowered. */
+const RUNTIME_TYPE_TEST: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
+  [ts.SyntaxKind.InstanceOfKeyword]:
+    '"instanceof" asks what a value is at run time. A struct on the GPU is its fields and ' +
+    'nothing else — no type tag to read — and every call this file emits is resolved at ' +
+    'compile time, so a base-typed value is its base. Give the struct a field saying which ' +
+    'kind it holds, and branch on that.',
+  [ts.SyntaxKind.InKeyword]:
+    '"in" asks which fields a value has at run time. A struct on the GPU has exactly the ' +
+    'fields its type declares, known at compile time, so the answer is already in the type: ' +
+    'write the field access.',
 }
 
 function lowerIdentifier(
@@ -335,6 +369,14 @@ function lowerBinary(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // Read before the operands: `d instanceof B` would lower `B` first and report "Unknown
+  // identifier B" — a complaint about the one part of the line that is spelled right
+  // (roadmap 0.3 item T10, #92).
+  const asked = RUNTIME_TYPE_TEST[node.operatorToken.kind]
+  if (asked !== undefined) {
+    pushDiag(diagnostics, sourceFile, node, asked, TS_CODES.UNSUPPORTED)
+    return undefined
+  }
   let left = lowerExpression(node.left, sourceFile, scope, diagnostics)
   let right = lowerExpression(node.right, sourceFile, scope, diagnostics)
   if (!left || !right) return undefined

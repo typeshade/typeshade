@@ -6,6 +6,21 @@ import type { AddressSpace, Expr } from '../../core/ir/nodes.js'
 import type { FuncDecl, StructDecl, StructField } from '../../core/ir/nodes.js'
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js'
 
+/** The names a file declares as functions and could not lower, one set per callee table
+ *  (roadmap 0.3 item T10, #92). It hangs off the table instead of being threaded through every
+ *  scope factory because it is the other half of the same thing: what this file's calls
+ *  resolve against. A call to a name in here reports nothing — the declaration said why. */
+const REFUSED_DECLS = new WeakMap<Map<string, FuncDecl>, Set<string>>()
+
+/** The refused-declaration set belonging to `callees`, created on first ask. */
+export function refusedDeclarationsOf(callees: Map<string, FuncDecl>): Set<string> {
+  const found = REFUSED_DECLS.get(callees)
+  if (found !== undefined) return found
+  const made = new Set<string>()
+  REFUSED_DECLS.set(callees, made)
+  return made
+}
+
 /** What a name in scope refers to.
  *
  *  `module` and `binding` were one kind until #14, and conflating them is what broke stage
@@ -106,6 +121,7 @@ export class LoweringScope {
   private baseNames: ReadonlyMap<string, readonly string[]> = new Map()
   private abstractNames: ReadonlySet<string> = new Set()
   private readonly callees: Map<string, FuncDecl>
+  private readonly refusedDecls: Set<string>
   private readonly structs = new Map<string, StructDecl>()
   /** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). Its members are
    *  module constants named `Enum_Member`, so the only thing the lowering needs the name for
@@ -125,6 +141,27 @@ export class LoweringScope {
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
     this.callees = callees ?? new Map()
     this.symbols = symbols
+    this.refusedDecls = refusedDeclarationsOf(this.callees)
+  }
+
+  /** Whether this file declares `name` as a function and the declaration was refused, so its
+   *  body was never lowered and no callee exists (roadmap 0.3 item T10, #92). A call to it
+   *  would otherwise say "Unknown function", which is untrue: the function is right there,
+   *  and why it names no callee was already said on its own declaration. */
+  declarationRefused(name: string): boolean {
+    if (this.refusedDecls.has(name)) return true
+    const local = this.localFns?.get(name)
+    if (local !== undefined && this.refusedDecls.has(local)) return true
+    // A local function refused before it was registered has no entry above, and its emitted
+    // name is the owner's and its own: `scale` inside `fs` is `fs_scale`. Read through the
+    // owner rather than by the written name alone, so a call to an unknown `scale` in another
+    // body still says so.
+    const owner = this.ownerDecl?.name
+    if (owner !== undefined && this.refusedDecls.has(`${owner}_${name}`)) return true
+    for (const qualified of this.qualifiedNames(name)) {
+      if (this.refusedDecls.has(qualified)) return true
+    }
+    return false
   }
 
   /** Record one declaration this scope just defined into the caller's symbol table, spanning
