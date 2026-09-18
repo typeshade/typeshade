@@ -333,10 +333,17 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'generic-class',
+    title: 'A generic class by monomorphisation',
+    blurb:
+      "A `class Slot<T>` used at f32 and at vec3, so the module carries `Slot_f32` and `Slot_vec3` as separate structs, each with its own constructor and its own copy of every method (§32). Neither target has a generic struct: a WGSL or GLSL struct is one layout. Nothing called `Slot` is emitted. A type parameter's default is read the way TypeScript reads it, so `Level` needs no type argument; a static cannot mention `T`, so it is one function under the class's own name; and a base written `extends Slot<f32>` inherits the instance.",
+    renderable: true,
+  },
+  {
     id: 'mixin-surface',
     title: 'The mixin pattern',
     blurb:
-      'A `function Tinted(Base)` whose body is one `return class extends Base { … }`, applied to two different geometry classes (§29). TypeScript runs a mixin at run time; there is no run time here, so it runs when the file is compiled and gives a list of members. Nothing named `Tinted(Disc)` reaches the emitted code: the mixin adds its field behind the base\'s and ahead of the applying class\'s own, and `TintedDisc` and `TintedBar` each carry their own copy of its `lit` method.',
+      "A `function Tinted(Base)` whose body is one `return class extends Base { … }`, applied to two different geometry classes (§29). TypeScript runs a mixin at run time; there is no run time here, so it runs when the file is compiled and gives a list of members. Nothing named `Tinted(Disc)` reaches the emitted code: the mixin adds its field behind the base's and ahead of the applying class's own, and `TintedDisc` and `TintedBar` each carry their own copy of its `lit` method.",
     renderable: true,
   },
   {

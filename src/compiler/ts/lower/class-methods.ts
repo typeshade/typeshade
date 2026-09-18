@@ -29,6 +29,8 @@ import { boolT, f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/type
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { CollectedStruct, FieldInit } from '../structs.js'
 import { irNameOf, readOnlyPhrase, type LoweringScope, type SuperCtor } from '../context.js'
+import { pushTypeArguments } from '../generics.js'
+import { ambiguousNew, newInstanceName } from '../generic-structs.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf, withSpan } from '../span.js'
@@ -112,7 +114,11 @@ function pushDiag(
 function namesConstructed(sourceFile: ts.SourceFile): Set<string> {
   const out = new Set<string>()
   const walk = (n: ts.Node): void => {
-    if (ts.isNewExpression(n) && ts.isIdentifier(n.expression)) out.add(n.expression.text)
+    if (ts.isNewExpression(n) && ts.isIdentifier(n.expression)) {
+      // `new Pair<f32>()` constructs the INSTANCE struct (T9, #92), which is the name a
+      // synthesised constructor has to be registered under.
+      out.add(newInstanceName(n, n.expression.text, sourceFile) ?? n.expression.text)
+    }
     ts.forEachChild(n, walk)
   }
   walk(sourceFile)
@@ -412,6 +418,27 @@ function superCtorOf(
   return undefined
 }
 
+/** What a class inherits its base's type parameters as, when it extends a generic class's
+ *  instance: `class Small extends Box_f32` inherits bodies written in terms of `Box`'s `T`, and
+ *  `T -> f32` is what those bodies have to be read under (T9, #92). A class with type parameters
+ *  of its own never reaches this — it carries its own binding — and the chain is walked base
+ *  first, so a class two levels below a generic one still finds it. */
+function inheritedBinding(
+  struct: CollectedStruct,
+  byName: ReadonlyMap<string, CollectedStruct>,
+  seen: Set<string> = new Set(),
+): ReadonlyMap<string, ShaderType> | undefined {
+  for (const base of struct.bases ?? []) {
+    if (seen.has(base)) continue
+    seen.add(base)
+    const owner = byName.get(base)
+    if (owner === undefined) continue
+    const found = owner.binding ?? inheritedBinding(owner, byName, seen)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+
 /** The functions every class in `structs` contributes, with their signatures parsed and
  *  their bodies still empty: a method (`self` first), a static function, and a constructor for
  *  a class that declares one, has a field initializer, or is constructed with `new`. */
@@ -424,154 +451,175 @@ export function collectClassFunctions(
   const constructed = namesConstructed(sourceFile)
   const byName = new Map(structs.map((s) => [s.decl.name, s]))
   for (const struct of structs) {
-    const name = struct.decl.name
-    const selfT = structT(name)
-    const members = struct.members
-    const effective = effectiveMembers(struct, byName)
-    // An abstract class is a base and never a value, so it contributes no instance method and
-    // no constructor of its own; its bodies are lowered into each concrete class below. Its
-    // statics are functions like any other and are kept.
-    const bodies = struct.abstract ? effective.bodies.filter((b) => b.isStatic) : effective.bodies
-    const mutating = mutatingMethodsOf(bodies.map((b) => b.node))
-    for (const body of bodies) {
-      const method = body.node
-      if (!ts.isIdentifier(method.name)) continue
-      const member = body.member
-      const isSuperBody = body.fnName !== methodFnName(name, member)
-      const shown = isSuperBody ? `super.${member}` : `${name}.${member}`
-      const isStatic = body.isStatic
-      const decorated = ts.canHaveDecorators(method) ? (ts.getDecorators(method) ?? []) : []
-      if (decorated.length > 0) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          decorated[0]!,
-          `A decorator has no place on "${shown}"; an entry is a top-level function.`,
-        )
-        continue
-      }
-      if (
-        method.asteriskToken ||
-        method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
-      ) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
+    // A generic class's instance carries what its type parameters are bound to (roadmap 0.3
+    // item T9, #92): its methods are written in terms of `T`, so their signatures are parsed
+    // and their bodies lowered with that in force. Absent on every other struct, where this
+    // binds nothing and the walk is what it was. Imperative rather than a callback, because
+    // the body below `continue`s.
+    const unbind = pushTypeArguments(struct.binding ?? inheritedBinding(struct, byName))
+    try {
+      const name = struct.decl.name
+      const selfT = structT(name)
+      const members = struct.members
+      const effective = effectiveMembers(struct, byName)
+      // A generic class's INSTANCE contributes no static: a static cannot mention the class's
+      // type parameters, so it is one function however many instances there are, carried once
+      // by the collection under the class's own name (T9, #92). Keeping it here would emit one
+      // dead copy per instance, under a name no call site can reach.
+      const own =
+        struct.binding !== undefined
+          ? effective.bodies.filter((b) => !b.isStatic)
+          : effective.bodies
+      // An abstract class is a base and never a value, so it contributes no instance method and
+      // no constructor of its own; its bodies are lowered into each concrete class below. Its
+      // statics are functions like any other and are kept.
+      const bodies = struct.abstract ? own.filter((b) => b.isStatic) : own
+      const mutating = mutatingMethodsOf(bodies.map((b) => b.node))
+      for (const body of bodies) {
+        const method = body.node
+        if (!ts.isIdentifier(method.name)) continue
+        const member = body.member
+        const isSuperBody = body.fnName !== methodFnName(name, member)
+        const shown = isSuperBody ? `super.${member}` : `${name}.${member}`
+        const isStatic = body.isStatic
+        const decorated = ts.canHaveDecorators(method) ? (ts.getDecorators(method) ?? []) : []
+        if (decorated.length > 0) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            decorated[0]!,
+            `A decorator has no place on "${shown}"; an entry is a top-level function.`,
+          )
+          continue
+        }
+        if (
+          method.asteriskToken ||
+          method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+        ) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            method,
+            `"${shown}" is a plain method or nothing: no async, no generator.`,
+          )
+          continue
+        }
+        if (method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            method,
+            `"${shown}" is abstract; a shader function has one body.`,
+          )
+          continue
+        }
+        const params = parseParams(method.parameters, sourceFile, diagnostics, structs, undefined, {
+          owner: shown,
+          forbidSelf: !isStatic,
+        })
+        if (!params) continue
+        const ret = parseReturnType(
+          method.type,
+          shown,
           method,
-          `"${shown}" is a plain method or nothing: no async, no generator.`,
-        )
-        continue
-      }
-      if (method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)) {
-        pushDiag(
-          diagnostics,
           sourceFile,
-          method,
-          `"${shown}" is abstract; a shader function has one body.`,
+          diagnostics,
+          structs,
+          undefined,
         )
-        continue
+        if (!ret) continue
+        // A method that changes its object takes it BY REFERENCE: `mode: 'inout'` on the
+        // receiver, which GLSL ES 3.00 spells `inout Particle self_` and WGSL as a pointer. It
+        // has to return nothing itself; one that returns a value keeps its object read-only, and
+        // a write inside it is refused where it stands (statement.ts). A body reached through
+        // `super` is read-only: it has no receiver of its own to write through.
+        const writes = !isStatic && !isSuperBody && mutating.has(member) && typeKey(ret) === 'void'
+        const stub: FuncDecl = {
+          name: body.fnName,
+          params: isStatic
+            ? params
+            : [
+                { name: 'self_', type: selfT, ...(writes ? { mode: 'inout' as const } : {}) },
+                ...params,
+              ],
+          ret,
+          body: [],
+        }
+        ;(stub as { span?: SourceSpan }).span = spanOf(sourceFile, method)
+        ;(stub as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, method.name)
+        // A method's stub carries `self_` ahead of the written parameters, so the defaults sit
+        // one index along (roadmap 0.3 item T7, #92); a static method's do not.
+        recordParamDefaults(stub, method.parameters, isStatic ? 0 : 1)
+        const cf: ClassFunction = {
+          stub,
+          kind: isStatic ? 'static' : 'method',
+          struct,
+          shown,
+          node: method,
+          receiver: isStatic
+            ? undefined
+            : {
+                type: selfT,
+                mode: writes ? 'inout' : 'param',
+                fieldInits: [],
+                shown,
+                superMethods: body.superMethods,
+              },
+          mutates: writes,
+        }
+        registry.set(stub, cf)
+        out.push(cf)
       }
-      const params = parseParams(method.parameters, sourceFile, diagnostics, structs, undefined, {
-        owner: shown,
-        forbidSelf: !isStatic,
-      })
+      // A derived class inherits its base's field initializers and, when it declares none of its
+      // own, its constructor (T5, #92). An abstract class is never constructed, so it has no
+      // constructor function of its own; the body reaches each concrete class through the same
+      // inheritance.
+      const fieldInits = effective.fieldInits
+      // An abstract class is never `new`ed, but a derived constructor's `super(...)` calls its
+      // constructor, so one it declares itself is still emitted.
+      const found = struct.abstract
+        ? struct.members?.ctor
+          ? { node: struct.members.ctor, owner: struct }
+          : undefined
+        : effectiveCtor(struct, byName)
+      const ctor = found?.node
+      if (struct.abstract && ctor === undefined) continue
+      if (ctor === undefined && fieldInits.length === 0 && !constructed.has(name)) continue
+      const shown = `new ${name}`
+      const params = ctor
+        ? parseParams(ctor.parameters, sourceFile, diagnostics, structs, undefined, {
+            owner: shown,
+            forbidSelf: true,
+          })
+        : []
       if (!params) continue
-      const ret = parseReturnType(
-        method.type,
-        shown,
-        method,
-        sourceFile,
-        diagnostics,
-        structs,
-        undefined,
-      )
-      if (!ret) continue
-      // A method that changes its object takes it BY REFERENCE: `mode: 'inout'` on the
-      // receiver, which GLSL ES 3.00 spells `inout Particle self_` and WGSL as a pointer. It
-      // has to return nothing itself; one that returns a value keeps its object read-only, and
-      // a write inside it is refused where it stands (statement.ts). A body reached through
-      // `super` is read-only: it has no receiver of its own to write through.
-      const writes = !isStatic && !isSuperBody && mutating.has(member) && typeKey(ret) === 'void'
-      const stub: FuncDecl = {
-        name: body.fnName,
-        params: isStatic
-          ? params
-          : [{ name: 'self_', type: selfT, ...(writes ? { mode: 'inout' as const } : {}) }, ...params],
-        ret,
-        body: [],
-      }
-      ;(stub as { span?: SourceSpan }).span = spanOf(sourceFile, method)
-      ;(stub as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, method.name)
-      // A method's stub carries `self_` ahead of the written parameters, so the defaults sit
-      // one index along (roadmap 0.3 item T7, #92); a static method's do not.
-      recordParamDefaults(stub, method.parameters, isStatic ? 0 : 1)
+      const stub: FuncDecl = { name: ctorFnName(name), params, ret: selfT, body: [] }
+      if (ctor) recordParamDefaults(stub, ctor.parameters)
+      const at = ctor ?? members?.node
+      if (at !== undefined) (stub as { span?: SourceSpan }).span = spanOf(sourceFile, at)
       const cf: ClassFunction = {
         stub,
-        kind: isStatic ? 'static' : 'method',
+        kind: 'ctor',
         struct,
         shown,
-        node: method,
-        receiver: isStatic
-          ? undefined
-          : {
-              type: selfT,
-              mode: writes ? 'inout' : 'param',
-              fieldInits: [],
-              shown,
-              superMethods: body.superMethods,
-            },
-        mutates: writes,
+        node: ctor,
+        receiver: {
+          type: selfT,
+          mode: 'ctor',
+          fieldInits,
+          shown,
+          // Relative to the class that DECLARED this body: an inherited constructor's `super`
+          // still names ITS base, not the base of the class being built.
+          ...(found ? { superCtor: superCtorOf(found.owner, byName) } : {}),
+          superMethods: ctorSuperMethods(struct, found?.owner.decl.name ?? name, byName, ctor),
+        },
+        mutates: false,
       }
       registry.set(stub, cf)
       out.push(cf)
+    } finally {
+      unbind()
     }
-    // A derived class inherits its base's field initializers and, when it declares none of its
-    // own, its constructor (T5, #92). An abstract class is never constructed, so it has no
-    // constructor function of its own; the body reaches each concrete class through the same
-    // inheritance.
-    const fieldInits = effective.fieldInits
-    // An abstract class is never `new`ed, but a derived constructor's `super(...)` calls its
-    // constructor, so one it declares itself is still emitted.
-    const found = struct.abstract
-      ? struct.members?.ctor
-        ? { node: struct.members.ctor, owner: struct }
-        : undefined
-      : effectiveCtor(struct, byName)
-    const ctor = found?.node
-    if (struct.abstract && ctor === undefined) continue
-    if (ctor === undefined && fieldInits.length === 0 && !constructed.has(name)) continue
-    const shown = `new ${name}`
-    const params = ctor
-      ? parseParams(ctor.parameters, sourceFile, diagnostics, structs, undefined, {
-          owner: shown,
-          forbidSelf: true,
-        })
-      : []
-    if (!params) continue
-    const stub: FuncDecl = { name: ctorFnName(name), params, ret: selfT, body: [] }
-    if (ctor) recordParamDefaults(stub, ctor.parameters)
-    const at = ctor ?? members?.node
-    if (at !== undefined) (stub as { span?: SourceSpan }).span = spanOf(sourceFile, at)
-    const cf: ClassFunction = {
-      stub,
-      kind: 'ctor',
-      struct,
-      shown,
-      node: ctor,
-      receiver: {
-        type: selfT,
-        mode: 'ctor',
-        fieldInits,
-        shown,
-        // Relative to the class that DECLARED this body: an inherited constructor's `super`
-        // still names ITS base, not the base of the class being built.
-        ...(found ? { superCtor: superCtorOf(found.owner, byName) } : {}),
-        superMethods: ctorSuperMethods(struct, found?.owner.decl.name ?? name, byName, ctor),
-      },
-      mutates: false,
-    }
-    registry.set(stub, cf)
-    out.push(cf)
   }
   return out
 }
@@ -718,7 +766,20 @@ export function lowerNew(
   // scope's namespace chain.
   const written = newTargetName(node.expression)
   if (written === undefined) return undefined
-  const name = scope.qualifiedStruct(written)
+  // `new Pair<f32>()` builds the instance struct the file collected for that set of type
+  // arguments (roadmap 0.3 item T9, #92), and a bare `new Pair()` the one instance the file
+  // writes, when it writes exactly one. Otherwise the expression names no layout, and saying so
+  // here is the whole of it: the ordinary "unknown struct" below would name the class, which
+  // exists, and never mention the type argument that is missing.
+  const instance = newInstanceName(node, written, sourceFile)
+  if (instance === undefined) {
+    const why = ambiguousNew(written, sourceFile)
+    if (why !== undefined) {
+      pushDiag(diagnostics, sourceFile, node, why)
+      return undefined
+    }
+  }
+  const name = instance ?? scope.qualifiedStruct(written)
   if (name === undefined) return undefined
   const struct = scope.structByName(name)
   if (struct === undefined) return undefined

@@ -394,15 +394,17 @@ export function fs(): vec4 {
     ).toContain(note)
   })
 
-  it('a generic base names its own item, and a call is read as the mixin it looks like', () => {
+  it('a generic base is its instance, and a call is read as the mixin it looks like', () => {
+    // Refused until T9 (#92) with "one declaration per argument set" as the reason. That is
+    // now what a generic class IS, so `Box<f32>` is the struct `Box_f32` and `D` inherits it.
     expect(
       errorsOf(
         file(
           `class Box<T> {\n  v: f32\n}\nclass D extends Box<f32> {\n  y: f32\n}\n`,
           `  const d: D = { v: 1., y: 2. }\n  return vec4(d.v, 0., 0., 1.)`,
         ),
-      ).join(' '),
-    ).toContain('extends a type with type arguments')
+      ),
+    ).toEqual([])
     expect(
       errorsOf(
         file(

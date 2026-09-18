@@ -2299,8 +2299,7 @@ already generic over `Numeric`.
 wrong number of type arguments; a type argument that names no type. An argument whose type is
 not the parameter's is the ordinary mismatch, reported against the instance once it exists.
 
-A generic CLASS is not here yet: `class Pair<T>` still says that a struct is one concrete layout.
-Its instances would be `Pair_f32` and `Pair_vec3` by the same rule.
+A generic CLASS is §32, by the same rule and for the same reason.
 
 ## 31. A conditional on a struct or an array
 
@@ -2355,6 +2354,69 @@ CPU backends read the IR, where the conditional is still a conditional, and need
 **Why nothing caught it.** No example carried the shape, so the gate had never compiled one. The
 constant folder hides the easy case as well: `true ? a : b` folds, and two identical arms CSE to
 one binding, so it takes a runtime condition AND two distinguishable arms to reach at all.
+
+## 32. A generic class
+
+Roadmap 0.3 item T9, the class half of §30. A WGSL or GLSL struct is **one layout**, its fields'
+types fixed, so a generic class is collected **once per set of type arguments the file writes it
+with**.
+
+```ts
+class Slot<T> {
+  a: T
+  b: T
+  either(c: bool): T {
+    return c ? this.a : this.b
+  }
+}
+
+const gain = new Slot<f32>(1.15, 0.55)                        // Slot_f32
+const tint = new Slot<vec3>(vec3(0.95, …), vec3(0.18, …))     // Slot_vec3
+```
+
+```wgsl
+struct Slot_f32 { a: f32, b: f32, }
+struct Slot_vec3 { a: vec3<f32>, b: vec3<f32>, }
+fn Slot_f32_either(self_: Slot_f32, c: bool) -> f32 { … }
+fn Slot_vec3_either(self_: Slot_vec3, c: bool) -> vec3<f32> { … }
+fn Slot_f32_new(a: f32, b: f32) -> Slot_f32 { … }
+```
+
+Nothing called `Slot` is emitted, and a generic class nothing writes emits nothing at all.
+`examples/generic-class.shade.ts` is the gate's evidence on both targets.
+
+**The instances are read off the source, not discovered as the lowering runs.** A struct has to
+exist before anything is lowered against it: its methods are functions of the module, its fields
+decide every layout that holds it, and the inheritance splice runs over the collected list. Every
+use is a type node, an `extends`, or a `new`, and all three are visible syntactically, so one
+walk finds them. A type argument may itself be an instance, `Box<Box<f32>>`, and a class inside a
+namespace is reached by its dotted name, `N.Pair<f32>`.
+
+**A type parameter's default is read the way TypeScript reads it.** `class Level<T = f32>` makes
+`Level` and `Level<f32>` one struct, and a use may leave out every parameter that has one.
+
+**A `new` may leave its type arguments to inference**, as TypeScript's does. This front end is
+syntactic and has no argument types where the structs are collected, so the expression is
+answered from the instances the file writes elsewhere: when there is exactly one, a bare `new`
+can only be building that one, and the constructor's own argument check catches a call that does
+not fit it. With several, one sentence says to write the type argument.
+
+**A static belongs to the class, not to an instance.** TypeScript refuses a static that mentions
+the class's type parameters outright, so a static is the same function however many instances
+there are: one copy, under the class's own name, `Level_unit`.
+
+**A base written with type arguments is the instance it names.** `class Marked extends Slot<f32>`
+inherits `Slot_f32`'s fields and its methods, and the inherited bodies are read under the
+binding they were written for. Before this item that was refused, with "one declaration per
+argument set" as the reason — which is what a generic class now is.
+
+**Arithmetic on a type parameter is TypeScript's limit here too**, so a generic class holds,
+selects, indexes and returns, and the arithmetic happens on what it gives back.
+
+**Refused, each in one sentence.** A type argument that is itself a type parameter, because it
+names no layout until the declaration around it is instantiated; the wrong number of type
+arguments. A surplus argument is reported once and the instance is still collected from the ones
+the class declares, so the mistake does not take the struct, and every use of it, down with it.
 
 ---
 

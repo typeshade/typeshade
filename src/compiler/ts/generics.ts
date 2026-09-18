@@ -43,6 +43,17 @@ export function withTypeArguments<R>(
   }
 }
 
+/** Bind `args` as the type arguments and return the undo. The imperative twin of
+ *  {@link withTypeArguments}, for a caller whose body is a loop with `continue` in it: an
+ *  arrow function would make that `continue` cross a function boundary. */
+export function pushTypeArguments(args: ReadonlyMap<string, ShaderType> | undefined): () => void {
+  const saved = BOUND
+  BOUND = args
+  return () => {
+    BOUND = saved
+  }
+}
+
 /** The type `name` is bound to right now, when it is a type parameter of the instantiation being
  *  lowered. Read by `type-map.ts` ahead of every other meaning of a type name, because a type
  *  parameter shadows in TypeScript too. */
@@ -108,7 +119,12 @@ export function inferFrom(
   }
   if (ts.isTupleTypeNode(node) && actual.kind === 'array') {
     for (const element of node.elements) {
-      inferFrom(ts.isNamedTupleMember(element) ? element.type : element, actual.elem, parameters, out)
+      inferFrom(
+        ts.isNamedTupleMember(element) ? element.type : element,
+        actual.elem,
+        parameters,
+        out,
+      )
     }
   }
 }

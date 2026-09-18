@@ -11,6 +11,26 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ## [Unreleased]
 
+### Added
+
+- **A generic class, by monomorphisation** (§32, roadmap 0.3 item T9,
+  [#92](https://github.com/typeshade/typeshade/issues/92)). A WGSL or GLSL struct is one layout,
+  its fields' types fixed, so `class Slot<T>` written at `f32` and at `vec3` is collected twice:
+  `Slot_f32` and `Slot_vec3` are separate structs, each with its own constructor and its own copy
+  of every method. Nothing called `Slot` is emitted, and a generic class nothing writes emits
+  nothing at all. The instances are read off the source rather than discovered as the lowering
+  runs, because a struct has to exist before anything is lowered against it; every use is a type
+  node, an `extends`, or a `new`, so one walk finds them all. A type argument may itself be an
+  instance (`Box<Box<f32>>`), and a class inside a namespace is reached by its dotted name
+  (`N.Pair<f32>`). Alongside it: a type parameter's default is read the way TypeScript reads it,
+  so `class Level<T = f32>` makes `Level` and `Level<f32>` one struct; a `new` may leave its type
+  arguments to inference, answered from the instances the file writes, with one sentence naming
+  the fix when several are in play; a static is one function under the class's own name, since
+  TypeScript refuses a static that mentions the class's type parameters; and `extends Slot<f32>`
+  now inherits that instance, where a base with type arguments used to be refused outright with
+  "one declaration per argument set" as the reason. `examples/generic-class.shade.ts` carries the
+  surface on both targets.
+
 ### Fixed
 
 - **A conditional on a struct or a fixed-length array emitted code both backends reject** (§31,
@@ -18,7 +38,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   with zero diagnostics and emitted `select(Ray, Ray, bool)` on WGSL, which Tint refuses —
   `select` is declared for a scalar or a vector, and WGSL has no ternary — and `((c) ? r1 : r2)`
   on GLSL, which a WebGL2 driver refuses too: `'?:' : ternary operator is not allowed for
-  structures in ESSL 1.0 and webgl`, and the same for arrays. That second half corrects a
+structures in ESSL 1.0 and webgl`, and the same for arrays. That second half corrects a
   reading of the ES 3.00 spec, whose ternary takes any two operands of one type; the driver is
   what the emitted code has to satisfy. Neither target has an operator, so the rewrite is
   neutral and runs in the shared pipeline: the conditional is hoisted into a slot and an `if`,
@@ -77,7 +97,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 - **The mixin pattern, run when the file is compiled** (§29, roadmap 0.3 item T8,
   [#92](https://github.com/typeshade/typeshade/issues/92)). `class TintedDisc extends
-  Tinted(Disc)` is a class whose base is decided by running a function; TypeScript runs it at
+Tinted(Disc)` is a class whose base is decided by running a function; TypeScript runs it at
   run time and gets a constructor, and there is no run time here, so it runs at compile time and
   gives a list of members. A mixin is a function whose body is one `return class … { … }`, whose
   class expression may extend the function's own parameter, a declared class, or nothing. Its
