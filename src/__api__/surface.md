@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 413 exports
+## `.` — 414 exports
 
 ```
 abs
@@ -239,6 +239,7 @@ mod
 module
 ModuleDecl
 ModuleParts
+ModuleVarDecl
 mul
 mulMat64
 Node
@@ -524,7 +525,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 239 exports
+## `./core/ir` — 240 exports
 
 ```
 abs
@@ -650,6 +651,7 @@ mod
 module
 ModuleDecl
 ModuleParts
+ModuleVarDecl
 mul
 mulMat64
 Node
@@ -807,7 +809,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 521 definitions
+## Shapes — 522 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { fileName?: string }
@@ -823,11 +825,11 @@ src/compiler/ts/pack.ts#PackEntry  interface  { name: string; stage: string }
 src/compiler/ts/pack.ts#packJson  function  (m: ModuleDecl) => string
 src/compiler/ts/pack.ts#packModule  function  (m: ModuleDecl) => Pack
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
-src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; wgsl?: string }
+src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; vars: readonly ModuleVarDecl[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
-src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; phonyAssign?: string; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
+src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitModuleVar?: (v: ModuleVarDecl) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; phonyAssign?: string; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
 src/core/backend.ts#CapProfile  type  { compute?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; storageBuffer?: <no-declaration>; subgroups?: <no-declaration> }
 src/core/backend.ts#CapSupport  interface  { directive?: string; hostFeature?: string }
 src/core/backend.ts#CapSupportKind  type  "native" | "directive" | "host-feature" | "unsupported"
@@ -944,7 +946,7 @@ src/core/ir/builder.ts#If  const  (cond: ReadonlyNode<"bool">, body: () => void 
 src/core/ir/builder.ts#IfChain  class  { arms: { cond: Expr; body: Stmt[]; }[]; elif: (cond: ReadonlyNode<"bool">, body: (b: Builder) => void | ReadonlyNode<string>) => IfChain; else: (body: (b: Builder) => void | ReadonlyNode<string>) => void; parent: Builder; setElse: (body: Stmt[]) => void }
 src/core/ir/builder.ts#Let  function  { <K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>; <K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>; }
 src/core/ir/builder.ts#Loop  function  { (count: number, body: (i: Node<"u32">) => void | ReadonlyNode<string>): void; (name: string, count: number, body: (i: Node<"u32">) => void | ReadonlyNode<string>): void; <K extends string>(init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; <K extends string>(name: string, init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; }
-src/core/ir/builder.ts#ModuleParts  interface  { bindings?: readonly BindingDecl[]; consts?: readonly ConstDecl[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>; overrides?: readonly OverrideDecl[]; structs?: readonly StructDecl[]; uses?: readonly UsesHandle[] }
+src/core/ir/builder.ts#ModuleParts  interface  { bindings?: readonly BindingDecl[]; consts?: readonly ConstDecl[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>; overrides?: readonly OverrideDecl[]; structs?: readonly StructDecl[]; uses?: readonly UsesHandle[]; vars?: readonly ModuleVarDecl[] }
 src/core/ir/builder.ts#OverrideHandle  interface  { decl: OverrideDecl; node: ReadonlyNode<K> }
 src/core/ir/builder.ts#ParamSpec  type  { [x: string]: ShaderType; }
 src/core/ir/builder.ts#Return  const  (value?: ReadonlyNode<string>) => void
@@ -1109,7 +1111,8 @@ src/core/ir/nodes.ts#Expr  type  { readonly op: "lit"; readonly type: ShaderType
 src/core/ir/nodes.ts#ExternVarDecl  interface  { name: string; spelling?: { readonly wgsl?: string; readonly glsl?: string; }; stage?: "vertex" | "fragment" | "compute"; type: ShaderType }
 src/core/ir/nodes.ts#FuncDecl  interface  { [ASSEMBLED_AS]?: string; allowEarlyReturn?: boolean; attrs?: readonly string[]; body: readonly Stmt[]; lintDisable?: readonly string[]; name: string; nameSpan?: SourceSpan; opaque?: boolean; params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; }[]; portable?: boolean; ret: ShaderType; retAttr?: string; retBuiltin?: string; span?: SourceSpan; stage?: "vertex" | "fragment" | "compute"; workgroupSize?: number }
 src/core/ir/nodes.ts#LogOp  type  "&&" | "||"
-src/core/ir/nodes.ts#ModuleDecl  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs: readonly FuncDecl[]; overrides?: readonly OverrideDecl[]; structs: readonly StructDecl[] }
+src/core/ir/nodes.ts#ModuleDecl  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs: readonly FuncDecl[]; overrides?: readonly OverrideDecl[]; structs: readonly StructDecl[]; vars?: readonly ModuleVarDecl[] }
+src/core/ir/nodes.ts#ModuleVarDecl  interface  { init?: Expr; name: string; space: "workgroup" | "private"; type: ShaderType }
 src/core/ir/nodes.ts#OverrideDecl  interface  { default: number | boolean; name: string; type: ShaderType }
 src/core/ir/nodes.ts#RawPayload  type  { readonly wgsl: string; readonly glsl?: string; } | { readonly wgsl?: string; readonly glsl: string; }
 src/core/ir/nodes.ts#RawStmt  type  { readonly s: "raw"; readonly wgsl: string; readonly glsl?: string; readonly span?: SourceSpan; } | { readonly s: "raw"; readonly wgsl?: string; readonly glsl: string; readonly span?: SourceSpan; }

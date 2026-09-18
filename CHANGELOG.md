@@ -13,6 +13,19 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Module variables** (roadmap 0.2 item 5, design #82): `let tile: workgroup<array<f32, 64>>`
+  is WGSL's `var<workgroup>`, memory one workgroup's invocations share, zero at the start of
+  each workgroup; `let seed: perInvocation<u32> = 7` is WGSL's `var<private>`, a value each
+  invocation owns for its run, at its constant initializer. The name is not `private<T>`
+  because TypeScript reserves the word. A `workgroup` array may hold atomics and the §23
+  builtins take the location. GLSL ES 3.00 spells a per-invocation variable as a plain global
+  and has no form for workgroup memory. The IR gains `ModuleDecl.vars` (`ModuleVarDecl`), which
+  `reflect()` does not report; the effect table counts a write to one; the oracle, codegen and
+  debugger hold per-invocation storage that starts over at every host-facing call and one
+  implicit workgroup's memory for the module's lifetime. A `const` with a wrapper, a
+  `workgroup` initializer, a type the space cannot hold, a non-constant initializer or
+  workgroup memory read from a vertex or fragment entry is TS8033 with the fix. Barriers and
+  the lockstep dispatch are the next step of #82.
 - **Atomics** (roadmap 0.2 item 4): `atomic<u32>` and `atomic<i32>` inside a `let` storage
   binding (an array element, a storage struct field, a bare binding), and the ten builtins
   `atomicLoad`, `atomicStore`, `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`,
