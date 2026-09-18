@@ -310,7 +310,12 @@ describe('a position that declares a type through something else', () => {
     const w = wgslOf(
       `${TWINS}export function f(c: bool): Q {\n  return c ? { a: 1., b: 2. } : { a: 3., b: 4. };\n}`,
     )
-    expect(w).toContain('select(Q(3.0, 4.0), Q(1.0, 2.0), c)')
+    // Which struct each arm builds is what this test is about, and it is still Q on both. The
+    // conditional itself is a slot and an `if` now, because a struct conditional has no
+    // operator on either target (#113) — it used to read `select(Q(3.0, 4.0), Q(1.0, 2.0), c)`,
+    // which Tint refuses.
+    expect(w).toContain('    _sel0 = Q(1.0, 2.0);')
+    expect(w).toContain('    _sel0 = Q(3.0, 4.0);')
   })
 
   it('an array constructor names its element type in its own type argument', () => {

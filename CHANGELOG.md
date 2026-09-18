@@ -11,6 +11,28 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A conditional on a struct or a fixed-length array emitted code both backends reject** (§31,
+  [#113](https://github.com/typeshade/typeshade/issues/113)). `c ? a : b` on two structs compiled
+  with zero diagnostics and emitted `select(Ray, Ray, bool)` on WGSL, which Tint refuses —
+  `select` is declared for a scalar or a vector, and WGSL has no ternary — and `((c) ? r1 : r2)`
+  on GLSL, which a WebGL2 driver refuses too: `'?:' : ternary operator is not allowed for
+  structures in ESSL 1.0 and webgl`, and the same for arrays. That second half corrects a
+  reading of the ES 3.00 spec, whose ternary takes any two operands of one type; the driver is
+  what the emitted code has to satisfy. Neither target has an operator, so the rewrite is
+  neutral and runs in the shared pipeline: the conditional is hoisted into a slot and an `if`,
+  exactly as a multi-arm conditional expression is hoisted into a slot and a `switch`. A helper
+  function would have been shorter and wrong — its arguments are evaluated before the call, so
+  both arms would run, and an arm holding a call that discards would discard unconditionally.
+  The `if` also retires a documented under-fix in the ANGLE workaround pass, which used to skip
+  a conditional's arms for that reason and now hoists inside the branch. A scalar or vector
+  conditional keeps the operator each target has, and the CPU backends read the IR and need
+  none of it. `examples/pick-composite.shade.ts` joins the corpus
+  so the gate compiles the shape on both targets from now on — nothing in it did before, and the
+  constant folder hides the easy case, so it takes a runtime condition AND two distinguishable
+  arms to reach.
+
 ### Changed
 
 - **A method that changes its object takes it by reference** (§26). It took the struct and

@@ -2302,6 +2302,60 @@ not the parameter's is the ordinary mismatch, reported against the instance once
 A generic CLASS is not here yet: `class Pair<T>` still says that a struct is one concrete layout.
 Its instances would be `Pair_f32` and `Pair_vec3` by the same rule.
 
+## 31. A conditional on a struct or an array
+
+Issue #113. `c ? a : b` where the two arms are structs, or fixed-length arrays, is a value chosen
+at run time, and **neither target has an operator for it**. Measured on the real backends:
+
+| target | the obvious spelling | verdict |
+| --- | --- | --- |
+| WGSL | `select(Ray, Ray, bool)` | Tint: `no matching call to 'select(Ray, Ray, bool)'` — `select` is declared for a scalar or a vector, and WGSL has no ternary at all |
+| GLSL ES 3.00 | `((c) ? r1 : r2)` | WebGL2: `'?:' : ternary operator is not allowed for structures in ESSL 1.0 and webgl`, and the same for arrays |
+
+The GLSL row is worth reading twice: the ES 3.00 spec's ternary takes any two operands of one
+type, so the spec says a struct is fine. The driver says no, and the driver is what the emitted
+code has to satisfy.
+
+So the conditional is hoisted into a slot and an `if`, exactly as §19's multi-arm conditional
+expression is hoisted into a slot and a `switch`, and for the same reason: the targets have the
+statement, not the expression.
+
+```wgsl
+var _sel0: Ray;
+if ((p.x > 0.5)) {
+  _sel0 = r1;
+} else {
+  _sel0 = r2;
+}
+let r = _sel0;
+```
+
+```glsl
+Ray _sel0;
+if ((p.x > 0.5)) {
+  _sel0 = r1;
+} else {
+  _sel0 = r2;
+}
+Ray r = _sel0;
+```
+
+**A helper function would have been shorter and wrong.** Its arguments are evaluated before the
+call, so both arms would run, and an arm holding a call that `discard`s would then discard
+unconditionally. The `if` keeps each arm on its own branch, which is what the source says and
+what the CPU oracle already does. It also retires a documented under-fix: the ANGLE workaround
+that hoists a struct constructor out of a position that target dislikes used to skip a
+conditional's arms for exactly that reason, and now hoists inside the branch instead.
+
+A scalar or a vector conditional keeps the operator each target has, `select` on WGSL and the
+ternary on GLSL. A conditional inside a loop body hoists inside that body, never out of it. The
+CPU backends read the IR, where the conditional is still a conditional, and need none of it.
+`examples/pick-composite.shade.ts` is the gate's evidence on both targets.
+
+**Why nothing caught it.** No example carried the shape, so the gate had never compiled one. The
+constant folder hides the easy case as well: `true ? a : b` folds, and two identical arms CSE to
+one binding, so it takes a runtime condition AND two distinguishable arms to reach at all.
+
 ---
 
 Last updated: 2026-09-18
