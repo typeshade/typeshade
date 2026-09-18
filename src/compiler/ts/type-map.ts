@@ -26,6 +26,9 @@ import {
   structT,
   arrayT,
   samplerT,
+  ALL_STORAGE_TEXTURE_FORMATS,
+  READ_WRITE_STORAGE_FORMATS,
+  type StorageTextureFormat,
 } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { makeDiagnostic } from './diagnostic.js'
@@ -81,17 +84,28 @@ const TEXTURE_DIM: Readonly<Record<string, '2d' | '2d-array'>> = {
   texture_2d_array: '2d-array',
 }
 
+/** The storage texture names and the `dim` each one carries (roadmap 0.4 item 10). Separate
+ *  from {@link TEXTURE_DIM} because the two take different type arguments: a sampled texture
+ *  takes an element type, a storage texture takes a FORMAT and an ACCESS mode, both written as
+ *  string literal types so `tsc` checks them before this compiler does. */
+const STORAGE_TEXTURE_DIM: Readonly<Record<string, '2d' | '2d-array'>> = {
+  texture_storage_2d: '2d',
+  texture_storage_2d_array: '2d-array',
+}
+
 /** The handle type names — a sampler and every texture. One authority: `bindings.ts` reads
  *  this rather than keeping a second list that could drift from the map that does the mapping. */
 export const HANDLE_TYPE_NAMES: ReadonlySet<string> = new Set([
   ...Object.keys(HANDLE_MAP),
   ...Object.keys(TEXTURE_DIM),
+  ...Object.keys(STORAGE_TEXTURE_DIM),
 ])
 
 export const SUPPORTED_TYPE_NAMES: readonly string[] = [
   ...Object.keys(SCALAR_AND_VEC_MAP),
   ...Object.keys(HANDLE_MAP),
   ...Object.keys(TEXTURE_DIM),
+  ...Object.keys(STORAGE_TEXTURE_DIM),
 ]
 
 /** The file's type aliases that are NOT object types, by name (roadmap 0.3 item T2, #92).
@@ -599,6 +613,16 @@ function mapGeneric(
     }
     return { kind: 'texture', dim, elem: elemName }
   }
+  if (name !== undefined && STORAGE_TEXTURE_DIM[name]) {
+    return mapStorageTexture(
+      name,
+      STORAGE_TEXTURE_DIM[name]!,
+      args,
+      typeNode,
+      sourceFile,
+      diagnostics,
+    )
+  }
   if (name === 'mat4' || name === 'mat4x4') {
     const elemName = typeNameOfArg(args[0])
     if (elemName === 'u32' || elemName === 'i32' || elemName === 'bool') {
@@ -617,6 +641,79 @@ function mapGeneric(
     `Type arguments are not supported yet (got "${name}<...>").`,
   )
   return undefined
+}
+
+/** `texture_storage_2d<"rgba8unorm", "write">` (roadmap 0.4 item 10). Both arguments are
+ *  string LITERAL types, which is what lets `tsc` check a mistyped format before this compiler
+ *  sees the file and what keeps the spelling ordinary TypeScript.
+ *
+ *  Two things are refused here that Tint would not refuse. Tint compiles every format at every
+ *  access mode; a real device does not, so a `read_write` on anything but the three
+ *  single-channel 32-bit formats, and any format outside the sixteen core ones, is reported
+ *  with the reason. Both were measured against a device rather than read off a spec: the
+ *  spelling Tint takes and the device refuses passes the compile gate and then fails at
+ *  `createBindGroupLayout`, which is a wrong program emitted without a diagnostic. */
+function mapStorageTexture(
+  name: string,
+  dim: '2d' | '2d-array',
+  args: readonly ts.TypeNode[],
+  typeNode: ts.TypeReferenceNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+): ShaderType | undefined {
+  const written = (node: ts.TypeNode | undefined): string | undefined =>
+    node !== undefined && ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)
+      ? node.literal.text
+      : undefined
+  const format = written(args[0])
+  if (
+    format === undefined ||
+    !(ALL_STORAGE_TEXTURE_FORMATS as readonly string[]).includes(format)
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `${name}<Format, Access> needs a texel format written as a string, one of ` +
+        `${ALL_STORAGE_TEXTURE_FORMATS.map((f) => `"${f}"`).join(', ')}. ` +
+        `Those are the formats every WebGPU device stores to with no feature requested; a ` +
+        `format outside them compiles and then fails when the host builds the bind group.`,
+      TS_CODES.UNKNOWN_TYPE,
+    )
+    return undefined
+  }
+  const access = written(args[1]) ?? 'write'
+  if (access !== 'write' && access !== 'read' && access !== 'read_write') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `${name}<Format, Access> Access is "write", "read" or "read_write"; got "${access}".`,
+      TS_CODES.UNKNOWN_TYPE,
+    )
+    return undefined
+  }
+  if (
+    access === 'read_write' &&
+    !(READ_WRITE_STORAGE_FORMATS as readonly string[]).includes(format)
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${format}" cannot be read_write. A device stores AND loads through the same binding ` +
+        `only at ${READ_WRITE_STORAGE_FORMATS.map((f) => `"${f}"`).join(', ')}; every other ` +
+        `format is "write" or "read", one at a time. Take two bindings over the same texture ` +
+        `if this one has to be both.`,
+      TS_CODES.UNKNOWN_TYPE,
+    )
+    // Reported, and the type is still returned below: it is a well-formed storage texture that
+    // no device will bind, not a name that means nothing. Keeping it keeps the binding alive,
+    // so this reads as the one sentence it is instead of trailing an "Unknown identifier" at
+    // every use (T10, #111). A module carrying an error emits nothing, so the spelling never
+    // reaches a device anyway.
+  }
+  return { kind: 'storage-texture', dim, format: format as StorageTextureFormat, access }
 }
 
 function typeNameOf(node: ts.TypeReferenceNode): string | undefined {

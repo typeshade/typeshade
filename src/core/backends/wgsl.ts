@@ -89,6 +89,13 @@ export function wgslType(t: ShaderType): string {
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.
           return t satisfies never
       }
+    case 'storage-texture':
+      // `texture_storage_2d<rgba8unorm, write>` — the format and the access mode are part of
+      // the TYPE in WGSL, not of the declaration, which is why they sit on the IR type and not
+      // beside the binding. Spelled per dim for the same reason a sampled texture is.
+      return t.dim === '2d-array'
+        ? `texture_storage_2d_array<${t.format}, ${t.access}>`
+        : `texture_storage_2d<${t.format}, ${t.access}>`
     case 'sampler':
       return 'sampler'
     case 'void':
@@ -175,6 +182,10 @@ const WGSL_CAP_PROFILE = {
   storageBuffer: {},
   compute: {},
   msaaTextureLoad: {},
+  // A storage texture needs no device feature at the sixteen core formats (roadmap 0.4 item
+  // 10) — measured against a real adapter, which built a bind group layout for each of them
+  // with nothing requested. The formats that DO need one are not in `StorageTextureFormat`.
+  storageTexture: {},
   // Opt-in LANGUAGE features — a WGSL `enable` directive AND a device feature.
   f16: { directive: 'f16', hostFeature: 'shader-f16' },
   subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },
@@ -271,8 +282,14 @@ export const wgslBackend: Backend = {
     return `struct ${s.name} {\n${fields}\n}`
   },
   emitBinding: (b) => {
-    // texture / sampler are handle types — no address space (`var x: T;`).
-    if (b.type.kind === 'texture' || b.type.kind === 'sampler') {
+    // texture / storage texture / sampler are handle types — no address space (`var x: T;`).
+    // A storage texture carries its format and access INSIDE the type, so it declares the same
+    // way a sampled one does even though it is written through (roadmap 0.4 item 10).
+    if (
+      b.type.kind === 'texture' ||
+      b.type.kind === 'storage-texture' ||
+      b.type.kind === 'sampler'
+    ) {
       return `@group(${b.group}) @binding(${b.binding}) var ${b.name}: ${wgslType(b.type)};`
     }
     const space = b.space === 'storage' ? `storage, ${b.access ?? 'read'}` : 'uniform'
@@ -400,7 +417,7 @@ export function emitFuncs(funcs: readonly FuncDecl[]): string {
   const lowered = pointerSpaces(
     selectComposite(
       fixpoint(
-      fp64Lower(
+        fp64Lower(
           lowerModule(autoVars({ consts: [], structs: [], bindings: [], funcs: [...funcs] })),
         ),
       ),

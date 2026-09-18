@@ -32,6 +32,87 @@ export type Scalar = 'f32' | 'i32' | 'u32' | 'bool'
  */
 export type TextureElem = 'f32' | 'u32' | 'i32'
 
+/** The texel formats a storage texture may carry, which is WebGPU's set of formats every device
+ *  supports with `STORAGE_BINDING` and no optional feature (roadmap 0.4 item 10).
+ *
+ *  Measured rather than read off a spec: a real device was asked to build a bind group layout
+ *  for each format at each access mode, and these sixteen are the ones it took. `bgra8unorm`
+ *  needs the `bgra8unorm-storage` feature and `r8unorm`, `rg8unorm`, `rgb10a2unorm` and
+ *  `rg16float` need the tiered texture-format features, so none of them is here: a module
+ *  naming one compiles on Tint and then fails at `createBindGroupLayout` on every device,
+ *  which is a wrong program emitted without a diagnostic. */
+export type StorageTextureFormat =
+  | 'rgba8unorm'
+  | 'rgba8snorm'
+  | 'rgba8uint'
+  | 'rgba8sint'
+  | 'rgba16uint'
+  | 'rgba16sint'
+  | 'rgba16float'
+  | 'r32uint'
+  | 'r32sint'
+  | 'r32float'
+  | 'rg32uint'
+  | 'rg32sint'
+  | 'rg32float'
+  | 'rgba32uint'
+  | 'rgba32sint'
+  | 'rgba32float'
+
+/** Every {@link StorageTextureFormat}, as a runtime value: the list a front end validates a
+ *  written name against and a doc generator iterates. A union type has no runtime form, so the
+ *  list is written out and `satisfies` keeps it in step. */
+export const ALL_STORAGE_TEXTURE_FORMATS = [
+  'rgba8unorm',
+  'rgba8snorm',
+  'rgba8uint',
+  'rgba8sint',
+  'rgba16uint',
+  'rgba16sint',
+  'rgba16float',
+  'r32uint',
+  'r32sint',
+  'r32float',
+  'rg32uint',
+  'rg32sint',
+  'rg32float',
+  'rgba32uint',
+  'rgba32sint',
+  'rgba32float',
+] as const satisfies readonly StorageTextureFormat[]
+
+/** How a shader may touch a storage texture. WGSL spells these `write`, `read` and
+ *  `read_write`; WebGPU's bind group layout spells the same three `write-only`, `read-only` and
+ *  `read-write`, which is what {@link storageTextureLayoutAccess} converts to. */
+export type StorageTextureAccess = 'write' | 'read' | 'read_write'
+
+/** The formats a device takes at `read_write` access, which is the three single-channel 32-bit
+ *  ones and no others (measured, as {@link StorageTextureFormat} describes). Every other format
+ *  is `write` or `read`, one at a time. Tint compiles `texture_storage_2d<rgba8unorm,
+ *  read_write>` happily, so this list is the only thing standing between that spelling and a
+ *  device error the compile gate never reaches. */
+export const READ_WRITE_STORAGE_FORMATS = [
+  'r32uint',
+  'r32sint',
+  'r32float',
+] as const satisfies readonly StorageTextureFormat[]
+
+/** The type of one texel of a storage texture, which its format's channel kind decides: a
+ *  `…uint` format loads and stores `vec4<u32>`, a `…sint` format `vec4<i32>`, and every other
+ *  one — unorm, snorm and float — `vec4<f32>`. Tint enforces this (`no matching call to
+ *  'textureStore(texture_storage_2d<rgba8uint, write>, vec2<i32>, vec4<f32>)'`), so a front end
+ *  that checks it first can say the same thing in its own words and name the fix. */
+export const storageTexel = (format: StorageTextureFormat): TextureElem =>
+  format.endsWith('uint') ? 'u32' : format.endsWith('sint') ? 'i32' : 'f32'
+
+/** What WebGPU's `GPUStorageTextureBindingLayout.access` calls a WGSL access mode. The two
+ *  vocabularies differ by a hyphen and a word, and a host passing the WGSL spelling straight
+ *  through gets a validation error, so reflection carries the host's spelling. */
+export const storageTextureLayoutAccess = (
+  access: StorageTextureAccess,
+): 'write-only' | 'read-only' | 'read-write' =>
+  access === 'write' ? 'write-only' : access === 'read' ? 'read-only' : 'read-write'
+
 /** The runtime type descriptor for every value the DSL can represent: a plain, comparable
  *  discriminated union, so a `switch (t.kind)` over it is exhaustively checked by `tsc` at
  *  every site that must decide what to do with a shape ({@link typeKey}, {@link wgslLayout},
@@ -81,6 +162,22 @@ export type ShaderType =
   // every existing `t.dim === '…'` switch reads the same.
   | { readonly kind: 'texture'; readonly dim: '2d' | '2d-array'; readonly elem: TextureElem }
   | { readonly kind: 'texture'; readonly dim: '2d-ms'; readonly elem: 'f32' }
+  // A storage texture (roadmap 0.4 item 10): an image a shader reads and writes by texel
+  // coordinate, with no sampler and no filtering. Its OWN kind rather than another `dim` on
+  // `texture`, because the two are different things at every site that touches one: a sampled
+  // texture is read through a sampler and carries an element type, a storage texture is
+  // addressed directly and carries a FORMAT and an ACCESS mode. Keeping them apart means every
+  // existing `t.kind === 'texture'` switch keeps meaning "sampled", and a site that must decide
+  // about storage textures fails to compile until it does.
+  //
+  // WebGPU only. GLSL ES 3.00 has no image load/store at all — that is ES 3.1 — so the GLSL
+  // backend fails closed, as it does for storage buffers and atomics.
+  | {
+      readonly kind: 'storage-texture'
+      readonly dim: '2d' | '2d-array'
+      readonly format: StorageTextureFormat
+      readonly access: StorageTextureAccess
+    }
   | { readonly kind: 'sampler' }
   | { readonly kind: 'void' }
 
@@ -592,6 +689,12 @@ export function typeKey(t: ShaderType): string {
           // fails compilation right here.
           return t satisfies never
       }
+    case 'storage-texture':
+      // Spelled as WGSL spells it, so the key a host or a golden reads is the declaration's
+      // own text. `dim` is written out for the same reason `texture` writes it out.
+      return t.dim === '2d-array'
+        ? `texture_storage_2d_array<${t.format}, ${t.access}>`
+        : `texture_storage_2d<${t.format}, ${t.access}>`
     case 'atomic':
       return `atomic<${t.elem}>`
     case 'sampler':

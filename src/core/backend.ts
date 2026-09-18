@@ -424,11 +424,12 @@ export function capabilityMatrix(backends: readonly Backend[]): readonly Capabil
   }))
 }
 
-/** The three caps `requiredCaps` derives from a module's SHAPE — a storage binding, a
- *  `@compute` entry, an MSAA texture load — and which `DeclarableCapability` therefore
- *  makes unrepresentable in `enables` (X-GIS #1681 A2). */
+/** The four caps `requiredCaps` derives from a module's SHAPE — a storage binding, a
+ *  `@compute` entry, an MSAA texture load, a storage-texture binding — and which
+ *  `DeclarableCapability` therefore makes unrepresentable in `enables` (X-GIS #1681 A2). */
 const DERIVED_CAPABILITIES: ReadonlySet<Capability> = new Set([
   'storageBuffer',
   'compute',
   'msaaTextureLoad',
+  'storageTexture',
 ])

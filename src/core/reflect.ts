@@ -22,6 +22,8 @@ import {
   type AddressSpace,
   type Capability,
   type TextureElem,
+  type StorageTextureFormat,
+  storageTextureLayoutAccess,
   type BindingDecl,
   typeKey,
   stageOf,
@@ -269,7 +271,8 @@ function structLayout(
  *
  *  Exported from `typeshade`.
  */
-export type ResourceKind = 'uniform-buffer' | 'storage-buffer' | 'texture' | 'sampler'
+export type ResourceKind =
+  'uniform-buffer' | 'storage-buffer' | 'texture' | 'storage-texture' | 'sampler'
 /** One resource slot in a reflected bind group: the shape of a single WGSL
  *  `@group(G) @binding(B) var<space> name: T` declaration, or of the sampler uniform or std140
  *  block the GLSL ES 3.00 backend emits for it. `name` is the declaration's own identifier,
@@ -329,6 +332,22 @@ export interface BindEntry {
    *  sampler. A module that type-checks never asks it to: {@link textureSample} rejects an
    *  integer texture at compile time. */
   readonly textureElem?: TextureElem
+  /** The texel format the shader declared for a storage texture, exactly as WebGPU's
+   *  `GPUStorageTextureBindingLayout.format` spells it. Always set on a `storage-texture`
+   *  entry, absent on every other kind (roadmap 0.4 item 10).
+   *
+   *  A storage texture's format is part of its TYPE in WGSL, not a property of the view, and a
+   *  host's bind group layout has to repeat it exactly: a layout whose format differs from the
+   *  shader's is a validation error at pipeline creation. */
+  readonly storageFormat?: StorageTextureFormat
+  /** How the shader may touch a storage texture, in WebGPU's spelling rather than WGSL's —
+   *  `'write-only'`, `'read-only'`, `'read-write'` — which is what
+   *  `GPUStorageTextureBindingLayout.access` takes. Always set on a `storage-texture` entry,
+   *  absent on every other kind.
+   *
+   *  A host passing WGSL's own `write` / `read` / `read_write` through gets a validation error,
+   *  so the translation happens here rather than in every host. */
+  readonly storageAccess?: 'write-only' | 'read-only' | 'read-write'
   /** The stages that reference this binding, in the order vertex, fragment, compute. It
    *  comes from the same reachability walk the per-stage GLSL emit uses to decide which
    *  shader declares which uniform, so a host's stage mask can never describe a narrower
@@ -562,11 +581,17 @@ const ioField = (f: IoField): EntryIoField => ({
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
   t.kind === 'texture'
     ? 'texture'
-    : t.kind === 'sampler'
-      ? 'sampler'
-      : space === 'storage'
-        ? 'storage-buffer'
-        : 'uniform-buffer'
+    : // Its OWN kind, not `texture` (roadmap 0.4 item 10): the two need different
+      // `GPUBindGroupLayoutEntry` members — `texture: { sampleType, viewDimension }` against
+      // `storageTexture: { access, format, viewDimension }` — so a host that could not tell
+      // them apart would build the wrong layout for one of them.
+      t.kind === 'storage-texture'
+      ? 'storage-texture'
+      : t.kind === 'sampler'
+        ? 'sampler'
+        : space === 'storage'
+          ? 'storage-buffer'
+          : 'uniform-buffer'
 
 // String fallback ONLY (X-GIS #740 R3): fn()-authored decls carry structured
 // `stage`/`workgroupSize` — reflect reads those first; the attrs-string parse
@@ -711,6 +736,16 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         : {}),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
       ...(b.type.kind === 'texture' ? { textureDim: b.type.dim, textureElem: b.type.elem } : {}),
+      // A storage texture carries `textureDim` too, since a host needs the view dimension for
+      // it exactly as it does for a sampled one; what it has instead of `textureElem` is the
+      // format, which decides the texel type on its own (roadmap 0.4 item 10).
+      ...(b.type.kind === 'storage-texture'
+        ? {
+            textureDim: b.type.dim,
+            storageFormat: b.type.format,
+            storageAccess: storageTextureLayoutAccess(b.type.access),
+          }
+        : {}),
       stages: stages.get(b.name) ?? [],
     }
     ;(byGroup.get(b.group) ?? byGroup.set(b.group, []).get(b.group)!).push(e)

@@ -1,7 +1,16 @@
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { boolT, f32T, i32T, typeKey, u32T, vec2uT } from '../../../core/ir/types.js'
+import {
+  boolT,
+  f32T,
+  i32T,
+  storageTexel,
+  typeKey,
+  u32T,
+  vec2uT,
+  voidT,
+} from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import {
@@ -546,7 +555,92 @@ const TEXTURE_CALLS = new Set([
   'textureLoad',
   'textureDimensions',
   'textureNumLayers',
+  'textureStore',
 ])
+
+/** `textureStore(dst, coord, value)`, `textureLoad(src, coord)` and `textureDimensions(t)` on a
+ *  storage texture (roadmap 0.4 item 10).
+ *
+ *  Three things are checked here that Tint also checks, so the author reads this compiler's
+ *  words and a span in their own file rather than a driver's message about generated code: the
+ *  access mode has to admit the call (`textureLoad` on a `write` texture and `textureStore` on
+ *  a `read` one are both "no matching call" on Tint), and the value stored has to be the
+ *  texel type the FORMAT decides — `rgba8uint` stores a `vec4u`, `rgba8unorm` a `vec4`.
+ *
+ *  The coordinate is left to the ordinary argument check: Tint takes a signed or an unsigned
+ *  vector, so both `vec2i` and `vec2u` are written here as they are. */
+function lowerStorageTextureCall(
+  id: string,
+  tex: Extract<ShaderType, { kind: 'storage-texture' }>,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const isArray = tex.dim === '2d-array'
+  const texel: ShaderType = { kind: 'vec', n: 4, elem: storageTexel(tex.format) }
+  const shown = typeKey(tex)
+  if (id === 'textureDimensions') {
+    return arity(id, args, 1, node, sourceFile, diagnostics)
+      ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
+      : undefined
+  }
+  if (id === 'textureLoad') {
+    if (tex.access === 'write') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${shown}" is write-only, so textureLoad cannot read it. Declare it "read" to read ` +
+          `it, or "read_write" to do both — which only "r32uint", "r32sint" and "r32float" ` +
+          `allow, so a format outside those takes a second binding over the same texture.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return arity(id, args, isArray ? 3 : 2, node, sourceFile, diagnostics)
+      ? { op: 'call', type: texel, fn: id, args: [...args] }
+      : undefined
+  }
+  if (id === 'textureStore') {
+    if (tex.access === 'read') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${shown}" is read-only, so textureStore cannot write it. Declare it "write" to ` +
+          `write it, or "read_write" to do both — which only "r32uint", "r32sint" and ` +
+          `"r32float" allow.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    if (!arity(id, args, isArray ? 4 : 3, node, sourceFile, diagnostics)) return undefined
+    const value = args[isArray ? 3 : 2]!
+    if (typeKey(value.type) !== typeKey(texel)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${shown}" stores a ${typeKey(texel)}; got ${typeKey(value.type)}. The texel type is ` +
+          `the format's own: a "…uint" format stores a vec4u, a "…sint" one a vec4i, and ` +
+          `every other one — unorm, snorm and float — a vec4.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: voidT, fn: id, args: [...args] }
+  }
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${id} takes a sampled texture; "${shown}" is a storage texture, which is read and ` +
+      `written by texel coordinate with textureLoad and textureStore and has no sampler.`,
+    TS_CODES.TYPE_MISMATCH,
+  )
+  return undefined
+}
 
 /**
  * Lower `textureSample(tex, smp, uv)` and its siblings.
@@ -567,12 +661,30 @@ function lowerTextureCall(
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const tex = args[0]
+  // A storage texture is read and written by texel coordinate (roadmap 0.4 item 10), so the
+  // three calls that take one go down their own path: its access mode decides which of them
+  // apply, and its FORMAT decides the texel type where a sampled texture's element would.
+  if (tex && tex.type.kind === 'storage-texture') {
+    return lowerStorageTextureCall(id, tex.type, args, node, sourceFile, diagnostics)
+  }
   if (!tex || tex.type.kind !== 'texture') {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
       `${id} takes a texture as its first argument.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  if (id === 'textureStore') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `textureStore writes a storage texture; "${typeKey(tex.type)}" is a sampled texture, ` +
+        `which is read through a sampler and never written. Declare the binding as ` +
+        `texture_storage_2d<"rgba8unorm", "write"> (or whichever format) to write to it.`,
       TS_CODES.TYPE_MISMATCH,
     )
     return undefined

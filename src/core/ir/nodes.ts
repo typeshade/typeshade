@@ -620,9 +620,9 @@ export interface FuncDecl {
  *  targets whose extension names differ.
  *
  *  There are three classes:
- *  - Derived resource capabilities, `storageBuffer`, `compute` and `msaaTextureLoad`, are
- *    inferred from a module's shape (a storage binding, a `@compute` entry, a
- *    multisampled texture load) and never declared.
+ *  - Derived resource capabilities, `storageBuffer`, `compute`, `msaaTextureLoad` and
+ *    `storageTexture`, are inferred from a module's shape (a storage binding, a `@compute`
+ *    entry, a multisampled texture load, a storage-texture binding) and never declared.
  *  - Opt-in language capabilities, `f16` and `subgroups`, are declared in
  *    `ModuleDecl.enables`. Each is a WGSL `enable` directive with no GLSL ES 3.00
  *    counterpart, so a module using one fails closed on the GLSL backend.
@@ -650,6 +650,7 @@ export type Capability =
   | 'storageBuffer'
   | 'compute'
   | 'msaaTextureLoad'
+  | 'storageTexture'
   | 'f16'
   | 'subgroups'
   | 'floatRenderTarget'
@@ -664,6 +665,7 @@ export const ALL_CAPABILITIES = [
   'storageBuffer',
   'compute',
   'msaaTextureLoad',
+  'storageTexture',
   'f16',
   'subgroups',
   'floatRenderTarget',
@@ -684,7 +686,7 @@ export const ALL_CAPABILITIES = [
  *  exactly what they must express. */
 export type DeclarableCapability = Exclude<
   Capability,
-  'storageBuffer' | 'compute' | 'msaaTextureLoad'
+  'storageBuffer' | 'compute' | 'msaaTextureLoad' | 'storageTexture'
 >
 
 /** The whole-shader unit: everything a backend needs to emit a complete WGSL or GLSL ES 3.00

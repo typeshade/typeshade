@@ -384,6 +384,20 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // the front end restricts it to what the builtins accept (an atomic in storage). GLSL ES
   // 3.00 has no atomic memory functions; the column fails closed like arrayLength's.
   ...atomicSpellings(),
+  // textureStore(tex, coord, value) and its array form (roadmap 0.4 item 10). WGSL spells
+  // both `textureStore`, with the layer between the coordinate and the value on the array one,
+  // which is exactly the argument order the front end builds. GLSL ES 3.00 has no image
+  // load/store at all — that is ES 3.10, and a WebGL2 driver refuses both the `image2D` type
+  // and the extension that would bring it — so the column fails closed like the barriers'. A
+  // module reaching it has slipped past the `storageTexture` capability, which is the gate.
+  textureStore: {
+    wgsl: (a) => `textureStore(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: textureStore has no GLSL ES 3.00 spelling (image load/store is ES 3.10)',
+      )
+    },
+  },
   // The barriers take no argument and return nothing; GLSL ES 3.00 has no compute stage.
   workgroupBarrier: {
     wgsl: () => 'workgroupBarrier()',

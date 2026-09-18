@@ -239,6 +239,26 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
       funcs: [],
     }),
   },
+  storageTexture: {
+    kind: 'moduleShape',
+    what: "a binding whose type kind is 'storage-texture'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      // A storage texture rides the uniform space the same way a sampled one does: it is a
+      // handle, and the resource kind lives in `type`, which is what requiredCaps reads.
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'dst',
+          space: 'uniform',
+          type: { kind: 'storage-texture', dim: '2d', format: 'rgba8unorm', access: 'write' },
+        },
+      ],
+      funcs: [],
+    }),
+  },
 
   // ── OPT-IN caps whose whole surface is host activation. ──
   floatRenderTarget: hostOnly('floatRenderTarget'),

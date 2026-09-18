@@ -2418,6 +2418,82 @@ names no layout until the declaration around it is instantiated; the wrong numbe
 arguments. A surplus argument is reported once and the instance is still collected from the ones
 the class declares, so the mistake does not take the struct, and every use of it, down with it.
 
+## 33. A storage texture
+
+Roadmap 0.4 item 10. An image a shader reads and writes **by texel coordinate**, with no sampler
+and no filtering. The format and the access mode are part of its TYPE, as they are in WGSL, and
+are written as string literal types so `tsc` checks them in the editor.
+
+```ts
+declare const dst: texture_storage_2d<"rgba8unorm", "write">
+declare const acc: texture_storage_2d<"r32float", "read_write">
+declare const ids: texture_storage_2d<"rgba8uint", "write">
+
+@compute([64, 1, 1])
+export function paint(@builtin("global_invocation_id") gid: vec3u): void {
+  const at: vec2i = …
+  const seen = textureLoad(acc, at)
+  textureStore(acc, at, vec4(seen.x + 1., 0., 0., 0.))
+  textureStore(dst, at, vec4(uv.x, uv.y, 0.5, 1.))
+  textureStore(ids, at, vec4u(x, y, u32(1), u32(255)))
+}
+```
+
+```wgsl
+@group(0) @binding(0) var dst: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var acc: texture_storage_2d<r32float, read_write>;
+textureStore(dst, at, vec4<f32>(uv.x, uv.y, 0.5, 1.0));
+```
+
+**WGSL only.** GLSL ES 3.00 has no image load/store at all — that is ES 3.10 — so a module
+carrying one emits WGSL alone, as a storage buffer or an atomic does. Measured on a driver
+rather than read off the spec: `layout(rgba8) uniform writeonly image2D` is `'rgba8' : invalid
+layout qualifier: not supported`, and asking for the extension that would bring it is
+`extension is not supported`.
+
+**A storage texture is not a sampled texture**, and they are different IR kinds so that every
+site which must decide between them fails to compile until it does. A sampled texture is read
+through a sampler and carries an element type; a storage one is addressed directly and carries a
+format and an access mode. `textureSample` on a storage texture and `textureStore` on a sampled
+one are each refused with the other's name.
+
+**The format decides the texel.** A `"…uint"` format stores a `vec4u`, a `"…sint"` one a
+`vec4i`, and every other one — unorm, snorm and float — a `vec4`. The ambient lib says the same
+thing with a conditional type, so the editor refuses a mismatched store before this compiler
+does. **The access mode decides the calls**: `textureLoad` needs `"read"` or `"read_write"`,
+`textureStore` needs `"write"` or `"read_write"`.
+
+### Two refusals Tint does not make
+
+**Tint compiles a shader; a device binds one.** Asked directly, Tint accepts every format at
+every access mode. A real device, asked to build a bind group layout for each pair, does not:
+
+| written | Tint | a device |
+| --- | --- | --- |
+| `texture_storage_2d<rgba8unorm, write>` | accepts | accepts |
+| `texture_storage_2d<rgba8unorm, read_write>` | **accepts** | `RGBA8Unorm does not support storage texture access ReadWrite` |
+| `texture_storage_2d<rg16float, write>` | **accepts** | `RG16Float does not support storage texture access WriteOnly` |
+
+So this surface refuses both, with the reason and the fix. `"read_write"` is `"r32uint"`,
+`"r32sint"` and `"r32float"` and nothing else; a format outside the sixteen every device stores
+to with no feature requested (`rgba8unorm`, `rgba8snorm`, `rgba8uint`, `rgba8sint`,
+`rgba16uint`, `rgba16sint`, `rgba16float`, `r32uint`, `r32sint`, `r32float`, `rg32uint`,
+`rg32sint`, `rg32float`, `rgba32uint`, `rgba32sint`, `rgba32float`) is not a format here.
+Either spelling would otherwise pass the compile gate and fail at `createBindGroupLayout`,
+which is a wrong program emitted without a diagnostic — the shape issue #113 was.
+
+**What the host is told.** A `storage-texture` entry carries `storageFormat` and
+`storageAccess`, always set, in WebGPU's own spelling (`write-only`, `read-only`,
+`read-write`) rather than WGSL's: a host passing the WGSL words through gets a validation error.
+The bind group layout has to repeat the shader's format exactly.
+
+**The write is an effect.** `textureStore` returns nothing, so an optimizer that read it as a
+pure call would drop every one and emit an entry whose body does nothing. It sits in the
+effectful set beside the atomics and the barriers, and it writes the binding at its first
+argument's root. The CPU oracle has no texture memory, so the write goes nowhere there — the
+same contract a texture read already keeps, where a load yields opaque black.
+`examples/storage-texture.shade.ts` is the gate's evidence on Tint.
+
 ---
 
 Last updated: 2026-09-18

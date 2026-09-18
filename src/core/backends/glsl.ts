@@ -54,6 +54,7 @@ import {
   f32T,
   vec4fT,
   stageOf,
+  typeKey,
 } from '../ir/index.js'
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs.js'
 import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js'
@@ -121,6 +122,16 @@ function glslType(t: ShaderType): string {
     case 'atomic':
       throw new UnsupportedFeatureError(
         `glsl-es300: atomic<${t.elem}> has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
+      )
+    // A storage texture is image load/store, which arrived in GLSL ES 3.10; ES 3.00 has neither
+    // the `image2D` type nor a format layout qualifier for one. Measured on a WebGL2 driver, not
+    // read off the spec: `layout(rgba8) uniform writeonly image2D` is "invalid layout qualifier:
+    // not supported", and asking for `GL_ARB_shader_image_load_store` is "extension is not
+    // supported". A module carrying one is refused by the storageTexture capability first, and
+    // this arm fails closed for a hand-built module that reaches it another way.
+    case 'storage-texture':
+      throw new UnsupportedFeatureError(
+        `glsl-es300: ${typeKey(t)} has no GLSL ES 3.00 spelling (image load/store is ES 3.10)`,
       )
     case 'texture': {
       // GLSL fuses texture+sampler into one combined sampler. '2d-array' (X-GIS #1651) is
@@ -361,13 +372,15 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  emitted source must carry. Coverage derives from these KEYS, so a cap is supported
  *  iff it has a row.
  *
- *  NO rows for `storageBuffer` / `compute` / `msaaTextureLoad` (WebGL2 has no SSBOs, no
- *  compute stage, no MSAA texel fetch) and none for `f16` / `subgroups` (WGSL `enable`
- *  language features with no GLSL ES 3.00 counterpart). FOUR of the five fail closed
+ *  NO rows for `storageBuffer` / `compute` / `msaaTextureLoad` / `storageTexture` (WebGL2
+ *  has no SSBOs, no compute stage, no MSAA texel fetch, and no image load/store — that last
+ *  one is ES 3.10, measured on a driver: `layout(rgba8) uniform writeonly image2D` is
+ *  "invalid layout qualifier: not supported") and none for `f16` / `subgroups` (WGSL `enable`
+ *  language features with no GLSL ES 3.00 counterpart). FIVE of the six fail closed
  *  here, naming the cap; `storageBuffer` is the exception and does NOT — a storage module
  *  is REWRITTEN to a data texture (lowerStorageToDataTexture) BEFORE the gate runs, so by
  *  the time assertCaps looks there is no storage binding left to require it. The
- *  profile's emptiness for all five is the pinned invariant either way, not an oversight
+ *  profile's emptiness for all six is the pinned invariant either way, not an oversight
  *  (extension-profile.test.ts, passes/required-caps.test.ts, enable-directives.test.ts).
  *
  *  The three HOST-side rows cost ZERO emitted bytes: WebGL2 activates them through

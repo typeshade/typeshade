@@ -566,6 +566,63 @@ type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
 type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
 type sampler = { readonly [samplerTag]: true }
 
+declare const storageTextureTag: unique symbol
+/** The texel formats a storage texture may carry: the sixteen every WebGPU device stores to
+ * with no feature requested. Measured against a real device, not read off a spec — a format
+ * outside them compiles and then fails when the host builds the bind group. */
+type StorageFormat =
+  | 'rgba8unorm'
+  | 'rgba8snorm'
+  | 'rgba8uint'
+  | 'rgba8sint'
+  | 'rgba16uint'
+  | 'rgba16sint'
+  | 'rgba16float'
+  | 'r32uint'
+  | 'r32sint'
+  | 'r32float'
+  | 'rg32uint'
+  | 'rg32sint'
+  | 'rg32float'
+  | 'rgba32uint'
+  | 'rgba32sint'
+  | 'rgba32float'
+/** How a shader may touch a storage texture. \`"read_write"\` is the three single-channel
+ * 32-bit formats only, which {@link texture_storage_2d} enforces. */
+type StorageAccess = 'write' | 'read' | 'read_write'
+/** The formats a device stores AND loads through one binding. Every other format is
+ * \`"write"\` or \`"read"\`, one at a time. */
+type ReadWriteStorageFormat = 'r32uint' | 'r32sint' | 'r32float'
+/** The texel a format's channel kind decides: a \`"…uint"\` format is a \`vec4u\`, a
+ * \`"…sint"\` one a \`vec4i\`, and every other one — unorm, snorm and float — a \`vec4\`.
+ * Written as a conditional type so the editor refuses a mismatched store the way the compiler
+ * does, rather than leaving it to the compile step. */
+type StorageTexel<F extends StorageFormat> = F extends \`\${string}uint\`
+  ? vec4u
+  : F extends \`\${string}sint\`
+    ? vec4i
+    : vec4
+/** A storage texture HANDLE: an image read and written by texel coordinate, with no sampler
+ * and no filtering. The format and the access mode are part of its TYPE, as they are in WGSL,
+ * so a binding says what it is and every call against it is checked against that. An access
+ * mode of \`"read_write"\` is admitted only for the formats a device allows it for. */
+type texture_storage_2d<
+  F extends StorageFormat,
+  A extends StorageAccess = 'write',
+> = A extends 'read_write'
+  ? F extends ReadWriteStorageFormat
+    ? { readonly [storageTextureTag]: readonly [F, A, false] }
+    : never
+  : { readonly [storageTextureTag]: readonly [F, A, false] }
+type texture_storage_2d_array<
+  F extends StorageFormat,
+  A extends StorageAccess = 'write',
+> = A extends 'read_write'
+  ? F extends ReadWriteStorageFormat
+    ? { readonly [storageTextureTag]: readonly [F, A, true] }
+    : never
+  : { readonly [storageTextureTag]: readonly [F, A, true] }
+
 ${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(tex: texture_2d<f32>, smp: sampler, uv: vec2): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureSample)}
@@ -599,8 +656,36 @@ declare function textureLoad<E>(
   layer: number,
   level: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
+declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
+  tex: texture_storage_2d<F, A>,
+  coord: vec2i,
+): StorageTexel<F>
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
+declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
+  tex: texture_storage_2d_array<F, A>,
+  coord: vec2i,
+  layer: number,
+): StorageTexel<F>
+${renderJSDoc(FUNCTION_DOCS.textureStore)}
+declare function textureStore<F extends StorageFormat, A extends 'write' | 'read_write'>(
+  tex: texture_storage_2d<F, A>,
+  coord: vec2i,
+  value: StorageTexel<F>,
+): void
+${renderJSDoc(FUNCTION_DOCS.textureStore)}
+declare function textureStore<F extends StorageFormat, A extends 'write' | 'read_write'>(
+  tex: texture_storage_2d_array<F, A>,
+  coord: vec2i,
+  layer: number,
+  value: StorageTexel<F>,
+): void
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
+declare function textureDimensions<F extends StorageFormat, A extends StorageAccess>(
+  tex: texture_storage_2d<F, A> | texture_storage_2d_array<F, A>,
+): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
 ${renderJSDoc(FUNCTION_DOCS.arrayLength)}

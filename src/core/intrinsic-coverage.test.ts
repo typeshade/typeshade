@@ -226,6 +226,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "textureSampleArray",
         "textureSampleLevel",
         "textureSampleLevelArray",
+        "textureStore",
         "transpose",
         "trunc",
         "u32",

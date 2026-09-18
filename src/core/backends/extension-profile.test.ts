@@ -300,6 +300,9 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
     expect(wgslBackend.capProfile).toEqual({
       storageBuffer: {},
       compute: {},
+      // A storage texture is core WGSL at the sixteen formats every device supports with
+      // STORAGE_BINDING and no feature request (roadmap 0.4 item 10), so the row is empty.
+      storageTexture: {},
       msaaTextureLoad: {},
       f16: { directive: 'f16', hostFeature: 'shader-f16' },
       subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },
