@@ -322,6 +322,17 @@ export class LoweringScope {
     return stored
   }
 
+  /** An internal local the lowering needs and the source never named: the value a
+   *  destructuring declaration reads from, lowered once (roadmap 0.3 item T7, #92). It takes an
+   *  IR name no other local can take and binds no source name, so two of them in one block do
+   *  not collide with each other and neither collides with a name the program declares. Returns
+   *  the IR name to write into the statement. */
+  defineTemp(prefix: string, type: ShaderType): string {
+    const ir = this.allocIrName(prefix)
+    this.byIr.set(ir, { kind: 'local', name: ir, type, mutable: false })
+    return ir
+  }
+
   private allocIrName(name: string): string {
     if (!this.takenIr.has(name)) {
       this.takenIr.add(name)

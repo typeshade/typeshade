@@ -815,6 +815,34 @@ convert, or drop the "as".
 That is TypeScript's own meaning of `as`, said at the one place where letting it pass would
 produce a program whose types disagree with its emit.
 
+### A destructuring declaration is the reads it stands for
+
+`const { x, y } = v` is the two reads it abbreviates, so it lowers to one declaration per name,
+in the order written (roadmap 0.3 item T7,
+[#92](https://github.com/typeshade/typeshade/issues/92)). Both shapes a shader has fields on can
+be read this way: a struct, by field name, and a vector, by component name or by a swizzle.
+
+```ts
+const { x, y: b } = uv          // let x = uv.x;  let b = uv.y;
+const { xy } = uv               // let xy = uv.xy;
+const { a, k } = u              // let a = u.a;   let k = u.k;
+const { i: { a } } = u          // let a = u.i.a;
+let { x } = uv                  // var x: f32 = uv.x;
+```
+
+The value on the right is evaluated once. A bare name is read again for each field, since
+reading a name costs nothing and names no new local; anything else is bound to an internal local
+first, so `const { x, y } = uv * 2.` emits the product once and reads `x` and `y` off it. That
+local takes an IR name of its own and no source name, so a program may declare `_d` itself and a
+block may hold two such declarations.
+
+A pattern takes no type annotation, since each name takes the type of the field it reads. Three
+shapes have no form here and name the read to write instead: a default (`{ x = 1. }`), which
+needs a value that may be absent; a rest (`{ ...r }`), since a struct is exactly its fields and
+has no remainder to name; and a computed name, which would choose a field at run time. An array
+pattern (`const [a, b] = v`) is refused and names the read to write instead: a vector by
+component, an array by index.
+
 ## 15. Textures, samplers and overrides
 
 Three declarations the surface had no spelling for. None of them is a new IR shape: a

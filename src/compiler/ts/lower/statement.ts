@@ -7,6 +7,7 @@ import { isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, irNameOf, readOnlyPhrase, type Binding } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { parseSwizzle } from '../swizzle.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
 import { lowerMutatingCall } from './class-methods.js'
@@ -205,7 +206,8 @@ function lowerVariableStatement(
       diagnostics,
       single ? node : decl,
     )
-    if (one) results.push(one)
+    if (Array.isArray(one)) results.push(...one)
+    else if (one) results.push(one)
   }
   if (results.length === 0) return undefined
   return results.length === 1 ? results[0] : results
@@ -218,13 +220,22 @@ function lowerVariableDeclaration(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
   spanNode: ts.Node = decl,
-): Stmt | undefined {
+): Stmt | Stmt[] | undefined {
+  // `const { x, y } = uv` is the field reads it stands for (roadmap 0.3 item T7, #92): one
+  // declaration per name, in the order written. Before this it was "Destructuring is not
+  // supported", which is a shape a TypeScript developer reaches for without thinking.
+  if (ts.isObjectBindingPattern(decl.name)) {
+    return lowerObjectPattern(decl.name, decl, isConst, sourceFile, scope, diagnostics, spanNode)
+  }
   if (!ts.isIdentifier(decl.name)) {
     pushDiag(
       diagnostics,
       sourceFile,
       decl.name,
-      'Destructuring is not supported.',
+      ts.isArrayBindingPattern(decl.name)
+        ? 'A list is not destructured here: a vector is read by component (v.x, v.y) and an ' +
+            'array by index (xs[0]). Write "const x = v.x" or "const a = xs[0]".'
+        : 'Destructuring is not supported.',
       TS_CODES.UNSUPPORTED,
     )
     return undefined
@@ -373,6 +384,212 @@ function lowerVariableDeclaration(
   const ir = irNameOf(bound)
   if (isConst) return withSpan({ s: 'let', name: ir, expr: init } as Stmt, sourceFile, spanNode)
   return withSpan({ s: 'var', name: ir, type: bindingType, init } as Stmt, sourceFile, spanNode)
+}
+
+/** `const { x, y } = v`, and the renaming and nesting forms of it (roadmap 0.3 item T7, #92).
+ *
+ *  A destructuring declaration is the reads it stands for, so it lowers to one declaration per
+ *  name, in the order written, each reading a field of the value on the right. The value is
+ *  lowered ONCE: a bare name is read again for each field, since reading a name twice costs
+ *  nothing and names no new local, and anything else is bound to a local of its own first so a
+ *  call or an arithmetic expression on the right runs once.
+ *
+ *  What has no form here is refused with the read to write instead: a default (`{ x = 1 }`),
+ *  which needs a value that may be absent; a rest (`{ ...r }`), which needs a type this surface
+ *  does not build; and a computed name, which needs a field chosen at run time. */
+function lowerObjectPattern(
+  pattern: ts.ObjectBindingPattern,
+  decl: ts.VariableDeclaration,
+  isConst: boolean,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  spanNode: ts.Node,
+): Stmt[] | undefined {
+  if (!decl.initializer) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl,
+      'A destructuring declaration needs a value to read from, e.g. const { x, y } = v.',
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  if (decl.type) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.type,
+      'A destructuring declaration takes no type annotation; each name takes the type of the ' +
+        'field it reads.',
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  const value = lowerExpression(decl.initializer, sourceFile, scope, diagnostics)
+  if (!value) return undefined
+  const out: Stmt[] = []
+  let base = value
+  // A bare name costs nothing to read again; anything else runs once, into a local. The local
+  // is internal, so it takes an IR name and no source name: the program may declare `_d` itself,
+  // and one block may hold two of these.
+  if (value.op !== 'varref' && value.op !== 'param' && value.op !== 'constref') {
+    const ir = scope.defineTemp('_d', value.type)
+    out.push(withSpan({ s: 'let', name: ir, expr: value } as Stmt, sourceFile, spanNode))
+    base = { op: 'varref', type: value.type, name: ir }
+  }
+  return lowerPatternInto(
+    pattern,
+    base,
+    isConst,
+    decl,
+    sourceFile,
+    scope,
+    diagnostics,
+    spanNode,
+    out,
+  )
+    ? out
+    : undefined
+}
+
+/** One binding pattern's elements, read off `base`. Recurses for a nested pattern, which reads
+ *  off the field it names rather than binding a name of its own. */
+function lowerPatternInto(
+  pattern: ts.ObjectBindingPattern,
+  base: Expr,
+  isConst: boolean,
+  decl: ts.VariableDeclaration,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  spanNode: ts.Node,
+  out: Stmt[],
+): boolean {
+  for (const element of pattern.elements) {
+    if (element.dotDotDotToken) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        element,
+        'A rest element has no shader form: a struct is exactly its fields, so there is no ' +
+          'remainder to name. Read the fields you need.',
+        TS_CODES.UNSUPPORTED,
+      )
+      return false
+    }
+    if (element.initializer) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        element,
+        'A default in a pattern has no shader form: every field of a struct is present, so ' +
+          'there is nothing for it to stand in for.',
+        TS_CODES.UNSUPPORTED,
+      )
+      return false
+    }
+    // `{ x: a }` names the field in `propertyName` and the local in `name`; `{ x }` has only
+    // the second, and the field is the same word.
+    const fieldNode = element.propertyName ?? element.name
+    if (!ts.isIdentifier(fieldNode)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        fieldNode,
+        'A field is named by a plain identifier here; a computed name would choose a field at ' +
+          'run time, which no shader type does.',
+        TS_CODES.UNSUPPORTED,
+      )
+      return false
+    }
+    const field = fieldNode.text
+    const read = readField(base, field, element, sourceFile, scope, diagnostics)
+    if (!read) return false
+    if (ts.isObjectBindingPattern(element.name)) {
+      if (
+        !lowerPatternInto(
+          element.name,
+          read,
+          isConst,
+          decl,
+          sourceFile,
+          scope,
+          diagnostics,
+          spanNode,
+          out,
+        )
+      ) {
+        return false
+      }
+      continue
+    }
+    if (!ts.isIdentifier(element.name)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        element.name,
+        'A list is not destructured here: read a vector by component and an array by index.',
+        TS_CODES.UNSUPPORTED,
+      )
+      return false
+    }
+    const bound = defineLocal(
+      element.name.text,
+      read.type,
+      !isConst,
+      undefined,
+      decl,
+      sourceFile,
+      scope,
+      diagnostics,
+    )
+    if (!bound) return false
+    const ir = irNameOf(bound)
+    out.push(
+      withSpan(
+        isConst
+          ? ({ s: 'let', name: ir, expr: read } as Stmt)
+          : ({ s: 'var', name: ir, type: read.type, init: read } as Stmt),
+        sourceFile,
+        spanNode,
+      ),
+    )
+  }
+  return true
+}
+
+/** One field or component read off `base`, or undefined after a diagnostic. The two shapes a
+ *  pattern can read from: a struct, by field, and a vector, by component. */
+function readField(
+  base: Expr,
+  field: string,
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (base.type.kind === 'struct') {
+    const type = scope.fieldType(base.type.name, field)
+    if (!type) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        at,
+        `"${base.type.name}" has no field "${field}".`,
+        TS_CODES.UNKNOWN_NAME,
+      )
+      return undefined
+    }
+    return { op: 'member', type, base, field }
+  }
+  const sw = parseSwizzle(base.type, field)
+  if (!sw.ok) {
+    pushDiag(diagnostics, sourceFile, at, sw.message, TS_CODES.UNKNOWN_NAME)
+    return undefined
+  }
+  return { op: 'member', type: sw.type, base, field: sw.field }
 }
 
 /** Register a local binding, turning the scope's throw into a diagnostic on the declaration.
