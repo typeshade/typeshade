@@ -13,6 +13,13 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **An overload signature is skipped, and the implementation is lowered** (§14, roadmap 0.3
+  item T6, [#92](https://github.com/typeshade/typeshade/issues/92)): a function's overloads are
+  body-less declarations above the one that has a body, and each was `TS8020 Function "lum"
+needs a body (no ambient declarations)`, so a file using the shape did not compile. One
+  function is emitted now, from the implementation, inside a `namespace` under the flattened
+  name as well. A method, a static function and a constructor already took the shape and keep
+  it. A body-less declaration with no implementation, and `declare function`, keep the error.
 - **A default parameter value is filled in at the call site** (§14, roadmap 0.3 item T7,
   [#92](https://github.com/typeshade/typeshade/issues/92)): `function tint(c: vec3, k: f32 = 0.5)`
   parsed, and every `tint(c)` was then `TS8019 "tint" expects 2 argument(s), got 1`. Neither

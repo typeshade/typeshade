@@ -881,6 +881,28 @@ TypeScript's own rule.
 One thing the fill changes beyond the call: a default carries its calls into the body that wrote
 the call, so `g` whose body is `return f()`, where `f` defaults to `g()`, emits `f(g())` and
 calls itself. That is a call cycle, and it is refused as one, at the call that closes it.
+### An overload signature is skipped, and the implementation is lowered
+
+TypeScript writes a function's overloads as body-less declarations above the one that has a
+body (roadmap 0.3 item T6, [#92](https://github.com/typeshade/typeshade/issues/92)):
+
+```ts
+export function lum(c: vec3): f32
+export function lum(c: vec3): f32 {
+  return dot(c, vec3(0.2126, 0.7152, 0.0722))
+}
+```
+
+Each signature was "Function "lum" needs a body (no ambient declarations)". They are skipped
+now, and one `fn lum` is emitted from the implementation. That is the whole of it, because
+TypeScript already checks a call against the implementation signature as well, and this surface
+has no `any` for the implementation to widen to: a signature the implementation does not accept
+is TypeScript's own error before it reaches here. The same holds inside a `namespace`, under the
+flattened name, and on a method, a static function and a constructor, which took this shape
+already.
+
+Two body-less declarations are not overloads and keep their error: one with no implementation
+anywhere, and `declare function`, which names a function no module can emit.
 
 ## 15. Textures, samplers and overrides
 
