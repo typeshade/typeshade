@@ -191,7 +191,7 @@ function fromType(
   // the wrapper's address space, which is not what either backend emits for one, and the doc
   // says bare. Caught here rather than in the type map, because this is the one path that
   // resolves a binding's declared type.
-  if (mapped.kind === 'sampler' || mapped.kind === 'texture') {
+  if (mapped.kind === 'sampler' || mapped.kind === 'texture' || mapped.kind === 'storage-texture') {
     diagnostics.push(
       diag(
         sourceFile,

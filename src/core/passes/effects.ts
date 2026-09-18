@@ -19,12 +19,14 @@ import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, isAtomicIntrinsic } from '../int
 import { collectLocals } from './opt/expr-utils.js'
 
 /** Intrinsic ids whose call has an effect beyond its value: the atomic builtins, `atomicLoad`
- *  included, since two loads must not be shared across a store to the same location, and the
- *  two barriers, which order every read and write around them and must never be dropped,
- *  merged or moved. `textureStore` joins it when it is authorable. */
+ *  included, since two loads must not be shared across a store to the same location; the two
+ *  barriers, which order every read and write around them and must never be dropped, merged or
+ *  moved; and `textureStore`, which writes a texel and returns nothing, so an optimizer that
+ *  treated it as a pure call would drop every one of them (roadmap 0.4 item 10). */
 export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
   ...Object.keys(ATOMIC_INTRINSICS),
   ...BARRIER_INTRINSICS,
+  'textureStore',
 ])
 
 /** The module-level names each function writes, itself or through the functions it calls. */
@@ -36,10 +38,19 @@ const targetRoot = (e: Expr): Expr =>
   e.op === 'index' || e.op === 'member' ? targetRoot(e.base) : e
 
 /** The name an atomic builtin call writes: the root of its location argument, for every
- *  atomic but `atomicLoad`. `undefined` for any other expression, and for a call that resolved
- *  to a function the module declares under an atomic's name. */
+ *  atomic but `atomicLoad`. Also the storage texture a `textureStore` writes, which is the same
+ *  shape — the binding is the call's first argument (roadmap 0.4 item 10). `undefined` for any
+ *  other expression, and for a call that resolved to a function the module declares under one
+ *  of those names. */
 export function atomicWriteRoot(x: Expr): string | undefined {
-  if (x.op !== 'call' || x.declRef !== undefined || !isAtomicIntrinsic(x.fn)) return undefined
+  if (x.op !== 'call' || x.declRef !== undefined) return undefined
+  if (x.fn === 'textureStore') {
+    const target = x.args[0]
+    if (target === undefined) return undefined
+    const root = targetRoot(target)
+    return root.op === 'varref' || root.op === 'param' ? root.name : undefined
+  }
+  if (!isAtomicIntrinsic(x.fn)) return undefined
   if (x.fn === 'atomicLoad' || x.args[0] === undefined) return undefined
   const root = targetRoot(x.args[0])
   return root.op === 'varref' || root.op === 'param' ? root.name : undefined

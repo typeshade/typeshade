@@ -31,6 +31,10 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
   for (const b of m.bindings) {
     if (b.space === 'storage') caps.add('storageBuffer')
     if (b.type.kind === 'texture' && b.type.dim === '2d-ms') caps.add('msaaTextureLoad')
+    // A storage texture is WebGPU-only (roadmap 0.4 item 10): GLSL ES 3.00 has no image
+    // load/store, so the capability is what fails a module closed on that target rather than
+    // letting it reach `glslType` and throw from inside the emit.
+    if (b.type.kind === 'storage-texture') caps.add('storageTexture')
   }
   for (const f of m.funcs) {
     // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built

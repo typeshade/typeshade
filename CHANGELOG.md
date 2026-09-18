@@ -13,6 +13,28 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Storage textures and `textureStore`** (§33, roadmap 0.4 item 10). An image a shader reads and
+  writes by texel coordinate, with no sampler and no filtering:
+  `declare const dst: texture_storage_2d<"rgba8unorm", "write">`, then
+  `textureStore(dst, at, vec4(...))`. The format and the access mode are part of the type, as
+  they are in WGSL, and are written as string literal types, so `tsc` checks a mistyped format
+  in the editor and a conditional type in the ambient lib gives the texel its format's own kind:
+  a `"…uint"` format stores a `vec4u`, a `"…sint"` one a `vec4i`, every other one a `vec4`. A
+  storage texture is its own IR kind rather than another `dim` on a sampled texture, so every
+  site that has to decide between them fails to compile until it does. Reflection carries
+  `storageFormat` and `storageAccess` in WebGPU's spelling, which a host's bind group layout has
+  to repeat exactly. WGSL-only: GLSL ES 3.00 has no image load/store — that is ES 3.10 — so the
+  new `storageTexture` capability fails a module closed on that target, the way a storage buffer
+  or an atomic does.
+
+  **Two refusals Tint does not make, because Tint compiles a shader and a device binds one.**
+  Asked directly, Tint accepts every format at every access mode; a device asked to build a bind
+  group layout for each pair accepts `"read_write"` at `"r32uint"`, `"r32sint"` and `"r32float"`
+  only, and accepts no format outside the sixteen core ones without a feature request. Both were
+  measured rather than read off a spec. Either spelling would otherwise pass the compile gate and
+  then fail at `createBindGroupLayout` — a wrong program emitted without a diagnostic, which is
+  the shape [#113](https://github.com/typeshade/typeshade/issues/113) was.
+
 - **A generic class, by monomorphisation** (§32, roadmap 0.3 item T9,
   [#92](https://github.com/typeshade/typeshade/issues/92)). A WGSL or GLSL struct is one layout,
   its fields' types fixed, so `class Slot<T>` written at `f32` and at `vec3` is collected twice:

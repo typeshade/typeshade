@@ -695,6 +695,15 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureLoadArray: () => [0, 0, 0, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
   textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
+  // A storage texture write (roadmap 0.4 item 10). The oracle has no texture memory, so the
+  // write goes nowhere and the call yields nothing — the same contract the reads above keep,
+  // where a load yields opaque black. A shader whose OUTPUT is only the texels it stores has
+  // nothing for the oracle to compare, which is what makes the storage-texture example a
+  // compile-and-emit test rather than a differential one.
+  // 0 rather than nothing, because the table's values are `CpuValue` and nothing reads this
+  // one: `textureStore` has type `void`, so the front end refuses every position that would
+  // keep the result and the only place a call reaches is a statement.
+  textureStore: () => 0,
 }
 
 // ── WGSL's SATURATING float→integer conversions ──
