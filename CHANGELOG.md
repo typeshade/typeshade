@@ -13,6 +13,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **`...` spreads a struct's fields into an object literal** (§16, roadmap 0.3 item T7,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): `{ ...p, y: 9. }` was `TS8013 Spread
+is a JS runtime operation`, which is true of `f(...args)` and `[...xs]` and is not true of
+  this one. It is the fields of `p` with `y` written over one of them, one read per field, and
+  later wins as it does in TypeScript. The target struct comes from an annotation or from the
+  field names the literal ends up with, a spread may fill part of a bigger struct, and a nested
+  read (`...o.i`) spreads too. Refused with the reason: a value with no fields, a value that is
+  not a plain read, since the spread reads it once per field, and a field the target struct has
+  not got.
 - **`extends`, `abstract` and `implements`** (§26, roadmap 0.3 item T5,
   [#92](https://github.com/typeshade/typeshade/issues/92)): every `extends` was refused, "A
   TypeShade struct is exactly the members written here, so the inherited ones would be dropped",

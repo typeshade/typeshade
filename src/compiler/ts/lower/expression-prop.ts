@@ -269,8 +269,19 @@ export function lowerObjectLiteral(
   // against the type of the field it fills. That is what carries the context inward: a nested
   // `{ i: { x: 1. } }` used to lower its inner literal with nothing, so a twin at the inner
   // level was as unresolvable as the outer one was before this item.
-  const props: { name: string; value: ts.Expression }[] = []
+  // A property is either written here, and lowered below once the field's type is known, or
+  // it came from a spread and is already the read it stands for (roadmap 0.3 item T7, #92).
+  const props: LiteralProp[] = []
   for (const prop of node.properties) {
+    // `{ ...p, y: 1. }` is the fields of `p` with `y` written over one of them, so it spreads
+    // to one read per field of `p`'s struct, in that struct's order. Later wins, which is
+    // TypeScript's rule and already how a repeated field is taken below.
+    if (ts.isSpreadAssignment(prop)) {
+      const spread = lowerSpreadInto(prop, sourceFile, scope, diagnostics)
+      if (!spread) return undefined
+      props.push(...spread)
+      continue
+    }
     // `{ pos, uv }` is `{ pos: pos, uv: uv }` — the shorthand TypeScript gives a property
     // whose value is its own name, and the shape `return { pos, uv }` is written in (#8 A10).
     // The name is the field and the same identifier is the value, so it lowers through the
@@ -331,6 +342,18 @@ export function lowerObjectLiteral(
   if (declared) {
     for (const p of props) {
       if (match.fields.some((f) => f.name === p.name)) continue
+      if ('ready' in p) {
+        // A spread of a struct the target does not have every field of: the literal names a
+        // field the struct has not got, and says which, rather than "does not match".
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p.at,
+          `Struct ${match.name} has no field "${p.name}", which this spread brings in.`,
+          TS_CODES.STRUCT_FIELD,
+        )
+        return undefined
+      }
       pushDiag(
         diagnostics,
         sourceFile,
@@ -342,8 +365,12 @@ export function lowerObjectLiteral(
     }
   }
   const fieldType = new Map(match.fields.map((f) => [f.name, f.type]))
-  const given: { name: string; expr: Expr; node: ts.Expression }[] = []
+  const given: { name: string; expr: Expr; node: ts.Expression | undefined }[] = []
   for (const p of props) {
+    if ('ready' in p) {
+      given.push({ name: p.name, expr: p.ready, node: undefined })
+      continue
+    }
     const expr = lowerExpression(p.value, sourceFile, scope, diagnostics, fieldType.get(p.name))
     if (!expr) return undefined
     given.push({ name: p.name, expr, node: p.value })
@@ -382,6 +409,84 @@ export function lowerObjectLiteral(
     args.push(expr)
   }
   return { op: 'construct', type: structT(match.name), args }
+}
+
+/** One field of an object literal: written, and lowered once the field's type is known, or
+ *  brought in by a spread and already the read it stands for. */
+type LiteralProp =
+  | { readonly name: string; readonly value: ts.Expression }
+  | { readonly name: string; readonly ready: Expr; readonly at: ts.Node }
+
+/** True when reading `e` again costs nothing and runs nothing: a name, a parameter, a module
+ *  const, or a field of one. A spread reads its operand once per field, so anything else would
+ *  run a second time, and a call twice. */
+function isPureRead(e: Expr): boolean {
+  switch (e.op) {
+    case 'varref':
+    case 'param':
+    case 'constref':
+    case 'overrideref':
+      return true
+    case 'member':
+      return isPureRead(e.base)
+    default:
+      return false
+  }
+}
+
+/** `...p` inside an object literal: the fields of `p`'s struct, each as a read of `p`
+ *  (roadmap 0.3 item T7, #92).
+ *
+ *  Refused with the reason where a spread has no such form: an operand that is not a struct,
+ *  since a vector's components are read by name and there is nothing else with fields; and an
+ *  operand that is not a plain read, since the spread reads it once per field and a call would
+ *  run once per field with it. */
+function lowerSpreadInto(
+  prop: ts.SpreadAssignment,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): LiteralProp[] | undefined {
+  const value = lowerExpression(prop.expression, sourceFile, scope, diagnostics)
+  if (!value) return undefined
+  if (value.type.kind !== 'struct') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      prop,
+      `"..." spreads the fields of a struct, and ${typeKey(value.type)} has none. Write the ` +
+        `components by name.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  if (!isPureRead(value)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      prop,
+      `"..." reads its value once per field, so it takes a name or a field of one; this would ` +
+        `run again for every field. Bind it to a const first.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  const struct = scope.structByName(value.type.name)
+  if (!struct) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      prop,
+      `"${value.type.name}" is not a struct this module emits, so its fields cannot be spread.`,
+      TS_CODES.UNKNOWN_NAME,
+    )
+    return undefined
+  }
+  return struct.fields.map((f) => ({
+    name: f.name,
+    ready: { op: 'member', type: f.type, base: value, field: f.name } as Expr,
+    at: prop,
+  }))
 }
 
 function pushDiag(
