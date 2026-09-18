@@ -44,7 +44,7 @@ import { coerceValue, isUnsized, shapeError, zeroValueOf } from './value.js'
  *  `num_workgroups` is the exception: it is a property of the DISPATCH, not of any one
  *  invocation, so nothing here can derive it. {@link dispatch} supplies it.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugInvocation {
   /** Builtin inputs by WGSL id. A `vecN` builtin is a flat array, a scalar one a number. */
@@ -68,7 +68,7 @@ export interface DebugInvocation {
 
 /** `@location(n)` stage inputs by name: a vertex attribute, an interpolated varying.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugInputs {
   readonly [name: string]: CpuValue
@@ -84,7 +84,7 @@ export interface DebugInputs {
  *  engine's half of it. {@link DEBUG_LAUNCH_SCHEMA} is the same shape as JSON Schema, for an
  *  extension to contribute verbatim.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugLaunchConfig {
   /** The debug type an IDE dispatches on. Always `'typeshade'`; ignored by the engine. */
@@ -127,13 +127,13 @@ export interface DebugLaunchConfig {
 
 /** Everything wrong with a configuration, as sentences, before anything runs.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export class DebugConfigError extends Error {
   /** One sentence per problem, in the order they were found. */
   readonly problems: readonly string[]
   constructor(problems: readonly string[]) {
-    super(`shader-dsl/debug: ${problems.join('; ')}`)
+    super(`typeshade/debug: ${problems.join('; ')}`)
     this.name = 'DebugConfigError'
     this.problems = problems
   }
@@ -175,7 +175,7 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
  *  as a {@link DebugConfigError} listing them: a misspelled builtin alongside a uniform of the
  *  wrong shape, rather than one error per attempt.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  *
  *  @param m - the module to run, as `compile()` produced it.
  *  @param config - the run to start.
@@ -185,8 +185,8 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
  *
  *  @example
  *  ```ts
- *  import { compile } from '@xgis/shader-dsl'
- *  import { startDebugSessionFromConfig } from '@xgis/shader-dsl/debug'
+ *  import { compile } from 'typeshade'
+ *  import { startDebugSessionFromConfig } from 'typeshade/debug'
  *
  *  const { module } = compile(src)
  *  const s = startDebugSessionFromConfig(module, {
@@ -245,7 +245,7 @@ export function startDebugSessionFromConfig(
 
 /** The entry's parameters, positionally, from an invocation keyed by builtin id and name.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  *
  *  @param decl - the entry point.
  *  @param invocation - the inputs, as {@link DebugInvocation} describes them.
@@ -550,7 +550,7 @@ interface InputSlot {
  *  result entirely. `startDebugSession` has always run such an entry; this is the layer above
  *  catching up with it.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  *
  *  @param m - the module whose bindings are being filled.
  *  @param given - the values, by declared name.
@@ -650,7 +650,7 @@ function bindingsReachedBy(
  *  drifts from the resolver the first time either moves, and `config.test.ts` holds this one
  *  to the resolver by checking that its property set and the interface's agree.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export const DEBUG_LAUNCH_SCHEMA: Readonly<Record<string, unknown>> = Object.freeze({
   $schema: 'http://json-schema.org/draft-07/schema#',

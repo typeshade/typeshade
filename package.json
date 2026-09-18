@@ -1,5 +1,5 @@
 {
-  "name": "@xgis/shader-dsl",
+  "name": "typeshade",
   "version": "0.0.1",
   "description": "A TypeScript shader DSL: author a typed node graph once and emit WGSL, GLSL ES 3.00, an f64 CPU oracle, and pipeline reflection from the same source.",
   "keywords": [
@@ -14,7 +14,7 @@
     "reflection"
   ],
   "license": "MIT",
-  "author": "TypeShade",
+  "author": "Seungup Noh <seungup.noh@gmail.com>",
   "homepage": "https://typeshade.dev",
   "bugs": {
     "url": "https://github.com/typeshade/typeshade/issues"

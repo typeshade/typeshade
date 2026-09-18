@@ -1,4 +1,4 @@
-// ═══ shader-dsl — MRT emit gate (#847) ═══
+// ═══ shader-dsl — MRT emit gate (X-GIS #847) ═══
 //
 // Pins the multi-@location fragment-output path on both backends: WGSL keeps
 // the location attributes on the output struct, GLSL ES 3.00 scatters them

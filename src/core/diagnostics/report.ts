@@ -26,7 +26,7 @@ import { formatLoc } from './error.js'
 /** Options for {@link diagnose}. Every field is optional; the default is "run the full ruleset
  *  and check no backend".
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  */
 export interface DiagnoseOptions {
   /** Which ruleset to run — 'all' (full RULES, default) or 'core' (emit-time CORE_RULES). */
@@ -44,11 +44,11 @@ export interface DiagnoseOptions {
  *
  *  The array is in no promised order; sort it yourself if you present it.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  *
  *  @example
  *  ```ts
- *  import { diagnose, formatReport } from '@xgis/shader-dsl/dev'
+ *  import { diagnose, formatReport } from 'typeshade/dev'
  *
  *  const report = diagnose(MODULE, { backend: wgslBackend })
  *  if (report.summary.errors > 0) throw new Error(formatReport(report))
@@ -79,7 +79,7 @@ export interface DiagnosticReport {
  *  the rule offers a remedy, ending with a count of errors and warnings. Sort the
  *  `diagnostics` array yourself if you present it some other way; it is in no promised order.
  *
- *  Exported from `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade/dev`.
  *
  *  @param m - the authored module to inspect.
  *  @param opts - the ruleset, an optional backend to check capabilities against, and per-rule
@@ -88,8 +88,8 @@ export interface DiagnosticReport {
  *
  *  @example
  *  ```ts
- *  import { diagnose, formatReport } from '@xgis/shader-dsl/dev'
- *  import { wgslBackend } from '@xgis/shader-dsl'
+ *  import { diagnose, formatReport } from 'typeshade/dev'
+ *  import { wgslBackend } from 'typeshade'
  *
  *  const report = diagnose(MODULE, { rules: 'all', backend: wgslBackend })
  *  if (report.summary.errors > 0) console.log(formatReport(report))
@@ -110,7 +110,7 @@ export function diagnose(m: ModuleDecl, opts?: DiagnoseOptions): DiagnosticRepor
   if (opts?.backend) {
     const req = requiredCaps(m)
     // Derived from the backend's ONE capability authority, exactly as assertCaps does
-    // (#1670) — this non-throwing check and the throwing gate must not read two
+    // (X-GIS #1670) — this non-throwing check and the throwing gate must not read two
     // different surfaces. Built once per call, over 9 keys.
     const caps = Capabilities.fromProfile(opts.backend.capProfile)
     if (!caps.covers(req)) {

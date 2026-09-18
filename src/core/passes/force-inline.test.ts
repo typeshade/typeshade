@@ -34,7 +34,7 @@ import type { EmitPlugin } from '../emit.js'
 // that is _fp64-known-answer.spec.ts on a real device.
 
 /** The f32 oracle over an ALREADY-lowered module: a correctly-rounding f32 machine, which
- *  is what the GPU is. `precision: 'f32'` (#2426) replaced a copy of this wrapper here and
+ *  is what the GPU is. `precision: 'f32'` (X-GIS #2426) replaced a copy of this wrapper here and
  *  in six fp64 test files. */
 const f32Oracle = (lowered: ModuleDecl) => compileModule(lowered, { precision: 'f32' })
 
@@ -122,7 +122,7 @@ describe('forceInline — the fast-math guard survives the flattening', () => {
   // What DOES see it is the op count. Every df64 error-free transform is arithmetic; a pass
   // that quietly cancels one shows up here as a DROP. So this is a ratchet, in the shape the
   // repo already uses for backend identity: an exact count, and a drop is a finding to
-  // explain — "which guard did this delete, and is it one #915 paid for?" — before anyone
+  // explain — "which guard did this delete, and is it one X-GIS #915 paid for?" — before anyone
   // re-baselines it. A RISE is ordinary (a new helper, a wider lowering) and just re-pins.
   it('pins the flattened arithmetic-op count — a DROP means a guard was optimized away', () => {
     const flat = forceInline(fixpoint(fp64Lower(guarded)), 'all')

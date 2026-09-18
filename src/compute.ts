@@ -1,4 +1,4 @@
-// ═══ Shader DSL — the compute runner (`@xgis/shader-dsl/compute`) ═══
+// ═══ Shader DSL — the compute runner (`typeshade/compute`) ═══
 //
 // One dispatch entry point for a `portable: true` compute kernel, across the backends the
 // host might actually have. Deliberately on its OWN subpath, the same split `/dev` and
@@ -7,7 +7,7 @@
 //
 // Usage:
 //
-//   import { createComputeRunner } from '@xgis/shader-dsl/compute'
+//   import { createComputeRunner } from 'typeshade/compute'
 //
 //   const runner = await createComputeRunner(kernelModule, {
 //     prefer: ['webgpu', 'webgl2', 'cpu'],   // declared order, tried once

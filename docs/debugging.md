@@ -2,7 +2,7 @@
 
 Status: **decided, open to revision against a measurement.** Written against `5f20c5e` on
 `main`; §5 records eleven decisions the owner has taken. Milestones 1, 2 and 3 have shipped:
-the IR carries source spans, `@xgis/shader-dsl/debug` steps one invocation of a
+the IR carries source spans, `typeshade/debug` steps one invocation of a
 `"use typeshade"` shader, and one launch configuration describes that run for an IDE, the
 Playground and a headless test alike. It proposes the layer that lets an
 author set a breakpoint in a `.shade.ts` file and step through it, and it fixes the

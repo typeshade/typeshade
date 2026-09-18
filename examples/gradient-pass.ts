@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fullscreen gradient pass ═══
+// ═══ typeshade example — fullscreen gradient pass ═══
 //
 // A self-contained render pass: an oversized fullscreen triangle (no vertex buffer)
 // feeds a fragment stage that mixes two colours by the screen-space UV, modulated by a

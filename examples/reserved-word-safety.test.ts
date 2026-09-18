@@ -1,4 +1,4 @@
-// ═══ shader-dsl examples — generated-identifier reserved-word gate (#1861) ═══
+// ═══ shader-dsl examples — generated-identifier reserved-word gate (X-GIS #1861) ═══
 //
 // Two production plugins INVENT identifiers: `mangle` renames the authored
 // vocabulary from a bijective base-52 pool, and `aliasTypes` names each hot type

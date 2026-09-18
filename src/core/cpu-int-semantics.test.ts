@@ -1,4 +1,4 @@
-// ═══ CPU tier — WGSL integer / min-max / control-flow semantics (#2274, #2275) ═══
+// ═══ CPU tier — WGSL integer / min-max / control-flow semantics (X-GIS #2274, X-GIS #2275) ═══
 //
 // The two CPU engines (tree-walk interpreter in oracle.ts, `new Function` twin in
 // cpu-codegen.ts) are the REFERENCE the GPU parity gates compare against. Both used
@@ -125,7 +125,7 @@ const I32_MIN = -2147483648
 const I32_MAX = 2147483647
 const U32_MAX = 4294967295
 
-describe.each(engines)('CPU tier (%s) — WGSL integer semantics (#2274)', (_name, F) => {
+describe.each(engines)('CPU tier (%s) — WGSL integer semantics (X-GIS #2274)', (_name, F) => {
   it('i32 / and % truncate toward zero', () => {
     expect(F.idiv!(7, 2)).toBe(3)
     expect(F.idiv!(-7, 2)).toBe(-3)
@@ -194,7 +194,7 @@ describe.each(engines)('CPU tier (%s) — WGSL integer semantics (#2274)', (_nam
   })
 })
 
-describe.each(engines)('CPU tier (%s) — switch inside a loop (#2275)', (_name, F) => {
+describe.each(engines)('CPU tier (%s) — switch inside a loop (X-GIS #2275)', (_name, F) => {
   it('a continue raised inside a switch case reaches the enclosing loop', () => {
     expect(F.swcont!(4)).toBe(3)
   })

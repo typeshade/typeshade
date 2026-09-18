@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — graticule (lon/lat grid) ═══
+// ═══ typeshade example — graticule (lon/lat grid) ═══
 //
 // A cartographic shader: the lon/lat graticule every map draws. The fragment maps screen
 // UV → longitude/latitude, draws anti-aliased grid lines at a uniform `spacing` (degrees)

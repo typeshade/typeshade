@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { profileEmit } from './measure.js'
 import { module, fn, f32, f32T, sin, cos } from './ir/index.js'
 
-// #2449 — the profiler's own correctness. Timing values are wall-clock and machine-dependent,
+// X-GIS #2449 — the profiler's own correctness. Timing values are wall-clock and machine-dependent,
 // so NOTHING here asserts a duration: the assertions are structural (which stages ran, that the
 // parts sum to the whole, that the instrumented optimizer produced the production module).
 // A profiler whose parts do not add up to its total is measuring something other than the run.

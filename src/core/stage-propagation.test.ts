@@ -17,9 +17,9 @@ import { emitGlslModule } from './backends/glsl.js'
 import { reflect } from './reflect.js'
 import { deadFnElim } from './passes/opt/dce-fns.js'
 
-// ═══ #763 Phase S — structured `stage` is the semantic source EVERYWHERE ═══
+// ═══ X-GIS #763 Phase S — structured `stage` is the semantic source EVERYWHERE ═══
 //
-// #740 R3 made `stage` structured-first but only reflect() was updated; four
+// X-GIS #740 R3 made `stage` structured-first but only reflect() was updated; four
 // other stage/entry predicates stayed attrs-only. These fixtures use
 // STRUCTURED-ONLY decls (attrs stripped — the hand-built-literal shape the IR
 // contract explicitly allows) and pin each predicate to the shared stageOf().
@@ -30,7 +30,7 @@ const structuredOnly = (f: FuncDecl): FuncDecl => {
   return rest as FuncDecl
 }
 
-describe('#763 S — stageOf propagation', () => {
+describe('X-GIS #763 S — stageOf propagation', () => {
   it('S1: stageOf reads structured first, attr fallback second', () => {
     const frag = fn('s1_fs', {}, () => vec4(1, 0, 0, 1), {
       stage: 'fragment',

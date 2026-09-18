@@ -18,13 +18,13 @@ import type { SourceLoc } from './error.js'
 // The package declares no ambient node types (tsconfig `types: []`), so reach `process`
 // via globalThis — present under node/bun, absent in the browser build (→ tracing off).
 const _env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-let tracing = _env?.XGIS_SHADER_DSL_TRACE === '1'
+let tracing = _env?.TYPESHADE_TRACE === '1'
 
 /** Turn authored-source tracing on or off. With it on, each authored statement and function
  *  is stamped with the TypeScript line that produced it, so a diagnostic can print
  *  `file:line:col` beside the rule and the function name.
  *
- *  It is off by default, and it honours `XGIS_SHADER_DSL_TRACE=1` in the environment, which is
+ *  It is off by default, and it honours `TYPESHADE_TRACE=1` in the environment, which is
  *  how a test or a development run turns it on without touching the code.
  *
  *  Off, it costs nothing. Capture returns before allocating an `Error`, so no stack string is
@@ -39,15 +39,15 @@ let tracing = _env?.XGIS_SHADER_DSL_TRACE === '1'
  *  {@link validate}, {@link lintModule} and {@link diagnose} all run before those passes, which
  *  is exactly where a location is worth having.
  *
- *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *  Exported from `typeshade`, `typeshade/dev`.
  *
  *  @param on - whether to capture a location for each node authored from here on.
  *
  *  @example
  *  ```ts
- *  import { setSourceTracing, diagnose, formatReport } from '@xgis/shader-dsl/dev'
+ *  import { setSourceTracing, diagnose, formatReport } from 'typeshade/dev'
  *
- *  setSourceTracing(true) // or run with XGIS_SHADER_DSL_TRACE=1
+ *  setSourceTracing(true) // or run with TYPESHADE_TRACE=1
  *  const m = buildModule() // authored under tracing, so its nodes carry locations
  *  console.log(formatReport(diagnose(m)))
  *  ```
@@ -64,7 +64,7 @@ export const setSourceTracing = (on: boolean): void => {
  *  consumer branches on: a diagnostic already tells you whether it resolved a location by
  *  whether its `loc` is present, which is the question worth asking and is correct even when
  *  tracing was toggled between authoring and reporting. Use {@link setSourceTracing} to turn it
- *  on (or `XGIS_SHADER_DSL_TRACE=1`).
+ *  on (or `TYPESHADE_TRACE=1`).
  *
  *  @internal
  */

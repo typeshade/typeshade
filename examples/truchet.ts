@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — truchet tiles (hash-flipped arc maze) ═══
+// ═══ typeshade example — truchet tiles (hash-flipped arc maze) ═══
 //
 // The truchet construction: tile the plane with ONE tile — two quarter-circle
 // arcs joining edge midpoints — and let a per-cell hash mirror half the tiles.

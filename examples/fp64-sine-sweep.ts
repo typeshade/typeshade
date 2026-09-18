@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 sine sweep (df64 sin at large argument) ═══
+// ═══ typeshade example — fp64 sine sweep (df64 sin at large argument) ═══
 //
 // sin(x) where the argument x is a LARGE base plus a small on-screen sweep. As the
 // base grows past ~2²⁴, one f32 ulp of x widens past the sweep window: the plain-f32

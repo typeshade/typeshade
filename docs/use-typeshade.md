@@ -40,7 +40,7 @@ export function foo(x: f32): f32 {
 The public entry points take **one** source string:
 
 ```ts
-import { compile, compileTsSource } from '@xgis/shader-dsl'
+import { compile, compileTsSource } from 'typeshade'
 
 const { diagnostics, module, wgsl, glsl, eval: run } = compile(appSrc)
 
@@ -67,7 +67,7 @@ from, read with `sourceSpanOf(node)`:
 <!-- doc-snippets: skip — a host-side snippet, not a compilation unit -->
 
 ```ts
-import { compile, sourceSpanOf } from '@xgis/shader-dsl'
+import { compile, sourceSpanOf } from 'typeshade'
 
 const { module } = compile(appSrc)
 const span = sourceSpanOf(module.funcs[0]!.body[0]!)
@@ -81,14 +81,14 @@ rather than lowered: the counter a `while` becomes, a value `autoVars` materiali
 front end expands a shorthand into. That is what a debugger reads to stop on the line an author
 wrote; `docs/debugging.md` is the design.
 
-`@xgis/shader-dsl/debug` is the layer that reads them. It steps one invocation on the CPU
+`typeshade/debug` is the layer that reads them. It steps one invocation on the CPU
 oracle, stopping before each statement the author wrote:
 
 <!-- doc-snippets: skip - a host-side snippet, not a compilation unit -->
 
 ```ts
-import { compile } from '@xgis/shader-dsl'
-import { startDebugSession } from '@xgis/shader-dsl/debug'
+import { compile } from 'typeshade'
+import { startDebugSession } from 'typeshade/debug'
 
 // Name the file. A breakpoint's `file` is matched against the file the spans name, and this
 // option is what names it: compiled without it, every span says `typeshade-input.ts` and a
@@ -123,7 +123,7 @@ editor's debug adapter or a `launch.json` makes:
 <!-- doc-snippets: skip - a host-side snippet, not a compilation unit -->
 
 ```ts
-import { startDebugSessionFromConfig } from '@xgis/shader-dsl/debug'
+import { startDebugSessionFromConfig } from 'typeshade/debug'
 
 const s = startDebugSessionFromConfig(module, {
   entry: 'fs',

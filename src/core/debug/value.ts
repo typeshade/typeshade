@@ -216,7 +216,7 @@ function numericArray(value: unknown, n: number, want: string, got: string): str
  *  computed as `16777217`. Rounding a number for display is only honest when the number really
  *  is an f32.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  *
  *  @param value - the value to render.
  *  @param type - its declared type; omit when the caller has none.
@@ -333,7 +333,7 @@ function f32Text(v: number): string {
  *  that module, so threading the struct table through each call is ceremony. A debug adapter
  *  builds one of these per session and calls it for every row of its variables view.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  *
  *  @param m - the module whose values will be rendered.
  *  @returns a formatter taking a value and its declared type.

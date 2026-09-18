@@ -157,7 +157,7 @@ function lowerIdentifier(
       return { op: 'overrideref', type: binding.type, name: binding.name }
     default: {
       const never: never = binding.kind
-      throw new Error(`shader-dsl: unhandled BindingKind ${String(never)}`)
+      throw new Error(`typeshade: unhandled BindingKind ${String(never)}`)
     }
   }
 }

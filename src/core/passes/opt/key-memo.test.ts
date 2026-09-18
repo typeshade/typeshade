@@ -3,12 +3,12 @@ import { keyOf } from './expr-utils.js'
 import { f32T, vec2fT } from '../../ir/index.js'
 import type { Expr } from '../../ir/index.js'
 
-// ═══ #2465 — keyOf is memoised on the Expr OBJECT; these pin what that must not break ═══
+// ═══ X-GIS #2465 — keyOf is memoised on the Expr OBJECT; these pin what that must not break ═══
 //
 // The memo exists because keyOf is called per EXPRESSION NODE by four passes and re-run every
 // fixpoint iteration: 254,232 calls in one `line` emit, against 776 collectLocals and 8,256
 // collectMutatedRoots calls in the SAME emit. (That measurement is also what refuted the
-// premise this work started from — see #2465.)
+// premise this work started from — see X-GIS #2465.)
 //
 // The memo can break in exactly one way that no existing test would catch, and it is the way
 // an "optimisation" would naturally introduce: making the key IDENTITY-based. Every CSE
@@ -20,7 +20,7 @@ import type { Expr } from '../../ir/index.js'
 const lit = (v: number): Expr => ({ op: 'lit', type: f32T, value: v })
 const add = (a: Expr, b: Expr): Expr => ({ op: 'binop', type: f32T, bop: '+', a, b })
 
-describe('#2465 — the keyOf memo', () => {
+describe('X-GIS #2465 — the keyOf memo', () => {
   it('gives two DISTINCT but structurally equal exprs the SAME key', () => {
     // Built separately on purpose: no shared sub-object, so nothing but structure can match
     // them. This is the arm that dies if the memo is ever made identity-based.
@@ -44,7 +44,7 @@ describe('#2465 — the keyOf memo', () => {
     for (let i = 0; i < 3; i++) expect(keyOf(e)).toBe(first)
   })
 
-  it('keys by TYPE as well as value — the #2408 arm the memo must not erase', () => {
+  it('keys by TYPE as well as value — the X-GIS #2408 arm the memo must not erase', () => {
     // u32(-1.0) is 0 (saturates); u32(-1) is 4294967295 (bit reinterpretation). Sharing a key
     // merged them, which moved emitted WGSL and GLSL. Re-asserted here because a memo keyed on
     // anything less than the full structural key would re-open it.

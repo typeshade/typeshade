@@ -126,7 +126,7 @@ function licmFn(f: FuncDecl): FuncDecl {
 
   const temp = new Map<string, string>()
   const lets: Stmt[] = []
-  // Seed past any existing `_licmN` (#763 P2) — the fixpoint re-runs passes, and
+  // Seed past any existing `_licmN` (X-GIS #763 P2) — the fixpoint re-runs passes, and
   // a const/copy-prop round can expose a NEW hoistable compound after a first
   // hoist already emitted `_licm0`; a reset counter would redeclare it (backend
   // compile error — nothing re-validates post-optimize). Same seeding as cse/gvn.

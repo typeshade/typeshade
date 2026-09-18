@@ -1,4 +1,4 @@
-// ═══ Literal spelling is fail-closed on both writers (#2276) ═══
+// ═══ Literal spelling is fail-closed on both writers (X-GIS #2276) ═══
 //
 // Three shapes used to reach the target text as bytes no driver accepts:
 //   • `-(-1.0)` spelled `--1.0` — `--` is the DECREMENT token in WGSL and GLSL;
@@ -14,7 +14,7 @@ import { wgslBackend, emitModule as emitWgslModule } from './wgsl.js'
 import { glslEs300Backend, emitGlslModule } from './glsl.js'
 import { f32T, i32T, u32T, boolT, vec3fT, fn, module, vec4, f32 } from '../ir/index.js'
 import type { Expr, ShaderType } from '../ir/index.js'
-import { ShaderDslError } from '../diagnostics/error.js'
+import { TypeShadeError } from '../diagnostics/error.js'
 
 const lit = (value: number, type = f32T): Expr => ({ op: 'lit', type, value })
 const neg = (a: Expr): Expr => ({ op: 'unop', type: a.type, uop: '-', a }) as Expr
@@ -35,7 +35,7 @@ describe.each(backends)('unary minus never spells `--` (%s)', (_id, be) => {
     expect(emitExpr(neg(neg(v('a'))), be)).toBe('(-(-a))')
     expect(emitExpr(neg(neg(v('a'))), be, 'minimal')).toBe('-(-a)')
   })
-  it('the shape inside a subtraction (the #2276 repro) contains no `--`', () => {
+  it('the shape inside a subtraction (the X-GIS #2276 repro) contains no `--`', () => {
     for (const mode of ['full', 'minimal'] as const) {
       const s = emitExpr(sub(v('a'), neg(lit(-1))), be, mode)
       expect(s).not.toContain('--')
@@ -54,8 +54,8 @@ describe.each(backends)('literal() is fail-closed (%s)', (_id, be) => {
     } catch (e) {
       err = e
     }
-    expect(err).toBeInstanceOf(ShaderDslError)
-    expect((err as ShaderDslError).code).toBe('SD0017')
+    expect(err).toBeInstanceOf(TypeShadeError)
+    expect((err as TypeShadeError).code).toBe('SD0017')
   }
   it('rejects i32 literals outside [-2^31, 2^31-1]', () => {
     throws(2147483648, i32T)
@@ -148,8 +148,8 @@ describe.each(backends)('emitConst spells the value for the declared type (%s)',
     } catch (e) {
       err = e
     }
-    expect(err).toBeInstanceOf(ShaderDslError)
-    expect((err as ShaderDslError).code).toBe('SD0017')
+    expect(err).toBeInstanceOf(TypeShadeError)
+    expect((err as TypeShadeError).code).toBe('SD0017')
   })
 })
 

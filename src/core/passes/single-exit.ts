@@ -73,7 +73,7 @@ export function checkSingleExit(f: FuncDecl): string[] {
  *  Both faces read the same `countReturns`/`hasInjection`, so they cannot drift on
  *  what counts as a return.
  *
- *  Consumer: the GLSL backend (#1858), which emits such an entry body directly inside
+ *  Consumer: the GLSL backend (X-GIS #1858), which emits such an entry body directly inside
  *  `void main()` — the single exit becomes main's output scatter — instead of wrapping
  *  it in a `<name>_impl` fn that `main()` then calls exactly once. */
 export function singleExitBody(

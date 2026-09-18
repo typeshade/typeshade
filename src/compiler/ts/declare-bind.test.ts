@@ -113,7 +113,7 @@ describe('a binding is a module-scope var, not a const (#14)', () => {
     const out = [0, 0, 0, 0]
     cm.setBinding('input', [1, 2, 3, 4])
     cm.setBinding('output', out)
-    // Before the fix this threw `shader-dsl/cpu: unknown const input`: the oracle looks a
+    // Before the fix this threw `typeshade/cpu: unknown const input`: the oracle looks a
     // constref up in the CONST map, and a binding is never in it.
     cm.fns['k']!([2, 0, 0])
     expect(out).toEqual([0, 0, 6, 0])

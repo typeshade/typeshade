@@ -5,12 +5,12 @@
 //
 //   • MANGLE INVARIANCE — renaming every internal identifier changes nothing
 //     semanticDiff reports. `obfuscate()`'s only IR-stage plugin is `mangle` (the rest
-//     transform text), so this is the assertion behind #1715's "the production emit is
+//     transform text), so this is the assertion behind X-GIS #1715's "the production emit is
 //     the dev emit, optimized".
 //   • NON-VACUITY — two DIFFERENT examples must differ. Without this arm a comparator
 //     that returned four empty arrays unconditionally would pass the invariant above
 //     on all 36 examples and read as a strong green.
-//   • DECLARED-TRANSFORM CLASSIFICATION (#1806) — for the one prod plugin that DOES
+//   • DECLARED-TRANSFORM CLASSIFICATION (X-GIS #1806) — for the one prod plugin that DOES
 //     change what the comparator reports (inline), declaring it must explain the whole
 //     dev↔inlined diff on every example, so a consumer's parity gate budgets zero for
 //     an intentional pipeline.
@@ -57,7 +57,7 @@ describe('semanticDiff over the example corpus', () => {
     expect(renamed).toBeGreaterThanOrEqual(Math.ceil(examples.length / 2))
   })
 
-  it('declaring inline() explains the dev↔inlined diff on every example (#1806)', () => {
+  it('declaring inline() explains the dev↔inlined diff on every example (X-GIS #1806)', () => {
     const offenders: string[] = []
     let rewritten = 0
     let explained = 0

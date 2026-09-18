@@ -5,7 +5,7 @@
 // call it walks the IR ONCE at compile time and emits a JS source string per
 // fn, then `new Function`s it. The recursive per-node `evalExpr` dispatch + the
 // per-`call` argument-array allocation (the ~40 %-of-frame / GC-churn hot spot
-// the profile flagged at high pitch, #1162) collapse into straight-line JS with
+// the profile flagged at high pitch, X-GIS #1162) collapse into straight-line JS with
 // real local variables.
 //
 // ─── BIT-IDENTITY CONTRACT (the whole point) ───
@@ -174,7 +174,7 @@ function emitExpr(e: Expr, S: FnCtx): string {
       if (id === undefined) throw new CodegenUnsupported(`unknown override ${e.name}`)
       return id
     }
-    // #1713 — a HOST-provided global has no CPU value: there is no host here. Refusing is
+    // X-GIS #1713 — a HOST-provided global has no CPU value: there is no host here. Refusing is
     // the honest answer; substituting 0 would make the oracle silently disagree with the
     // GPU, which is the one thing a reference implementation must never do.
     case 'externref':
@@ -298,7 +298,7 @@ function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): string {
 /** scalarBin's spellings, token for token: the float kind is plain JS arithmetic; an
  *  integer kind wraps with `| 0` / `>>> 0` exactly as `wrapInt` does, multiplies through
  *  `Math.imul`, and divides / takes the remainder through the SAME `intDiv` / `intRem`
- *  helpers the interpreter calls (#2274) — bit-identical by construction. */
+ *  helpers the interpreter calls (X-GIS #2274) — bit-identical by construction. */
 function emitScalarBin(bop: BinOp, a: string, b: string, kind: NumKind): string {
   const int = kind !== 'f32'
   const wrap = (s: string): string => (kind === 'i32' ? `(${s} | 0)` : `(${s} >>> 0)`)
@@ -493,7 +493,7 @@ interface CodegenRuntime {
   /** WGSL saturating f32→u32/i32 (float sources only — see cpu-runtime). */
   u32Sat: typeof f32ToU32Sat
   i32Sat: typeof f32ToI32Sat
-  /** WGSL integer `/` and `%` (#2274) — the SAME helpers `scalarBin` calls. */
+  /** WGSL integer `/` and `%` (X-GIS #2274) — the SAME helpers `scalarBin` calls. */
   intDiv: typeof intDiv
   intRem: typeof intRem
   /** Aggregate copy at a `let` / `var` binding — the SAME helper the interpreter calls. */
@@ -523,7 +523,7 @@ interface CodegenRuntime {
  *  calls {@link compileModule} instead. Reach for the interpreter directly when debugging, too,
  *  since it puts no generated source between you and the IR.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the module to evaluate.
  *  @param opts - the same `precision` and `gpuStubs` {@link compileModule} takes.
@@ -535,7 +535,7 @@ interface CodegenRuntime {
  *
  *  @example
  *  ```ts
- *  import { compileModuleJs, compileModule } from '@xgis/shader-dsl'
+ *  import { compileModuleJs, compileModule } from 'typeshade'
  *
  *  const cpu = (() => {
  *    try {
@@ -555,7 +555,7 @@ export function compileModuleJs(
   // Identical preamble to compileModule so the generated code walks the SAME IR
   // the interpreter would (validate rejects malformed modules; autoVars
   // materialises plain-const assignables into var bindings; froundF32 makes f32
-  // arithmetic round like the target's — #2426, and it must be the same rewrite in
+  // arithmetic round like the target's — X-GIS #2426, and it must be the same rewrite in
   // the same place, or the two engines stop being differentials of each other).
   validate(m)
   const av = autoVars(m)
@@ -642,12 +642,12 @@ export function compileModuleJs(
     gpuStub: (name, ...args) => {
       if (!gpuStubs)
         throw new Error(
-          `shader-dsl/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (#763 O3)`,
+          `typeshade/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
         )
       return GPU_STUBS[name]!(...args)
     },
     vecMatThrow: () => {
-      throw new Error('shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
+      throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
     },
   }
 

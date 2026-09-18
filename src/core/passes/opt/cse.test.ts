@@ -217,12 +217,12 @@ describe('optimize — CSE placement', () => {
     }
   })
 
-  // #2408 — a literal's TYPE is part of its identity. `keyOf` used to spell a literal as
+  // X-GIS #2408 — a literal's TYPE is part of its identity. `keyOf` used to spell a literal as
   // `typeof e.value` (always 'number') plus its value, so `u32(-1.0)` and `u32(-1)` shared a
   // key and CSE rewrote one into the other — in the emitted WGSL and GLSL, not just on the
   // CPU tier. The two conversions genuinely differ: float→uint saturates to 0, int→uint
-  // reinterprets the bits as 4294967295. Found by the #2406 generated-program differential.
-  it('#2408: does not merge two literals that differ only in type', () => {
+  // reinterprets the bits as 4294967295. Found by the X-GIS #2406 generated-program differential.
+  it('X-GIS #2408: does not merge two literals that differ only in type', () => {
     const u32Lit = (type: ShaderType, value: number): Expr => ({
       op: 'call',
       type: u32T,
@@ -266,7 +266,7 @@ describe('optimize — CSE placement', () => {
   })
 
   // The same key loss on the other side: `String(-0)` is `"0"`.
-  it('#2408: does not merge -0.0 with 0.0', () => {
+  it('X-GIS #2408: does not merge -0.0 with 0.0', () => {
     const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value })
     const add = (name: string, value: number): Stmt => ({
       s: 'var',

@@ -11,7 +11,7 @@
 // by the M2a emit-shape test and the M2c real-GPU gate.
 
 import { describe, it, expect } from 'vitest'
-import { compileModule, lowerComputeToFragment } from '@xgis/shader-dsl'
+import { compileModule, lowerComputeToFragment } from 'typeshade'
 import {
   f32T,
   u32T,
@@ -22,7 +22,7 @@ import {
   type ShaderType,
   type Expr,
   type ModuleDecl,
-} from '@xgis/shader-dsl'
+} from 'typeshade'
 
 const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
 const arrF32 = { kind: 'array', elem: f32T } as ShaderType
@@ -97,7 +97,7 @@ function runCompute(featData: number[], n: number): number[] {
   return out
 }
 
-// The SAME fixture DECLARED a portable kernel (#1812). `portable` is compute-only and has no
+// The SAME fixture DECLARED a portable kernel (X-GIS #1812). `portable` is compute-only and has no
 // attrs spelling, so the declaration also carries the structured stage the tier reads. The
 // lowering routes a declared entry through `analyzePortableKernel` instead of its ad-hoc
 // shape checks — this module is what proves that gate ACCEPTS the fixture (and that the
@@ -149,7 +149,7 @@ describe('M2b — compute→fragment lowering preserves out_color byte-for-byte 
     expect(runFragment(data, n, w)).toEqual(runCompute(data, n))
   })
 
-  it('#1812 — the same kernel DECLARED portable lowers through the tier gate, oracle-identical', () => {
+  it('X-GIS #1812 — the same kernel DECLARED portable lowers through the tier gate, oracle-identical', () => {
     const n = 10,
       w = 4 // the multi-row shape: the widest arm, so the tier gate is proven on it
     const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11)

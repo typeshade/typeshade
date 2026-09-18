@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl/debug: stepping one shader invocation on the CPU ═══
+// ═══ typeshade/debug: stepping one shader invocation on the CPU ═══
 //
 // The engine behind `docs/debugging.md`: the CPU oracle's own walk, re-spelled as a generator
 // that stops at statement boundaries, so an author can step through the `"use typeshade"`
@@ -9,7 +9,7 @@
 // by an IDE's debug adapter and by the Playground, and a subpath is the cheapest way to keep
 // the two dependency graphs apart.
 //
-// Import as `@xgis/shader-dsl/debug`.
+// Import as `typeshade/debug`.
 
 export {
   startDebugSession,

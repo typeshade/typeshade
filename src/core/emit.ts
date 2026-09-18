@@ -76,7 +76,7 @@ export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): stri
         // ATOM to lose its parens: `-(a*b)` is not `-a*b`, and `-(-a)` would
         // spell `--a`, which is a decrement in GLSL. The same `--` hazard hides in
         // a NEGATIVE LITERAL operand — a leaf never wraps, so `-(lit -1.0)` printed
-        // `--1.0` (#2276) — hence any operand whose spelling already starts with
+        // `--1.0` (X-GIS #2276) — hence any operand whose spelling already starts with
         // `-` is parenthesized, in both modes and on both targets.
         const inner = full ? r(x.a) : go(x.a, PREC_ATOM)
         const operand = inner.startsWith('-') ? `(${inner})` : inner
@@ -93,7 +93,7 @@ export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): stri
         // (`need` 1), while a `.field` / `[i]` BASE must be a primary — the
         // corpus really does contain `((h*h)*(i-(h*2.))).y`, and `a*b.y` is a
         // different expression. The one argument position that is NOT loose is an
-        // intrinsic whose SPELLING re-embeds the argument (#2350) — see `call` below.
+        // intrinsic whose SPELLING re-embeds the argument (X-GIS #2350) — see `call` below.
         return emitLeaf(
           x,
           be,
@@ -121,16 +121,16 @@ function emitLeaf(
     case 'externref':
     case 'param':
     case 'varref':
-      // `overrideref` (#923) emits as the bare name on BOTH backends — the WGSL
+      // `overrideref` (X-GIS #923) emits as the bare name on BOTH backends — the WGSL
       // `override` identifier and the GLSL `#define` macro share the declared name.
-      // `externref` (#1713) likewise: its per-target spelling was already resolved into
+      // `externref` (X-GIS #1713) likewise: its per-target spelling was already resolved into
       // `.name` by `spellExterns` during lowering, so the walk stays target-neutral.
       return e.name
     case 'call': {
       // A registry spelling that splices an argument into a tighter position — `mod`'s
       // `/` operand, `pack4x8unorm`'s `.x` base — needs it as a PRIMARY: at the loose
       // argument precedence a minimally-parenthesized `a + b` re-associates inside the
-      // template, changing the parse (#2350). The registry declares which entries do
+      // template, changing the parse (X-GIS #2350). The registry declares which entries do
       // that; `base` is the same ATOM rendering `.field` / `[i]` already demand, and
       // under 'full' both renderers are identical, so no emitted bytes move there.
       //
@@ -164,7 +164,7 @@ function emitLeaf(
     // before emit. If one leaks through, that pass was bypassed — fail loudly.
     case 'matchExpr':
       throw new Error(
-        'shader-dsl: matchExpr Expr leaked into emitExpr — lowerModule should have hoisted it',
+        'typeshade: matchExpr Expr leaked into emitExpr — lowerModule should have hoisted it',
       )
   }
 }
@@ -252,14 +252,14 @@ export function forHeader(s: Stmt, be: Backend, parens: ParenMode = 'full'): str
       : be.localVar(s.name, s.type)
   if (s.s === 'assign') return `${r(s.target)} = ${r(s.expr)}`
   if (s.s === 'assignOp') return `${r(s.target)} ${s.bop}= ${r(s.expr)}`
-  throw new Error(`shader-dsl: bad for-header stmt ${s.s}`)
+  throw new Error(`typeshade: bad for-header stmt ${s.s}`)
 }
 
 // ── Module-level emit (shared driver) ──
 // The module assembly pipeline, parameterised by the Backend, lives here ONCE so a
 // new backend does not copy it. Per-target spelling (const/struct/binding/func) and
 // the emit-time optimisation (`optimize` — the full fixpoint pipeline on both current
-// backends, #763 H1) are delegated to the Backend; the validate → assertCaps →
+// backends, X-GIS #763 H1) are delegated to the Backend; the validate → assertCaps →
 // autoVars → lowerModule → optimize preamble is identical for every target.
 
 /** Run the authored module through the shared pre-emit pipeline for a backend:
@@ -274,7 +274,7 @@ export function lowerForBackend(
   fp64Flavor?: Fp64Flavor,
   onStage?: StageSink,
 ): ModuleDecl {
-  // Profiling (#2449) times the stages HERE rather than in a parallel copy of this list,
+  // Profiling (X-GIS #2449) times the stages HERE rather than in a parallel copy of this list,
   // because a profiler that re-derives the pipeline measures whatever it drifted into. The
   // production path passes no sink and takes the untimed branch below.
   if (onStage !== undefined) return lowerTimed(m, be, level, fp64Flavor, onStage)
@@ -282,7 +282,7 @@ export function lowerForBackend(
   // pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
   validate(m)
   assertCaps(be, m) // principled fail-closed gate
-  assertBuiltins(be, m) // …and its builtin-vocabulary twin (#1672)
+  assertBuiltins(be, m) // …and its builtin-vocabulary twin (X-GIS #1672)
   // matchExpr→{var slot, Stmt.switch} lowering first so the rest of the emitter stays
   // matchExpr-unaware (identity for modules with no matchExpr); fp64Lower then rewrites
   // every f64 into vec2<f32> + df64_* calls (identity for modules with no f64) — HERE,
@@ -299,7 +299,7 @@ export function lowerForBackend(
   return level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
 }
 
-/** Called once per pre-emit stage when profiling (#2449). */
+/** Called once per pre-emit stage when profiling (X-GIS #2449). */
 export type StageSink = (stage: string, ms: number) => void
 
 /** `performance.now()` where it exists, else a coarser fallback — the package declares no
@@ -338,7 +338,7 @@ function lowerTimed(
   return step('optimize', () => (level === undefined ? be.optimize(pre) : optimizeAt(pre, level)))
 }
 
-/** Resolve each `externref` to the spelling THIS target's host uses (#1713).
+/** Resolve each `externref` to the spelling THIS target's host uses (X-GIS #1713).
  *
  *  Done as a lowering pass rather than in `emitLeaf` because the spelling lives on the
  *  DECLARATION and the emit walk only ever sees the Expr — threading the module through
@@ -425,7 +425,7 @@ function assembleLowered(lowered: ModuleDecl, be: Backend, parens: ParenMode = '
 function assembleParts(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'full'): string {
   const parts: string[] = []
 
-  // #923 — specialization-constant declarations lead the module (WGSL `override`
+  // X-GIS #923 — specialization-constant declarations lead the module (WGSL `override`
   // lines): they are module-scope constants a later const/fn may reference. Skipped
   // when the module declares none, so override-free emit stays byte-identical.
   if (lowered.overrides?.length && be.emitOverride)
@@ -441,7 +441,7 @@ function assembleParts(lowered: ModuleDecl, be: Backend, parens: ParenMode = 'fu
 /** A transform that runs inside module emit. Plugins are passed to `emitModule` and
  *  `emitGlslModule` through {@link EmitOptions} as `{ plugins: [...] }`. The core emit knows
  *  nothing about what a plugin does. The plugins shipped with the package (`mangle`, `minify`,
- *  `prune`, `obfuscate` and others) live on the `@xgis/shader-dsl/emit-prod` subpath, so an
+ *  `prune`, `obfuscate` and others) live on the `typeshade/emit-prod` subpath, so an
  *  application that emits at runtime and never imports them does not bundle them.
  *
  *  A plugin has two hooks, both optional. `transformIR` receives the module after every
@@ -483,7 +483,7 @@ export interface EmitPlugin {
  *
  *  @example
  *  ```ts
- *  import { obfuscate } from '@xgis/shader-dsl/emit-prod'
+ *  import { obfuscate } from 'typeshade/emit-prod'
  *
  *  const wgsl = emitModule(MODULE, { plugins: obfuscate(), parens: 'minimal' })
  *  ``` */
@@ -526,7 +526,7 @@ export function applyTextPlugins(code: string, opts?: EmitOptions): string {
   return c
 }
 
-/** The backend's directive header, ready to PREPEND (#1670). `modulePreamble` returns
+/** The backend's directive header, ready to PREPEND (X-GIS #1670). `modulePreamble` returns
  *  bare directive lines with no trailing separator (backend.ts — one contract for every
  *  target); this driver's slot puts a blank line between them and the first declaration,
  *  and contributes nothing at all when the module directs nothing, so an enables-free
@@ -543,14 +543,14 @@ function directiveHeader(be: Backend, m: ModuleDecl): string {
  *  `opts.plugins` run staged around the assembly (all transformIR, then all transformText). */
 export function emitModule(m: ModuleDecl, be: Backend, opts?: EmitOptions): string {
   const lowered = applyIRPlugins(lowerForBackend(m, be, undefined, opts?.fp64Flavor), opts)
-  // The `enable`-directive header (#628) is derived from the AUTHORED module's opt-in
+  // The `enable`-directive header (X-GIS #628) is derived from the AUTHORED module's opt-in
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so
   // their emit stays byte-identical.
   return directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be, opts?.parens), opts)
 }
 
-/** Emit a ModuleDecl as a header-less FRAGMENT for `be` (#1711) — the declaration
+/** Emit a ModuleDecl as a header-less FRAGMENT for `be` (X-GIS #1711) — the declaration
  *  assembly without the directive header and, unless `entryPoints` is true, without the
  *  stage entry points. The directives come back as `preamble` lines for the composer to
  *  merge rather than being concatenated into source it would have to strip.

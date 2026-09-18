@@ -170,7 +170,7 @@ function foldNode(e: Expr): Expr {
 }
 
 /** Fold literal-operand arithmetic throughout a module. Pure (module -> module).
- *  Raw-Stmt fns are skipped (#763 P1) — f64 pre-folding around a raw splice
+ *  Raw-Stmt fns are skipped (X-GIS #763 P1) — f64 pre-folding around a raw splice
  *  double-rounds vs the GPU's stepwise f32. */
 export function constFold(m: ModuleDecl): ModuleDecl {
   return mapModuleExprs(m, foldNode, { skipRawBodies: true })

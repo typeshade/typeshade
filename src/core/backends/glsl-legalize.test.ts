@@ -1,14 +1,14 @@
-// ═══ GLSL ES 3.00 legalize — discarding-call ctor-arg hoist (#1840) ═══
+// ═══ GLSL ES 3.00 legalize — discarding-call ctor-arg hoist (X-GIS #1840) ═══
 //
 // ANGLE's D3D11 backend miscompiles a GLSL ES 3.00 fragment shader whose STRUCT
 // constructor argument contains a call to a function that (transitively) executes
 // `discard`. COMPILE_STATUS and LINK_STATUS both report success; the shader dies at the
 // FIRST DRAW. A named local for the same value (`vec4 c = inner(v); return Out(c);` —
-// #1840's case B) is sufficient, and that is what glsl-legalize.ts synthesises.
+// X-GIS #1840's case B) is sufficient, and that is what glsl-legalize.ts synthesises.
 //
-// SINCE #1867, the entry's OUTPUT struct is usually not constructed at all: a constructor
+// SINCE X-GIS #1867, the entry's OUTPUT struct is usually not constructed at all: a constructor
 // exit is scattered field-by-field straight to the draw buffers, so `Out _out = Out(_dh0);`
-// is emitted as `color = _dh0;`. That removes #1840's hazard by construction for the entry
+// is emitted as `color = _dh0;`. That removes X-GIS #1840's hazard by construction for the entry
 // return — there is no struct ctor left to miscompile — but NOT everywhere: a ctor inside a
 // helper, or one nested in an argument (`take_k(BoxK(_dh0))` below), still reaches the
 // driver, which is why this pass and the `ctorSpans` shape gate both stay. The per-case
@@ -18,7 +18,7 @@
 // The assertions are on the EMITTED TEXT because the emitted text is what the driver
 // reads. Two arms guard the two ways this could go wrong: the NEGATIVE suites pin the
 // blast radius (a non-discarding callee, a VECTOR ctor, and a guarded position are all
-// left byte-identical — the #1840 repro table has C/E/F passing on D3D11, so hoisting
+// left byte-identical — the X-GIS #1840 repro table has C/E/F passing on D3D11, so hoisting
 // them would be churn for nothing), and the oracle arm pins that the hoist does not
 // change a single value.
 //
@@ -30,9 +30,9 @@
 // those shapes before a real emit ever reached the analysis.
 
 import { describe, it, expect } from 'vitest'
-import { emitGlslModule, emitGlslStages, emitModule, compileModule } from '@xgis/shader-dsl'
-import { vec4fT, f32T, boolT, arrayT, structT } from '@xgis/shader-dsl'
-import type { Expr, FuncDecl, ModuleDecl, ReadonlyNode, Stmt } from '@xgis/shader-dsl'
+import { emitGlslModule, emitGlslStages, emitModule, compileModule } from 'typeshade'
+import { vec4fT, f32T, boolT, arrayT, structT } from 'typeshade'
+import type { Expr, FuncDecl, ModuleDecl, ReadonlyNode, Stmt } from 'typeshade'
 import {
   fn,
   module as dslModule,
@@ -48,8 +48,8 @@ import {
   Switch,
   toI32,
   Var,
-} from '@xgis/shader-dsl'
-import { inline, obfuscate } from '@xgis/shader-dsl/emit-prod'
+} from 'typeshade'
+import { inline, obfuscate } from 'typeshade/emit-prod'
 import { hoistDiscardingCtorArgs, transitivelyDiscardingFns } from './glsl-legalize.js'
 
 // Every balanced `Name(...)` span in `text` for each ctor name — the exact spans ANGLE
@@ -96,7 +96,7 @@ const fsA = fn(
 )
 const modA = dslModule({ uses: [OutA], funcs: [helperA, fsA] })
 
-describe('glsl-legalize — direct discarding call as a struct ctor arg (#1840 case A)', () => {
+describe('glsl-legalize — direct discarding call as a struct ctor arg (X-GIS #1840 case A)', () => {
   it('hoists the argument into a named local before the return', () => {
     const g = emitGlslModule(modA, 'fragment')
     expect(g).toContain('vec4 _dh0 = helper_a(pos.x);')
@@ -168,7 +168,7 @@ describe('glsl-legalize — discarding call nested inside the ctor argument', ()
   })
 })
 
-// ── nested struct ctor (#1840 case D) — only the INNERMOST offending arg hoists ──
+// ── nested struct ctor (X-GIS #1840 case D) — only the INNERMOST offending arg hoists ──
 describe('glsl-legalize — nested struct constructors', () => {
   const InnerD = structDecl('InnerD', { c: vec4fT })
   const OutD = ioStruct('OutD', { color: location(0, vec4fT) })
@@ -198,7 +198,7 @@ describe('glsl-legalize — nested struct constructors', () => {
   })
 })
 
-// ── multi-field ctor (#1840 case G) — only the offending argument moves ──
+// ── multi-field ctor (X-GIS #1840 case G) — only the offending argument moves ──
 describe('glsl-legalize — multi-field struct ctor', () => {
   const OutG = ioStruct('OutG', { a: location(0, vec4fT), b: location(1, vec4fT) })
   const helperG = discardingHelper('helper_g')
@@ -220,7 +220,7 @@ describe('glsl-legalize — multi-field struct ctor', () => {
   })
 })
 
-// ── over-reach guards — the three shapes #1840 measured as PASSING on D3D11 ──
+// ── over-reach guards — the three shapes X-GIS #1840 measured as PASSING on D3D11 ──
 describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () => {
   it('a NON-discarding callee in a struct ctor arg is untouched', () => {
     const OutN = ioStruct('OutN', { color: location(0, vec4fT) })
@@ -249,7 +249,7 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
     expect(g).not.toContain('_dh')
   })
 
-  it('a VECTOR ctor around a discarding call is untouched (#1840 cases C/E)', () => {
+  it('a VECTOR ctor around a discarding call is untouched (X-GIS #1840 cases C/E)', () => {
     const helperE = fn('helper_e', { v: f32T }, ({ v }) => {
       If(v.lt(0), () => {
         Discard()
@@ -346,7 +346,7 @@ describe('glsl-legalize — deterministic across emits and across the stages ent
   })
 })
 
-// ═══ #1840 owner review — the invariant is now stated over EVERY unconditionally
+// ═══ X-GIS #1840 owner review — the invariant is now stated over EVERY unconditionally
 //     evaluated position, control-flow HEADERS included, over the FINAL IR ═══
 //
 // "After legalization, no unconditionally-evaluated struct-constructor argument contains a
@@ -748,7 +748,7 @@ describe('glsl-legalize — assignment target index expressions', () => {
     const BoxN = structDecl('BoxN', { c: vec4fT })
     const helperN = discardingHelper('helper_mt')
     // The second assign READS the field back, which is what keeps this a real `var` —
-    // #1867's structCtor collapses a write-once aggregate into a constructor, and this
+    // X-GIS #1867's structCtor collapses a write-once aggregate into a constructor, and this
     // gate needs a member-chain LVALUE to exist for the walk to leave alone.
     const mkN = fn('mk_mt', { v: f32T }, BoxN.type, ({ v }) => {
       const o = BoxN.var('o')
@@ -786,7 +786,7 @@ describe('glsl-legalize — runs after the whole IR plugin stack', () => {
     expect(g).toMatch(new RegExp(`_dh0=${call}\\(`))
     // …and the local is what reaches the draw buffer, so it was not undone.
     expect(g).toContain('color=_dh0')
-    // NOT re-asserted here: "no ctor holds the discarding call". Since #1867 this entry's
+    // NOT re-asserted here: "no ctor holds the discarding call". Since X-GIS #1867 this entry's
     // output struct is not constructed at all (`color=_dh0`, not `OutA _out = OutA(_dh0)`),
     // so a ctorSpans check on it would pass no matter what the pass did. The shape gate
     // lives in the suites above, on the fixtures where a ctor genuinely survives.

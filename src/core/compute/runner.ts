@@ -1,4 +1,4 @@
-// ═══ Shader DSL — the unified compute runner (#1903) ═══
+// ═══ Shader DSL — the unified compute runner (X-GIS #1903) ═══
 //
 // One entry point for running a `portable: true` compute kernel, whichever backend the
 // host actually has. The kernel is already backend-neutral — the same `fn(…, { stage:
@@ -15,7 +15,7 @@
 // `lib.dom`, the WebGPU surface is typed STRUCTURALLY below rather than pulled from
 // `@webgpu/types` (the package compiles with `types: []` so it can be vendored out of the
 // repo), and the whole thing is on its own subpath — an emit-only consumer that never
-// imports `@xgis/shader-dsl/compute` bundles none of it.
+// imports `typeshade/compute` bundles none of it.
 //
 // ─── THE THREE PROPERTIES THAT ARE NOT NEGOTIABLE ───
 // 1. ASYNC, because WebGPU readback genuinely is (`mapAsync`); CPU and WebGL2 resolve
@@ -208,7 +208,7 @@ function planKernel(m: ModuleDecl): KernelPlan {
   const entry = m.funcs.find(isPortableComputeEntry)
   if (!entry)
     throw new Error(
-      "createComputeRunner: no `portable: true` compute entry in this module. Declare the kernel `fn(…, { stage: 'compute', portable: true })` — the declaration is what routes the WebGL2 lowering and what gets the tier checked on both writers (#1812).",
+      "createComputeRunner: no `portable: true` compute entry in this module. Declare the kernel `fn(…, { stage: 'compute', portable: true })` — the declaration is what routes the WebGL2 lowering and what gets the tier checked on both writers (X-GIS #1812).",
     )
   const tier = analyzePortableKernel(m, entry)
   if (!tier.ok) throw new Error(`createComputeRunner: ${tier.violations.join('; ')}`)
@@ -365,7 +365,7 @@ function createWebGl2Runner(
       // further down: `wOut` is clamped but `hOut = ceil(0 / 1)` is 0, and a 1x0 R32UI
       // texture is not framebuffer-attachment-complete (GLES 3.0 §4.4.4.2), so the
       // completeness check below throws. Short-circuit before any GL call so the three
-      // tiers agree on the documented `run` contract (#2362).
+      // tiers agree on the documented `run` contract (X-GIS #2362).
       if (n === 0) return Promise.resolve(new Uint32Array(0))
       const wOut = Math.min(Math.max(1, n), MAX_W)
       const hOut = Math.ceil(n / wOut)
@@ -373,7 +373,7 @@ function createWebGl2Runner(
       // Snapshot the HOST's global state, BEFORE the first GL call that overwrites it.
       // `options.gl` is documented "A live WebGL2 context" — the caller's, not one this
       // runner owns — so everything this dispatch touches has to come back. Only the
-      // viewport did (#2355); BLEND, the current program and the TEXTURE0 binding did not,
+      // viewport did (X-GIS #2355); BLEND, the current program and the TEXTURE0 binding did not,
       // and on a shared context an unrestored `disable(BLEND)` silently composited the
       // host's next alpha-blended draw as opaque.
       //
@@ -482,7 +482,7 @@ function createWebGl2Runner(
 //
 // The NATIVE tier, and the one with no rewrite in it at all: `emitWgslModule(m)` is the
 // same `@compute @workgroup_size(N)` source the kernel emits with no runner involved —
-// the portable declaration costs zero bytes here (#1812). What this absorbs is only the
+// the portable declaration costs zero bytes here (X-GIS #1812). What this absorbs is only the
 // DISPATCH, which is where WebGPU and WebGL2 stop resembling each other: a pipeline, a
 // bind group at the DECLARED binding numbers, a compute pass, and a staging copy.
 //

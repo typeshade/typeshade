@@ -14,7 +14,7 @@
 // The rewrite sees every node post-order; subtrees it RETURNS are not
 // re-walked (they are the caller's finished output).
 //
-// IDENTITY IS PART OF THE CONTRACT (#2042 INC-4b's vanished-fills incident).
+// IDENTITY IS PART OF THE CONTRACT (X-GIS #2042 INC-4b's vanished-fills incident).
 // A derived module goes back through emitModule's optimizer, whose auto-var
 // pass correlates a mutable value's declaration, assignments, and reads by
 // Expr OBJECT IDENTITY (auto-vars.ts header: "Runs BEFORE lower/cse (which

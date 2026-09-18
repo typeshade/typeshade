@@ -17,12 +17,12 @@
 import type { ModuleDecl } from '../ir/index.js'
 import { lint, type Diagnostic, type LintConfig } from './lint/engine.js'
 import { RULES, CORE_RULES } from './lint/rules/index.js'
-import { ShaderDslError, formatLoc } from '../diagnostics/error.js'
+import { TypeShadeError, formatLoc } from '../diagnostics/error.js'
 
 /** Render every error diagnostic on its own line — `[SD####] (fn X) message @ file:line:col`
  *  — so an aggregated validation failure shows ALL problems, not just the first. */
 function formatValidationMessage(diags: readonly Diagnostic[]): string {
-  const head = `shader-dsl [SD0020]: module validation failed (${diags.length} error${diags.length === 1 ? '' : 's'}):`
+  const head = `typeshade [SD0020]: module validation failed (${diags.length} error${diags.length === 1 ? '' : 's'}):`
   const lines = diags.map((d) => {
     const code = d.code ? `[${d.code}] ` : ''
     const fn = d.fn ? ` (fn ${d.fn})` : ''
@@ -33,8 +33,8 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
 }
 
 /** Thrown by {@link validate} when a module fails one of the structural rules every emit
- *  depends on. Subclasses {@link ShaderDslError} and carries code `SD0020`, so an
- *  `instanceof ShaderDslError` handler catches it and a handler that switches on `code`
+ *  depends on. Subclasses {@link TypeShadeError} and carries code `SD0020`, so an
+ *  `instanceof TypeShadeError` handler catches it and a handler that switches on `code`
  *  routes it.
  *
  *  Catch this class for {@link ValidationError.diagnostics}: `validate()` collects every
@@ -42,11 +42,11 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
  *  module. `.message` renders the same list as text; the array is the form to present in a
  *  UI or a test report.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @example
  *  ```ts
- *  import { validate, ValidationError } from '@xgis/shader-dsl'
+ *  import { validate, ValidationError } from 'typeshade'
  *
  *  try {
  *    validate(MODULE)
@@ -56,7 +56,7 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
  *  }
  *  ```
  */
-export class ValidationError extends ShaderDslError {
+export class ValidationError extends TypeShadeError {
   /** Every error-severity diagnostic that caused the failure, in the order the rules
    *  reported them. */
   readonly diagnostics: readonly Diagnostic[]
@@ -95,7 +95,7 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
  *  modules assembled with {@link composeModule} and compute kernels that return early on
  *  purpose. Style rules are lint-only; run {@link lintModule} or {@link diagnose} for those.
  *
- *  Exported from `@xgis/shader-dsl`.
+ *  Exported from `typeshade`.
  *
  *  @param m - the authored module, as built, before any pass has rewritten its nodes.
  *  @throws {@link ValidationError} carrying every error-severity diagnostic, with code
@@ -103,7 +103,7 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
  *
  *  @example
  *  ```ts
- *  import { validate, ValidationError } from '@xgis/shader-dsl'
+ *  import { validate, ValidationError } from 'typeshade'
  *
  *  try {
  *    validate(MODULE)

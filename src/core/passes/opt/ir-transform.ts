@@ -21,7 +21,7 @@ export function mapExpr(e: Expr, f: (e: Expr) => Expr): Expr {
     case 'overrideref':
     case 'param':
     case 'varref':
-      // `overrideref` (#923) is a leaf here just like `constref` — no children to
+      // `overrideref` (X-GIS #923) is a leaf here just like `constref` — no children to
       // rewrite. This is WHERE its optimizer-opacity comes from: const-fold /
       // const-prop / dead-branch all rebuild through mapExpr, and a node they neither
       // descend into nor have a fold rule for passes through unchanged, so a branch
@@ -84,7 +84,7 @@ export function mapStmt(s: Stmt, f: (e: Expr) => Expr): Stmt {
 }
 
 /** Apply an Expr rewrite to every function body in a module. With
- *  `skipRawBodies` (#763 P1) a fn containing a raw WGSL Stmt is returned
+ *  `skipRawBodies` (X-GIS #763 P1) a fn containing a raw WGSL Stmt is returned
  *  UNTOUCHED — the "raw fns emit verbatim" charter (wgsl.ts) applies to
  *  value-rewriting passes too; constFold/algebraicSimplify were the only two
  *  DEFAULT_PASSES without the skip, i.e. exactly the passes that CHANGE

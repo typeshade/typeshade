@@ -1,4 +1,4 @@
-// ═══ builder — authoring-error context (#843) ═══
+// ═══ builder — authoring-error context (X-GIS #843) ═══
 //
 // When an author's callback throws (a JS ReferenceError, a typo'd field, …),
 // the raw stack leads with builder internals and the failing fn / statement is
@@ -14,7 +14,7 @@ const boom = (): never => {
   throw new ReferenceError('i is not defined')
 }
 
-describe('builder — authoring-error context (#843)', () => {
+describe('builder — authoring-error context (X-GIS #843)', () => {
   it('names the enclosing fn and the statement kind, innermost first', () => {
     expect(() =>
       fn('fs_ctx', { x: f32T }, ({ x }) => {

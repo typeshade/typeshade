@@ -1,4 +1,4 @@
-// ═══ @xgis/shader-dsl example — fp64 Web-Mercator tile pyramid ═══
+// ═══ typeshade example — fp64 Web-Mercator tile pyramid ═══
 //
 // The actual tile-engine computation, at the zoom levels where f32 dies: a
 // normalized Web-Mercator coordinate (Seoul, x ≈ 0.85272) is multiplied by

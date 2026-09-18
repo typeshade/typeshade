@@ -6,7 +6,7 @@
 // alpha-renamed (`_u{k}_name`) so the flattened statements never redeclare a name
 // — the same uniquifier inline-linear.ts uses when it lifts a helper's prelude.
 // Addresses the "loop optimization: no unroll for small fixed-count loops" gap of
-// #627 (licm was the only loop pass). Pure (module -> module).
+// X-GIS #627 (licm was the only loop pass). Pure (module -> module).
 //
 // SMALL ONLY. Blind unrolling bloats (a big body copied many times), so — in the
 // same node-count unit auto-inline's exprCost uses — a loop unrolls iff its trip

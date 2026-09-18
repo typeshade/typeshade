@@ -42,14 +42,14 @@ import { compileTsSource } from '../../compiler/ts/source-file.js'
 
 /** The watch text did not compile, or referred to something the snippet could not be given.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export class DebugWatchError extends Error {
   /** One sentence per problem, as the front end worded it. The front end's own diagnostics,
    *  unedited: a watch's type error should read exactly as it reads in the editor. */
   readonly problems: readonly string[]
   constructor(expression: string, problems: readonly string[]) {
-    super(`shader-dsl/debug: cannot evaluate watch "${expression}": ${problems.join('; ')}`)
+    super(`typeshade/debug: cannot evaluate watch "${expression}": ${problems.join('; ')}`)
     this.name = 'DebugWatchError'
     this.problems = problems
   }
@@ -57,7 +57,7 @@ export class DebugWatchError extends Error {
 
 /** A compiled watch: the lowered expression and the type the compiler gave it.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface CompiledWatch {
   /** The lowered expression, over the scope's names. Its `call` nodes name their callee, so
@@ -201,7 +201,7 @@ const VALUE = '__typeshade_watch_value__'
  *  frame's parameters and locals, and the module's bindings. A name whose type has no
  *  source-language spelling is skipped; see the module header.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  *
  *  @param m - the module being debugged, for its structs and helpers.
  *  @param scope - name to declared type, for everything in scope at the pause.
@@ -287,7 +287,7 @@ function collectReads(e: Expr, into: Set<string>): void {
 
 /** A watch's answer.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugWatchValue {
   /** The value, in the CPU value model: a number, a flat array, an object by field name. */

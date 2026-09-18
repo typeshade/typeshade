@@ -1,4 +1,4 @@
-// ═══ Shader DSL — module FRAGMENTS: declarations without a stage wrapper (#1711) ═══
+// ═══ Shader DSL — module FRAGMENTS: declarations without a stage wrapper (X-GIS #1711) ═══
 //
 // A host-integrated consumer does not always want a whole stage. It wants the module's
 // declarations and helpers to splice into a program the HOST owns — MapLibre's GLSL
@@ -12,7 +12,7 @@
 // `/^#version[^\n]*\n(?:precision[^\n]*\n)*/` strips the whole block on a module with no
 // extension and only the `#version` line on a module with one — leaving `#extension` and
 // every precision line inside the include, to be redeclared when the host composes it.
-// The same strip is what threw away `precision highp usampler2D;` (#1703) and cost a
+// The same strip is what threw away `precision highp usampler2D;` (X-GIS #1703) and cost a
 // second bespoke post-process to put back.
 //
 // So the rule here is: whatever the backend needs for CORRECTNESS comes back as
@@ -81,7 +81,7 @@ export function externCallNames(
 
 /** Everything a fragment expects its host to provide: the extern FUNCTIONS it calls
  *  (derived from call sites, since `externFn` leaves no declaration) plus the extern
- *  VARIABLES it declares (#1713), spelled for `target` — the host binds by the spelling,
+ *  VARIABLES it declares (X-GIS #1713), spelled for `target` — the host binds by the spelling,
  *  not by the logical name. Sorted and de-duplicated. */
 export function fragmentRequires(
   m: ModuleDecl,

@@ -26,7 +26,7 @@ import { evalExpr, makeCtx, runFunction, type Signal, type Step, type StepFrame 
  *  whose span STARTS on that line, so a breakpoint on a blank line or a comment never fires
  *  and a breakpoint on a line carrying two statements fires at each in turn.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugBreakpoint {
   /** Match only statements from this file. Omit to match on line alone, which is what a
@@ -45,7 +45,7 @@ export interface DebugBreakpoint {
 
 /** One frame of a paused call stack.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugStackFrame {
   /** The function's declared name. */
@@ -94,7 +94,7 @@ export interface DebugStackFrame {
 
 /** A stopped run: where it is, and everything visible from there.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugPause {
   /** Why the run stopped: the first statement of the entry, a completed step, or a
@@ -134,7 +134,7 @@ export interface DebugPause {
 
 /** How a run is set up.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugSessionOptions {
   /** What the arithmetic means. Defaults to `'f32'`, where `compileModule` defaults to
@@ -180,7 +180,7 @@ export interface DebugSessionOptions {
 
 /** A run of one invocation, stopped at a statement and steppable from there.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  */
 export interface DebugSession {
   /** Where the run is stopped, or `undefined` once it has finished. */
@@ -276,7 +276,7 @@ export interface DebugSession {
  *  the parameter. That is parity with `compileModule` today, and the invocation builder of
  *  §4.3 is where it gets fixed.
  *
- *  Exported from `@xgis/shader-dsl/debug`.
+ *  Exported from `typeshade/debug`.
  *
  *  @param m - the module to run, as `compile()` or `module()` produced it.
  *  @param entry - the name of the function to invoke.
@@ -290,8 +290,8 @@ export interface DebugSession {
  *
  *  @example
  *  ```ts
- *  import { compile } from '@xgis/shader-dsl'
- *  import { startDebugSession } from '@xgis/shader-dsl/debug'
+ *  import { compile } from 'typeshade'
+ *  import { startDebugSession } from 'typeshade/debug'
  *
  *  const { module } = compile(src)
  *  const s = startDebugSession(module, 'fs', [[100.5, 50.5, 0, 1]])
@@ -319,7 +319,7 @@ export function startDebugSession(
   if (precision === 'f32') prepared = froundF32(prepared)
 
   const decl = prepared.funcs.find((f) => f.name === entry)
-  if (!decl) throw new Error(`shader-dsl/debug: no function "${entry}" in module`)
+  if (!decl) throw new Error(`typeshade/debug: no function "${entry}" in module`)
 
   const ctx = makeCtx(prepared, opts?.gpuStubs ?? false)
   // A name the module does not declare is a typo, not a value: storing it silently means the
@@ -329,7 +329,7 @@ export function startDebugSession(
   for (const [name, value] of Object.entries(opts?.bindings ?? {})) {
     if (!declared.has(name)) {
       const known = [...declared].sort().join(', ') || 'none'
-      throw new Error(`shader-dsl/debug: no binding "${name}" in this module; it declares ${known}`)
+      throw new Error(`typeshade/debug: no binding "${name}" in this module; it declares ${known}`)
     }
     ctx.bindings[name] = value
   }
@@ -422,12 +422,12 @@ class Session implements DebugSession {
   evaluate(expression: string, frameIndex = 0): DebugWatchValue {
     const pause = this.paused
     if (!pause) {
-      throw new Error('shader-dsl/debug: cannot evaluate a watch; the run is not paused')
+      throw new Error('typeshade/debug: cannot evaluate a watch; the run is not paused')
     }
     const frame = pause.frames[frameIndex]
     if (!frame) {
       throw new Error(
-        `shader-dsl/debug: no frame ${frameIndex}; the stack is ${pause.frames.length} deep`,
+        `typeshade/debug: no frame ${frameIndex}; the stack is ${pause.frames.length} deep`,
       )
     }
 
@@ -451,7 +451,7 @@ class Session implements DebugSession {
         // Declared further down the body, so the frame has a TYPE for it and no value. Saying
         // so beats evaluating `undefined` into a NaN that reads like an answer.
         throw new Error(
-          `shader-dsl/debug: "${name}" is declared in ${frame.fnName} but not yet assigned at this pause`,
+          `typeshade/debug: "${name}" is declared in ${frame.fnName} but not yet assigned at this pause`,
         )
       }
     }
@@ -575,7 +575,7 @@ class Session implements DebugSession {
         this.finished = true
         this.paused = undefined
         throw new Error(
-          `shader-dsl/debug: the run reached ${this.maxSteps} statements without finishing ` +
+          `typeshade/debug: the run reached ${this.maxSteps} statements without finishing ` +
             `(maxSteps); it is either an unbounded loop or a budget set too low`,
         )
       }
