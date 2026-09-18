@@ -13,6 +13,23 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **An entry's return: two constraints removed, one moved into the compiler** (§3,
+  [#86](https://github.com/typeshade/typeshade/issues/86)). Checked against real Tint, five
+  shapes compiled with zero errors and were rejected by the backend, and one that Tint accepts
+  silently lost its WebGL2 target.
+  - A **fragment** entry's bare return takes `@location(0)` at any width. Only `vec4` got the
+    attribute before, so a bare `f32`, `vec2` or `vec3` emitted WGSL with no entry-point IO
+    attribute on the return, which Tint refuses.
+  - A **vertex** entry returning a bare `vec4` keeps its GLSL ES 3.00 target. The emitter
+    refused every bare non-struct vertex output because a bare VARYING cannot link by name
+    across the stages; a return carrying a builtin is `gl_Position`, links nothing, and is the
+    simplest vertex shader there is. The refusal now covers only the varying it was written for.
+  - A **vertex** entry that produces no position is refused where it is written: a struct return
+    with no `@builtin("position")` field, a `void` return, and a bare type that is not a `vec4`.
+    Each compiled clean before and was refused by Tint with "a vertex shader must include the
+    'position' builtin in its return type".
+  - New example `bare-position`, the smallest render pair, so the compile gate proves the pair
+    compiles on Tint and links on WebGL2.
 - **A class inside a `namespace`** (§26, [#107](https://github.com/typeshade/typeshade/issues/107)):
   a class there was "a class inside "N" has no flattened form. Declare it at the top level of
   the file", which was the one place left where declaring a class and constructing it did not
