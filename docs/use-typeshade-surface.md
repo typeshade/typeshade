@@ -1493,9 +1493,14 @@ as a value, and a parameter named `self_` or `self_in`. A class with only static
 and no fields is not a struct (TS8010): write them as functions. `extends` stays refused
 (§2). A `new` on anything but a class the file declares stays TS8013.
 
+**In the editor.** Hover on a method, at its declaration or a call, reads `(method) Ray.at(t:
+f32): vec3`; on `new Ray(...)`, `constructor Ray(origin: vec3, dir: vec3): Ray`; go to
+definition from `r.at` lands on the method. The TypeScript checker already knows a class's
+members, so the language service adds nothing for them and the compiler's symbols record each
+method under its class name.
+
 **Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
-backend diagnostic), `return this` from a changing method (split the chain), and the language
-service's hover spelling a method as `Ray.at(t: f32): vec3` (step 3 of #86).
+backend diagnostic), and `return this` from a changing method (split the chain).
 
 ---
 
