@@ -48,7 +48,7 @@ export function storageRooted(e: Expr, scope: LoweringScope): boolean {
       // A local that copies a binding (`const a = src`) denotes what the binding denotes; the
       // chain is followed rather than stopped at the local, which answered "give it a size"
       // for a runtime-sized storage array the author could not size (#46).
-      const b = scope.resolve(e.name)
+      const b = scope.resolveIr(e.name)
       if (b === undefined) return false
       if (b.space === 'storage') return true
       return b.aliasOf !== undefined && storageRooted({ ...e, name: b.aliasOf }, scope)

@@ -8,7 +8,7 @@ import type { TsCompilerDiagnostic } from './source-file.js'
 import { LoweringScope } from './context.js'
 import type { DeclaredSymbolSink } from './symbols.js'
 import { mapTsTypeToShaderType } from './type-map.js'
-import { foldConstNumber, foldConstValue } from './loop-bound.js'
+import { foldConstComponents, foldConstValue } from './loop-bound.js'
 import { isConstEvaluableMathFn } from './math-alias.js'
 import { lowerExpression } from './lower/expression.js'
 import { lowerArrayLiteral } from './lower/expression-array.js'
@@ -102,20 +102,14 @@ function foldsToZero(
   e: Expr,
   scope: LoweringScope,
   valueExprs: ReadonlyMap<string, Expr>,
-  seen: ReadonlySet<string> = new Set(),
 ): boolean {
-  if (e.op === 'construct') return e.args.some((a) => foldsToZero(a, scope, valueExprs, seen))
-  // A reference to an earlier NON-SCALAR const: its value lives in `valueExpr`, not in the
-  // scope binding, so `const Z = vec3(1., 0., 1.); const Y = A / Z` looked unprovable and
-  // compiled to WGSL Tint refuses. Following the reference reaches the component, through any
-  // number of hops (`const W = Z; A / W`). `seen` is the cycle guard: a const can only name
-  // one declared EARLIER, so a cycle is unreachable from this collector — but foldsToZero is
-  // a recursive walk over a map, and a map is not the declaration order.
-  if (e.op === 'constref' && !seen.has(e.name)) {
-    const value = valueExprs.get(e.name)
-    if (value) return foldsToZero(value, scope, valueExprs, new Set([...seen, e.name]))
-  }
-  return foldConstNumber(e, scope) === 0
+  // The componentwise folder (loop-bound.ts) follows a reference to an earlier vector const
+  // through `valueExprs` (`const Z = vec3(1., 0., 1.); const Y = A / Z`), negates (`A / -Z`) and
+  // folds vector arithmetic (`const STEP = SIZE * 0.5; X / STEP`), the three shapes #68 found
+  // the earlier construct-or-scalar walk missing. One zero component is enough: the division
+  // is componentwise, and Tint refuses the module for the one component it cannot represent.
+  const parts = foldConstComponents(e, scope, valueExprs)
+  return parts !== undefined && parts.some((v) => v === 0)
 }
 
 /** The kinds a `valueExpr` constant may have, as {@link ConstDecl.valueExpr} documents them.
@@ -190,7 +184,10 @@ function valueExprConst(
     )
     return undefined
   }
-  scope.define({ kind: 'module', name, type, mutable: false })
+  // The initializer rides on the binding so a later const's divisor that names this one
+  // (`A / -Z`) is folded componentwise where the division is lowered, with the sentence that
+  // names the divisor (#68).
+  scope.define({ kind: 'module', name, type, mutable: false, valueExpr: init })
   return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: init }
 }
 

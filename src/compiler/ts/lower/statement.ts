@@ -5,7 +5,7 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import { LoweringScope, readOnlyPhrase } from '../context.js'
+import { LoweringScope, irNameOf, readOnlyPhrase, type Binding } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
@@ -16,6 +16,7 @@ import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { foldNumericLit } from '../lit-coerce.js'
+import { foldConstNumber, foldConstComponents } from '../loop-bound.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -266,10 +267,22 @@ function lowerVariableDeclaration(
       )
       return undefined
     }
-    if (!defineLocal(name, annotated, true, undefined, decl, sourceFile, scope, diagnostics)) {
-      return undefined
-    }
-    return withSpan({ s: 'var', name, type: annotated } as Stmt, sourceFile, spanNode)
+    const bound = defineLocal(
+      name,
+      annotated,
+      true,
+      undefined,
+      decl,
+      sourceFile,
+      scope,
+      diagnostics,
+    )
+    if (!bound) return undefined
+    return withSpan(
+      { s: 'var', name: irNameOf(bound), type: annotated } as Stmt,
+      sourceFile,
+      spanNode,
+    )
   }
   // `const xs: array<f32, 3> = [1., 2., 3.]` (#8 A16). A list carries no type of its own, so it
   // is lowered AGAINST the annotation instead of on its own, and refused where there is none.
@@ -325,29 +338,30 @@ function lowerVariableDeclaration(
   // `const a = src` keeps the name it copies, so `a.length` on a storage array is answered the
   // way `src.length` is (#46). Only a bare name; an element or a field is a different value.
   const aliasOf = init.op === 'varref' ? init.name : undefined
-  if (
-    !defineLocal(
-      name,
-      bindingType,
-      !isConst,
-      constValue,
-      decl,
-      sourceFile,
-      scope,
-      diagnostics,
-      aliasOf,
-    )
-  ) {
-    return undefined
-  }
-  if (isConst) return withSpan({ s: 'let', name, expr: init } as Stmt, sourceFile, spanNode)
-  return withSpan({ s: 'var', name, type: bindingType, init } as Stmt, sourceFile, spanNode)
+  const bound = defineLocal(
+    name,
+    bindingType,
+    !isConst,
+    constValue,
+    decl,
+    sourceFile,
+    scope,
+    diagnostics,
+    aliasOf,
+  )
+  if (!bound) return undefined
+  // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
+  // the function (#38); the symbol table and every diagnostic keep the source name.
+  const ir = irNameOf(bound)
+  if (isConst) return withSpan({ s: 'let', name: ir, expr: init } as Stmt, sourceFile, spanNode)
+  return withSpan({ s: 'var', name: ir, type: bindingType, init } as Stmt, sourceFile, spanNode)
 }
 
 /** Register a local binding, turning the scope's throw into a diagnostic on the declaration.
  *  Shared by the two declaration shapes — with an initializer and without.
  *
- *  @returns `true` when the binding was defined, `false` after pushing a diagnostic. */
+ *  @returns the binding as the scope stored it, with the IR name the statement must carry,
+ *  or `undefined` after pushing a diagnostic. */
 function defineLocal(
   name: string,
   type: ShaderType,
@@ -358,9 +372,10 @@ function defineLocal(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
   aliasOf?: string,
-): boolean {
+): Binding | undefined {
+  let bound: Binding
   try {
-    scope.define({
+    bound = scope.define({
       kind: 'local',
       name,
       type,
@@ -376,14 +391,14 @@ function defineLocal(
       e instanceof Error ? e.message : String(e),
       TS_CODES.DUPLICATE_SYMBOL,
     )
-    return false
+    return undefined
   }
   // #51 records the NAME's span with the declared type, for hover; the caller's `withSpan`
   // records the STATEMENT's, for stepping (#32). Complementary, and both wanted. This sits
   // here rather than at the one call site it had, so the declaration WITHOUT an initializer
   // (`let x: f32;`) is recorded too — the editor should know a name the language now accepts.
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable })
-  return true
+  return bound
 }
 
 function lowerExpressionStatement(
@@ -552,6 +567,21 @@ function lowerBitwiseAssignOp(
     }
     value = { op: 'lit', type: want, value: folded.value }
   }
+  // A constant amount of 32 or more has no bit to shift into: WGSL makes it a shader-creation
+  // error and GLSL ES 3.00 leaves the result undefined, so it is refused here, as the negative
+  // amount above is. The fold is the one the loop bound uses, so `16 + 16` and a module const
+  // are caught with the literal; a runtime amount is left alone, since WGSL masks it (#71).
+  const amount = isShift ? foldConstNumber(value, scope) : undefined
+  if (amount !== undefined && amount >= 32) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `Bitwise "${bop}=" needs a shift amount less than 32, got ${String(amount)}: a 32-bit integer has no bit to shift into.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   if (isShift && typeKey(value.type) === 'i32') {
     value = { op: 'call', type: u32T, fn: 'u32', args: [value] }
   }
@@ -582,6 +612,18 @@ function lowerAssignOp(
   if (!target) return undefined
   let value = lowerExpression(right, sourceFile, scope, diagnostics)
   if (!value) return undefined
+  // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
+  // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
+  if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `Division by zero: "${right.getText(sourceFile)}" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   if (value.op === 'lit' && typeof value.value === 'number' && isNumericScalar(target.type)) {
     value = { op: 'lit', type: target.type, value: value.value }
   } else if (isVec(target.type) || isVec64(target.type)) {
@@ -682,12 +724,12 @@ export function lowerLValue(
   }
   if (binding.kind === 'param')
     return withSpan(
-      { op: 'param', type: binding.type, name: binding.name } as Expr,
+      { op: 'param', type: binding.type, name: irNameOf(binding) } as Expr,
       sourceFile,
       node,
     )
   return withSpan(
-    { op: 'varref', type: binding.type, name: binding.name } as Expr,
+    { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
     sourceFile,
     node,
   )

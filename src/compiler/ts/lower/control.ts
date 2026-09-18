@@ -4,7 +4,7 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
-import { readOnlyPhrase } from '../context.js'
+import { irNameOf, readOnlyPhrase } from '../context.js'
 import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
 import { fitsTarget, isIntScalar } from '../lit-coerce.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -167,7 +167,7 @@ function lowerForInit(
     )
     return undefined
   }
-  scope.define({
+  const bound = scope.define({
     kind: 'local',
     name,
     type,
@@ -175,7 +175,9 @@ function lowerForInit(
     constValue: init.op === 'lit' ? init.value : undefined,
   })
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'local', type, mutable: true })
-  return { s: 'var', name, type, init }
+  // Two sequential loops over `i` are the first shape a shader author writes; the second
+  // counter takes the IR name `i_1` so the two never collide in the function (#38).
+  return { s: 'var', name: irNameOf(bound), type, init }
 }
 
 export function lowerWhile(
@@ -402,8 +404,8 @@ export function lowerUpdate(
       // itself rather than going through lowerLValue, which carries its own.
       target = withSpan(
         binding.kind === 'param'
-          ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
-          : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+          ? ({ op: 'param', type: binding.type, name: irNameOf(binding) } as Expr)
+          : ({ op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr),
         sourceFile,
         targetExpr,
       )
@@ -492,8 +494,8 @@ export function lowerUpdate(
       // operators, the same way main stamped the `+=`-only form this generalises.
       const target: Expr = withSpan(
         binding.kind === 'param'
-          ? ({ op: 'param', type: binding.type, name: binding.name } as Expr)
-          : ({ op: 'varref', type: binding.type, name: binding.name } as Expr),
+          ? ({ op: 'param', type: binding.type, name: irNameOf(binding) } as Expr)
+          : ({ op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr),
         sourceFile,
         left,
       )

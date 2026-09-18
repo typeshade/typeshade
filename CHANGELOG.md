@@ -78,6 +78,25 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **Block scope reaches the IR** (#38): two sequential `for (let i ...)` loops, a `p` in a loop
+  body beside a `p` in an `if` arm, and an inner `p` that shadows an outer one or a parameter
+  all lower now. The second and later declarations of a name in one function take the IR name
+  `i_1`, `p_1`, and so on; the first keeps the source name, resolution is unchanged, and
+  diagnostics and the symbol table keep the author's spelling. Before, both bindings took one
+  name and the emit refused the module with `SD0112` at line 1.
+- **A shift by 32 or more is refused** (#71): `x >> 33`, `x >> (16 + 16)` and `x <<= 32` are
+  TS8003 with the amount they fold to. They compiled clean and emitted `33u` for Tint to refuse,
+  while GLSL ES 3.00 left the result undefined.
+- **Division by a constant zero is refused wherever it is lowered** (#68): in a function body, in
+  a compound `/=` or `%=`, and in a module const, with the divisor named. The proof is
+  componentwise and follows negation, vector arithmetic and a vector const's initializer, the
+  three shapes the earlier check in the const collector missed. A parameter that repeats a module
+  const's name is TS8023 on the parameter, where it threw out of `compileTsSource` before. A
+  vector module const's placeholder `cpuValue` no longer reads as the value 0 in a function's
+  scope.
+- **A float `%=` reaches GLSL ES 3.00 as `floatMod`** (#20): `x %= 0.7` is written
+  `x = (x - 0.7 * trunc(x / 0.7));`, the spelling the binary `%` already took. The compound
+  assignment wrote `x %= 0.7;`, which GLSL refuses for floats; WGSL is unchanged.
 - **`typescript` is a required peer dependency** (`>=5.0.0 <6`), not an optional one.
   `src/index.ts` re-exports `compile` from a module that imports `typescript` at module scope,
   so `import { emitModule } from 'typeshade'` failed with `ERR_MODULE_NOT_FOUND` on a clean

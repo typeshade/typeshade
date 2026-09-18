@@ -4,8 +4,9 @@ import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
-import type { LoweringScope } from '../context.js'
+import { irNameOf, type LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
+import { foldConstComponents, foldConstNumber } from '../loop-bound.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { lowerCall } from './expression-call.js'
@@ -141,7 +142,7 @@ function lowerIdentifier(
   }
   switch (binding.kind) {
     case 'param':
-      return { op: 'param', type: binding.type, name: binding.name }
+      return { op: 'param', type: binding.type, name: irNameOf(binding) }
     case 'module':
       return { op: 'constref', type: binding.type, name: binding.name }
     // A resource binding is a module-scope `var`, so it reads as a `varref` — the same shape
@@ -150,7 +151,7 @@ function lowerIdentifier(
     // rather than a fallthrough so a fifth BindingKind cannot silently land on this arm.
     case 'binding':
     case 'local':
-      return { op: 'varref', type: binding.type, name: binding.name }
+      return { op: 'varref', type: binding.type, name: irNameOf(binding) }
     // A specialization constant is its own IR node: the optimizer must never fold an
     // overrideref, since its value is not known until the pipeline is built (#8 A7).
     case 'override':
@@ -203,6 +204,12 @@ function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expressio
   return [retargetLit(left, lNode, right.type), retargetLit(right, rNode, left.type)]
 }
 
+/** Whether `e` is a divisor the constant folder proves is zero in at least one component. */
+export function divisorIsZero(e: Expr, scope: LoweringScope): boolean {
+  const parts = foldConstComponents(e, scope)
+  return parts !== undefined && parts.some((v) => v === 0)
+}
+
 function lowerBinary(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
@@ -218,6 +225,21 @@ function lowerBinary(
     if (arith === '*') {
       const mixed = matVecMul(left, right)
       if (mixed) return mixed
+    }
+    // A divisor this can PROVE is zero (a literal, a scalar const, a vector constructor with a
+    // zero component, arithmetic over those) is refused wherever a division is lowered, not
+    // only inside a module constant's initializer (#68): Tint rejects `1.0 / 0.0` as a value
+    // f32 cannot represent, ANGLE folds it with a warning, and the oracle would answer
+    // Infinity or NaN. A divisor that does not fold is not proven anything and passes.
+    if ((arith === '/' || arith === '%') && divisorIsZero(right, scope)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.right,
+        `Division by zero: "${node.right.getText(sourceFile)}" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
     }
     if (typeKey(left.type) !== typeKey(right.type)) {
       // A vector against a scalar of its element kind broadcasts, as it does in WGSL, GLSL and
@@ -269,6 +291,23 @@ function lowerBinary(
   }
   const bit = BITWISE[node.operatorToken.kind]
   if (bit !== undefined) {
+    // A constant shift amount outside 0..31 has no bit to shift into: WGSL makes it a
+    // shader-creation error and GLSL ES 3.00 leaves the result undefined (#71). The fold is
+    // the loop bound's, so `16 + 16` and a module const are caught with the literal; a
+    // runtime amount is left alone, since WGSL masks it to the low five bits.
+    if (bit === '<<' || bit === '>>') {
+      const amount = foldConstNumber(right, scope)
+      if (amount !== undefined && (amount < 0 || amount >= 32)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.right,
+          `A shift amount must be between 0 and 31, got ${String(amount)}: a 32-bit integer has no bit to shift into.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+    }
     if (typeKey(left.type) !== typeKey(right.type)) {
       pushDiag(
         diagnostics,
