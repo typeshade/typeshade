@@ -355,6 +355,7 @@ export function createTypeshadeLanguageServiceWith(
           structs: analysis.structs.map((s) => s.decl),
           bindings: [...analysis.bindings],
           funcs: [...analysis.funcs],
+          vars: [...analysis.vars],
         }
         try {
           outputText =

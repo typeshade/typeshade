@@ -8,6 +8,7 @@ import type { TsCompilerDiagnostic } from './source-file.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
+import { collectModuleVars } from './module-vars.js'
 import { TS_CODES } from './codes.js'
 import { checkRecursion, type RecursionNode } from './recursion.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
@@ -241,6 +242,7 @@ export function compileTsSources(
   // multi-file program simply could not use a module constant. The single-file path in
   // `source-file.ts` has always collected first, which is why it works there.
   const consts = entrySf ? collectModuleConsts(entrySf, diagnostics) : []
+  const vars = entrySf ? collectModuleVars(entrySf, diagnostics, undefined, consts) : []
 
   const funcs: FuncDecl[] = []
   const graph: RecursionNode[] = []
@@ -263,6 +265,8 @@ export function compileTsSources(
         undefined,
         undefined,
         sink,
+        undefined,
+        vars,
       )
       funcs.push(rec.stub)
       // The graph key is the EMITTED name, not the local one: across files the same function
@@ -288,7 +292,7 @@ export function compileTsSources(
       // would change the emitted text of every multi-file program that has no constants.
       wgsl =
         consts.length > 0
-          ? emitModule({ consts, structs: [], bindings: [], funcs })
+          ? emitModule({ consts, structs: [], bindings: [], funcs, vars })
           : emitFuncs(funcs)
     } catch (e) {
       // `backendDiagnostic` (X-GIS #37's honest-failure work) rather than the message built

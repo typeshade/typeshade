@@ -150,6 +150,24 @@ function lowerIdentifier(
     // the fn() EDSL builds. `constref` here is what #14 was: invisible to the binding
     // reachability walk, which counts `varref` names alone. Spelled as an exhaustive switch
     // rather than a fallthrough so a fifth BindingKind cannot silently land on this arm.
+    case 'modvar': {
+      // Workgroup memory is a compute entry's alone (§24): a vertex or fragment entry that
+      // names it is refused here, on the read, with the reason. A helper function has no
+      // stage and passes; Tint decides for it from the entry that calls it.
+      const stage = scope.currentStage()
+      if (binding.space === 'workgroup' && (stage === 'vertex' || stage === 'fragment')) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `"${node.text}" is workgroup memory, which only a compute entry has; a ${stage} entry cannot read or write it.`,
+          TS_CODES.MODULE_VAR,
+        )
+        return undefined
+      }
+      if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined
+      return { op: 'varref', type: binding.type, name: irNameOf(binding) }
+    }
     case 'binding':
     case 'local':
       // A `storage<atomic<u32>>` binding is a location, not a value (lower/atomics.ts).

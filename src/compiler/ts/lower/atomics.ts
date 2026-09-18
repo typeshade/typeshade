@@ -24,7 +24,7 @@ import { TS_CODES, type TsCode } from '../codes.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
-import { storageRooted } from './expression-prop.js'
+import { rootedIn } from './expression-prop.js'
 
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
@@ -61,8 +61,9 @@ export function refuseAtomicDeclaration(
     diagnostics,
     sourceFile,
     node,
-    `${typeKey(atomic)} lives in storage memory only: declare it inside a storage binding ` +
-      `(declare let counters: storage<array<${typeKey(atomic)}>>), not as ${where}.`,
+    `${typeKey(atomic)} lives in storage or workgroup memory only: declare it inside a storage ` +
+      `binding (declare let counters: storage<array<${typeKey(atomic)}>>) or a workgroup ` +
+      `variable (let tile: workgroup<array<${typeKey(atomic)}, 64>>), not as ${where}.`,
     TS_CODES.UNSUPPORTED,
   )
   return true
@@ -153,13 +154,13 @@ export function lowerAtomicCall(
     )
     return undefined
   }
-  if (!storageRooted(loc, scope)) {
+  if (!rootedIn(loc, scope, ['storage', 'workgroup'])) {
     pushDiag(
       diagnostics,
       sourceFile,
       locNode,
-      `${name}: "${locNode.getText(sourceFile)}" is not in a storage binding, and an atomic ` +
-        `lives in storage memory only.`,
+      `${name}: "${locNode.getText(sourceFile)}" is not in a storage binding or a workgroup ` +
+        `variable, the two places an atomic lives.`,
       TS_CODES.TYPE_MISMATCH,
     )
     return undefined

@@ -1,7 +1,14 @@
 // === Function lowering: two-pass signatures then bodies ===
 
 import ts from 'typescript'
-import type { BindingDecl, FuncDecl, Stmt, Expr, OverrideDecl } from '../../../core/ir/nodes.js'
+import type {
+  BindingDecl,
+  FuncDecl,
+  Stmt,
+  Expr,
+  OverrideDecl,
+  ModuleVarDecl,
+} from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import type { SourceSpan } from '../../../core/ir/span.js'
 import { voidT, typeKey } from '../../../core/ir/types.js'
@@ -33,6 +40,7 @@ export function lowerSourceFunctions(
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
   overrides: readonly OverrideDecl[] = [],
+  vars: readonly ModuleVarDecl[] = [],
 ): FuncDecl[] {
   const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
   const callees = new Map<string, FuncDecl>()
@@ -68,6 +76,7 @@ export function lowerSourceFunctions(
       structs,
       symbols,
       overrides,
+      vars,
     )
     funcs.push(stub)
     nodeByName.set(stub.name, stmt)
@@ -407,9 +416,11 @@ export function fillFunctionBody(
   structs: readonly CollectedStruct[] = [],
   symbols?: DeclaredSymbolSink,
   overrides: readonly OverrideDecl[] = [],
+  vars: readonly ModuleVarDecl[] = [],
 ): void {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
+  scope.setStage(stub.stage)
   // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3),
   // and `return { … }` knows which struct it builds (#8 A11). One field, two readers.
   scope.setReturnType(stub.ret)
@@ -449,6 +460,11 @@ export function fillFunctionBody(
   // pipeline is built, not when the module is compiled (#8 A7).
   for (const o of overrides) {
     defineOnce({ kind: 'override', name: o.name, type: o.type, mutable: false })
+  }
+  // A module variable (§24) reads and writes as a `varref`, like a binding; its space decides
+  // what may hold an atomic and which stage may reach it.
+  for (const v of vars) {
+    defineOnce({ kind: 'modvar', name: v.name, type: v.type, mutable: true, space: v.space })
   }
   // A parameter that repeats a module const, a binding or an override is refused the way a
   // `let` at the top of the body is (TS8023), on the parameter, instead of the scope's throw
