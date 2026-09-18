@@ -163,26 +163,36 @@ export function lowerPropertyAccess(
   // `K.PI` on a class name: a static field is the module constant `K_PI` the collector made
   // of it (roadmap 0.3 item T3, #92). Read before the receiver is lowered, because a class
   // name is a type and not a value, so lowering it would report an unknown identifier.
-  if (
-    ts.isIdentifier(obj) &&
-    scope.resolve(obj.text) === undefined &&
-    scope.structByName(obj.text) !== undefined
-  ) {
+  if (ts.isIdentifier(obj) && scope.resolve(obj.text) === undefined) {
     const binding = scope.resolve(staticConstName(obj.text, prop))
     if (binding?.kind === 'module') {
       return { op: 'constref', type: binding.type, name: binding.name }
     }
-    const asFunction = scope.resolveCallee(methodFnName(obj.text, prop)) !== undefined
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      asFunction
-        ? `"${obj.text}.${prop}" is a function; call it: ${obj.text}.${prop}(...).`
-        : `"${obj.text}" has no static field "${prop}".`,
-      TS_CODES.UNKNOWN_NAME,
-    )
-    return undefined
+    // The name is a type, not a value, so lowering the receiver would report an unknown
+    // identifier. Say what it is instead, when it is a class or an enum the file declares.
+    if (scope.structByName(obj.text) !== undefined) {
+      const asFunction = scope.resolveCallee(methodFnName(obj.text, prop)) !== undefined
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        asFunction
+          ? `"${obj.text}.${prop}" is a function; call it: ${obj.text}.${prop}(...).`
+          : `"${obj.text}" has no static field "${prop}".`,
+        TS_CODES.UNKNOWN_NAME,
+      )
+      return undefined
+    }
+    if (scope.isEnum(obj.text)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${obj.text}" has no member "${prop}".`,
+        TS_CODES.UNKNOWN_NAME,
+      )
+      return undefined
+    }
   }
   const base = lowerExpression(obj, sourceFile, scope, diagnostics)
   if (!base) return undefined

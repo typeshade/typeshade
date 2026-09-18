@@ -43,6 +43,31 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
         return b === 0 ? undefined : a / b
       case '%':
         return b === 0 ? undefined : a % b
+      // The integer operators, on operands this has already proven are numbers. A bit flag
+      // written `1 << 2` is a constant in TypeScript and in WGSL, and it is the shape a
+      // numeric enum is most often given (roadmap 0.3 item T1, #92); folding it here is also
+      // what lets it bound a loop. Non-integers are left alone: `1.5 << 1` is not arithmetic
+      // either language performs.
+      case '<<':
+      case '>>':
+      case '&':
+      case '|':
+      case '^': {
+        if (!Number.isInteger(a) || !Number.isInteger(b)) return undefined
+        if ((expr.bop === '<<' || expr.bop === '>>') && (b < 0 || b > 31)) return undefined
+        switch (expr.bop) {
+          case '<<':
+            return a << b
+          case '>>':
+            return a >> b
+          case '&':
+            return a & b
+          case '|':
+            return a | b
+          default:
+            return a ^ b
+        }
+      }
       default:
         return undefined
     }

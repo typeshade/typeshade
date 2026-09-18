@@ -91,6 +91,10 @@ export class LoweringScope {
   private readonly byIr = new Map<string, Binding>()
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
+  /** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). Its members are
+   *  module constants named `Enum_Member`, so the only thing the lowering needs the name for
+   *  is telling a mistyped member from an unknown identifier. */
+  private readonly enums = new Set<string>()
   private readonly symbols: DeclaredSymbolSink | undefined
   private loopDepth = 0
   private atomicOperandDepth = 0
@@ -199,6 +203,15 @@ export class LoweringScope {
   setStructs(list: readonly StructDecl[]): void {
     this.structs.clear()
     for (const s of list) this.structs.set(s.name, s)
+  }
+
+  setEnums(names: Iterable<string>): void {
+    this.enums.clear()
+    for (const n of names) this.enums.add(n)
+  }
+
+  isEnum(name: string): boolean {
+    return this.enums.has(name)
   }
 
   fieldType(structName: string, field: string): ShaderType | undefined {

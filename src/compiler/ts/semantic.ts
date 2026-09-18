@@ -212,6 +212,9 @@ const ALLOWED_TOP = new Set([
   ts.SyntaxKind.TypeAliasDeclaration,
   ts.SyntaxKind.InterfaceDeclaration,
   ts.SyntaxKind.ClassDeclaration,
+  // A numeric `enum` is a set of named integer constants, which `module-const.ts` collects
+  // as the module constants `Enum_Member` (roadmap 0.3 item T1, #92).
+  ts.SyntaxKind.EnumDeclaration,
   ts.SyntaxKind.ExpressionStatement,
 ])
 

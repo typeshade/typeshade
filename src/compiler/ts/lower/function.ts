@@ -120,6 +120,7 @@ export function lowerSourceFunctions(
         symbols,
         overrides,
         vars,
+        sourceFile,
       )
       ;(cf.stub as { body: readonly Stmt[] }).body = [
         ...ctorPrologue(cf.receiver, scope, sourceFile, diagnostics),
@@ -559,9 +560,15 @@ export function functionScope(
   symbols: DeclaredSymbolSink | undefined,
   overrides: readonly OverrideDecl[],
   vars: readonly ModuleVarDecl[],
+  sourceFile?: ts.SourceFile,
 ): LoweringScope {
   const scope = new LoweringScope(callees, symbols)
   scope.setStructs(structs.map((s) => s.decl))
+  // The enum names, so a mistyped member reads as one rather than as an unknown identifier
+  // (T1, #92); the members themselves are module constants and resolve through the scope.
+  if (sourceFile) {
+    scope.setEnums(sourceFile.statements.filter(ts.isEnumDeclaration).map((e) => e.name.text))
+  }
   scope.setStage(stub.stage)
   // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3),
   // and `return { … }` knows which struct it builds (#8 A11). One field, two readers.
@@ -629,7 +636,17 @@ export function fillFunctionBody(
   receiver?: Receiver,
   shown?: string,
 ): void {
-  const scope = functionScope(stub, callees, consts, bindings, structs, symbols, overrides, vars)
+  const scope = functionScope(
+    stub,
+    callees,
+    consts,
+    bindings,
+    structs,
+    symbols,
+    overrides,
+    vars,
+    sourceFile,
+  )
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.

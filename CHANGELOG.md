@@ -23,6 +23,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   operand deciding the shape: `dot` of integer vectors is an integer, and a written number in a
   call's first position takes an integer peer's kind, so `min(1, i)` with an `i32` `i` is an
   `i32` call instead of the `min(1.0, i)` WGSL refused.
+- **`enum` and `const enum`** (§12, roadmap 0.3 item T1,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): a numeric enum was TS8014
+  "Unsupported top-level "EnumDeclaration"" and is now a set of module constants named
+  `Enum_Member`, with TypeScript's own values: auto-increment, explicit initializers, and
+  arithmetic over members declared before. The enum's name is an `i32` wherever a type stands,
+  a member bounds a loop and stands in a `switch` case, and `<<`, `>>`, `&`, `|` and `^` over
+  two whole numbers fold, which is what makes the bit-flag form constant. A string member, a
+  value that does not compute, a value outside an `i32` and a `declare enum` are refused with
+  the reason.
 - **A class whose members are all static is a namespace of functions, and a static field is a
   module constant** (§26, roadmap 0.3 item T3,
   [#92](https://github.com/typeshade/typeshade/issues/92)): `class Util { static half(x) { ... } }`

@@ -571,6 +571,42 @@ runs without the struct table, and the surface has no matrix constructor.
 
 ---
 
+### `enum`
+
+A numeric `enum` is a set of named integer constants, which is exactly what a module constant
+is, so each member is one (roadmap 0.3 item T1,
+[#92](https://github.com/typeshade/typeshade/issues/92)):
+
+```ts
+enum Mode {
+  Flat,
+  Shaded,
+  Wire,
+}
+
+enum Flag {
+  None = 0,
+  Lit = 1 << 0,
+  Shadow = 1 << 1,
+  Both = Lit | Shadow,
+}
+```
+
+emits `const Mode_Flat: i32 = 0;` through `const Mode_Wire: i32 = 2;`, and `const Flag_Both:
+i32 = 3;`. The values are TypeScript's own: a member counts one up from the one before it, an
+explicit initializer sets the count, and a member may name one declared before it. A bare
+member name means nothing outside the enum body, as in TypeScript. `const enum` is the same
+here, since the members are constants either way.
+
+`Mode.Shaded` reads the constant, the enum's name as a type is `i32`, and a member may bound a
+`for` loop and stand in a `switch` case, because a constant is what those need. A `<<`, `>>`,
+`&`, `|` or `^` over two whole numbers folds now, which is what makes the bit-flag form above
+a constant.
+
+Refused, with the reason: a **string** member, which no GPU type holds; a value this cannot
+compute to a whole number; a value outside an `i32`; and a `declare enum`, which has no members
+to emit. Reading a member the enum does not declare says so.
+
 ## 13. Integer literals
 
 A number written without a decimal point takes the type the position around it **declares**.
