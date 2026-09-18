@@ -13,6 +13,13 @@ import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
+import {
+  declaresParamDefault,
+  noteFilledCall,
+  paramDefault,
+  requiredParamCount,
+} from './param-defaults.js'
+import { eachExpr } from '../../../core/ir/visit.js'
 
 export function lowerScalarCastCall(
   name: string,
@@ -163,17 +170,48 @@ export function lowerUserCall(
     if (!lowered) return undefined
     args.push(lowered)
   }
+  // A parameter with a default fills itself in here (roadmap 0.3 item T7, #92): WGSL has no
+  // default arguments, so the emitted call passes every one. The fill stops at the first
+  // parameter without a default, so a call missing a required argument still reports the
+  // arity rather than a type mismatch on the wrong argument. A filled argument was lowered
+  // and type-checked against its parameter where the default was written, so the loop below
+  // stops at `supplied`: there is no written node to retarget an integer literal against.
+  const supplied = args.length
+  let broken = false
+  const owner = scope.owner()
+  for (let i = args.length; i < decl.params.length; i++) {
+    const filled = paramDefault(decl, i)
+    if (!filled) {
+      broken = declaresParamDefault(decl, i)
+      break
+    }
+    args.push(filled)
+    // The default is spliced into the body that wrote this call, so the calls inside it are
+    // that body's as far as the call graph is concerned.
+    if (owner) {
+      eachExpr(filled, (e) => {
+        if (e.op === 'call' && e.declRef !== undefined) noteFilledCall(owner, e.fn, node)
+      })
+    }
+  }
+  // A default that did not lower has already been reported at the declaration; the call is
+  // not what is wrong with the program, so it adds nothing.
+  if (broken) return undefined
   if (args.length !== decl.params.length) {
+    const total = decl.params.length - leading.length
+    const required = requiredParamCount(decl, leading.length)
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `"${shown}" expects ${decl.params.length - leading.length} argument(s), got ${written.length}.`,
+      required === total
+        ? `"${shown}" expects ${total} argument(s), got ${written.length}.`
+        : `"${shown}" takes ${required} to ${total} argument(s), got ${written.length}.`,
       TS_CODES.ARITY_MISMATCH,
     )
     return undefined
   }
-  for (let i = leading.length; i < args.length; i++) {
+  for (let i = leading.length; i < supplied; i++) {
     // `g(1)` takes the parameter's type when it is i32 or u32 (#8 A3).
     args[i] = retargetIntLitCtx(args[i]!, written[i - leading.length]!, decl.params[i]!.type)
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {

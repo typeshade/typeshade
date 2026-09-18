@@ -18,7 +18,15 @@ import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { refuseAtomicDeclaration } from './atomics.js'
+import {
+  filledCallsOf,
+  paramDefaultNodes,
+  recordParamDefaults,
+  setParamDefault,
+} from './param-defaults.js'
 import { lowerStatements } from './statement.js'
+import { lowerExpression } from './expression.js'
+import { retargetIntLitCtx } from '../lit-coerce.js'
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf } from '../span.js'
@@ -112,6 +120,39 @@ export function lowerSourceFunctions(
     callees.set(cf.stub.name, cf.stub)
     return true
   })
+  // Every default, lowered before any body, since a body may call a function declared after it
+  // and the call needs the default already in hand (roadmap 0.3 item T7, #92). The scope is the
+  // module's, with no parameters in it, which is why a default that reads one was refused at
+  // the signature.
+  //
+  // To a fixed point, because one default may be `g()` where `g` itself has a default to fill
+  // in, in either declaration order. Every pass but the last writes its diagnostics to a
+  // scratch list and throws them away: a default that could not be lowered yet is not yet an
+  // error. The pass that adds nothing runs once more into the real list, this time saying so.
+  const defaulted = [...ready, ...classFns.map((cf) => ({ stub: cf.stub, prefix: '' }))]
+  const lowerAll = (into: TsCompilerDiagnostic[], final: boolean): boolean => {
+    let progressed = false
+    for (const { stub, prefix } of defaulted) {
+      const moved = lowerParamDefaults(
+        stub,
+        sourceFile,
+        into,
+        callees,
+        consts,
+        bindings,
+        structs,
+        final ? symbols : undefined,
+        overrides,
+        vars,
+        prefix === '' ? undefined : prefix,
+        final,
+      )
+      progressed ||= moved
+    }
+    return progressed
+  }
+  while (lowerAll([], false));
+  lowerAll(diagnostics, true)
   const funcs: FuncDecl[] = []
   const nodeByName = new Map<string, FunctionNode>()
   for (const cf of classFns) {
@@ -187,6 +228,7 @@ export function lowerSourceFunctions(
         decl: node,
         sourceFile,
         resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+        filled: filledCallsOf(stub),
       })),
       ...classFns.flatMap((cf) =>
         cf.node === undefined
@@ -197,6 +239,7 @@ export function lowerSourceFunctions(
                 decl: cf.node,
                 sourceFile,
                 resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+                filled: filledCallsOf(cf.stub),
               },
             ],
       ),
@@ -361,7 +404,9 @@ export function parseParams(
         diagnostics,
         sourceFile,
         p,
-        `Optional parameter "${p.name.text}" is not supported.`,
+        `Optional parameter "${p.name.text}" is not supported: a shader value is always ` +
+          `present, so there is no "absent" for the body to test. Give it a default instead, ` +
+          `"${p.name.text}: T = ...", which a call that omits it fills in.`,
         TS_CODES.FUNCTION_SHAPE,
       )
       return undefined
@@ -375,6 +420,22 @@ export function parseParams(
         TS_CODES.FUNCTION_SHAPE,
       )
       return undefined
+    }
+    // A default is filled in where the function is called (roadmap 0.3 item T7, #92), so the
+    // two shapes that have nothing to fill in from are refused here rather than at a call.
+    if (p.initializer !== undefined) {
+      if (stage) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p.initializer,
+          `An entry's parameters come from the pipeline, not from a call, so "${p.name.text}" ` +
+            `cannot have a default.`,
+          TS_CODES.FUNCTION_SHAPE,
+        )
+        return undefined
+      }
+      if (refuseDefaultReadingAParameter(p, parameters, sourceFile, diagnostics)) return undefined
     }
     if (opts.forbidSelf && (p.name.text === 'self_' || p.name.text === SELF_IN)) {
       pushDiag(
@@ -435,6 +496,59 @@ export function parseParams(
     })
   }
   return params
+}
+
+/** Refuse a default that reads one of the function's own parameters, or `this`, and say why
+ *  (roadmap 0.3 item T7, #92). A default is filled in at the call site, where the argument for
+ *  an earlier parameter is an expression and not a value; splicing it in would emit that
+ *  expression a second time and run whatever it calls twice. TypeScript's own meaning needs a
+ *  binding for the argument, and a call is an expression with nowhere to put one.
+ *
+ *  Returns true when it reported. The walk skips a name in a position where it is a field and
+ *  not a read: `p.k`, `{ k: 1. }`, so a parameter called `k` does not match either. */
+function refuseDefaultReadingAParameter(
+  p: ts.ParameterDeclaration,
+  parameters: readonly ts.ParameterDeclaration[],
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const names = new Set<string>()
+  for (const other of parameters) if (ts.isIdentifier(other.name)) names.add(other.name.text)
+  let found: { at: ts.Node; what: string } | undefined
+  const walk = (node: ts.Node): void => {
+    if (found) return
+    if (node.kind === ts.SyntaxKind.ThisKeyword) {
+      found = { at: node, what: 'this' }
+      return
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      walk(node.expression)
+      return
+    }
+    if (ts.isPropertyAssignment(node)) {
+      walk(node.initializer)
+      return
+    }
+    if (ts.isIdentifier(node) && names.has(node.text)) {
+      found = { at: node, what: node.text }
+      return
+    }
+    ts.forEachChild(node, walk)
+  }
+  walk(p.initializer!)
+  if (!found) return false
+  const own = found.what === 'this'
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    found.at,
+    `A default cannot read ${own ? '"this"' : `the parameter "${found.what}"`}: the default is ` +
+      `filled in where the function is called, and ${own ? '"this"' : `"${found.what}"`} is an ` +
+      `expression there, which would then run a second time. Give "${ts.isIdentifier(p.name) ? p.name.text : 'the parameter'}" a ` +
+      `default that stands on its own and compute from ${own ? '"this"' : `"${found.what}"`} in the body.`,
+    TS_CODES.FUNCTION_SHAPE,
+  )
+  return true
 }
 
 /** The return type a signature declares: `void` for none, the mapped type otherwise, checked
@@ -570,6 +684,7 @@ export function parseSignature(
   )
   if (!ret) return undefined
   const decl: FuncDecl = { name, params, ret, body: [] }
+  recordParamDefaults(decl, node.parameters)
   // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
   // function's span covers its `@fragment` line; `nameSpan` is just the identifier, for a
   // stack frame that highlights the name rather than the whole body.
@@ -679,6 +794,82 @@ export function functionScope(
   return scope
 }
 
+/** Lower every default `stub`'s signature writes, in the module's scope (roadmap 0.3 item T7,
+ *  #92). The result is spliced at each call that omits the argument, so it is lowered here,
+ *  once, rather than at every call site: the two would be the same expression, and one
+ *  diagnostic about a default belongs where the default is written.
+ *
+ *  A default that does not lower, or whose type is not its parameter's, keeps none; the call
+ *  site then reports the arity it always did, after the reason has been said here. */
+export function lowerParamDefaults(
+  stub: FuncDecl,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  callees: Map<string, FuncDecl>,
+  consts: readonly ScopedConst[],
+  bindings: readonly BindingDecl[],
+  structs: readonly CollectedStruct[],
+  symbols: DeclaredSymbolSink | undefined,
+  overrides: readonly OverrideDecl[],
+  vars: readonly ModuleVarDecl[],
+  nsPrefix?: string,
+  /** The last pass: report a default that still has no value, rather than leave it for the
+   *  next one. */
+  final = false,
+): boolean {
+  const nodes = paramDefaultNodes(stub)
+  if (nodes.length === 0) return false
+  let progressed = false
+  const scope = functionScope(
+    stub,
+    callees,
+    consts,
+    bindings,
+    structs,
+    symbols,
+    overrides,
+    vars,
+    sourceFile,
+    nsPrefix,
+  )
+  for (const [i, node] of nodes) {
+    const want = stub.params[i]!.type
+    const before = diagnostics.length
+    const lowered = lowerExpression(node, sourceFile, scope, diagnostics, want)
+    if (!lowered) {
+      // A call that omits an argument whose default has no value yet lowers to nothing and
+      // says nothing, because on an earlier pass that is not an error. On the last pass it is
+      // the one shape this cannot fill: a default that waits on itself.
+      if (final && diagnostics.length === before) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `The default for "${stub.params[i]!.name}" calls a function whose own default waits ` +
+            `on this one, so neither has a value. Write the value out here.`,
+          TS_CODES.FUNCTION_SHAPE,
+        )
+      }
+      continue
+    }
+    const fixed = retargetIntLitCtx(lowered, node, want)
+    if (typeKey(fixed.type) !== typeKey(want)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `The default for "${stub.params[i]!.name}" is ${typeKey(fixed.type)}, and the ` +
+          `parameter is ${typeKey(want)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      continue
+    }
+    setParamDefault(stub, i, fixed)
+    progressed = true
+  }
+  return progressed
+}
+
 /** Lower `node`'s body into `stub`. For a class method or constructor (#86) `receiver` says
  *  what `this` is: the struct-typed first parameter of a method, read as `self_`, or the local
  *  `self_` a constructor starts from the zero struct and returns. */
@@ -710,6 +901,9 @@ export function fillFunctionBody(
     sourceFile,
     nsPrefix,
   )
+  // The body's calls are this function's, including any a filled-in default brings in
+  // (roadmap 0.3 item T7, #92).
+  scope.setOwner(stub)
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the
   // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.

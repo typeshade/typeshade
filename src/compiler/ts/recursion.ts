@@ -69,6 +69,10 @@ export interface RecursionNode {
   /** A called identifier's text to the canonical name it refers to, or `undefined` when it is
    *  not a user function in this graph (an intrinsic, a constructor, an unknown name). */
   readonly resolve: (callee: string) => string | undefined
+  /** Calls this body makes that are not written in it: a default filled into a call is
+   *  spliced in at lowering, so the syntax tree never shows the calls it carries (roadmap 0.3
+   *  item T7, #92). Each `to` is already a canonical graph key. */
+  readonly filled?: readonly { readonly to: string; readonly node: ts.Node }[]
 }
 
 interface Edge {
@@ -113,6 +117,9 @@ function edgesOf(fn: RecursionNode): Edge[] {
     ts.forEachChild(node, walk)
   }
   walk(body)
+  for (const f of fn.filled ?? []) {
+    edges.push({ to: f.to, node: f.node, sourceFile: fn.sourceFile })
+  }
   return edges
 }
 

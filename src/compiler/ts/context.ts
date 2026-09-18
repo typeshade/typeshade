@@ -89,6 +89,7 @@ export class LoweringScope {
    *  binding's own `varref dst`, one name to every pass. */
   private readonly takenIr = new Set<string>()
   private readonly byIr = new Map<string, Binding>()
+  private ownerDecl: FuncDecl | undefined
   private readonly callees: Map<string, FuncDecl>
   private readonly structs = new Map<string, StructDecl>()
   /** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). Its members are
@@ -251,6 +252,18 @@ export class LoweringScope {
       hit = s
     }
     return hit
+  }
+
+  /** The function whose BODY is being lowered, or undefined while a signature's default is
+   *  (roadmap 0.3 item T7, #92). A default filled into a call is spliced into the body that
+   *  wrote the call, so the calls it carries are that body's for the recursion check; a call
+   *  inside a default being lowered belongs to no body yet. */
+  setOwner(decl: FuncDecl | undefined): void {
+    this.ownerDecl = decl
+  }
+
+  owner(): FuncDecl | undefined {
+    return this.ownerDecl
   }
 
   defineCallee(fn: FuncDecl): void {

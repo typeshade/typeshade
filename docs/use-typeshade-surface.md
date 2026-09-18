@@ -843,6 +843,45 @@ has no remainder to name; and a computed name, which would choose a field at run
 pattern (`const [a, b] = v`) is refused and names the read to write instead: a vector by
 component, an array by index.
 
+### A default parameter value is filled in at the call site
+
+`function vignette(uv: vec2, strength: f32 = 0.8)` is ordinary TypeScript, and `vignette(uv)` is
+how it is then called (roadmap 0.3 item T7,
+[#92](https://github.com/typeshade/typeshade/issues/92)). Neither target has default arguments,
+so the emitted function keeps every parameter and the missing ones are written where the call
+is:
+
+```ts
+function vignette(uv: vec2, strength: f32 = 0.8, softness: f32 = 1.35): f32 { ... }
+vignette(uv)            // vignette(uv, 0.8, 1.35)
+vignette(uv, 0.5)       // vignette(uv, 0.5, 1.35)
+```
+
+A default works on a function, a method, a static function and a constructor. It is lowered
+once, at the declaration, in the module's scope, so it may read a module const, a binding, a
+module variable or an `override`, build a struct, and call another function, including one
+declared later or one with a default of its own. An integer default takes its parameter's kind
+the way a written argument does, so `b: i32 = 3` emits `3` and not `3.0`.
+
+A default may not read another parameter of the same function, or `this`. At the call site that
+parameter is an expression rather than a value, so `b: f32 = a * 2.` would emit the argument for
+`a` a second time and run whatever it calls twice. Compute from the other parameter in the body
+instead. Two more shapes have no value to fill from and say so: a default on an entry
+parameter, which comes from the pipeline and not from a call, and a default that calls a
+function whose own default waits on it.
+
+`b?: f32` stays refused, and now names the default to write instead: a shader value is always
+present, so a body has no "absent" to test for.
+
+A call that still omits a parameter without a default reports the range: `"f" takes 2 to 3
+argument(s), got 1`. TypeScript allows a default before a required parameter (`f(a = 1., b: f32)`),
+where both arguments are required; only the trailing run of defaults fills in, which is
+TypeScript's own rule.
+
+One thing the fill changes beyond the call: a default carries its calls into the body that wrote
+the call, so `g` whose body is `return f()`, where `f` defaults to `g()`, emits `f(g())` and
+calls itself. That is a call cycle, and it is refused as one, at the call that closes it.
+
 ## 15. Textures, samplers and overrides
 
 Three declarations the surface had no spelling for. None of them is a new IR shape: a

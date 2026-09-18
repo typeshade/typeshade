@@ -305,6 +305,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: false,
   },
   {
+    id: 'default-args',
+    title: 'Default parameter values',
+    blurb:
+      "Three helpers with default parameters, each called with a different argument omitted (§14). Neither target has default arguments, so the emitted function keeps every parameter and the call site carries the value: `vignette(v.uv)` emits `vignette(v.uv, 0.8, 1.35)`. A default may read a module const and call a helper, since it is lowered once in the module's scope.",
+    renderable: true,
+  },
+  {
     id: 'ray-class',
     title: 'Class methods',
     blurb:
