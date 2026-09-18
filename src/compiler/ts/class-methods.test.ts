@@ -11,6 +11,9 @@ import { compileTsSource } from './source-file.js'
 import { TS_CODES } from './codes.js'
 import { compileModuleJs } from '../../core/cpu-codegen.js'
 import { startDebugSession } from '../../core/debug/session.js'
+import { compileModule } from '../../core/oracle.js'
+import { fnWrites } from '../../core/passes/effects.js'
+import type { CpuValue } from '../../core/cpu-runtime.js'
 
 const RAY = `"use typeshade"
 class Ray {
@@ -181,9 +184,9 @@ describe('class members: what is refused, and what the fix is', () => {
   }
   const M = TS_CODES.CLASS_MEMBER
 
-  it('a method that assigns to this, until the next step', () => {
-    expect(only(C('  bump(): void { this.x = this.x + 1. }'))).toBe(
-      `${M} A method that assigns to this is not supported yet (#86, the next step); build the changed struct:C and return it, or assign the field in the constructor.`,
+  it('a method that changes its object may not also return a value', () => {
+    expect(only(C('  bump(): f32 { this.x = this.x + 1.\n    return this.x }'))).toBe(
+      `${M} A method that changes its object returns nothing (§26): declare this method void and call it on its own line, or keep this one reading and return the new value.`,
     )
   })
 
@@ -260,6 +263,142 @@ describe('class members: what is refused, and what the fix is', () => {
     )
     expect(only(`"use typeshade"\nclass M { static f(): f32 { return 1. } }${TAIL}`)).toBe(
       `${TS_CODES.STRUCT_FIELD} Struct "M" has no fields. WGSL requires a struct to declare at least one member, so an empty one cannot be emitted. A class holding only functions is not a struct; write them as functions.`,
+    )
+  })
+})
+
+// Step 2 of #86: a method that changes its object. It takes and returns the struct, and a call
+// of it is a statement that writes the receiver back. Measured on `main` (step 1) before this:
+// such a method was TS8035 "not supported yet".
+describe('class members: a method that changes its object', () => {
+  const PARTICLES = `"use typeshade"
+declare let ps: storage<array<Particle>>
+class Particle {
+  pos: vec2
+  vel: vec2
+  age: u32 = 0
+  step(dt: f32): void {
+    this.pos = this.pos + this.vel * dt
+    this.age++
+  }
+  bounce(): void {
+    if (this.pos.y < 0.) {
+      this.vel.y = -this.vel.y
+    }
+  }
+  tick(dt: f32): void {
+    this.step(dt)
+    this.bounce()
+  }
+  speed(): f32 {
+    return length(this.vel)
+  }
+}
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  ps[gid.x].tick(0.5)
+  let p = ps[gid.x]
+  p.step(1.)
+  ps[gid.x].vel = vec2(p.speed(), f32(p.age))
+}
+`
+
+  it('takes the struct as self_in, works on the copy self_, and returns it', () => {
+    const r = compile(PARTICLES)
+    expect(r.diagnostics).toEqual([])
+    const w = r.wgsl!
+    expect(w).toContain(
+      'fn Particle_step(self_in: Particle, dt: f32) -> Particle {\n  var self_: Particle = self_in;\n  self_.pos = (self_.pos + (self_.vel * dt));\n  self_.age += 1u;\n  return self_;\n}',
+    )
+    // A method that calls a changing method on `this` changes its object too, to a fixpoint.
+    expect(w).toContain(
+      'fn Particle_tick(self_in: Particle, dt: f32) -> Particle {\n  var self_: Particle = self_in;\n  self_ = Particle_step(self_, dt);\n  self_ = Particle_bounce(self_);\n  return self_;\n}',
+    )
+    // One that reads keeps the read-only parameter.
+    expect(w).toContain('fn Particle_speed(self_: Particle) -> f32 {')
+    // The call statement writes the receiver back: a storage element and a local alike.
+    expect(w).toContain('  ps[gid.x] = Particle_tick(ps[gid.x], 0.5);')
+    expect(w).toContain('  p = Particle_step(p, 1.0);')
+  })
+
+  it('the write-back on a storage element is a write in the effect table', () => {
+    const r = compile(PARTICLES)
+    expect([...fnWrites(r.module).get('k')!]).toEqual(['ps'])
+    expect([...fnWrites(r.module).get('Particle_step')!]).toEqual([])
+  })
+
+  it('the oracle and the codegen agree on the particles', () => {
+    const r = compile(PARTICLES)
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(r.module)
+      const ps = [{ pos: [0, 1], vel: [1, -4], age: 0 }]
+      cm.setBinding('ps', ps as unknown as CpuValue)
+      cm.fns['k']!([0, 0, 0])
+      // tick: pos (0.5, -1), age 1, then bounce flips vel.y to 4; the copy steps once more to
+      // age 2 and its speed is |(1, 4)|.
+      expect(ps, make.name).toEqual([{ pos: [0.5, -1], vel: [Math.sqrt(17), 2], age: 1 }])
+    }
+  })
+
+  it('a let local, a module variable and this inside a constructor are places', () => {
+    const r = compile(`"use typeshade"
+class C {
+  x: f32
+  constructor(x: f32) {
+    this.x = x
+    this.bump()
+  }
+  bump(): void {
+    this.x = this.x + 1.
+  }
+  twice(): f32 {
+    return this.x * 2.
+  }
+}
+let acc: C = { x: 10. }
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let c = new C(uv.x)
+  c.bump()
+  acc.bump()
+  return vec4(c.twice(), acc.x, 0., 1.)
+}
+`)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('  self_ = C_bump(self_);\n  return self_;')
+    expect(r.wgsl).toContain('  c = C_bump(c);\n  acc = C_bump(acc);')
+    // new C(1): x = 1, then the constructor bumps to 2; fs bumps to 3, twice is 6; acc 10 to 11.
+    expect(r.eval('fs', [[1, 0]])).toEqual([6, 11, 0, 1])
+  })
+
+  it('refuses a receiver a function cannot write, and a call in expression position', () => {
+    const C = `"use typeshade"\nclass C {\n  x: f32\n  bump(): void { this.x = this.x + 1. }\n}\n`
+    const only = (src: string) => {
+      const errors = errorsOf(src)
+      expect(errors, src).toHaveLength(1)
+      return errors[0]!
+    }
+    const M = TS_CODES.CLASS_MEMBER
+    expect(
+      only(`${C}function g(): f32 { const c: C = { x: 1. }\n  c.bump()\n  return c.x }${TAIL}`),
+    ).toBe(`${M} "C.bump" changes its object, and "c" is declared with const; declare it with let.`)
+    expect(only(`${C}function g(c: C): f32 { c.bump()\n  return c.x }${TAIL}`)).toBe(
+      `${M} "C.bump" changes its object, and "c" is a parameter, which a function cannot write; copy it into a let first.`,
+    )
+    expect(only(`${C}function g(): f32 { new C().bump()\n  return 1. }${TAIL}`)).toBe(
+      `${M} "C.bump" changes its object, and this one is a value that is dropped; keep it in a let and call the method on that.`,
+    )
+    expect(
+      only(
+        `${C}function g(): f32 { let c: C = { x: 1. }\n  const y = c.bump()\n  return c.x }${TAIL}`,
+      ),
+    ).toBe(`${M} "C.bump" changes its object and returns nothing; call it on its own line.`)
+    expect(
+      only(
+        `"use typeshade"\nclass D {\n  x: f32\n  f(self_in: f32): void { this.x = self_in }\n}${TAIL}`,
+      ),
+    ).toBe(
+      `${M} "self_in" is a name D.f gives its object in the emitted function; rename the parameter.`,
     )
   })
 })

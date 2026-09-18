@@ -9,6 +9,7 @@ import { LoweringScope, irNameOf, readOnlyPhrase, type Binding } from '../contex
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
+import { lowerMutatingCall } from './class-methods.js'
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
@@ -457,6 +458,10 @@ function lowerExpressionStatement(
       )
       return barrier ? { s: 'call', expr: barrier } : undefined
     }
+    // A method that changes its object, `r.advance(2.)`, is a statement that writes the
+    // receiver back (§26); anything else takes the ordinary call path.
+    const mutating = lowerMutatingCall(expr, sourceFile, scope, diagnostics)
+    if (mutating !== 'not-a-mutating-call') return mutating
     const call = lowerCall(expr, sourceFile, scope, diagnostics)
     if (!call) return undefined
     if (call.op !== 'call') {
@@ -708,6 +713,13 @@ export function lowerLValue(
   if (ts.isPropertyAccessExpression(node)) {
     return lowerMemberLValue(node, sourceFile, scope, diagnostics)
   }
+  // `this` as a whole is a place inside a constructor or a method that changes its object,
+  // where it is the local being built (§26); in a read-only method it is the parameter.
+  if (node.kind === ts.SyntaxKind.ThisKeyword) {
+    if (!checkRootWritable(node, sourceFile, scope, diagnostics)) return undefined
+    const b = scope.resolve('this')!
+    return withSpan({ op: 'varref', type: b.type, name: irNameOf(b) } as Expr, sourceFile, node)
+  }
   if (ts.isElementAccessExpression(node)) {
     // The root of the chain decides writability, exactly as it does for a member target:
     // `cam.xs[i] = 1.` on a uniform and `p.xs[i] = 1.` on a parameter used to reach the
@@ -833,14 +845,14 @@ function checkRootWritable(
     return false
   }
   if (binding.kind === 'param' && rootName === 'this') {
-    // A method's object is its first parameter, read only. The copy-back that lets a method
-    // change its object is the next step of #86.
+    // A method that changes its object returns nothing, so its caller can write the object
+    // back (§26); in a method that returns a value the object is its read-only parameter.
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `A method that assigns to this is not supported yet (#86, the next step); build the ` +
-        `changed ${typeKey(binding.type)} and return it, or assign the field in the constructor.`,
+      `A method that changes its object returns nothing (§26): declare this method void and ` +
+        `call it on its own line, or keep this one reading and return the new value.`,
       TS_CODES.CLASS_MEMBER,
     )
     return false
