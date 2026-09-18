@@ -37,6 +37,7 @@ import { lowerExpression } from './expression.js'
 import { lowerUserCall } from './expression-misc.js'
 import { lowerLValue } from './statement.js'
 import { parseParams, parseReturnType } from './function.js'
+import { recordParamDefaults } from './param-defaults.js'
 
 /** What `this` is while a member's body is lowered: the struct type; whether it is the
  *  read-only first parameter of a method (`param`), the local a constructor builds from the
@@ -259,6 +260,9 @@ export function collectClassFunctions(
       }
       ;(stub as { span?: SourceSpan }).span = spanOf(sourceFile, method)
       ;(stub as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, method.name)
+      // A method's stub carries `self_` ahead of the written parameters, so the defaults sit
+      // one index along (roadmap 0.3 item T7, #92); a static method's do not.
+      recordParamDefaults(stub, method.parameters, isStatic ? 0 : 1)
       const cf: ClassFunction = {
         stub,
         kind: isStatic ? 'static' : 'method',
@@ -285,6 +289,7 @@ export function collectClassFunctions(
       : []
     if (!params) continue
     const stub: FuncDecl = { name: ctorFnName(name), params, ret: selfT, body: [] }
+    if (ctor) recordParamDefaults(stub, ctor.parameters)
     const at = ctor ?? members?.node
     if (at !== undefined) (stub as { span?: SourceSpan }).span = spanOf(sourceFile, at)
     const cf: ClassFunction = {

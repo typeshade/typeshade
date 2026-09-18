@@ -13,6 +13,23 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **A default parameter value is filled in at the call site** (§14, roadmap 0.3 item T7,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): `function tint(c: vec3, k: f32 = 0.5)`
+  parsed, and every `tint(c)` was then `TS8019 "tint" expects 2 argument(s), got 1`. Neither
+  target has default arguments, so the emitted function keeps every parameter and the omitted
+  ones are written where the call is. A default works on a function, a method, a static function
+  and a constructor; it is lowered once in the module's scope, so it may read a module const, a
+  binding or a variable, build a struct, and call another function, in either declaration order
+  and with a default of its own. A default that reads another parameter or `this` is refused,
+  since at the call site that parameter is an expression and would run twice; so are a default on
+  an entry parameter and one that waits on itself. `b?: f32` stays refused and now names the
+  default to write instead. The arity message counts the defaults: `"f" takes 2 to 3 argument(s),
+got 1`.
+- **A call cycle a default closes is caught** (§ recursion): a filled-in default carries its
+  calls into the body that wrote the call, which the syntax-tree walk cannot see. `g` returning
+  `f()`, where `f` defaults to `g()`, emits `f(g())` and calls itself; it compiled, and left Tint
+  to refuse the module and the CPU oracle to overflow. Those calls are in the graph now, reported
+  at the call that closes the cycle.
 - **Argument checks for the math builtins** (§10, roadmap 0.2 item 9, #57): every free math
   builtin checks its arguments against WGSL's signature and reports the one that does not fit as
   `TS8036`, on that argument, with the fix (splat the scalar, cast one side, give the vectors one
