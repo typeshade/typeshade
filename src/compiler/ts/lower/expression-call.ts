@@ -355,17 +355,35 @@ function isBareNumericLiteral(node: ts.Expression): boolean {
  *  The FIRST argument is never retargeted, whatever the peer says: `mathResultType` is
  *  `args[0].type`, so a literal there types the whole call rather than itself. See the loop.
  *  Mutates `args` in place. */
+/** The argument positions of a builtin that are integers by the builtin's own signature, with
+ *  the scalar kind each takes. */
+const FIXED_LITERAL_KINDS: Readonly<Record<string, Readonly<Record<number, ShaderType>>>> = {
+  ldexp: { 1: i32T },
+  extractBits: { 1: u32T, 2: u32T },
+  insertBits: { 2: u32T, 3: u32T },
+}
+
 function retargetIntrinsicLiterals(
   args: Expr[],
   node: ts.CallExpression,
   intrinsicId: string,
 ): void {
   if (intrinsicId === 'length' || intrinsicId === 'distance' || intrinsicId === 'dot') return
+  // A builtin whose later arguments are integers whatever the first one is (§10): the exponent
+  // of `ldexp` is an i32, the offset and count of `extractBits` and `insertBits` are u32. A
+  // bare literal there takes that kind, not the first argument's.
+  const fixed = FIXED_LITERAL_KINDS[intrinsicId] ?? {}
+  for (const [index, kind] of Object.entries(fixed)) {
+    const i = Number(index)
+    const argNode = node.arguments[i]
+    if (argNode && args[i]) args[i] = retargetIntLitCtx(args[i]!, argNode, kind)
+  }
   const peerIndex = node.arguments.findIndex((a) => !isBareNumericLiteral(a))
   const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined
   if (!peer) return
   const target = literalPeerType(peer)
   for (let i = 1; i < args.length; i++) {
+    if (fixed[i] !== undefined) continue
     // From 1, never 0: `mathResultType` is `args[0].type`, so retargeting a literal in the
     // FIRST position does not just retype that argument, it retypes the whole call. A sweep
     // over the intrinsics found 42 programs changed by that — 24 that compiled before and

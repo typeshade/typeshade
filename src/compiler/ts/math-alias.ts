@@ -93,7 +93,53 @@ export const MATH_FN_ARITY: Readonly<Record<string, number>> = {
   dpdx: 1,
   dpdy: 1,
   fma: 3,
+  // Roadmap 0.2 item 8, builtin breadth (§10): geometry, matrices, exponents, bits and the
+  // coarse and fine derivatives. `frexp` and `modf` return a struct and follow on their own.
+  reflect: 2,
+  refract: 3,
+  faceForward: 3,
+  transpose: 1,
+  determinant: 1,
+  ldexp: 2,
+  countOneBits: 1,
+  reverseBits: 1,
+  countLeadingZeros: 1,
+  countTrailingZeros: 1,
+  firstLeadingBit: 1,
+  firstTrailingBit: 1,
+  extractBits: 3,
+  insertBits: 4,
+  dpdxCoarse: 1,
+  dpdxFine: 1,
+  dpdyCoarse: 1,
+  dpdyFine: 1,
+  fwidthCoarse: 1,
+  fwidthFine: 1,
 }
+
+/** The builtins roadmap 0.2 item 8 added, as one list for the places that enumerate them. */
+export const BREADTH_BUILTINS: readonly string[] = [
+  'reflect',
+  'refract',
+  'faceForward',
+  'transpose',
+  'determinant',
+  'ldexp',
+  'countOneBits',
+  'reverseBits',
+  'countLeadingZeros',
+  'countTrailingZeros',
+  'firstLeadingBit',
+  'firstTrailingBit',
+  'extractBits',
+  'insertBits',
+  'dpdxCoarse',
+  'dpdxFine',
+  'dpdyCoarse',
+  'dpdyFine',
+  'fwidthCoarse',
+  'fwidthFine',
+]
 
 export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   E: Math.E,
@@ -118,6 +164,8 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
  *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
  *  a cast or the select Expr. */
 export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
+  // Item 8's builtins: a function the file declares under one of these names keeps the call.
+  ...BREADTH_BUILTINS,
   'arrayLength',
   'atomicLoad',
   'atomicStore',

@@ -63,6 +63,8 @@ import {
   compareValues,
   comparesAsF32,
   selectComponents,
+  TYPED_BIT_BUILTINS,
+  bitBuiltin,
 } from './cpu-runtime.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js'
@@ -224,6 +226,10 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
           return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number)
         }
+      }
+      // A bit builtin whose value depends on the argument's kind (§10) takes the static kind.
+      if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
+        return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32')
       }
       // A call the front end RESOLVED to a declared function carries `declRef`, and that
       // function is what the emitted shader calls — a module may declare `fn saturate(…)`,
