@@ -25,6 +25,11 @@ import { spanOf } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { checkRecursion } from '../recursion.js'
 import {
+  eachNamespaceStatement,
+  namespaceMemberName,
+  refuseNamespaceStatement,
+} from '../namespaces.js'
+import {
   SELF_IN,
   collectClassFunctions,
   ctorPrologue,
@@ -49,11 +54,30 @@ export function lowerSourceFunctions(
   overrides: readonly OverrideDecl[] = [],
   vars: readonly ModuleVarDecl[] = [],
 ): FuncDecl[] {
-  const decls = sourceFile.statements.filter(ts.isFunctionDeclaration)
+  // Every function the file declares, at the top level and inside a namespace, with the
+  // emitted name each takes (T4, #92): a top-level `warm` is `warm`, and the same function
+  // inside `namespace Palette` is `Palette_warm`.
+  const decls: { node: ts.FunctionDeclaration; irName: string | undefined; prefix: string }[] = []
+  eachNamespaceStatement(sourceFile.statements, sourceFile, diagnostics, (stmt, prefix) => {
+    if (!ts.isFunctionDeclaration(stmt)) {
+      // A namespace holds functions, constants and namespaces. The consts are module-const.ts's
+      // and the rest has no flattened form; only the namespace's own statements are refused
+      // here, since a top-level statement of any kind is semantic.ts's to judge.
+      if (prefix !== '' && !isNamespaceConst(stmt)) {
+        refuseNamespaceStatement(stmt, prefix, sourceFile, diagnostics)
+      }
+      return
+    }
+    decls.push({
+      node: stmt,
+      irName: prefix === '' ? undefined : namespaceMemberName(prefix, stmt.name?.text ?? ''),
+      prefix,
+    })
+  })
   const callees = new Map<string, FuncDecl>()
-  const ready: ts.FunctionDeclaration[] = []
-  for (const stmt of decls) {
-    const stub = parseSignature(stmt, sourceFile, diagnostics, structs)
+  const ready: { node: ts.FunctionDeclaration; stub: FuncDecl; prefix: string }[] = []
+  for (const { node: stmt, irName, prefix } of decls) {
+    const stub = parseSignature(stmt, sourceFile, diagnostics, structs, irName)
     if (!stub) continue
     if (callees.has(stub.name)) {
       pushDiag(
@@ -66,7 +90,7 @@ export function lowerSourceFunctions(
       continue
     }
     callees.set(stub.name, stub)
-    ready.push(stmt)
+    ready.push({ node: stmt, stub, prefix })
   }
   // A class's methods, static functions and constructor are functions of the module (#86),
   // registered before any body is lowered so a call in either direction resolves. The emitted
@@ -129,8 +153,7 @@ export function lowerSourceFunctions(
     }
     funcs.push(cf.stub)
   }
-  for (const stmt of ready) {
-    const stub = callees.get(stmt.name!.text)!
+  for (const { node: stmt, stub, prefix } of ready) {
     fillFunctionBody(
       stmt,
       stub,
@@ -143,6 +166,9 @@ export function lowerSourceFunctions(
       symbols,
       overrides,
       vars,
+      undefined,
+      undefined,
+      prefix === '' ? undefined : prefix,
     )
     funcs.push(stub)
     nodeByName.set(stub.name, stmt)
@@ -154,9 +180,11 @@ export function lowerSourceFunctions(
   // yet; Tint still refuses the cycle, as a backend diagnostic (#86).
   checkRecursion(
     [
-      ...ready.map((stmt) => ({
-        name: stmt.name!.text,
-        decl: stmt,
+      ...ready.map(({ node, stub }) => ({
+        // The EMITTED name, which for a namespace's function is the flattened one (T4, #92):
+        // the graph's keys and the call resolver are both `callees`, which is keyed by it.
+        name: stub.name,
+        decl: node,
         sourceFile,
         resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
       })),
@@ -469,11 +497,40 @@ export function parseReturnType(
   return ret
 }
 
+/** Whether a statement inside a namespace is a `const`, which `module-const.ts` collects as
+ *  the flattened constant `Ns_NAME` and this walk therefore leaves alone. */
+function isNamespaceConst(stmt: ts.Statement): boolean {
+  return ts.isVariableStatement(stmt) && (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
+}
+
+/** Every namespace name the file declares, flattened: `namespace A { export namespace B {} }`
+ *  yields `A` and `A_B`, which is what `A.f()` and `A.B.f()` resolve against. */
+function namespaceNamesOf(sourceFile: ts.SourceFile): string[] {
+  const out: string[] = []
+  const walk = (statements: readonly ts.Statement[], prefix: string): void => {
+    for (const stmt of statements) {
+      if (!ts.isModuleDeclaration(stmt) || !ts.isIdentifier(stmt.name)) continue
+      if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue
+      const name = prefix === '' ? stmt.name.text : namespaceMemberName(prefix, stmt.name.text)
+      out.push(name)
+      const body = stmt.body
+      if (body === undefined) continue
+      if (ts.isModuleBlock(body)) walk(body.statements, name)
+      else if (ts.isModuleDeclaration(body)) walk([body], name)
+    }
+  }
+  walk(sourceFile.statements, '')
+  return out
+}
+
 export function parseSignature(
   node: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[] = [],
+  /** The name the function takes in the IR when it is not the one it was written under: a
+   *  function inside `namespace Palette` is `Palette_warm` (roadmap 0.3 item T4, #92). */
+  irName?: string,
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
     pushDiag(
@@ -495,7 +552,7 @@ export function parseSignature(
     )
     return undefined
   }
-  const name = node.name.text
+  const name = irName ?? node.name.text
   // Computed up front (rather than after the return type, as before) so the builtin/stage
   // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
   // know the entry stage they are validating against.
@@ -561,13 +618,17 @@ export function functionScope(
   overrides: readonly OverrideDecl[],
   vars: readonly ModuleVarDecl[],
   sourceFile?: ts.SourceFile,
+  /** The namespace whose body this function belongs to, flattened (T4, #92). */
+  nsPrefix?: string,
 ): LoweringScope {
   const scope = new LoweringScope(callees, symbols)
+  scope.setNamespacePrefix(nsPrefix)
   scope.setStructs(structs.map((s) => s.decl))
   // The enum names, so a mistyped member reads as one rather than as an unknown identifier
   // (T1, #92); the members themselves are module constants and resolve through the scope.
   if (sourceFile) {
     scope.setEnums(sourceFile.statements.filter(ts.isEnumDeclaration).map((e) => e.name.text))
+    scope.setNamespaces(namespaceNamesOf(sourceFile))
   }
   scope.setStage(stub.stage)
   // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3),
@@ -635,6 +696,7 @@ export function fillFunctionBody(
   vars: readonly ModuleVarDecl[] = [],
   receiver?: Receiver,
   shown?: string,
+  nsPrefix?: string,
 ): void {
   const scope = functionScope(
     stub,
@@ -646,6 +708,7 @@ export function fillFunctionBody(
     overrides,
     vars,
     sourceFile,
+    nsPrefix,
   )
   // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
   // and the receiver read the same name. A user parameter called `self_` was refused at the

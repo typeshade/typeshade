@@ -1635,6 +1635,37 @@ top-level const does. A static field with no initializer is refused: it is a con
 constant has a value. Reading a name the class does not declare says so, and naming a static
 function without calling it says to call it.
 
+### `namespace`
+
+A namespace is a named group of functions and constants, and the module holds both, so the
+members flatten to `Ns_member`, the joining a method and a static field already take (roadmap
+0.3 item T4, [#92](https://github.com/typeshade/typeshade/issues/92)):
+
+```ts
+namespace Palette {
+  export const WARM: vec3 = vec3(0.9, 0.5, 0.1)
+  export function tint(c: vec3): vec3 {
+    return c * WARM
+  }
+}
+```
+
+emits `const Palette_WARM` and `fn Palette_tint`. Nesting flattens too, in both spellings:
+`namespace A { export namespace B { ... } }` and `namespace A.B { ... }` both give `A_B_member`.
+
+A name inside a namespace body is looked up the way TypeScript looks it up: the body first, then
+the namespace and each one around it, then the file. So `WARM` above is `Palette.WARM`, a local
+of the same name shadows it, a member namespace may be written by its short name inside its
+parent (`B.two()` inside `A`), and a top-level function is reachable from inside.
+
+A call written through a dotted name is in the cycle check (§ recursion), so `A.f()` calling
+itself is TS8031 rather than WGSL Tint refuses.
+
+A namespace holds functions, constants and namespaces. A class, an enum, a type or a variable
+inside one is refused and told to be declared at the top level of the file, because each already
+has a home there and a second spelling would be a second thing. A `declare namespace` has no
+members to emit.
+
 ## 27. Boolean vectors
 
 A comparison of two vectors is componentwise and yields a vector of bools: `vec2b`, `vec3b`,
