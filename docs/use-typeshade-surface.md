@@ -273,7 +273,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 **Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
 which reserved those numbers while they were in flight and appended here in issue order. The
 sections took the next free numbers so the A-item branches did not all claim §9 and collide on
-merge. §19 is issue #47, §20 is issue #46.
+merge. §19 is issue #47, §20 is issue #46, §21 is issue #38 and §22 is issues #71, #68 and #20.
 
 ---
 
@@ -1050,6 +1050,94 @@ invocation with `if` and index by `gid.x`, as the example does.
 
 A function you declare with the name `arrayLength` keeps winning the call, the way the names
 §10 added do, so no program that compiled before this section compiles differently.
+
+---
+
+## 21. Block scope
+
+TypeScript scopes a `const` or `let` to its block, and two blocks may declare one name: two
+sequential loops over `i`, a `p` in a loop body and a `p` in an `if` arm, an inner `p` that
+shadows an outer `p` or a parameter. The front end always resolved names that way. The IR did
+not follow, because it identifies a local by its name alone within a function and every
+optimizer pass keys a function-wide map on it; the lowerer handed both bindings one name, and
+the emit refused the module with `SD0112` at line 1 of the file (issue #38).
+
+**Rule:** the second and later declarations of a name in one function take the IR name
+`name_1`, `name_2`, and so on. The first keeps the source name. Resolution is unchanged: inside
+its block an inner declaration shadows the outer one, and the code after the block reads the
+outer one again. The renamed binding is always the later one, so nothing emitted before the
+inner block moves.
+
+```ts
+"use typeshade"
+
+@fragment
+export function fs(): vec4 {
+  let a = 0.
+  for (let i: u32 = 0; i < 4; i++) {
+    a = a + f32(i)
+  }
+  for (let i: u32 = 0; i < 3; i++) {
+    a = a + f32(i) * 2.
+  }
+  return vec4(a, 0., 0., 1.)
+}
+```
+
+emits the first loop over `i` and the second over `i_1`. A local in a nested block that shadows
+a resource binding or a module const is renamed the same way (`dst_1`), so the binding's own
+name stays the binding's and a write through it is still a binding write to every pass.
+
+**What the rename does not change.** Diagnostics and the symbol table (hover, rename,
+references) use the name as the author spelled it; a loop diagnostic about the second `i` says
+`i`. What stays refused is what TypeScript refuses or what this surface refused before: a name
+declared twice in one block (TS8023), and a name at the top of a function body, or a parameter,
+that repeats a module-level declaration (TS8023; the parameter case threw out of the compiler
+before, issue #68). The debug stepper reports a local by its IR name for now, so a shadowed `p`
+steps as `p_1`.
+
+---
+
+## 22. Constant checks on a shift amount and a divisor
+
+Two more things a program is told at compile time instead of by the driver, and one spelling
+the GLSL writer owed the compound assignment.
+
+**A shift amount is 0 to 31.** WGSL requires the amount of `<<` and `>>` on a 32-bit integer
+to be less than 32 when it is a constant, and masks a run-time amount to its low five bits;
+GLSL ES 3.00 leaves both undefined. So `x << 32` is `x << 0` on one target and anything on the
+other. An amount the front end can fold (a literal, arithmetic over literals, a module const)
+that is outside 0 to 31 is refused with TS8003, for `x >> 33`, `x >> (16 + 16)` and `x <<= 32`
+alike (issue #71). A run-time amount passes; the mask is the GPU's business.
+
+**A divisor that is provably zero is refused where the division is lowered.** The proof is a
+componentwise constant folder over literals, negation, vector constructors, whole module consts
+(a scalar by its value, a vector by its initializer) and arithmetic over those. One zero
+component is enough, because the division is componentwise and Tint refuses the module for the
+component it cannot represent. The refusal is TS8003, `Division by zero: "K" is 0 on every
+invocation`, in a function body, in a compound `/=` or `%=`, and in a module const's initializer,
+which used to be the one place it was checked (issue #68). A divisor the folder cannot prove
+anything about passes: the point is to refuse what is certainly undefined, not to demand a proof
+of safety.
+
+**A float `%=` on GLSL ES 3.00** is written `x = (x - y * trunc(x / y));`, the `floatMod`
+spelling the binary `%` has always taken there, because GLSL's `%` is for integers. The compound
+assignment wrote `x %= y;` and the driver refused it while the WGSL beside it was fine (issue
+#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator on both.
+
+```ts
+"use typeshade"
+const K: f32 = 4.
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let bits: u32 = u32(uv.x * 255.) >> 4
+  bits <<= 2
+  let x: f32 = uv.y / K
+  x %= 0.5
+  return vec4(f32(bits) / 255., x, 0., 1.)
+}
+```
 
 ---
 
