@@ -173,6 +173,9 @@ function walkStmt(s: Stmt, onStmt: (s: Stmt) => void, onExpr: (e: Expr) => void)
     case 'return':
       if (s.expr) walkExpr(s.expr, onExpr)
       break
+    case 'call':
+      walkExpr(s.expr, onExpr)
+      break
     case 'if':
       for (const arm of s.arms) {
         walkExpr(arm.cond, onExpr)

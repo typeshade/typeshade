@@ -228,6 +228,8 @@ function walkStmtExprs(s: Stmt, visit: (e: Expr) => Expr): Stmt {
       return { ...s, target: visit(s.target), expr: visit(s.expr) }
     case 'assignOp':
       return { ...s, target: visit(s.target), expr: visit(s.expr) }
+    case 'call':
+      return { ...s, expr: visit(s.expr) }
     case 'return':
       return s.expr !== undefined ? { ...s, expr: visit(s.expr) } : s
     case 'if':

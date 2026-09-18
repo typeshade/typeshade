@@ -252,6 +252,8 @@ function renameLocals(s: Stmt, ren: ReadonlyMap<string, string>): Stmt {
     case 'assign':
     case 'assignOp':
       return { ...s, target: R(s.target), expr: R(s.expr) }
+    case 'call':
+      return { ...s, expr: R(s.expr) }
     case 'return':
       return s.expr !== undefined ? { ...s, expr: R(s.expr) } : s
     case 'if':

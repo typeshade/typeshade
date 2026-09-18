@@ -243,6 +243,9 @@ export const wgslBackend: Backend = {
     )
   },
   placeholderStmt: (tag) => `// __placeholder: ${tag}`,
+  // Measured against Tint: `max(1.0, 2.0);` is rejected as ignoring a `@must_use` result,
+  // `_ = max(1.0, 2.0);` and a user fn's bare `twice(x);` are accepted (issue #47).
+  phonyAssign: '_ = ',
   // ── Module-decl surface (the WGSL spellings, lifted from the former free fns) ──
   emitConst: (c) =>
     wgslBackend.constDecl(

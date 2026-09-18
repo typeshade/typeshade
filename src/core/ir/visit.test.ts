@@ -27,6 +27,11 @@ const FIXTURE: Record<Stmt['s'], { stmt: Stmt; slots: number }> = {
   assign: { stmt: { s: 'assign', target: ref('a'), expr: lit(3) }, slots: 2 },
   assignOp: { stmt: { s: 'assignOp', target: ref('a'), bop: '+', expr: lit(4) }, slots: 2 },
   return: { stmt: { s: 'return', expr: lit(5) }, slots: 1 },
+  // The dropped call is the statement's one Expr; its arguments are the expression walk's.
+  call: {
+    stmt: { s: 'call', expr: { op: 'call', type: f32T, fn: 'max', args: [lit(1), lit(2)] } },
+    slots: 1,
+  },
   // 1 arm cond + one `let` per arm body and else body.
   if: { stmt: { s: 'if', arms: [{ cond, body: [inner] }], elseBody: [inner] }, slots: 3 },
   for: {

@@ -273,7 +273,7 @@ compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 **Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
 which reserved those numbers while they were in flight and appended here in issue order. The
 sections took the next free numbers so the A-item branches did not all claim §9 and collide on
-merge.
+merge. §19 is issue #47.
 
 ---
 
@@ -940,4 +940,62 @@ argument on its own and emits `array<i32, 3>(1.0, 2.0, 3.0)`, which neither targ
 That is a gap in the call site, not in the list, and #8's A3 did not close it.
 
 
-Last updated: 2026-09-14
+---
+
+## 19. A call as a statement
+
+A function may be called for what it does, with its result dropped. This is the shape every
+side effect in a shader takes: a helper that writes a storage binding today, and the
+`workgroupBarrier()`, `textureStore(...)` and `atomicAdd(...)` family that lands on the same
+statement.
+
+```ts
+"use typeshade"
+declare let dst: storage<array<f32>>
+
+function store(i: u32): void {
+  dst[i] = 1.
+}
+
+@compute([64, 1, 1])
+export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
+  store(gid.x)
+}
+```
+
+```wgsl
+fn main_k(@builtin(global_invocation_id) gid: vec3<u32>) {
+  store(gid.x);
+}
+```
+
+**The call lowers through the path every call takes**, so the callee, arity and argument rules
+are the ones §10 and the function rules give; only the statement form is new. The IR carries
+it as its own statement (`call`), and each writer spells it: WGSL takes a user function's
+dropped result bare and needs the phony assignment before a value-returning builtin, since
+Tint treats every such builtin as `@must_use`, so `max(a, b)` as a statement emits
+`_ = max(a, b);`. GLSL ES 3.00 takes the bare call in every case. The CPU oracle, the CPU
+codegen and the debug stepper evaluate the call for its effect.
+
+**A value-returning builtin may stand alone**, as it may in TypeScript (`Math.max(a, b);` is
+legal), and the optimizer drops it as the nothing it computes. **A value that is not a call
+may not**: `vec3(1., 2., 3.)`, a `select`, an array fold build a value and drop it, and the
+statement is refused (TS8099) with the two ways out, assign the value or remove the line.
+
+**A call that writes a binding is the one impure expression the IR has**, and the optimizer
+knows it. The effect table (`src/core/passes/effects.ts`) names the bindings each function
+writes, itself or through the functions it calls. Dead-code elimination keeps a `call`
+statement exactly when its call has an effect. Common-subexpression elimination, value
+numbering and loop-invariant motion leave a function that makes an effectful call alone, and
+a read of a binding some callee writes is never shared across the call: two `bump(i)` in a
+row stay two, and a `dst[i]` read after them is a second read. The linear inliner does not
+lift a helper whose prelude holds a call statement, since splicing it ahead of the `if` that
+guarded the call site would run the effect on a path that never called.
+
+**What this does not cover.** The portable compute tier (§ the `portable` kernel shape) refuses
+a call statement anywhere in the entry's reach: its single store is a plain assignment written
+in the entry, and a store hidden in a callee is not one the fragment-GPGPU lowering can follow.
+
+---
+
+Last updated: 2026-09-18

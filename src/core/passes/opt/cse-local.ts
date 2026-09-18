@@ -39,6 +39,7 @@ import {
   isWorthHoisting,
   mapStmtValue,
 } from './expr-utils.js'
+import { bodyHasEffectfulCall, fnWrites, type FnWrites } from '../effects.js'
 
 interface Tally {
   counts: Map<string, number>
@@ -234,13 +235,15 @@ function recurseBlocks(
   }
 }
 
-function cseLocalFn(f: FuncDecl, loadRoots: ReadonlySet<string>): FuncDecl {
+function cseLocalFn(f: FuncDecl, loadRoots: ReadonlySet<string>, writes: FnWrites): FuncDecl {
   if (bodyHasRaw(f.body)) return f // raw WGSL is opaque
+  // A call that writes a binding is not a repeat to hoist (issue #47).
+  if (bodyHasEffectfulCall(f.body, writes)) return f
   // "local" = every binding name AND every mutated root — exactly the set the fn-top cse
   // refuses to hoist. Targeting these makes this pass the complement of that one.
   const localSet = new Set<string>()
   collectLocals(f.body, localSet)
-  collectMutatedRoots(f.body, localSet)
+  collectMutatedRoots(f.body, localSet, writes)
   // Seed the temp counter past any existing `_lcN` so a second fixpoint pass cannot
   // redeclare `_lc0` (cse-local runs repeatedly inside fixpoint).
   let base = 0
@@ -257,5 +260,6 @@ function cseLocalFn(f: FuncDecl, loadRoots: ReadonlySet<string>): FuncDecl {
 export function cseLocal(m: ModuleDecl): ModuleDecl {
   // Indexing one of these is a memory load, not free addressing (X-GIS #1886).
   const loadRoots = new Set(m.bindings.map((b) => b.name))
-  return { ...m, funcs: m.funcs.map((f) => cseLocalFn(f, loadRoots)) }
+  const writes = fnWrites(m)
+  return { ...m, funcs: m.funcs.map((f) => cseLocalFn(f, loadRoots, writes)) }
 }

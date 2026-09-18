@@ -12,6 +12,7 @@
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
 import { mapStmtExpr } from '../../ir/visit.js'
+import { bodyHasEffectfulCall, fnWrites, type FnWrites } from '../effects.js'
 import {
   keyOf,
   isCompound,
@@ -89,6 +90,9 @@ function gatherStmt(
     case 'return':
       if (s.expr !== undefined) ge(s.expr)
       break
+    case 'call':
+      ge(s.expr)
+      break
     case 'if':
       for (const a of s.arms) {
         ge(a.cond)
@@ -112,8 +116,11 @@ function gatherStmt(
   }
 }
 
-function licmFn(f: FuncDecl): FuncDecl {
+function licmFn(f: FuncDecl, writes: FnWrites): FuncDecl {
   if (bodyHasRaw(f.body)) return f
+  // A call that writes a binding is not invariant, however constant its arguments: hoisting
+  // it out of the loop would write once where the loop wrote every iteration (issue #47).
+  if (bodyHasEffectfulCall(f.body, writes)) return f
   // Non-invariant names: function locals AND any mutated name (incl. a read_write
   // binding written anywhere in the fn). A read of a mutated name is not loop-invariant.
   const noHoist = new Set<string>()
@@ -152,5 +159,6 @@ function licmFn(f: FuncDecl): FuncDecl {
 
 /** Hoist loop-invariant input-only subexpressions. Pure (module -> module). */
 export function licm(m: ModuleDecl): ModuleDecl {
-  return { ...m, funcs: m.funcs.map(licmFn) }
+  const writes = fnWrites(m)
+  return { ...m, funcs: m.funcs.map((f) => licmFn(f, writes)) }
 }

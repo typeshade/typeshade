@@ -134,6 +134,9 @@ export function eachStmtExpr(s: Stmt, visit: (e: Expr) => void, onStmt?: (s: Stm
       visit(s.target)
       visit(s.expr)
       break
+    case 'call':
+      visit(s.expr)
+      break
     case 'return':
       if (s.expr !== undefined) visit(s.expr)
       break
@@ -177,6 +180,8 @@ export function mapStmtExpr(s: Stmt, f: (e: Expr) => Expr, onStmt?: (s: Stmt) =>
     case 'assign':
     case 'assignOp':
       return { ...s, target: f(s.target), expr: f(s.expr) }
+    case 'call':
+      return { ...s, expr: f(s.expr) }
     case 'return':
       return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
     case 'if':

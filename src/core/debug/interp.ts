@@ -505,6 +505,11 @@ export function* execBody(
         return { kind: 'continue' }
       case 'discard':
         return { kind: 'discard' }
+      case 'call':
+        // Evaluated for its effect; the value is dropped. The callee's own statements step
+        // through this same loop, so a binding it writes is marked there.
+        yield* evalExpr(s.expr, env, ctx)
+        break
       case 'if': {
         let taken = false
         for (const arm of s.arms) {

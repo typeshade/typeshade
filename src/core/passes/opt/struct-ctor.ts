@@ -75,6 +75,9 @@ function mentions(stmts: readonly Stmt[], name: string): boolean {
         case 'return':
           if (s.expr !== undefined) mapExpr(s.expr, see)
           break
+        case 'call':
+          mapExpr(s.expr, see)
+          break
         default:
           break
       }

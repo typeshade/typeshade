@@ -189,6 +189,14 @@ export function emitStmt(s: Stmt, depth: number, be: Backend, parens: ParenMode 
       return `${p}continue;`
     case 'discard':
       return `${p}discard;`
+    case 'call': {
+      // A user function's dropped result is bare on both targets. A value-returning builtin,
+      // and a value a pass folded the call into, take the backend's phony assignment where it
+      // has one: WGSL rejects `max(a, b);` as ignoring a `@must_use` result (issue #47).
+      const userFn = s.expr.op === 'call' && declaredFns.has(s.expr.fn)
+      const drop = s.expr.type.kind !== 'void' && !userFn ? (be.phonyAssign ?? '') : ''
+      return `${p}${drop}${r(s.expr)};`
+    }
     case 'if': {
       const lines: string[] = []
       s.arms.forEach((arm, i) => {

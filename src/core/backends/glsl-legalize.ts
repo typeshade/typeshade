@@ -205,6 +205,9 @@ function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
       // left-to-right reading order. Which fires first only matters when BOTH sides discard,
       // and GLSL leaves an assignment's operand order unspecified anyway.
       return { ...s, target: mapTargetIndices(s.target, f), expr: f(s.expr) }
+    case 'call':
+      // The call's arguments are evaluated whenever the statement runs, exactly once.
+      return { ...s, expr: f(s.expr) }
     case 'return':
       return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
     case 'if':

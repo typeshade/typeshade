@@ -122,6 +122,10 @@ export function rewriteExprsInFunc(f: FuncDecl, rewrite: (e: Expr) => Expr): Fun
         const e = walk(s.expr)
         return e === s.expr ? s : { ...s, expr: e }
       }
+      case 'call': {
+        const e = walk(s.expr)
+        return e === s.expr ? s : { ...s, expr: e }
+      }
       case 'if': {
         let armsChanged = false
         const arms = s.arms.map((arm) => {

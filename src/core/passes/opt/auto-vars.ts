@@ -79,6 +79,9 @@ function stmtRefs(s: Stmt, targets: ReadonlySet<Expr>): boolean {
       case 'return':
         if (st.expr !== undefined) scan(st.expr)
         break
+      case 'call':
+        scan(st.expr)
+        break
       case 'if':
         for (const a of st.arms) {
           scan(a.cond)

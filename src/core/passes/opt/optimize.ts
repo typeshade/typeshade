@@ -16,6 +16,7 @@
 // (map/src/shaders/dsl/optimize.test.ts), and the examples emit-goldens byte gate.
 
 import type { ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { fnWrites, inheritEffects } from '../effects.js'
 import { constProp } from './const-prop.js'
 import { copyProp } from './copy-prop.js'
 import { constFold } from './const-fold.js'
@@ -103,10 +104,17 @@ export function optimize(
   passes: readonly OptPass[] = DEFAULT_PASSES,
   onPass?: PassSink,
 ): ModuleDecl {
-  if (onPass === undefined) return passes.reduce((mod, pass) => pass(mod), m)
+  // Each pass returns a new module; the effect table (passes/effects.ts) computed for the
+  // whole module rides along so a per-function view still knows what every helper writes.
+  const step = (mod: ModuleDecl, pass: OptPass): ModuleDecl => {
+    const out = pass(mod)
+    inheritEffects(mod, out)
+    return out
+  }
+  if (onPass === undefined) return passes.reduce(step, m)
   return passes.reduce((mod, pass) => {
     const t0 = nowMs()
-    const out = pass(mod)
+    const out = step(mod, pass)
     onPass(pass.name, nowMs() - t0)
     return out
   }, m)
@@ -199,7 +207,11 @@ function fnFixpoint(
 ): FuncDecl {
   let cur = fn
   for (let i = 0; i < maxIters; i++) {
-    const next = optimize({ ...m, funcs: [cur] }, passes, onPass).funcs[0]!
+    // One function at a time, but with the WHOLE module's effect table: `store(i)` is a
+    // write to `dst` only if the pass can see `store`, which this view does not hold.
+    const view: ModuleDecl = { ...m, funcs: [cur] }
+    inheritEffects(m, view)
+    const next = optimize(view, passes, onPass).funcs[0]!
     if (irEqual(next, cur)) return next
     cur = next
   }
@@ -249,6 +261,7 @@ export function fixpoint(
   onPass?: PassSink,
 ): ModuleDecl {
   for (const fn of m.funcs) assertUniqueLocalNames(fn)
+  fnWrites(m) // computed once for the whole module; every per-function view inherits it
   return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) }
 }
 
