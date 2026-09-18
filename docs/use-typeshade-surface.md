@@ -270,9 +270,10 @@ yet — stays in this document, is labelled *(target)*, and is never copied into
 the org profile, or any other front-facing page. Those pages carry only examples that
 compile, which `src/compiler/ts/doc-snippets.test.ts` enforces.
 
-**Numbering:** §§9 to 17 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11 and A15, which
-reserved those numbers while they were in flight and appended here in issue order. The sections
-took the next free numbers so the A-item branches did not all claim §9 and collide on merge.
+**Numbering:** §§9 to 18 below are issue #8's A2, A6, A8, A9, A3, A10, A7, A11, A15 and A16,
+which reserved those numbers while they were in flight and appended here in issue order. The
+sections took the next free numbers so the A-item branches did not all claim §9 and collide on
+merge.
 
 ---
 
@@ -884,6 +885,53 @@ bound in its condition, but nothing checks that its body moves toward that bound
 device. And the multiplicative step has no `fn()` EDSL spelling, so `ir-equality.test.ts` has
 no twin to pin `i *= 2` against; the CPU trip count in `loop-shapes.test.ts` stands in for that
 until `forRange` takes a step operation.
+
+## 18. A list as an array's initializer
+
+An `array<T, N>` takes a list where its type is written, in a function body and at module
+scope:
+
+```ts
+"use typeshade"
+
+export function ramp(i: i32): f32 {
+  const stops: array<f32, 3> = [0., 0.5, 1.]
+  const weights: array<i32, 3> = [1, 2, 1]
+  let scratch: array<f32, 2> = [0., 0.]
+  scratch[0] = stops[i] * f32(weights[i])
+  return scratch[0]
+}
+```
+
+It is the same declaration `array<f32, 3>(0., 0.5, 1.)` makes: the same `construct` node and the
+same emitted text, so the two spellings are one program, and `src/compiler/ts/ir-equality.test.ts`
+pins both against the EDSL's `construct(arrayT(f32T, 3), …)`.
+
+A list carries no type of its own, which is what decides where it is allowed and what it
+means:
+
+- It is **only** an initializer, and only where the declaration states an `array<T, N>`.
+  `const xs = [1., 2.]` and `sum([1., 2.])` are refused, each naming the spelling that works.
+- The size must be fixed and must match: `array<f32>` has nothing to fill, and
+  `array<f32, 3> = [1., 2.]` is an arity error.
+- Every element must be the element type. There is no implicit conversion, so
+  `array<f32, 2> = [1., i32(2)]` is refused rather than silently widened.
+- A number **written** in the list takes the element type by the same rule §13 gives a scalar
+  declaration, so `array<i32, 3> = [1, 2, 3]` emits `array<i32, 3>(1, 2, 3)` and
+  `array<i32, 2> = [1., 2.]` is accepted the way `const x: i32 = 1.` is. What that rule
+  refuses, the element check reports: `array<i32, 2> = [1.5, 2]`, `array<u32, 2> = [-1, 2]`
+  and `array<i32, 2> = [3000000000, 2]` each name the element and its type. A value that
+  states its own type, `i32(2)`, keeps it.
+- An **array of arrays** is refused, list or call: GLSL ES 3.00 has none. Measured through the
+  compile gate, `array<array<f32, 2>, 2>` passes Tint and fails the WebGL2 context with
+  *arrays of arrays supported in GLSL ES 3.10 and above only*, so the two targets would
+  disagree about the same source. Flatten it: one `array<f32, 4>` indexed by
+  `row * width + column`.
+- A spread and a hole are refused: `[...xs]` would need the size of `xs` at lowering time.
+
+The call form is not the same in one respect: `array<i32, 3>(1, 2, 3)` still lowers each
+argument on its own and emits `array<i32, 3>(1.0, 2.0, 3.0)`, which neither target accepts.
+That is a gap in the call site, not in the list, and #8's A3 did not close it.
 
 
 Last updated: 2026-09-14
