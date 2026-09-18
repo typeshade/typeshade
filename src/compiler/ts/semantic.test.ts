@@ -10,7 +10,9 @@ describe('Phase 12 semantic bans', () => {
         console.log(1.);
       }
     `)
-    expect(r.diagnostics.some((d) => d.code === TS_CODES.HOST_API && /console/.test(d.message))).toBe(true)
+    expect(
+      r.diagnostics.some((d) => d.code === TS_CODES.HOST_API && /console/.test(d.message)),
+    ).toBe(true)
     expect(r.wgsl).toBeUndefined()
   })
 
@@ -33,7 +35,9 @@ describe('Phase 12 semantic bans', () => {
         return 1.;
       }
     `)
-    expect(r.diagnostics.some((d) => d.code === TS_CODES.HOST_API || d.code === TS_CODES.HOST_STMT)).toBe(true)
+    expect(
+      r.diagnostics.some((d) => d.code === TS_CODES.HOST_API || d.code === TS_CODES.HOST_STMT),
+    ).toBe(true)
   })
 
   it('rejects await and async', () => {
@@ -54,7 +58,9 @@ describe('Phase 12 semantic bans', () => {
         return 0.;
       }
     `)
-    expect(r.diagnostics.some((d) => d.code === TS_CODES.HOST_STMT && /for-of/.test(d.message))).toBe(true)
+    expect(
+      r.diagnostics.some((d) => d.code === TS_CODES.HOST_STMT && /for-of/.test(d.message)),
+    ).toBe(true)
   })
 
   it('rejects try/catch', () => {
@@ -67,10 +73,17 @@ describe('Phase 12 semantic bans', () => {
     expect(r.diagnostics.some((d) => d.code === TS_CODES.HOST_STMT)).toBe(true)
   })
 
-  it('rejects top-level let', () => {
-    const r = compileTsSource(`
+  it('a top-level let is a per-invocation variable (§24); var stays refused', () => {
+    const ok = compileTsSource(`
       "use typeshade";
       let acc: f32 = 0.;
+      export function f(): f32 { return acc; }
+    `)
+    expect(ok.diagnostics.some((d) => d.code === TS_CODES.TOP_LEVEL)).toBe(false)
+    expect(ok.wgsl).toContain('var<private> acc: f32 = 0.0;')
+    const r = compileTsSource(`
+      "use typeshade";
+      var acc: f32 = 0.;
       export function f(): f32 { return acc; }
     `)
     expect(r.diagnostics.some((d) => d.code === TS_CODES.TOP_LEVEL)).toBe(true)

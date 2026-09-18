@@ -66,6 +66,14 @@ export function collectModuleConsts(
  *  `const Y = vec3(1. / ZERO, 0., 0.)` compiled with no diagnostic at all: Tint refuses the
  *  WGSL it produces, and GLSL and the CPU oracle disagree about the value. A divisor this can
  *  prove is zero is refused here instead. */
+/** Whether `e` is a constant by the measure a non-scalar module const is held to: literals,
+ *  module consts, constructors, arithmetic and const-evaluable math over those, with a divisor
+ *  this can prove is zero refused. What a module variable's array or struct initializer has to
+ *  be (§24), since the componentwise folder stops at vectors. */
+export function isFoldableConstExpr(e: Expr, scope: LoweringScope): boolean {
+  return isFoldableValueExpr(e, scope, new Map())
+}
+
 function isFoldableValueExpr(
   e: Expr,
   scope: LoweringScope,

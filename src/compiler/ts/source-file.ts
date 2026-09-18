@@ -172,7 +172,13 @@ export function compileTsSource(
   ])
   const overrides = collectOverrides(sourceFile, diagnostics, symbols, glslNames)
   // Module variables (§24) after the consts their initializers may name.
-  const vars = collectModuleVars(sourceFile, diagnostics, symbols, consts)
+  const vars = collectModuleVars(
+    sourceFile,
+    diagnostics,
+    symbols,
+    consts,
+    structs.map((s) => s.decl),
+  )
   // A name claimed by two DIFFERENT collectors. Each reports its own repeats, and none can see
   // the others, so `const q: f32 = 1.` beside `const q: override<f32> = 2.` passed all three and
   // then met `scope.define`, which throws — an exception out of `compile()` and out of the

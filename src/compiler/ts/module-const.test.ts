@@ -147,12 +147,14 @@ describe('module const', () => {
     ).toBe(true)
   })
 
-  it('still rejects top-level let', () => {
+  it('a top-level let is a module variable (§24), not a const', () => {
     const r = compileTsSource(`
       "use typeshade";
       let acc: f32 = 0.;
       export function f(): f32 { return acc; }
     `)
-    expect(r.diagnostics.some((d) => d.code === TS_CODES.TOP_LEVEL)).toBe(true)
+    expect(r.diagnostics.some((d) => d.code === TS_CODES.TOP_LEVEL)).toBe(false)
+    expect(r.wgsl).toContain('var<private> acc: f32 = 0.0;')
+    expect(r.wgsl).not.toContain('const acc')
   })
 })

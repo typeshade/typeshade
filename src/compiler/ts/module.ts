@@ -243,6 +243,27 @@ export function compileTsSources(
   // `source-file.ts` has always collected first, which is why it works there.
   const consts = entrySf ? collectModuleConsts(entrySf, diagnostics) : []
   const vars = entrySf ? collectModuleVars(entrySf, diagnostics, undefined, consts) : []
+  // A module variable (§24) is collected from the entry file, as a const is. A top-level `let`
+  // in another file would otherwise vanish without a word, and a read of it in that file would
+  // be an "Unknown identifier" that names no cause; roadmap item 14 carries the other files'
+  // declarations, and until then the refusal says where the declaration goes.
+  for (const [fileName, sf] of parsed) {
+    if (sf === entrySf) continue
+    for (const stmt of sf.statements) {
+      if (!ts.isVariableStatement(stmt)) continue
+      if ((stmt.declarationList.flags & ts.NodeFlags.Let) === 0) continue
+      if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue
+      diagnostics.push(
+        makeDiagnostic(
+          sf,
+          stmt,
+          `A module variable is declared in the entry file, and "${fileName}" is not the entry. ` +
+            `Move this let there, or pass the value as a parameter.`,
+          TS_CODES.TOP_LEVEL,
+        ),
+      )
+    }
+  }
 
   const funcs: FuncDecl[] = []
   const graph: RecursionNode[] = []
@@ -287,11 +308,13 @@ export function compileTsSources(
   let wgsl: string | undefined
   if (funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {
-      // `emitModule` only when there is something for its other slots to hold. `emitFuncs` is
-      // the bare-functions form the single-file path uses too, and switching unconditionally
-      // would change the emitted text of every multi-file program that has no constants.
+      // `emitModule` only when there is something for its other slots to hold: a constant or
+      // a module variable (§24; a `vars`-only module took the bare path before the plain
+      // top-level `let` test found the variable missing from the text). `emitFuncs` is the
+      // bare-functions form the single-file path uses too, and switching unconditionally would
+      // change the emitted text of every multi-file program that has neither.
       wgsl =
-        consts.length > 0
+        consts.length > 0 || vars.length > 0
           ? emitModule({ consts, structs: [], bindings: [], funcs, vars })
           : emitFuncs(funcs)
     } catch (e) {

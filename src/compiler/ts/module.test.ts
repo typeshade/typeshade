@@ -162,7 +162,9 @@ describe('compileTsSources — what the merge carried over', () => {
     const r = compileTsSources([
       {
         fileName: 'lib.ts',
-        source: `"use typeshade";\nlet loose = 1;\nexport function g(x: f32): f32 { return x; }`,
+        // A top-level `var` is refused in every file (§24 made a top-level `let` a module
+        // variable, so it is no longer the example).
+        source: `"use typeshade";\nvar loose = 1;\nexport function g(x: f32): f32 { return x; }`,
       },
       {
         fileName: 'app.ts',
@@ -176,6 +178,27 @@ describe('compileTsSources — what the merge carried over', () => {
         'the merge, so the documentation gate accepted in a multi-file fence what it rejects ' +
         'in a single-file one',
     ).toContain('lib.ts')
+  })
+
+  it('a top-level let is a module variable in the entry file, and is refused with the reason elsewhere', () => {
+    const lib = {
+      fileName: 'lib.ts',
+      source: `"use typeshade";\nlet loose = 1;\nexport function g(x: f32): f32 { return x + loose; }`,
+    }
+    const app = {
+      fileName: 'app.ts',
+      source: `"use typeshade";\nimport { g } from "./lib";\nexport function f(x: f32): f32 { return g(x); }`,
+    }
+    const asEntry = compileTsSources([lib, app], 'lib.ts')
+    expect(asEntry.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(asEntry.wgsl).toContain('var<private> loose: f32 = 1.0;')
+    // With app.ts the entry, lib.ts's variable is not collected (roadmap item 14); it says so
+    // instead of vanishing, and the read of it is not left as a bare "Unknown identifier".
+    const elsewhere = compileTsSources([lib, app], 'app.ts')
+    const errors = elsewhere.diagnostics.filter((d) => d.category === 'error')
+    expect(errors.map((d) => `${d.fileName} ${d.code} ${d.message}`)).toContain(
+      'lib.ts TS8014 A module variable is declared in the entry file, and "lib.ts" is not the entry. Move this let there, or pass the value as a parameter.',
+    )
   })
 
   it('reports an entry that is not in the source set', () => {
