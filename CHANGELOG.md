@@ -13,6 +13,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **A type alias is another name for its target** (§2, roadmap 0.3 item T2,
+  [#92](https://github.com/typeshade/typeshade/issues/92)): `type Meters = f32`,
+  `type Color = vec3`, `type Grid = array<f32, 16>`, `type Point = Camera`. Before this the
+  alias became a struct named after itself, so `m * 0.5` was "cannot \* struct:Meters and f32"
+  and a lowercase alias was an unknown type. It resolves wherever a type may stand, a chain
+  resolves through, a builtin name still wins, and a cycle is TS8002 naming the chain. An alias
+  over an object type is a struct as before.
+- **An optional class field is refused** (§2): `y?: f32` on a class emitted a required member
+  with no diagnostic, while the same member on an interface was already refused. Both say now
+  that a struct field is always present in the buffer the host fills.
 - **Builtin breadth** (§10, roadmap 0.2 item 8): `reflect`, `refract`, `faceForward`,
   `transpose`, `determinant`, `ldexp`, `countOneBits`, `reverseBits`, `countLeadingZeros`,
   `countTrailingZeros`, `firstLeadingBit`, `firstTrailingBit`, `extractBits`, `insertBits` and

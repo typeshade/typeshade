@@ -79,10 +79,30 @@ type Camera = {
 a type alias over an object type, and an interface all produce one `StructDecl`; the compiler
 accepts all three.
 
-A `type`/`interface` struct is the members written in it: a method or call signature, an
-index signature, an optional (`a?: f32`) member, and an `interface … extends …` are each
-rejected, since a WGSL struct has no form for them and silently dropping one would change
-the buffer layout the host fills.
+A type alias over anything else is another name for its target, which is what it means in
+TypeScript (roadmap 0.3 item T2):
+
+```ts
+type Meters = f32
+type Color = vec3
+type Grid = array<f32, 16>
+type Point = Camera
+```
+
+The alias resolves wherever a type may stand: a parameter, a return, a class field, a local
+annotation, a module const, and the argument of `uniform<...>` or `storage<...>`. A chain
+resolves through, and a cycle (`type A = B; type B = A`) is TS8002 naming the chain rather
+than a recursion. A builtin name wins over an alias of the same name, so `type vec3 = f32`
+does not make `vec3` a scalar. A generic alias has no one target type and keeps its refusal;
+generics are roadmap 0.3 item T9.
+
+A struct is the members written in it, whichever of the three spellings declared it: a method
+or call signature, an index signature, an optional (`a?: f32`) member, and an `extends` clause
+are each rejected, since a WGSL struct has no form for them and silently dropping one would
+change the buffer layout the host fills. The optional member is the one where the three
+spellings used to disagree: an interface refused it and a class emitted it as required. They
+refuse it alike now. Inheritance is roadmap 0.3 item T5, which flattens the base's fields
+rather than dropping them.
 
 Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
 
