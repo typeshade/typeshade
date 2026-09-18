@@ -2091,9 +2091,9 @@ re-lowered two steps down still counts its own `super` from where it was written
 three terminates.
 
 **Refused, each with the reason.** A base this file does not declare as a struct; a cycle, named
-through its chain; a field that changes type on the way down; a generic base, which is one
-declaration per argument set and belongs with generics; and a base that is a call rather than a
-name, which is the mixin pattern.
+through its chain; a field that changes type on the way down; and a generic base, which is one
+declaration per argument set and belongs with generics. A base that is a CALL is the mixin
+pattern, and §29 runs it.
 
 ## 28. What TypeScript writes that the GPU has no word for
 
@@ -2152,6 +2152,82 @@ adds that it "requires a TypeShade type annotation", which it has; a return no l
 "Unsupported return type"; a call to a function this file declares and could not lower no
 longer says "Unknown function", which was untrue — the function is there, and its declaration
 already said why. A call to a name nothing declares still says so.
+
+## 29. The mixin pattern
+
+Roadmap 0.3 item T8. `class TintedDisc extends Tinted(Disc)` is a class whose base is decided by
+running a function. TypeScript runs it at run time and gets a constructor; there is no run time
+here, so TypeShade runs it when the file is compiled and gets a list of members.
+
+What makes that work is what §26 settled: a struct is flat, and dispatch is static. `Tinted(Disc)`
+has no observable existence of its own, no layout a value can have and no method anything calls
+through, so it is not a struct. Its members are spliced into the class that applied it, behind
+the base's fields and ahead of that class's own, which is the order TypeScript's own mixin
+produces.
+
+```ts
+class Disc {
+  center: vec2
+  radius: f32
+}
+
+function Tinted<TBase extends AnyClass>(Base: TBase) {
+  return class extends Base {
+    tint: vec3
+    lit(cover: f32): vec3 {
+      return this.tint * smoothstep(0., 1., cover)
+    }
+  }
+}
+
+class TintedDisc extends Tinted(Disc) {
+  softness: f32
+}
+```
+
+```wgsl
+struct TintedDisc {
+  center: vec2<f32>,      // Disc's
+  radius: f32,            // Disc's
+  tint: vec3<f32>,        // the mixin's
+  softness: f32,          // its own
+}
+
+fn TintedDisc_lit(self_: TintedDisc, cover: f32) -> vec3<f32> { … }
+```
+
+There is no `Tinted` in the emitted code and no `Tinted_lit`. Two classes applying one mixin each
+carry their own copy of its methods, exactly as two classes extending one base do.
+
+`AnyClass` is the ambient lib's name for the constructor type TypeScript needs before it will
+take `class extends Base`: `new (...args: any[]) => object`. It is there so a shader author does
+not have to know the incantation; declaring your own, as the TypeScript handbook does, reads the
+same to this compiler, which never looks at the constraint. What it does mean is that a mixin
+type-checks in the editor before it compiles, which is the point of writing it in TypeScript.
+
+**A mixin is a function whose body is one `return class … { … }`.** Its class expression may
+extend the function's own parameter, which is where the argument goes; or a class this file
+declares; or nothing, which is a mixin that only adds. The chain nests, innermost first:
+`extends Named(Aged(Particle))` puts Particle's fields, then Aged's, then Named's, then the
+class's own. `const AgedParticle = Aged(Particle)` names an application, and a class may extend
+that name; the const holds a class, so it is no module constant and folds to nothing.
+
+**A mixin may carry what a class carries.** A constructor, including one that calls `super(…)`
+over a base that has one; a static function, which becomes the applying class's; a field with a
+`@builtin` or `@location` decorator, which reaches entry I/O the way any field does; a method
+reading a field of the base it was mixed over.
+
+**A name declared twice in the chain is an override, and the declaration closest to the value
+wins**: the class over every mixin, an outer mixin over an inner one, silently, the way a
+subclass method overrides a base's. Two FIELDS of that name written with different types are the
+one case that is not an override but a change of layout, and it is reported: picking either
+silently would change what the other's code reads.
+
+**Refused, each in one sentence.** A function whose body is more than one `return` of a class,
+since there is no run time for the rest of it to happen in; a call to a function this file does
+not declare, since the class expression is read where it is written; a mixin applied to itself;
+a base passed to a mixin whose class extends something else, so the base would go nowhere; a
+mixin that extends its parameter and is given nothing.
 
 ---
 

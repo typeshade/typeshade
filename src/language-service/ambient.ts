@@ -431,6 +431,13 @@ type bool = boolean
 // vector type collapsed to \`any\` (no false positives, but no real checking either).
 type Pick<T, K extends keyof T> = { [P in K]: T[P] }
 
+// The constructor type a mixin takes (surface document §29): any class, whatever its fields.
+// TypeScript needs a base of this shape to accept \`class extends Base\`, and the compiler
+// never reads it — the mixin runs when the file is compiled. Declaring your own, as the
+// TypeScript handbook does, works just as well; this is here so a shader author does not have
+// to know the incantation.
+type AnyClass = new (...args: any[]) => object
+
 declare const vecTag: unique symbol
 type ScalarOf<S extends 'f32' | 'i32' | 'u32' | 'bool'> = S extends 'f32'
   ? f32

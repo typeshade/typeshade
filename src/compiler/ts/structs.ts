@@ -9,6 +9,12 @@ import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
 import {
+  applyMixins,
+  isMixinHeritage,
+  mixedMembers,
+  type MixinApplication,
+} from './mixins.js'
+import {
   eachNamespaceStatement,
   namespaceMemberName,
   refuseNamespaceStatement,
@@ -206,8 +212,8 @@ export function collectStructs(
         )
         continue
       }
-      const bases = basesOf(candidate.name, candidate.heritage, sourceFile, diagnostics)
-      if (bases === undefined) continue
+      const heritage = basesOf(candidate.name, candidate.heritage, sourceFile, diagnostics)
+      if (heritage === undefined) continue
       const before = diagnostics.length
       add(
         candidate.name,
@@ -217,7 +223,7 @@ export function collectStructs(
         before,
         undefined,
         undefined,
-        bases,
+        heritage.bases,
       )
       continue
     }
@@ -241,8 +247,9 @@ export function collectStructs(
     }
     // A class `extends` puts the base's fields ahead of its own, just as an interface one does
     // (T5, #92); `implements` carries no layout and is left alone.
-    const bases = basesOf(structName, stmt.heritageClauses, sourceFile, diagnostics)
-    if (bases === undefined) continue
+    const heritage = basesOf(structName, stmt.heritageClauses, sourceFile, diagnostics)
+    if (heritage === undefined) continue
+    const bases = heritage.bases
     const isAbstract =
       (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false) || undefined
     const before = diagnostics.length
@@ -255,7 +262,16 @@ export function collectStructs(
     const fieldInits: FieldInit[] = []
     let ctor: ts.ConstructorDeclaration | undefined
     const methodNames = new Set<string>()
-    for (const member of stmt.members) {
+    // A mixin's members are this class's, ahead of its own and behind its base's, which is the
+    // order TypeScript's own mixin produces (T8, #92). A member this class declares under the
+    // same name is an override and wins, silently, the way a subclass member does.
+    for (const member of mixedMembers(
+      heritage.bodies,
+      stmt.members,
+      sourceFile,
+      diagnostics,
+      structName,
+    )) {
       // A method, a constructor and a static function are functions of the module (#86), the
       // shapes below are what the surface does not take, each with its fix.
       if (ts.isConstructorDeclaration(member)) {
@@ -525,21 +541,22 @@ function eachHeritageName(
   }
 }
 
-/** The names an `extends` clause writes, or `undefined` after reporting one this cannot follow
+/** What an `extends` clause comes to, or `undefined` after reporting one this cannot follow
  *  (roadmap 0.3 item T5, #92). `implements` carries no layout and is left alone, as before.
  *
- *  Two shapes are refused here rather than resolved: a base with type arguments, which is one
- *  declaration per argument set (T9), and a base that is a call rather than a name, which is
- *  the mixin pattern (T8). Both name a later item, so the message says which. */
+ *  A base with type arguments is still refused: that is one declaration per argument set (T9),
+ *  and the message names it. A base that is a CALL is the mixin pattern, and is run rather
+ *  than refused (T8) — see `mixins.ts` for what running it means. */
 function basesOf(
   name: string,
   clauses: readonly ts.HeritageClause[] | undefined,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): readonly string[] | undefined {
+): MixinApplication | undefined {
   const extendsClause = clauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
-  if (!extendsClause) return []
+  if (!extendsClause) return { bases: [], bodies: [] }
   const out: string[] = []
+  const bodies: ts.ClassExpression[] = []
   for (const type of extendsClause.types) {
     if (type.typeArguments && type.typeArguments.length > 0) {
       diagnostics.push(
@@ -552,20 +569,28 @@ function basesOf(
       )
       return undefined
     }
+    if (isMixinHeritage(type.expression, sourceFile)) {
+      const applied = applyMixins(name, type.expression, sourceFile, diagnostics)
+      if (applied === undefined) return undefined
+      out.push(...applied.bases)
+      bodies.push(...applied.bodies)
+      continue
+    }
     if (!ts.isIdentifier(type.expression)) {
       diagnostics.push(
         diag(
           sourceFile,
           type,
           `"${name}" extends an expression. A base has to be a declared class or interface ` +
-            `here, since the layout is decided when the file is compiled.`,
+            `here, or a mixin: a call to a function of this file whose body is one ` +
+            `"return class … { … }".`,
         ),
       )
       return undefined
     }
     out.push(type.expression.text)
   }
-  return out
+  return { bases: out, bodies }
 }
 
 /** Splice each struct's bases into it, base fields first (roadmap 0.3 item T5, #92). Runs
