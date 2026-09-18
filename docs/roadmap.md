@@ -27,19 +27,23 @@ GLSL ES 3.00) is accepted by the front end, emitted for the target that has it, 
 as a target diagnostic by the one that does not. That is the rule the compile gate already
 follows: an example can be WGSL-only, and the gate says so, and nothing crashes.
 
-**The run layer is small on purpose.** It exposes three verbs and nothing else: import the
-module, call an entry, draw to a canvas. It hides the device, the buffers, the layouts, the
-bind groups, the pipelines and the fallback tiers. It never grows into a typed wrapper over
-every WebGPU object, which is TypeGPU's shape and a good one, but a different product. A
-caller who needs a raw `GPUBuffer` or a hand-built pipeline uses `compile()` and `reflect()`,
-which stay the public escape hatch, and mixes the emitted WGSL into their own WebGPU code.
+**The run layer has no import.** A `.shade.ts` module imported from a `.ts` file exports the
+names it declares, and calling one is the whole API: a helper runs on the CPU as the function
+it is, an entry runs on the GPU. Nothing else is exposed. The device, the buffers, the
+layouts, the bind groups, the pipelines and the fallback tiers exist inside the generated
+module and are not named anywhere in user code. The layer never grows into a typed wrapper
+over every WebGPU object, which is TypeGPU's shape and a good one, but a different product.
+A caller who needs a raw `GPUBuffer` or a hand-built pipeline uses `compile()` and
+`reflect()`, which stay the public escape hatch, and mixes the emitted WGSL into their own
+WebGPU code.
 
 ## The shape of "just run"
 
 The two rules meet here. A shader file is a TypeScript module today, and `.shade.ts` files
 already import each other. What is missing is the other direction: an ordinary `.ts` file
-importing a `.shade.ts` and calling it, the way a `.ts` file imports a `.tsx` component. The
-first block below is `add.shade.ts`; the second is the application file that imports it.
+importing a `.shade.ts` and calling what it exports, the way a `.ts` file imports a `.tsx`
+component and renders it. The first block below is `add.shade.ts`; the second is the
+application file that imports it.
 
 ```ts
 "use typeshade"
@@ -47,32 +51,61 @@ declare const a: storage<array<f32>>
 declare const b: storage<array<f32>>
 declare let out: storage<array<f32>>
 
+export function scale(x: f32, k: f32): f32 {
+  return x * k
+}
+
 @compute([64, 1, 1])
 export function add(@builtin("global_invocation_id") id: vec3u) {
-  out[id.x] = a[id.x] + b[id.x]
+  out[id.x] = scale(a[id.x], 2.) + b[id.x]
 }
 ```
 
 ```ts
-import { run } from 'typeshade/run'
-import * as kernel from './add.shade.ts'
+import { add, scale } from './add.shade.ts'
 
-const { out } = await run(kernel.add, { a, b, out: a.length })
+scale(1.5, 2) // 3, on the CPU, the function as written
+const { out } = await add({ a, b }) // on the GPU, the bindings by name
 ```
 
-`run` reads the bindings from the module's reflection, allocates what the caller passed as a
-length, uploads the typed arrays, dispatches enough workgroups to cover the largest array,
-reads the `read_write` bindings back and returns them by name. The struct layouts come from
-`wgslLayout`, which `reflect()` computes already. The tier order is the compute runner's:
-WebGPU, then WebGL2 through the GLSL emit, then the CPU oracle, and the caller can pin one.
-A fragment and vertex pair gets one verb of the same size: `mount(canvas, module)` returns a
-handle whose `draw(uniforms)` takes plain objects.
+One calling rule covers both lines. **A function is called with the parameters it declares,
+minus the builtins, and a module's bindings ride in one trailing object.** `scale` declares
+two scalars and no bindings, so the call is the call; it runs on the CPU through the code the
+oracle already generates, and vectors and matrices are plain values there. `add` declares one
+builtin and nothing else, and its module has three bindings, so the call is the bindings
+object. The generated code reads them from the module's reflection, allocates a `read_write`
+binding the caller left out to the length of the largest input (or takes the length or the
+array the caller passed), uploads the typed arrays, dispatches enough workgroups to cover
+them, reads the written bindings back and returns them by name. Struct bindings take plain
+objects and are packed with `wgslLayout`, which `reflect()` computes already. A compute call
+is `await`ed because reading a GPU buffer back is asynchronous in every browser; nothing else
+about it is different from a function call.
+
+A fragment entry is a function too. Called from the host it takes the canvas and its
+uniforms as plain objects, and draws one frame: `fs(canvas, { time })`. The pipeline is built
+on the first call and kept per canvas. A module with no `@vertex` entry gets the full-screen
+triangle, so a shader-toy style file is one function. A module with a `@vertex` entry whose
+`@location` parameters are vertex attributes takes them as one more trailing object of typed
+arrays, and the reflection's `VertexLayout` decides the strides.
+
+The tier order is the compute runner's: WebGPU, then WebGL2 through the GLSL emit, then the
+CPU oracle. A test pins a tier with one optional global, `configure({ prefer: ['cpu'] })`
+from `typeshade`, which is the only host-side name the layer adds.
 
 The import works through a bundler plugin (`typeshade/vite`, built on unplugin so the same
 code serves Rollup, webpack, esbuild and Rspack). It replaces a `.shade.ts` import with the
-compiled module: the WGSL, the GLSL, the reflection and the CPU function, with the TypeScript
-types of the source kept, so the editor sees the same names on both sides. Without the plugin
-the runtime path stays: `compile(source)` at run time is what the Playground does today.
+generated module: the WGSL, the GLSL, the reflection, the CPU code and the calls above, under
+the names the source exports. The generated module imports `typeshade/runtime`, which is a
+package path users never write. Without the plugin the runtime path stays: `compile(source)`
+at run time is what the Playground does today.
+
+**What the editor sees** is the one open design question, and the design issue for item 15
+answers it first. For `scale` the source signature is the host signature, so TypeScript is
+already right. For `add` the source says `(id: vec3u) => void` and the host call is the
+bindings object. Entries already carry `TS1206` on their decorators, so `tsc` is not the
+authority on an entry's type today; the candidates are the tsserver plugin the editor
+extension is built on, which can present the host signature, and a declaration the bundler
+plugin writes beside its output for `tsc` builds. Neither changes the calling rule.
 
 ## Priority order
 
@@ -106,20 +139,20 @@ The language can express the compute shaders people write with TypeGPU today.
 
 ### 0.4 Just run
 
-| #   | Item                                                                                                                                           | Size | Issue                                                   | Notes                                                                                                                                                                     |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 14  | `compileTsSources` keeps the structs and bindings `compileTsSource` accepts                                                                    | S    | [#74](https://github.com/typeshade/typeshade/issues/74) | Blocks 15. An import graph that drops declarations cannot be the plugin's front end.                                                                                      |
-| 15  | `typeshade/run`: `run(entry, bindings)` for compute, `mount(canvas, module)` for a vertex and fragment pair, tiers WebGPU then WebGL2 then CPU | L    |                                                         | Grows out of the compute runner, which handles one input and one `u32` output today. The design issue fixes the calling convention above and what a struct binding takes. |
-| 16  | `typeshade/vite`: the unplugin that turns a `.shade.ts` import into the compiled module with its types                                         | M    |                                                         | Blocks nothing, but without it the second half of 1.0.0 is a runtime `compile()` call and not an import.                                                                  |
-| 17  | Examples and guide sections for 4, 5, 6, 10, 11 and 15, and the site re-pinned                                                                 | M    |                                                         | The site's checks refuse an example the compiler refuses, so this is also the acceptance test.                                                                            |
+| #   | Item                                                                                                                                                                                                                                                 | Size | Issue                                                   | Notes                                                                                                                                                                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | `compileTsSources` keeps the structs and bindings `compileTsSource` accepts                                                                                                                                                                          | S    | [#74](https://github.com/typeshade/typeshade/issues/74) | Blocks 15. An import graph that drops declarations cannot be the plugin's front end.                                                                                                                            |
+| 15  | Calling an imported `.shade.ts` export as a function: a helper on the CPU, a compute entry on the GPU with its bindings as one object, a fragment entry with a canvas and its uniforms; tiers WebGPU then WebGL2 then CPU behind `typeshade/runtime` | L    |                                                         | Grows out of the compute runner, which handles one input and one `u32` output today. The design issue settles what the editor shows for an entry, what a struct binding takes, and the vertex attribute object. |
+| 16  | `typeshade/vite`: the unplugin that turns a `.shade.ts` import into the generated module under the source's export names                                                                                                                             | M    |                                                         | Blocks nothing, but without it the second half of 1.0.0 is a runtime `compile()` call and not an import.                                                                                                        |
+| 17  | Examples and guide sections for 4, 5, 6, 10, 11 and 15, and the site re-pinned                                                                                                                                                                       | M    |                                                         | The site's checks refuse an example the compiler refuses, so this is also the acceptance test.                                                                                                                  |
 
 ### 0.5 Finish and freeze
 
-| #   | Item                                                                                                                                                                                                                                                               | Size | Issue                                                   | Notes                                                                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 18  | Conditional compilation through override axes                                                                                                                                                                                                                      | L    | [#67](https://github.com/typeshade/typeshade/issues/67) | One source, many pipelines. Wanted for `run` variants; the design is filed. |
-| 19  | The public surface for 1.0: which subpaths are stable (`typeshade`, `typeshade/run`, `typeshade/vite`, `typeshade/debug`, `typeshade/shade`, `typeshade/language-service`), the IR authoring layer marked unstable, `src/__api__/surface.md` baked as the contract | M    |                                                         | A `1.0.0` is a promise about this file.                                     |
-| 20  | Changelog, semver rules, deprecation policy, the release checklist in `RELEASING.md` run once for real                                                                                                                                                             | S    |                                                         |                                                                             |
+| #   | Item                                                                                                                                                                                                                                                                                                                             | Size | Issue                                                   | Notes                                                                       |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 18  | Conditional compilation through override axes                                                                                                                                                                                                                                                                                    | L    | [#67](https://github.com/typeshade/typeshade/issues/67) | One source, many pipelines. Wanted for `run` variants; the design is filed. |
+| 19  | The public surface for 1.0: which subpaths are stable (`typeshade`, `typeshade/vite`, `typeshade/debug`, `typeshade/shade`, `typeshade/language-service`, and `typeshade/runtime` as the path generated modules import and users do not), the IR authoring layer marked unstable, `src/__api__/surface.md` baked as the contract | M    |                                                         | A `1.0.0` is a promise about this file.                                     |
+| 20  | Changelog, semver rules, deprecation policy, the release checklist in `RELEASING.md` run once for real                                                                                                                                                                                                                           | S    |                                                         |                                                                             |
 
 ### After 1.0
 
@@ -128,7 +161,7 @@ The language can express the compute shaders people write with TypeGPU today.
 | `f16` and the `h` vectors                                                      | A device feature on WebGPU and nothing exact on GLSL ES 3.00. A new scalar touches every table in the compiler, so it waits for the surface to freeze first.                             |
 | Pointers and reference parameters                                              | WGSL `ptr` and GLSL `inout` can both carry it, but it is a language decision about what a parameter is. Value copies stay the rule until 1.0 and the decision gets its own design issue. |
 | Subgroup operations                                                            | A WebGPU extension with no WebGL2 equivalent and no oracle meaning yet.                                                                                                                  |
-| Three.js, React and other framework packages                                   | The run layer is the general answer; a framework package is a thin adapter over it and belongs in its own repository once `run` is stable.                                               |
+| Three.js, React and other framework packages                                   | Calling the module is the general answer; a framework package is a thin adapter over it and belongs in its own repository once item 15 is stable.                                        |
 | An ESLint plugin, a scaffolding CLI, a WGSL to TypeShade generator, a minifier | The compiler and the language service already diagnose in the editor and in CI. The rest is tooling around a stable 1.0, and none of it changes what compiles.                           |
 
 ## How the order was chosen
@@ -137,9 +170,9 @@ Items 1 to 3 are first because they are small and because everything with a side
 (atomics, barriers, `textureStore`, `console.log`) lands on the call statement. Items 4 to 6
 are the constructs a compute shader cannot do without, and they are the first WebGPU-only
 surface, so they also set the rule for target diagnostics. Textures come next because a
-renderer asks for shadow maps and storage writes before it asks for anything in the run
-layer. The run layer comes after the language is complete so that it wraps a compiler that
-does not change under it. The freeze is last because a surface promise is only worth making
+renderer asks for shadow maps and storage writes before it asks to be called from the host.
+The calling layer comes after the language is complete so that it wraps a compiler that does
+not change under it. The freeze is last because a surface promise is only worth making
 once about a compiler that already does everything above.
 
 ## Versions
