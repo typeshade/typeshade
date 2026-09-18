@@ -52,7 +52,7 @@ Install it from npm:
 npm install typeshade
 ```
 
-The tarball ships compiled ESM with type declarations — `import { compile } from 'typeshade'` needs no TypeScript toolchain — alongside the `.ts` sources the declaration maps point at, so "go to definition" lands on real source. The public subpaths are `typeshade`, `typeshade/dev`, `typeshade/compute`, `typeshade/emit-prod`, `typeshade/core/ir`, `typeshade/examples` and `typeshade/language-service`. `typescript` is a peer dependency (`>=5.0.0 <6`) and npm installs it for you: `compile()` is a TypeScript front end, so the main entry needs the parser at run time. TypeScript 7 is excluded deliberately — its `ts.SyntaxKind` is not the one this compiler reads, and the package throws on import against it.
+The tarball ships compiled ESM with type declarations, so `import { compile } from 'typeshade'` needs no TypeScript toolchain. Alongside them it ships the `.ts` sources the declaration maps point at, so "go to definition" lands on real source. The public subpaths are `typeshade`, `typeshade/dev`, `typeshade/debug`, `typeshade/compute`, `typeshade/emit-prod`, `typeshade/core/ir`, `typeshade/examples` and `typeshade/language-service`. `typescript` is a peer dependency (`>=5.0.0 <6`) and npm installs it for you: `compile()` is a TypeScript front end, so the main entry needs the parser at run time. TypeScript 7 is excluded deliberately, because its `ts.SyntaxKind` is not the one this compiler reads and the package throws on import against it.
 
 For repository development, or to pin a commit rather than a version, add TypeShade as a git submodule and compile it in place:
 
@@ -91,10 +91,10 @@ Every `"use typeshade"` block in this README and in `docs/` compiles with the cu
 
 ## Type-checking `.shade.ts` with tsc
 
-The editor experience TypeShade supports is the language service (`typeshade/language-service`), which builds its own TypeScript program and knows which diagnostics to drop. For a project that wants plain `tsc` over its `.shade.ts` files as well — a Vite plugin build, a CI type-check — the package also ships the ambient declarations as a file:
+The editor experience TypeShade supports is the language service (`typeshade/language-service`), which builds its own TypeScript program and knows which diagnostics to drop. For a project that wants plain `tsc` over its `.shade.ts` files as well, such as a Vite plugin build or a CI type-check, the package also ships the ambient declarations as a file:
 
 ```jsonc
-// tsconfig.shade.json — a SEPARATE project, covering only the shader sources
+// tsconfig.shade.json: a SEPARATE project, covering only the shader sources
 {
   "compilerOptions": {
     "lib": [],
@@ -120,12 +120,12 @@ hello.shade.ts(12,20): error TS1206: Decorators are not valid here.
 hello.shade.ts(25,1):  error TS1206: Decorators are not valid here.
 ```
 
-— 11 of those across the five files, plus one TS2542 in `compute-reduction-twin.shade.ts`, covered below.
+There are 11 of those across the five files, plus one TS2542 in `compute-reduction-twin.shade.ts`, covered below.
 
-TS1206 fires on `@vertex` / `@fragment` / `@compute` and on `@builtin(...)` parameters, because TypeScript does not allow decorators on function declarations or their parameters at all. No `.d.ts` can turn that off — it is a grammar rule, not a resolution failure. The language service drops it for exactly those positions, since the TypeShade grammar defines them; `tsc` on its own cannot. So the practical shape of this subpath is:
+TS1206 fires on `@vertex` / `@fragment` / `@compute` and on `@builtin(...)` parameters, because TypeScript does not allow decorators on function declarations or their parameters at all. No `.d.ts` can turn that off, because it is a grammar rule rather than a resolution failure. The language service drops it for exactly those positions, since the TypeShade grammar defines them; `tsc` on its own cannot. So the practical shape of this subpath is:
 
 - **Covered.** Every type, resource and builtin name resolves: `f32`, `vec4`, `mat4`, `array<T>`, `uniform<T>`, `storage<T>`, the `Math` aliases, `@builtin(...)` ids. Wrong types, misspelled fields and wrong arities are caught.
-- **Not covered.** TS1206 on stage and `@builtin` decorators — expect it on every entry point, and filter it in your build if the noise matters. Writing through a storage array (`out[i] = x`) reports TS2542, because the ambient `array<T>` declares a readonly index signature; the compiler accepts the write, so this one is a false positive and is tracked as a fix to the declarations. Swizzles outside the `x`/`y`/`z`/`w`, `r`/`g`/`b`/`a` and `xy`/`xyz`/`xyzw`/`rg`/`rgb`/`rgba` set are not type-checked (they compile correctly; the editor just does not see them).
+- **Not covered.** TS1206 on stage and `@builtin` decorators. Expect it on every entry point, and filter it in your build if the noise matters. Writing through a storage array (`out[i] = x`) reports TS2542, because the ambient `array<T>` declares a readonly index signature; the compiler accepts the write, so this one is a false positive and is tracked as a fix to the declarations. Swizzles outside the `x`/`y`/`z`/`w`, `r`/`g`/`b`/`a` and `xy`/`xyz`/`xyzw`/`rg`/`rgb`/`rgba` set are not type-checked (they compile correctly; the editor just does not see them).
 - **The authority is still the compiler.** `compile()` reports what TypeShade actually accepts, and the compile gate gives the emitted WGSL and GLSL to real drivers. `typeshade/shade` is an editor and CI convenience layered on top, never a second definition of the language.
 
 The file is generated from `SHADE_DTS` in `src/language-service/ambient.ts` at build time, so the declarations the service loads and the ones `tsc` reads are the same bytes.
@@ -162,7 +162,7 @@ bun run test
 bun run gate:compile
 ```
 
-`dist/` is gitignored. `bun run build` writes it: `dist/src/…`, `dist/examples/…` and `dist/shade.d.ts`, mirroring the source tree. `bun run manifest:publish` prints the manifest the npm tarball carries — the same `exports` map rewritten onto those paths — and reports any entry point the build did not produce.
+`dist/` is gitignored. `bun run build` writes it: `dist/src/…`, `dist/examples/…` and `dist/shade.d.ts`, mirroring the source tree. `bun run manifest:publish` prints the manifest the npm tarball carries, which is the same `exports` map rewritten onto those paths, and reports any entry point the build did not produce.
 
 Releases are cut by creating a GitHub release; [`RELEASING.md`](./RELEASING.md) is the checklist and [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) does the work.
 

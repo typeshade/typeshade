@@ -12,7 +12,7 @@ and why the dry run below is worth the four minutes.
 
 ---
 
-## 0. Authentication — already set up
+## 0. Authentication (already set up)
 
 **Nothing to do here for the first release.** The repository secret `NPM_ACCESS_TOKEN` exists
 and the workflow reads it; §1 is where the work starts. This section is for changing that
@@ -31,8 +31,8 @@ The workflow's log says which path it took, so a run that silently fell back is 
 ### Moving to trusted publishing (optional, and better)
 
 npm exchanges the workflow's OIDC identity for a short-lived publish credential, so there is no
-token to store, leak, or rotate. Worth doing once the first release has proved the pipeline —
-not before, because a misconfiguration here fails **after** the tag is pushed.
+token to store, leak, or rotate. Worth doing once the first release has proved the pipeline,
+but not before, because a misconfiguration here fails **after** the tag is pushed.
 
 1. Sign in to npmjs.com as the package maintainer (`su.noh`).
 2. Go to <https://www.npmjs.com/package/typeshade> → **Settings** → **Trusted publisher**.
@@ -43,7 +43,7 @@ not before, because a misconfiguration here fails **after** the tag is pushed.
    - Environment: leave empty
 4. Save, then **delete the `NPM_ACCESS_TOKEN` secret**. While it exists the workflow uses it and
    trusted publishing is never attempted, so leaving it in place means the OIDC path is
-   configured but untested — the worst of both.
+   configured but untested, which is the worst of both.
 
 Two things will break this silently, so they are worth knowing now: **renaming
 `publish.yml`** invalidates the registered publisher until you re-register it, and trusted
@@ -55,7 +55,7 @@ rather than using the runner's bundled 10.x.
 Re-create the secret and the workflow uses it again on the next run; nothing else changes.
 npmjs.com → your avatar → **Access Tokens** → **Generate New Token** → **Granular Access
 Token**, scoped to the `typeshade` package only, permission **Read and write**, with the
-shortest expiry you are willing to renew — not a classic "Automation" token scoped to every
+shortest expiry you are willing to renew. Not a classic "Automation" token scoped to every
 package you own. Add it under **Settings → Secrets and variables → Actions** as
 `NPM_ACCESS_TOKEN`.
 
@@ -63,7 +63,7 @@ package you own. Add it under **Settings → Secrets and variables → Actions**
 
 Reserved by the owner on 2026-09-07 as a `0.0.0` placeholder: maintainer `su.noh`, homepage
 `https://typeshade.dev`, MIT. The scope `@typeshade` is the same owner's and `@typeshade/core`
-is a second placeholder held for a possible future split — **nothing is published to it**.
+is a second placeholder held for a possible future split, and **nothing is published to it**.
 
 ---
 
@@ -83,7 +83,7 @@ never published. Authentication needs nothing from you (§0).
 
 2. Move the `## Unreleased` entries in `CHANGELOG.md` under a new heading for the version, and
    leave `## Unreleased` in place, empty, for what comes next. Everything below `### 2026-09`
-   is generated monorepo-era history — do not touch it.
+   is generated monorepo-era history, so do not touch it.
 
 3. Run the gates locally. The workflow runs them too, but finding a failure here costs a
    commit and finding it there costs a release:
@@ -97,7 +97,7 @@ never published. Authentication needs nothing from you (§0).
    bunx prettier --check .
    ```
 
-4. Look at what would ship. This rewrites `package.json` in your working tree — the message
+4. Look at what would ship. This rewrites `package.json` in your working tree. The message
    says so, and `git checkout -- package.json` puts it back:
 
    ```bash
@@ -115,7 +115,7 @@ never published. Authentication needs nothing from you (§0).
 
 From the **Actions** tab → **publish** → **Run workflow**, with `dry_run` left checked. It runs
 every gate, builds, packs, installs the tarball into a scratch project and imports every
-subpath — then calls `npm publish --dry-run` and uploads nothing. The job summary reports the
+subpath, then calls `npm publish --dry-run` and uploads nothing. The job summary reports the
 tarball's size and file count.
 
 A dry run on `main` before tagging tells you the pipeline works without spending a version
@@ -134,8 +134,8 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Then create the release on GitHub — **Releases → Draft a new release** — choosing the tag you
-just pushed, and publish it. ("Publish release" is the button that starts the workflow; saving
+Then create the release on GitHub, under **Releases → Draft a new release**, choosing the tag
+you just pushed, and publish it. ("Publish release" is the button that starts the workflow; saving
 a draft does not.)
 
 You can also create the tag from the release form itself, in which case the `git tag` /
@@ -147,7 +147,7 @@ You can also create the tag from the release form itself, in which case the `git
 
 | Step                                       | What it is for                                                                                                                                                                                                                                                                                                |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verify`                                   | Calls `ci.yml` — type check, 224 test files, and the compile gate (every example emitted and compiled by Tint and a real WebGL2 context). Not a copy of CI; the same file.                                                                                                                                    |
+| `verify`                                   | Calls `ci.yml`: type check, the full unit suite, and the compile gate (every example emitted and compiled by Tint and a real WebGL2 context). Not a copy of CI; the same file.                                                                                                                                |
 | tag check                                  | `v$(package.json version)` must equal the release tag. Wrong tag, no upload.                                                                                                                                                                                                                                  |
 | `bun run build`                            | Emits `dist/src/**`, `dist/examples/**` and `dist/shade.d.ts`.                                                                                                                                                                                                                                                |
 | `publish-manifest.ts --write`              | Rewrites `main`, `types`, `exports` and `sideEffects` onto `dist/`. Derived from the repository's own `exports` map by one rule, and it exits non-zero naming any entry point the build did not produce.                                                                                                      |
@@ -180,7 +180,7 @@ node --input-type=module -e "
 ```
 
 The package page should show the **Provenance** panel with this repository and the workflow run.
-Its absence means `--provenance` did not take effect — the release is still valid, but worth
+Its absence means `--provenance` did not take effect. The release is still valid, but worth
 looking into before the next one.
 
 Last, re-pin the site: `typeshade/typeshade.github.io` vendors the compiler, and its guide links
@@ -190,14 +190,14 @@ to <https://www.npmjs.com/package/typeshade>.
 
 ## 6. When something goes wrong
 
-| Symptom                                                                       | What happened, and what to do                                                                                                                                                                                                           |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `release tag 'vX' does not match package.json version 'Y'`                    | The tag and the manifest disagree. Nothing was published. Delete the tag and the release, fix whichever is wrong, and cut it again.                                                                                                     |
-| `403 Forbidden` / `You cannot publish over the previously published versions` | That version is already on the registry. npm never allows it to be replaced. Bump to the next patch and release that.                                                                                                                   |
-| `ENEEDAUTH`, or a 401 on publish                                              | Neither auth path worked. If `NPM_ACCESS_TOKEN` is set, it has expired or lost its scope — rotate it (§0). If it was deleted, the trusted publisher is not registered or does not match. The workflow log says which path it attempted. |
-| Trusted publishing refused the OIDC exchange                                  | Most often the workflow filename registered on npmjs.com no longer matches, or npm is older than 11.5.1. Both are in §0.                                                                                                                |
-| A gate failed in `verify`                                                     | Nothing was built or uploaded. Fix it on `main`, delete the tag and the release, and cut it again from the fixed commit.                                                                                                                |
-| The tarball check failed                                                      | An entry point does not resolve from the packed package. Nothing was uploaded. `src/publish-manifest.test.ts` D3 and D4 cover this case locally — run `bun run build && bun run test` and they should reproduce it.                     |
+| Symptom                                                                       | What happened, and what to do                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `release tag 'vX' does not match package.json version 'Y'`                    | The tag and the manifest disagree. Nothing was published. Delete the tag and the release, fix whichever is wrong, and cut it again.                                                                                                       |
+| `403 Forbidden` / `You cannot publish over the previously published versions` | That version is already on the registry. npm never allows it to be replaced. Bump to the next patch and release that.                                                                                                                     |
+| `ENEEDAUTH`, or a 401 on publish                                              | Neither auth path worked. If `NPM_ACCESS_TOKEN` is set, it has expired or lost its scope, so rotate it (§0). If it was deleted, the trusted publisher is not registered or does not match. The workflow log says which path it attempted. |
+| Trusted publishing refused the OIDC exchange                                  | Most often the workflow filename registered on npmjs.com no longer matches, or npm is older than 11.5.1. Both are in §0.                                                                                                                  |
+| A gate failed in `verify`                                                     | Nothing was built or uploaded. Fix it on `main`, delete the tag and the release, and cut it again from the fixed commit.                                                                                                                  |
+| The tarball check failed                                                      | An entry point does not resolve from the packed package. Nothing was uploaded. `src/publish-manifest.test.ts` D3 and D4 cover this case locally, so run `bun run build && bun run test` and they should reproduce it.                     |
 
 Nothing in this file publishes anything by itself. Every path to the registry goes through a
 release you create.
