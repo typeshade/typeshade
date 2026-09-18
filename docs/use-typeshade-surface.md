@@ -1783,8 +1783,29 @@ or two methods of one name (no overloads), a call of a method on the class or of
 function on a value, a member the class does not have, a field called as a method, a method
 that changes its object called on a `const`, a parameter or a value that is dropped, or used
 as a value, and a parameter named `self_` or `self_in`. A class with only static functions
-and no fields is not a struct (TS8010): write them as functions. `extends` stays refused
-(§2). A `new` on anything but a class the file declares stays TS8013.
+and no fields is not a struct (TS8010): write them as functions. `extends` is a struct's base
+since roadmap item T5. A `new` on anything but a class the file declares stays TS8013, and
+says which of the four reasons it is.
+
+### `new` is how a class is built, and the refusals say why
+
+A class the file declares is built with `new`, everywhere a value goes: with a constructor,
+without one, with field initializers, inside a method, as an argument, and on a derived class.
+There is no shader rule against it. A class is a struct and a constructor is a function, so
+`new P(1., 2.)` is `P_new(1.0, 2.0)` and nothing is allocated.
+
+What is refused is refused for its own reason, and the message says which:
+
+| written | why |
+| --- | --- |
+| `new Date()` | the file declares no class of that name, and `new` on anything else allocates a JS object |
+| `new I()` on an interface or a type alias | it is a type, not a value, and carries no constructor; write the object literal or declare it as a class |
+| `new S()` on an `abstract` class | there is no instance of it to build; construct a class that extends it |
+| `new U()` on a class of statics alone | it is a group of functions with no fields, so there is no value to build |
+| `new P(1., 2.)` where `P` declares no constructor | TypeScript's implicit constructor takes no arguments; declare one, or write the fields |
+
+Only the first of those is a shader rule. The other four are TypeScript's own, or follow from a
+class with no fields not being a struct at all.
 
 **In the editor.** Hover on a method, at its declaration or a call, reads `(method) Ray.at(t:
 f32): vec3`; on `new Ray(...)`, `constructor Ray(origin: vec3, dir: vec3): Ray`; go to

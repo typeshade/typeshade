@@ -874,6 +874,7 @@ export function functionScope(
   scope.setNamespacePrefix(nsPrefix)
   scope.setStructs(structs.map((s) => s.decl))
   scope.setBases(new Map(structs.filter((s) => s.bases).map((s) => [s.decl.name, s.bases!])))
+  scope.setAbstractStructs(new Set(structs.filter((s) => s.abstract).map((s) => s.decl.name)))
   // The enum names, so a mistyped member reads as one rather than as an unknown identifier
   // (T1, #92); the members themselves are module constants and resolve through the scope.
   if (sourceFile) {

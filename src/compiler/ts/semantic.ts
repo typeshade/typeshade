@@ -78,10 +78,26 @@ function push(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code))
 }
 
-function newsDeclaredClass(node: ts.NewExpression, sourceFile: ts.SourceFile): boolean {
-  if (!ts.isIdentifier(node.expression)) return false
+/** What `new X(...)` names, so the refusal can say the real reason rather than blaming the
+ *  allocation (#86, and the DX note on it). A class the file declares is built here, which is
+ *  the ordinary case; the other three are each refused for their own reason, and TypeScript
+ *  refuses two of them as well. */
+function newTarget(
+  node: ts.NewExpression,
+  sourceFile: ts.SourceFile,
+): 'class' | 'abstract' | 'type' | 'host' {
+  if (!ts.isIdentifier(node.expression)) return 'host'
   const name = node.expression.text
-  return sourceFile.statements.some((s) => ts.isClassDeclaration(s) && s.name?.text === name)
+  for (const s of sourceFile.statements) {
+    if (ts.isClassDeclaration(s) && s.name?.text === name) {
+      return s.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)
+        ? 'abstract'
+        : 'class'
+    }
+    if (ts.isInterfaceDeclaration(s) && s.name.text === name) return 'type'
+    if (ts.isTypeAliasDeclaration(s) && s.name.text === name) return 'type'
+  }
+  return 'host'
 }
 
 function isPropertyName(node: ts.Identifier): boolean {
@@ -144,16 +160,48 @@ function visit(
       TS_CODES.HOST_STMT,
     )
   }
-  // `new Ray(...)` on a class the file declares is that class's constructor (#86); any other
-  // `new` is a host allocation.
-  if (ts.isNewExpression(node) && !newsDeclaredClass(node, sourceFile)) {
-    push(
-      diagnostics,
-      sourceFile,
-      node,
-      '`new` allocates a JS object. Use struct types and vec constructors, or a class the file declares.',
-      TS_CODES.HOST_STMT,
-    )
+  // `new Ray(...)` on a class the file declares is that class's constructor (#86). The other
+  // three each get their own reason: a message that leads with "`new` allocates a JS object"
+  // reads as a ban on `new` itself, which it is not, and sends a reader looking for a
+  // workaround they do not need.
+  if (ts.isNewExpression(node)) {
+    const shown = ts.isIdentifier(node.expression)
+      ? node.expression.text
+      : node.expression.getText(sourceFile)
+    switch (newTarget(node, sourceFile)) {
+      case 'class':
+        break
+      case 'abstract':
+        push(
+          diagnostics,
+          sourceFile,
+          node,
+          `"${shown}" is abstract, so there is no instance of it to build. Construct a class ` +
+            `that extends it.`,
+          TS_CODES.HOST_STMT,
+        )
+        break
+      case 'type':
+        push(
+          diagnostics,
+          sourceFile,
+          node,
+          `"${shown}" is a type, not a value: an interface and a type alias declare a shape and ` +
+            `carry no constructor. Write the object literal, { field: value }, or declare ` +
+            `"${shown}" as a class to give it one.`,
+          TS_CODES.HOST_STMT,
+        )
+        break
+      default:
+        push(
+          diagnostics,
+          sourceFile,
+          node,
+          `A class this file declares is built with "new", and "${shown}" is not one of them. ` +
+            `"new" on anything else allocates a JS object, which a shader has no heap for.`,
+          TS_CODES.HOST_STMT,
+        )
+    }
   }
   if (ts.isTaggedTemplateExpression(node) || ts.isTemplateExpression(node)) {
     push(
