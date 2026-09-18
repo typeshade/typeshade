@@ -136,16 +136,23 @@ describe('the ten positions', () => {
     expect(wgslOf('export function f(i: u32): u32 {\n  return max(i, 1);\n}')).toContain(
       'max(i, 1u)',
     )
-    expect(
-      wgslOf(`
-        export function g(a: u32): u32 {
-          return a;
-        }
-        export function f(): u32 {
-          return g(min(u32(1), 2));
-        }
-      `),
-    ).toContain('min(1u, 2u)')
+    // The written `2` takes u32 from `u32(1)`. The IR pins that; the emitted text no longer
+    // can, because the optimizer now folds `min` over two literals (#73), so the WGSL shows
+    // the folded result with the u32 suffix instead of the call.
+    const src = `
+      export function g(a: u32): u32 {
+        return a;
+      }
+      export function f(): u32 {
+        return g(min(u32(1), 2));
+      }
+    `
+    const e = returnExpr(src)
+    if (e.op !== 'call' || e.args[0]!.op !== 'call') throw new Error('expected g(min(...))')
+    expect(e.args[0]!.fn).toBe('min')
+    expect(e.args[0]!.args.map((a) => a.op)).toEqual(['lit', 'lit'])
+    expect(e.args[0]!.args.map((a) => typeKey(a.type))).toEqual(['u32', 'u32'])
+    expect(wgslOf(src)).toContain('g(1u)')
   })
 
   it('10. a module const keeps the declared type', () => {
@@ -224,13 +231,13 @@ describe('a float context is untouched', () => {
       export function f(): f32 {
         let y: f32 = 1.5;
         y = 2.5;
-        return g(2) + min(1., 2.) + y;
+        return g(2) + min(y, 2.) + y;
       }
     `)
     expect(w).toContain('var y: f32 = 1.5;')
     expect(w).toContain('y = 2.5;')
     expect(w).toContain('g(2.0)')
-    expect(w).toContain('min(1.0, 2.0)')
+    expect(w).toContain('min(y, 2.0)')
   })
 
   it('leaves an f32 vector constructor and mix alone', () => {
@@ -244,7 +251,14 @@ describe('a float context is untouched', () => {
   })
 
   it('leaves a call whose arguments are all written numbers alone', () => {
-    expect(wgslOf('export function f(): f32 {\n  return min(1, 2);\n}')).toContain('min(1.0, 2.0)')
+    // Both literals stay f32 in the IR. The optimizer folds the call itself (#73), so the
+    // emitted text is the folded f32 value; had either literal been retyped, WGSL would
+    // have carried a bare `1` into an f32 return.
+    const src = 'export function f(): f32 {\n  return min(1, 2);\n}'
+    const e = returnExpr(src)
+    if (e.op !== 'call') throw new Error('expected min(...)')
+    expect(e.args.map((a) => typeKey(a.type))).toEqual(['f32', 'f32'])
+    expect(wgslOf(src)).toContain('return 1.0;')
   })
 
   it('keeps the IR SHAPE, which is what the isIntScalar guard is for', () => {

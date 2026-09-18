@@ -477,11 +477,17 @@ export function pick(i: i32): vec4 {
 ```
 
 The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
-a constructor over those, or arithmetic over those with a divisor that is not zero. It may
-not call a function, read a resource, or take a component, field or element — `vec3(UP.x, 0.,
-0.)` is refused even though both writers would fold it. `XS.length` is a constant too, so an
-array constant can bound a loop. An array **of arrays** is refused: the GLSL ES 3.00 spelling
-it would produce is not one ANGLE accepts.
+a constructor over those, arithmetic over those with a divisor that is not zero, or a **math
+builtin** over those (`const K: f32 = sin(1.)`, `const UP: vec3 = normalize(vec3(1., 1., 0.))`,
+`const N: i32 = max(i32(4), 8)`). A constant that calls a builtin is emitted as the call, since
+a builtin over constants is a constant expression in WGSL and in GLSL ES 3.00, so the GPU
+computes its own `sin(1.0)`; the front end still knows the value, so an integer one can bound
+a loop, and the CPU oracle computes the same call. The annotation has to agree with the call's
+type: `const K: i32 = floor(2.7)` is refused, since the emitted line would carry both. It may
+not call a declared function or a derivative (`fwidth`, `dpdx`, `dpdy`), read a resource, or
+take a component, field or element — `vec3(UP.x, 0., 0.)` is refused even though both writers
+would fold it. `XS.length` is a constant too, so an array constant can bound a loop. An array
+**of arrays** is refused: the GLSL ES 3.00 spelling it would produce is not one ANGLE accepts.
 
 An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
 followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and

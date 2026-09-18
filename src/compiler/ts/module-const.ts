@@ -9,6 +9,7 @@ import { LoweringScope } from './context.js'
 import type { DeclaredSymbolSink } from './symbols.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 import { foldConstNumber, foldConstValue } from './loop-bound.js'
+import { isConstEvaluableMathFn } from './math-alias.js'
 import { lowerExpression } from './lower/expression.js'
 import { lowerArrayLiteral } from './lower/expression-array.js'
 import { isResourceCall } from './bindings.js'
@@ -79,6 +80,15 @@ function isFoldableValueExpr(
       )
     case 'construct':
       return e.args.every((a) => isFoldableValueExpr(a, scope, valueExprs))
+    // A math builtin over constant arguments (issue #73): `normalize(vec3(1., 1., 0.))`. Not
+    // a declared function of the same name, and not a derivative, which has no value outside
+    // a fragment invocation. The call is emitted as written, so the GPU computes it.
+    case 'call':
+      return (
+        e.declRef === undefined &&
+        isConstEvaluableMathFn(e.fn) &&
+        e.args.every((a) => isFoldableValueExpr(a, scope, valueExprs))
+      )
     default:
       return false
   }
@@ -161,7 +171,8 @@ function valueExprConst(
         decl,
         `Module const "${name}" must be constant: a literal, a whole earlier module const, ` +
           `a constructor over those, or arithmetic over those with a non-zero divisor. ` +
-          `It cannot call a function, read a resource, or take a component, field or element.`,
+          `It may call a math builtin over those, but not a declared function or a derivative, ` +
+          `and it cannot read a resource or take a component, field or element.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     )
@@ -261,6 +272,24 @@ function lowerOne(
   }
   const type = annotated ?? init.type
   const k = typeKey(type)
+  // A scalar whose initializer calls a math builtin (issue #73): its value is known here, so
+  // it can bound a loop, but the emit carries the CALL as `valueExpr` and the GPU computes
+  // it, the way `const K: f32 = sin(1.0);` is a constant expression in WGSL and in GLSL ES
+  // 3.00. Folding it here instead would spell a JS `Math.sin` where the driver's own `sin`
+  // was written. The annotation has to agree with the call's type, since the emitted line
+  // carries both: `const K: i32 = floor(2.7);` is not a program.
+  const called = containsCall(init)
+  if (called && annotated && typeKey(init.type) !== k) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" is ${k}, but its initializer is ${typeKey(init.type)}. Cast it, e.g. ${k}(...), or change the annotation.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
+    return undefined
+  }
   if (k !== 'f32' && k !== 'i32' && k !== 'u32' && k !== 'bool') {
     diagnostics.push(
       makeDiagnostic(
@@ -314,5 +343,31 @@ function lowerOne(
     constValue: typeof folded === 'boolean' ? folded : value,
   })
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'const', type })
-  return { name, type, wgslValue: value, cpuValue: value }
+  return called
+    ? { name, type, wgslValue: value, cpuValue: value, valueExpr: init }
+    : { name, type, wgslValue: value, cpuValue: value }
+}
+
+/** Whether an expression calls anything, at any depth. */
+function containsCall(e: Expr): boolean {
+  switch (e.op) {
+    case 'call':
+      return true
+    case 'binop':
+    case 'compare':
+    case 'logical':
+      return containsCall(e.a) || containsCall(e.b)
+    case 'unop':
+      return containsCall(e.a)
+    case 'construct':
+      return e.args.some(containsCall)
+    case 'select':
+      return containsCall(e.cond) || containsCall(e.ifTrue) || containsCall(e.ifFalse)
+    case 'member':
+      return containsCall(e.base)
+    case 'index':
+      return containsCall(e.base) || containsCall(e.idx)
+    default:
+      return false
+  }
 }

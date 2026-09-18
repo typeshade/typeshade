@@ -171,27 +171,30 @@ describe('an array module constant', () => {
 
 describe('what a module constant still is not', () => {
   it('rejects a value that is not constant', () => {
+    // A derivative is the one builtin a constant may not call: it has no value outside a
+    // fragment invocation. (`sin(1.)` in that position is a constant since issue #73.)
     expect(
       diagnose(`
-        const V = vec3(sin(1.), 0., 0.)
+        const V = vec3(fwidth(1.), 0., 0.)
         export function f(): vec3 {
           return V;
         }
       `),
     ).toBe(
       'Module const "V" must be constant: a literal, a whole earlier module const, a ' +
-        'constructor over those, or arithmetic over those with a non-zero divisor. It cannot ' +
-        'call a function, read a resource, or take a component, field or element.',
+        'constructor over those, or arithmetic over those with a non-zero divisor. It may ' +
+        'call a math builtin over those, but not a declared function or a derivative, and it ' +
+        'cannot read a resource or take a component, field or element.',
     )
   })
 
   it('reports being non-constant, not being the wrong type, for a scalar', () => {
-    // The two checks used to run the other way round, so `const K: f32 = sin(1.)` was told
-    // "f32 is neither a foldable scalar nor a whole vector or array" — untrue of f32, and the
-    // type was never the problem.
+    // The two checks used to run the other way round, so a scalar with a non-constant value
+    // was told "f32 is neither a foldable scalar nor a whole vector or array" — untrue of f32,
+    // and the type was never the problem.
     expect(
       diagnose(`
-        const K: f32 = sin(1.)
+        const K: f32 = dpdx(1.)
         export function f(): f32 {
           return K;
         }
@@ -319,5 +322,66 @@ describe('what a module constant still is not', () => {
       { name: 'N', type: expect.anything(), wgslValue: 4, cpuValue: 4 },
     ])
     expect(cs.every((c) => c.valueExpr === undefined)).toBe(true)
+  })
+})
+
+// Issue #73 — a module constant may call a math builtin over constant operands. The call is
+// emitted as written, so the GPU computes it (a builtin call over constants is a constant
+// expression in WGSL and in GLSL ES 3.00), while the front end knows the value.
+describe('a module constant that calls a math builtin', () => {
+  const SRC = `const K: f32 = sin(1.)
+const HALF: f32 = sin(1.) * 0.5 + cos(0.)
+const N: i32 = max(i32(4), 8)
+const UP: vec3 = normalize(vec3(1., 1., 0.))
+export function f(): f32 {
+  let acc = 0.
+  for (let i: i32 = 0; i < N; i++) {
+    acc += 1.
+  }
+  return acc + K + HALF + UP.x
+}`
+
+  it('carries the call as its expression, on every kind of constant', () => {
+    const consts = constsOf(SRC)
+    expect(consts.map((c) => c.name)).toEqual(['K', 'HALF', 'N', 'UP'])
+    for (const c of consts) expect(c.valueExpr).toBeDefined()
+    expect(consts[0]!.valueExpr).toMatchObject({ op: 'call', fn: 'sin' })
+  })
+
+  it('emits the call on both targets, and the GPU computes it', () => {
+    const r = compile(`"use typeshade";\n${SRC}`)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('const K: f32 = sin(1.0);')
+    expect(r.wgsl).toContain('const HALF: f32 = ((sin(1.0) * 0.5) + cos(0.0));')
+    expect(r.wgsl).toContain('const N: i32 = max(4, 8);')
+    expect(r.wgsl).toContain('const UP: vec3<f32> = normalize(vec3<f32>(1.0, 1.0, 0.0));')
+    expect(r.glsl?.fragment ?? r.glsl?.vertex ?? '').toContain('const float K = sin(1.0);')
+  })
+
+  it('knows the value, so an integer one bounds a loop and the oracle agrees', () => {
+    const r = compile(`"use typeshade";\n${SRC}`)
+    const v = r.eval('f') as number
+    expect(v).toBeCloseTo(8 + Math.sin(1) + (Math.sin(1) * 0.5 + 1) + Math.SQRT1_2, 10)
+  })
+
+  it("needs the annotation to agree with the call's type", () => {
+    expect(diagnose('const K: i32 = floor(2.7)\nexport function f(): i32 { return K }')).toBe(
+      'Module const "K" is i32, but its initializer is f32. Cast it, e.g. i32(...), or change the annotation.',
+    )
+  })
+
+  it('still refuses a derivative, which has no value outside a fragment', () => {
+    expect(diagnose('const K: f32 = fwidth(1.)\nexport function f(): f32 { return K }')).toContain(
+      'It may call a math builtin over those, but not a declared function or a derivative',
+    )
+  })
+
+  it('does not fold a transcendental into a JavaScript value', () => {
+    // sin(1.0) stays a call in the emit; only the front end's own copy of the value is folded.
+    const r = compile(
+      '"use typeshade";\nconst K: f32 = sin(1.)\nexport function f(): f32 { return K }',
+    )
+    expect(r.wgsl).not.toContain('0.8414709848078965')
+    expect(r.wgsl).toContain('sin(1.0)')
   })
 })

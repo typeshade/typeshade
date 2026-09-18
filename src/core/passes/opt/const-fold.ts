@@ -20,6 +20,7 @@ import type { Expr, ModuleDecl, BinOp } from '../../ir/index.js'
 import { boolT } from '../../ir/index.js'
 import { mapModuleExprs } from './ir-transform.js'
 import { intElemOf, wrapInt } from './expr-utils.js'
+import { BUILTINS } from '../../cpu-runtime.js'
 
 /** Fold two INTEGER literals with the target's semantics, not JavaScript's.
  *
@@ -72,7 +73,44 @@ function foldIntLit(bop: BinOp, a: number, b: number, elem: 'i32' | 'u32'): numb
   }
 }
 
+/** The builtins with one correct answer, folded over scalar literals (issue #73). Each of
+ *  these is exact on every target, so the value JS computes is the value the GPU computes,
+ *  and the oracle computes it through the same `BUILTINS` entry, so P2 equality holds by
+ *  construction. The transcendental ones (`sin`, `pow`, `sqrt`, ...) are NOT here: WGSL gives
+ *  them an accuracy bound, not a correctly rounded result, so a folded literal could differ
+ *  from the driver's own value by ulps. They stay calls, and the driver folds them itself. */
+const EXACT_BUILTINS: ReadonlySet<string> = new Set([
+  'abs',
+  'floor',
+  'ceil',
+  'trunc',
+  'round',
+  'sign',
+  'min',
+  'max',
+  'clamp',
+  'saturate',
+  'fract',
+  'step',
+])
+
 function foldNode(e: Expr): Expr {
+  if (
+    e.op === 'call' &&
+    e.declRef === undefined &&
+    EXACT_BUILTINS.has(e.fn) &&
+    e.type.kind === 'scalar' &&
+    e.type.scalar !== 'bool' &&
+    e.args.length > 0 &&
+    e.args.every((a) => a.op === 'lit' && typeof a.value === 'number')
+  ) {
+    const f = BUILTINS[e.fn]
+    const v = f ? f(...e.args.map((a) => (a as { value: number }).value)) : undefined
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      const int = intElemOf(e.type)
+      return { op: 'lit', type: e.type, value: int === undefined ? v : wrapInt(v, int) }
+    }
+  }
   if (
     e.op === 'binop' &&
     e.a.op === 'lit' &&
