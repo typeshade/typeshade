@@ -8,12 +8,14 @@ import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
+import { applyMixins, isMixinHeritage, mixedMembers, type MixinApplication } from './mixins.js'
+import { pushTypeArguments } from './generics.js'
 import {
-  applyMixins,
-  isMixinHeritage,
-  mixedMembers,
-  type MixinApplication,
-} from './mixins.js'
+  genericClasses,
+  genericStructName,
+  writtenInstances,
+  type StructInstance,
+} from './generic-structs.js'
 import {
   eachNamespaceStatement,
   namespaceMemberName,
@@ -41,6 +43,11 @@ export type CollectedStruct = {
    *  Their fields stand ahead of this one's, base first, which is what makes a derived struct
    *  a superset of its base rather than a different shape. An interface may extend several. */
   readonly bases?: readonly string[]
+  /** What this collection's type parameters are bound to, for a generic class (roadmap 0.3
+   *  item T9, #92). `Pair_f32` carries `T -> f32`, and its methods are parsed and lowered with
+   *  that in force, since their signatures and bodies are written in terms of `T`. Absent on
+   *  every class that is not generic. */
+  readonly binding?: ReadonlyMap<string, ShaderType>
   /** An `abstract class`: a base to inherit from and never a value. Its struct is emitted, so
    *  a derived one can be described in terms of it, and its method bodies are lowered into
    *  each concrete class that inherits them rather than into a function of its own — an
@@ -101,6 +108,16 @@ export function collectStructs(
   diagnostics: TsCompilerDiagnostic[],
   symbols?: DeclaredSymbolSink,
 ): CollectedStruct[] {
+  // Which classes are generic, and which sets of type arguments the file writes them with
+  // (roadmap 0.3 item T9, #92). Read before the walk below, because a generic class is
+  // collected once per set and the walk emits them all.
+  const genericParams = genericClasses(sourceFile)
+  const instances = writtenInstances(
+    sourceFile,
+    genericParams,
+    (node) => mapTsTypeToShaderType(node, sourceFile, undefined),
+    diagnostics,
+  )
   const candidates = collectCandidates(sourceFile)
   const reachable = reachableCandidates(sourceFile, candidates)
   const out: CollectedStruct[] = []
@@ -122,6 +139,7 @@ export function collectStructs(
     isNamespace?: true,
     bases: readonly string[] = [],
     isAbstract?: true,
+    binding?: ReadonlyMap<string, ShaderType>,
   ): void => {
     if (declared.has(name)) {
       diagnostics.push(
@@ -149,6 +167,7 @@ export function collectStructs(
         spelling,
         namespace: true,
         ...(members !== undefined ? { members } : {}),
+        ...(binding !== undefined ? { binding } : {}),
       })
       return
     }
@@ -179,6 +198,7 @@ export function collectStructs(
       ...(members !== undefined ? { members } : {}),
       ...(bases.length > 0 ? { bases } : {}),
       ...(isAbstract ? { abstract: isAbstract } : {}),
+      ...(binding !== undefined ? { binding } : {}),
     })
   }
 
@@ -228,202 +248,262 @@ export function collectStructs(
       continue
     }
     if (!ts.isClassDeclaration(stmt) || !stmt.name) continue
-    const structName = prefix === '' ? stmt.name.text : namespaceMemberName(prefix, stmt.name.text)
-    recordDeclaration(symbols, sourceFile, stmt.name, {
-      name: structName,
-      kind: 'struct',
-      type: structT(structName),
-    })
-    for (const d of stmt.modifiers ?? []) {
-      if (!ts.isDecorator(d)) continue
-      checkAttributeName(diagnostics, sourceFile, d)
-      const text = d.getText(sourceFile)
-      if (/@std140/.test(text) || /@align/.test(text)) {
-        diagnostics.push(diag(sourceFile, d, `${text.split('(')[0]} on a class is not applied.`))
-      }
-      if (/@compute|@vertex|@fragment/.test(text)) {
-        diagnostics.push(diag(sourceFile, d, `${text} does not belong on a data class.`))
+    const declared = stmt.name
+    const written = prefix === '' ? declared.text : namespaceMemberName(prefix, declared.text)
+    // A generic class is collected once per set of type arguments the file writes it with
+    // (roadmap 0.3 item T9, #92): `Pair<f32>` and `Pair<vec3>` are the structs `Pair_f32` and
+    // `Pair_vec3`, each with its own methods. A class with no type parameters has exactly one
+    // collection, under its own name and with nothing bound, which is what every class had
+    // before; a generic one nothing writes has none, and emits nothing.
+    const cases: readonly StructInstance[] = genericParams.has(written)
+      ? (instances.get(written) ?? [])
+      : [{ name: written, binding: undefined }]
+    for (const instance of cases) {
+      const structName = instance.name
+      // Imperative rather than a callback: the body below `continue`s, and a callback would
+      // make that cross a function boundary. A `continue` here skips this INSTANCE, which is
+      // what a member the walk refuses should do.
+      const unbind = pushTypeArguments(instance.binding)
+      try {
+        recordDeclaration(symbols, sourceFile, stmt.name, {
+          name: structName,
+          kind: 'struct',
+          type: structT(structName),
+        })
+        for (const d of stmt.modifiers ?? []) {
+          if (!ts.isDecorator(d)) continue
+          checkAttributeName(diagnostics, sourceFile, d)
+          const text = d.getText(sourceFile)
+          if (/@std140/.test(text) || /@align/.test(text)) {
+            diagnostics.push(
+              diag(sourceFile, d, `${text.split('(')[0]} on a class is not applied.`),
+            )
+          }
+          if (/@compute|@vertex|@fragment/.test(text)) {
+            diagnostics.push(diag(sourceFile, d, `${text} does not belong on a data class.`))
+          }
+        }
+        // A class `extends` puts the base's fields ahead of its own, just as an interface one does
+        // (T5, #92); `implements` carries no layout and is left alone.
+        const heritage = basesOf(structName, stmt.heritageClauses, sourceFile, diagnostics)
+        if (heritage === undefined) continue
+        const bases = heritage.bases
+        const isAbstract =
+          (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false) ||
+          undefined
+        const before = diagnostics.length
+        const fields: StructField[] = []
+        // Static members seen, which is what decides whether a fieldless class is a namespace of
+        // functions (T3) or the empty struct WGSL has no form for.
+        let staticMethods = 0
+        let staticFields = 0
+        const methods: ts.MethodDeclaration[] = []
+        const fieldInits: FieldInit[] = []
+        let ctor: ts.ConstructorDeclaration | undefined
+        const methodNames = new Set<string>()
+        // A mixin's members are this class's, ahead of its own and behind its base's, which is the
+        // order TypeScript's own mixin produces (T8, #92). A member this class declares under the
+        // same name is an override and wins, silently, the way a subclass member does.
+        for (const member of mixedMembers(
+          heritage.bodies,
+          stmt.members,
+          sourceFile,
+          diagnostics,
+          structName,
+        )) {
+          // A method, a constructor and a static function are functions of the module (#86), the
+          // shapes below are what the surface does not take, each with its fix.
+          if (ts.isConstructorDeclaration(member)) {
+            if (!member.body) continue // an overload signature; the body is the declaration
+            if (ctor !== undefined) {
+              diagnostics.push(
+                classDiag(
+                  sourceFile,
+                  member,
+                  `"${structName}" declares two constructors; a shader function has one body.`,
+                ),
+              )
+              continue
+            }
+            ctor = member
+            continue
+          }
+          if (ts.isMethodDeclaration(member)) {
+            if (!member.body) continue // an overload signature
+            if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword))
+              staticMethods++
+            if (!ts.isIdentifier(member.name)) {
+              diagnostics.push(memberNameDiag(sourceFile, member, structName))
+              continue
+            }
+            if (methodNames.has(member.name.text)) {
+              diagnostics.push(
+                classDiag(
+                  sourceFile,
+                  member.name,
+                  `"${structName}.${member.name.text}" is declared twice; a method has one body ` +
+                    `and no overloads.`,
+                ),
+              )
+              continue
+            }
+            methodNames.add(member.name.text)
+            methods.push(member)
+            continue
+          }
+          if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
+            const what = ts.isGetAccessorDeclaration(member) ? 'getter' : 'setter'
+            const shown = ts.isIdentifier(member.name) ? member.name.text : 'this member'
+            diagnostics.push(
+              classDiag(
+                sourceFile,
+                member,
+                `A ${what} has no shader form; write "${shown}" as a method and call it.`,
+              ),
+            )
+            continue
+          }
+          if (ts.isIndexSignatureDeclaration(member)) {
+            diagnostics.push(
+              classDiag(
+                sourceFile,
+                member,
+                `An index signature has no layout; a struct is exactly the fields written here.`,
+              ),
+            )
+            continue
+          }
+          if (!ts.isPropertyDeclaration(member)) continue
+          if (!ts.isIdentifier(member.name)) {
+            diagnostics.push(memberNameDiag(sourceFile, member, stmt.name.text))
+            continue
+          }
+          // The same rule an interface member already had: a struct field is always present in
+          // the buffer the host fills, so `y?: f32` describes a layout WGSL has no form for.
+          // Measured before this: a class took the `?` and emitted the field as required, with no
+          // diagnostic, so the three spellings of one struct disagreed about it silently.
+          if (member.questionToken) {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `Optional field "${member.name.text}?" on "${structName}" is not supported: a ` +
+                  `struct field is always present in the buffer the host fills.`,
+              ),
+            )
+            continue
+          }
+          // A static field is a module constant named `Cls_Field` (T3, #92); `module-const.ts`
+          // collects and folds it, exactly as it does a top-level `const`. Before this it was
+          // refused, and the fix it named was to write the const by hand.
+          if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
+            staticFields++
+            continue
+          }
+          if (
+            member.initializer !== undefined &&
+            (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer))
+          ) {
+            diagnostics.push(
+              classDiag(
+                sourceFile,
+                member,
+                `A field holding a function is a method: write "${member.name.text}(...) { ... }".`,
+              ),
+            )
+            continue
+          }
+          for (const d of member.modifiers ?? []) {
+            if (!ts.isDecorator(d)) continue
+            checkAttributeName(diagnostics, sourceFile, d)
+            const text = d.getText(sourceFile)
+            if (/@align/.test(text)) {
+              diagnostics.push(diag(sourceFile, d, `@align on a field is not applied.`))
+            }
+          }
+          const type = member.type
+            ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
+              structT(member.type.getText(sourceFile)))
+            : undefined
+          if (!type) continue
+          const field: StructField = { name: member.name.text, type }
+          const loc = numberDecorator(member, 'location')
+          const decos = ts.canHaveDecorators(member) ? (ts.getDecorators(member) ?? []) : []
+          const builtinArg = builtinDecoratorArg(decos)
+          const builtin =
+            builtinArg &&
+            checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
+              ? builtinArg.name
+              : undefined
+          if (loc !== undefined) (field as { location?: number }).location = loc
+          if (builtin) (field as { builtin?: string }).builtin = builtin
+          if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
+          else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
+          fields.push(field)
+          if (member.initializer !== undefined) {
+            fieldInits.push({ name: field.name, type: field.type, init: member.initializer })
+          }
+          recordDeclaration(symbols, sourceFile, member.name, {
+            name: field.name,
+            kind: 'field',
+            type: field.type,
+            struct: structName,
+          })
+        }
+        const members: ClassMembers | undefined =
+          methods.length > 0 || ctor !== undefined || fieldInits.length > 0
+            ? { node: stmt, methods, ctor, fieldInits }
+            : undefined
+        // Every member static and no field: a namespace (T3). An instance method or a constructor
+        // needs a receiver, so a class that declares one keeps the empty-struct refusal and its
+        // "write them as functions" fix.
+        const isNamespace =
+          fields.length === 0 &&
+          staticMethods + staticFields > 0 &&
+          methods.length === staticMethods &&
+          ctor === undefined
+            ? (true as const)
+            : undefined
+        add(
+          structName,
+          declared,
+          fields,
+          'class',
+          before,
+          members,
+          isNamespace,
+          bases,
+          isAbstract,
+          instance.binding,
+        )
+        // A static of a generic class cannot mention the class's type parameters — TypeScript
+        // refuses that outright (TS2302) — so it is ONE function, not one per instance. It is
+        // carried by a fieldless collection under the class's own name, which is the shape a
+        // class of only statics already takes (T3, #92); that is what makes `Op.unit()` resolve
+        // while `Op` itself names no layout. Emitted from the first instance, so a class the
+        // file writes at three types still contributes each static once.
+        if (instance === cases[0] && genericParams.has(written) && staticMethods > 0) {
+          add(
+            written,
+            declared,
+            [],
+            'class',
+            diagnostics.length,
+            members && {
+              node: members.node,
+              methods: members.methods.filter((m) =>
+                m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword),
+              ),
+              ctor: undefined,
+              fieldInits: [],
+            },
+            true,
+          )
+        }
+      } finally {
+        unbind()
       }
     }
-    // A class `extends` puts the base's fields ahead of its own, just as an interface one does
-    // (T5, #92); `implements` carries no layout and is left alone.
-    const heritage = basesOf(structName, stmt.heritageClauses, sourceFile, diagnostics)
-    if (heritage === undefined) continue
-    const bases = heritage.bases
-    const isAbstract =
-      (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ?? false) || undefined
-    const before = diagnostics.length
-    const fields: StructField[] = []
-    // Static members seen, which is what decides whether a fieldless class is a namespace of
-    // functions (T3) or the empty struct WGSL has no form for.
-    let staticMethods = 0
-    let staticFields = 0
-    const methods: ts.MethodDeclaration[] = []
-    const fieldInits: FieldInit[] = []
-    let ctor: ts.ConstructorDeclaration | undefined
-    const methodNames = new Set<string>()
-    // A mixin's members are this class's, ahead of its own and behind its base's, which is the
-    // order TypeScript's own mixin produces (T8, #92). A member this class declares under the
-    // same name is an override and wins, silently, the way a subclass member does.
-    for (const member of mixedMembers(
-      heritage.bodies,
-      stmt.members,
-      sourceFile,
-      diagnostics,
-      structName,
-    )) {
-      // A method, a constructor and a static function are functions of the module (#86), the
-      // shapes below are what the surface does not take, each with its fix.
-      if (ts.isConstructorDeclaration(member)) {
-        if (!member.body) continue // an overload signature; the body is the declaration
-        if (ctor !== undefined) {
-          diagnostics.push(
-            classDiag(
-              sourceFile,
-              member,
-              `"${structName}" declares two constructors; a shader function has one body.`,
-            ),
-          )
-          continue
-        }
-        ctor = member
-        continue
-      }
-      if (ts.isMethodDeclaration(member)) {
-        if (!member.body) continue // an overload signature
-        if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) staticMethods++
-        if (!ts.isIdentifier(member.name)) {
-          diagnostics.push(memberNameDiag(sourceFile, member, structName))
-          continue
-        }
-        if (methodNames.has(member.name.text)) {
-          diagnostics.push(
-            classDiag(
-              sourceFile,
-              member.name,
-              `"${structName}.${member.name.text}" is declared twice; a method has one body ` +
-                `and no overloads.`,
-            ),
-          )
-          continue
-        }
-        methodNames.add(member.name.text)
-        methods.push(member)
-        continue
-      }
-      if (ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)) {
-        const what = ts.isGetAccessorDeclaration(member) ? 'getter' : 'setter'
-        const shown = ts.isIdentifier(member.name) ? member.name.text : 'this member'
-        diagnostics.push(
-          classDiag(
-            sourceFile,
-            member,
-            `A ${what} has no shader form; write "${shown}" as a method and call it.`,
-          ),
-        )
-        continue
-      }
-      if (ts.isIndexSignatureDeclaration(member)) {
-        diagnostics.push(
-          classDiag(
-            sourceFile,
-            member,
-            `An index signature has no layout; a struct is exactly the fields written here.`,
-          ),
-        )
-        continue
-      }
-      if (!ts.isPropertyDeclaration(member)) continue
-      if (!ts.isIdentifier(member.name)) {
-        diagnostics.push(memberNameDiag(sourceFile, member, stmt.name.text))
-        continue
-      }
-      // The same rule an interface member already had: a struct field is always present in
-      // the buffer the host fills, so `y?: f32` describes a layout WGSL has no form for.
-      // Measured before this: a class took the `?` and emitted the field as required, with no
-      // diagnostic, so the three spellings of one struct disagreed about it silently.
-      if (member.questionToken) {
-        diagnostics.push(
-          diag(
-            sourceFile,
-            member,
-            `Optional field "${member.name.text}?" on "${structName}" is not supported: a ` +
-              `struct field is always present in the buffer the host fills.`,
-          ),
-        )
-        continue
-      }
-      // A static field is a module constant named `Cls_Field` (T3, #92); `module-const.ts`
-      // collects and folds it, exactly as it does a top-level `const`. Before this it was
-      // refused, and the fix it named was to write the const by hand.
-      if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
-        staticFields++
-        continue
-      }
-      if (
-        member.initializer !== undefined &&
-        (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer))
-      ) {
-        diagnostics.push(
-          classDiag(
-            sourceFile,
-            member,
-            `A field holding a function is a method: write "${member.name.text}(...) { ... }".`,
-          ),
-        )
-        continue
-      }
-      for (const d of member.modifiers ?? []) {
-        if (!ts.isDecorator(d)) continue
-        checkAttributeName(diagnostics, sourceFile, d)
-        const text = d.getText(sourceFile)
-        if (/@align/.test(text)) {
-          diagnostics.push(diag(sourceFile, d, `@align on a field is not applied.`))
-        }
-      }
-      const type = member.type
-        ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-          structT(member.type.getText(sourceFile)))
-        : undefined
-      if (!type) continue
-      const field: StructField = { name: member.name.text, type }
-      const loc = numberDecorator(member, 'location')
-      const decos = ts.canHaveDecorators(member) ? (ts.getDecorators(member) ?? []) : []
-      const builtinArg = builtinDecoratorArg(decos)
-      const builtin =
-        builtinArg && checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
-          ? builtinArg.name
-          : undefined
-      if (loc !== undefined) (field as { location?: number }).location = loc
-      if (builtin) (field as { builtin?: string }).builtin = builtin
-      if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
-      else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
-      fields.push(field)
-      if (member.initializer !== undefined) {
-        fieldInits.push({ name: field.name, type: field.type, init: member.initializer })
-      }
-      recordDeclaration(symbols, sourceFile, member.name, {
-        name: field.name,
-        kind: 'field',
-        type: field.type,
-        struct: structName,
-      })
-    }
-    const members: ClassMembers | undefined =
-      methods.length > 0 || ctor !== undefined || fieldInits.length > 0
-        ? { node: stmt, methods, ctor, fieldInits }
-        : undefined
-    // Every member static and no field: a namespace (T3). An instance method or a constructor
-    // needs a receiver, so a class that declares one keeps the empty-struct refusal and its
-    // "write them as functions" fix.
-    const isNamespace =
-      fields.length === 0 &&
-      staticMethods + staticFields > 0 &&
-      methods.length === staticMethods &&
-      ctor === undefined
-        ? (true as const)
-        : undefined
-    add(structName, stmt.name, fields, 'class', before, members, isNamespace, bases, isAbstract)
   }
   return applyInheritance(out, sourceFile, nodeOf, diagnostics)
 }
@@ -544,9 +624,10 @@ function eachHeritageName(
 /** What an `extends` clause comes to, or `undefined` after reporting one this cannot follow
  *  (roadmap 0.3 item T5, #92). `implements` carries no layout and is left alone, as before.
  *
- *  A base with type arguments is still refused: that is one declaration per argument set (T9),
- *  and the message names it. A base that is a CALL is the mixin pattern, and is run rather
- *  than refused (T8) — see `mixins.ts` for what running it means. */
+ *  A base written with type arguments is the instance struct they name: `extends Box<f32>`
+ *  inherits from `Box_f32`, which the same walk that found the annotation collected (T9, #92).
+ *  A base that is a CALL is the mixin pattern, and is run rather than refused (T8) — see
+ *  `mixins.ts` for what running it means. */
 function basesOf(
   name: string,
   clauses: readonly ts.HeritageClause[] | undefined,
@@ -559,15 +640,26 @@ function basesOf(
   const bodies: ts.ClassExpression[] = []
   for (const type of extendsClause.types) {
     if (type.typeArguments && type.typeArguments.length > 0) {
-      diagnostics.push(
-        diag(
-          sourceFile,
-          type,
-          `"${name}" extends a type with type arguments. A TypeShade struct is one concrete ` +
-            `layout, so a generic base has no single set of field types to inherit.`,
-        ),
-      )
-      return undefined
+      // `class Small extends Box<f32>` inherits from the instance, not from the generic class:
+      // `Box_f32` is a layout and `Box` is not one (T9, #92). Before that item a base with type
+      // arguments was refused outright, with "one declaration per argument set" as the reason —
+      // which is exactly what this now is.
+      const instance = ts.isIdentifier(type.expression)
+        ? genericStructName(type.expression.text, type.typeArguments, sourceFile)
+        : undefined
+      if (instance === undefined) {
+        diagnostics.push(
+          diag(
+            sourceFile,
+            type,
+            `"${name}" extends "${type.getText(sourceFile)}", which names no layout. A base has ` +
+              `to be a class this file declares, at type arguments it can resolve.`,
+          ),
+        )
+        return undefined
+      }
+      out.push(instance)
+      continue
     }
     if (isMixinHeritage(type.expression, sourceFile)) {
       const applied = applyMixins(name, type.expression, sourceFile, diagnostics)

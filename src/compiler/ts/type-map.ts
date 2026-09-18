@@ -30,6 +30,7 @@ import {
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { boundTypeArgument } from './generics.js'
+import { genericStructName, isGenericClass } from './generic-structs.js'
 import { TS_CODES, type TsCode } from './codes.js'
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType
@@ -184,6 +185,24 @@ function mapType(
         return undefined
       }
       return HANDLE_MAP[name]
+    }
+    // `Pair<f32>` names the struct the file collected for that set of type arguments, and a bare
+    // `Grid` names the one its declared defaults give (roadmap 0.3 item T9, #92). Both are asked
+    // before `mapGeneric`, which is the builtin generic names — `array<T, N>`, `uniform<T>` —
+    // and would report "type arguments are not supported" for a class, and before the
+    // capitalized-name arm below, which would make a struct of the name as written.
+    // `N.Pair<f32>` is a dotted name, so `name` is undefined for it; the class it reaches is the
+    // flattened `N_Pair` (#107), which is the name generic classes are keyed under too.
+    const generic = name ?? dottedTypeName(typeNode.typeName)
+    if (generic !== undefined && isGenericClass(generic, sourceFile)) {
+      const instance = genericStructName(generic, typeNode.typeArguments, sourceFile)
+      if (instance !== undefined) return structT(instance)
+      // Arguments that name no layout — the wrong number of them, or one that is a type
+      // parameter — were reported once, where the instances were collected. Recovering as a
+      // struct of the written name is what an unknown capitalized name does below, and it keeps
+      // the binding alive, so one mistake still reads as one sentence instead of a second
+      // refusal here and an "Unknown identifier" at every read of it (T10, #111).
+      return structT(generic)
     }
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
       return mapGeneric(name, typeNode, sourceFile, diagnostics, resolving)
