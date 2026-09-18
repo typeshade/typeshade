@@ -68,6 +68,8 @@ import {
   compareValues,
   comparesAsF32,
   selectComponents,
+  TYPED_BIT_BUILTINS,
+  bitBuiltin,
 } from '../cpu-runtime.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js'
 
@@ -272,6 +274,9 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
           return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number)
         }
+      }
+      if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
+        return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32')
       }
       const b = BUILTINS[e.fn]
       if (b) return b(...args)

@@ -225,6 +225,46 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // (fwidth is spelled identically on both targets and stays portable.)
   dpdx: { wgsl: (a) => `dpdx(${join(a)})`, glsl: (a) => `dFdx(${join(a)})` },
   dpdy: { wgsl: (a) => `dpdy(${join(a)})`, glsl: (a) => `dFdy(${join(a)})` },
+  // The coarse and fine derivatives (roadmap 0.2 item 8): GLSL ES 3.00 has one derivative of
+  // each kind and lets the implementation pick its granularity, so the hint is dropped there.
+  dpdxCoarse: { wgsl: (a) => `dpdxCoarse(${join(a)})`, glsl: (a) => `dFdx(${join(a)})` },
+  dpdxFine: { wgsl: (a) => `dpdxFine(${join(a)})`, glsl: (a) => `dFdx(${join(a)})` },
+  dpdyCoarse: { wgsl: (a) => `dpdyCoarse(${join(a)})`, glsl: (a) => `dFdy(${join(a)})` },
+  dpdyFine: { wgsl: (a) => `dpdyFine(${join(a)})`, glsl: (a) => `dFdy(${join(a)})` },
+  fwidthCoarse: { wgsl: (a) => `fwidthCoarse(${join(a)})`, glsl: (a) => `fwidth(${join(a)})` },
+  fwidthFine: { wgsl: (a) => `fwidthFine(${join(a)})`, glsl: (a) => `fwidth(${join(a)})` },
+  // faceForward(n, i, nref): GLSL spells the name in lower case.
+  faceForward: { wgsl: (a) => `faceForward(${join(a)})`, glsl: (a) => `faceforward(${join(a)})` },
+  // Bit builtins (roadmap 0.2 item 8). GLSL ES 3.10 has bitCount, findMSB and the rest; GLSL
+  // ES 3.00, which WebGL2 compiles, has none of them, so each is a small helper function the
+  // GLSL emitter defines when a module calls it, overloaded per argument type (glsl-bits.ts).
+  // The spelling is therefore the same whatever the type.
+  countOneBits: { wgsl: (a) => `countOneBits(${join(a)})`, glsl: (a) => `_popcnt(${join(a)})` },
+  reverseBits: { wgsl: (a) => `reverseBits(${join(a)})`, glsl: (a) => `_brev(${join(a)})` },
+  countLeadingZeros: {
+    wgsl: (a) => `countLeadingZeros(${join(a)})`,
+    glsl: (a) => `_clz(${join(a)})`,
+  },
+  countTrailingZeros: {
+    wgsl: (a) => `countTrailingZeros(${join(a)})`,
+    glsl: (a) => `_ctz(${join(a)})`,
+  },
+  firstLeadingBit: { wgsl: (a) => `firstLeadingBit(${join(a)})`, glsl: (a) => `_msb(${join(a)})` },
+  firstTrailingBit: {
+    wgsl: (a) => `firstTrailingBit(${join(a)})`,
+    glsl: (a) => `_lsb(${join(a)})`,
+  },
+  extractBits: { wgsl: (a) => `extractBits(${join(a)})`, glsl: (a) => `_xbits(${join(a)})` },
+  insertBits: { wgsl: (a) => `insertBits(${join(a)})`, glsl: (a) => `_ibits(${join(a)})` },
+  // ldexp(x, e) = x * 2^e. GLSL ES 3.00 has no ldexp (ES 3.10 added it); the power of two is
+  // built from its bits, which is exact for every exponent from -126 to 127, where exp2 need
+  // not be. `e` is an i32 or a vector of them, so the shift broadcasts.
+  ldexp: {
+    wgsl: (a) => `ldexp(${join(a)})`,
+    glsl: (a) => `(${a[0]} * intBitsToFloat((${a[1]} + 127) << 23))`,
+    // Both operands land inside operators — see `atomArgs` above.
+    atomArgs: true,
+  },
   // mod(x, y) — FLOOR-mod with identical semantics on both targets (X-GIS #839).
   // Float `%` is TRUNC-mod on WGSL and integer-only (invalid on floats) in
   // GLSL ES 3.00; GLSL's mod() IS floor-mod. Spelling WGSL inline as
@@ -534,6 +574,11 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   // Reductions of a vector of bools (roadmap 0.2 item 7) — same name in WGSL + GLSL ES 3.00.
   'any',
   'all',
+  // Geometry and matrices (roadmap 0.2 item 8) — same name on both.
+  'reflect',
+  'refract',
+  'transpose',
+  'determinant',
   // genType1 (component-wise unary) — same name in WGSL + GLSL ES 3.00.
   'sin',
   'cos',

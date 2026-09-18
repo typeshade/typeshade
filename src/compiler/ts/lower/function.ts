@@ -180,7 +180,17 @@ export function lowerSourceFunctions(
 
 /** The ops WGSL and GLSL ES 3.00 allow only in the fragment stage: the kill, and the three
  *  screen-space derivatives, which need the neighbouring invocations of a quad. */
-const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set(['fwidth', 'dpdx', 'dpdy'])
+const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
+  'fwidth',
+  'dpdx',
+  'dpdy',
+  'fwidthCoarse',
+  'fwidthFine',
+  'dpdxCoarse',
+  'dpdxFine',
+  'dpdyCoarse',
+  'dpdyFine',
+])
 
 /** Whether a function's OWN body uses a fragment-only op, by the name to report it under. */
 function fragmentOnlyOpsOf(body: readonly Stmt[]): Set<string> {

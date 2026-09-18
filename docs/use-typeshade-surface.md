@@ -357,8 +357,35 @@ carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoot
 | `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL) |
 | `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
 | `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL); `atan(x)` is still one argument |
-| `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds |
+| `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds; a vector-of-bools `c` picks per component (§27) |
 | `a ** b` | `pow(a, b)`. Both operands must have one type; splat a scalar exponent |
+| `reflect(i, n)`, `refract(i, n, eta)`, `faceForward(n, i, nref)` | the geometry three; `faceforward` in GLSL. `eta` is a scalar |
+| `transpose(m)`, `determinant(m)` | on a `mat4`; `determinant` is an `f32` |
+| `ldexp(x, e)` | `x · 2ᵉ`; `e` is an `i32`, or an integer vector of `x`'s shape. A bare literal `e` is an `i32`. GLSL ES 3.00 has no `ldexp`, so it is `x * intBitsToFloat((e + 127) << 23)` there, exact from 2⁻¹²⁶ to 2¹²⁷ |
+| `countOneBits(x)`, `reverseBits(x)` | on a `u32` or `i32` or a vector of them; the `_popcnt` / `_brev` helpers in GLSL (see below) |
+| `countLeadingZeros(x)`, `countTrailingZeros(x)` | 32 for zero; the `_clz` / `_ctz` helpers in GLSL |
+| `firstLeadingBit(x)`, `firstTrailingBit(x)` | the result keeps `x`'s type (all ones for "none": `0xffffffff` on a `u32`, `-1` on an `i32`); the `_msb` / `_lsb` helpers in GLSL |
+| `extractBits(e, offset, count)`, `insertBits(e, newbits, offset, count)` | WGSL's clamping of `offset` and `count` to the 32 bits, on the CPU too; the `_xbits` / `_ibits` helpers in GLSL. Bare literals there are `u32` |
+| `dpdxCoarse(x)`, `dpdxFine(x)`, `dpdyCoarse(x)`, `dpdyFine(x)`, `fwidthCoarse(x)`, `fwidthFine(x)` | the derivatives at a stated granularity; GLSL ES 3.00 has one of each kind and picks its own, so they spell `dFdx` / `dFdy` / `fwidth` there. Fragment-only, like the plain three |
+
+Roadmap 0.2 item 8 added the rows from `reflect` down. Each is evaluated by the CPU oracle
+(the derivatives as the zero placeholder the plain ones are, under `gpuStubs`), the bit
+builtins by the argument's static kind where a `u32` and an `i32` differ (a reversed top bit
+reads negative, a "none" is `0xffffffff` or `-1`, an extracted field is sign-extended). `frexp`
+and `modf` return a struct on WGSL and are not here yet; they come with the implicit result
+struct they need on GLSL.
+
+GLSL ES 3.00, which is what WebGL2 compiles, has none of the eight bit builtins (GLSL ES 3.10
+added `bitCount`, `findMSB` and the rest, and ANGLE refuses each with "no matching overloaded
+function found"). The GLSL emitter writes each as a small function over the shifts, masks and
+comparisons ES 3.00 has, one overload per argument type the module calls it with, and defines
+them ahead of the module's own functions: `_popcnt`, `_brev`, `_msb`, `_lsb`, `_clz`, `_ctz`,
+`_xbits` and `_ibits`. A signed overload casts to the unsigned one and back, `_msb` on a
+signed value first flips a negative one so the search finds the highest bit that differs from
+the sign bit, and the results are WGSL's in every pinned case (32 for the zero counts, all
+ones for the first bit of a zero, the clamped offset and count). The helpers were run on
+ANGLE against the CPU functions over 1632 values, and the `bit-bump` example carries them
+through the compile gate. A module that calls none of the eight carries none of the helpers.
 
 A function the file declares wins over any name in the table above, and over `bool` and
 `f64`: those names meant the author's function before they were builtins, and an addition

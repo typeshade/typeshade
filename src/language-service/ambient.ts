@@ -237,6 +237,15 @@ const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   normalize: 'declare function normalize<T extends Numeric>(a: T): T',
   cross: 'declare function cross(a: vec3, b: vec3): vec3',
   mix: mixSignature(),
+  // Roadmap 0.2 item 8: the shapes the generated "same type in, same type out" pair misses.
+  transpose: 'declare function transpose(m: mat4): mat4',
+  determinant: 'declare function determinant(m: mat4): number',
+  refract: 'declare function refract<T extends Numeric>(i: T, n: T, eta: number): T',
+  ldexp: 'declare function ldexp<T extends Numeric>(x: T, e: Numeric): T',
+  extractBits:
+    'declare function extractBits<T extends Numeric>(e: T, offset: number, count: number): T',
+  insertBits:
+    'declare function insertBits<T extends Numeric>(e: T, newbits: T, offset: number, count: number): T',
 }
 
 function freeMathSignature(name: string): string {

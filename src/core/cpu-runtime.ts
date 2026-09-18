@@ -290,7 +290,151 @@ export function selectComponents(
   return cond.map((c, i) => (c ? t[i]! : f[i]!)) as unknown as CpuValue
 }
 
+/** Componentwise over a vector or on a scalar, with a second argument that may be a scalar
+ *  broadcast or a matching vector. */
+const zip2 =
+  (f: (a: number, b: number) => number): Builtin =>
+  (a, b) => {
+    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number))
+    return isArr(a) ? (a as number[]).map((x, i) => f(x, at(b, i))) : f(a as number, at(b, 0))
+  }
+const dotOf = (a: CpuValue, b: CpuValue): number =>
+  isArr(a)
+    ? (a as number[]).reduce((s, v, i) => s + v * ((b as number[])[i] as number), 0)
+    : (a as number) * (b as number)
+const scale = (v: CpuValue, k: number): CpuValue =>
+  isArr(v) ? (v as number[]).map((x) => x * k) : (v as number) * k
+const sub = zip2((a, b) => a - b)
+
+/** The 32-bit integer builtins by the element kind of the argument (roadmap 0.2 item 8). Their
+ *  result keeps the argument's type on the GPU, and for `reverseBits`, `firstLeadingBit`,
+ *  `firstTrailingBit`, `extractBits` and `insertBits` the value differs between u32 and i32
+ *  (a top bit set reads negative, a "none" result is 0xffffffff or -1, an extracted field is
+ *  sign-extended), which the value alone cannot tell; the CPU paths pass the static kind. The
+ *  {@link BUILTINS} entries of those names are the u32 forms. */
+export const TYPED_BIT_BUILTINS: ReadonlySet<string> = new Set([
+  'reverseBits',
+  'firstLeadingBit',
+  'firstTrailingBit',
+  'extractBits',
+  'insertBits',
+])
+const asKind = (v: number, kind: 'u32' | 'i32'): number => (kind === 'i32' ? v | 0 : v >>> 0)
+const bitOne = (fn: string, kind: 'u32' | 'i32', x: number, more: number[]): number => {
+  const u = x >>> 0
+  switch (fn) {
+    case 'reverseBits': {
+      let r = 0
+      for (let i = 0; i < 32; i++) r = ((r << 1) | ((u >>> i) & 1)) >>> 0
+      return asKind(r, kind)
+    }
+    case 'firstLeadingBit': {
+      if (kind === 'i32') {
+        const s = x | 0
+        if (s === 0 || s === -1) return -1
+        return 31 - Math.clz32(s < 0 ? ~s : s)
+      }
+      return u === 0 ? 0xffffffff : 31 - Math.clz32(u)
+    }
+    case 'firstTrailingBit': {
+      if (u === 0) return kind === 'i32' ? -1 : 0xffffffff
+      return 31 - Math.clz32(u & -u)
+    }
+    case 'extractBits': {
+      const o = Math.min(more[0]! >>> 0, 32)
+      const c = Math.min(more[1]! >>> 0, 32 - o)
+      if (c === 0) return 0
+      const shifted = u >>> o
+      const field = c === 32 ? shifted : shifted & ((2 ** c - 1) >>> 0)
+      if (kind === 'i32' && c < 32 && (field >>> (c - 1)) & 1) return (field - 2 ** c) | 0
+      return asKind(field, kind)
+    }
+    case 'insertBits': {
+      const nb = more[0]! >>> 0
+      const o = Math.min(more[1]! >>> 0, 32)
+      const c = Math.min(more[2]! >>> 0, 32 - o)
+      if (c === 0) return asKind(u, kind)
+      const mask = c === 32 ? 0xffffffff : (((2 ** c - 1) >>> 0) << o) >>> 0
+      const r = (((nb << o) >>> 0) & mask) | (u & ~mask)
+      return asKind(r >>> 0, kind)
+    }
+  }
+  throw new Error(`typeshade/cpu: unknown bit builtin ${fn}`)
+}
+/** Evaluate one of {@link TYPED_BIT_BUILTINS} on `args` for the element kind `kind`, componentwise
+ *  over a vector; the extra arguments of `extractBits`/`insertBits` may be scalars or vectors. */
+export function bitBuiltin(fn: string, args: readonly CpuValue[], kind: 'u32' | 'i32'): CpuValue {
+  const x = args[0]!
+  const rest = args.slice(1)
+  const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number))
+  if (isArr(x)) {
+    return (x as number[]).map((v, i) =>
+      bitOne(
+        fn,
+        kind,
+        v,
+        rest.map((r) => at(r, i)),
+      ),
+    )
+  }
+  return bitOne(
+    fn,
+    kind,
+    x as number,
+    rest.map((r) => at(r, 0)),
+  )
+}
+/** The determinant of a column-major n×n matrix by cofactor expansion. */
+function matDeterminant(m: number[]): number {
+  const n = Math.round(Math.sqrt(m.length))
+  if (n === 1) return m[0]!
+  if (n === 2) return m[0]! * m[3]! - m[2]! * m[1]!
+  let det = 0
+  for (let col = 0; col < n; col++) {
+    const minor: number[] = []
+    for (let c = 0; c < n; c++) {
+      if (c === col) continue
+      for (let r = 1; r < n; r++) minor.push(m[c * n + r]!)
+    }
+    det += (col % 2 === 0 ? 1 : -1) * m[col * n]! * matDeterminant(minor)
+  }
+  return det
+}
+
 export const BUILTINS: Record<string, Builtin> = {
+  // Geometry, matrices and exponents (roadmap 0.2 item 8).
+  reflect: (i, nrm) => sub(i, scale(nrm, 2 * dotOf(nrm, i))),
+  refract: (i, nrm, eta) => {
+    const e = eta as number
+    const d = dotOf(nrm, i)
+    const k = 1 - e * e * (1 - d * d)
+    if (k < 0) return isArr(i) ? (i as number[]).map(() => 0) : 0
+    return sub(scale(i, e), scale(nrm, e * d + Math.sqrt(k)))
+  },
+  faceForward: (nrm, i, nref) => (dotOf(nref, i) < 0 ? nrm : scale(nrm, -1)),
+  determinant: (m) => matDeterminant(m as number[]),
+  ldexp: zip2((x, e) => x * 2 ** e),
+  // The 32-bit integer builtins whose value is the same for u32 and i32 (a count fits both).
+  countOneBits: map1((x) => {
+    let u = x >>> 0
+    let c = 0
+    while (u !== 0) {
+      u &= u - 1
+      c++
+    }
+    return c
+  }),
+  countLeadingZeros: map1((x) => Math.clz32(x >>> 0)),
+  countTrailingZeros: map1((x) => {
+    const u = x >>> 0
+    return u === 0 ? 32 : 31 - Math.clz32(u & -u)
+  }),
+  // The u32 forms of the kind-dependent ones; the CPU paths route by the static kind.
+  reverseBits: (x) => bitBuiltin('reverseBits', [x], 'u32'),
+  firstLeadingBit: (x) => bitBuiltin('firstLeadingBit', [x], 'u32'),
+  firstTrailingBit: (x) => bitBuiltin('firstTrailingBit', [x], 'u32'),
+  extractBits: (e, o, c) => bitBuiltin('extractBits', [e, o, c], 'u32'),
+  insertBits: (e, nb, o, c) => bitBuiltin('insertBits', [e, nb, o, c], 'u32'),
   // any(m) / all(m) over a vector of bools (roadmap 0.2 item 7).
   any: (v) => (v as boolean[]).some((x) => x === true),
   all: (v) => (v as boolean[]).every((x) => x === true),
@@ -536,6 +680,13 @@ export const GPU_STUBS: Record<string, Builtin> = {
   fwidth: (x) => zeroLike(x),
   dpdx: (x) => zeroLike(x),
   dpdy: (x) => zeroLike(x),
+  // The coarse and fine variants (roadmap 0.2 item 8): the same placeholder.
+  fwidthCoarse: (x) => zeroLike(x),
+  fwidthFine: (x) => zeroLike(x),
+  dpdxCoarse: (x) => zeroLike(x),
+  dpdxFine: (x) => zeroLike(x),
+  dpdyCoarse: (x) => zeroLike(x),
+  dpdyFine: (x) => zeroLike(x),
   textureLoad: () => [0, 0, 0, 1],
   // 2d-array reads (X-GIS #1651) — same placeholder/throw contract as their 2d twins:
   // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.

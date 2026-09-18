@@ -56,10 +56,11 @@ import {
   stageOf,
 } from '../ir/index.js'
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs.js'
-import { mapChildren, mapStmtExpr } from '../ir/visit.js'
+import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js'
 import { ioAttrOf, retIoAttrOf } from '../ir/entry-io.js'
 import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js'
 import { spellIntrinsic, INTRINSIC_HELPERS } from '../intrinsics.js'
+import { BIT_HELPER_OF, bitHelperDefs } from './glsl-bits.js'
 import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment.js'
 import { bodyHasRaw } from '../passes/opt/dce.js'
 import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js'
@@ -1982,6 +1983,21 @@ function assembleGlslParts(
     .filter(([id]) => helperRefs.calls.has(id))
     .map(([, h]) => h.def)
   if (helperDefs.length) parts.push(helperDefs.join('\n\n'))
+  // The bit builtins (§10) are helpers too, but overloaded by the argument's type, so the
+  // walk keeps each call's first argument type and glsl-bits.ts writes the overloads it
+  // needs, in its own fixed order.
+  const declared = new Set(lowered.funcs.map((f) => f.name))
+  const bitCalls: { fn: string; argType: ShaderType }[] = []
+  const seeBitCall = (e: Expr): void => {
+    // A function the module declares under one of the names is its own, not the builtin.
+    if (e.op !== 'call' || !(e.fn in BIT_HELPER_OF) || declared.has(e.fn)) return
+    if (e.args[0] !== undefined) bitCalls.push({ fn: e.fn, argType: e.args[0].type })
+  }
+  for (const f of [...helpers, ...entries]) {
+    for (const st of f.body) eachStmtExpr(st, (e) => eachExpr(e, seeBitCall))
+  }
+  const bitDefs = bitHelperDefs(bitCalls)
+  if (bitDefs.length) parts.push(bitDefs.join('\n\n'))
 
   // The fn section, in DEFINE-BEFORE-USE order (X-GIS #1858). GLSL ES 3.00 has no hoisting,
   // so a call that precedes its definition needs a prototype — and a prototype buys

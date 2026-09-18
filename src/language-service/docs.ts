@@ -91,6 +91,44 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Clamps `x` to the range [0, 1], componentwise over vectors. GLSL ES 3.00 has no `saturate`, so it compiles to `clamp(x, 0.0, 1.0)` there.',
   fwidth:
     'Returns the sum of the absolute screen-space derivatives of `x` in both directions, `abs(dpdx(x)) + abs(dpdy(x))`, componentwise over vectors. Fragment stage only; the CPU oracle returns zero.',
+  reflect:
+    'Reflects the incident vector `i` about the normal `n`: `i - 2 * dot(n, i) * n`. `n` should be normalized. Same shape in, same shape out.',
+  refract:
+    'Refracts the incident vector `i` through a surface with normal `n` and ratio of indices `eta`; returns the zero vector on total internal reflection. Both vectors should be normalized.',
+  faceForward:
+    'Returns `n` if `dot(nref, i)` is negative, else `-n`: the normal that faces the incident vector. `faceforward` on GLSL.',
+  transpose: 'Returns the transpose of a `mat4`.',
+  determinant: 'Returns the determinant of a `mat4` as an `f32`.',
+  ldexp:
+    'Returns `x * 2^e`: an `f32` or float vector `x` with an `i32` or integer vector exponent `e` of the same shape. A bare literal exponent is an `i32`. Spelled through `intBitsToFloat` on GLSL ES 3.00, which has no `ldexp`.',
+  countOneBits:
+    'The number of 1 bits in each component of a `u32` or `i32` (or vector of them). A `_popcnt` helper on GLSL ES 3.00, which has no bit builtins.',
+  reverseBits:
+    'Reverses the 32 bits of each component of a `u32` or `i32` (or vector of them). A `_brev` helper on GLSL ES 3.00.',
+  countLeadingZeros:
+    'The number of leading 0 bits in each component of a `u32` or `i32` (32 for zero). A `_clz` helper on GLSL ES 3.00.',
+  countTrailingZeros:
+    'The number of trailing 0 bits in each component of a `u32` or `i32` (32 for zero). A `_ctz` helper on GLSL ES 3.00.',
+  firstLeadingBit:
+    'The position of the most significant 1 bit of a `u32` (0xffffffff for zero), or of the most significant bit that differs from the sign bit of an `i32` (-1 for 0 and -1). A `_msb` helper on GLSL ES 3.00.',
+  firstTrailingBit:
+    'The position of the least significant 1 bit of a `u32` or `i32`, or all ones (0xffffffff / -1) for zero. A `_lsb` helper on GLSL ES 3.00.',
+  extractBits:
+    'Extracts `count` bits of `e` starting at bit `offset`, sign-extended for an `i32`; the offset and count are clamped to the 32 bits as WGSL specifies. A `_xbits` helper on GLSL ES 3.00.',
+  insertBits:
+    'Inserts the low `count` bits of `newbits` into `e` at bit `offset`; the offset and count are clamped to the 32 bits as WGSL specifies. A `_ibits` helper on GLSL ES 3.00.',
+  dpdxCoarse:
+    'The partial derivative of `x` with respect to the window x coordinate, computed at the coarser granularity. Fragment stage only; `dFdx` on GLSL, which picks its own granularity; the CPU oracle returns zero.',
+  dpdxFine:
+    'The partial derivative of `x` with respect to the window x coordinate, computed at the finer granularity. Fragment stage only; `dFdx` on GLSL, which picks its own granularity; the CPU oracle returns zero.',
+  dpdyCoarse:
+    'The partial derivative of `x` with respect to the window y coordinate, computed at the coarser granularity. Fragment stage only; `dFdy` on GLSL; the CPU oracle returns zero.',
+  dpdyFine:
+    'The partial derivative of `x` with respect to the window y coordinate, computed at the finer granularity. Fragment stage only; `dFdy` on GLSL; the CPU oracle returns zero.',
+  fwidthCoarse:
+    '`abs(dpdxCoarse(x)) + abs(dpdyCoarse(x))`. Fragment stage only; `fwidth` on GLSL; the CPU oracle returns zero.',
+  fwidthFine:
+    '`abs(dpdxFine(x)) + abs(dpdyFine(x))`. Fragment stage only; `fwidth` on GLSL; the CPU oracle returns zero.',
   dpdx: 'Returns the partial derivative of `x` with respect to the window x coordinate, componentwise over vectors. Fragment stage only (`dFdx` on GLSL); the CPU oracle returns zero.',
   dpdy: 'Returns the partial derivative of `x` with respect to the window y coordinate, componentwise over vectors. Fragment stage only (`dFdy` on GLSL); the CPU oracle returns zero.',
   fma: 'Returns `a * b + c`, componentwise over vectors. GLSL ES 3.00 has no `fma`, so the product and sum are inlined there.',

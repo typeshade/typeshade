@@ -13,6 +13,21 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Builtin breadth** (§10, roadmap 0.2 item 8): `reflect`, `refract`, `faceForward`,
+  `transpose`, `determinant`, `ldexp`, `countOneBits`, `reverseBits`, `countLeadingZeros`,
+  `countTrailingZeros`, `firstLeadingBit`, `firstTrailingBit`, `extractBits`, `insertBits` and
+  the coarse and fine derivatives (`dpdxCoarse` ... `fwidthFine`), on both targets and the CPU.
+  GLSL ES 3.00 has no `ldexp` and none of the eight bit builtins (they are ES 3.10's, and
+  WebGL2 refuses them), so `ldexp` is `x * intBitsToFloat((e + 127) << 23)` there and each bit
+  builtin is a small GLSL helper function the emitter defines once per argument type a module
+  calls it with (`_popcnt`, `_brev`, `_msb`, `_lsb`, `_clz`, `_ctz`, `_xbits`, `_ibits`),
+  checked on ANGLE against the CPU functions over 1632 values. GLSL's one derivative of each
+  kind stands in for the coarse and fine ones, and `faceforward` is its spelling. The bit
+  builtins whose value differs between `u32` and `i32` take the argument's static kind on every
+  CPU path. A bare literal exponent of `ldexp` is an `i32`, a bare offset or count of
+  `extractBits`/`insertBits` a `u32`. The `bit-bump` example lights a bump with the geometry
+  three and bands it with the bit builtins, on both targets. `frexp` and `modf` follow with
+  the result struct they need.
 - **Boolean vectors** (§27, roadmap 0.2 item 7): a comparison of two vectors is componentwise
   and yields `vec2b`/`vec3b`/`vec4b` (WGSL `vec3<bool>`, GLSL `bvec3`), which `any(m)` and
   `all(m)` reduce, `select(f, t, m)` picks through per component, `!m` flips, and `vec3b(...)`

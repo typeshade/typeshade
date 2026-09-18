@@ -191,7 +191,7 @@ export function lowerUserCall(
 }
 
 export function mathResultType(fn: string, args: readonly Expr[]): ShaderType {
-  if (fn === 'length' || fn === 'distance' || fn === 'dot') return f32T
+  if (fn === 'length' || fn === 'distance' || fn === 'dot' || fn === 'determinant') return f32T
   return args[0]!.type
 }
 

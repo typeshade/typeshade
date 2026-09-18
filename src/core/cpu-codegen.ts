@@ -65,6 +65,8 @@ import {
   compareValues,
   comparesAsF32,
   selectComponents,
+  TYPED_BIT_BUILTINS,
+  bitBuiltin,
 } from './cpu-runtime.js'
 import { compileModule, type CpuModule } from './oracle.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
@@ -250,6 +252,12 @@ function emitExpr(e: Expr, S: FnCtx): string {
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
           return `$.${e.fn === 'u32' ? 'u32Sat' : 'i32Sat'}(${args[0]})`
         }
+      }
+      // A bit builtin whose value depends on the argument's kind (§10) takes the static kind,
+      // baked at compile time as the interpreter reads it at run time.
+      if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
+        const kind = elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32'
+        return `$.bit(${q(e.fn)}, ${q(kind)}, [${args.join(', ')}])`
       }
       // A call the front end resolved to a declared function (`declRef`) goes to that
       // function, which is what the emitted shader calls; the interpreter makes the same
@@ -557,6 +565,8 @@ interface CodegenRuntime {
   negVec: (a: number[]) => number[]
   /** A componentwise comparison of two vectors, and a per-component select (§27). */
   cmpVec: (cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean) => CpuValue
+  /** One of the kind-dependent bit builtins (§10) on already-evaluated arguments. */
+  bit: (fn: string, kind: 'u32' | 'i32', args: CpuValue[]) => CpuValue
   selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue
   vecMatThrow: () => never
@@ -737,6 +747,7 @@ export function compileModuleJs(
     swiz: (a, idx) => idx.map((i) => a[i]!),
     negVec: (a) => a.map((v) => -v),
     cmpVec: compareValues,
+    bit: (fn, kind, args) => bitBuiltin(fn, args, kind),
     selVec: selectComponents,
     u32Sat: f32ToU32Sat,
     i32Sat: f32ToI32Sat,
