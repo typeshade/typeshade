@@ -7,6 +7,7 @@ import { isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, irNameOf, readOnlyPhrase, type Binding } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
+import { refuseAtomicDeclaration } from './atomics.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
@@ -240,6 +241,8 @@ function lowerVariableDeclaration(
   if (decl.type) {
     annotated = mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
     if (!annotated) return undefined
+    if (refuseAtomicDeclaration(annotated, decl.type, sourceFile, diagnostics, 'a local'))
+      return undefined
   }
   if (!decl.initializer) {
     // `let x: f32;` — declare now, assign later (#8 A10). WGSL's `var x: f32;` and GLSL's

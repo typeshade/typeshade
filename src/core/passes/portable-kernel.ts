@@ -19,10 +19,12 @@
 //   • no `raw` statement anywhere in the entry's call-graph closure: raw text is per-target
 //     and opaque to this walk, so it contradicts the portability claim outright.
 //
-// DELIBERATELY NOT CHECKED: barriers, workgroup memory, and atomics. None of them is
-// authorable in the DSL today, so a check for them would be vacuously green — an assertion
-// that carries no information (CLAUDE.md §12). They join the list above on the same commit
-// that makes them authorable, not before.
+// DELIBERATELY NOT CHECKED: barriers and workgroup memory. Neither is authorable in the DSL
+// today, so a check for them would be vacuously green — an assertion that carries no
+// information (CLAUDE.md §12). They join the list above on the same commit that makes them
+// authorable, not before. Atomics (roadmap 0.2 item 4) need no arm of their own: an atomic
+// lives only in a storage binding whose type is `array<atomic<T>>` or an atomic scalar, which
+// the single `array<u32>` output-binding check above already refuses.
 
 import {
   stageOf,

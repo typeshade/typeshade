@@ -10,16 +10,21 @@
 // `read_write` storage array) reached through an `assign`/`assignOp` whose target root is
 // neither a param nor a local. It propagates through the call graph to a fixpoint, so a
 // function that only calls a writer is a writer too. Intrinsics with an effect are listed
-// in `EFFECTFUL_INTRINSICS`; the list is empty until barriers, `textureStore` and the
-// atomics land, and those items add their names here on the same commit.
+// in `EFFECTFUL_INTRINSICS`: the atomic builtins today (roadmap 0.2 item 4); barriers and
+// `textureStore` add their names on the commit that makes them authorable.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js'
 import { eachExpr, eachStmtExpr } from '../ir/visit.js'
+import { ATOMIC_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js'
 import { collectLocals } from './opt/expr-utils.js'
 
-/** Intrinsic ids whose call has an effect beyond its value. Empty today; `workgroupBarrier`,
- *  `storageBarrier`, `textureStore` and the `atomic*` family join it when they are authorable. */
-export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>()
+/** Intrinsic ids whose call has an effect beyond its value: the atomic builtins, `atomicLoad`
+ *  included, since two loads must not be shared across a store to the same location. The
+ *  `workgroupBarrier`, `storageBarrier` and `textureStore` names join it when they are
+ *  authorable. */
+export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>(
+  Object.keys(ATOMIC_INTRINSICS),
+)
 
 /** The module-level names each function writes, itself or through the functions it calls. */
 export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>
@@ -29,11 +34,33 @@ const memo = new WeakMap<ModuleDecl, FnWrites>()
 const targetRoot = (e: Expr): Expr =>
   e.op === 'index' || e.op === 'member' ? targetRoot(e.base) : e
 
+/** The name an atomic builtin call writes: the root of its location argument, for every
+ *  atomic but `atomicLoad`. `undefined` for any other expression, and for a call that resolved
+ *  to a function the module declares under an atomic's name. */
+export function atomicWriteRoot(x: Expr): string | undefined {
+  if (x.op !== 'call' || x.declRef !== undefined || !isAtomicIntrinsic(x.fn)) return undefined
+  if (x.fn === 'atomicLoad' || x.args[0] === undefined) return undefined
+  const root = targetRoot(x.args[0])
+  return root.op === 'varref' || root.op === 'param' ? root.name : undefined
+}
+
 function directWrites(f: FuncDecl, out: Set<string>): void {
   const owned = new Set<string>(f.params.map((p) => p.name))
   collectLocals(f.body, owned)
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {
+      // An atomic store or read-modify-write anywhere in the statement's own expressions
+      // writes the binding at its location's root, the way an `assign` to it would.
+      eachStmtExpr(
+        s,
+        (e) => {
+          eachExpr(e, (x) => {
+            const root = atomicWriteRoot(x)
+            if (root !== undefined && !owned.has(root)) out.add(root)
+          })
+        },
+        () => {},
+      )
       if (s.s === 'assign' || s.s === 'assignOp') {
         const root = targetRoot(s.target)
         if ((root.op === 'varref' || root.op === 'param') && !owned.has(root.name))
@@ -153,6 +180,8 @@ export function calleeWritesOf(s: Stmt, writes: FnWrites, out: Set<string>): voi
       eachExpr(e, (x) => {
         if (x.op !== 'call') return
         for (const name of writes.get(x.fn) ?? []) out.add(name)
+        const root = atomicWriteRoot(x)
+        if (root !== undefined) out.add(root)
       })
     },
     () => {},

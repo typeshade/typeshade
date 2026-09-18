@@ -65,6 +65,12 @@ export type ShaderType =
   | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'f64' }
   | { readonly kind: 'struct'; readonly name: string }
   | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
+  // An atomic integer (roadmap 0.2 item 4): `atomic<u32>` / `atomic<i32>`, a location in
+  // storage memory that the `atomic*` builtins read, write and update as one step. Its OWN
+  // kind, not a flag on `scalar`, so it never reaches the arithmetic, the constant folder or
+  // an assignment: the only things that take one are the atomic builtins, which take it as a
+  // location rather than a value.
+  | { readonly kind: 'atomic'; readonly elem: 'u32' | 'i32' }
   // A sampled texture. '2d-array' (X-GIS #1651) is CORE in both targets — WGSL
   // texture_2d_array<f32>, GLSL ES 3.00 sampler2DArray — so it needs no Capability
   // (pinned by required-caps.test.ts); '2d-ms' still fails closed on GLSL.
@@ -193,6 +199,20 @@ export const u32T = { kind: 'scalar', scalar: 'u32' } as const satisfies ShaderT
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export const boolT = { kind: 'scalar', scalar: 'bool' } as const satisfies ShaderType
+
+/** `atomic<u32>`: an unsigned 32-bit integer in storage memory that many invocations update
+ *  at once through the `atomic*` builtins (`atomicAdd`, `atomicLoad`, ...). It is a location,
+ *  not a value: it cannot be read, assigned or used in arithmetic directly.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const atomicU32T = { kind: 'atomic', elem: 'u32' } as const satisfies ShaderType
+
+/** `atomic<i32>`: the signed twin of {@link atomicU32T}.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const atomicI32T = { kind: 'atomic', elem: 'i32' } as const satisfies ShaderType
 /** A native `vec2<f32>`, the most common vector type in the DSL: screen and UV coordinates and
  *  2D positions, such as a `uv: location(0, vec2fT)` fragment-input field or a
  *  `resolution: vec2fT` uniform. Build a value with the {@link vec2} constructor; use
@@ -445,30 +465,32 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
               ? S extends number
                 ? `array<${KeyOf<E>},${S}>`
                 : `array<${KeyOf<E>}>`
-              : T extends { kind: 'void' }
-                ? 'void'
-                : // X-GIS #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
-                  // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
-                  // to `string`, so a texture/sampler argument swap type-checked.
-                  T extends { kind: 'texture'; dim: '2d-ms' }
-                  ? 'texture_multisampled_2d<f32>'
-                  : // X-GIS #1651 — arm ORDER is immaterial here: the dims are exact literals, so
-                    // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
-                    // arm comes first. The real hazard is a MISSING arm — it drops an array
-                    // resource() node through to the `string` fallback, where it matches no
-                    // authoring overload at all (the failure is a confusing "no overload
-                    // matches", not a key mismatch).
-                    // X-GIS #1703 — `elem` is INFERRED, not hardcoded to f32: a texture2duT resource
-                    // must land on `texture_2d<u32>`, and a hardcoded `<f32>` would silently
-                    // hand an integer texture the FLOAT key, where textureSample's overload
-                    // accepts it and naga rejects the emitted WGSL.
-                    T extends { kind: 'texture'; dim: '2d-array'; elem: infer E extends string }
-                    ? `texture_2d_array<${E}>`
-                    : T extends { kind: 'texture'; dim: '2d'; elem: infer E extends string }
-                      ? `texture_2d<${E}>`
-                      : T extends { kind: 'sampler' }
-                        ? 'sampler'
-                        : string
+              : T extends { kind: 'atomic'; elem: infer E extends string }
+                ? `atomic<${E}>`
+                : T extends { kind: 'void' }
+                  ? 'void'
+                  : // X-GIS #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
+                    // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
+                    // to `string`, so a texture/sampler argument swap type-checked.
+                    T extends { kind: 'texture'; dim: '2d-ms' }
+                    ? 'texture_multisampled_2d<f32>'
+                    : // X-GIS #1651 — arm ORDER is immaterial here: the dims are exact literals, so
+                      // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
+                      // arm comes first. The real hazard is a MISSING arm — it drops an array
+                      // resource() node through to the `string` fallback, where it matches no
+                      // authoring overload at all (the failure is a confusing "no overload
+                      // matches", not a key mismatch).
+                      // X-GIS #1703 — `elem` is INFERRED, not hardcoded to f32: a texture2duT resource
+                      // must land on `texture_2d<u32>`, and a hardcoded `<f32>` would silently
+                      // hand an integer texture the FLOAT key, where textureSample's overload
+                      // accepts it and naga rejects the emitted WGSL.
+                      T extends { kind: 'texture'; dim: '2d-array'; elem: infer E extends string }
+                      ? `texture_2d_array<${E}>`
+                      : T extends { kind: 'texture'; dim: '2d'; elem: infer E extends string }
+                        ? `texture_2d<${E}>`
+                        : T extends { kind: 'sampler' }
+                          ? 'sampler'
+                          : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
 
@@ -562,6 +584,8 @@ export function typeKey(t: ShaderType): string {
           // fails compilation right here.
           return t satisfies never
       }
+    case 'atomic':
+      return `atomic<${t.elem}>`
     case 'sampler':
       return 'sampler'
     case 'void':

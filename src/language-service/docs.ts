@@ -18,6 +18,8 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   i32: '32-bit signed integer value.',
   u32: '32-bit unsigned integer value.',
   bool: 'Boolean value.',
+  atomic:
+    'An `atomic<u32>` or `atomic<i32>`: an integer location in a read-write storage binding that many invocations update at once through `atomicAdd`, `atomicLoad` and the other atomic builtins. It is never read or assigned directly, and it is declared only inside a storage binding, as `declare let bins: storage<array<atomic<u32>>>`.',
   vec2: 'A two-component vector of `f32`.',
   vec3: 'A three-component vector of `f32`.',
   vec4: 'A four-component vector of `f32`.',
@@ -97,6 +99,26 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Returns the number of layers of a `texture_2d_array` as a `u32`. A plain 2D texture has no layers and is refused.',
   arrayLength:
     'Returns the number of elements of a runtime-sized storage array as a `u32`, read from the buffer the host bound; `xs.length` on such an array reads the same thing. The argument must be the storage binding itself or a trailing array field of one. Compiles to `arrayLength(&xs)` on WGSL; GLSL ES 3.00 has no storage buffers, so a module using it emits WGSL alone.',
+  atomicLoad:
+    'Reads the value of an `atomic<u32>` or `atomic<i32>` location in a read-write storage binding (`atomicLoad(bins[i])`). Compiles to `atomicLoad(&bins[i])` on WGSL; GLSL ES 3.00 has no atomics, so a module using it emits WGSL alone. The CPU oracle runs invocations in order and reads the location.',
+  atomicStore:
+    'Writes `value` to an atomic location in a read-write storage binding (`atomicStore(bins[i], 0)`); returns nothing. Compiles to `atomicStore(&bins[i], v)` on WGSL only.',
+  atomicAdd:
+    'Adds `value` to the atomic location as one indivisible step and returns the value it held before (`atomicAdd(bins[i], 1)`). Wraps at 32 bits. Compiles to `atomicAdd(&bins[i], v)` on WGSL only.',
+  atomicSub:
+    'Subtracts `value` from the atomic location as one indivisible step and returns the value it held before. Wraps at 32 bits. Compiles to `atomicSub(&bins[i], v)` on WGSL only.',
+  atomicMin:
+    'Stores the smaller of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicMin(&bins[i], v)` on WGSL only.',
+  atomicMax:
+    'Stores the larger of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicMax(&bins[i], v)` on WGSL only.',
+  atomicAnd:
+    'Stores the bitwise AND of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicAnd(&bins[i], v)` on WGSL only.',
+  atomicOr:
+    'Stores the bitwise OR of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicOr(&bins[i], v)` on WGSL only.',
+  atomicXor:
+    'Stores the bitwise XOR of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicXor(&bins[i], v)` on WGSL only.',
+  atomicExchange:
+    'Stores `value` in the atomic location as one indivisible step and returns the value it held before. Compiles to `atomicExchange(&bins[i], v)` on WGSL only.',
   sin: 'Returns the sine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   cos: 'Returns the cosine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   tan: 'Returns the tangent of `x` (in radians), componentwise over vectors. Accepts `f32` and integer scalar/vector operands only.',

@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 409 exports
+## `.` — 413 exports
 
 ```
 abs
@@ -30,6 +30,9 @@ ASSEMBLED_AS
 atan
 atan2
 atanh
+ATOMIC_INTRINSICS
+atomicI32T
+atomicU32T
 autoVars
 AxisValues
 Backend
@@ -192,6 +195,7 @@ inverseSqrt
 ioStruct
 IoStruct
 isAppleGpu
+isAtomicIntrinsic
 isF64
 isKnownIntrinsic
 isMat
@@ -520,7 +524,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 237 exports
+## `./core/ir` — 239 exports
 
 ```
 abs
@@ -539,6 +543,8 @@ ASSEMBLED_AS
 atan
 atan2
 atanh
+atomicI32T
+atomicU32T
 BindingDecl
 bindingRef
 BinOp
@@ -801,7 +807,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 517 definitions
+## Shapes — 521 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { fileName?: string }
@@ -913,6 +919,7 @@ src/core/fp64/flavor-select.ts#isAppleGpu  function  (s: Fp64FlavorSignals) => b
 src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSignals) => Fp64Flavor
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
+src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 1; readonly returns: "value" | "void"; }>>
 src/core/intrinsics.ts#INTRINSICS  const  Readonly<Record<string, Spelling>>
 src/core/intrinsics.ts#INTRINSIC_BINDING_REFS  const  Readonly<Record<string, readonly string[]>>
 src/core/intrinsics.ts#INTRINSIC_HELPERS  const  Readonly<Record<string, { readonly fn: string; readonly def: string; }>>
@@ -920,6 +927,7 @@ src/core/intrinsics.ts#IntrinsicTarget  type  "wgsl" | "glsl"
 src/core/intrinsics.ts#PORTABLE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#PRE_EMIT_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#intrinsicNeedsAtomArgs  const  (name: string) => boolean
+src/core/intrinsics.ts#isAtomicIntrinsic  const  (name: string) => boolean
 src/core/intrinsics.ts#isKnownIntrinsic  const  (name: string) => boolean
 src/core/intrinsics.ts#spellIntrinsic  function  (target: IntrinsicTarget, name: string, args: readonly string[]) => string
 src/core/ir/builder.ts#Break  const  () => void
@@ -1114,12 +1122,14 @@ src/core/ir/span.ts#SourceSpan  interface  { character: number; endCharacter: nu
 src/core/ir/span.ts#sourceSpanOf  function  (node: FuncDecl | Stmt | Expr) => SourceSpan
 src/core/ir/types.ts#ArrayElemKey  type  K extends `array<${infer Inner}>` ? DropArraySize<Inner> : never
 src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
-src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
+src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "atomic"; elem: infer E extends string; } ? `atomic<${E}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
+src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
 src/core/ir/types.ts#arrayT  const  <E extends ShaderType, S extends number | undefined = undefined>(elem: E, size?: S) => { readonly kind: "array"; readonly elem: E; readonly size: S; }
+src/core/ir/types.ts#atomicI32T  const  { readonly kind: "atomic"; readonly elem: "i32"; }
+src/core/ir/types.ts#atomicU32T  const  { readonly kind: "atomic"; readonly elem: "u32"; }
 src/core/ir/types.ts#boolT  const  { readonly kind: "scalar"; readonly scalar: "bool"; }
 src/core/ir/types.ts#f32T  const  { readonly kind: "scalar"; readonly scalar: "f32"; }
 src/core/ir/types.ts#f64T  const  { readonly kind: "f64"; }

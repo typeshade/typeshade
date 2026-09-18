@@ -184,6 +184,14 @@ function mapGeneric(
   if (name === 'uniform' || name === 'storage') {
     return mapTsTypeToShaderType(args[0], sourceFile, diagnostics)
   }
+  // `atomic<u32>` / `atomic<i32>` (roadmap 0.2 item 4): a location in storage memory for the
+  // atomic builtins. Where it may be declared is decided by the declaration sites, not here.
+  if (name === 'atomic') {
+    const elemName = typeNameOfArg(args[0])
+    if (elemName === 'u32' || elemName === 'i32') return { kind: 'atomic', elem: elemName }
+    pushDiag(diagnostics, sourceFile, typeNode, `atomic<T> T must be u32 or i32.`)
+    return undefined
+  }
   if (name === 'vec2' || name === 'vec3' || name === 'vec4') {
     const n = Number(name.slice(3)) as 2 | 3 | 4
     const elemName = typeNameOfArg(args[0])

@@ -7,6 +7,7 @@ import type { BindingDecl } from '../../core/ir/nodes.js'
 import { structT } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES } from './type-map.js'
+import { atomicWithin } from './lower/atomics.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { isOverrideType } from './overrides.js'
 import { TS_CODES } from './codes.js'
@@ -163,6 +164,21 @@ function fromType(
       ? structT(inner.typeName.text)
       : undefined)
   if (!mapped) return undefined
+  // An atomic lives in storage memory only (WGSL §6.2.8): `uniform<array<atomic<u32>>>` is
+  // refused here, where the address space is decided. A struct's fields are not looked into;
+  // the struct collector has no address space to check them against.
+  const atomic = kind === 'uniform' ? atomicWithin(mapped) : undefined
+  if (atomic !== undefined) {
+    diagnostics.push(
+      diag(
+        sourceFile,
+        type,
+        `"${name}" holds an atomic<${atomic.elem}>, which lives in storage memory only: ` +
+          `write "declare let ${name}: storage<${inner.getText(sourceFile)}>".`,
+      ),
+    )
+    return undefined
+  }
   // A handle is written BARE — `declare const smp: sampler`. Wrapped, it was accepted and took
   // the wrapper's address space, which is not what either backend emits for one, and the doc
   // says bare. Caught here rather than in the type map, because this is the one path that

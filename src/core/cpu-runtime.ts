@@ -65,7 +65,45 @@ export type ElemKind = NumKind | 'f64' | 'bool'
 export const numKindOf = (t: ShaderType): NumKind => {
   if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : 'f32'
   if (t.kind === 'vec') return t.elem === 'i32' || t.elem === 'u32' ? t.elem : 'f32'
+  if (t.kind === 'atomic') return t.elem
   return 'f32'
+}
+
+/** One atomic builtin applied on the CPU (roadmap 0.2 item 4). The oracle runs invocations one
+ *  after another, so an atomic is a plain read-modify-write of its location; this is the
+ *  arithmetic of each builtin and what it hands back: the value the location held BEFORE the
+ *  update for every read-modify-write form (`atomicAdd` ... `atomicExchange`), the current
+ *  value for `atomicLoad`. `atomicStore` has no value on the GPU; its `result` is the old
+ *  value and every caller drops it. Integer arithmetic wraps the way the GPU's does. */
+export function atomicStep(
+  fn: string,
+  old: number,
+  arg: number,
+  kind: NumKind,
+): { readonly next: number; readonly result: number } {
+  switch (fn) {
+    case 'atomicLoad':
+      return { next: old, result: old }
+    case 'atomicStore':
+    case 'atomicExchange':
+      return { next: wrapInt(arg, kind), result: old }
+    case 'atomicAdd':
+      return { next: wrapInt(old + arg, kind), result: old }
+    case 'atomicSub':
+      return { next: wrapInt(old - arg, kind), result: old }
+    case 'atomicMin':
+      return { next: Math.min(old, arg), result: old }
+    case 'atomicMax':
+      return { next: Math.max(old, arg), result: old }
+    case 'atomicAnd':
+      return { next: wrapInt(old & arg, kind), result: old }
+    case 'atomicOr':
+      return { next: wrapInt(old | arg, kind), result: old }
+    case 'atomicXor':
+      return { next: wrapInt(old ^ arg, kind), result: old }
+    default:
+      throw new Error(`typeshade/cpu: '${fn}' is not an atomic builtin`)
+  }
 }
 
 /** Two's-complement wrap of an integer-valued double into the kind's 32-bit range —

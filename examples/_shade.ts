@@ -276,6 +276,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       'Two sequential loops over `i`, a `p` in a loop body beside a `p` in an `if` arm, and an inner `p` that shadows the outer one: the block scoping TypeScript has and the IR now follows, with the second declaration of each name emitted as `i_1`, `p_1` (#38). Also a float `%=` for GLSL ES 3.00 (#20) and a shift inside 0 to 31 (#71). Renders concentric rings.',
     renderable: true,
   },
+  {
+    id: 'atomic-histogram',
+    title: 'Atomic histogram',
+    blurb:
+      'Many invocations count into one bin at once with `atomicAdd(bins[bin], 1)`, one indivisible step each; a storage struct field and a bare `storage<atomic<u32>>` binding show the other two shapes of location, and the value an atomic returns is what it held before. WGSL-only: GLSL ES 3.00 has no storage buffers and no atomics.',
+    renderable: false,
+  },
 ]
 
 /**

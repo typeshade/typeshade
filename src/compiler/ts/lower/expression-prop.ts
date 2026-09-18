@@ -9,6 +9,7 @@ import { parseSwizzle } from '../swizzle.js'
 import { numericMismatch } from '../numeric.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
+import { refuseBareAtomic } from './atomics.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
@@ -187,6 +188,7 @@ export function lowerPropertyAccess(
       )
       return undefined
     }
+    if (refuseBareAtomic(ft, node, sourceFile, scope, diagnostics)) return undefined
     return { op: 'member', type: ft, base, field: prop }
   }
   const sw = parseSwizzle(base.type, prop)
