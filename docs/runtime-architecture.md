@@ -16,7 +16,57 @@ The next question is therefore not "how do we put WebGPU inside `use typeshade`?
 
 > How can an ordinary TypeScript application import and use a TypeShade program without turning the language into a renderer framework or forcing every caller to assemble low-level GPU objects?
 
-## 2. The architectural split
+## 2. Current state and target state
+
+### Current state
+
+The compiler is the center of the project today:
+
+```
+TypeScript source
+      |
+      | "use typeshade"
+      v
+TypeShade compiler
+      |
+      +-- TypeShade IR
+      +-- WGSL
+      +-- GLSL ES 3.00
+      +-- CPU evaluation
+      +-- reflection
+```
+
+The repository also contains a lower-level programmatic/IR-oriented authoring surface used by compiler tests and examples. That is useful infrastructure, but it is not the intended product-level mental model. The product-facing direction starts from `"use typeshade"`.
+
+A further limitation today is that `.shade.ts` is not yet a normal importable TypeScript module. Examples are compiled through the compiler rather than imported and executed like ordinary host modules. A future host integration therefore needs a module/loader boundary in addition to a runtime.
+
+### Target state
+
+The long-term goal is to let an ordinary TypeScript application consume a compiled TypeShade module without making the TypeShade language itself responsible for application orchestration.
+
+The target is not:
+
+```
+TypeScript -> magic GPU execution
+```
+
+It is:
+
+```
+ordinary TypeScript
+       |
+       | explicit host-side ownership
+       v
+TypeShade runtime
+       |
+       v
+compiled TypeShade module
+       |
+       v
+GPU backend
+```
+
+## 3. The architectural split
 
 The intended layering is:
 
@@ -57,7 +107,7 @@ The compiler and runtime have different jobs:
 
 A runtime must not redefine the language, and `use typeshade` must not become a place for application or renderer orchestration.
 
-## 3. What `use typeshade` means
+## 4. What `use typeshade` means
 
 A `"use typeshade"` source file is a TypeShade program.
 
@@ -94,7 +144,7 @@ The following do **not** belong inside `use typeshade` merely to make the runtim
 
 Those are host/runtime concerns.
 
-## 4. The host-side goal
+## 5. The host-side goal
 
 The desired experience is closer to importing an ordinary TypeScript module:
 
@@ -124,7 +174,7 @@ The runtime may manage pipelines, bind groups, queues, resource layouts and cach
 
 The raw compiler/reflection path remains available for applications that need direct WebGPU/WebGL control.
 
-## 5. Why Numba is useful
+## 6. Why Numba is useful
 
 Numba demonstrates a valuable rule: GPU execution should remain distinguishable from CPU execution.
 
@@ -144,7 +194,7 @@ TypeShade should therefore automate repetitive GPU setup without pretending that
 
 The exact amount of explicit dispatch syntax is still an open design question.
 
-## 6. Why PyTorch is useful
+## 7. Why PyTorch is useful
 
 PyTorch demonstrates a different part of the problem: a device/runtime abstraction can make device-resident values useful from ordinary host code.
 
@@ -171,7 +221,7 @@ This also gives the runtime a natural place for:
 - backend selection
 - CPU fallback/testing where supported
 
-## 7. Why TypeGPU is useful
+## 8. Why TypeGPU is useful
 
 TypeGPU demonstrates how much host-side type safety can be retained while controlling WebGPU resources.
 
@@ -183,7 +233,7 @@ TypeShade should not absorb a full TypeGPU-style pipeline DSL into `use typeshad
 
 Instead, compiler metadata can become the contract consumed by a runtime. The runtime can construct the low-level objects internally while still exposing typed host-side operations.
 
-## 8. GPU classes and CPU classes
+## 9. GPU classes and CPU classes
 
 GPU classes already exist in TypeShade.
 
@@ -205,7 +255,7 @@ A GPU class must not silently become a CPU class, and a CPU class must not silen
 
 The exact representation of the host-side handle is intentionally left open.
 
-## 9. The CPU/GPU data boundary
+## 10. The CPU/GPU data boundary
 
 The boundary should be explicit enough to preserve execution semantics, but not require ad-hoc methods on every GPU value.
 
@@ -233,7 +283,7 @@ Transfer, materialization, synchronization and ownership belong to the runtime.
 
 The runtime may eventually optimize transfers, keep values resident, or avoid readback entirely when a subsequent GPU operation consumes the value.
 
-## 10. Rendering is not the center of the runtime
+## 11. Rendering is not the center of the runtime
 
 A TypeShade runtime must support more than canvas rendering.
 
@@ -252,7 +302,7 @@ A canvas is therefore one possible host integration, not the definition of the r
 
 Rendering-specific pipeline configuration remains a backend/runtime concern.
 
-## 11. Reflection becomes an internal contract
+## 12. Reflection becomes an internal contract
 
 Reflection is already useful today for applications that manage WebGPU/WebGL themselves.
 
@@ -279,7 +329,7 @@ Normal callers should not need to inspect this metadata.
 
 Advanced callers can still use `compile()` and `reflect()` as the low-level escape hatch.
 
-## 12. Possible execution model
+## 13. Possible execution model
 
 There are two useful levels of control.
 
@@ -305,7 +355,7 @@ Whether both forms should exist, and what guarantees the high-level form provide
 
 The design should prefer explicit semantics over hidden heuristics.
 
-## 13. CPU execution and verification
+## 14. CPU execution and verification
 
 The compiler already has a CPU evaluation path used as an oracle for tests.
 
@@ -323,7 +373,7 @@ That creates an opportunity for a runtime to expose CPU execution as a developme
 
 This should be treated as a verification and development capability first. It must not imply that every GPU program can always be faithfully or efficiently executed on the CPU.
 
-## 14. Proposed package boundaries
+## 15. Proposed package boundaries
 
 A future package layout could be:
 
@@ -355,7 +405,7 @@ These names are illustrative and are not API commitments.
 
 The important boundary is that backend-specific objects do not leak into the TypeShade language.
 
-## 15. What this design explicitly avoids
+## 16. What this design explicitly avoids
 
 ### A renderer framework
 
@@ -383,7 +433,7 @@ A normal caller should not have to manually construct bind groups and pipelines 
 
 Runtime automation should begin with clear module/resource execution semantics. Broad graph scheduling, fusion and aggressive placement are later optimization problems, not prerequisites for the runtime boundary.
 
-## 16. Design principles
+## 17. Design principles
 
 1. **TypeScript is the host language.**
 2. **`"use typeshade"` is the GPU-program boundary.**
@@ -396,7 +446,95 @@ Runtime automation should begin with clear module/resource execution semantics. 
 9. **The CPU oracle is a verification asset, not a promise of universal CPU fallback.**
 10. **Low-level compiler/reflection APIs remain the escape hatch.**
 
-## 17. Relationship to the existing roadmap
+## 18. Developer experience
+
+The runtime is only useful if the language surface remains approachable.
+
+The intended progression for a developer is:
+
+```
+TypeScript knowledge
+      |
+      v
+"use typeshade"
+      |
+      +-- familiar TS syntax
+      +-- Typeshade GPU types
+      +-- explicit resources
+      +-- explicit shader stages
+      |
+      v
+compiled module
+      |
+      v
+host runtime
+```
+
+The documentation should teach this from the top down rather than making compiler internals the first concept.
+
+That means the product documentation should explain, in one continuous model:
+
+- what TypeScript constructs mean inside `use typeshade`;
+- which TypeScript/JavaScript concepts are intentionally preserved;
+- which concepts change because execution is on the GPU;
+- how GPU classes differ from host classes;
+- how resources and shader stages are represented;
+- how a host application loads and executes a module;
+- when data crosses the CPU/GPU boundary;
+- when the user needs low-level backend control.
+
+TypeScript and MDN concepts can be used as references and comparisons, but TypeShade should define its own semantics instead of implying that browser/JavaScript semantics automatically apply inside GPU code.
+
+The website should therefore have two complementary levels:
+
+1. **Language and runtime guide** — the primary developer experience.
+2. **Compiler/IR internals** — implementation-facing material for contributors and advanced users.
+
+Playground tooling should eventually reflect the same model: edit `use typeshade` source, see diagnostics and generated shader output, inspect reflection when needed, and make the boundary between source language and backend visible.
+
+## 19. Broader programming model
+
+TypeShade should be general-purpose GPU programming rather than an ML-specific framework.
+
+The runtime model should accommodate:
+
+- rendering
+- compute
+- simulation
+- image and signal processing
+- geometry
+- numerical algorithms
+- data-parallel workloads
+- other GPU workloads supported by the chosen backend
+
+This is why the abstraction is a device/runtime and not a tensor-only API.
+
+A tensor or array abstraction may be built later on top of the runtime, but it should not define the core language.
+
+## 20. Open design questions
+
+The following remain deliberately unresolved:
+
+- What is the exact host-side representation of a GPU value?
+- What is the exact host-side representation of a GPU class/module?
+- How does a `.shade.ts` module become importable?
+- Does `device.create()` instantiate GPU state directly, or create a host handle first?
+- Is `module.method()` enough for common execution, or should explicit dispatch always be visible?
+- If both high-level and explicit execution exist, what semantics and performance guarantees does each provide?
+- How are resources declared, created, resized and destroyed?
+- How are uniform/storage/texture/sampler resources mapped to host values?
+- What synchronization guarantees exist after a host call?
+- When does a value become CPU-readable?
+- Can the runtime infer pipeline state from reflection, and which state must remain explicit?
+- How much WebGPU/WebGL2 behavior can share one runtime abstraction?
+- What is the minimum viable runtime before introducing scheduling or graph execution?
+- What guarantees can the CPU oracle provide, and where must GPU-only behavior remain GPU-only?
+- How should errors map back to original TypeScript source spans?
+- How should the language service understand imported TypeShade modules?
+
+These questions should be answered by small implementation proposals, not by prematurely freezing a large runtime API.
+
+## 21. Relationship to the existing roadmap
 
 This document does not replace `docs/use-typeshade-plan.md` or `docs/roadmap.md`.
 
