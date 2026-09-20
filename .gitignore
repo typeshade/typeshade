@@ -2,3 +2,7 @@ dist/
 *.tsbuildinfo
 coverage/
 node_modules
+bun.lock
+.claude/
+.codebase-memory/
+.omc/
