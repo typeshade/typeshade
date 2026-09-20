@@ -130,6 +130,48 @@ GPU module or GPU value
 
 The exact host representation is still open. What matters is that CPU classes do not silently become GPU classes, and GPU classes do not silently execute as ordinary CPU classes.
 
+### A real library is the capability test
+
+The strongest validation of this architecture is not that a small shader can compile. It is that a developer can build a **useful, reusable TypeScript library** whose implementation spans CPU and GPU execution.
+
+For example, ViewShade can serve as a flagship consumer of TypeShade. A map-oriented workload can combine:
+
+- tile requests and source management;
+- spatial indexing and geometry preparation;
+- GPU rendering and parallel processing;
+- tile caching and GPU residency;
+- progressive refinement;
+- incremental pyramid generation; and
+- standard tiled image output that existing clients can consume.
+
+The important property is that this is one library, not a collection of unrelated CPU code and hand-written WebGPU programs:
+
+```
+ViewShade
+├── request planner
+├── source tile cache
+├── GPU rendering
+├── progressive refinement
+├── pyramid generation
+└── standard tile output
+        |
+        v
+   TypeShade runtime
+        |
+        v
+   TypeShade GPU programs
+```
+
+The same principle should apply outside mapping. A numerical library, image-processing library, simulation engine, geometry processor, or other GPU-accelerated library should be buildable on the same foundation.
+
+This leads to a practical acceptance criterion:
+
+> **If a useful TypeScript library cannot be built cleanly with TypeShade, the solution is not complete merely because the underlying shader compiler works.**
+
+The library should not need to expose TypeShade or WebGPU as part of its public API unless that is intentionally part of the library's purpose. Typeshade should be an implementation technology that enables the library to provide a high-level developer experience.
+
+This also changes how runtime work should be evaluated. Features should be prioritized when they enable real application/library capabilities such as GPU-resident data, module composition, execution, synchronization, caching, and CPU/GPU interoperability—not simply because they expose another piece of the underlying GPU API.
+
 ### A concrete design test
 
 Every proposed language or runtime feature should be evaluated against a real application such as a MapLibre-scale map engine:
