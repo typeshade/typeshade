@@ -41,6 +41,7 @@ import { makeDiagnostic } from '../diagnostic.js'
 import { HOST_GLOBALS } from '../semantic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { checkMathArgs, mathTakesElem } from './math-args.js'
+import { isConsoleMethod } from '../../../core/console.js'
 
 const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = {
   vec2: { n: 2, elem: 'f32' },
@@ -81,6 +82,34 @@ export function lowerCall(
 
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression
+    // Keep the authoring surface on the JavaScript Console API spelling. The call remains a
+    // normal IR call, so it is not a TypeShade-specific debug DSL.
+    if (ts.isIdentifier(obj) && obj.text === 'console') {
+      const method = callee.name.text
+      if (!isConsoleMethod(method)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          callee.name,
+          `console.${method}() is not supported in TypeShade yet. Use log, info, debug, warn, or error.`,
+          TS_CODES.UNSUPPORTED,
+        )
+        return undefined
+      }
+      const args: Expr[] = []
+      for (const arg of node.arguments) {
+        const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+        if (!lowered) return undefined
+        args.push(lowered)
+      }
+      return {
+        op: 'call',
+        type: voidT,
+        fn: `console.${method}`,
+        args,
+        span: { file: sourceFile.fileName, start: node.getStart(sourceFile), end: node.getEnd() },
+      }
+    }
     if (ts.isIdentifier(obj) && obj.text === 'Math') {
       viaMath = true
       const jsName = callee.name.text
