@@ -16,6 +16,128 @@ The next question is therefore not "how do we put WebGPU inside `use typeshade`?
 
 > How can an ordinary TypeScript application import and use a TypeShade program without turning the language into a renderer framework or forcing every caller to assemble low-level GPU objects?
 
+## 2. The user problem comes first
+
+The central design question is not:
+
+> How do we execute a `use typeshade` function?
+
+It is:
+
+> **How can a developer build a real application whose CPU and GPU parts are written as one coherent TypeScript program?**
+
+This distinction matters because TypeShade is intended to be useful for programs larger than isolated shaders.
+
+Consider rebuilding a map engine such as MapLibre from scratch with TypeScript and TypeShade. The application contains:
+
+```
+Map
+├── Camera
+├── Map state
+├── Sources
+├── Tiles
+├── Styles
+├── Geometry
+├── Symbol placement
+├── Collision
+└── Renderer
+```
+
+Those responsibilities naturally span both CPU and GPU execution:
+
+```
+CPU                              GPU
+────────────────────────────────────────
+Map state                        projection
+Camera                            vertex processing
+Network                           geometry processing
+Tile management                   collision
+Style parsing                     rasterization
+Event handling                    fragment processing
+Application logic                 parallel computation
+```
+
+The developer does not want to build two unrelated programs and manually connect them through WebGPU plumbing. They want to build **one application**, while making the CPU/GPU execution boundary explicit enough to understand.
+
+This gives TypeShade a stronger product definition:
+
+> **TypeShade should make CPU + GPU applications possible to author as one TypeScript-centered program, with `"use typeshade"` defining the GPU-program boundary.**
+
+The compiler, runtime and backend are implementation layers in service of that programming model.
+
+### What the developer should think about
+
+The developer should think about application concepts:
+
+- maps and cameras;
+- simulations and state;
+- geometry and data processing;
+- image and signal processing;
+- rendering;
+- interaction and application logic.
+
+They should not have to make GPU API mechanics the primary abstraction:
+
+- `GPUDevice`;
+- bind-group construction;
+- pipeline layout construction;
+- command encoders;
+- queue submission.
+
+Those mechanisms are runtime/backend responsibilities unless the developer explicitly chooses the low-level escape hatch.
+
+### What `"use typeshade"` means at the application level
+
+`"use typeshade"` is more than an instruction to emit WGSL or GLSL.
+
+It identifies a TypeScript-authored region whose **execution semantics are GPU semantics**.
+
+For example:
+
+```ts
+class Map {
+  // ordinary TypeScript / host-side application logic
+}
+```
+
+and:
+
+```ts
+"use typeshade"
+
+class Tile {
+  // TypeScript syntax with TypeShade GPU semantics
+}
+```
+
+can be parts of the same application while representing different execution domains.
+
+The goal is not to erase that distinction. The goal is to make the distinction useful without forcing developers to manually manage every backend detail.
+
+### GPU classes are part of this model
+
+GPU classes already exist in TypeShade. The architectural question is therefore not how to invent GPU classes, but how GPU classes participate in a larger CPU + GPU application.
+
+A host-side class may own, control or coordinate GPU state represented by a TypeShade class:
+
+```
+CPU application object
+        |
+        | owns / controls
+        v
+GPU module or GPU value
+```
+
+The exact host representation is still open. What matters is that CPU classes do not silently become GPU classes, and GPU classes do not silently execute as ordinary CPU classes.
+
+### A concrete design test
+
+Every proposed language or runtime feature should be evaluated against a real application such as a MapLibre-scale map engine:
+
+> If a developer were rebuilding this application from scratch, does this feature make it easier to express the program and its CPU/GPU relationship?
+
+If a proposal primarily exposes WebGPU plumbing without improving that programming model, it should remain a lower-level escape hatch rather than becoming a core TypeShade abstraction.
+
 ## 2. Current state and target state
 
 ### Current state
