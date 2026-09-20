@@ -6,7 +6,6 @@ import { TS_CODES, type TsCode } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
 
 export const HOST_GLOBALS: ReadonlySet<string> = new Set([
-  'console',
   'window',
   'document',
   'globalThis',
