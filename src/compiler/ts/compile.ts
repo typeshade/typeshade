@@ -4,6 +4,7 @@ import { emitGlslStages } from '../../core/backends/glsl.js'
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js'
 import { backendDiagnostic } from './diagnostic.js'
 import { evalEntry } from './eval-entry.js'
+import type { ConsoleSink } from '../../core/console.js'
 import { emittedStructDecls } from './structs.js'
 
 /**
@@ -80,6 +81,8 @@ export interface CompileOptions {
    * normalized the same way before it is compared, so either spelling matches.
    */
   readonly fileName?: string
+  /** Host sink for `console.*` calls made by CPU/debug evaluation. */
+  readonly consoleSink?: ConsoleSink
 }
 
 /**
@@ -153,7 +156,7 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
             `${err.fileName}:${err.line}:${err.character}${code} ${err.message}`,
         )
       }
-      return evalEntry(module, name, args)
+      return evalEntry(module, name, args, options.consoleSink)
     },
   }
 }
