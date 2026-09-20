@@ -500,6 +500,20 @@ ${vecTypeAliases}
 
 type Numeric = number | vec2 | vec3 | vec4 | vec2i | vec3i | vec4i | vec2u | vec3u | vec4u
 
+/** JavaScript Console API surface exposed by the `"use typeshade"` authoring environment.
+ * The source spelling is the standard `console.*` API; the compiler currently lowers the
+ * logging-level methods below. Other Console methods remain visible to TypeScript only when
+ * they are added here deliberately, so editor completion never advertises an unsupported
+ * shader operation. */
+interface Console {
+  log(...data: (Numeric | boolean)[]): void
+  info(...data: (Numeric | boolean)[]): void
+  debug(...data: (Numeric | boolean)[]): void
+  warn(...data: (Numeric | boolean)[]): void
+  error(...data: (Numeric | boolean)[]): void
+}
+declare const console: Console
+
 declare const matTag: unique symbol
 type Mat<E extends string, N extends 2 | 3 | 4> = { readonly [matTag]: readonly [E, N] }
 type mat4x4<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 4>
