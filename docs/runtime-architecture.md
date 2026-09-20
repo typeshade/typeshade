@@ -65,6 +65,85 @@ This gives TypeShade a stronger product definition:
 
 The compiler, runtime and backend are implementation layers in service of that programming model.
 
+### The long-term goal: GPU should disappear from the application model
+
+The runtime should ultimately make GPU execution an implementation detail of a TypeScript application without making GPU semantics invisible in the language.
+
+The distinction is important:
+
+- `"use typeshade"` remains the explicit boundary for code whose semantics are governed by TypeShade;
+- the runtime owns device selection, resource lifetime, residency, synchronization, pipeline creation and backend plumbing;
+- the application should normally express operations and data flow rather than construct GPU API objects;
+- compiler analysis may determine which operations can use a GPU representation, but automatic placement is a later optimization and must not silently change the language semantics.
+
+The desired end state is therefore not:
+
+```
+TypeScript -> shader source -> WebGPU plumbing
+```
+
+but:
+
+```
+TypeScript application
+        |
+        | TypeShade program boundary
+        v
+TypeShade IR / runtime
+        |
+   +----+----+
+   |         |
+  CPU       GPU
+   |         |
+   +----+----+
+        |
+      result
+```
+
+A developer should be able to care about the operation being performed and the correctness of its result without manually managing the GPU objects required to execute it.
+
+This does **not** mean that arbitrary TypeScript is implicitly promoted to GPU execution. TypeShade must retain a strong semantic boundary. Automatic CPU/GPU placement, when introduced, is an optimization over code that has already entered the TypeShade execution model and whose semantics can be preserved.
+
+### Verification is part of the runtime experience
+
+The existing CPU evaluator should become more than a compiler test helper. It is a foundation for development-time verification:
+
+```
+                 TypeShade program
+                       |
+              +--------+--------+
+              |                 |
+           CPU oracle        GPU execution
+              |                 |
+              +--------+--------+
+                       |
+                    compare
+                       |
+              source-level trace
+```
+
+Where the runtime can compare a CPU oracle with GPU execution, diagnostics should eventually identify the invocation, relevant source span and observed difference rather than only reporting a backend mismatch. This should be a development/debugging capability, not a promise that every GPU operation has an efficient or bit-identical CPU implementation.
+
+### IR is also the extensibility boundary
+
+The same IR that enables multiple backends can eventually support program transformations such as differentiation, specialization and optimization. Automatic differentiation is therefore a possible future consumer of the compiler architecture, not a reason to add a high-level autodiff API before the IR semantics are mature.
+
+A useful long-term progression is:
+
+```
+TypeShade source
+      |
+      v
+     IR
+   / |  \\
+  /  |   \\
+CPU GPU  future transforms
+ |   |       |
+oracle exec  autodiff / optimization
+```
+
+The immediate priority remains a reliable host/runtime boundary. These future transformations should be driven by real workloads and concrete IR requirements rather than frozen into the public API early.
+
 ### What the developer should think about
 
 The developer should think about application concepts:
