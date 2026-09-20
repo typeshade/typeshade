@@ -786,7 +786,7 @@ export function compileModuleJs(
       throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
     },
     console: (method, args, span) => {
-      opts?.consoleSink?.({ method: method as any, args, span: span as any })
+      opts?.consoleSink?.({ method: method as any, args, span: typeof span === 'string' ? JSON.parse(span) : (span as any) })
     },
   }
 
