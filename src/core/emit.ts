@@ -171,6 +171,11 @@ function emitLeaf(
         ? be.dereference(e.name)
         : e.name
     case 'call': {
+      // JavaScript Console API calls are host/debug effects. They intentionally have no target
+      // source spelling yet: the GPU transport will instrument these same IR calls, while the
+      // CPU/debug backend delivers them to ConsoleSink. Keeping a comment here preserves valid
+      // WGSL/GLSL output without inventing a shader-side console API.
+      if (e.fn.startsWith('console.')) return `/* typeshade ${e.fn} */`
       // A registry spelling that splices an argument into a tighter position — `mod`'s
       // `/` operand, `pack4x8unorm`'s `.x` base — needs it as a PRIMARY: at the loose
       // argument precedence a minimally-parenthesized `a + b` re-associates inside the
