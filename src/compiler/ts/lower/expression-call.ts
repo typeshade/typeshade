@@ -107,7 +107,7 @@ export function lowerCall(
         type: voidT,
         fn: `console.${method}`,
         args,
-        span: { file: sourceFile.fileName, start: node.getStart(sourceFile), end: node.getEnd() },
+        span: { file: sourceFile.fileName, start: node.getStart(sourceFile), length: node.getWidth(sourceFile) },
       }
     }
     if (ts.isIdentifier(obj) && obj.text === 'Math') {
