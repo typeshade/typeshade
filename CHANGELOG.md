@@ -13,6 +13,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **The roadmap carries the audit's twelve new rows** (#159, from #144 §8). Seven deferrals that
+  existed only as a sentence in the surface document, and five gaps with no row at all, are now
+  items with a size and an issue: 13a and 13b for the texture argument, stage and query work
+  (#145, #147) and 13c for the §36 deferral list (offsets, `textureNumLevels`,
+  `textureSampleBaseClampToEdge`, `texture_external`, storage 1d and 3d); 8a, 8b and 9a for the
+  builtins (#150, #152, #154); T11 to T18 for the language and type work, four of them the
+  audit's BLOCKERs — uniform array stride (#156), `@interpolate(flat)` on an integer varying
+  (#158), the shift right-hand side (#160) and derivative uniformity (#161) — beside literal
+  typing (#148), matrices (#149), the `enable` spelling and the missing capabilities (#146), and
+  the f64 holes (#151). Item 23 gains the five override rows in its Notes, the `f16` row gains
+  the wiring order #153 records, and After 1.0 gains `atomic<vec2<u32>>`.
 - **Four structural tests, so a whole class of omission cannot come back** (#155, from the WGSL
   spec audit #144). A texture feature arrives in layers — a type spelling, an argument check, a
   stage rule, an emit, an ambient declaration, a CPU stub — and nothing forced them to arrive
@@ -223,6 +234,20 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
 
 ### Changed
 
+- **Four sentences in the surface document, and three code comments, now say what main does**
+  (#159, from the WGSL spec audit #144). Each was re-measured on this tree before it was
+  rewritten. §8's field-metadata paragraph said `@size`, `@offset`, `@interpolate` and `@ignore`
+  "parse but do not reach the emitted struct yet"; all four are `TS8028 Unknown attribute`, and
+  the `@interpolate("linear")` in the example above it now carries the `(target)` marker
+  `@align(16)` already had. §11 said `transpose` has no `f32` form — it and `determinant` take a
+  `mat4` on both targets and have since roadmap 0.2 item 8; what is missing is the rest of the
+  matrix table, which is now a roadmap row. §13 said a `u32` module constant is emitted as
+  `const N: u32 = 16.0;` — it is emitted as `16u`, and the issue that paragraph described was
+  fixed by #17. In the source: the ambient library's cube-texture JSDoc still said the editor
+  refuses `texture_cube<u32>`, which stopped being true when `textureGather` admitted an integer
+  cube; `ModuleDecl.enables` described `DeclarableCapability` as excluding "the three ids derived
+  from the module's own shape" when it excludes seven; and the GLSL capability table said "FIVE
+  of the six fail closed" when nine capabilities have no GLSL row and eight fail closed.
 - **`renderable: false` now states WHY** (#155). A `.shade.ts` registration that claims no GLSL
   ES 3.00 form carries the refusal it expects, and `shade-examples.test.ts` checks it rather than
   accepting any refusal — so an example that loses its GLSL form for a NEW reason keeps a flag

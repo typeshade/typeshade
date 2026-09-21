@@ -428,12 +428,14 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  NO rows for `storageBuffer` / `compute` / `msaaTextureLoad` / `storageTexture` (WebGL2
  *  has no SSBOs, no compute stage, no MSAA texel fetch, and no image load/store — that last
  *  one is ES 3.10, measured on a driver: `layout(rgba8) uniform writeonly image2D` is
- *  "invalid layout qualifier: not supported") and none for `f16` / `subgroups` (WGSL `enable`
- *  language features with no GLSL ES 3.00 counterpart). FIVE of the six fail closed
- *  here, naming the cap; `storageBuffer` is the exception and does NOT — a storage module
+ *  "invalid layout qualifier: not supported"), none for `texture1d` / `textureCubeArray` /
+ *  `textureGather` (no `sampler1D`, no cube-array sampler, and `textureGather` is ES 3.10 —
+ *  measured on a WebGL2 driver, roadmap 0.4 item 12b), and none for `f16` / `subgroups` (WGSL
+ *  `enable` language features with no GLSL ES 3.00 counterpart). Every one of those NINE fails
+ *  closed here, naming the cap, with ONE exception: `storageBuffer` does NOT — a storage module
  *  is REWRITTEN to a data texture (lowerStorageToDataTexture) BEFORE the gate runs, so by
  *  the time assertCaps looks there is no storage binding left to require it. The
- *  profile's emptiness for all six is the pinned invariant either way, not an oversight
+ *  profile's emptiness for all nine is the pinned invariant either way, not an oversight
  *  (extension-profile.test.ts, passes/required-caps.test.ts, enable-directives.test.ts).
  *
  *  The three HOST-side rows cost ZERO emitted bytes: WebGL2 activates them through

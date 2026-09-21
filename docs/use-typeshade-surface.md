@@ -115,13 +115,16 @@ class Camera {
 
 class VsIn {
   @location(0) position: vec3
-  @location(1) @interpolate("linear") uv: vec2
+  @location(1) @interpolate("linear") uv: vec2 // (target)
 }
 ```
 
-Of that list the compiler applies `@location` and `@builtin` today. `@align` on a field is
-an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(target)*.
-`@size`, `@offset`, `@interpolate` and `@ignore` parse but do not reach the emitted struct yet.
+Of that list the compiler applies `@location` and `@builtin` today. Every other name in it is
+refused rather than silently dropped, which is the same rule under two codes: `@align` on a
+field is `TS8010` ("@align on a field is not applied"), and `@size`, `@offset`, `@interpolate`
+and `@ignore` are `TS8028` ("Unknown attribute"), because the compiler's attribute list does
+not carry them. So the `@align(16)` and the `@interpolate("linear")` above are *(target)*, not
+metadata that parses and goes nowhere. `@interpolate` is roadmap 0.3 item T12.
 
 `class` here is a struct with attributes, not an object.
 
@@ -496,8 +499,11 @@ derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
 `**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
 as `pow(i32, i32)`, which neither compiler accepts.
 
-`transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
-emulated-double matrix, so there is nothing to expose yet.
+`transpose` and `determinant` take an `f32` `mat4` on both targets — both are PORTABLE rows
+spelled identically in WGSL and GLSL ES 3.00 — and `transpose64` is the separate
+emulated-double form the fp64 pass emits. What is missing is the rest of the matrix table:
+`mat2x2`, `mat3x3` and every non-square `matCxR` have no spelling here, so `transpose` and
+`determinant` have only the one shape to be given (roadmap 0.3 item T16).
 
 **One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
 rather than about this table: a declared function is emitted with the name the author wrote,
@@ -736,9 +742,9 @@ Three edges of the rule, each of which the diagnostics still cover:
   (`pow(2, i)`) keeps its `f32` first argument, so the argument check (TS8036) names `i` as the
   odd one out.
 
-`const N: u32 = 16` is the **front end** only: the `ConstDecl` it builds carries `u32` and
-`16`, and the backend's `emitConst` still spells every scalar constant with a float literal,
-so the emitted line reads `const N: u32 = 16.0;`. That half is issue #13, with #17 as its fix.
+`const N: u32 = 16` carries `u32` and `16` through the whole pipeline: the `ConstDecl` the
+front end builds is `u32`, and the emitted line reads `const N: u32 = 16u;`. The float-literal
+spelling this paragraph used to describe was issue #13, fixed by #17.
 
 ## 14. TypeScript shapes the parser already had
 

@@ -581,9 +581,11 @@ declare const samplerTag: unique symbol
 type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
 type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
 /** A cube texture is six faces looked up by a DIRECTION, and a 3D texture a volume addressed
- * by a \`vec3\` coordinate; both are core in both targets (roadmap 0.4 item 12). A cube is
- * only ever sampled, since neither target has a texel fetch for one, so its element is
- * \`f32\` alone: the editor refuses \`texture_cube<u32>\` here and the compiler says why. */
+ * by a \`vec3\` coordinate; both are core in both targets (roadmap 0.4 item 12). Neither target
+ * has a texel fetch for a cube, so a cube is only ever SAMPLED — but an integer cube is
+ * admitted, because \`textureGather\` reads one channel of one without a filter (item 12b). The
+ * element is therefore unconstrained here and the compiler decides: sampling an integer cube is
+ * refused in one sentence naming \`textureGather\`. */
 type texture_cube<E = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
 type texture_3d<E = f32> = { readonly [textureTag]: readonly [E, '3d'] }
 /** WebGPU-only (roadmap 0.4 item 12): a 1D texture is a row of texels addressed by ONE number,
