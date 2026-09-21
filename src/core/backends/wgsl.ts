@@ -34,6 +34,7 @@ import { spellIntrinsic } from '../intrinsics.js'
 import { fp64Lower } from '../passes/fp64-lower.js'
 import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js'
 import { selectComposite } from '../passes/select-composite.js'
+import { requiredCaps, requiredLanguageFeatures } from '../passes/required-caps.js'
 import { dslError } from '../diagnostics/error.js'
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
@@ -219,6 +220,22 @@ const WGSL_CAP_PROFILE = {
   // Opt-in LANGUAGE features — a WGSL `enable` directive AND a device feature.
   f16: { directive: 'f16', hostFeature: 'shader-f16' },
   subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },
+  // The two extension-gated BUILT-IN VALUES (§50). Neither is declared by hand in practice:
+  // `requiredCaps` derives the cap from `@builtin(clip_distances)` / `@builtin(primitive_index)`,
+  // because WGSL refuses the id itself without the enable — measured on Tint, `use of
+  // '@builtin(clip_distances)' requires enabling extension 'clip_distances'`. The same Tint
+  // refuses `enable clip_distances;` on a device that was not ASKED for the feature
+  // (`extension 'clip_distances' is not allowed in the current environment`), which is what
+  // `hostFeature` exists to prevent — the compile gate requests the corpus's features, and
+  // `examples/clip-planes.shade.ts` compiles there.
+  //
+  // `directive` is measured on both rows. `hostFeature` is measured for `clip-distances`,
+  // which the gate's adapter offers and a device accepts; `primitive-index` follows WGSL's
+  // underscore-to-hyphen convention for the same string and could NOT be confirmed, because
+  // that adapter does not have the feature at all. A host that finds `requestDevice`
+  // rejecting it should correct this one string.
+  clipDistances: { directive: 'clip_distances', hostFeature: 'clip-distances' },
+  primitiveIndex: { directive: 'primitive_index', hostFeature: 'primitive-index' },
   // Opt-in DEVICE features (X-GIS #1670) — no WGSL directive exists for any of these; the
   // host activates them at requestDevice time (or they are core).
   floatRenderTarget: {}, // core in WebGPU: an rgba32float render target needs no feature
@@ -362,28 +379,37 @@ export const wgslBackend: Backend = {
   // One copy of a pointer-taking function per address space its calls use — see wgsl-ptr.ts.
   // After the optimizer, since a pass that folds a call away removes a space with it.
   postLower: (m) => pointerSpaces(m),
-  // The WGSL `enable`-directive header (X-GIS #628): one `enable <ext>;` per declared cap
-  // whose PROFILE ROW carries a directive (X-GIS #1670 — the host-side rows contribute
-  // nothing), deduped + sorted for a deterministic byte order. Bare lines, NO trailing
-  // separator — the one contract every backend's preamble keeps (backend.ts); the blank
-  // line before the first declaration is added by emit.ts's `directiveHeader`, which
-  // owns this target's slot. Empty when the module opts into nothing (or into host-side
-  // caps only), so enables-free emit stays byte-identical. assertCaps (run in
-  // lowerForBackend, before this string is used) has already guaranteed this backend
-  // covers every declared cap.
+  // The WGSL directive header (X-GIS #628, §50): one `enable <ext>;` per REQUIRED cap whose
+  // PROFILE ROW carries a directive (X-GIS #1670 — the host-side rows contribute nothing),
+  // deduped + sorted for a deterministic byte order, then one `requires <feature>;` per WGSL
+  // language extension the module needs. Bare lines, NO trailing separator — the one contract
+  // every backend's preamble keeps (backend.ts); the blank line before the first declaration
+  // is added by emit.ts's `directiveHeader`, which owns this target's slot. Empty when the
+  // module needs nothing (or host-side caps only), so a directive-free emit stays
+  // byte-identical. assertCaps (run in lowerForBackend, before this string is used) has
+  // already guaranteed this backend covers every required cap.
   modulePreamble: (m) => {
     // Read through `wgslBackend.capProfile` (the emitConst/constDecl self-reference
     // idiom above), not the narrow `satisfies`-typed literal: the literal's type has no
     // key for a cap this target does not support, so indexing it by an arbitrary
     // `Capability` would not typecheck. It is the same object either way.
-    const dirs = (m.enables ?? [])
+    //
+    // `requiredCaps(m)`, not `m.enables`: an extension-gated `@builtin(...)` id derives its
+    // cap from the use (§50, `required-caps.ts`), and WGSL refuses the id unless the enable
+    // is there — so reading the declared list alone would emit a module Tint rejects for the
+    // very directive this line exists to write. `requiredCaps` is a superset of `m.enables`,
+    // and the rows with no `directive` (the derived resource caps, the host-side device
+    // features) contribute nothing, so an enables-free module's emit stays byte-identical.
+    const dirs = requiredCaps(m)
       .map((c) => wgslBackend.capProfile[c]?.directive)
       .filter((d): d is string => d !== undefined)
-    if (dirs.length === 0) return ''
-    return [...new Set(dirs)]
-      .sort()
-      .map((d) => `enable ${d};`)
-      .join('\n')
+    // `requires <feature>;` for each WGSL LANGUAGE extension the module needs — a different
+    // axis from `enable`. WGSL fixes only that directives precede declarations, not the
+    // order of the two kinds; `enable` first is this writer's choice, for deterministic
+    // bytes.
+    const requires = requiredLanguageFeatures(m).map((f) => `requires ${f};`)
+    const lines = [...[...new Set(dirs)].sort().map((d) => `enable ${d};`), ...requires]
+    return lines.join('\n')
   },
 }
 

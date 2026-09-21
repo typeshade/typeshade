@@ -1,9 +1,12 @@
 // Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
 //
 // Numbering: `TS8` + a zero-padded sequential number, assigned in the order a code was added.
-// A gap (8011 is retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
-// exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
-// deserve its own code, so it stays parked past the sequential range instead of at its head.
+// A gap (8011 is retired) is never reused. Two deliberate exceptions to "sequential":
+// `UNSUPPORTED` (TS8099) is the catch-all for a diagnostic whose site does not yet deserve
+// its own code, so it stays parked past the sequential range instead of at its head; and a
+// block of numbers may be RESERVED ahead of time when several sessions add codes in
+// parallel, which is why 8038-8049 are unallocated below. A reserved block is claimed in the
+// issue before the branch is opened, so two of them never overlap.
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
@@ -93,6 +96,11 @@ export const TS_CODES = {
    *  used to fall through to the default of 64 with no diagnostic, so the author dispatched
    *  against a size they never asked for. The y/z rule stays `WORKGROUP_SHAPE`. */
   WORKGROUP_ARG: 'TS8037',
+  /** A file-level `"enable <extension>";` directive (§50) naming an extension outside the
+   *  vocabulary the WGSL backend's capability profile carries a directive for (`f16`,
+   *  `subgroups`, `clip_distances`, `primitive_index`). A misspelled name would otherwise be
+   *  an ordinary string expression statement and silently enable nothing. */
+  ENABLE_NAME: 'TS8050',
   UNSUPPORTED: 'TS8099',
 } as const
 

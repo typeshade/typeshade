@@ -7,6 +7,7 @@
 
 import ts from 'typescript'
 import { WGSL_BUILTIN_NAMES, type WgslBuiltinName } from '../../core/sot.js'
+import { typeKey, type ShaderType } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { TS_CODES } from './codes.js'
@@ -154,10 +155,11 @@ export function checkBuiltinName(
   return false
 }
 
-/** Which stage(s) and direction(s) each builtin id is valid for, per design doc §10 step 5.
- *  `clip_distances` is deliberately absent: the task that introduced this table names every
- *  other id's stage/direction explicitly and leaves `clip_distances` unspecified, so it is left
- *  unconstrained here rather than guessed. */
+/** Which stage(s) and direction(s) each builtin id is valid for, per design doc §10 step 5,
+ *  and — for the extension-gated ids — per the WGSL built-in value table (§50). Every id in
+ *  {@link WGSL_BUILTIN_NAMES} has a row now: `clip_distances` used to be absent and therefore
+ *  unconstrained, which let `@builtin("clip_distances")` sit on a fragment INPUT with zero
+ *  diagnostics and die at Tint. */
 const BUILTIN_STAGE_RULES: Readonly<
   Record<string, readonly { readonly stage: BuiltinStage; readonly direction: BuiltinDirection }[]>
 > = {
@@ -174,13 +176,61 @@ const BUILTIN_STAGE_RULES: Readonly<
     { stage: 'fragment', direction: 'output' },
   ],
   frag_depth: [{ stage: 'fragment', direction: 'output' }],
+  // WGSL: a vertex OUTPUT only, and an `array<f32, N ≤ 8>` — see checkBuiltinType.
+  clip_distances: [{ stage: 'vertex', direction: 'output' }],
+  primitive_index: [{ stage: 'fragment', direction: 'input' }],
   local_invocation_id: [{ stage: 'compute', direction: 'input' }],
   local_invocation_index: [{ stage: 'compute', direction: 'input' }],
   global_invocation_id: [{ stage: 'compute', direction: 'input' }],
   workgroup_id: [{ stage: 'compute', direction: 'input' }],
   num_workgroups: [{ stage: 'compute', direction: 'input' }],
-  subgroup_invocation_id: [{ stage: 'compute', direction: 'input' }],
-  subgroup_size: [{ stage: 'compute', direction: 'input' }],
+  // The subgroup pair is a FRAGMENT input as well as a compute one, per WGSL's built-in
+  // value table; it read as compute-only here, which refused a legal fragment program.
+  subgroup_invocation_id: [
+    { stage: 'compute', direction: 'input' },
+    { stage: 'fragment', direction: 'input' },
+  ],
+  subgroup_size: [
+    { stage: 'compute', direction: 'input' },
+    { stage: 'fragment', direction: 'input' },
+  ],
+}
+
+/** The longest `array<f32, N>` WGSL's built-in value table lets `@builtin(clip_distances)` be. */
+const MAX_CLIP_DISTANCES = 8
+
+/** Validates the TYPE declared for a `@builtin(...)` id against what WGSL fixes for it.
+ *
+ *  One id today: `clip_distances`, whose `array<f32, N ≤ 8>` shape is the one an author picks
+ *  and therefore the one an author can get wrong. Every other id has a single type, which is
+ *  {@link WGSL_BUILTIN_TYPES}' subject and a separate row. A name with no rule is left alone,
+ *  so an unknown id (already reported by {@link checkBuiltinName}) adds no second diagnostic. */
+export function checkBuiltinType(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  name: string,
+  type: ShaderType,
+): void {
+  if (name !== 'clip_distances') return
+  const shown = typeKey(type)
+  const ok =
+    type.kind === 'array' &&
+    type.elem.kind === 'scalar' &&
+    type.elem.scalar === 'f32' &&
+    type.size !== undefined &&
+    type.size >= 1 &&
+    type.size <= MAX_CLIP_DISTANCES
+  if (ok) return
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      node,
+      `Builtin "clip_distances" is "${shown}"; WGSL gives it array<f32, N> with N from 1 to ` +
+        `${String(MAX_CLIP_DISTANCES)}.`,
+      TS_CODES.TYPE_MISMATCH,
+    ),
+  )
 }
 
 /** Validates a (already name-checked) `@builtin(...)` id against the entry stage and direction

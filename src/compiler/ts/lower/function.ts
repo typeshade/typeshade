@@ -51,6 +51,7 @@ import {
   checkAttributeName,
   checkBuiltinName,
   checkBuiltinStage,
+  checkBuiltinType,
   type BuiltinStage,
 } from '../builtin-check.js'
 
@@ -732,6 +733,7 @@ export function parseParams(
       )
       if (validName) {
         builtin = builtinArg.name
+        checkBuiltinType(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name, pType)
         if (stage) {
           checkBuiltinStage(
             diagnostics,
@@ -1474,6 +1476,7 @@ function checkStructBuiltinFields(
     }
     if (!field.builtin) continue
     checkBuiltinStage(diagnostics, sourceFile, node, field.builtin, stage, direction)
+    checkBuiltinType(diagnostics, sourceFile, node, field.builtin, field.type)
   }
 }
 

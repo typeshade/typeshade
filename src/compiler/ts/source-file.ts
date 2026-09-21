@@ -4,6 +4,7 @@ import ts from 'typescript'
 import type {
   BindingDecl,
   ConstDecl,
+  DeclarableCapability,
   FuncDecl,
   ModuleVarDecl,
   OverrideDecl,
@@ -20,6 +21,7 @@ import { collectStructs, emittedStructDecls, type CollectedStruct } from './stru
 import type { DeclaredSymbol } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import { collectEnables } from './enables.js'
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
@@ -88,6 +90,11 @@ export interface CompileTsSourceResult {
   /** Every module variable (`let x: workgroup<T>`, `let y: perInvocation<T> = init`, §24) the
    *  module declares. Empty for a module that declares none. */
   readonly vars: readonly ModuleVarDecl[]
+  /** The capabilities the file's `"enable <extension>";` directives turn on (§50), by neutral
+   *  id. Empty for a file that enables nothing, which is most; the two extension-gated
+   *  `@builtin(...)` ids do not need one, since `requiredCaps` derives their capability from
+   *  the use. */
+  readonly enables: readonly DeclarableCapability[]
   /** Every name the front end declared while lowering `sourceFile`, with the `ShaderType` it
    *  gave it and the UTF-16 span of the declared name: the table an editor answers "what type
    *  is this symbol" from, since TypeScript infers plain `number` for a numeric literal that
@@ -133,6 +140,7 @@ export function compileTsSource(
     structs: [] as CollectedStruct[],
     overrides: [] as OverrideDecl[],
     vars: [] as ModuleVarDecl[],
+    enables: [] as DeclarableCapability[],
     symbols,
   }
 
@@ -161,6 +169,8 @@ export function compileTsSource(
   }
 
   analyzeSemantics(sourceFile, diagnostics)
+  // The file's `"enable <extension>";` directives (§50), before anything that could emit.
+  const enables = collectEnables(sourceFile, diagnostics)
   const structs = collectStructs(sourceFile, diagnostics, symbols)
   const bindings = collectBindings(sourceFile, diagnostics, symbols)
   const consts = collectModuleConsts(sourceFile, diagnostics, symbols, emittedStructDecls(structs))
@@ -207,6 +217,7 @@ export function compileTsSource(
         funcs: [...funcs],
         overrides: [...overrides],
         vars: [...vars],
+        enables,
       })
     } catch (e) {
       // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
@@ -225,6 +236,7 @@ export function compileTsSource(
     structs,
     overrides,
     vars,
+    enables,
     symbols,
     wgsl,
   }

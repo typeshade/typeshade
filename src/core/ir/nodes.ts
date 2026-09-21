@@ -623,9 +623,12 @@ export interface FuncDecl {
  *  - Derived resource capabilities, `storageBuffer`, `compute`, `msaaTextureLoad` and
  *    `storageTexture`, are inferred from a module's shape (a storage binding, a `@compute`
  *    entry, a multisampled texture load, a storage-texture binding) and never declared.
- *  - Opt-in language capabilities, `f16` and `subgroups`, are declared in
- *    `ModuleDecl.enables`. Each is a WGSL `enable` directive with no GLSL ES 3.00
- *    counterpart, so a module using one fails closed on the GLSL backend.
+ *  - Opt-in language capabilities, `f16`, `subgroups`, `clipDistances` and
+ *    `primitiveIndex`, are declared in `ModuleDecl.enables`, or — for the two that a
+ *    `@builtin(...)` id names outright — derived from that use by `requiredCaps`, the way
+ *    `enable clip_distances;` is what WGSL asks for before `@builtin(clip_distances)` is
+ *    spelled. Each is a WGSL `enable` directive with no GLSL ES 3.00 counterpart, so a
+ *    module using one fails closed on the GLSL backend.
  *  - Opt-in device capabilities are also declared in `ModuleDecl.enables`. They change
  *    what the device can do and leave what the source may spell unchanged.
  *    `floatRenderTarget` (WebGL2 `EXT_color_buffer_float`, WebGPU core), `float32Blend`
@@ -656,6 +659,8 @@ export type Capability =
   | 'textureGather'
   | 'f16'
   | 'subgroups'
+  | 'clipDistances'
+  | 'primitiveIndex'
   | 'floatRenderTarget'
   | 'float32Blend'
   | 'float32Filterable'
@@ -674,6 +679,8 @@ export const ALL_CAPABILITIES = [
   'textureGather',
   'f16',
   'subgroups',
+  'clipDistances',
+  'primitiveIndex',
   'floatRenderTarget',
   'float32Blend',
   'float32Filterable',
@@ -681,11 +688,16 @@ export const ALL_CAPABILITIES = [
 ] as const satisfies readonly Capability[]
 
 /** The capabilities a module may name in `ModuleDecl.enables`: {@link Capability} minus
- *  the three derived resource capabilities. Those three are inferred from the module's
- *  shape by `requiredCaps` (a storage binding means `storageBuffer`, a `@compute` entry
- *  means `compute`, a multisampled texture means `msaaTextureLoad`), so declaring one
- *  would at best restate the shape and at worst assert a feature the module does not
- *  use. This type makes that a compile error.
+ *  the derived resource capabilities. Those are inferred from the module's shape by
+ *  `requiredCaps` (a storage binding means `storageBuffer`, a `@compute` entry means
+ *  `compute`, a multisampled texture means `msaaTextureLoad`, and so on through the four
+ *  texture ids), so declaring one would at best restate the shape and at worst assert a
+ *  feature the module does not use. This type makes that a compile error.
+ *
+ *  `clipDistances`, `primitiveIndex` and `subgroups` are on BOTH sides and deliberately so:
+ *  each is derived from a `@builtin(...)` id the module spells (§50), and each is still
+ *  declarable, because a module may hold the directive for a feature it reaches another way.
+ *  Deriving and declaring meet in one set, so naming one changes nothing.
  *
  *  Only the authoring surface narrows: `requiredCaps`, {@link Capabilities} and
  *  {@link CapProfile} keep reading the full `Capability`, because the derived ids are
@@ -765,9 +777,11 @@ export interface ModuleDecl {
    *  activates it from `reflect(m).requiredFeatures` and the emitted bytes do not move.
    *  Absent or empty means no directive and unchanged emitted source.
    *
-   *  The type is `DeclarableCapability`, which excludes the three caps derived from the
-   *  module's shape (`storageBuffer`, `compute`, `msaaTextureLoad`); naming one here is a
-   *  compile error. */
+   *  The type is `DeclarableCapability`, which excludes the caps derived from the module's
+   *  shape (`storageBuffer`, `compute`, `msaaTextureLoad`, `storageTexture` and the three
+   *  texture ids); naming one here is a compile error. The caps derived from a
+   *  `@builtin(...)` id instead (`clipDistances`, `primitiveIndex`, `subgroups`, §50) are
+   *  NOT excluded: deriving and declaring fold into one set, so naming one is harmless. */
   readonly enables?: readonly DeclarableCapability[]
 }
 

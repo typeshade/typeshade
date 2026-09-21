@@ -7,7 +7,12 @@ import { mapTsTypeToShaderType } from './type-map.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
-import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
+import {
+  builtinDecoratorArg,
+  checkAttributeName,
+  checkBuiltinName,
+  checkBuiltinType,
+} from './builtin-check.js'
 import { applyMixins, isMixinHeritage, mixedMembers, type MixinApplication } from './mixins.js'
 import { pushTypeArguments } from './generics.js'
 import {
@@ -435,6 +440,14 @@ export function collectStructs(
             checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
               ? builtinArg.name
               : undefined
+          // The TYPE rule is checked here, at the declaration, and not only where the struct
+          // is used as entry IO (`lower/function.ts`): the capability a `@builtin(...)` id
+          // derives is read off `m.structs` whatever the struct is used for, so a struct that
+          // declares `@builtin("clip_distances")` and is never an entry parameter emitted the
+          // directive and the field with no diagnostic at all.
+          if (builtin) {
+            checkBuiltinType(diagnostics, sourceFile, builtinArg!.argNode, builtin, type)
+          }
           if (loc !== undefined) (field as { location?: number }).location = loc
           if (builtin) (field as { builtin?: string }).builtin = builtin
           if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`

@@ -73,6 +73,8 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   frag_depth: "Overrides the fragment's depth value.",
   sample_index: 'The index of the sample currently being processed, under multisampling.',
   sample_mask: 'The set of samples covered by the current fragment invocation.',
+  primitive_index:
+    'The index of the primitive the current fragment belongs to. Needs `enable primitive_index;`, which the use derives.',
   local_invocation_id: "The current invocation's id within its workgroup, as a 3-component vector.",
   local_invocation_index: "The current invocation's flattened index within its workgroup.",
   global_invocation_id: "The current invocation's id across the entire compute dispatch.",
@@ -80,7 +82,8 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   num_workgroups: 'The number of workgroups dispatched, as given to the dispatch call.',
   subgroup_invocation_id: "The current invocation's index within its subgroup.",
   subgroup_size: 'The number of invocations in the current subgroup.',
-  clip_distances: "Per-vertex clip distances against the pipeline's enabled user clip planes.",
+  clip_distances:
+    "Per-vertex clip distances against the pipeline's enabled user clip planes: a vertex output of `array<f32, N>` with N from 1 to 8. Needs `enable clip_distances;`, which the use derives.",
 }
 
 /** One Markdown sentence per builtin function: free math functions, expansions, casts, vector

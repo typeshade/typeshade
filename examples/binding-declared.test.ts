@@ -114,6 +114,12 @@ const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[]
   // The multisampled resolve (item 13, §37): both stages refused under msaaTextureLoad.
   { id: 'msaa-resolve', stage: 'vertex', match: /msaaTextureLoad/ },
   { id: 'msaa-resolve', stage: 'fragment', match: /msaaTextureLoad/ },
+  // User clip planes (§50): `@builtin("clip_distances")` derives `clipDistances`, which GLSL
+  // ES 3.00 has no row for — `gl_ClipDistance` is `EXT_clip_cull_distance`, which WebGL2 does
+  // not expose. Both stages are refused by the capability gate before any emit, which is the
+  // point: the alternative is a linked shader whose clip planes silently do nothing.
+  { id: 'clip-planes', stage: 'vertex', match: /clipDistances/ },
+  { id: 'clip-planes', stage: 'fragment', match: /clipDistances/ },
 ]
 
 describe('every binding a stage mentions is a binding that stage declares', () => {

@@ -45,6 +45,7 @@ import {
   vec4,
   f32T,
   u32T,
+  vec4fT,
   texture2dMsfT,
   arrayT,
   type Capability,
@@ -354,9 +355,91 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
   // `f32T` / `i32T` / `u32T` / `boolT`, so the missing one is `f16T` (and, behind it, an
   // `'f16'` member of `Scalar` — ir/types.ts:9 — that every vector/matrix arm keys off).
   f16: { kind: 'typeConstant', id: 'f16T' },
-  // subgroups is a family of intrinsics; `subgroupAdd` is the canonical one. Any of them
-  // landing in the registry makes the cap real — swap the id if a different one ships first.
-  subgroups: { kind: 'intrinsic', id: 'subgroupAdd' },
+  // subgroups stopped being intrinsic-only when the two subgroup BUILT-IN VALUES gained
+  // their stage rules and their derived capability (§50): `@builtin(subgroup_invocation_id)`
+  // on a compute or fragment entry emits `enable subgroups;` and reports the host feature,
+  // with no subgroup intrinsic anywhere. That is a source witness, so the witness is the
+  // module shape — the same kind the other two extension-gated ids use. The intrinsic family
+  // (`subgroupAdd`, `subgroupBallot`, …) is still absent and is still a separate debt, but
+  // it is no longer what makes the CAPABILITY reachable.
+  subgroups: {
+    kind: 'moduleShape',
+    what: "an entry parameter with builtin 'subgroup_invocation_id'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'fs_probe',
+          stage: 'fragment',
+          params: [
+            {
+              name: 'sid',
+              type: u32T,
+              attr: '@builtin(subgroup_invocation_id)',
+              builtin: 'subgroup_invocation_id',
+            },
+          ],
+          ret: vec4fT,
+          body: [],
+        },
+      ],
+    }),
+  },
+  // The two extension-gated BUILT-IN VALUES (§50). The witness is the module SHAPE, not the
+  // `builtin` kind above: that one resolves through a GLSL emit, and neither id has any GLSL
+  // ES 3.00 mapping — the whole point of the capability is that the module fails closed
+  // there. What makes each reachable is that spelling the id derives the cap, which is what
+  // `requiredCaps` is asked here.
+  clipDistances: {
+    kind: 'moduleShape',
+    what: "a struct field with builtin 'clip_distances'",
+    build: () => ({
+      consts: [],
+      structs: [
+        {
+          name: 'VsOut',
+          fields: [
+            { name: 'pos', type: vec4fT, attr: '@builtin(position)', builtin: 'position' },
+            {
+              name: 'cd',
+              type: arrayT(f32T, 4),
+              attr: '@builtin(clip_distances)',
+              builtin: 'clip_distances',
+            },
+          ],
+        },
+      ],
+      bindings: [],
+      funcs: [],
+    }),
+  },
+  primitiveIndex: {
+    kind: 'moduleShape',
+    what: "an entry parameter with builtin 'primitive_index'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'fs_probe',
+          stage: 'fragment',
+          params: [
+            {
+              name: 'pi',
+              type: u32T,
+              attr: '@builtin(primitive_index)',
+              builtin: 'primitive_index',
+            },
+          ],
+          ret: vec4fT,
+          body: [],
+        },
+      ],
+    }),
+  },
   // multiview needs BOTH halves: a per-view id to read (`gl_ViewID_OVR`, which this DSL
   // would spell `@builtin(view_index)`) and the `layout(num_views = N) in;` qualifier.
   // The builtin is the half a witness can resolve mechanically; the qualifier has no
@@ -373,10 +456,6 @@ const UNREACHABLE_ALLOWLIST: Readonly<Partial<Record<Capability, string>>> = {
   // can be declared, passed, or returned. Reachable only once `Scalar` gains 'f16' and
   // the type constants / promotion rules follow.
   f16: 'no f16 value type — Scalar is f32|i32|u32|bool (ir/types.ts:9) — X-GIS #1681',
-  // X-GIS #1681 A3 — `enable subgroups;` emits on WGSL and the registry has no subgroup
-  // intrinsic (subgroupAdd / subgroupBallot / subgroupBroadcast), so the directive is
-  // the entire feature.
-  subgroups: 'no subgroup intrinsic in the registry (core/intrinsics.ts) — X-GIS #1681',
   // X-GIS #1681 A3 — the GLSL row emits `#extension GL_OVR_multiview2 : require` and the
   // module still renders SINGLE-VIEW: `layout(num_views = N) in;` is unspellable and
   // `gl_ViewID_OVR` has no `@builtin` mapping. The cap exists to prove the `#extension`

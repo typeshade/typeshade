@@ -13,6 +13,50 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **`enable`, `requires`, and the built-in values behind an extension** (§50,
+  [#146](https://github.com/typeshade/typeshade/issues/146)). WGSL puts
+  some built-in values behind an `enable` extension, and writing the id is now the whole
+  declaration: `@builtin("clip_distances")` derives `enable clip_distances;`, the neutral
+  capability `clipDistances` on `reflect().requiredFeatures` and the host feature
+  `clip-distances`, and `@builtin("primitive_index")` the same for `primitiveIndex`. Both were
+  previously unreachable or silently wrong — `clip_distances` was admitted by name with no
+  stage rule and no size rule, so it sat on a fragment input and emitted WGSL Tint refuses
+  (`use of '@builtin(clip_distances)' requires enabling extension 'clip_distances'`). Each id
+  now carries its stage, direction and type at the authoring line: `clip_distances` is a vertex
+  output of `array<f32, N>` with N from 1 to 8, `primitive_index` a `u32` fragment input, and
+  the subgroup pair is accepted on a fragment entry as well as a compute one, which the spec
+  always gave it. All four fail closed on GLSL ES 3.00, which has no row for any of them. The
+  two extensions no use can derive have an author spelling at last: a `"enable subgroups"`
+  string directive beside `"use typeshade"`, whose vocabulary is the WGSL backend's capability
+  profile (`clip_distances`, `f16`, `primitive_index`, `subgroups`) and whose misspelling is
+  `TS8050` naming the four and enabling nothing. The other WGSL axis is reported too:
+  `reflect().requiredLanguageFeatures` lists the language extensions a module needs and the
+  writer emits `requires <feature>;`, with one row today —
+  `readonly_and_readwrite_storage_textures` for a storage texture bound `read` or `read_write`,
+  since core WGSL gives one `write` only. Measured against the Tint the compile gate runs:
+  `requires readonly_and_readwrite_storage_textures;` is accepted;
+  `requires uniform_buffer_standard_layout;` is not (`feature '…' is not supported`);
+  `@builtin("global_invocation_index")`, `@builtin("workgroup_index")` and
+  `@builtin("frag_depth", "less")` are all refused by that Tint, so none of the three is
+  admitted and §50 records each with its message. A file that enables nothing emits the bytes
+  it always did.
+
+  **The compile gate asks for the features the corpus needs.** An extension-gated id costs a
+  device feature, and `requestDevice()` with no `requiredFeatures` gives a device with none —
+  Tint then says `extension 'clip_distances' is not allowed in the current environment`, which
+  reads like a bad emit and is not one. `scripts/compile-gate.ts` now derives the list from the
+  modules themselves (`hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures)`), requests
+  what the adapter has and prints what it lacks. `examples/clip-planes.shade.ts` is the new
+  evidence: four user clip planes, WGSL-only, compiling on the gate's real Tint.
+  `primitive_index` gets no example — `primitive-index` is not among that adapter's features —
+  so its emit is pinned by `src/compiler/ts/builtin-values.test.ts`, and its host-feature
+  string is the one value here no measurement could confirm. The one existing example whose
+  bytes moved is `examples/storage-texture.shade.ts`, which now leads with `requires
+  readonly_and_readwrite_storage_textures;` for its `read_write` binding; that directive can
+  only ever narrow what compiles, since a `requires` naming a feature an implementation lacks
+  is itself a shader-creation error, and the feature is present on every WebGPU this compiler
+  targets (measured in `navigator.gpu.wgslLanguageFeatures`).
+
 - **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
   operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a
   ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the driver

@@ -30,7 +30,11 @@ import {
   workgroupSizeOf,
 } from './ir/index.js'
 import { entryIo, type IoField } from './ir/entry-io.js'
-import { requiredCaps } from './passes/required-caps.js'
+import {
+  requiredCaps,
+  requiredLanguageFeatures,
+  type LanguageFeature,
+} from './passes/required-caps.js'
 import { bindingStages } from './passes/stage-bindings.js'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 
@@ -554,6 +558,23 @@ export interface Reflection {
    *  `hostFeaturesFor` skips every capability the backend has no host feature for, so the
    *  loop above is correct either way. */
   readonly requiredFeatures: readonly Capability[]
+  /** Every WGSL *language* extension this module's emit requires (§50), sorted and
+   *  deduplicated. Always present; empty for a module that needs none, which is most.
+   *
+   *  This is the `requires` axis of WGSL, not the `enable` axis {@link requiredFeatures}
+   *  reports: a language extension changes what the WGSL text may SAY, and a host checks it
+   *  against `navigator.gpu.wgslLanguageFeatures` rather than requesting it at
+   *  `requestDevice`. The WGSL writer emits `requires <feature>;` for each name here; GLSL ES
+   *  3.00 has no such axis, and the resource capability that carries each of these rows is
+   *  what fails a module closed on that target.
+   *
+   *  ```ts
+   *  for (const f of reflect(m).requiredLanguageFeatures) {
+   *    if (!navigator.gpu.wgslLanguageFeatures.has(f)) throw new Error(`no WGSL ${f}`)
+   *  }
+   *  ```
+   */
+  readonly requiredLanguageFeatures: readonly LanguageFeature[]
   /** The host-provided globals this module references but does not declare: one entry per
    *  {@link externVar} declarator, reported so a composer can check them against what the
    *  host's prelude actually supplies. Always present; empty for a module that expects
@@ -848,6 +869,10 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     entries,
     overrides,
     requiredFeatures,
+    // The `requires` axis (§50). Same derivation the WGSL writer's preamble uses, for the
+    // reason requiredFeatures shares one with assertCaps: reflection and emit must not be
+    // able to disagree about what a module needs.
+    requiredLanguageFeatures: requiredLanguageFeatures(m),
     requires: (m.externs ?? []).map((e) => ({
       name: e.name,
       type: typeKey(e.type),

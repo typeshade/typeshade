@@ -128,6 +128,7 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
     funcs: [...r.funcs],
     overrides: [...r.overrides],
     vars: [...r.vars],
+    enables: [...r.enables],
   }
   const diagnostics = [...r.diagnostics]
   const firstError = (): TsCompilerDiagnostic | undefined =>

@@ -4,15 +4,18 @@ import ts from 'typescript'
 import type {
   BindingDecl,
   ConstDecl,
+  DeclarableCapability,
   FuncDecl,
   OverrideDecl,
   StructDecl,
 } from '../../core/ir/nodes.js'
 import { emitFuncs, emitModule } from '../../core/backends/wgsl.js'
+import { requiredCaps } from '../../core/passes/required-caps.js'
 import { hasUseTypeshadeDirective } from './directive.js'
 import { reportCrossDeclarationCollisions, type TsCompilerDiagnostic } from './source-file.js'
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js'
 import { collectBindings } from './bindings.js'
+import { collectEnables } from './enables.js'
 import { collectOverrides } from './overrides.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
@@ -43,6 +46,13 @@ export interface CompileTsSourcesResult {
   readonly structs: readonly StructDecl[]
   readonly bindings: readonly BindingDecl[]
   readonly overrides: readonly OverrideDecl[]
+  /** The capabilities the program's `"enable <extension>";` directives turn on (§50), merged
+   *  over every file: a multi-file program is one module, so two files naming one extension
+   *  is one enable, not a duplicate declaration. Empty for a program that enables nothing.
+   *  Reported so a caller assembling its own `ModuleDecl` from this result does not silently
+   *  drop the directives — the caps a `@builtin(...)` id derives need no entry here, since
+   *  `requiredCaps` reads them straight off the declarations. */
+  readonly enables: readonly DeclarableCapability[]
   /** What the front end declared while lowering the ENTRY file (`entry`, or the first file
    *  given), as `CompileTsSourceResult.symbols` records it. One file only: a `DeclaredSymbol`
    *  span is a UTF-16 offset, which means nothing without the file it indexes, and this result
@@ -109,7 +119,16 @@ export function compileTsSources(
   const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
   if (syntax.length > 0) {
     diagnostics.push(...syntax)
-    return { funcs: [], diagnostics, consts: [], structs: [], bindings: [], overrides: [], symbols }
+    return {
+      funcs: [],
+      diagnostics,
+      consts: [],
+      structs: [],
+      bindings: [],
+      overrides: [],
+      enables: [],
+      symbols,
+    }
   }
 
   for (const [name, sf] of parsed) {
@@ -272,7 +291,14 @@ export function compileTsSources(
       ...bindings.map((b) => b.name),
     ])
     const overrides = collectOverrides(sf, diagnostics, sink, glslNames)
-    perFile.push({ name, sf, structs, bindings, overrides })
+    perFile.push({
+      name,
+      sf,
+      structs,
+      bindings,
+      overrides,
+      enables: collectEnables(sf, diagnostics),
+    })
   }
   const merged = mergeDeclarations(perFile, diagnostics)
 
@@ -369,21 +395,32 @@ export function compileTsSources(
       // top-level `let` test found the variable missing from the text). `emitFuncs` is the
       // bare-functions form the single-file path uses too, and switching unconditionally would
       // change the emitted text of every multi-file program that has neither.
+      //
+      // A module needing a DIRECTIVE takes the full path whatever its declarations hold
+      // (§50). `emitFuncs` writes no preamble and runs neither `assertCaps` nor
+      // `assertBuiltins`, so a two-file program whose only notable feature is
+      // `@builtin(primitive_index)` emitted with zero diagnostics and no `enable` line —
+      // measured on Tint as `use of '@builtin(primitive_index)' requires enabling extension
+      // 'primitive_index'`. `requiredCaps`, not `merged.enables`: the caps that matter here
+      // are the ones a `@builtin(...)` id DERIVES, which no declaration list mentions.
       const structs = emittedStructDecls(merged.structs)
+      const decl = {
+        consts,
+        structs,
+        bindings: merged.bindings,
+        funcs,
+        overrides: merged.overrides,
+        vars,
+        enables: merged.enables,
+      }
       wgsl =
         consts.length > 0 ||
         vars.length > 0 ||
         structs.length > 0 ||
         merged.bindings.length > 0 ||
-        merged.overrides.length > 0
-          ? emitModule({
-              consts,
-              structs,
-              bindings: merged.bindings,
-              funcs,
-              overrides: merged.overrides,
-              vars,
-            })
+        merged.overrides.length > 0 ||
+        requiredCaps(decl).length > 0
+          ? emitModule(decl)
           : emitFuncs(funcs)
     } catch (e) {
       // `backendDiagnostic` (X-GIS #37's honest-failure work) rather than the message built
@@ -401,6 +438,7 @@ export function compileTsSources(
     structs: emittedStructDecls(merged.structs),
     bindings: merged.bindings,
     overrides: merged.overrides,
+    enables: merged.enables,
     symbols,
     wgsl,
   }
@@ -413,6 +451,7 @@ interface FileDeclarations {
   readonly structs: readonly CollectedStruct[]
   readonly bindings: readonly BindingDecl[]
   readonly overrides: readonly OverrideDecl[]
+  readonly enables: readonly DeclarableCapability[]
 }
 
 /** Merges every file's structs, bindings and overrides into one module's (roadmap 0.5 item 14).
@@ -423,12 +462,20 @@ interface FileDeclarations {
 function mergeDeclarations(
   files: readonly FileDeclarations[],
   diagnostics: TsCompilerDiagnostic[],
-): { structs: CollectedStruct[]; bindings: BindingDecl[]; overrides: OverrideDecl[] } {
+): {
+  structs: CollectedStruct[]
+  bindings: BindingDecl[]
+  overrides: OverrideDecl[]
+  enables: DeclarableCapability[]
+} {
   const owner = new Map<string, string>()
   const slots = new Map<string, string>()
   const structs: CollectedStruct[] = []
   const bindings: BindingDecl[] = []
   const overrides: OverrideDecl[] = []
+  // A multi-file program is one module, so its `"enable ..."` directives are one set: two
+  // files naming the same extension is not a duplicate declaration, it is one enable.
+  const enables: DeclarableCapability[] = []
   const claim = (kind: string, name: string, file: FileDeclarations): boolean => {
     const prev = owner.get(name)
     if (prev !== undefined && prev !== file.name) {
@@ -447,6 +494,7 @@ function mergeDeclarations(
     return true
   }
   for (const f of files) {
+    for (const c of f.enables) if (!enables.includes(c)) enables.push(c)
     for (const s of f.structs) if (claim('Struct', s.decl.name, f)) structs.push(s)
     for (const o of f.overrides) if (claim('Override', o.name, f)) overrides.push(o)
     for (const b of f.bindings) {
@@ -469,7 +517,7 @@ function mergeDeclarations(
       bindings.push(b)
     }
   }
-  return { structs, bindings, overrides }
+  return { structs, bindings, overrides, enables }
 }
 
 /** A diagnostic needs a source file to carry a position. With no parsable file left to point

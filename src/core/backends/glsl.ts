@@ -83,6 +83,7 @@ import {
   type ParenMode,
 } from '../emit.js'
 import { autoVars } from '../passes/opt/index.js'
+import { requiredCaps } from '../passes/required-caps.js'
 import { wgslLayout } from '../reflect.js'
 import { sanitizeReservedIdents } from './glsl-sanitize.js'
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js'
@@ -428,12 +429,14 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  NO rows for `storageBuffer` / `compute` / `msaaTextureLoad` / `storageTexture` (WebGL2
  *  has no SSBOs, no compute stage, no MSAA texel fetch, and no image load/store — that last
  *  one is ES 3.10, measured on a driver: `layout(rgba8) uniform writeonly image2D` is
- *  "invalid layout qualifier: not supported") and none for `f16` / `subgroups` (WGSL `enable`
- *  language features with no GLSL ES 3.00 counterpart). FIVE of the six fail closed
- *  here, naming the cap; `storageBuffer` is the exception and does NOT — a storage module
+ *  "invalid layout qualifier: not supported") and none for `f16` / `subgroups` /
+ *  `clipDistances` / `primitiveIndex` (WGSL `enable` language features with no GLSL ES 3.00
+ *  counterpart; the last two are derived from a `@builtin(...)` id rather than declared, §50).
+ *  SEVEN of the eight fail closed here, naming the cap; `storageBuffer` is the exception and
+ *  does NOT — a storage module
  *  is REWRITTEN to a data texture (lowerStorageToDataTexture) BEFORE the gate runs, so by
  *  the time assertCaps looks there is no storage binding left to require it. The
- *  profile's emptiness for all six is the pinned invariant either way, not an oversight
+ *  profile's emptiness for all eight is the pinned invariant either way, not an oversight
  *  (extension-profile.test.ts, passes/required-caps.test.ts, enable-directives.test.ts).
  *
  *  The three HOST-side rows cost ZERO emitted bytes: WebGL2 activates them through
@@ -627,8 +630,14 @@ export const glslEs300Backend: Backend = {
   // Bare lines, NO trailing separator — the one contract every backend's preamble keeps
   // (backend.ts); here the caller splices the result as ONE `parts` entry and `parts` are
   // joined with '\n', so the separator is already the assembler's.
+  //
+  // `requiredCaps(m)`, not `m.enables`, the same authority the WGSL preamble reads (§50): a
+  // capability may be DERIVED from a `@builtin(...)` id rather than declared, and a derived
+  // one carrying a `#extension` line would be dropped here. No row does today — `multiview`
+  // is this profile's only directive and nothing derives it — so the emitted bytes do not
+  // move; the point is that the two writers answer one question.
   modulePreamble: (m) => {
-    const dirs = (m.enables ?? [])
+    const dirs = requiredCaps(m)
       .map((c) => GLSL_CAP_PROFILE[c]?.directive)
       .filter((d): d is string => d !== undefined)
     if (dirs.length === 0) return ''

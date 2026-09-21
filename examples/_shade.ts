@@ -430,6 +430,17 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       '`reflect`, `refract` and `faceForward` light a bump, `transpose` and `determinant` read the host matrix, and the bit builtins (`firstLeadingBit`, `reverseBits`, `countOneBits`, `extractBits`, `insertBits`) band the screen, with `fwidthCoarse` marking where a band starts (§10). GLSL ES 3.00 spells several of them differently and casts `findMSB` back to `uint`; the gate runs both.',
     renderable: true,
   },
+  {
+    id: 'clip-planes',
+    title: 'User clip planes',
+    blurb:
+      'Four user clip planes through `@builtin("clip_distances")`, the vertex output the rasterizer reads before it rasterizes (§50). Nothing in the source names a capability: writing the id derives `enable clip_distances;`, the `clipDistances` capability on `reflect().requiredFeatures` and the `clip-distances` feature the host requests at `requestDevice` — which the compile gate now does, so the Tint half runs it. The type is the one WGSL leaves to the author, `array<f32, N>` with N from 1 to 8, and the stage rule is checked at the authoring line.',
+    // GLSL ES 3.00 reaches `gl_ClipDistance` only through `EXT_clip_cull_distance`, which
+    // WebGL2 does not expose, so the capability has no row in that backend's profile and the
+    // module fails closed there naming it. Emitting a shader whose clip planes silently did
+    // nothing is the outcome that refusal exists to prevent.
+    renderable: false,
+  },
 ]
 
 /**

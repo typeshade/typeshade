@@ -1861,6 +1861,18 @@ A capability can need either half, both halves, or neither.
 | `multiview` | directive `GL_OVR_multiview2` and host feature `OVR_multiview2` | unsupported, fails closed |
 | `f16` | unsupported, fails closed | directive `f16` and host feature `shader-f16` |
 | `subgroups` | unsupported, fails closed | directive `subgroups` and host feature `subgroups` |
+| `clipDistances` | unsupported, fails closed | directive `clip_distances` and host feature `clip-distances` |
+| `primitiveIndex` | unsupported, fails closed | directive `primitive_index` and host feature `primitive-index` |
+
+`clipDistances` and `primitiveIndex` are the two rows nothing declares by hand: writing
+`@builtin("clip_distances")` or `@builtin("primitive_index")` derives the capability, because
+WGSL refuses the built-in value itself without the matching `enable`. In a `"use typeshade"`
+file the other two are spelled as a string directive beside `"use typeshade"`:
+
+```ts
+"use typeshade"
+"enable subgroups"
+```
 
 A capability with a host half and no source half costs zero emitted bytes: declaring it
 moves no byte of the shader. The `32` in `float32Blend` and `float32Filterable` is
@@ -1885,11 +1897,19 @@ declares, which come back with `declarable: false`.
 
 Two notes before you trust a row.
 
-- Support is not the same as reachability. `f16`, `subgroups` and `multiview` are supported
-  on the target the table says, and none of the three is authorable today, because there is
-  no `f16` scalar type, no subgroup intrinsic, and no way to spell
-  `layout(num_views = N) in;` or read `gl_ViewID_OVR`. A module declaring `multiview` emits
-  the directive and renders single-view.
+- Support is not the same as reachability. `f16` and `multiview` are supported on the target
+  the table says and neither is authorable today, because there is no `f16` scalar type and
+  no way to spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`. A module declaring
+  `multiview` emits the directive and renders single-view. The other three are reachable:
+  `clipDistances` and `primitiveIndex` are what their built-in values need, and `subgroups`
+  is reached by `@builtin("subgroup_invocation_id")` or `@builtin("subgroup_size")` on a
+  compute or fragment entry — the subgroup INTRINSICS (`subgroupAdd` and friends) are still
+  absent, which is a separate gap from the capability. Whether a given adapter HAS one of the
+  three is what `reflect().requiredFeatures` is for, and a device only HAS an optional feature
+  if `requestDevice` was asked for it — the compile gate does exactly that, deriving the list
+  from the corpus, which is how `examples/clip-planes.shade.ts` compiles on its Tint. Its
+  software adapter offers `clip-distances` and `subgroups` but not `primitive-index`, so that
+  one row's host string is unconfirmed here.
 - An unsupported cell is a hard stop by design: the emit throws. To ask before you emit,
   `diagnose(m, { backend })` reports the same missing capability as an `SD0030` diagnostic
   and never throws.

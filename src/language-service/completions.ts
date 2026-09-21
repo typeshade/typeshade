@@ -7,11 +7,21 @@ import { nodeAtPosition } from './positions.js'
 import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js'
 
 /** The `@builtin(...)` names valid for a parameter of a function decorated with each stage.
- * `clip_distances` and the subgroup pair have no parameter position in any of the three
- * stages, so they only ever appear via the unfiltered fallback (an unknown enclosing stage). */
+ * `clip_distances` is a vertex OUTPUT (§50), so it has no parameter position in any of the
+ * three stages and only ever appears via the unfiltered fallback (an unknown enclosing
+ * stage). The subgroup pair does have one, on compute and on fragment, which is the stage
+ * rule `builtin-check.ts` enforces. */
 const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', readonly string[]>> = {
   vertex: ['vertex_index', 'instance_index'],
-  fragment: ['position', 'front_facing', 'sample_index', 'sample_mask'],
+  fragment: [
+    'position',
+    'front_facing',
+    'sample_index',
+    'sample_mask',
+    'primitive_index',
+    'subgroup_invocation_id',
+    'subgroup_size',
+  ],
   compute: [
     'local_invocation_id',
     'local_invocation_index',

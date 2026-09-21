@@ -30,6 +30,7 @@ import { fragmentOnlyBuiltin } from './fragment-only-builtin.js'
 import { portableKernel } from './portable-kernel.js'
 import { noShadowedLocal } from './no-shadowed-local.js'
 import { usesDeclared } from './uses-declared.js'
+import { builtinValueType } from './builtin-value-type.js'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -56,6 +57,7 @@ export const RULES: readonly LintRule[] = [
   callSignature,
   smoothstepEdgeOrder,
   fragmentOnlyBuiltin,
+  builtinValueType,
   portableKernel,
   noShadowedLocal,
   usesDeclared,
@@ -118,4 +120,9 @@ export const CORE_RULES: readonly LintRule[] = [
   // cross. CORE because the failure is a SILENT miscompile on every backend — two sibling `if`
   // arms binding `t` folded to the same literal at O1 — not a style opinion (X-GIS #2341).
   noShadowedLocal,
+  // A `@builtin(...)` id declared with a type WGSL does not give it (§50). CORE because the
+  // CAPABILITY is derived from the same IR read: a struct that declares
+  // `@builtin(clip_distances)` emits `enable clip_distances;` whether or not the front end
+  // ever saw it as entry IO, so the type rule has to be read off the IR too.
+  builtinValueType,
 ]

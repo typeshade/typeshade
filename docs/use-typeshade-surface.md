@@ -2909,6 +2909,121 @@ The list is the input to the divergence report of roadmap item 19: when a GPU re
 oracle disagree, the operations here are where the spec allows it, and everything else is a bug
 in one of the two.
 
+## 50. `enable`, `requires`, and the built-in values behind an extension
+
+WGSL turns a language extension on with a module-scope `enable f16;` and names a *language*
+extension with `requires <feature>;` — two different axes, and neither had an author spelling.
+
+**Some built-in values derive their own `enable`.** `@builtin("clip_distances")` is a
+shader-creation error without `enable clip_distances;` — Tint says `use of
+'@builtin(clip_distances)' requires enabling extension 'clip_distances'` — so writing the id is
+the whole declaration. The compiler emits the directive, `reflect().requiredFeatures` grows the
+neutral capability, and `hostFeaturesFor(wgslBackend, …)` turns it into what the host requests
+at `requestDevice`.
+
+```ts
+class VsOut {
+  @builtin("position") pos: vec4
+  @builtin("clip_distances") cd: array<f32, 4> // vertex OUTPUT only, N from 1 to 8
+}
+
+@fragment
+export function fs(@builtin("primitive_index") pi: u32): vec4 { // fragment INPUT only
+  return vec4(f32(pi), 0., 0., 1.)
+}
+```
+
+| id | stage and direction | type | capability · directive · host feature |
+| --- | --- | --- | --- |
+| `clip_distances` | vertex output | `array<f32, N>`, 1 ≤ N ≤ 8 | `clipDistances` · `enable clip_distances;` · `clip-distances` |
+| `primitive_index` | fragment input | `u32` | `primitiveIndex` · `enable primitive_index;` · `primitive-index` |
+| `subgroup_invocation_id` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
+| `subgroup_size` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
+
+`clip_distances` used to be admitted with no stage rule and no size rule at all: it sat on a
+fragment input and emitted WGSL Tint refused. Each row's stage, direction and type is now
+checked at the authoring line. The subgroup pair read as compute-only, which refused a legal
+fragment program; both stages are accepted.
+
+**Each of the four fails closed on GLSL ES 3.00.** That target has no row for any of these
+capabilities, so `emitGlslModule` throws `SD0030` naming it rather than emitting a varying a
+WebGL2 driver would reinterpret.
+
+**The author spelling for the rest: a string directive beside `"use typeshade"`.** The two
+extensions no use can derive — the ones whose surface is not one built-in value — are turned on
+by the file itself:
+
+```ts
+"use typeshade"
+"enable subgroups"
+```
+
+One extension per directive, WGSL's own name. The vocabulary is the WGSL backend's capability
+profile, so it is exactly the list the writer can emit a directive for: `clip_distances`, `f16`,
+`primitive_index`, `subgroups`. A misspelled name is `TS8050` naming the four, and enables
+nothing — a typo does not also fail the module closed on a capability it never asked for. A file
+with no directive emits the same bytes it always did.
+
+**The `requires` axis.** A WGSL *language* extension changes what the text may say and is
+checked by the host against `navigator.gpu.wgslLanguageFeatures`, not requested at
+`requestDevice`. `reflect().requiredLanguageFeatures` reports it and the WGSL writer emits the
+directive. One row today: a storage texture bound `read` or `read_write` needs
+`readonly_and_readwrite_storage_textures`, since core WGSL gives a storage texture `write` only.
+
+```wgsl
+requires readonly_and_readwrite_storage_textures;
+
+@group(0) @binding(0) var acc: texture_storage_2d<r32float, read_write>;
+```
+
+**What this deliberately does not reach.** Three rows were settled by measurement against the
+Tint of the Chromium the compile gate runs (2026-09-21):
+
+- `@builtin("global_invocation_index")` and `@builtin("workgroup_index")` are in the WGSL text
+  and in neither Tint's builtin vocabulary: the module dies with `expected builtin value name`,
+  whose own "possible values" list omits both. Admitting them would move the failure further
+  from the author, not closer.
+- `@builtin("frag_depth", "less")`, the conservative-depth mode, is refused at the comma:
+  `expected ')' for builtin attribute`. There is nothing to lower it to.
+- `requires uniform_buffer_standard_layout;` is refused outright: `feature
+  'uniform_buffer_standard_layout' is not supported`. Nothing this compiler emits asks for it:
+  the layout layer already reports a uniform array under std140's 16-byte element stride, so
+  the module never depends on the device relaxing the rule.
+
+And four by design, with no measurement to take:
+
+- Three more WGSL extension names still have no capability of their own.
+  `dual_source_blending` belongs with `@blend_src`, which is the entry-IO item;
+  `packed_4x8_integer_dot_product` belongs with the WGSL-only builtins (`dot4x8`,
+  `pack4xI8`) that would use it; and `atomic_vec2u_min_max` waits on `atomic<vec2<u32>>`,
+  an After-1.0 row. Each is an extension whose whole surface is a feature this compiler
+  cannot spell yet, so a capability for it would gate nothing.
+- `var<immediate>`, `const_assert` and `@must_use` on a user function have no spelling here.
+  The first two have no TypeScript shape to hang on; `@must_use` is an emit decision the
+  writer makes, not an author one.
+- The `diagnostic(...)` directive is not written by hand. It is emitted where a rule this
+  compiler analyses asks for it, which is the uniformity item, not a free-form author control.
+- Four declarable capabilities — `floatRenderTarget`, `float32Blend`, `float32Filterable` and
+  `multiview` — are still unspellable from a `"use typeshade"` source. `"enable ..."` takes the
+  WGSL extension names, and none of those four is one: three are activated by the host at
+  `requestDevice` or `gl.getExtension` and cost the shader no token at all, and the fourth is a
+  GLSL `#extension`. A module that needs one is assembled with `module({ enables: [...] })`.
+
+**What a host must actually do, and what the gate does.** An extension-gated id costs a device
+feature, and a device only has one if it was asked for. `requestDevice()` with no
+`requiredFeatures` gives a device with none, and Tint then answers `extension 'clip_distances'
+is not allowed in the current environment` — which reads like a bad emit and is not one. So
+`scripts/compile-gate.ts` derives the features the corpus needs from the modules themselves
+(`hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures)`), requests the ones the adapter
+has, and prints any it lacks rather than dropping them silently.
+`examples/clip-planes.shade.ts` is the evidence: it compiles on the gate's real Tint, on a
+device that was asked for `clip-distances`.
+
+`primitive_index` has no registered example, because `primitive-index` is not among that
+adapter's features at all (measured: it offers `clip-distances` and `subgroups`, not this).
+Its emit is pinned by `src/compiler/ts/builtin-values.test.ts` instead, and its `hostFeature`
+string is the one value in §50 that no measurement here could confirm.
+
 ---
 
 Last updated: 2026-09-21
