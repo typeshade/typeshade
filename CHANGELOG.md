@@ -25,11 +25,16 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   converting it is when handed the wrong one. `quantizeToF16(x)` rounds to what an IEEE-754
   binary16 holds and comes back as an `f32`, on a scalar or a vector; WGSL spells it natively,
   and GLSL ES 3.00, which has no such builtin, gets a `packHalf2x16`/`unpackHalf2x16` round trip,
-  one id per width. It is a `target` row in the determinism report: WGSL converts with one
-  rounding and GLSL ES 3.00 pins none, so a value exactly halfway between two binary16
-  neighbours may come back one step apart. `pack4x8snorm` is exact on both, because its inline is
-  written `floor(0.5 + x)` — WGSL's own rule — rather than the `round()` the unorm twin uses and
-  #141 is to align.
+  one component at a time — pairing two into one `packHalf2x16` was measured to let an
+  overflowing component carry into its neighbour, which WGSL's per-component builtin cannot do.
+  It is a `target` row in the determinism report, naming the three divergences measured on a
+  real driver: the exact half (the GLSL round trip rounds to nearest even, the driver moved),
+  the magnitudes above the largest finite binary16 (an infinity on WGSL, a NaN through the GLSL
+  round trip) and those below the smallest normal one (flushed to zero by the driver, kept by
+  the round trip). `pack4x8snorm` is a `target` row beside its unorm twin for the same reason
+  measurement gave rather than the one reasoning suggested: its inline spells WGSL's own
+  `floor(0.5 + x)`, and the WGSL driver still rounded the tie to even. Its CPU twin rounds the
+  scale to f32 before rounding, and clamps by WGSL's NaN rule, because a driver does both.
 - **The three constructor spellings, and `all`/`any` on a bool** (§44, #150). `vec3()` is the
   zero value, `vec3<u32>(1, 2, 3)` names its element as a type argument, and `array(1., 2., 3.)`
   infers both its element type and its count. The middle one was a silent bug rather than a
@@ -41,10 +46,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   `bool` are overloads of both builtins in WGSL and both return the argument: the ambient lib
   always admitted the scalar and the front end refused it, so the editor and the compiler
   disagreed about a program WGSL defines. It lowers to the ARGUMENT, not to a call, since GLSL
-  ES 3.00 has no `all(bool)` overload to emit. The ambient lib gained the matching declarations,
-  and it distinguishes `vec3<u32>` from `vec3<f32>` by `keyof` rather than by assignability,
-  because the scalar brands are optional properties and so are mutually assignable.
-  `examples/builtin-breadth.shade.ts` runs all of it on both halves of the gate.
+  ES 3.00 has no `all(bool)` overload to emit. `f32()`, `i32()`, `u32()` and `bool()` are the
+  scalar half of the same zero-value row and are spelled now too.
+  The ambient lib gained the zero and type-argument forms, and it distinguishes `vec3<u32>` from
+  `vec3<f32>` by `keyof` rather than by assignability, because the scalar brands are optional
+  properties and so are mutually assignable. Only the SCALAR-component forms take a type
+  argument: an ambient parameter has to be a concrete type for the vector-arithmetic filter
+  (#43) to read a shape off it, so composing from a shorter vector or converting a whole one
+  keeps the short name and the compiler refuses the long one, naming it.
+  `examples/packing-bitcast.shade.ts` runs all of it on both halves of the gate.
 
 - **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
   operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a

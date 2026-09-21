@@ -334,6 +334,24 @@ export function fs(@location(0) uv: vec2): vec4 {
     expect(value('  return vec4(bitcast<f32>(bitcast<u32>(0.15625)), 0., 0., 1.)')[0]).toBe(0.15625)
   })
 
+  it('agrees with the spec value on the six the round trips do not pin', () => {
+    // The tests above cover quantizeToF16, pack2x16float, the 4x8 pair and both bitcasts. The
+    // remaining six get their own value here, so every one of the twelve names has a number
+    // behind it rather than only a spelling.
+    // 2x16 unorm: 1.0 -> 0xFFFF, 0.0 -> 0x0000, component 0 in the low half.
+    packs('pack2x16unorm(vec2(1., 0.))', 0x0000ffff)
+    expect(value('  return vec4(unpack2x16unorm(u32(4294901760)), 0., 1.)')).toEqual([0, 1, 0, 1])
+    // 2x16 snorm: 1.0 -> 0x7FFF, -1.0 -> 0x8001 (and -1 is the clamp of -32768/32767).
+    packs('pack2x16snorm(vec2(1., -1.))', 0x80017fff)
+    expect(value('  return vec4(unpack2x16snorm(pack2x16snorm(vec2(1., -1.))), 0., 1.)')).toEqual([
+      1, -1, 0, 1,
+    ])
+    // 2x16 float: the binary16 of 1.0 is 0x3C00, already pinned; the UNPACK direction is not.
+    expect(value('  return vec4(unpack2x16float(u32(15360)), 0., 1.)')).toEqual([1, 0, 0, 1])
+    // 4x8 unorm unpack: 0xFF in the low byte is 1.0 in component 0.
+    expect(value('  return unpack4x8unorm(u32(255))')).toEqual([1, 0, 0, 0])
+  })
+
   it('spells each one on both targets', () => {
     const r = compile(`"use typeshade"
 @fragment
@@ -386,10 +404,10 @@ export function fs(@location(0) uv: vec2): vec4 {
       'TS8003 quantizeToF16 takes an f32 or a vector of them; got u32.',
     ])
     expect(errorsOf(FS('  return vec4(f32(bitcast(uv.x)), 0., 0., 1.)'))).toEqual([
-      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x). Those are the two reinterpretations both targets spell.',
+      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x). Those are the two the IR carries today; the signed pair is not here yet.',
     ])
     expect(errorsOf(FS('  return vec4(f32(bitcast<i32>(uv.x)), 0., 0., 1.)'))).toEqual([
-      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x); got bitcast<i32>. Those are the two reinterpretations both targets spell.',
+      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x); got bitcast<i32>. Those are the two the IR carries today; the signed pair is not here yet.',
     ])
     expect(errorsOf(FS('  return vec4(f32(bitcast<u32>(u.k)), 0., 0., 1.)'))).toEqual([
       'TS8003 bitcast<u32> reads the bits of an f32; got u32. A bitcast reinterprets 32 bits, it does not convert: u32(x) is the conversion.',

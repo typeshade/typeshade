@@ -99,9 +99,17 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
   const generic = /^vec[234]$/.test(name)
   const type = generic ? `VecFor${n}<T>` : vecTypeName(elem, n)
   const head = generic ? `declare function ${name}<T = f32>` : `declare function ${name}`
-  // A component of a bool vector (§27) is a bool; of every other vector, a number. On the
-  // generic names the element rides on T, so a component is either.
-  const c = generic ? 'number | bool' : elem === 'bool' ? 'bool' : 'number'
+  // A component of a bool vector (§27) is a bool; of every other vector, a number.
+  //
+  // PARAMETER types stay concrete even on the generic names, and only the RETURN rides on T.
+  // A conditional in a parameter position defeats `diagnostics.ts`'s vector-arithmetic filter
+  // (issue #43): that rule reads the brand off the resolved parameter type to decide whether
+  // the shape the arithmetic erased would have fitted, and an unresolved `VecFor3<T>` carries
+  // no brand, so `vec4(c * 2., 1.)` — a shape every example uses — started reporting TS2345.
+  // The bool components get overloads of their own below instead of widening this one, which
+  // would stop `vec3(1., true, 2.)` reporting.
+  const c = elem === 'bool' ? 'bool' : 'number'
+  const shorter = (k: 2 | 3): string => vecTypeName(elem, k)
   const lines: string[] = []
   // `vec3()` is the ZERO value (wgsl.txt:20015-20030). Not on the emulated double, whose zero
   // is a pair the fp64 pass assembles rather than a literal the constructor can write — the
@@ -111,13 +119,21 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
     lines.push(`${head}(x: ${c}, y: ${c}): ${type}`)
   } else if (n === 3) {
     lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}): ${type}`)
-    lines.push(`${head}(v: ${vecTypeName(elem, 2)}, z: ${c}): ${type}`)
+    lines.push(`${head}(v: ${shorter(2)}, z: ${c}): ${type}`)
   } else {
     lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`)
-    lines.push(`${head}(v: ${vecTypeName(elem, 3)}, w: ${c}): ${type}`)
-    lines.push(`${head}(v: ${vecTypeName(elem, 2)}, z: ${c}, w: ${c}): ${type}`)
+    lines.push(`${head}(v: ${shorter(3)}, w: ${c}): ${type}`)
+    lines.push(`${head}(v: ${shorter(2)}, z: ${c}, w: ${c}): ${type}`)
   }
   lines.push(`${head}(scalar: ${c}): ${type}`)
+  // `vec3<bool>(true, false, true)` and `vec3<bool>(true)`. Generic with NO default, so the
+  // type argument has to be written: an inferable `T` here would make the bare
+  // `vec3(true, false, true)` legal in the editor, which the compiler refuses.
+  if (generic) {
+    const bools = Array.from({ length: n }, (_, i) => `${'xyzw'[i]!}: bool`).join(', ')
+    lines.push(`declare function ${name}<T>(${bools}): VecFor${n}<T>`)
+    lines.push(`declare function ${name}<T>(scalar: bool): VecFor${n}<T>`)
+  }
   // The element-CONVERTING form (#8 A8): one whole vector of this constructor's own size and
   // a different element kind. The compiler's rule (`isConvertibleVector`) is exactly "native
   // vec, same n, different elem", so the overloads are the two other native kinds — and an
@@ -310,10 +326,18 @@ const vecCtors = VEC_CTOR_NAMES.map((name) => {
 }).join('\n')
 
 const scalarCasts = SCALAR_CAST_NAMES.map((name) => {
-  const line = `declare function ${name}(x: number): ${name}`
+  // A conversion, and — for every name but `f64`, whose zero is the pair the fp64 pass
+  // assembles — the ZERO-value form WGSL also spells (#150): `f32()`, `i32()`, `u32()`,
+  // `bool()`. `bool` converts from a number and returns a boolean, so its argument is not
+  // `number` in the general case; the generated line below is the numeric one it already had.
+  const zero = name === 'f64' ? '' : `declare function ${name}(): ${name}\n`
+  const line = `${zero}declare function ${name}(x: number): ${name}`
   const doc = FUNCTION_DOCS[name]
   if (!doc) return line
-  return `${renderJSDoc(doc)}\n${line}`
+  return line
+    .split('\n')
+    .map((l) => `${renderJSDoc(doc)}\n${l}`)
+    .join('\n')
 }).join('\n')
 
 const freeMath = FREE_MATH_NAMES.map((name) => {
@@ -525,6 +549,10 @@ type VecElemOf<T, U, I, D, B, F> = T extends boolean
       : typeof f64Tag extends keyof T
         ? D
         : F
+/** What \`bitcast<T>\` reads: the OTHER 32-bit type. Keyed on \`keyof\` for the same reason
+ * \`VecElemOf\` is — the scalar brands are optional properties, so \`f32 extends u32\` is true
+ * and a conditional written on assignability collapses to one arm for both instantiations. */
+type BitcastArg<T> = typeof u32Tag extends keyof T ? f32 : u32
 type VecFor2<T> = VecElemOf<T, vec2u, vec2i, vec2f64, vec2b, vec2>
 type VecFor3<T> = VecElemOf<T, vec3u, vec3i, vec3f64, vec3b, vec3>
 type VecFor4<T> = VecElemOf<T, vec4u, vec4i, vec4f64, vec4b, vec4>
@@ -1058,7 +1086,7 @@ declare function unpack2x16unorm(e: u32): vec2
 ${renderJSDoc(FUNCTION_DOCS.unpack2x16snorm)}
 declare function unpack2x16snorm(e: u32): vec2
 ${renderJSDoc(FUNCTION_DOCS.bitcast)}
-declare function bitcast<T extends u32 | f32>(e: T extends u32 ? f32 : u32): T
+declare function bitcast<T extends u32 | f32>(e: BitcastArg<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atomicLoad)}
 declare function atomicLoad<T extends u32 | i32>(location: atomic<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atomicStore)}

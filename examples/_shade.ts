@@ -431,7 +431,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
-    id: 'builtin-breadth',
+    id: 'packing-bitcast',
     title: 'Packing, bitcast and the constructors',
     blurb:
       'The portable builtins WGSL has that this surface lacked (§44): the pack/unpack family round-tripped per channel, `bitcast` reading the exponent bits of a coordinate, `quantizeToF16` on a vector, the zero-value `vec2()` and the type-argument `vec3<u32>(...)`, an `array(...)` that infers its own element and count, and `all`/`any` on a plain bool. GLSL ES 3.00 has six of the pack ids natively under other names, neither 4x8 form and no `quantizeToF16`; the gate runs both.',

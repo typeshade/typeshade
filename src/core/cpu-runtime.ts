@@ -637,12 +637,18 @@ export const BUILTINS: Record<string, Builtin> = {
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
   },
   // The signed twin (#150, WGSL §17.10): ⌊0.5 + 127 × clamp(e, -1, 1)⌋, low 8 bits of the
-  // two's complement, component 0 in the low byte. `Math.round` IS ⌊0.5 + x⌋ in JS, including
-  // the toward-+∞ negative halves WGSL asks for, which is why it is written with it here and
-  // as `floor(0.5 + …)` in the GLSL template, where `round` would be the driver's choice.
+  // two's complement, component 0 in the low byte.
+  //
+  // Two things the first cut of this got wrong, both measured on a real driver. The scale is
+  // rounded to f32 FIRST: a GPU multiplies in f32, and there are 129 f32 values per sign whose
+  // f32 product with 127 is exactly k + 0.5 while the f64 product is just under it — on those,
+  // an f64 multiply rounds down where both targets round up. And `clamp` follows WGSL's NaN
+  // rule (`minNum`/`maxNum`: if one operand is NaN the other is returned), which is why a NaN
+  // component packs as -127 on both targets; `Math.min`/`Math.max` propagate the NaN and
+  // packed 0 instead.
   pack4x8snorm: (v) => {
     const a = v as number[]
-    const q = (x: number): number => Math.round(Math.max(-1, Math.min(1, x)) * 127) & 0xff
+    const q = (x: number): number => Math.round(Math.fround(maxNum(-1, minNum(1, x)) * 127)) & 0xff
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
   },
   // Sign-extend each byte, then max(v / 127, -1): the -128 pattern is -1.0079 before the

@@ -475,21 +475,28 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `quantizeToF16(${join(a)})`,
     glsl: (a) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}, 0.0))).x`,
   },
+  // ONE COMPONENT AT A TIME, never two per round trip. A paired `packHalf2x16(v)` was the
+  // obvious spelling and is wrong: measured on a real driver, the half-encode of a component
+  // that overflows binary16 yields a 17-bit value whose carry lands in the OTHER half
+  // (`0x3C00` became `0x3C02` beside an infinite neighbour), so one component silently
+  // corrupted the next. WGSL's `quantizeToF16` is per-component and cannot do that, so neither
+  // does this.
   quantizeToF16Vec2: {
     wgsl: (a) => `quantizeToF16(${join(a)})`,
-    glsl: (a) => `unpackHalf2x16(packHalf2x16(${join(a)}))`,
+    glsl: (a) =>
+      `vec2(${['x', 'y'].map((c) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.${c}, 0.0))).x`).join(', ')})`,
+    atomArgs: true,
   },
   quantizeToF16Vec3: {
     wgsl: (a) => `quantizeToF16(${join(a)})`,
     glsl: (a) =>
-      `vec3(unpackHalf2x16(packHalf2x16(${a[0]}.xy)), ` +
-      `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.z, 0.0))).x)`,
+      `vec3(${['x', 'y', 'z'].map((c) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.${c}, 0.0))).x`).join(', ')})`,
     atomArgs: true,
   },
   quantizeToF16Vec4: {
     wgsl: (a) => `quantizeToF16(${join(a)})`,
     glsl: (a) =>
-      `vec4(unpackHalf2x16(packHalf2x16(${a[0]}.xy)), unpackHalf2x16(packHalf2x16(${a[0]}.zw)))`,
+      `vec4(${['x', 'y', 'z', 'w'].map((c) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.${c}, 0.0))).x`).join(', ')})`,
     atomArgs: true,
   },
   // bitcast<u32>(f) on WGSL; floatBitsToUint(f) on GLSL. The neutral id drops the

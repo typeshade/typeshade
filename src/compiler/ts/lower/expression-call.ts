@@ -303,13 +303,37 @@ export function lowerCall(
       }
       // `vec3u<f32>(…)` names its element twice and disagrees with itself. Only the plain
       // `vecN` spelling, whose own element is the default f32, takes one.
-      if (!ctorName.endsWith(String(ctor.n)) && named !== ctor.elem) {
+      //
+      // Tested with the same regex the ambient lib uses, not with `endsWith(n)`:
+      // `'vec4f64'.endsWith('4')` is TRUE — the 4 of `f64` — so that test let `vec4f64<u32>`
+      // through and silently discarded the `f64`, which is the very swap this rule exists to
+      // stop. Its `vec2f64`/`vec3f64` siblings were refused correctly, so only the one name
+      // where the suffix collides leaked.
+      if (!/^vec[234]$/.test(ctorName) && named !== ctor.elem) {
         pushDiag(
           diagnostics,
           sourceFile,
           node,
           `${ctorName}<${written}> names two element types; ${ctorName} is already ` +
             `${ctor.elem}. Write vec${ctor.n}<${written}> or ${ctorName}.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      // The type-argument spelling takes SCALAR components (and none, for the zero value).
+      // Composing from a shorter vector or converting a whole one keeps the short name, and
+      // that is a parity rule, not a taste: the ambient lib types a parameter concretely —
+      // a conditional there defeats the vector-arithmetic filter issue #43 needs — so
+      // `vec3<i32>(v)` cannot be declared without either breaking that filter or lying about
+      // some other call. Refusing it here is what keeps the editor and the compiler saying
+      // the same thing about the same program, and `vec3i(v)` is the same value.
+      if (args.some((a) => a.type.kind === 'vec' || a.type.kind === 'vec64')) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `vec${ctor.n}<${written}> takes scalar components; to build one from a vector, ` +
+            `write the short name: vec${ctor.n}${SHORT_SUFFIX[named] ?? ''}(...).`,
           TS_CODES.TYPE_MISMATCH,
         )
         return undefined
@@ -750,8 +774,8 @@ function lowerBitBuiltinCall(
         sourceFile,
         node,
         `bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x)` +
-          `${written === undefined ? '' : `; got bitcast<${written}>`}. Those are the two ` +
-          `reinterpretations both targets spell.`,
+          `${written === undefined ? '' : `; got bitcast<${written}>`}. Those are the two the ` +
+          `IR carries today; the signed pair is not here yet.`,
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined

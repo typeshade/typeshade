@@ -70,8 +70,8 @@ function inferredArrayCtor(
       diagnostics,
       sourceFile,
       node,
-      'array() has no elements to infer from; write array<f32, 4>() for a zero-filled array, ' +
-        'or give it elements.',
+      'array() has no elements to infer from: the element type and the count come from them. ' +
+        'Give it elements, or write both out with the values: array<f32, 4>(0., 0., 0., 0.).',
       TS_CODES.UNKNOWN_TYPE,
     )
     return undefined

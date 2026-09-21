@@ -266,3 +266,37 @@ describe('accuracyOf', () => {
     expect(accuracyOf('no-such-builtin')).toBeUndefined()
   })
 })
+
+// The rows #150 added, pinned by VALUE rather than only by "is placed somewhere": both are
+// load-bearing claims in §44 and the CHANGELOG, and the structural test above only forces a new
+// id into one column or the other, not into the right one.
+describe('the pack and quantize rows say what the emitted code actually does', () => {
+  it('quantizeToF16 is a target row at every width, with the reason in the note', () => {
+    for (const id of [
+      'quantizeToF16',
+      'quantizeToF16Vec2',
+      'quantizeToF16Vec3',
+      'quantizeToF16Vec4',
+    ]) {
+      const a = accuracyOf(id)!
+      expect(a.kind, id).toBe('target')
+      // WGSL settles the conversion; the GLSL half round trip does not pin its rounding.
+      expect('note' in a && a.note, id).toMatch(/packHalf2x16/)
+      // The three measured divergences, not just the tie.
+      expect('note' in a && a.note, id).toMatch(/halfway/)
+      expect('note' in a && a.note, id).toMatch(/NaN/)
+      expect('note' in a && a.note, id).toMatch(/subnormal/)
+    }
+  })
+
+  it('both 4x8 packs are target rows: the exact half parts the two targets', () => {
+    // Measured on a real driver: the snorm inline spells WGSL's own `floor(0.5 + x)` and the
+    // WGSL driver rounded the same tie to EVEN, so writing the rule out does not make the two
+    // agree. Recorded as a divergence on both, with each note naming its own mechanism.
+    for (const id of ['pack4x8unorm', 'pack4x8snorm']) {
+      const a = accuracyOf(id)!
+      expect(a.kind, id).toBe('target')
+      expect('note' in a && a.note, id).toMatch(/half|even/)
+    }
+  })
+})

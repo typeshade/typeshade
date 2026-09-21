@@ -266,8 +266,8 @@ export function fs(@location(0) uv: vec2): vec4 {
         'is i32. Cast the odd one, or write the type out: array<f32, 2>(...).',
     )
     expect(diagnose('array()[0]', '', 'f32')).toBe(
-      'array() has no elements to infer from; write array<f32, 4>() for a zero-filled array, ' +
-        'or give it elements.',
+      'array() has no elements to infer from: the element type and the count come from them. ' +
+        'Give it elements, or write both out with the values: array<f32, 4>(0., 0., 0., 0.).',
     )
   })
 })

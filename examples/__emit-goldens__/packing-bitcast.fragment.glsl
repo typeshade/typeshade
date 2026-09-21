@@ -25,7 +25,7 @@ void main() {
   float exponent = (float(_xbits(bits, 23u, 8u)) / 255.0);
   float back = uintBitsToFloat(bits);
   vec3 grade = vec3(half_.x, u16.y, exponent);
-  vec3 coarse = vec3(unpackHalf2x16(packHalf2x16(grade.xy)), unpackHalf2x16(packHalf2x16(vec2(grade.z, 0.0))).x);
+  vec3 coarse = vec3(unpackHalf2x16(packHalf2x16(vec2(grade.x, 0.0))).x, unpackHalf2x16(packHalf2x16(vec2(grade.y, 0.0))).x, unpackHalf2x16(packHalf2x16(vec2(grade.z, 0.0))).x);
   bool lit = (back > 1.5);
   float edge = ((lit ? 0.15 : 0.0) + ((uv.x > 0.98) ? 0.1 : 0.0));
   float banded = (float(steps.y) * 0.125);

@@ -152,17 +152,6 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   SQRT2: Math.SQRT2,
 }
 
-/** The builtin names #8 A6 added to this surface, plus the two scalar casts it added.
- *
- *  A name in this set must NOT shadow a function the file declares. Before A6 each of these
- *  was an ordinary unknown name, so `export function saturate(x: f32) { … }` followed by
- *  `saturate(x)` called the author's function; the builtin is only an addition if it still
- *  does. The names that were already builtins (`min`, `max`, `mix`, `clamp`, `f32`, …) keep
- *  their precedence, since changing that would move the meaning of a program that compiles
- *  today — the same additivity argument, pointing the other way.
- *
- *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
- *  a cast or the select Expr. */
 /** The bit-level builtins #150 made authorable: the ten pack/unpack ids the registry could
  *  already spell, plus `quantizeToF16` and `bitcast`. Listed here so a file that declares its
  *  own function under one of these names keeps the call, by the same additivity rule item 8's
@@ -182,6 +171,17 @@ export const BIT_BUILTIN_NAMES: readonly string[] = [
   'unpack2x16snorm',
 ]
 
+/** The builtin names #8 A6 added to this surface, plus the two scalar casts it added.
+ *
+ *  A name in this set must NOT shadow a function the file declares. Before A6 each of these
+ *  was an ordinary unknown name, so `export function saturate(x: f32) { … }` followed by
+ *  `saturate(x)` called the author's function; the builtin is only an addition if it still
+ *  does. The names that were already builtins (`min`, `max`, `mix`, `clamp`, `f32`, …) keep
+ *  their precedence, since changing that would move the meaning of a program that compiles
+ *  today — the same additivity argument, pointing the other way.
+ *
+ *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
+ *  a cast or the select Expr. */
 export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   // Item 8's builtins: a function the file declares under one of these names keeps the call.
   ...BREADTH_BUILTINS,

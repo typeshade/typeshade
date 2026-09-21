@@ -3025,8 +3025,9 @@ beside them:
 | `quantizeToF16(x)` | the builtin | `unpackHalf2x16(packHalf2x16(...))`, two components at a time |
 
 A pack takes exactly the vector its name says and yields a `u32`; an unpack takes a `u32` and
-yields the vector. There is one overload each, so a wrong shape is one sentence:
-`pack4x8unorm takes a vec4<f32>; got vec2<f32>.` The bit pattern of an unpack may be written as
+yields the vector. There is one overload each, and a wrong shape says so:
+`pack4x8unorm takes a vec4<f32>; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00
+the same.` The bit pattern of an unpack may be written as
 a bare number — `unpack2x16unorm(65536)` — because an integer literal is retargeted in every
 integer position.
 
@@ -3040,9 +3041,17 @@ convert: u32(x) is the conversion.
 
 `quantizeToF16(x)` rounds to what an IEEE-754 binary16 holds and comes back as an `f32`, so a
 shader can see the precision an f16 pipeline would give it without the `shader-f16` extension.
-It takes an `f32` or a float vector. It is a `target` row in the determinism report (§38): WGSL
-converts with one rounding, and GLSL ES 3.00 does not pin the rounding of its half conversion,
-so a value exactly halfway between two binary16 neighbours may come back one step apart.
+It takes an `f32` or a float vector, and on GLSL it is spelled ONE COMPONENT AT A TIME: pairing
+two components into a single `packHalf2x16` was measured to let an overflowing component carry
+into its neighbour, which WGSL's per-component builtin cannot do.
+
+It is a `target` row in the determinism report (§38), and the report names three measured
+divergences rather than one: at an exact half the GLSL round trip rounds to nearest even and the
+WGSL driver moved; above the largest finite binary16 WGSL gives an infinity and the GLSL round
+trip a NaN; below the smallest normal one the driver flushed to zero and the GLSL round trip
+kept the subnormal. Both 4×8 packs are `target` rows too — writing WGSL's own `floor(0.5 + x)`
+into the GLSL inline does not make the two agree, because the WGSL driver rounded the same tie
+to even.
 
 ### The constructors
 
@@ -3056,12 +3065,19 @@ const xs = array(1., 2., 3.);      // the element type and the count inferred
 
 `vec3<u32>(1, 2, 3)` is the one that mattered most, because it used to compile clean and build a
 `vec3<f32>`: a program that asked for an unsigned vector silently got a float one, and a
-following `f32(v.x)` looked like a cast while casting nothing. The short names already say their
-element, so a second one is a contradiction rather than a synonym:
+following `f32(v.x)` looked like a cast while casting nothing. A short name already says its
+element, so a second one that DISAGREES is a contradiction, while one that agrees is a synonym
+and is taken:
 
 ```
 vec3u<f32> names two element types; vec3u is already u32. Write vec3<f32> or vec3u.
 ```
+
+The type-argument spelling takes scalar components, and the zero form. Composing a vector out of
+a shorter one, or converting a whole one, keeps the short name — `vec3i(v)`, not `vec3<i32>(v)` —
+so that the editor and the compiler say the same thing about the same program: an ambient
+parameter has to be a concrete type for the vector-arithmetic rule of §17 to read a shape off
+it, and a conditional one there silences that rule on every call.
 
 `array(...)` infers ONE element type from its elements, because an array has one; elements that
 disagree are refused with the explicit form named, rather than a guess at which was meant. A
@@ -3075,7 +3091,7 @@ always admitted it; the front end refused it, so the editor and the compiler dis
 program WGSL defines. It is now lowered to the argument itself rather than to a call — a
 one-component reduction is the value, and GLSL ES 3.00 has no `all(bool)` overload to emit.
 
-`examples/builtin-breadth.shade.ts` runs all of this on both halves of the gate.
+`examples/packing-bitcast.shade.ts` runs all of this on both halves of the gate.
 
 ---
 
