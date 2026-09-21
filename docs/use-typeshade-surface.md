@@ -2671,10 +2671,96 @@ gradient sample yields opaque black, a cube comparison yields 1 (the identity fo
 multiply, §34), and a 3D size yields 1×1×1. `examples/cube-env.shade.ts` is the gate's evidence
 on both targets.
 
-**Not in this half.** `texture_cube_array`, `texture_1d` and `textureGather` are WGSL-only —
-GLSL ES 3.00 has no `samplerCubeArray` (the extension is refused by the driver), reserves the
-word `sampler1D`, and gets `textureGather` only in ES 3.10 — so each becomes its own derived
-capability with no GLSL profile row, the way a storage texture fails closed (§33).
+**The other half is §36.** `texture_cube_array`, `texture_1d` and `textureGather` are WGSL-only,
+each its own derived capability with no GLSL profile row, the way a storage texture fails closed
+(§33).
+
+## 36. The WGSL-only textures: `texture_1d`, `texture_cube_array`, `textureGather`
+
+Roadmap 0.4 item 12, the second half. A **1D texture** is a row of texels addressed by one
+number, the shape a transfer function or a colour ramp takes. A **cube array** is N cube maps in
+one binding, looked up by a direction and a layer; its depth twin, `texture_depth_cube_array`, is
+the shadow maps of N point lights. **`textureGather`** reads the four texels a linear filter would
+blend at mip level 0, one channel each, as a `vec4`, in any stage; **`textureGatherCompare`** does
+the same through a comparison sampler and returns four pass results. The design is read straight
+off the spec (§17.7.2, §17.7.3) and Tint's `core.def`.
+
+```ts
+declare const ramp: texture_1d<f32>
+declare const envs: texture_cube_array<f32>
+declare const pointShadows: texture_depth_cube_array
+
+const heat = textureSample(ramp, smp, uv.x) // one number in
+const steps = textureDimensions(ramp) // u32: one wide
+const sky = textureSample(envs, smp, dir, layer) // the layer after the direction
+const reds = textureGather(0, albedo, smp, uv) // component FIRST: 0 is red, 3 is alpha
+const passes = textureGatherCompare(shadow, shadowSmp, uv, ref) // no component: one channel
+const lit = textureSampleCompare(pointShadows, shadowSmp, dir, layer, ref)
+```
+
+```wgsl
+@group(0) @binding(0) var ramp: texture_1d<f32>;
+@group(0) @binding(1) var envs: texture_cube_array<f32>;
+let reds = textureGather(0, albedo, smp, uv);
+let passes = textureGatherCompare(shadow, shadowSmp, uv, 0.5);
+```
+
+**WGSL-only, three capabilities, derived.** GLSL ES 3.00 has none of the three, measured on a
+WebGL2 driver: `sampler1D` is a *reserved word*, `samplerCubeArray` needs
+`GL_EXT_texture_cube_map_array`, which the driver reports "not supported", and `textureGather`
+arrived in ES 3.10 ("no matching overloaded function"). So each is a **derived** capability —
+`texture1d` and `textureCubeArray` from a binding's type, `textureGather` from a call — with a
+WGSL row and no GLSL row, the pattern `storageTexture` set (§33): the gate fails the module
+closed on GLSL before any emit, `enables` cannot name them, and `reflect().requiredFeatures`
+tells the host which ones a module needs. Three capabilities rather than one because a module
+that uses a cube array and no gather should not be told about gather. On Tint every shape here
+was measured accepted, gather in a compute stage too (`scratchpad/item12-probe.mts`).
+
+**The argument order is the spec's.** WGSL puts the **component first** on a colour texture and
+has **none** on a depth texture, whose texels have one channel; the layer follows the coordinate
+on an array; the reference follows the layer on the compare form. This surface keeps that order
+rather than inventing a TypeScript-flavoured one, so a WGSL author's muscle memory carries over
+and the spec's own tables document the calls — the front end finds the texture by its *kind*
+rather than its position. The component must be a whole number from 0 to 3 **written in the
+call**: WGSL requires a const-expression there and makes any other value a shader-creation
+error, so it is refused here, at the argument, with the channel names. `textureGather`'s result
+takes the texture's element (`vec4<u32>` on a `texture_cube<u32>`), which is what makes an
+**integer cube** readable at last: §35 refused `texture_cube<u32>` at the declaration because a
+cube has no texel fetch and sampling is float-only; gather is the read it has, so the
+declaration is admitted now and `textureSample` on it names `textureGather`.
+
+**One id per argument structure, never a spelling that depends on the texture.** The cube-array
+sampling forms are their own ids (`textureSampleCubeArray`, …`LevelCubeArray`, …`BiasCubeArray`,
+…`GradCubeArray`, …`CompareCubeArray`, …`CompareLevelCubeArray`) rather than the 2d-array ones,
+even though GLSL never emits either: the 2d-array spellings fold the layer into a
+`vec3(uv, layer)`, which would be well-formed and *wrong* text for a cube array, and an id's
+text must never depend on the texture it happens to be called on. The gathers are six ids by
+the same rule (`textureGather`, `…Array`, `…Depth`, `…DepthArray`, `…Compare`,
+`…CompareArray`); a cube gathers with the 2d id, since the coordinate's width rides on the type.
+`textureDimensions` on a 1d texture is `textureDimensions1d`, a `u32` where the 2d wrapper is a
+`uvec2`.
+
+**What a 1d texture cannot do.** WGSL gives it `textureSample`, `textureSampleLevel` and
+`textureLoad` only — no bias, no gradients, no gather, no layers — and each is refused in one
+sentence naming the reads it has. A coordinate is checked for width like every other dim: a
+`vec2` on a `texture_1d` is "takes a single f32 coordinate; got vec2<f32>".
+
+**Fragment-only, under the name the author wrote.** `textureSampleBias` and
+`textureSampleCompare` on a cube array join the fragment-only set as their own ids, and the
+message strips the `CubeArray` suffix: `"textureSampleBias" is only valid in a fragment shader`.
+Gather takes no implicit derivative and is legal in any stage, which Tint confirms.
+
+**What the host is told.** `textureDim` gains `'1d'` and `'cube-array'`; a depth cube array
+reflects `textureDim: 'cube-array', textureDepth: true`. The CPU twins: a colour gather yields
+opaque black, a depth gather the far plane (four 1s — nothing occludes), a gather compare four
+1s (the identity for the multiply each feeds), a 1d size 1. `examples/cube-array-gather.shade.ts`
+is the gate's evidence on the Tint half.
+
+**Not here, by the audit's word.** The offset variants of every sampling builtin,
+`textureNumLevels`, `textureNumSamples`, `textureSampleBaseClampToEdge`, `texture_external`,
+`texture_depth_multisampled_2d`, the storage 1d and 3d textures, and `u32` array indices and
+levels where WGSL takes either: the spec audit lists each with its portability, and they become
+their own items rather than riding this one.
 
 ---
 

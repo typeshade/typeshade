@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 439 exports
+## `.` — 443 exports
 
 ```
 abs
@@ -348,6 +348,8 @@ SwizzleKey
 tan
 tanh
 TexelKey
+TEXTURE_GATHER_IDS
+texture1dfT
 texture2dArrayfT
 texture2dArrayiT
 texture2dArrayuT
@@ -356,9 +358,11 @@ texture2diT
 texture2dMsfT
 texture2duT
 texture3dfT
+textureCubeArrayfT
 textureCubefT
 textureDepth2dArrayT
 textureDepth2dT
+textureDepthCubeArrayT
 textureDepthCubeT
 textureDimensions
 TextureElem
@@ -550,7 +554,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 255 exports
+## `./core/ir` — 258 exports
 
 ```
 abs
@@ -740,6 +744,7 @@ SwizzleKey
 tan
 tanh
 TexelKey
+texture1dfT
 texture2dArrayfT
 texture2dArrayiT
 texture2dArrayuT
@@ -748,9 +753,11 @@ texture2diT
 texture2dMsfT
 texture2duT
 texture3dfT
+textureCubeArrayfT
 textureCubefT
 textureDepth2dArrayT
 textureDepth2dT
+textureDepthCubeArrayT
 textureDepthCubeT
 textureDimensions
 TextureElem
@@ -849,7 +856,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 547 definitions
+## Shapes — 551 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
@@ -870,7 +877,7 @@ src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "err
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; dereference?: (name: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitModuleVar?: (v: ModuleVarDecl) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; paramDecl?: (p: { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; mode?: "inout"; }) => string; phonyAssign?: string; placeholderStmt: (tag: string) => string; postLower?: (lowered: ModuleDecl) => ModuleDecl; rawStmt: (s: RawStmt) => string; reference?: (lvalue: string) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string; vectorCompare?: (cop: CmpOp, a: string, b: string) => string; vectorSelect?: (ifFalse: string, ifTrue: string, cond: string, type: ShaderType) => string }
-src/core/backend.ts#CapProfile  type  { compute?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; storageBuffer?: <no-declaration>; storageTexture?: <no-declaration>; subgroups?: <no-declaration> }
+src/core/backend.ts#CapProfile  type  { compute?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; storageBuffer?: <no-declaration>; storageTexture?: <no-declaration>; subgroups?: <no-declaration>; texture1d?: <no-declaration>; textureCubeArray?: <no-declaration>; textureGather?: <no-declaration> }
 src/core/backend.ts#CapSupport  interface  { directive?: string; hostFeature?: string }
 src/core/backend.ts#CapSupportKind  type  "native" | "directive" | "host-feature" | "unsupported"
 src/core/backend.ts#Capabilities  class  { covers: (reqs: Iterable<Capability>) => boolean; has: (c: Capability) => boolean; missing: (reqs: Iterable<Capability>) => Capability[]; set: ReadonlySet<Capability> }
@@ -975,6 +982,7 @@ src/core/intrinsics.ts#INTRINSIC_HELPERS  const  Readonly<Record<string, { reado
 src/core/intrinsics.ts#IntrinsicTarget  type  "wgsl" | "glsl"
 src/core/intrinsics.ts#PORTABLE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#PRE_EMIT_INTRINSICS  const  ReadonlySet<string>
+src/core/intrinsics.ts#TEXTURE_GATHER_IDS  const  ReadonlySet<string>
 src/core/intrinsics.ts#barrierOutsideDispatch  const  (fn: string) => Error
 src/core/intrinsics.ts#intrinsicNeedsAtomArgs  const  (name: string) => boolean
 src/core/intrinsics.ts#isAtomicIntrinsic  const  (name: string) => boolean
@@ -1146,12 +1154,12 @@ src/core/ir/node.ts#vec4  const  (...a: NodeLike[]) => Node<"vec4<f32>">
 src/core/ir/node.ts#vec4f64  const  (...a: Vec64Arg[]) => Node<"vec4<f64>">
 src/core/ir/node.ts#vec4i  const  (...a: NodeLike[]) => Node<"vec4<i32>">
 src/core/ir/node.ts#vec4u  const  (...a: NodeLike[]) => Node<"vec4<u32>">
-src/core/ir/nodes.ts#ALL_CAPABILITIES  const  readonly ["storageBuffer", "compute", "msaaTextureLoad", "storageTexture", "f16", "subgroups", "floatRenderTarget", "float32Blend", "float32Filterable", "multiview"]
+src/core/ir/nodes.ts#ALL_CAPABILITIES  const  readonly ["storageBuffer", "compute", "msaaTextureLoad", "storageTexture", "texture1d", "textureCubeArray", "textureGather", "f16", "subgroups", "floatRenderTarget", "float32Blend", "float32Filterable", "multiview"]
 src/core/ir/nodes.ts#ASSEMBLED_AS  const  typeof ASSEMBLED_AS
 src/core/ir/nodes.ts#AddressSpace  type  "uniform" | "storage"
 src/core/ir/nodes.ts#BinOp  type  "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
 src/core/ir/nodes.ts#BindingDecl  interface  { access?: "read" | "read_write"; binding: number; glsl?: "std140-block" | "loose"; group: number; name: string; owner?: "module" | "host"; precision?: "highp" | "mediump" | "lowp"; space: AddressSpace; type: ShaderType }
-src/core/ir/nodes.ts#Capability  type  "compute" | "storageBuffer" | "msaaTextureLoad" | "storageTexture" | "f16" | "subgroups" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview"
+src/core/ir/nodes.ts#Capability  type  "compute" | "storageBuffer" | "msaaTextureLoad" | "storageTexture" | "texture1d" | "textureCubeArray" | "textureGather" | "f16" | "subgroups" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview"
 src/core/ir/nodes.ts#CmpOp  type  "<" | ">" | "<=" | ">=" | "==" | "!="
 src/core/ir/nodes.ts#ConstDecl  interface  { cpuValue: number; name: string; type: ShaderType; valueExpr?: Expr; wgslValue: number }
 src/core/ir/nodes.ts#DeclarableCapability  type  "f16" | "subgroups" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview"
@@ -1175,11 +1183,11 @@ src/core/ir/span.ts#sourceSpanOf  function  (node: FuncDecl | Stmt | Expr) => So
 src/core/ir/types.ts#ALL_STORAGE_TEXTURE_FORMATS  const  readonly ["rgba8unorm", "rgba8snorm", "rgba8uint", "rgba8sint", "rgba16uint", "rgba16sint", "rgba16float", "r32uint", "r32sint", "r32float", "rg32uint", "rg32sint", "rg32float", "rgba32uint", "rgba32sint", "rgba32float"]
 src/core/ir/types.ts#ArrayElemKey  type  K extends `array<${infer Inner}>` ? DropArraySize<Inner> : never
 src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
-src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "atomic"; elem: infer E extends string; } ? `atomic<${E}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "texture"; dim: "cube"; elem: infer E extends string; } ? `texture_cube<${E}>` : T extends { kind: "texture"; dim: "3d"; elem: infer E extends string; } ? `texture_3d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
+src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "atomic"; elem: infer E extends string; } ? `atomic<${E}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "texture"; dim: "cube"; elem: infer E extends string; } ? `texture_cube<${E}>` : T extends { kind: "texture"; dim: "3d"; elem: infer E extends string; } ? `texture_3d<${E}>` : T extends { kind: "texture"; dim: "1d"; elem: infer E extends string; } ? `texture_1d<${E}>` : T extends { kind: "texture"; dim: "cube-array"; elem: infer E extends string; } ? `texture_cube_array<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#READ_WRITE_STORAGE_FORMATS  const  readonly ["r32uint", "r32sint", "r32float"]
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array" | "cube" | "3d"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d" | "2d-array" | "cube"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "void"; }
+src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array" | "cube" | "3d" | "1d" | "cube-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d" | "2d-array" | "cube" | "cube-array"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#StorageTextureAccess  type  "read" | "read_write" | "write"
 src/core/ir/types.ts#StorageTextureFormat  type  "rgba8unorm" | "rgba8snorm" | "rgba8uint" | "rgba8sint" | "rgba16uint" | "rgba16sint" | "rgba16float" | "r32uint" | "r32sint" | "r32float" | "rg32uint" | "rg32sint" | "rg32float" | "rgba32uint" | "rgba32sint" | "rgba32float"
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
@@ -1205,6 +1213,7 @@ src/core/ir/types.ts#samplerT  const  { readonly kind: "sampler"; }
 src/core/ir/types.ts#storageTexel  const  (format: StorageTextureFormat) => TextureElem
 src/core/ir/types.ts#storageTextureLayoutAccess  const  (access: StorageTextureAccess) => "write-only" | "read-only" | "read-write"
 src/core/ir/types.ts#structT  const  <N extends string>(name: N) => { readonly kind: "struct"; readonly name: N; }
+src/core/ir/types.ts#texture1dfT  const  { readonly kind: "texture"; readonly dim: "1d"; readonly elem: "f32"; }
 src/core/ir/types.ts#texture2dArrayfT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "f32"; }
 src/core/ir/types.ts#texture2dArrayiT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "i32"; }
 src/core/ir/types.ts#texture2dArrayuT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "u32"; }
@@ -1213,9 +1222,11 @@ src/core/ir/types.ts#texture2dfT  const  { readonly kind: "texture"; readonly di
 src/core/ir/types.ts#texture2diT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "i32"; }
 src/core/ir/types.ts#texture2duT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "u32"; }
 src/core/ir/types.ts#texture3dfT  const  { readonly kind: "texture"; readonly dim: "3d"; readonly elem: "f32"; }
+src/core/ir/types.ts#textureCubeArrayfT  const  { readonly kind: "texture"; readonly dim: "cube-array"; readonly elem: "f32"; }
 src/core/ir/types.ts#textureCubefT  const  { readonly kind: "texture"; readonly dim: "cube"; readonly elem: "f32"; }
 src/core/ir/types.ts#textureDepth2dArrayT  const  { readonly kind: "depth-texture"; readonly dim: "2d-array"; }
 src/core/ir/types.ts#textureDepth2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d"; }
+src/core/ir/types.ts#textureDepthCubeArrayT  const  { readonly kind: "depth-texture"; readonly dim: "cube-array"; }
 src/core/ir/types.ts#textureDepthCubeT  const  { readonly kind: "depth-texture"; readonly dim: "cube"; }
 src/core/ir/types.ts#typeEq  function  (a: ShaderType, b: ShaderType) => boolean
 src/core/ir/types.ts#typeKey  function  (t: ShaderType) => string
@@ -1283,7 +1294,7 @@ src/core/passes/stage-bindings.ts#reachFrom  function  (m: ModuleDecl, entries: 
 src/core/passes/validate.ts#ValidationError  class  { cause?: unknown; code: string; diagnostics: readonly Diagnostic[]; hint?: string; loc?: SourceLoc; message: string; name: string; stack?: string }
 src/core/passes/validate.ts#lintModule  function  (m: ModuleDecl, config?: LintConfig) => Diagnostic[]
 src/core/passes/validate.ts#validate  function  (m: ModuleDecl) => void
-src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; glslSpelling?: "std140-block" | "loose"; group: number; name: string; owner: "module" | "host"; resourceKind: ResourceKind; samplerComparison?: true; space: AddressSpace; stages: readonly ("vertex" | "fragment" | "compute")[]; storageAccess?: "write-only" | "read-only" | "read-write"; storageFormat?: StorageTextureFormat; structName?: string; textureDepth?: true; textureDim?: "2d" | "2d-array" | "cube" | "3d" | "2d-ms"; textureElem?: TextureElem }
+src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; glslSpelling?: "std140-block" | "loose"; group: number; name: string; owner: "module" | "host"; resourceKind: ResourceKind; samplerComparison?: true; space: AddressSpace; stages: readonly ("vertex" | "fragment" | "compute")[]; storageAccess?: "write-only" | "read-only" | "read-write"; storageFormat?: StorageTextureFormat; structName?: string; textureDepth?: true; textureDim?: "2d" | "2d-array" | "cube" | "3d" | "1d" | "cube-array" | "2d-ms"; textureElem?: TextureElem }
 src/core/reflect.ts#BindGroup  interface  { entries: readonly BindEntry[]; group: number }
 src/core/reflect.ts#EntryInfo  interface  { inputs: readonly string[]; io: EntryIo; name: string; output: string; portable?: true; stage: "vertex" | "fragment" | "compute"; workgroupSize?: number }
 src/core/reflect.ts#EntryIo  interface  { inputs: readonly EntryIoField[]; outputs: readonly EntryIoField[] }

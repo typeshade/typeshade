@@ -316,10 +316,11 @@ export interface BindEntry {
   readonly structName?: string
   /** The texture dimension the shader declared, so a host can create or validate the
    *  matching view: `'2d-array'` needs an array view and a layer-aware bind, `'2d-ms'` a
-   *  multisampled one, `'cube'` a cube view and `'3d'` a 3d one — the value
+   *  multisampled one, `'cube'` a cube view, `'3d'` a 3d one, `'1d'` a 1d one and
+   *  `'cube-array'` a cube-array view — the value
    *  `GPUTextureViewDescriptor.dimension` takes. Always set on a `texture` entry, absent on
    *  every other kind. */
-  readonly textureDim?: '2d' | '2d-ms' | '2d-array' | 'cube' | '3d'
+  readonly textureDim?: '2d' | '2d-ms' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array'
   /** The texel element the shader declared. Always set on a `texture` entry, absent on
    *  every other kind.
    *
@@ -697,7 +698,8 @@ function bindingsIncludingInjected(
  *  - `requires`: the host-provided globals the module references and does not declare.
  *
  *  A texture binding reports two more fields a host needs to create a matching view.
- *  `textureDim` is `'2d'`, `'2d-ms'`, `'2d-array'`, `'cube'` or `'3d'`, and `textureElem` is the texel element,
+ *  `textureDim` is `'2d'`, `'2d-ms'`, `'2d-array'`, `'cube'`, `'3d'`, `'1d'` or `'cube-array'`,
+ *  and `textureElem` is the texel element,
  *  `f32`, `u32` or `i32`. Both axes are needed: WebGPU's `sampleType` must be `'uint'` or
  *  `'sint'` for an integer texture, and WebGL2 must back one with an integer internal format.
  *  Getting that pairing wrong raises nothing, since a texture whose format disagrees with its

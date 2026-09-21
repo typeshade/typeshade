@@ -168,7 +168,7 @@ export type ShaderType =
   // the coordinate against the dim at each call.
   | {
       readonly kind: 'texture'
-      readonly dim: '2d' | '2d-array' | 'cube' | '3d'
+      readonly dim: '2d' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array'
       readonly elem: TextureElem
     }
   | { readonly kind: 'texture'; readonly dim: '2d-ms'; readonly elem: 'f32' }
@@ -198,7 +198,7 @@ export type ShaderType =
   //
   // 'cube' (roadmap 0.4 item 12) is the shadow map of a point light, looked up by the direction
   // from the light; both targets have it (`texture_depth_cube`, `samplerCubeShadow`).
-  | { readonly kind: 'depth-texture'; readonly dim: '2d' | '2d-array' | 'cube' }
+  | { readonly kind: 'depth-texture'; readonly dim: '2d' | '2d-array' | 'cube' | 'cube-array' }
   | { readonly kind: 'sampler' }
   // A comparison sampler (roadmap 0.4 item 11): the one `textureSampleCompare` takes, which
   // compares a reference value against the texel and returns how much of the filter footprint
@@ -565,6 +565,39 @@ export const texture3dfT = {
   dim: '3d',
   elem: 'f32',
 } as const satisfies ShaderType
+/** A sampled float 1D texture (WGSL `texture_1d<f32>`): a row of texels addressed by one `f32`,
+ *  the shape a transfer function or a colour ramp takes (roadmap 0.4 item 12). WebGPU only:
+ *  GLSL ES 3.00 has no `sampler1D` (the word is reserved), so a module carrying one needs the
+ *  `texture1d` {@link Capability}, which the GLSL backend has no row for.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const texture1dfT = {
+  kind: 'texture',
+  dim: '1d',
+  elem: 'f32',
+} as const satisfies ShaderType
+/** An array of float cube textures (WGSL `texture_cube_array<f32>`): N environment maps in one
+ *  binding, looked up by a `vec3` direction and a layer (roadmap 0.4 item 12). WebGPU only: GLSL
+ *  ES 3.00 has no `samplerCubeArray` and a WebGL2 driver refuses the extension, so a module
+ *  carrying one needs the `textureCubeArray` {@link Capability}.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureCubeArrayfT = {
+  kind: 'texture',
+  dim: 'cube-array',
+  elem: 'f32',
+} as const satisfies ShaderType
+/** An array of cube depth textures (WGSL `texture_depth_cube_array`): the shadow maps of N point
+ *  lights in one binding (roadmap 0.4 item 12). WebGPU only, like {@link textureCubeArrayfT}.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepthCubeArrayT = {
+  kind: 'depth-texture',
+  dim: 'cube-array',
+} as const satisfies ShaderType
 /** The absent-value type: the return type of an `fn` whose body never returns a value (a
  *  statement-only vertex mutator, a compute entry point). Return-type inference falls back to
  *  it when it finds no `Return` in a body, so you rarely need to write it explicitly.
@@ -682,9 +715,17 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                           ? `texture_cube<${E}>`
                           : T extends { kind: 'texture'; dim: '3d'; elem: infer E extends string }
                             ? `texture_3d<${E}>`
-                            : T extends { kind: 'sampler' }
-                              ? 'sampler'
-                              : string
+                            : T extends { kind: 'texture'; dim: '1d'; elem: infer E extends string }
+                              ? `texture_1d<${E}>`
+                              : T extends {
+                                    kind: 'texture'
+                                    dim: 'cube-array'
+                                    elem: infer E extends string
+                                  }
+                                ? `texture_cube_array<${E}>`
+                                : T extends { kind: 'sampler' }
+                                  ? 'sampler'
+                                  : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
 
@@ -775,6 +816,10 @@ export function typeKey(t: ShaderType): string {
           return `texture_cube<${t.elem}>`
         case '3d':
           return `texture_3d<${t.elem}>`
+        case '1d':
+          return `texture_1d<${t.elem}>`
+        case 'cube-array':
+          return `texture_cube_array<${t.elem}>`
         default:
           // Exhaustiveness on the whole ARM, not on `t.dim` (X-GIS #1703): the texture type
           // is now a two-arm union, so once every dim is handled `t` itself is `never`
@@ -800,6 +845,8 @@ export function typeKey(t: ShaderType): string {
           return 'texture_depth_2d_array'
         case 'cube':
           return 'texture_depth_cube'
+        case 'cube-array':
+          return 'texture_depth_cube_array'
       }
     case 'sampler':
       return 'sampler'
