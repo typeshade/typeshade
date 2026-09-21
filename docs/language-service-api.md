@@ -346,6 +346,16 @@ span TypeScript resolved to. A function with no return annotation hovers as the 
 end gave it, which is what its TS8021 warning is about, rather than as the return type TypeScript
 infers from the body.
 
+A caret at the END of a name answers for that name, the rule TypeScript's own quick info
+follows. The shared `nodeAtPosition` helper tests a half-open span, so one offset past `k` in
+`let k = 1.` is the whitespace after it and the hover used to fall through to TypeScript —
+`let k: number` where the compiler lowered an `f32`
+([#56](https://github.com/typeshade/typeshade/issues/56)). `getHover` resolves through
+`touchingNodeAtPosition` now: a position inside a token still belongs to that token, and only a
+position that lands in no identifier looks at the one ending exactly there. The end of a name is
+where an editor leaves the caret after typing it, so it is the position a reader is most often
+at. `nodeAtPosition` itself is unchanged, for the callers written against its half-open rule.
+
 The documentation under a builtin's signature comes from the ambient lib itself. `ambient.ts`
 writes a JSDoc block above every declaration it generates, from three tables in `docs.ts`:
 `FUNCTION_DOCS` for the free math functions, the five expansions, the scalar casts, the vector

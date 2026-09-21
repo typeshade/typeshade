@@ -120,6 +120,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **A hover at the end of a name answers for that name**
+  ([#56](https://github.com/typeshade/typeshade/issues/56)). The language service resolves a
+  hover through `nodeAtPosition`, whose span test is half-open, so one offset past `k` in
+  `let k = 1.` was the whitespace after it: the service fell through to TypeScript's quick
+  info and answered `let k: number` where the compiler lowered an `f32` — the very answer the
+  symbol-table hover replaced. The end of a name is where an editor leaves the caret after
+  typing it. `getHover` now resolves through `touchingNodeAtPosition`, which mirrors
+  `ts.getTouchingPropertyName`: a position inside a token still belongs to that token, and only
+  one that lands in no identifier answers for the identifier ending exactly there. A local, a
+  parameter and a struct field are each pinned at `name.end`. `nodeAtPosition` keeps its
+  half-open rule for completions, rename and the TS1206 filter, which are written against it.
 - **A name a target reserves is refused where it is written** (§62,
   [#103](https://github.com/typeshade/typeshade/issues/103), `TS8068 RESERVED_NAME`). A struct
   field named `half` compiled to WGSL Tint accepts and to GLSL ANGLE answers with
