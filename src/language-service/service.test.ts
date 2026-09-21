@@ -71,6 +71,39 @@ describe('getDiagnostics: a broken program', () => {
     expect(shadeDiag!.range.start.line).toBe(3)
   })
 
+  it('lists the two halves in document order: span start, then length, then source (#25 of the site review)', () => {
+    const service = createTypeshadeLanguageService()
+    // The TypeShade error sits on line 2 and the TypeScript error on line 3. The merge used to
+    // append every TypeShade row after every TypeScript row, so the problem list read 3 then 2.
+    const text =
+      '"use typeshade";\n' +
+      'export function f(): vec4 {\n' +
+      '  let v: vec4 = vec4(1., 2.)\n' +
+      '  let bad: f32 = "nope"\n' +
+      '  return v\n' +
+      '}\n'
+    service.openDocument('order.ts', text)
+    const diagnostics = service.getDiagnostics('order.ts')
+
+    const sources = diagnostics.map((d) => d.source)
+    expect(sources, 'both halves must report').toContain('typeshade')
+    expect(sources, 'both halves must report').toContain('typescript')
+    const starts = diagnostics.map((d) => d.span.start)
+    expect(starts).toEqual([...starts].sort((a, b) => a - b))
+    expect(
+      sources.indexOf('typeshade'),
+      'the line-2 TypeShade row precedes the line-3 TypeScript row',
+    ).toBeLessThan(sources.lastIndexOf('typescript'))
+    // Ties break by length, then by source, so the order is a function of the rows alone.
+    for (let i = 1; i < diagnostics.length; i++) {
+      const a = diagnostics[i - 1]!
+      const b = diagnostics[i]!
+      if (a.span.start !== b.span.start) continue
+      expect(a.span.length <= b.span.length).toBe(true)
+      if (a.span.length === b.span.length) expect(a.source <= b.source).toBe(true)
+    }
+  })
+
   it('never reports TS1206 for @vertex/@fragment/@builtin/@location on the entry grammar', () => {
     const service = createTypeshadeLanguageService()
     service.openDocument('hello.ts', HELLO)
