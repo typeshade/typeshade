@@ -27,6 +27,29 @@ vec2 df64_quickTwoSum(float a, float b) {
   return vec2(_v0, _v1);
 }
 
+vec2 df64_add(vec2 a, vec2 b) {
+  vec2 _v0 = df64_twoSum(a.x, b.x);
+  vec2 _v1 = df64_twoSum(a.y, b.y);
+  _v0.y = (_v0.y + _v1.x);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0.y = (_v0.y + _v1.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  return _v0;
+}
+
+vec2 df64_sub(vec2 a, vec2 b) {
+  return df64_add(a, (-b));
+}
+
+vec2 df64_floor(vec2 a) {
+  float _v0 = floor(a.x);
+  return ((_v0 == a.x) ? df64_quickTwoSum(_v0, floor(a.y)) : vec2(_v0, 0.0));
+}
+
+vec2 df64_fract(vec2 a) {
+  return df64_sub(a, df64_floor(a));
+}
+
 vec2 df64_split(float a) {
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (a * (_cse0 * 4097.0));
@@ -41,28 +64,6 @@ vec2 df64_twoProd(float a, float b) {
   vec2 _v2 = df64_split(b);
   float _v3 = (((((_v1.x * _v2.x) - _v0) + (_v1.x * _v2.y)) + (_v1.y * _v2.x)) + (_v1.y * _v2.y));
   return vec2(_v0, _v3);
-}
-
-vec2 df64_twoSqr(float a) {
-  float _v0 = (a * a);
-  vec2 _v1 = df64_split(a);
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v2 = (((((_v1.x * _v1.x) - _v0) * _cse0) + ((((_v1.x * _v1.y) * 2.0) * _cse0) * _cse0)) + ((((_v1.y * _v1.y) * _cse0) * _cse0) * _cse0));
-  return vec2(_v0, _v2);
-}
-
-vec2 df64_add(vec2 a, vec2 b) {
-  vec2 _v0 = df64_twoSum(a.x, b.x);
-  vec2 _v1 = df64_twoSum(a.y, b.y);
-  _v0.y = (_v0.y + _v1.x);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
-  _v0.y = (_v0.y + _v1.y);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
-  return _v0;
-}
-
-vec2 df64_sub(vec2 a, vec2 b) {
-  return df64_add(a, (-b));
 }
 
 vec2 df64_mul(vec2 a, vec2 b) {
@@ -81,15 +82,12 @@ vec2 df64_div(vec2 a, vec2 b) {
   return df64_add(_v1, _v3);
 }
 
-vec2 df64_sqrt(vec2 a) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v0 = (_cse0 / sqrt(a.x));
-  float _v1 = (a.x * _v0);
-  vec2 _v2 = (df64_twoSqr(_v1) * _cse0);
-  float _v3 = df64_sub(a, _v2).x;
-  vec2 _v4 = df64_twoProd((_v0 * 0.5), _v3);
-  vec2 _v5 = df64_add(vec2(_v1, 0.0), _v4);
-  return ((a.x == 0.0) ? vec2(0.0, 0.0) : _v5);
+vec2 stripeAt(vec2 origin, float offset) {
+  vec2 world = df64_add(origin, vec2(offset, 0.0));
+  vec2 stripe = vec2(0.125, 0.0);
+  float _cse1 = uintBitsToFloat(floatBitsToUint(0.0));
+  vec2 _cse0 = vec2(_cse1, _cse1);
+  return df64_fract(df64_div(df64_add(world, _cse0), df64_add(stripe, _cse0)));
 }
 
 bool df64_gt(vec2 a, vec2 b) {
@@ -98,15 +96,6 @@ bool df64_gt(vec2 a, vec2 b) {
 
 bool df64_eq(vec2 a, vec2 b) {
   return ((a.x == b.x) && (a.y == b.y));
-}
-
-vec2 df64_floor(vec2 a) {
-  float _v0 = floor(a.x);
-  return ((_v0 == a.x) ? df64_quickTwoSum(_v0, floor(a.y)) : vec2(_v0, 0.0));
-}
-
-vec2 df64_fract(vec2 a) {
-  return df64_sub(a, df64_floor(a));
 }
 
 vec2 df64_round(vec2 a) {
@@ -126,21 +115,16 @@ layout(location = 0) out vec4 _ret;
 
 void main() {
   vec2 origin = vec2(originParts.x, originParts.y);
-  vec2 world = df64_add(origin, vec2((u.span * (uv.x - 0.5)), 0.0));
-  vec2 stripe = vec2(0.125, 0.0);
+  float offset = (u.span * (uv.x - 0.5));
+  vec2 bands = stripeAt(origin, offset);
   float _cse1 = uintBitsToFloat(floatBitsToUint(0.0));
   vec2 _cse0 = vec2(_cse1, _cse1);
-  vec2 bands = df64_fract(df64_div(df64_add(world, _cse0), df64_add(stripe, _cse0)));
-  DF64Vec3 p = DF64Vec3(vec3(world.x, origin.x, bands.x), vec3(world.y, origin.y, bands.y));
-  vec2 _gv0 = vec2(p.hi.x, p.lo.x);
-  vec2 _gv1 = vec2(p.hi.y, p.lo.y);
-  vec2 _gv2 = vec2(p.hi.z, p.lo.z);
-  vec3 narrowed = vec3(df64_narrow(_gv0), df64_narrow(_gv1), df64_narrow(_gv2));
-  vec2 _lc0 = df64_add(df64_add(df64_mul(_gv0, _gv0), df64_mul(_gv1, _gv1)), df64_mul(_gv2, _gv2));
-  float reach = df64_narrow(df64_div(df64_sqrt(_lc0), df64_add(vec2((1.0 + df64_narrow(_lc0)), 0.0), _cse0)));
-  vec2 _gv3 = df64_add(_gv0, _cse0);
-  float turns = (df64_narrow(df64_sub(df64_round(df64_add(origin, _cse0)), df64_round(_gv3))) * 0.5);
-  float flat_ = fract((df64_narrow(world) * 8.0));
-  float shade = ((uv.x < 0.5) ? flat_ : df64_narrow(bands));
-  _ret = vec4(shade, ((df64_narrow(df64_sub(df64_add(_gv1, _cse0), _gv3)) * 0.0) + reach), abs(turns), ((narrowed.z * 0.0) + 1.0));
+  vec2 _gv0 = df64_add(origin, vec2(offset, 0.0));
+  vec2 _lc1 = df64_round(df64_add(origin, _cse0));
+  DF64Vec3 p = DF64Vec3(vec3(_gv0.x, _lc1.x, bands.x), vec3(_gv0.y, _lc1.y, bands.y));
+  vec3 narrowed = vec3(df64_narrow(vec2(p.hi.x, p.lo.x)), df64_narrow(vec2(p.hi.y, p.lo.y)), df64_narrow(vec2(p.hi.z, p.lo.z)));
+  float flat_ = fract((df64_narrow(_gv0) * 8.0));
+  float shade = ((uv.x < 0.5) ? flat_ : df64_narrow(vec2(p.hi.z, p.lo.z)));
+  float drift = abs((narrowed.z - flat_));
+  _ret = vec4(shade, drift, fract((narrowed.y * 0.5)), 1.0);
 }

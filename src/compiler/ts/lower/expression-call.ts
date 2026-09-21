@@ -299,15 +299,20 @@ export function lowerCall(
         }
       }
       if (ctor.elem !== 'f64') {
+        // `written` and not a captured `name`: the constructor's identifier is bound in the
+        // callee branch above, which has already closed here — and `lib.dom` declares a
+        // global `name: string`, so reading it type-checked and threw a ReferenceError at
+        // run time instead, taking the language service down with it.
+        const written = node.expression.getText(sourceFile)
         pushDiag(
           diagnostics,
           sourceFile,
           node,
-          `${name}(${typeKey(from.type)}) — an emulated-double vector narrows to f32 lane by ` +
-            `lane and to nothing else; write vec${from.type.n}(v)` +
+          `${written}(${typeKey(from.type)}) — an emulated-double vector narrows to f32 lane ` +
+            `by lane and to nothing else; write vec${from.type.n}(v)` +
             (ctor.elem === 'f32'
               ? ' of its own width.'
-              : ` and cast that, e.g. ${name}(vec${from.type.n}(v)).`),
+              : ` and cast that, e.g. ${written}(vec${from.type.n}(v)).`),
           TS_CODES.TYPE_MISMATCH,
         )
         return undefined
@@ -1520,6 +1525,21 @@ function intArg(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // An emulated double is not a literal, so it used to sail through every check below and
+  // reach emit as a span-less SD0041. It needs its own message: this slot wants an INTEGER,
+  // so `f32(x)` alone is not the fix — the pass has no f64 → i32 body either, which makes
+  // the narrow a two-step one (#151).
+  if (arg.type.kind === 'f64' || arg.type.kind === 'vec64') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A texture ${what} must be an i32 or u32; got ${typeKey(arg.type)}. An emulated double ` +
+        `narrows to f32 first, so write i32(f32(x)).`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   // A NEGATED literal is a unop, not a lit, and reached the backend as `-(1.0)`. Folded first
   // so the range check below sees the number the author wrote.
   const lit = foldNumericLit(arg)

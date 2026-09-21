@@ -2940,9 +2940,11 @@ export function stripes(t: f32): f64 {
 ```
 
 A literal is retyped only where the surrounding type *says* `f64` — a declaration, a parameter,
-a field, a return, or the other side of an operator. `f64(0.1)` is not that: it is a call, and
-it widens the `f32` rounding of `0.1`, which is a different number from `0.1`. Write the bare
-literal and let the context carry it.
+a field, a return, or the other side of an operator. `f64(0.1)` says it explicitly and is left
+alone; it carries the whole double too (the cast folds a literal argument at full precision),
+so the two spellings emit the same pair. What the retype buys is that the natural one compiles:
+`const k: f64 = 0.1` used to be a type mismatch, `f64` against the `f32` every bare literal
+lowers to, and the only way to write an f64 constant was the explicit cast.
 
 **Vectors.** `vec2f64`, `vec3f64` and `vec4f64` are vectors of doubles. They swizzle and index
 like any other vector — a lane is a swizzle of the hi and lo planes the pass lowers the vector
@@ -2977,6 +2979,15 @@ Everything else is refused **at the call**, naming the list and the narrow:
 ceil has no emulated-double form; got f64. On an f64 the pass lowers abs, cos, floor,
 fract, max, min, mix, round, sin and sqrt — narrow first, e.g. ceil(f32(x)).
 ```
+
+On a vector the same refusal names the vector narrow, `ceil(vec3(v))`: `f32(v)` on a `vec64`
+is not a narrow at all and the pass has no body for it.
+
+`%` is refused too, at the operator — there is no df64 remainder — and so are `i32(x)` and
+`u32(x)` on a double, which have no direct body either: narrow to `f32` first, `i32(f32(x))`.
+A lane is a READ. `v.x = …` and `v[0] = …` are refused, because after lowering the vector is
+two separate hi/lo planes and a lane of it is a swizzle of both, which is not a place; rebuild
+the whole vector instead.
 
 `round` is WGSL's: the nearest integer with ties going to the **even** one, which is what the
 CPU oracle answers. (The library also carries `nint`, whose ties go toward +∞ because the
@@ -3015,11 +3026,13 @@ The one `@location` an `f64` may sit on is a **vertex** input, which is a buffer
 than a varying: the pair fits the single slot the attribute already is. A `vec3f64` attribute
 would need two slots and is refused.
 
-**The guard.** A module that uses the emulation gets a `_fp64` uniform injected at lowering, and
-the host must write `1.0` into it. It is what stops a driver's fast-math from algebraically
-cancelling the error-free transforms — the pair only works because the compiler is not allowed
-to "simplify" `(a + b) - a`. The binding is absent from `reflect()`, which reports the module as
-authored; probe the emitted program for it.
+**The guard.** A module that uses the emulation gets a `_fp64` binding injected at lowering: a
+1×1 `texture_2d<f32>` the host must fill with `1.0`. It is what stops a driver's fast-math from
+algebraically cancelling the error-free transforms — the pair only works because the compiler is
+not allowed to "simplify" `(a + b) - a`, and a value read from a texture is one it cannot fold
+through. `reflect()` reports it like any other binding, group and slot included, so bind what
+reflection lists and the guard is covered; a host that skipped it got a WebGPU validation error
+or, on WebGL2, a silently wrong picture.
 
 ---
 

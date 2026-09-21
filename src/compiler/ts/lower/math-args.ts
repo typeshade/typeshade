@@ -21,7 +21,7 @@ import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES } from '../codes.js'
-import { F64_SCALAR_TWINS, F64_VEC_TWINS } from '../../../core/fp64/twins.js'
+import { F64_SCALAR_TWINS, F64_VEC_REDUCTIONS, F64_VEC_TWINS } from '../../../core/fp64/twins.js'
 
 type Elem = 'f32' | 'i32' | 'u32' | 'bool' | 'f64'
 
@@ -169,7 +169,15 @@ export function mathTakesElem(fn: string, elem: string): boolean {
 /** The builtins that take a matrix, checked apart from the shapes above. */
 const MATRIX_FNS: ReadonlySet<string> = new Set(['transpose', 'determinant'])
 
-const VEC_SUFFIX: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u', bool: 'b' }
+const VEC_SUFFIX: Readonly<Record<string, string>> = {
+  f32: '',
+  i32: 'i',
+  u32: 'u',
+  bool: 'b',
+  // Without this an emulated-double vector printed as `vecN`, so the "cast one side" fix
+  // offered the same spelling twice ("Cast one side: vec3(x) or vec3(x)").
+  f64: 'f64',
+}
 
 /** How the surface writes `t`'s vector of `n` (`vec3`, `vec2i`, `vec4u`), for a fix. */
 function vectorSpelling(elem: Elem, n: number): string {
@@ -215,8 +223,9 @@ function sameFix(first: Shape, other: Shape): string {
  *
  *  What the pass DOES accept is admitted as it is: an `f32` beside a scalar `f64` (the pass
  *  widens it exactly as `vec2<f32>(x, 0.0)`, the rule `binResultType` already applies in the
- *  fn() EDSL), a scalar operand broadcast across a `vec64`, and `mix`'s interpolant, which
- *  stays an `f32` on both shapes because the df64 body blends by a plain float. */
+ *  fn() EDSL), a SCALAR operand broadcast across a `vec64` by a componentwise twin, and
+ *  `mix`'s interpolant, which stays an `f32` on both shapes because the df64 body blends by a
+ *  plain float. A wider f32 operand is NOT that broadcast and is refused — see the loop. */
 function checkF64Args(
   fn: string,
   display: string,
@@ -229,11 +238,15 @@ function checkF64Args(
   const vec = head.n > 1
   const twins = vec ? F64_VEC_TWINS : F64_SCALAR_TWINS
   if (!twins.includes(fn)) {
+    // The narrow NAMED here has to be one that lowers. `f32(v)` on a vec64 does not: the pass
+    // raises SD0041 for it, which is the spanless failure this refusal exists to replace. The
+    // vector narrow is `vecN(v)`, per lane (§39).
+    const narrow = vec ? `vec${head.n}(v)` : 'f32(x)'
     return refuse(
       0,
       `${display} has no emulated-double form; got ${typeKey(args[0]!.type)}. ` +
         `On ${vec ? 'a vector of doubles' : 'an f64'} the pass lowers ${listOf(twins)} — ` +
-        `narrow first, e.g. ${display}(f32(x)).`,
+        `narrow first, e.g. ${display}(${narrow}).`,
     )
   }
   // A reduction (dot, length, distance) takes vectors; a componentwise twin takes the head's
@@ -251,12 +264,34 @@ function checkF64Args(
           `Write f32(t).`,
       )
     }
-    if (shape === undefined || shape.n !== head.n || (shape.elem !== 'f64' && shape.elem !== 'f32'))
+    // A CROSS-LANE reduction (dot, distance) needs two vectors of one width: the pass slices
+    // lane i out of each operand, and a scalar pair or an f32 vector sliced that way reads
+    // `.hi` off something that has no such field. `dot(v64, vec3)` compiled clean and emitted
+    // `w.hi` on a `vec3<f32>` — Tint refuses it and the lowered oracle answers NaN where the
+    // double oracle answers a number.
+    if (F64_VEC_REDUCTIONS.includes(fn)) {
+      if (shape !== undefined && shape.elem === 'f64' && shape.n === head.n) continue
       return refuse(
         i,
-        `${display} takes arguments of one type; the first is ${typeKey(args[0]!.type)}, ` +
-          `this one ${got}.`,
+        `${display} reduces two vectors of emulated doubles of one width; the first is ` +
+          `${typeKey(args[0]!.type)}, this one ${got}.`,
       )
+    }
+    // A componentwise twin takes the head's own shape, or a SCALAR the pass broadcasts across
+    // the lanes (`vecOperand`) and widens exactly if it is an f32. A WIDER f32 operand is not
+    // that broadcast and is refused: the pass would walk it as if it were a DF64VecN.
+    if (shape !== undefined && shape.elem === 'f64' && shape.n === head.n) continue
+    if (shape !== undefined && shape.n === 1 && (shape.elem === 'f64' || shape.elem === 'f32'))
+      continue
+    return refuse(
+      i,
+      `${display} takes arguments of one type; the first is ${typeKey(args[0]!.type)}, ` +
+        `this one ${got}.` +
+        (shape !== undefined && shape.elem === 'f32' && shape.n > 1
+          ? ` A vector of f32 is not widened to a vector of doubles — build it with ` +
+            `vec${head.n}f64(...), or narrow the first argument with vec${head.n}(v).`
+          : ''),
+    )
   }
   return true
 }

@@ -227,6 +227,15 @@ export function lowerScalarCast(name: string, arg: Expr): Expr | string {
     }
     return { op: 'call', type: f64T, fn: 'f64', args: [arg] }
   }
+  // An emulated double has a narrow to f32 (`df64_narrow`) and no direct integer one: the
+  // fp64 pass raises SD0041 for `i32()`/`u32()` on an f64, which reached the author as a
+  // span-less backend failure. Said here, at the cast, with the two-step form that works.
+  if ((name === 'i32' || name === 'u32') && (isF64(arg.type) || isVec64(arg.type))) {
+    return (
+      `${name}() has no emulated-double form, got ${typeKey(arg.type)}. A double narrows to ` +
+      `f32 first, so write ${name}(f32(x)).`
+    )
+  }
   if (arg.op === 'lit' && typeof arg.value === 'number') {
     const v = arg.value
     if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`

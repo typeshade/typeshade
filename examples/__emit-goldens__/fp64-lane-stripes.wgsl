@@ -25,26 +25,29 @@ fn vs(@builtin(vertex_index) idx: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)), shifted);
 }
 
-@fragment
-fn fs(vo: VsOut) -> @location(0) vec4<f32> {
-  let origin = vec2<f32>(vo.originParts.x, vo.originParts.y);
-  let world = df64_add(origin, vec2<f32>((u.span * (vo.uv.x - 0.5)), 0.0));
+fn stripeAt(origin: vec2<f32>, offset: f32) -> vec2<f32> {
+  let world = df64_add(origin, vec2<f32>(offset, 0.0));
   let stripe = vec2<f32>(0.125, 0.0);
   let _cse1 = bitcast<f32>(bitcast<u32>(0.0));
   let _cse0 = vec2<f32>(_cse1, _cse1);
-  let bands = df64_fract(df64_div(df64_add(world, _cse0), df64_add(stripe, _cse0)));
-  let p = DF64Vec3(vec3<f32>(world.x, origin.x, bands.x), vec3<f32>(world.y, origin.y, bands.y));
-  let _gv0 = vec2<f32>(p.hi.x, p.lo.x);
-  let _gv1 = vec2<f32>(p.hi.y, p.lo.y);
-  let _gv2 = vec2<f32>(p.hi.z, p.lo.z);
-  let narrowed = vec3<f32>(df64_narrow(_gv0), df64_narrow(_gv1), df64_narrow(_gv2));
-  let _lc0 = df64_add(df64_add(df64_mul(_gv0, _gv0), df64_mul(_gv1, _gv1)), df64_mul(_gv2, _gv2));
-  let reach = df64_narrow(df64_div(df64_sqrt(_lc0), df64_add(vec2<f32>((1.0 + df64_narrow(_lc0)), 0.0), _cse0)));
-  let _gv3 = df64_add(_gv0, _cse0);
-  let turns = (df64_narrow(df64_sub(df64_round(df64_add(origin, _cse0)), df64_round(_gv3))) * 0.5);
-  let flat = fract((df64_narrow(world) * 8.0));
-  let shade = select(df64_narrow(bands), flat, (vo.uv.x < 0.5));
-  return vec4<f32>(shade, ((df64_narrow(df64_sub(df64_add(_gv1, _cse0), _gv3)) * 0.0) + reach), abs(turns), ((narrowed.z * 0.0) + 1.0));
+  return df64_fract(df64_div(df64_add(world, _cse0), df64_add(stripe, _cse0)));
+}
+
+@fragment
+fn fs(vo: VsOut) -> @location(0) vec4<f32> {
+  let origin = vec2<f32>(vo.originParts.x, vo.originParts.y);
+  let offset = (u.span * (vo.uv.x - 0.5));
+  let bands = stripeAt(origin, offset);
+  let _cse1 = bitcast<f32>(bitcast<u32>(0.0));
+  let _cse0 = vec2<f32>(_cse1, _cse1);
+  let _gv0 = df64_add(origin, vec2<f32>(offset, 0.0));
+  let _lc1 = df64_round(df64_add(origin, _cse0));
+  let p = DF64Vec3(vec3<f32>(_gv0.x, _lc1.x, bands.x), vec3<f32>(_gv0.y, _lc1.y, bands.y));
+  let narrowed = vec3<f32>(df64_narrow(vec2<f32>(p.hi.x, p.lo.x)), df64_narrow(vec2<f32>(p.hi.y, p.lo.y)), df64_narrow(vec2<f32>(p.hi.z, p.lo.z)));
+  let flat = fract((df64_narrow(_gv0) * 8.0));
+  let shade = select(df64_narrow(vec2<f32>(p.hi.z, p.lo.z)), flat, (vo.uv.x < 0.5));
+  let drift = abs((narrowed.z - flat));
+  return vec4<f32>(shade, drift, fract((narrowed.y * 0.5)), 1.0);
 }
 
 fn df64_twoSum(a: f32, b: f32) -> vec2<f32> {
@@ -78,14 +81,6 @@ fn df64_twoProd(a: f32, b: f32) -> vec2<f32> {
   return vec2<f32>(_v0, _v3);
 }
 
-fn df64_twoSqr(a: f32) -> vec2<f32> {
-  let _v0 = (a * a);
-  let _v1 = df64_split(a);
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
-  let _v2 = (((((_v1.x * _v1.x) - _v0) * _cse0) + ((((_v1.x * _v1.y) * 2.0) * _cse0) * _cse0)) + ((((_v1.y * _v1.y) * _cse0) * _cse0) * _cse0));
-  return vec2<f32>(_v0, _v2);
-}
-
 fn df64_add(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
   var _v0: vec2<f32> = df64_twoSum(a.x, b.x);
   let _v1 = df64_twoSum(a.y, b.y);
@@ -114,17 +109,6 @@ fn df64_div(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
   let _v2 = df64_sub(a, df64_mul(b, _v1)).x;
   let _v3 = df64_twoProd(_v0, _v2);
   return df64_add(_v1, _v3);
-}
-
-fn df64_sqrt(a: vec2<f32>) -> vec2<f32> {
-  let _cse0 = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
-  let _v0 = (_cse0 / sqrt(a.x));
-  let _v1 = (a.x * _v0);
-  let _v2 = (df64_twoSqr(_v1) * _cse0);
-  let _v3 = df64_sub(a, _v2).x;
-  let _v4 = df64_twoProd((_v0 * 0.5), _v3);
-  let _v5 = df64_add(vec2<f32>(_v1, 0.0), _v4);
-  return select(_v5, vec2<f32>(0.0, 0.0), (a.x == 0.0));
 }
 
 fn df64_gt(a: vec2<f32>, b: vec2<f32>) -> bool {

@@ -137,10 +137,11 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
   // A DECLARED f64 is the one non-integer context that retypes a literal, and for the same
   // reason the integer contexts do: the type is stated, so the written number means a value
   // of it. `const k: f64 = 0.1` lowered `0.1` to an f32 and then reported "cannot let/const k
-  // f64 and f32", which left an f64 constant with no spelling at all — `f64(0.1)` widens the
-  // f32 ROUNDING of 0.1, not 0.1 (#151 F64-03). Here the full double reaches the fp64 pass,
-  // which splits it into its (hi, lo) halves. Only a literal is retyped; `f32(0.1)` says
-  // which precision it means and is left alone, as it is beside an f64 operand.
+  // f64 and f32", so the natural spelling of an f64 constant did not compile and the only one
+  // that did was the explicit `f64(0.1)` (#151 F64-03). Both carry the whole double —
+  // `lowerScalarCast` folds the cast's literal argument at full precision — so this is about
+  // the spelling, not the value. Only a literal is retyped; a call says which precision it
+  // means and is left alone, as it is beside an f64 operand.
   if (isF64(target)) return retargetF64DeclaredLit(expr, node)
   if (!isIntScalar(target)) return expr
   const inner = stripParens(node)

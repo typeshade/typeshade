@@ -757,7 +757,7 @@ export function parseParams(
       refuseF64EntryIo(
         pType,
         `Parameter "${p.name.text}"`,
-        stage === 'fragment',
+        stage === 'vertex' ? 'attribute' : 'varying',
         p,
         sourceFile,
         diagnostics,
@@ -958,8 +958,8 @@ export function parseSignature(
     stageInfo.stage !== undefined &&
     refuseF64EntryIo(
       ret,
-      `Entry "${name}" returns`,
-      true,
+      `The return of entry "${name}"`,
+      'varying',
       node.type ?? node,
       sourceFile,
       diagnostics,
@@ -1019,33 +1019,50 @@ export function parseSignature(
  *
  *  A SCALAR `f64` vertex attribute is not refused: a vertex `@location` input is a buffer
  *  read, not a varying, and one `vec2<f32>` slot carries the pair exactly — which is what the
- *  pass accepts and what `examples/fp64-deep-zoom.shade.ts` is built on. */
+ *  pass accepts. */
+type F64IoPlace =
+  /** A `@location` that is INTERPOLATED between the stages: a fragment input, any entry
+   *  output. The pair's two words would be blended one at a time. */
+  | 'varying'
+  /** A bare vertex `@location` parameter, which is a buffer read. A scalar double's pair
+   *  rides the one slot it already has; anything wider needs more than one. */
+  | 'attribute'
+  /** A `@location` field of an IO struct, which the fp64 pass refuses whichever direction it
+   *  faces — its struct rule keys on `f.location !== undefined` alone. */
+  | 'io-struct-field'
+
 function refuseF64EntryIo(
   type: ShaderType,
   what: string,
-  interpolated: boolean,
+  place: F64IoPlace,
   node: ts.Node,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
   if (!containsF64Type(type)) return false
-  // The one f64 an entry CAN carry: a scalar double read from a vertex buffer, whose pair
-  // fits the single `vec2<f32>` slot the attribute already is.
-  if (!interpolated && type.kind === 'f64') return false
+  // The one f64 an entry CAN carry, and the only place it can: see 'attribute' above.
+  if (place === 'attribute' && type.kind === 'f64') return false
   const bridge =
     `Carry the two f32 words as ordinary IO and rebuild the value with ` +
     `f64FromParts(hi, lo); f64Parts(x) splits one.`
+  const reason =
+    place === 'varying'
+      ? `an emulated double is a pair of f32 words, and a @location varying interpolates ` +
+        `each word on its own, which is not the interpolation of the double`
+      : place === 'attribute'
+        ? `a vertex attribute is one slot per @location, and only a scalar f64 fits one — ` +
+          `this shape needs more`
+        : `the fp64 pass carries no emulated double in an entry IO struct, whichever ` +
+          `direction it faces` +
+          (type.kind === 'f64'
+            ? ` — a scalar one rides a bare @location parameter, if that is what you meant`
+            : '')
   pushDiag(
     diagnostics,
     sourceFile,
     node,
-    interpolated
-      ? `${what} is ${typeKey(type)}: an emulated double is a pair of f32 words, and a ` +
-          `@location varying interpolates each word on its own, which is not the ` +
-          `interpolation of the double. ${bridge}`
-      : `${what} is ${typeKey(type)}: a vertex attribute carries one f32 slot per @location, ` +
-          `so a vector of emulated doubles would need two of them. ${bridge}`,
-    TS_CODES.UNSUPPORTED,
+    `${what} carries ${typeKey(type)}: ${reason}. ${bridge}`,
+    TS_CODES.F64_ENTRY_IO,
   )
   return true
 }
@@ -1561,7 +1578,7 @@ function checkStructBuiltinFields(
       refuseF64EntryIo(
         field.type,
         `Struct "${structName}" field "${field.name}", a ${stage} ${direction},`,
-        true,
+        'io-struct-field',
         node,
         sourceFile,
         diagnostics,

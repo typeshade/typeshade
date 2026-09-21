@@ -109,6 +109,43 @@ describe('every builtin the fp64 pass has a twin for', () => {
     ).toEqual([])
   })
 
+  // The CHANGELOG and df64-lib's comment both rest on this: WGSL's `round` breaks ties to the
+  // EVEN integer, and `df64_nint` — the helper the issue proposed reusing — breaks them
+  // toward +infinity for the mod-2pi reduction. `round(2.5)` alone cannot tell the two apart
+  // from a plain `Math.round` either, since 2 is even and Math.round(2.5) is 3. These are the
+  // points where the three conventions disagree, including the two where the LOW word of the
+  // pair carries the parity (an f32 at 2^30 cannot hold 2^30 + 1, so the +1 lands in lo).
+  const TIES: readonly (readonly [number, number])[] = [
+    [0.5, 0],
+    [1.5, 2],
+    [2.5, 2],
+    [3.5, 4],
+    [4.5, 4],
+    // Written +0, not -0: IEEE's roundToIntegralTiesToEven(-0.5) is -0 and the CPU oracle
+    // answers +0. The two compare equal and a shader cannot tell them apart without 1/x, so
+    // this pins the VALUE and leaves the zero sign alone — it is the oracle's, and predates
+    // this change.
+    [-0.5, 0],
+    [-1.5, -2],
+    [-2.5, -2],
+    [12345.5, 12346],
+    [12346.5, 12346],
+    [2 ** 30 + 0.5, 2 ** 30],
+    [2 ** 30 + 1.5, 2 ** 30 + 2],
+  ]
+
+  it.each(TIES)('round(%f) breaks the tie to the even integer, as WGSL does', (x, want) => {
+    const { double, emulated } = bothWays(
+      `"use typeshade"\nexport function k(a: f64): f64 { return round(a) }\n`,
+      [x],
+    )
+    expect(double, 'the f64 oracle').toBe(want)
+    expect(emulated, 'the lowered f32 oracle').toBe(want)
+    // The discriminative half: `Math.round` (ties away from zero) and `floor(x + 0.5)` (ties
+    // toward +infinity, which is df64_nint's convention) disagree with WGSL on half of these.
+    if (Math.round(x) !== want) expect(Math.floor(x + 0.5)).not.toBe(want)
+  })
+
   it('lowers a vec64 reduction and the CPU matches the double', () => {
     const { double, emulated } = bothWays(
       `"use typeshade"
@@ -131,6 +168,15 @@ export function k(a: f64, b: f64, c: f64): f64 {
 const NO_TWIN = ['ceil', 'trunc', 'sign', 'exp', 'log', 'pow', 'tan', 'step', 'inverseSqrt']
 
 describe('every builtin it has no twin for', () => {
+  it('none of the NO_TWIN names is actually a twin', () => {
+    // The floor SCALAR_TWINS has, in the other direction: promote one of these to a df64 body
+    // and this list goes stale, asserting a refusal that no longer happens for a reason the
+    // test would otherwise report as a message mismatch.
+    expect(
+      NO_TWIN.filter((n) => F64_SCALAR_TWINS.includes(n) || F64_VEC_TWINS.includes(n)),
+    ).toEqual([])
+  })
+
   it.each(NO_TWIN)('refuses %s at the call span with the twin list', (name) => {
     const arity = name === 'pow' || name === 'step' ? 2 : 1
     const params = ['a: f64', 'b: f64'].slice(0, arity).join(', ')
@@ -153,8 +199,16 @@ describe('every builtin it has no twin for', () => {
     expect(errors).toEqual([
       'ceil has no emulated-double form; got vec3<f64>. On a vector of doubles the pass ' +
         'lowers abs, cos, distance, dot, floor, fract, length, max, min, mix, normalize, ' +
-        'round and sin — narrow first, e.g. ceil(f32(x)).',
+        'round and sin — narrow first, e.g. ceil(vec3(v)).',
     ])
+    // The narrow the message names has to be one that LOWERS. `f32(v)` on a vec64 does not:
+    // it is the span-less SD0041 this refusal exists to replace.
+    expect(
+      errorsOf(`"use typeshade"\nexport function k(p: vec3f64): f32 { return f32(p) }\n`),
+    ).not.toEqual([])
+    expect(
+      errorsOf(`"use typeshade"\nexport function k(p: vec3f64): vec3 { return ceil(vec3(p)) }\n`),
+    ).toEqual([])
   })
 
   it('refuses an f64 blend factor, which the df64 mix body takes as a plain f32', () => {
@@ -235,10 +289,25 @@ export function k(s: f64, t: f32): f64 {
     expect(Math.abs(Math.fround(0.1) - 0.1)).toBeGreaterThan(1e-9)
   })
 
-  it('keeps % refused on an f64, which has no df64 body', () => {
-    expect(
-      errorsOf(`"use typeshade"\nexport function k(a: f64, b: f64): f64 { return a % b }\n`),
-    ).not.toEqual([])
+  it('refuses % on an f64 AT THE OPERATOR, not from the backend', () => {
+    // `.not.toEqual([])` would pass on the span-less TS8015/SD0041 this is meant to rule out,
+    // so the code and the text are both asserted.
+    for (const body of [
+      'export function k(a: f64, b: f64): f64 { return a % b }',
+      'export function k(a: f64): f64 { return a % 2. }',
+      'export function k(a: vec3f64, b: vec3f64): vec3f64 { return a % b }',
+    ]) {
+      const errors = errorsOf(`"use typeshade"\n${body}\n`)
+      expect(errors, body).toHaveLength(1)
+      expect(errors[0], body).toMatch(
+        /^Cannot % (f64|vec3<f64>): the emulated double has no remainder/,
+      )
+    }
+    const compound = errorsOf(
+      `"use typeshade"\nexport function k(a: f64): f64 { let x: f64 = a; x %= 2.; return x }\n`,
+    )
+    expect(compound).toHaveLength(1)
+    expect(compound[0]).toMatch(/^Cannot %= f64: the emulated double has no remainder/)
   })
 })
 
@@ -357,7 +426,7 @@ class C { @location(0) color: vec4 }
 export function fs(@location(0) p: f64): C { return { color: vec4(f32(p), 0., 0., 1.) } }
 `),
     ).toEqual([
-      'Parameter "p" is f64: an emulated double is a pair of f32 words, and a @location ' +
+      'Parameter "p" carries f64: an emulated double is a pair of f32 words, and a @location ' +
         'varying interpolates each word on its own, which is not the interpolation of the ' +
         'double. Carry the two f32 words as ordinary IO and rebuild the value with ' +
         'f64FromParts(hi, lo); f64Parts(x) splits one.',

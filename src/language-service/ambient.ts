@@ -21,6 +21,7 @@
 // see the "Known limitation" note below `VecOf` for what this does not cover.
 
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
+import { F64_VEC_TWIN_KIND } from '../core/fp64/twins.js'
 import { SCALAR_CAST } from '../compiler/ts/numeric.js'
 import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js'
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
@@ -208,7 +209,7 @@ const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('
  * `mathResultType` types them — so the signature has to answer `f64` and not the `number` the
  * `Numeric` form returns, or the editor would call a correct `const l: f64 = length(v)` a
  * mismatch. `Numeric` itself stays f32/i32/u32-only: widening it would let every componentwise
- * builtin take a `vec64` in the editor, and the pass has a body for nine of them
+ * builtin take a `vec64` in the editor, and the pass has a body for ten of them
  * (fp64/twins.ts), not all of them.
  *
  * ONE signature with a widened constraint and a conditional result, not an overload SET: a
@@ -280,7 +281,14 @@ function freeMathSignature(name: string): string {
   if (special) return special
   const arity = MATH_FN_ARITY[name]!
   const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ')
-  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends Numeric>(${params}): T`
+  // A componentwise builtin the fp64 pass has a `df64_vN_*` body for takes an emulated-double
+  // vector too, and the editor has to say so or it red-squiggles a program the compiler
+  // accepts — `abs(v)`, `round(v)`, `min(a, b)` on a `vec3f64` were eight such shapes. The set
+  // is read from the pass's own table, so the editor cannot drift from it: a builtin with NO
+  // body keeps the `Numeric` constraint and stays refused here, exactly as
+  // `checkMathArgs` refuses it (§39).
+  const constraint = F64_VEC_TWIN_KIND[name] === undefined ? 'Numeric' : 'Numeric | Vec64Any'
+  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends ${constraint}>(${params}): T`
 }
 
 const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS)

@@ -434,7 +434,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     id: 'fp64-lane-stripes',
     title: 'Emulated doubles',
     blurb:
-      'The `f64` surface as source (§39): an `f64` uniform field lifted against a literal and an f32, a lane of a `vec3f64` read as `p.x` and `p[1]`, `vec2(p)` narrowing per lane, `length`/`dot` typed `f64`, `round` through the ties-to-even df64 body, and `f64Parts`/`f64FromParts` carrying the double across the entry boundary a varying cannot. A world coordinate near 10⁷ stripes on the emulated half and goes flat on the plain-f32 half; the gate runs both targets and the oracle checks the lowered module against the double.',
+      'The `f64` surface as source (§39): an `f64` uniform field lifted against a literal and an f32, a lane of a `vec3f64` read as `p.x` and `p[1]`, `vec3(p)` narrowing per lane, `length`/`dot` typed `f64`, `round` through the ties-to-even df64 body, and `f64Parts`/`f64FromParts` carrying the double across the entry boundary a varying cannot. A world coordinate near 10⁷ stripes on the emulated half and goes flat on the plain-f32 half; the gate runs both targets and the oracle checks the lowered module against the double.',
     renderable: true,
   },
 ]

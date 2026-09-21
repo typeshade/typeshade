@@ -9,8 +9,8 @@
 //   a + - * / b           → df64_add/sub/mul/div(a, b)
 //   a < <= > >= == != b   → df64_lt/le/gt/ge/eq/ne(a, b)
 //   -a                    → -(vec2 pair)                 (componentwise, exact)
-//   sqrt/abs/min/max/mix/floor/fract → df64_*
-//   abs/min/max/mix/floor/fract/normalize on vecN<f64> → df64_vN_*
+//   sqrt/abs/min/max/mix/floor/fract/round/sin/cos → df64_*
+//   abs/min/max/mix/floor/fract/round/normalize/sin/cos on vecN<f64> → df64_vN_*
 //   f64(x)  (toF64)       → vec2<f32>(x, 0.0)            (exact widen)
 //   f32(x)  (toF32 on f64)→ df64_narrow(x)               (hi + lo)
 //   f64 param/var/field/binding/const → vec2<f32>        (type map)

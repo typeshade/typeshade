@@ -2,7 +2,7 @@
 import ts from 'typescript'
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
+import { f32T, boolT, isF64, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { irNameOf, type LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
@@ -425,6 +425,22 @@ function lowerBinary(
       )
       return undefined
     }
+    // `%` is the one arithmetic operator the emulation has no body for: there is no
+    // df64 remainder, and `binResultType` refuses the pair in the fn() EDSL for the same
+    // reason. Same-typed operands pass the key check above, so without this the program
+    // reached emit and came back as a span-less SD0041 (#151).
+    if (arith === '%' && (isF64(left.type) || isVec64(left.type))) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Cannot % ${typeKey(left.type)}: the emulated double has no remainder — the fp64 ` +
+          `pass has a df64 body for + - * / and the comparisons only. Narrow first, e.g. ` +
+          `${isF64(left.type) ? 'f32(x) % f32(y)' : `vec${(left.type as { n: number }).n}(v) % vec${(left.type as { n: number }).n}(w)`}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
     return { op: 'binop', type: left.type, bop: arith, a: left, b: right }
   }
   // `a ** b` is WGSL's and GLSL's pow(a, b); TypeScript's exponent operator is the only
@@ -506,6 +522,12 @@ function lowerBinary(
   }
   const cmp = COMPARE[node.operatorToken.kind]
   if (cmp !== undefined) {
+    // An f32 compared against a scalar f64 widens exactly, the same rule the arithmetic
+    // follows and the one `binResultType` applies in the fn() EDSL, whose `f64.lt(f32)`
+    // builds and emits. Without it `s < t` was a mismatch while `s - t < 0.` was not (#151).
+    if (f64WidenResultType(left.type, right.type, '-') !== undefined) {
+      return { op: 'compare', type: boolT, cop: cmp, a: left, b: right }
+    }
     if (typeKey(left.type) !== typeKey(right.type)) {
       pushDiag(
         diagnostics,

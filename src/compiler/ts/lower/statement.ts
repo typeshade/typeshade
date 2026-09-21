@@ -1012,6 +1012,22 @@ function lowerAssignOp(
       }
     }
   }
+  // `x %= y` on an emulated double, for the reason `x % y` is refused: there is no df64
+  // remainder. A MISMATCHED pair (`w %= s` with a vec64 and an f32) is already reported above
+  // by the ordinary numeric mismatch, which names both operand types and says the same thing;
+  // this catches the same-typed pair, which passed every check and reached emit as a
+  // span-less SD0041 (#151).
+  if (bop === '%' && (isF64(target.type) || isVec64(target.type))) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `Cannot %= ${typeKey(target.type)}: the emulated double has no remainder — the fp64 ` +
+        `pass has a df64 body for + - * / and the comparisons only.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   return { s: 'assignOp', target, bop, expr: value }
 }
 
@@ -1040,8 +1056,29 @@ export function lowerLValue(
     // `cam.xs[i] = 1.` on a uniform and `p.xs[i] = 1.` on a parameter used to reach the
     // backend, because the binding was resolved only when the base was a bare identifier.
     if (!checkRootWritable(node, sourceFile, scope, diagnostics)) return undefined
+    const baseExpr = lowerExpression(node.expression, sourceFile, scope, diagnostics)
+    if (
+      baseExpr !== undefined &&
+      refuseVec64LaneWrite(baseExpr.type, 'an indexed lane', node, sourceFile, diagnostics)
+    ) {
+      return undefined
+    }
     const idx = lowerExpression(node, sourceFile, scope, diagnostics)
-    if (!idx || idx.op !== 'index') return undefined
+    // A lowered element access that is not an `index` node has no place to write to. It used
+    // to return here silently, which dropped the whole statement — no diagnostic, valid
+    // shader text, wrong answer. Anything that reaches this point and is not covered above
+    // says so.
+    if (!idx) return undefined
+    if (idx.op !== 'index') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Cannot assign to "${truncate(node.getText(sourceFile))}" — it is not a place.`,
+        TS_CODES.ASSIGN_TARGET,
+      )
+      return undefined
+    }
     // The lvalue carries its own span (docs/debugging.md §5 decision 3): a debugger stopped on
     // this statement can highlight what is about to change, not just the line it is on.
     return withSpan(idx, sourceFile, node)
@@ -1198,6 +1235,38 @@ function checkRootWritable(
   return true
 }
 
+/** True, having reported it, when the assignment target is a LANE of an emulated-double
+ *  vector — `v.x = …`, `v.xy = …`, `v[0] = …`, `v[0] += …`, `v[0]++`.
+ *
+ *  Reading a lane is a swizzle of the hi and lo planes the fp64 pass lowers the vector into
+ *  (`laneSwizzle`), which is a CONSTRUCTOR, and a constructor is not assignable: the emit was
+ *  `vec2<f32>(v.hi.x, v.lo.x) = …`, which Tint answers with "expected '=' for assignment" and
+ *  ANGLE with "'assign' : l-value required". The element-access form was worse — the lowered
+ *  lane is a `member` and not an `index`, so the assignment fell out of `lowerLValue` with no
+ *  diagnostic at all and the write simply vanished from the program.
+ *
+ *  So a lane is READ-ONLY, and the remedy is to rebuild the vector, which the pass does lower
+ *  (#151, #149 review). */
+function refuseVec64LaneWrite(
+  base: ShaderType,
+  what: string,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (!isVec64(base)) return false
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Cannot assign to ${what} of a ${typeKey(base)}: an emulated-double vector is a pair of ` +
+      `hi/lo planes after lowering, so a lane of it is a read, not a place. Rebuild the ` +
+      `vector instead, e.g. v = vec${(base as { n: number }).n}f64(x, …).`,
+    TS_CODES.ASSIGN_TARGET,
+  )
+  return true
+}
+
 function lowerMemberLValue(
   node: ts.PropertyAccessExpression,
   sourceFile: ts.SourceFile,
@@ -1217,10 +1286,10 @@ function lowerMemberLValue(
     )
     return undefined
   }
-  // Only a `vec` base reaches here with a multi-character field: parseSwizzle rejects every
-  // other base (a vec64 included) before a member is built, and a struct field name of more
-  // than one character is a field, not a swizzle.
   const base = target.base.type
+  // A lane of an emulated-double vector is a read, never a place.
+  if (refuseVec64LaneWrite(base, `the lane ".${target.field}"`, node, sourceFile, diagnostics))
+    return undefined
   if (isVec(base) && target.field.length > 1) {
     pushDiag(
       diagnostics,

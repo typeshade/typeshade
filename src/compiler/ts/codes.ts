@@ -93,6 +93,14 @@ export const TS_CODES = {
    *  used to fall through to the default of 64 with no diagnostic, so the author dispatched
    *  against a size they never asked for. The y/z rule stays `WORKGROUP_SHAPE`. */
   WORKGROUP_ARG: 'TS8037',
+  /** An emulated double (`f64`, a `vec64`) on an entry's IO boundary — a `@location`
+   *  parameter, a `@location` field of an IO struct, or an entry's return (#151, §39). A
+   *  double is a pair of `f32` words after lowering, and a varying interpolates each word on
+   *  its own, which is not the interpolation of the double they encode; a `vec64` attribute
+   *  would need two slots. Its own code rather than the `UNSUPPORTED` bucket because the
+   *  remedy is one specific rewrite an author can look up: carry the words as ordinary `f32`
+   *  IO and rebuild with `f64FromParts(hi, lo)`. */
+  F64_ENTRY_IO: 'TS8038',
   UNSUPPORTED: 'TS8099',
 } as const
 

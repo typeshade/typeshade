@@ -7,9 +7,10 @@
 //   `u.origin` is an `f64` uniform field   — one vec2<f32> slot, the host packs splitF64
 //   `o * 2.5`, `o * u.span`                — a literal and an f32 lift beside a scalar f64
 //   `const stripe: f64 = 0.125`            — a literal in a DECLARED f64 position
-//   `p.x`, `p[1]`                          — a lane of a vec64, which is a swizzle of the
-//                                            hi and lo planes the pass lowers it into
-//   `vec2(p)`                              — the per-lane narrow, `f32(lane)` three times
+//   `round(o)`, `p[2]`, `vec3(p)`           — the ties-to-even df64 round, a lane of a
+//                                            vec64 (a swizzle of the hi/lo planes), and the
+//                                            per-lane narrow
+//   `vec3(p)`                              — the per-lane narrow, `f32(lane)` three times
 //   `length(p)`, `dot(p, p)`               — cross-lane reductions, typed f64 (they were
 //                                            typed f32 while the pass emitted the pair)
 //   `round(o)`                             — df64_round, ties to even as WGSL defines it
@@ -57,30 +58,43 @@ export function vs(@builtin("vertex_index") idx: u32): VsOut {
   }
 }
 
+// The whole numeric core, as a plain function so the CPU oracle can call it directly: the
+// fragment stage below is the same expression with the uniform read inlined. That is what
+// makes the "CPU agrees with the GPU" claim checkable rather than asserted —
+// `examples/fp64-lane-stripes.test.ts` evaluates THIS function twice, once on the oracle
+// (which computes an f64 as a JavaScript double) and once on the fp64-lowered module under
+// f32 rounding (which is the arithmetic the GPU runs), and requires the two to agree.
+export function stripeAt(origin: f64, offset: f32): f64 {
+  // An f32 beside an f64 widens exactly — the pass wraps it as vec2<f32>(x, 0.0).
+  const world = origin + offset
+  // A literal in a declared f64 position keeps the double the author wrote.
+  const stripe: f64 = 0.125
+  return fract(world / stripe)
+}
+
 @fragment
 export function fs(vo: VsOut): vec4 {
   // The bridge back: two interpolated f32 words become the double again. They are constant
   // across the primitive here, so nothing is lost to the blend.
   const origin: f64 = f64FromParts(vo.originParts.x, vo.originParts.y)
-  // An f32 beside an f64 widens exactly — the pass wraps it as vec2<f32>(x, 0.0).
-  const world = origin + u.span * (vo.uv.x - 0.5)
-  // A literal in a declared f64 position keeps the double the author wrote.
-  const stripe: f64 = 0.125
-  const bands = fract(world / stripe)
+  const offset = u.span * (vo.uv.x - 0.5)
+  const bands = stripeAt(origin, offset)
 
-  // A vec64 built from scalar doubles, then read back lane by lane and as a whole.
-  const p = vec3f64(world, origin, bands)
-  const lane0 = p.x
-  const lane1 = p[1]
+  // A vec64 built from scalar doubles, then read lane by lane and as a whole. `round` on a
+  // double goes through df64_round — ties to the EVEN integer, as WGSL defines `round` and as
+  // the CPU oracle answers it; df64_nint, which the trig reduction uses, breaks them toward
+  // +infinity instead.
+  const p = vec3f64(origin + offset, round(origin), bands)
   const narrowed: vec3 = vec3(p)
-  const reach = f32(length(p) / (f32(1.) + f32(dot(p, p))))
 
-  // round() on a double: df64_round, ties to the even integer as WGSL and the oracle define
-  // it — df64_nint, which the trig reduction uses, breaks them toward +∞ instead.
-  const turns = f32(round(origin) - round(lane0)) * 0.5
-
-  // Left half plain f32, right half emulated: the same expression, two precisions.
-  const flat = fract(f32(world) / 0.125)
-  const shade = vo.uv.x < 0.5 ? flat : f32(bands)
-  return vec4(shade, f32(lane1 - lane0) * 0. + reach, abs(turns), narrowed.z * 0. + 1.)
+  // Left half plain f32, right half emulated: the SAME expression, two precisions. Near 1e7
+  // an f32 ulp is 1, so a coordinate a sixteenth of the way into a 0.125-wide stripe rounds
+  // to the stripe boundary and the left half goes flat, while the right half — reading the
+  // band back through an indexed lane of the vec64 — keeps striping.
+  const flat = fract(f32(origin + offset) / 0.125)
+  const shade = vo.uv.x < 0.5 ? flat : f32(p[2])
+  // How far the two precisions have drifted apart, which is what the picture is about: 0
+  // where f32 still holds the coordinate, and up to half a stripe once it cannot.
+  const drift = abs(narrowed.z - flat)
+  return vec4(shade, drift, fract(narrowed.y * 0.5), 1.)
 }

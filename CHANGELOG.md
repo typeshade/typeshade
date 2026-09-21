@@ -24,19 +24,29 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   which existed in the registry and in the EDSL with no source spelling. `length`, `distance`
   and `dot` on a `vec64` are now typed `f64` — the front end typed them `f32` while the pass
   emitted the f64 pair, so a correct program could not be written (the BLOCKER of the spec
-  audit). What the pass cannot lower is refused at the CALL with the twin list and the narrow,
-  instead of reaching emit as an SD0041 with no source span: every builtin with no `df64`
-  body, `determinant` on a matrix of doubles, `mix` with an `f64` interpolant, an `f64` in a
-  texture's level, bias or reference-depth slot, and an `f64` on an entry's `@location` or
-  return, whose refusal names the bridge. A SCALAR `f64` vertex attribute stays accepted: that
-  `@location` is a buffer read, not a varying, and one slot holds the pair. `round` is WGSL's
+  audit). What the pass cannot lower is refused at the CALL, the operator or the cast, with the
+  twin list and a narrow that actually lowers, instead of reaching emit as an SD0041 with no
+  source span: every builtin with no `df64` body, `determinant` on a matrix of doubles, `mix`
+  with an `f64` interpolant, an operand the pass would mis-walk (a `vec3` beside a `vec3f64`,
+  which compiled clean and emitted `w.hi` on an `f32` vector), `%` and `%=`, `i32(x)`/`u32(x)`
+  on a double, an `f64` in a texture's level, bias, reference-depth, mip-level or layer slot,
+  and an `f64` on an entry's `@location` or return — the last under its own code, `TS8038`,
+  because the remedy is one specific rewrite. A SCALAR `f64` vertex attribute stays accepted:
+  that `@location` is a buffer read, not a varying, and one slot holds the pair. A lane is a
+  READ: `v.x = …` and `v[0] = …` are refused, since after lowering the vector is two hi/lo
+  planes and a lane of it is a swizzle of both — the indexed form had been dropping the write
+  silently and the swizzle form emitted text both compilers reject. `round` is WGSL's
   ties-to-even and is deliberately NOT `df64_nint`, whose ties go toward +∞ for the mod-2π
-  reduction — measured against the oracle's `roundTiesToEven` at the half-integers and at
-  `2³⁰ + 0.5`, where the low word carries the parity. WGSL and GLSL ES 3.00 are unchanged in
-  shape (pairs of `f32`); no existing golden moved. The ambient library follows the compiler,
-  including numeric-literal lane keys so the editor accepts `p[1]` and refuses `p[i]` and
-  `p[2]` on a `vec2f64` exactly as the compiler does. `examples/fp64-lane-stripes.shade.ts`
-  runs both halves of the gate, WGSL on Tint and GLSL ES 3.00 on a real WebGL2 context.
+  reduction; the twelve points where the two conventions disagree, including `2³⁰ + 0.5` and
+  `2³⁰ + 1.5` where the low word carries the parity, are pinned against the oracle. WGSL and
+  GLSL ES 3.00 are unchanged in shape (pairs of `f32`); no existing golden moved. The ambient
+  library follows the compiler — the componentwise twins take a `vec64` in the editor because
+  the pass has a body for them, the ones it has no body for stay refused, and numeric-literal
+  lane keys make the editor accept `p[1]` and refuse `p[i]` and `p[2]` on a `vec2f64` exactly
+  as the compiler does. `examples/fp64-lane-stripes.shade.ts` runs both halves of the gate,
+  WGSL on Tint and GLSL ES 3.00 on a real WebGL2 context, and its numeric core is evaluated
+  twice — on the oracle as a double and on the lowered module under f32 rounding — with a
+  discriminative case plain `f32` provably cannot compute.
 - **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
   operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a
   ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the driver
