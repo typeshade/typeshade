@@ -288,6 +288,13 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   '__fround',
   'pack2x16float',
   'unpack2x16float',
+  // The integer `abs` and `dot` (#154). Integer arithmetic is exact on every target: `abs` on
+  // an unsigned value is the identity, the signed one wraps at the minimum on all three, and
+  // the dot is a sum of products that wraps the same way. They have their own ids only because
+  // GLSL ES 3.00 has no `abs(uint)` and no integer `dot` at all.
+  'absU',
+  'dotI',
+  'dotU',
   'countOneBits',
   'reverseBits',
   'countLeadingZeros',

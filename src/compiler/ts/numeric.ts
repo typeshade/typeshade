@@ -15,7 +15,7 @@ import {
   isVec64,
   typeKey,
 } from '../../core/ir/types.js'
-import { foldNumericLit, retargetIntLit } from './lit-coerce.js'
+import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js'
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -198,10 +198,48 @@ export function lowerScalarCast(name: string, arg: Expr): Expr | string {
     }
     return { op: 'call', type: f64T, fn: 'f64', args: [arg] }
   }
-  if (arg.op === 'lit' && typeof arg.value === 'number') {
-    const v = arg.value
+  // `f32(vec3(...))` was accepted and emitted `f32(vec3<f32>(...))` on WGSL and `float(vec3)`
+  // on GLSL. Measured: Tint REFUSES it ("no matching constructor for 'f32(vec3<f32>)'"), and a
+  // WebGL2 driver COMPILES it and silently takes `.x`. So the two targets do not merely differ
+  // on a corner, they disagree about whether the program exists; WGSL's conversions take a
+  // scalar (wgsl.txt:20207-20209), and that is the rule this surface follows.
+  // A SCALAR for this rule is a native scalar (including `bool`, which `bool(x)` handled
+  // above and which `u32(b)` converts) or an emulated double — `f32(f64(x))` is the narrowing
+  // the surface documents. A vector of any kind is not.
+  if (arg.type.kind !== 'scalar' && arg.type.kind !== 'f64') {
+    const width = arg.type.kind === 'vec' || arg.type.kind === 'vec64' ? arg.type.n : undefined
+    return (
+      `${name}() takes a scalar; got ${typeKey(arg.type)}.` +
+      (width === undefined
+        ? ''
+        : ` A vector is converted component-wise by its own constructor, ` +
+          `e.g. vec${width}${VEC_CTOR_SUFFIX[name] ?? ''}(v).`)
+    )
+  }
+  // A NEGATED literal is a unop, not a lit, so `u32(-1)` used to reach the backend as
+  // `u32(-1.0)`. Folded first, which is also what makes the range rule below see the number
+  // the author wrote.
+  const lit = foldNumericLit(arg)
+  if (lit.op === 'lit' && typeof lit.value === 'number') {
+    const v = lit.value
     if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`
-    if (name !== 'f32') return { op: 'lit', type, value: Math.trunc(v) }
+    if (name !== 'f32') {
+      const truncated = Math.trunc(v)
+      // Out of the target's range, the conversion has no one answer: WGSL refuses the whole
+      // module ("value -1 cannot be represented as 'u32'", measured on Tint), and GLSL ES 3.00
+      // leaves it undefined — a WebGL2 driver compiles `uint(-1.0)` and answers whatever it
+      // likes. Refused here, in the author's file, with the range named.
+      if (!fitsTarget(truncated, type)) {
+        const unsigned = typeKey(type) === 'u32'
+        return (
+          `${name}(${String(v)}) is out of range: ${unsigned ? 'a' : 'an'} ${typeKey(type)} ` +
+          `holds ${unsigned ? '0 to 4294967295' : '-2147483648 to 2147483647'}. ` +
+          `WGSL rejects the module and GLSL ES 3.00 leaves the result undefined, so the two ` +
+          `targets would disagree.`
+        )
+      }
+      return { op: 'lit', type, value: truncated }
+    }
     return { op: 'lit', type: f32T, value: v }
   }
   return { op: 'call', type, fn: name, args: [arg] }

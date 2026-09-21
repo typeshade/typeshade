@@ -499,6 +499,21 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
       `vec4(${['x', 'y', 'z', 'w'].map((c) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.${c}, 0.0))).x`).join(', ')})`,
     atomArgs: true,
   },
+  // The two PORTABLE lies the spec audit found (#154): `abs` and `dot` are spelled identically
+  // on both targets for every element kind, and GLSL ES 3.00 has neither an unsigned `abs` nor
+  // an integer `dot`. Measured on a WebGL2 driver: `abs(uvec3)`, `abs(uint)`, `dot(ivec3,
+  // ivec3)` and `dot(uvec3, uvec3)` are each "no matching overloaded function found", while
+  // `abs(ivec3)` and `dot(vec3, vec3)` compile. So the float `abs`/`dot` and the SIGNED `abs`
+  // keep the portable spelling and only these three ids are divergent.
+  //
+  // `abs` on an unsigned value is the IDENTITY (wgsl.txt:21450: "Returns e" for u32), so the
+  // GLSL column is the argument itself rather than a call.
+  absU: { wgsl: (a) => `abs(${join(a)})`, glsl: (a) => `${a[0]}` },
+  // The integer dot goes through the `_idot` helper glsl-bits.ts writes, one overload per
+  // vector type the module uses. Not an inline sum: that would splice both arguments once per
+  // component, after every optimizer pass has run.
+  dotI: { wgsl: (a) => `dot(${join(a)})`, glsl: (a) => `_idot(${join(a)})` },
+  dotU: { wgsl: (a) => `dot(${join(a)})`, glsl: (a) => `_idot(${join(a)})` },
   // bitcast<u32>(f) on WGSL; floatBitsToUint(f) on GLSL. The neutral id drops the
   // WGSL generic-call syntax that used to live in the IR.
   bitcastU32: {

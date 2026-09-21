@@ -163,6 +163,32 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **The two portable spellings that were not** (§45, #154). `abs` and `dot` carried no registry
+  entry, which claims a builtin spells the same on every target. Measured on a WebGL2 driver,
+  `abs(uvec3)`, `abs(uint)`, `dot(ivec3, ivec3)` and `dot(uvec3, uvec3)` are each "no matching
+  overloaded function found", while `abs(ivec3)` and `dot(vec3, vec3)` compile — so the claim
+  held for most forms and not for two, and a shader using either emitted GLSL that no WebGL2
+  context would take. An unsigned `abs` is now the identity on GLSL (which is what it is), and
+  an integer `dot` becomes a `_idot` helper with one overload per vector type the module uses —
+  a helper rather than an inline sum, because an inline splices both arguments once per
+  component after every optimizer pass has run. The signed `abs` and the float `dot` keep the
+  portable spelling. `examples/integer-math.shade.ts` is the gate witness: its GLSL half links
+  only because of this.
+- **The scalar conversions take a scalar, and a literal that fits** (§45, #154). `u32(-1)`
+  emitted `u32(-1.0)` — a negated literal is not a literal, so the fold that retypes one never
+  saw it — and Tint accepts that while refusing the `u32(-1)` the author wrote; it is now
+  `u32(-1) is out of range: a u32 holds 0 to 4294967295. …`. `f32(vec3(...))` was accepted by
+  the surface, refused by Tint ("no matching constructor") and compiled by a WebGL2 driver as
+  `float(vec3)`, which silently takes `.x` — the two targets disagreed about whether the
+  program existed, and it is now `f32() takes a scalar; got vec3<f32>.` An emulated double is a
+  scalar for this rule, so `f32(f64(x))` is unchanged. An integer-written literal in a builtin
+  with no float form types as `i32`, the way WGSL materialises an AbstractInt, so
+  `countOneBits(5)` compiles where it used to be refused as an `f32`; `countOneBits(5.)` keeps
+  its refusal. On the CPU oracle, `length(e)` and `distance(e1, e2)` answer for a scalar (WGSL
+  defines them as `abs(e)` and `abs(e1 - e2)`, and both targets compile them) where the oracle
+  threw `v.reduce is not a function` on a program the GPU ran. `abs(-2147483648)` on an `i32`
+  is recorded rather than fixed, with the reason, and pinned as an `it.fails`.
+
 - **Every texture argument is checked before emit** (§42, #145). WGSL types each plain argument
   of a texture read exactly, and only the WIDTH of a coordinate and a whole-number LITERAL were
   checked, so anything else went through untouched: `const l: i32 = 2` as a level emitted

@@ -426,3 +426,134 @@ export function fs(): vec4 {
     expect(r.wgsl).toContain('unpack2x16unorm(65536u)')
   })
 })
+
+// The two PORTABLE lies the spec audit found (#154). `abs` and `dot` were in
+// `PORTABLE_INTRINSICS`, which claims a name spells the same on every target. Measured on a
+// real WebGL2 driver, with the compile gate's own instrument check passing first:
+//
+//   abs(uvec3)          REJECTED  'abs' : no matching overloaded function found
+//   abs(uint)           REJECTED  'abs' : no matching overloaded function found
+//   dot(ivec3, ivec3)   REJECTED  'dot' : no matching overloaded function found
+//   dot(uvec3, uvec3)   REJECTED  'dot' : no matching overloaded function found
+//   abs(ivec3)          COMPILES      <- the control: the SIGNED abs is real GLSL
+//   dot(vec3, vec3)     COMPILES      <- the control: the float dot is real GLSL
+describe('the integer abs and dot spell GLSL forms that exist', () => {
+  const bothOf = (body: string): { wgsl: string; glsl: string } => {
+    const r = compile(`"use typeshade"
+${U}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+${body}
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([])
+    return { wgsl: r.wgsl ?? '', glsl: r.glsl?.fragment ?? '' }
+  }
+
+  it('abs on an unsigned value is the identity on GLSL, and still abs on WGSL', () => {
+    const { wgsl, glsl } = bothOf(
+      '  const uv3 = vec3u(u.k, u.k, u.k)\n  const a = abs(uv3)\n  const b = abs(u.k)\n' +
+        '  return vec4(f32(a.x) + f32(b), 0., 0., 1.)',
+    )
+    expect(wgsl).toContain('abs(uv3)')
+    expect(wgsl).toContain('abs(u.k)')
+    // No `abs(` on a uvec3 or a uint anywhere in the GLSL: the value is written as it is.
+    expect(glsl).toContain('uvec3 a = uv3;')
+    expect(glsl).toContain('uint b = u.k;')
+  })
+
+  it('abs on a SIGNED integer keeps the portable spelling on both', () => {
+    const { wgsl, glsl } = bothOf('  const a = abs(u.v)\n  return vec4(f32(a.x), 0., 0., 1.)')
+    expect(wgsl).toContain('abs(u.v)')
+    expect(glsl).toContain('abs(u.v)')
+  })
+
+  it('an integer dot becomes a _idot helper on GLSL, one overload per type used', () => {
+    const { wgsl, glsl } = bothOf(
+      '  const uv3 = vec3u(u.k, u.k, u.k)\n  const a = dot(u.v, u.v)\n  const b = dot(uv3, uv3)\n' +
+        '  return vec4(f32(a) + f32(b), 0., 0., 1.)',
+    )
+    expect(wgsl).toContain('dot(u.v, u.v)')
+    expect(wgsl).toContain('dot(uv3, uv3)')
+    expect(glsl).toContain('_idot(u.v, u.v)')
+    expect(glsl).toContain('_idot(uv3, uv3)')
+    // The helper, not an inline sum: an inline would splice BOTH arguments once per component.
+    expect(glsl).toContain('int _idot(ivec2 a, ivec2 b) {')
+    expect(glsl).toContain('uint _idot(uvec3 a, uvec3 b) {')
+    expect(glsl).toContain('return a.x * b.x + a.y * b.y + a.z * b.z;')
+  })
+
+  it('a float dot keeps the portable spelling, and no helper is emitted for it', () => {
+    const { wgsl, glsl } = bothOf('  const a = dot(uv, uv)\n  return vec4(a, 0., 0., 1.)')
+    expect(wgsl).toContain('dot(uv, uv)')
+    expect(glsl).toContain('dot(uv, uv)')
+    expect(glsl).not.toContain('_idot')
+  })
+
+  it('an integer literal first in an integer-only builtin is typed i32', () => {
+    // `countOneBits(5)` was typed f32 and refused as "takes an i32 or u32, or a vector of
+    // them; got f32" — about a program WGSL accepts, where 5 is an AbstractInt that
+    // materialises to i32 (measured accepted on Tint).
+    const { wgsl, glsl } = bothOf(
+      '  const a = countOneBits(5)\n  const b = reverseBits(5)\n  return vec4(f32(a) + f32(b), 0., 0., 1.)',
+    )
+    expect(wgsl).toContain('countOneBits(5)')
+    expect(wgsl).toContain('reverseBits(5)')
+    expect(glsl).toContain('_popcnt(5)')
+    // A float-written literal has no integer meaning and keeps its refusal.
+    expect(errorsOf(FS('  return vec4(f32(countOneBits(5.)), 0., 0., 1.)'))[0]).toBe(
+      'TS8036 countOneBits takes an i32 or u32, or a vector of them; got f32.',
+    )
+  })
+})
+
+// The CPU oracle rows the same audit found (#154).
+describe('the oracle answers the scalar and wrapping forms the GPU does', () => {
+  const value = (body: string): number[] => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+${body}
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const out: number[][] = []
+    for (const make of [compileModule, compileModuleJs]) {
+      out.push(make(r.module).fns['fs']!([]) as number[])
+    }
+    expect(out[0], 'the two CPU paths must agree').toEqual(out[1])
+    return out[0]!
+  }
+
+  it('length and distance on a scalar are abs, where the oracle used to throw', () => {
+    // WGSL gives both a scalar overload defined as `abs(e)` / `abs(e1 - e2)`, and both targets
+    // compile it (measured on Tint and a WebGL2 driver). The oracle threw
+    // "v.reduce is not a function" on a program the GPU ran.
+    expect(value('  return vec4(length(-3.), distance(1., 4.), 0., 1.)')).toEqual([3, 3, 0, 1])
+  })
+
+  // 2^31 has no i32, so `abs(-2147483648)` is that value itself on both targets
+  // (wgsl.txt:21451-21453) and the oracle answers 2147483648. NOT fixable at the builtin: it
+  // is handed plain numbers, and the f32 `-2147483648.` is the same number with a genuine
+  // `+2147483648` answer. It needs the oracle and the codegen to wrap a call's result by its
+  // IR type, which is a change to every integer builtin rather than to this row; an id of its
+  // own is not open either, since a portable id spells as its own name and the registry's map
+  // is for genuinely divergent spellings. Pinned as it stands rather than left unstated.
+  it.fails('abs of the smallest i32 is itself, as it is on both targets (#154, oracle)', () => {
+    expect(value('  const m: i32 = -2147483648\n  return vec4(f32(abs(m)), 0., 0., 1.)')).toEqual([
+      -2147483648, 0, 0, 1,
+    ])
+  })
+
+  it('and the float of that magnitude keeps its real answer', () => {
+    expect(value('  const m: f32 = -2147483648.\n  return vec4(abs(m), 0., 0., 1.)')).toEqual([
+      2147483648, 0, 0, 1,
+    ])
+  })
+
+  it('an integer dot is an integer on the CPU too', () => {
+    expect(value('  const a = vec3i(1, 2, 3)\n  return vec4(f32(dot(a, a)), 0., 0., 1.)')).toEqual([
+      14, 0, 0, 1,
+    ])
+  })
+})

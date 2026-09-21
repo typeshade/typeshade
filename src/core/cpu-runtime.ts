@@ -476,6 +476,13 @@ export const BUILTINS: Record<string, Builtin> = {
   round: map1(roundTiesToEven),
   floor: map1(Math.floor),
   ceil: map1(Math.ceil),
+  // KNOWN LIMIT (#154): `abs(-2147483648)` on an `i32` is that value itself on both targets —
+  // 2^31 has no i32, so the result wraps (wgsl.txt:21451-21453) — and this gives 2147483648.
+  // It is not fixable here: a builtin is handed plain numbers, and the f32 `-2147483648.` is
+  // the same number with a genuine `+2147483648` answer. Fixing it needs the oracle and the
+  // codegen to wrap a call's result by its IR TYPE, which is a change to every integer
+  // builtin rather than to this row; an id of its own is not open either, since a portable id
+  // spells as its own name and the registry's map is for genuinely divergent spellings.
   abs: map1(Math.abs),
   sign: map1(Math.sign),
   radians: map1((d) => (d * Math.PI) / 180),
@@ -540,16 +547,25 @@ export const BUILTINS: Record<string, Builtin> = {
         )
       : s(edge as number, x as number)
   },
-  length: (v) => Math.sqrt((v as number[]).reduce((s, c) => s + (c as number) * (c as number), 0)),
+  // WGSL gives `length` and `distance` a SCALAR overload as well as the vector ones, and
+  // defines the scalar form as `abs(e)` / `abs(e1 - e2)` (wgsl.txt:22626). Both targets accept
+  // them — measured: `length(1.5)` on Tint and `length(float)` on a WebGL2 driver each compile
+  // — and the oracle threw `v.reduce is not a function` on a program the GPU ran (#154).
+  length: (v) =>
+    isArr(v)
+      ? Math.sqrt((v as number[]).reduce((s, c) => s + (c as number) * (c as number), 0))
+      : Math.abs(v as number),
   dot: (a, b) =>
     (a as number[]).reduce((s, c, i) => s + (c as number) * ((b as number[])[i] as number), 0),
   distance: (a, b) =>
-    Math.sqrt(
-      (a as number[]).reduce((s, c, i) => {
-        const d = (c as number) - ((b as number[])[i] as number)
-        return s + d * d
-      }, 0),
-    ),
+    isArr(a)
+      ? Math.sqrt(
+          (a as number[]).reduce((s, c, i) => {
+            const d = (c as number) - ((b as number[])[i] as number)
+            return s + d * d
+          }, 0),
+        )
+      : Math.abs((a as number) - (b as number)),
   normalize: (v) => {
     const a = v as number[]
     const l = Math.sqrt(a.reduce((s, c) => s + (c as number) * (c as number), 0))
@@ -615,6 +631,19 @@ export const BUILTINS: Record<string, Builtin> = {
   unpack4x8unorm: (u) => {
     const n = (u as number) >>> 0
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255)
+  },
+  // `abs` on an unsigned value is the identity, and the integer `dot` is the sum of the
+  // component-wise products (#154). Their own ids because GLSL ES 3.00 spells neither.
+  absU: (x) => x,
+  dotI: (a, b) => {
+    const xs = a as number[]
+    const ys = b as number[]
+    return xs.reduce((acc, v, i) => acc + v * (ys[i] as number), 0) | 0
+  },
+  dotU: (a, b) => {
+    const xs = a as number[]
+    const ys = b as number[]
+    return xs.reduce((acc, v, i) => acc + v * (ys[i] as number), 0) >>> 0
   },
   // f32 bit-pattern reinterpreted as u32 (WGSL bitcast<u32> / GLSL floatBitsToUint).
   bitcastU32: (x) => {

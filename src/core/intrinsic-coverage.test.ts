@@ -125,6 +125,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
     expect(catalogue).toMatchInlineSnapshot(`
       [
         "abs",
+        "absU",
         "acos",
         "acosh",
         "all",
@@ -159,6 +160,8 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "determinant",
         "distance",
         "dot",
+        "dotI",
+        "dotU",
         "dpdx",
         "dpdxCoarse",
         "dpdxFine",

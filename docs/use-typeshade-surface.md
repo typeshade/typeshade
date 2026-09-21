@@ -3093,6 +3093,67 @@ one-component reduction is the value, and GLSL ES 3.00 has no `all(bool)` overlo
 
 `examples/packing-bitcast.shade.ts` runs all of this on both halves of the gate.
 
+## 45. The two portable spellings that were not, and the scalar conversions
+
+A builtin with no entry in the intrinsic registry is spelled the same on every target. That is
+true of `abs` and `dot` for most of their forms and false for two, which the registry claimed
+anyway. Measured on a WebGL2 driver, with a broken shader fed to the same instrument first:
+
+| form | WGSL (Tint) | GLSL ES 3.00 (WebGL2) |
+| --- | --- | --- |
+| `abs` on a `u32` or a vector of them | accepts | **"no matching overloaded function found"** |
+| `dot` on integer vectors, either signedness | accepts | **"no matching overloaded function found"** |
+| `abs` on an `i32` or a vector of them | accepts | accepts |
+| `dot` on float vectors | accepts | accepts |
+
+So an unsigned `abs` is now the IDENTITY on GLSL — which is what it is, since an unsigned value
+has no sign to take — and an integer `dot` becomes a `_idot` helper, one overload per vector
+type the module uses. A helper rather than an inline sum, because an inline would splice both
+arguments once per component, after every optimizer pass has run. The signed `abs` and the float
+`dot` are untouched. `examples/integer-math.shade.ts` is the gate witness: its GLSL half links
+only because of this.
+
+### The scalar conversions
+
+`u32(e)`, `i32(e)` and `f32(e)` take a SCALAR, and a literal the target can hold:
+
+```
+u32(-1) is out of range: a u32 holds 0 to 4294967295. WGSL rejects the module and GLSL ES 3.00
+leaves the result undefined, so the two targets would disagree.
+
+f32() takes a scalar; got vec3<f32>. A vector is converted component-wise by its own
+constructor, e.g. vec3(v).
+```
+
+Both used to go through. `u32(-1)` emitted `u32(-1.0)` — a negated literal is not a literal, so
+the fold that retypes one never saw it — and Tint accepts that while refusing the `u32(-1)` the
+author actually wrote. `f32(vec3(...))` is the sharper case: Tint refuses it outright, and a
+WebGL2 driver compiles `float(vec3)` and silently takes `.x`. The two targets did not differ on
+a corner; they disagreed about whether the program existed.
+
+An emulated double is a scalar for this rule, so `f32(f64(x))` is the narrowing it has always
+been. And an integer-written literal in a builtin that has no float form is typed `i32`, the way
+WGSL materialises an AbstractInt:
+
+```ts
+const bits = countOneBits(5); // was "takes an i32 or u32 … got f32"
+```
+
+`countOneBits(5.)` keeps its refusal: a float-written literal has no integer meaning.
+
+### What the oracle answers
+
+`length(e)` and `distance(e1, e2)` have scalar overloads in WGSL, defined as `abs(e)` and
+`abs(e1 - e2)`; both targets compile them, and the CPU oracle used to throw `v.reduce is not a
+function` on a program the GPU ran. It answers now.
+
+One row of this is recorded rather than fixed: `abs(-2147483648)` on an `i32` is that value
+itself on both targets, because 2^31 has no `i32`, and the oracle answers `2147483648`. A
+builtin there is handed plain numbers, and the `f32` of the same magnitude is the same number
+with a genuine `+2147483648` answer — so telling them apart needs the oracle and the codegen to
+wrap a call's result by its IR type, which is a change to every integer builtin rather than to
+this one. It is pinned as an `it.fails` so the day that changes is a deliberate edit.
+
 ---
 
 Last updated: 2026-09-21

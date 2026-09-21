@@ -230,6 +230,46 @@ export function fs(): vec4 {
   })
 })
 
+// The scalar conversions (#154). WGSL's `u32(e)`/`i32(e)`/`f32(e)` take a SCALAR and refuse a
+// value the target cannot hold; this surface emitted both anyway.
+describe('a scalar conversion takes a scalar, and a literal it can hold', () => {
+  it('refuses u32(-1) naming the range, where it used to emit u32(-1.0)', () => {
+    // Measured: Tint REFUSES `u32(-1)` ("value -1 cannot be represented as 'u32'") and a
+    // WebGL2 driver COMPILES `uint(-1.0)` and answers whatever it likes. The surface follows
+    // WGSL and says so in the author's file, rather than emitting a program the two targets
+    // disagree about. A negated literal is a unop, not a lit, which is why it used to slip
+    // past the fold here.
+    expect(diagnose('u32(-1)', '', 'u32')).toBe(
+      'u32(-1) is out of range: a u32 holds 0 to 4294967295. WGSL rejects the module and ' +
+        'GLSL ES 3.00 leaves the result undefined, so the two targets would disagree.',
+    )
+    expect(diagnose('i32(4294967295)', '', 'i32')).toBe(
+      'i32(4294967295) is out of range: an i32 holds -2147483648 to 2147483647. WGSL rejects ' +
+        'the module and GLSL ES 3.00 leaves the result undefined, so the two targets would ' +
+        'disagree.',
+    )
+    // The values that DO fit are unchanged, negative ones included.
+    expect(typeKey(lowerReturn('i32(-1)', '', 'i32').type)).toBe('i32')
+    expect(typeKey(lowerReturn('u32(4294967295)', '', 'u32').type)).toBe('u32')
+  })
+
+  it('refuses f32(vec3) naming the scalar rule', () => {
+    // Tint refuses it ("no matching constructor for 'f32(vec3<f32>)'"); a WebGL2 driver
+    // compiles `float(vec3)` and silently takes `.x`. The two targets do not merely differ on
+    // a corner — they disagree about whether the program exists.
+    expect(diagnose('f32(v)', 'v: vec3', 'f32')).toBe(
+      'f32() takes a scalar; got vec3<f32>. A vector is converted component-wise by its own ' +
+        'constructor, e.g. vec3(v).',
+    )
+    expect(diagnose('u32(v)', 'v: vec2i', 'u32')).toBe(
+      'u32() takes a scalar; got vec2<i32>. A vector is converted component-wise by its own ' +
+        'constructor, e.g. vec2u(v).',
+    )
+    // The emulated double is a scalar here: `f32(f64(x))` is the narrowing the surface spells.
+    expect(typeKey(lowerReturn('f32(f64(x))', 'x: f32', 'f32').type)).toBe('f32')
+  })
+})
+
 // `array(e1, e2, ...)` with no type arguments (#150, wgsl.txt:20133).
 describe('array(...) infers its element type and its count', () => {
   it('array(1., 2., 3.) infers array<f32, 3>', () => {

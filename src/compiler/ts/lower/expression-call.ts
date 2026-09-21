@@ -25,7 +25,12 @@ import {
   resolveMathFn,
 } from '../math-alias.js'
 import { SCALAR_CAST, literalPeerType } from '../numeric.js'
-import { foldNumericLit, retargetIntLit, retargetIntLitCtx } from '../lit-coerce.js'
+import {
+  foldNumericLit,
+  isIntegerLiteralTree,
+  retargetIntLit,
+  retargetIntLitCtx,
+} from '../lit-coerce.js'
 import { spanOf } from '../span.js'
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
@@ -480,7 +485,30 @@ export function lowerCall(
   // that does not fit, with the fix.
   const display = `${viaMath ? 'Math.' : ''}${intrinsicId === 'atan2' ? 'atan' : intrinsicId}`
   if (!checkMathArgs(intrinsicId, display, args, node, sourceFile, diagnostics)) return undefined
-  return { op: 'call', type: mathResultType(intrinsicId, args), fn: intrinsicId, args }
+  const type = mathResultType(intrinsicId, args)
+  return { op: 'call', type, fn: divergentIntegerId(intrinsicId, args, type), args }
+}
+
+/** The id `abs` and `dot` take when their arguments make the portable spelling a LIE (#154).
+ *
+ *  Both are in `PORTABLE_INTRINSICS`, which claims they spell the same on every target. They
+ *  do for floats, and `abs` does for signed integers; they do not for an unsigned `abs` or an
+ *  integer `dot` of either signedness, which a WebGL2 driver refuses outright ("no matching
+ *  overloaded function found", measured). Those three get their own registry ids, which carry
+ *  a GLSL column that exists. Every other call keeps the portable name, so nothing else moves. */
+function divergentIntegerId(id: string, args: readonly Expr[], result: ShaderType): string {
+  const elemOf = (t: ShaderType): string | undefined =>
+    t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined
+  // `absU` only: GLSL ES 3.00 has no `abs(uint)` at all, while the SIGNED and float forms are
+  // real GLSL and keep the portable name.
+  if (id === 'abs') return elemOf(args[0]?.type ?? boolT) === 'u32' ? 'absU' : id
+  if (id === 'dot') {
+    // The RESULT names the element, which is what `mathResultType` already decided: WGSL's
+    // `dot(vecN<T>, vecN<T>)` yields a `T`, so an integer result is an integer dot.
+    const elem = elemOf(result)
+    return elem === 'i32' ? 'dotI' : elem === 'u32' ? 'dotU' : id
+  }
+  return id
 }
 
 /** The scalar type a vector constructor's components must have, or undefined for the
@@ -564,6 +592,21 @@ function retargetIntrinsicLiterals(
   }
   const peerIndex = node.arguments.findIndex((a) => !isBareNumericLiteral(a))
   const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined
+  // A builtin with NO float form takes an integer, and an integer-written literal is what the
+  // author gave it: `countOneBits(5)` was typed f32 and refused as "takes an i32 or u32, or a
+  // vector of them; got f32", about a program WGSL accepts — 5 is an AbstractInt there and
+  // materialises to i32 (wgsl.txt:3930-3941, measured accepted on Tint). With no peer to take
+  // a kind from, i32 is that materialisation. Only an INTEGER-written literal: `countOneBits(5.)`
+  // has no integer meaning and keeps its refusal.
+  if (!peer && !mathTakesElem(intrinsicId, 'f32') && mathTakesElem(intrinsicId, 'i32')) {
+    for (let i = 0; i < args.length; i++) {
+      if (fixed[i] !== undefined) continue
+      const argNode = node.arguments[i]
+      if (argNode && args[i] && isIntegerLiteralTree(argNode)) {
+        args[i] = retargetIntLitCtx(args[i]!, argNode, i32T)
+      }
+    }
+  }
   if (!peer) return
   const target = literalPeerType(peer)
   // The first position too, for an integer peer of a builtin that takes integers (roadmap 0.2
