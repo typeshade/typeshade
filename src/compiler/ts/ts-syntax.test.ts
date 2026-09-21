@@ -480,7 +480,9 @@ describe('switch, with the break TypeScript requires', () => {
     ).toBe('switch case must be an integer constant: a literal or a module const.')
     // `case 0: case 1:` is NOT one of these any more (§52): an empty clause above a full one
     // is how TypeScript spells two selectors sharing a body, which is `case 0, 1:` in WGSL.
-    // What is still refused is a selector with nothing below it to share.
+    // What is still refused is an empty clause above `default:`, which shares nothing: WGSL's
+    // selector list cannot carry `default`, so the selector would have to attach to some
+    // OTHER clause's body — and until this was refused, that is what it silently did.
     expect(
       diagnose(`
         export function f(x: i32): f32 {
@@ -492,8 +494,8 @@ describe('switch, with the break TypeScript requires', () => {
         }
       `),
     ).toBe(
-      'switch case 2 has no body: an empty case shares the body of the case below it, and ' +
-        'there is none. Give it a body, or delete it.',
+      'switch case 2 sits above "default:" with no body of its own. A case that should do ' +
+        "what the default does needs its own body; WGSL has no form for sharing the default's.",
     )
   })
 

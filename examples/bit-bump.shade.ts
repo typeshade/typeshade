@@ -61,21 +61,23 @@ export function fs(v: VsOut): vec4 {
   const inverted: u32 = ~rolled & u32(255)
   // …and one switch clause under two selectors, which WGSL writes `case 0, 1:` and GLSL ES
   // 3.00 as two stacked labels. Both are one clause with a list of selectors in the IR.
-  let step: f32 = 0.
+  // `stepGain`, not `step`: GLSL ES 3.00 has a `step` builtin, and a local of that name
+  // shadows it for the rest of the function.
+  let stepGain: f32 = 0.
   switch (i32(nibble) & 3) {
     case 0:
     case 1:
-      step = 0.25
+      stepGain = 0.25
       break
     case 2:
-      step = 0.5
+      stepGain = 0.5
       break
     default:
-      step = 1.
+      stepGain = 1.
   }
   // The coarse derivative of the leading bit is nonzero only where a band starts.
   const edge: f32 = min(fwidthCoarse(f32(lead)), 1.)
-  const lit: vec3 = bands * diffuse * step + vec3(f32(inverted) / 512., 0., 0.)
+  const lit: vec3 = bands * diffuse * stepGain + vec3(f32(inverted) / 512., 0., 0.)
   const tint: vec3 = bent * 0.1
   const base: vec3 = lit + tint
   const shine: vec3 = vec3(highlight * gain, highlight * gain, highlight * gain)

@@ -344,7 +344,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // it is an intrinsic and not an IR `unop`: that node is negation-only and carries no
   // operator field. `atomArgs` because the operand is re-embedded in a position that binds
   // tighter than an argument slot — `~a | b` and `~(a | b)` are different programs.
-  bitNot: { wgsl: (a) => `~${a[0] ?? ''}`, glsl: (a) => `~${a[0] ?? ''}`, atomArgs: true },
+  '~': { wgsl: (a) => `~${a[0] ?? ''}`, glsl: (a) => `~${a[0] ?? ''}`, atomArgs: true },
   countLeadingZeros: {
     wgsl: (a) => `countLeadingZeros(${join(a)})`,
     glsl: (a) => `_clz(${join(a)})`,

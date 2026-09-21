@@ -4,7 +4,13 @@ import { compileTsSource } from './source-file.js'
 import { mapTsTypeToShaderType } from './type-map.js'
 
 function map(src: string) {
-  const sf = ts.createSourceFile('t.ts', `type X = ${src}`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const sf = ts.createSourceFile(
+    't.ts',
+    `type X = ${src}`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
   const alias = sf.statements[0] as ts.TypeAliasDeclaration
   const diagnostics: { message: string }[] = []
   return { type: mapTsTypeToShaderType(alias.type, sf, diagnostics as never), diagnostics }
@@ -57,7 +63,7 @@ describe('switch', () => {
     expect(sw.s === 'switch' && sw.cases.map((c) => c.values)).toEqual([[0, 1]])
   })
 
-  it('rejects a selector with no body below it to share', () => {
+  it("rejects an empty selector that would share the default's body", () => {
     const r = compileTsSource(`
       "use typeshade";
       export function pick(x: i32, a: f32): f32 {
@@ -68,7 +74,9 @@ describe('switch', () => {
         }
       }
     `)
-    expect(r.diagnostics.some((d) => /has no body/.test(d.message))).toBe(true)
+    // Not "has no body": the clause below it IS a body, it is just `default:`, and carrying
+    // the selector past it is what made `case 1` run the case AFTER the default (§52).
+    expect(r.diagnostics.some((d) => /sits above "default:"/.test(d.message))).toBe(true)
   })
 })
 

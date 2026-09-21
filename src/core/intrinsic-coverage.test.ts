@@ -109,7 +109,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       }
     }
     // What the map is FOR is a spelling the fall-through cannot produce. Two reasons qualify,
-    // and until `bitNot` (§52) only the first had ever arisen: the two targets spell it
+    // and until `~` (§52) only the first had ever arisen: the two targets spell it
     // differently, or the spelling is not `name(args)` at all. `~a` is the same text on both
     // and still cannot fall through, because the fall-through writes a CALL. An entry that is
     // `name(args)` on both columns is the one that belongs in `PORTABLE_INTRINSICS` instead,
@@ -156,7 +156,6 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "atomicStore",
         "atomicSub",
         "atomicXor",
-        "bitNot",
         "bitcastF32",
         "bitcastU32",
         "ceil",
@@ -275,6 +274,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "unpack2x16unorm",
         "unpack4x8unorm",
         "workgroupBarrier",
+        "~",
       ]
     `)
   })

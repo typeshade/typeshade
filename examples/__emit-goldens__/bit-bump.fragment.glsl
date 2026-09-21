@@ -72,22 +72,22 @@ void main() {
   int shift = int(lead);
   uint rolled = ((col << uint(shift)) & 255u);
   uint inverted = (~rolled & 255u);
-  float step = 0.0;
+  float stepGain = 0.0;
   switch ((int(nibble) & 3)) {
     case 0: case 1: {
-      step = 0.25;
+      stepGain = 0.25;
       break;
     }
     case 2: {
-      step = 0.5;
+      stepGain = 0.5;
       break;
     }
     default: {
-      step = 1.0;
+      stepGain = 1.0;
     }
   }
   float edge = min(fwidth(_gv0), 1.0);
-  vec3 lit = (((bands * diffuse) * step) + vec3((float(inverted) * 0.001953125), 0.0, 0.0));
+  vec3 lit = (((bands * diffuse) * stepGain) + vec3((float(inverted) * 0.001953125), 0.0, 0.0));
   vec3 tint = (bent * 0.1);
   vec3 base = (lit + tint);
   float _lc0 = (highlight * gain);

@@ -19,13 +19,30 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   `no matching overload for 'operator << (i32, i32)'`, while `x << 1u` — the one spelling it
   accepts — was refused here by the equal-types rule. The binary path now casts the way the
   compound path always did, retyping a bare integer literal rather than wrapping it; `&`, `|`
-  and `^` keep the equal-types rule. `~x` lowers to `~x` on both targets, with the CPU oracle
+  and `^` keep the equal-types rule. The kind rule reads the ELEMENT, so `vec2u << vec2u` is
+  two lanes shifted rather than a type error, and a `vec2i` amount takes the same conversion
+  one lane wider; a scalar amount on a vector target is refused naming the splat, because
+  WGSL's only vector overload is `vecN<T> << vecN<u32>`. Measured on Chromium 141
+  (`chromium_headless_shell-1194`): Tint takes `vec2<u32> << vec2<u32>` and
+  `vec2<i32> << vec2<u32>`, and refuses both `vec2<i32> << vec2<i32>` and
+  `vec2<u32> << u32` with `no matching overload`, while ANGLE takes all four — so the
+  conversion is load-bearing and the broadcast GLSL ES 3.00 §5.9 allows is refused here. There
+  is no gate example for it: TypeScript's own `<<` yields `number`, so a lane-wise shift is
+  TS2322 under the ambient lib before the compiler sees it, and the rule lives in the lowering
+  to keep one kind rule across `&`, `|`, `^` and the scalar shifts. `~x` lowers to `~x` on both targets, with the CPU oracle
   routing it by the static kind (`~5` is `-6` on an `i32`, `4294967290` on a `u32`); unary `+`
   is the identity both targets give it; and `-u` on a `u32` is refused naming both fixes,
   since WGSL defines unary minus for the signed and float kinds only. One switch clause may
   carry several selectors: `case 0: case 1:` is `case 0, 1:` on WGSL and stacked labels on
   GLSL ES 3.00, which is what the IR now holds, and it used to be refused as "fall-through" —
-  the one shape that is not fall-through. Calling an entry point is refused, `_ = f()` is
+  the one shape that is not fall-through. An empty clause above `default:` is refused instead
+  of joined, because a WGSL selector list cannot carry `default` and the selector would have to
+  attach to some other clause's body: `case 1: default: r = 10.; break; case 2: r = 20.;`
+  lowered to `case 1, 2: { r = 20.0; }` beside `default: { r = 10.0; }`, so `f(1)` was 20 on
+  both GPUs and in the oracle where TypeScript says 10. The mirror image is refused too: an
+  empty `default:` with a clause after it falls through into that clause in TypeScript and
+  runs nothing on both targets, and it emitted `default: { }` with no diagnostic. An empty
+  `default:` as the last clause does nothing in either language and stays legal. Calling an entry point is refused, `_ = f()` is
   WGSL's phony assignment rather than an unknown name, and a decimal literal past the f32
   range is refused instead of reaching the writer as `1e+40`.
 
@@ -35,10 +52,24 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   the message. The obvious fix — shadowing the parameter with `var a = a;` — was measured on
   Chromium 141 and is `redeclaration of 'a'`, because a WGSL function's parameters and its
   top-level locals share one scope; a shadow would have to rename what the author wrote, so
-  the line is asked for instead. `do … while` and a labelled `break` are likewise refused with
-  their own reason rather than the catch-all: the first would need a loop bound with no header
-  to read it from, which the constant-bound rule is a recorded premise of, and neither target
-  has a label for the second.
+  the line is asked for instead. Every spelling that writes a parameter reaches the rule, not
+  just `a = v`: `a++`, `++a`, `a--` and a `for` whose update is `a += k` each built their own
+  write target and so emitted `a = (a + 1);` past it; one function raises it now, so the three
+  sites cannot drift apart again.
+
+  `do … while` and a labelled `break` are likewise refused with their own reason rather than the
+  catch-all. For the first the reason is the IR's loop node, not a missing header — `while (c)`
+  has no header either and is accepted, reading its bound from the condition. The IR has one
+  loop shape, a top-tested `for`, and a `do … while` runs its body before the first test; both
+  targets could carry it (`loop { body; break if !(c); }` on WGSL, `do … while` outright on
+  GLSL ES 3.00), so what is missing is a bottom-tested `Stmt` kind through all three backends
+  and the trip-count analysis. It is a recorded deferral, and its code says so: `TS8099`, not
+  the loop-bound code it borrowed. Neither target has a label for the second.
+
+  The bitwise complement's intrinsic id is the operator `~`, not a name. CSE keys a call by its
+  `fn` alone, so an id an author could also spell would let a user function of that name and
+  `~x` fold into each other — silently, on the GPU and in the oracle alike; `~` is not a
+  TypeScript identifier, so no declaration can collide with it.
 
 - **A uniform lays out the bytes `reflect()` reports** (§51,
   [#156](https://github.com/typeshade/typeshade/issues/156)). WGSL's uniform address space
@@ -59,7 +90,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   **What was measured, and on which build.** Chromium 141 (`chromium_headless_shell-1194`) has
   no `uniform_buffer_standard_layout` language feature and therefore refuses the unpadded module
   (`'uniform' storage requires that array elements are aligned to 16 bytes, but array element of
-  type 'f32' has a stride of 4 bytes`), refuses `@align(16) @size(64)` on the member of a bare
+type 'f32' has a stride of 4 bytes`), refuses `@align(16) @size(64)` on the member of a bare
   array with the same text (the stride rule is on the element), and reports the padded struct's
   offsets as exactly the ones `reflect()` gives, checked by hand on nine shapes. Chromium 153 —
   what `gate:compile` launches when `TYPESHADE_CHROMIUM` is unset, and what CI installs — HAS
@@ -79,7 +110,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   **Three shapes a struct used to hide.** A field's type does not say which address space it
   lands in, so each of these reached a backend as text a driver refuses: `bool` in a `uniform`
   or `storage` struct (`type 'bool' cannot be used in address space 'uniform' as it is
-  non-host-shareable` on both builds, and silently emitted into the std140 block by the GLSL
+non-host-shareable` on both builds, and silently emitted into the std140 block by the GLSL
   writer — a divergence between the targets, not a shared failure), a runtime-sized `array<T>`
   that is not its struct's last field, and a runtime-sized array in a uniform. All three are
   `TS8051`. Separately, `array<T, 0>` and a negative or fractional length are refused at the
@@ -129,7 +160,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   so its emit is pinned by `src/compiler/ts/builtin-values.test.ts`, and its host-feature
   string is the one value here no measurement could confirm. The one existing example whose
   bytes moved is `examples/storage-texture.shade.ts`, which now leads with `requires
-  readonly_and_readwrite_storage_textures;` for its `read_write` binding; that directive can
+readonly_and_readwrite_storage_textures;` for its `read_write` binding; that directive can
   only ever narrow what compiles, since a `requires` naming a feature an implementation lacks
   is itself a shader-creation error, and the feature is present on every WebGPU this compiler
   targets (measured in `navigator.gpu.wgslLanguageFeatures`).

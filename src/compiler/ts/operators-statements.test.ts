@@ -79,6 +79,30 @@ describe('a shift amount is a u32 on both paths', () => {
     )
   })
 
+  it('shifts a vector lane-wise, the width WGSL requires', () => {
+    // A shift is componentwise, so the kind check reads the ELEMENT: `vec2u << vec2u` is two
+    // lanes, not a type error. WGSL's vector overload is `vecN<T> << vecN<u32>`, so a signed
+    // amount takes the same conversion the scalar path gives it, one lane wider.
+    const c = compiled(`export function f(x: vec2u, n: vec2u): vec2u { return x << n }
+export function g(x: vec2i, n: vec2i): vec2i { return x << n }
+@fragment export function fs(): vec4 {
+  return vec4(f32(f(vec2u(1, 1), vec2u(1, 1)).x) + f32(g(vec2i(1, 1), vec2i(1, 1)).x))
+}`)
+    expect(c.wgsl).toContain('(x << n)')
+    expect(c.wgsl).toContain('(x << vec2<u32>(n))')
+    expect(c.glsl!.fragment).toContain('(x << n)')
+    expect(c.glsl!.fragment).toContain('(x << uvec2(n))')
+  })
+
+  it('refuses a scalar amount on a vector target, which only GLSL takes', () => {
+    // GLSL ES 3.00 §5.9 allows the scalar broadcast; WGSL has no such overload (Tint:
+    // `no matching overload for 'operator << (vec2<u32>, u32)'`), so one source that compiles
+    // on both has to splat it.
+    const d = diagnose(`export function f(x: vec2u, n: u32): vec2u { return x << n }`)
+    expect(d.code).toBe(TS_CODES.TYPE_MISMATCH)
+    expect(d.message).toContain('vec2u(n)')
+  })
+
   it('keeps the equality rule for & | ^', () => {
     expect(diagnose(`export function f(x: i32, y: u32): i32 { return x & y }`).message).toContain(
       'no implicit integer conversion',
@@ -91,7 +115,9 @@ describe('the unary operators WGSL has, and the one it does not', () => {
     const c = compiled(`export function f(x: i32): i32 { return ~x }
 export function g(x: u32): u32 { return ~x }`)
     expect(c.wgsl).toContain('return ~x;')
-    expect(c.glsl ?? { fragment: '' }).toBeDefined()
+    // The same text on GLSL ES 3.00, which is why the INTRINSICS row exists at all: the
+    // fall-through writes `name(args)`, and `~x` is not that shape on either target.
+    expect(c.glsl!.fragment).toContain('return ~x;')
     // The complement is the bit pattern, so the two integer kinds read it differently — and
     // both CPU engines route it by the static kind, as they do for the other bit builtins.
     expect(cpu(c, 'f', [5])).toEqual([-6, -6])
@@ -154,12 +180,37 @@ describe('a switch clause may carry several selectors', () => {
     }
   })
 
-  it('refuses a selector with no body below it to share', () => {
+  it("refuses an empty selector that would share the default's body", () => {
     const d = diagnose(`export function f(k: i32): i32 {
   switch (k) { case 0: return 1; case 2: default: return 0 }
 }`)
     expect(d.code).toBe(TS_CODES.SWITCH_CASE)
-    expect(d.message).toContain('has no body')
+    expect(d.message).toContain('sits above "default:"')
+  })
+
+  it('refuses an empty "default:" that a clause follows', () => {
+    // The mirror image, and the same silent miscompile the other way: TypeScript falls the
+    // empty default through into the clause below, both targets run nothing, and the emit
+    // used to be `default: { }` with no diagnostic.
+    const d = diagnose(`export function f(k: i32): i32 {
+  switch (k) { case 1: return 1; default: case 2: return 0 }
+}`)
+    expect(d.code).toBe(TS_CODES.SWITCH_CASE)
+    expect(d.message).toContain('has no body of its own and a clause follows it')
+    // An empty default as the LAST clause runs nothing in either language, so it stays legal.
+    expect(
+      compiled(`export function f(k: i32): i32 {
+  switch (k) { case 1: return 1; default: }
+  return 9
+}`).wgsl,
+    ).toContain('default: {')
+  })
+
+  it('refuses a trailing selector with no body at all', () => {
+    const d = diagnose(`export function f(k: i32): i32 {
+  switch (k) { default: return 0; case 2: }
+}`)
+    expect(d.code).toBe(TS_CODES.SWITCH_CASE)
   })
 })
 
@@ -190,6 +241,17 @@ export function g(): vec4 { return fs() }`)
     const c = compiled(`export function g(x: f32): f32 { return x }
 @fragment export function fs(): vec4 { _ = g(1.); return vec4(0.) }`)
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // `g` is pure and its result is dropped, so the optimizer removes the call outright —
+    // what `_ =` buys the author is that the LINE is accepted, not text in the emit.
+    expect(c.wgsl).not.toContain('g(1.0)')
+    // A callee that writes survives, and then the emit is the bare call: WGSL takes a user
+    // function's dropped result without the phony assignment, which `emit.ts` reserves for a
+    // `@must_use` builtin (issue #47).
+    const live = compiled(`declare let dst: storage<array<f32>>
+export function g(x: f32): f32 { dst[0] = x; return x }
+@compute([64, 1, 1]) export function cs() { _ = g(1.); }`)
+    expect(live.wgsl).toContain('  g(1.0);')
+    expect(live.wgsl).not.toContain('_ = g(1.0);')
     // A program that declares its own `_` still assigns to that one.
     expect(compiled(`export function f(): f32 { let _ = 0.; _ = 1.; return _ }`).wgsl).toContain(
       '_ = 1.0;',
@@ -207,11 +269,30 @@ export function g(): vec4 { return fs() }`)
     expect(compiled(`export function f(): f32 { return 3.4e38 }`).wgsl).toContain('3.4e+38')
   })
 
+  it('refuses ++ on a parameter, the same way a whole write is refused', () => {
+    // `lowerUpdate` builds its own target rather than going through `lowerLValue`, so this
+    // emitted `a = (a + 1);` — `cannot assign to parameter 'a'` on Tint — with no diagnostic.
+    for (const src of [
+      'export function f(a: i32): i32 { a++; return a }',
+      'export function f(a: i32): i32 { ++a; return a }',
+      'export function f(a: i32): i32 { a--; return a }',
+      'export function f(a: i32): i32 { for (let i = 0; i < 3; a += 1) {} return a }',
+    ]) {
+      const d = diagnose(src)
+      expect(d.code, src).toBe(TS_CODES.ASSIGN_TARGET)
+      expect(d.message, src).toContain('a parameter is a value, not a variable')
+    }
+    // A local counter is untouched.
+    expect(compiled('export function f(): i32 { let i: i32 = 0; i++; return i }').wgsl).toContain(
+      'i = (i + 1);',
+    )
+  })
+
   it.each([
     [
       'do…while',
       `export function f(): f32 { let a = 0.; let i = 0; do { a = a + 1.; i = i + 1 } while (i < 3); return a }`,
-      /every loop here needs a bound the compiler can read from its header/,
+      /the IR has one loop shape, a top-tested "for"/,
     ],
     [
       'a labelled statement',

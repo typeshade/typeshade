@@ -2170,6 +2170,13 @@ way. `tsc` is what enforces the distinction, which is where it belongs.
 | `'x' in b` | a struct has exactly the fields its type declares, so the answer is in the type. Write the field access. |
 | `number`, `boolean` | a number on the GPU has a width: `f32`, `i32`, `u32`. The boolean is spelled `bool`. |
 
+**And two operators with nothing to be either.** `a == b` is refused for `a === b`:
+JavaScript's loose equality is a coercion table, and both targets have exactly one comparison,
+between two values of one type. `a >>> b` is refused for a cast and `>>`: a GPU shift is one
+operator whose meaning the **operand's** kind fixes — `>>` on a `u32` is already the logical
+shift, and on an `i32` the arithmetic one — so there is no third operator for `>>>` to be. §52
+has the rest of the operator surface.
+
 **And one mistake reads as one sentence.** A parameter whose annotation was refused no longer
 adds that it "requires a TypeShade type annotation", which it has; a return no longer adds
 "Unsupported return type"; a call to a function this file declares and could not lower no
@@ -3194,13 +3201,36 @@ writers read it, which is how the compound path has always behaved. `&`, `|` and
 equal-types rule: there both operands must be one type on both targets. The 0..31 bound on a
 literal amount is unchanged.
 
+A shift is componentwise, so the kind rule reads the **element**: `vec2u << vec2u` is two lanes
+shifted, not a type error, and a `vec2i` amount takes the same conversion the scalar gets, one
+lane wider (`x << vec2<u32>(n)`). Measured on Chromium 141 (`chromium_headless_shell-1194`),
+with the broken-shader instrument check passing on both compilers first:
+
+| Written | Tint | ANGLE |
+| --- | --- | --- |
+| `vec2<u32> << vec2<u32>` | accepted | accepted |
+| `vec2<i32> << vec2<u32>` (the conversion this inserts) | accepted | accepted |
+| `vec2<i32> << vec2<i32>` (unconverted) | `no matching overload for 'operator << (vec2<i32>, vec2<i32>)'` | accepted |
+| `vec2<u32> << u32` (scalar broadcast) | `no matching overload for 'operator << (vec2<u32>, u32)'` | accepted |
+
+So the conversion is load-bearing, and the scalar broadcast — which GLSL ES 3.00 §5.9 takes and
+WGSL has no overload for — is refused here rather than emitted, with the splat named in the
+message (`x << vec2u(n)`).
+
+One limit, recorded rather than worked around: a lane-wise shift is not expressible in a
+`"use typeshade"` file that `tsc` checks. TypeScript's own `<<` yields `number` whatever its
+operands are, and a vector type is a branded object, so `const lanes: vec2u = x << n` is
+TS2322 under the ambient lib before the compiler ever sees it. The rule lives in the lowering
+so the IR path stays correct and so `&`, `|`, `^` and the scalar shifts keep one kind rule
+between them; there is no gate example, because no `.shade.ts` can carry one.
+
 **`~`, unary `+`, and the minus WGSL does not have.**
 
 | Written | Result |
 | --- | --- |
 | `~x` on an `i32` or `u32` | `~x` on both targets. Its value differs by kind, and the CPU oracle routes it by the static kind as it does the other bit builtins: `~5` is `-6` on an `i32` and `4294967290` on a `u32`. |
 | `+x` on a number | `x`. The identity both targets give it, emitting nothing. |
-| `-u` on a `u32` | Refused. WGSL defines unary `-` for the signed and float kinds only, and `(-u)` is `no matching overload for 'operator - (u32)'`. The message names both fixes: `0u - x` to wrap, `i32(x)` to change kind. |
+| `-u` on a `u32` | Refused. WGSL defines unary `-` for the signed and float kinds only, and `(-u)` is `no matching overload for 'operator - (u32)'`. The message names both fixes at the operand's own width: `0u - x` / `i32(x)` for a scalar, `vec4u(0u) - x` / `vec4i(x)` for a `vec4u`. |
 | `~x` on an `f32`, `+b` on a `bool` | Refused, naming the kinds each takes. |
 
 **One switch clause, several selectors.** TypeScript spells "two labels, one body" as an empty
@@ -3216,10 +3246,30 @@ switch (k) {
 }
 ```
 
-The IR carries the selector list, so both CPU engines match on membership. A selector with
-nothing below it to share — a trailing `case 2:`, or one sitting above `default:` — is refused,
-because neither target has a label with no body and TypeScript's own fall-through would reach
-the default, which is not what either target would do.
+The IR carries the selector list, so both CPU engines match on membership.
+
+Three shapes stay refused, and two of them were silent miscompiles.
+
+A **trailing** empty clause has nothing below it to share, and neither target has a label with
+no body.
+
+An empty clause above **`default:`** has a body below it, but not one it may join: a WGSL
+selector list cannot carry `default`, so the selector has nowhere to go — and carrying it past
+the default is what this refusal exists to stop.
+`case 1: default: r = 10.; break; case 2: r = 20.; break;` lowered to `case 1, 2: { r = 20.0; }`
+with `default: { r = 10.0; }` beside it, so `f(1)` was 20 on both GPUs and in the oracle where
+TypeScript says 10 — with no diagnostic. It now reads:
+
+```
+switch case 1 sits above "default:" with no body of its own. A case that should do what the
+default does needs its own body; WGSL has no form for sharing the default's.
+```
+
+And the mirror image: an **empty `default:` with a clause after it**. TypeScript falls it
+through into that clause; both targets run nothing. `default: case 2: return 0;` emitted
+`default: { }`, so a selector that matched nothing else left the switch where TypeScript
+returns 0. An empty `default:` as the *last* clause does nothing in either language, so it
+stays legal.
 
 **A parameter is a value.** `a = 1.` emitted `a = 1.0;`, which Tint refuses with `cannot assign
 to parameter 'a'` / `parameters are immutable`; the docs called it a bug the compiler did not
@@ -3236,27 +3286,38 @@ locals share one scope. A shadow would therefore have to rename the local, chang
 identifier the author wrote and a debugger shows, to save one line — so the line is asked for
 instead. A write *through* a parameter (`p.x = 1.`) keeps the message it already had.
 
-**Two more that now say what is wrong.**
+Every spelling that writes one reaches the rule, not just `a = v`: `a++`, `++a`, `a--` and a
+`for` whose update is `a += k` all built their own write target and so emitted `a = (a + 1);`
+past it. One function raises it, so the three sites cannot drift apart again.
+
+**Three more that now say what is wrong.**
 
 - Calling an entry point is refused. WGSL says an entry point may not be called; the pipeline
   invokes it. The fix is to move the body into a plain function both call.
 - `_ = f()` is WGSL's phony assignment: call it, drop the result. It read as `Cannot assign to
   unknown name "_"`. `_` is only phony when nothing declares it, so a program with its own `_`
-  keeps assigning to that one, and `_ = 1.` (not a call) is still refused.
+  keeps assigning to that one, and `_ = 1.` (not a call) is still refused. What it buys is that
+  the **line** is accepted: a pure call whose result is dropped is then removed outright by the
+  optimizer, and one that writes emits as the bare call `g(1.0);`, since WGSL takes a user
+  function's dropped result without the phony — which `emit.ts` reserves for a `@must_use`
+  builtin.
 - A decimal literal past the f32 range is refused. `1e40` reached the writer, which printed
   `1e+40` — a value no f32 holds, so the shader ran on a number nobody wrote.
 
-**Three rows this deliberately does not reach.**
+**What this deliberately does not reach.**
 
-- **`do … while`.** It would need a loop whose bound the compiler cannot read from a header,
-  because a `do … while` has no header — and the constant-bound rule is a recorded design
-  premise of the loop-to-kernel proof and of forward-mode `grad` (`docs/roadmap.md`), not a
-  safety rail to drop in passing. Refused with that reason and the `while` form to use, rather
-  than the catch-all "Unsupported statement" it used to get.
-- **A labelled `break` or `continue`.** Neither target has a label, so `break outer` has
-  nothing to name. Refused with the two restructurings that work.
-- **`==` and `>>>`** keep the refusals they had. `===` is the equality both targets have, and
-  WGSL has no unsigned right shift.
+- **`do … while`.** Not "it has no header": `while (c)` has no header either and is accepted,
+  reading its bound from the **condition**. The reason is the loop node. The IR has exactly one
+  loop, a top-tested `for`, and a `do … while` runs its body once before the first test, which
+  that shape cannot express. Both targets could carry it — WGSL spells it
+  `loop { body; break if !(c); }` (wgsl.txt:11554, 11872-11878) and GLSL ES 3.00 has
+  `do … while` outright — so what is missing is a bottom-tested `Stmt` kind through all three
+  backends and the trip-count analysis. A recorded deferral with a target-independent reason,
+  refused with the `while` form to use rather than the catch-all "Unsupported statement".
+- **A labelled `break` or `continue`.** Neither target has a label, so `outer:` has nothing to
+  name it for. Refused with the two restructurings that work.
+- **`==` and `>>>`** keep the refusals they had (§28). `===` is the equality both targets have,
+  and WGSL has no unsigned right shift.
 
 ---
 

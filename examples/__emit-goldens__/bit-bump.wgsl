@@ -40,20 +40,20 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let shift = i32(lead);
   let rolled = ((col << u32(shift)) & 255u);
   let inverted = (~rolled & 255u);
-  var step: f32 = 0.0;
+  var stepGain: f32 = 0.0;
   switch (i32(nibble) & 3) {
     case 0, 1: {
-      step = 0.25;
+      stepGain = 0.25;
     }
     case 2: {
-      step = 0.5;
+      stepGain = 0.5;
     }
     default: {
-      step = 1.0;
+      stepGain = 1.0;
     }
   }
   let edge = min(fwidthCoarse(_gv0), 1.0);
-  let lit = (((bands * diffuse) * step) + vec3<f32>((f32(inverted) * 0.001953125), 0.0, 0.0));
+  let lit = (((bands * diffuse) * stepGain) + vec3<f32>((f32(inverted) * 0.001953125), 0.0, 0.0));
   let tint = (bent * 0.1);
   let base = (lit + tint);
   let _lc0 = (highlight * gain);

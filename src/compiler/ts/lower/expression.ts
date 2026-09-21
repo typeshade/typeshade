@@ -340,12 +340,18 @@ function lowerPrefixUnary(
     // alone leaves an author guessing which one they wanted.
     const k = operand.type.kind === 'vec' ? operand.type.elem : typeKey(operand.type)
     if (k === 'u32') {
+      // The two spellings are written for the operand's OWN width: `0u - x` and `i32(x)` are
+      // not expressions on a `vec4u`, so a vector operand is told `vec4u(0u) - x` and
+      // `vec4i(x)`, which is what an author would have to write.
+      const n = operand.type.kind === 'vec' ? operand.type.n : 0
+      const zero = n === 0 ? '0u' : `vec${String(n)}u(0u)`
+      const signed = n === 0 ? 'i32(x)' : `vec${String(n)}i(x)`
       pushDiag(
         diagnostics,
         sourceFile,
         node,
         `Unary "-" is not defined on ${typeKey(operand.type)}; WGSL has no negation for an ` +
-          `unsigned integer. Write 0u - x to wrap, or i32(x) to change kind first.`,
+          `unsigned integer. Write ${zero} - x to wrap, or ${signed} to change kind first.`,
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined
@@ -383,7 +389,12 @@ function lowerPrefixUnary(
       )
       return undefined
     }
-    return { op: 'call', type: operand.type, fn: 'bitNot', args: [operand] }
+    // The intrinsic id is the OPERATOR, not a name: CSE keys a call by `fn` alone
+    // (passes/opt/expr-utils.ts), so an id an author can also spell — `bitNot` — would let a
+    // user function of that name and `~x` share one key and fold into each other, silently,
+    // on the GPU and in the oracle alike. `~` is not a TypeScript identifier, so no author
+    // declaration can collide with it.
+    return { op: 'call', type: operand.type, fn: '~', args: [operand] }
   }
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
     // `!m` on a vector of bools is componentwise (§27): the same compare-with-false the scalar
@@ -561,35 +572,57 @@ function lowerBinary(
       // is then retyped to u32 again a few lines on, which is idempotent for a literal.
       left = retargetIntLitCtx(left, node.left, i32T)
       right = retargetIntLitCtx(right, node.right, u32T)
-      const amountKind = typeKey(right.type)
-      if (amountKind !== 'i32' && amountKind !== 'u32') {
+      // A shift is defined componentwise, so read the ELEMENT kind: `vec2u << vec2u` is a
+      // shift of two lanes, not a type error. The width rule below keeps the two sides the
+      // same shape, which is what both targets accept.
+      const amountKind = intElem(right.type)
+      if (amountKind === undefined) {
         pushDiag(
           diagnostics,
           sourceFile,
           node.right,
-          `Bitwise "${bit}" needs an i32 or u32 shift amount, got ${amountKind}.`,
+          `Bitwise "${bit}" needs an i32 or u32 shift amount, got ${typeKey(right.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         )
         return undefined
       }
-      const targetKind = typeKey(left.type)
-      if (targetKind !== 'i32' && targetKind !== 'u32') {
+      const targetKind = intElem(left.type)
+      if (targetKind === undefined) {
         pushDiag(
           diagnostics,
           sourceFile,
           node.left,
-          `Bitwise "${bit}" needs an i32 or u32 target, got ${targetKind}.`,
+          `Bitwise "${bit}" needs an i32 or u32 target, got ${typeKey(left.type)}.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      // WGSL's vector overload is `vecN<T> << vecN<u32>` — the amount is a vector of the SAME
+      // width, never a scalar broadcast (Tint: `no matching overload for 'operator << (vec2<u32>,
+      // u32)'`). GLSL ES 3.00 §5.9 does allow the scalar form, so refusing it here is what keeps
+      // one source compiling on both; splat the amount to say it explicitly.
+      const lanes = laneCount(left.type)
+      if (lanes !== laneCount(right.type)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `Bitwise "${bit}" shifts ${typeKey(left.type)} by ${typeKey(right.type)}: a shift amount ` +
+            `has the width of its target. Splat it, e.g. ${typeKey(left.type)} << vec${String(lanes)}u(n).`,
           TS_CODES.TYPE_MISMATCH,
         )
         return undefined
       }
       // A bare literal amount is retyped rather than wrapped, so `x << 1` stays one token.
       const folded = foldNumericLit(right)
+      const amountT: ShaderType = lanes === 1 ? u32T : { kind: 'vec', n: lanes, elem: 'u32' }
       const amount: Expr =
         folded.op === 'lit' && typeof folded.value === 'number' && Number.isInteger(folded.value)
           ? { op: 'lit', type: u32T, value: folded.value }
           : amountKind === 'i32'
-            ? { op: 'call', type: u32T, fn: 'u32', args: [right] }
+            ? lanes === 1
+              ? { op: 'call', type: u32T, fn: 'u32', args: [right] }
+              : { op: 'construct', type: amountT, args: [right] }
             : right
       return { op: 'binop', type: left.type, bop: bit, a: left, b: amount }
     }
@@ -673,6 +706,18 @@ function lowerBinary(
   }
   pushDiag(diagnostics, sourceFile, node, 'Unsupported binary operator.', TS_CODES.UNSUPPORTED)
   return undefined
+}
+
+/** The integer element kind of a shift/bitwise operand — the scalar's own kind, or a
+ *  vector's element — or undefined when the type is not an integer one. */
+function intElem(t: ShaderType): 'i32' | 'u32' | undefined {
+  const k = t.kind === 'vec' ? t.elem : typeKey(t)
+  return k === 'i32' || k === 'u32' ? k : undefined
+}
+
+/** How many lanes a value carries: a vector's width, 1 for a scalar. */
+function laneCount(t: ShaderType): 1 | 2 | 3 | 4 {
+  return t.kind === 'vec' ? t.n : 1
 }
 
 /** `pow` is float-only on both targets: an f32 scalar, or a vector of f32. An emulated-double

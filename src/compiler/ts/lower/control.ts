@@ -14,7 +14,7 @@ import { withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 import { retargetDeclaredIntLit } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
-import { lowerLValue, lowerStatement, lowerStatements } from './statement.js'
+import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js'
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -245,8 +245,44 @@ export function lowerSwitch(
   // Inside the case bodies a `break` is the switch's own, not an enclosing loop's.
   scope.enterSwitch()
   try {
-    for (const clause of node.caseBlock.clauses) {
+    const clauses = node.caseBlock.clauses
+    for (const [index, clause] of clauses.entries()) {
       if (ts.isDefaultClause(clause)) {
+        // Selectors written ABOVE `default:` share the DEFAULT's body, not the body of
+        // whatever clause follows. Carrying them past here attached `case 1:` to the next
+        // case's body — `case 1: default: r = 10; break; case 2: r = 20;` lowered to
+        // `case 1, 2: { r = 20; } default: { r = 10; }`, which is a silent miscompile both
+        // CPU engines agreed with. WGSL has no way to say "these selectors run the default",
+        // so they are reported rather than guessed at.
+        if (pending.length > 0) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            clause,
+            `switch case ${pending.map(String).join(', ')} sits above "default:" with no body ` +
+              `of its own. A case that should do what the default does needs its own body; ` +
+              `WGSL has no form for sharing the default's.`,
+            TS_CODES.SWITCH_CASE,
+          )
+          pending = []
+        }
+        // The mirror image, and the same silent miscompile the other way round. An EMPTY
+        // `default:` above another clause falls through to it in TypeScript and does nothing
+        // on both targets: `default: case 2: return 0;` emitted `default: { }`, so `f(5)`
+        // left the switch where TypeScript returns 0. An empty default as the LAST clause is
+        // harmless — it does nothing in either language — so only this shape is refused.
+        if (clause.statements.length === 0 && index < clauses.length - 1) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            clause,
+            `"default:" has no body of its own and a clause follows it. In TypeScript it runs ` +
+              `that clause's body; on both targets it runs nothing. Give the default its own ` +
+              `body, or move it below the clause it should share.`,
+            TS_CODES.SWITCH_CASE,
+          )
+          continue
+        }
         defaultBody = caseBody(clause.statements, sourceFile, scope, diagnostics)
         continue
       }
@@ -264,6 +300,9 @@ export function lowerSwitch(
           `Duplicate switch case ${String(value)}; each label may appear once.`,
           TS_CODES.SWITCH_CASE,
         )
+        // Drop what this clause had accumulated: the program is already failing, and
+        // carrying the selectors on would add "has no body" about the same mistake.
+        if (clause.statements.length > 0) pending = []
         continue
       }
       seen.add(value)
@@ -283,10 +322,9 @@ export function lowerSwitch(
   } finally {
     scope.exitSwitch()
   }
-  // Selectors with nothing after them to share. `case 2:` as the last clause, or one sitting
-  // above `default:`, names a value and then runs nothing — neither target has a form for it,
-  // and TypeScript's own fall-through would reach the default, which is not what either
-  // target would do.
+  // A TRAILING empty clause: `case 2:` as the last one names a value and then runs nothing,
+  // and neither target has a label without a body. (An empty clause above `default:` is a
+  // different mistake with a different message, raised in the loop above.)
   if (pending.length > 0) {
     pushDiag(
       diagnostics,
@@ -426,13 +464,19 @@ export function lowerUpdate(
         )
         return undefined
       }
+      // A parameter is a value on both targets, so `a++` is refused for the same reason
+      // `a = v` is — one rule, one wording, stated once in statement.ts. This branch builds
+      // its own target instead of going through lowerLValue, so without this call the emit
+      // was `a = (a + 1);`, which Tint refuses with `cannot assign to parameter 'a'`.
+      if (binding.kind === 'param') {
+        refuseParamWrite(expr, targetExpr.text, sourceFile, diagnostics)
+        return undefined
+      }
       // withSpan, as origin/main's #32 gives every authored lvalue: the write position is
       // what a stepped run and a diagnostic point at, and this branch builds the target
       // itself rather than going through lowerLValue, which carries its own.
       target = withSpan(
-        binding.kind === 'param'
-          ? ({ op: 'param', type: binding.type, name: irNameOf(binding) } as Expr)
-          : ({ op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr),
+        { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
         sourceFile,
         targetExpr,
       )
@@ -517,12 +561,26 @@ export function lowerUpdate(
         }
         if (folded !== undefined) rhs = { op: 'lit', type: binding.type, value: folded }
       }
+      // The same parameter rule as `i++` above: `for (…; p += 2)` on a formal parameter
+      // emitted `p += 2`, which is `cannot assign to parameter 'p'` on Tint.
+      if (binding.kind === 'param') {
+        refuseParamWrite(expr, left.text, sourceFile, diagnostics)
+        return undefined
+      }
+      if (!binding.mutable) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr,
+          `Cannot assign to "${left.text}" — it is ${readOnlyPhrase(binding.kind)}.`,
+          TS_CODES.CONST_ASSIGN,
+        )
+        return undefined
+      }
       // `i += 2` writes `i`, so the target carries the lvalue's span (#32) — for all four
       // operators, the same way main stamped the `+=`-only form this generalises.
       const target: Expr = withSpan(
-        binding.kind === 'param'
-          ? ({ op: 'param', type: binding.type, name: irNameOf(binding) } as Expr)
-          : ({ op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr),
+        { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
         sourceFile,
         left,
       )

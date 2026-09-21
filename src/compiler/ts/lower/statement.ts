@@ -156,15 +156,24 @@ function lowerStatementNode(
     return lowerExpressionStatement(node, sourceFile, scope, diagnostics)
   // Two shapes that deserve their own sentence rather than the catch-all below (§52). Both
   // are recorded deferrals, not oversights: the reason is in the message and in the docs.
+  // `while (c)` is accepted and reads its bound from the CONDITION, not from a header
+  // (`lowerWhile` lowers it into the one loop node the IR has, with a synthetic counter), so
+  // "a do…while has no header" would not be the reason. The reason is the loop node itself:
+  // the IR has a single top-tested `for`, and a do…while runs its body once BEFORE the test,
+  // which that shape cannot express. WGSL spells it `loop { body; break if !(c); }`
+  // (wgsl.txt:11554, 11872-11878) and GLSL ES 3.00 has `do…while` outright — so both targets
+  // could carry it; what is missing is an IR node for a bottom-tested loop, and adding one
+  // means a new `Stmt` kind through all three backends and the trip-count analysis. A
+  // recorded deferral, not a target constraint.
   if (ts.isDoStatement(node)) {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `do…while is not supported: every loop here needs a bound the compiler can read from ` +
-        `its header, and a do…while has no header. Write "while (c) { … }", or a counted ` +
-        `"for" with the body's first pass unrolled.`,
-      TS_CODES.LOOP_BOUND,
+      `do…while is not supported: the IR has one loop shape, a top-tested "for", and a ` +
+        `do…while runs its body before the first test. Write "while (c) { … }" with the ` +
+        `body's first pass unrolled above it, or a counted "for".`,
+      TS_CODES.UNSUPPORTED,
     )
     return undefined
   }
@@ -174,7 +183,7 @@ function lowerStatementNode(
       sourceFile,
       node,
       `A labelled statement is not supported: neither WGSL nor GLSL ES 3.00 has a label, so ` +
-        `"break ${node.label.text}" has nothing to name. Restructure with a flag, or hoist ` +
+        `"${node.label.text}:" has nothing to name it for. Restructure with a flag, or hoist ` +
         `the inner loop into a function and return from it.`,
       TS_CODES.UNSUPPORTED,
     )
@@ -1124,25 +1133,7 @@ export function lowerLValue(
     return undefined
   }
   if (binding.kind === 'param') {
-    // A WHOLE-parameter write. WGSL formal parameters are values, not references, and Tint
-    // says so outright: `cannot assign to parameter 'a'` / `parameters are immutable`. The
-    // compiler emitted `a = 1.0;` with zero diagnostics (§52), and the docs called it a bug
-    // it did not catch.
-    //
-    // NOT shadowed by `var a = a;`, which is what the issue proposed: that is `redeclaration
-    // of 'a'` on the same Tint, because a WGSL function's parameters and its top-level
-    // locals share one scope. A shadow would therefore have to RENAME the local, changing
-    // the identifier the author wrote and a debugger shows, to save one line. So the line is
-    // asked for instead. A write THROUGH a parameter (`p.x = 1.`) keeps its own message,
-    // which `checkRootWritable` raises before this.
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Cannot assign to "${node.text}" — a parameter is a value, not a variable. Copy it ` +
-        `into a local first: "let ${node.text}_ = ${node.text};", then write that.`,
-      TS_CODES.ASSIGN_TARGET,
-    )
+    refuseParamWrite(node, node.text, sourceFile, diagnostics)
     return undefined
   }
   return withSpan(
@@ -1366,4 +1357,35 @@ function pushDiag(
 function truncate(s: string, n = 60): string {
   const t = s.replace(/\s+/g, ' ').trim()
   return t.length <= n ? t : t.slice(0, n) + '…'
+}
+
+/** A WHOLE-parameter write, refused for every spelling that reaches one: `a = v`, `a += v`,
+ *  `a++`. WGSL formal parameters are values, not references, and Tint says so outright:
+ *  `cannot assign to parameter 'a'` / `parameters are immutable`. The compiler emitted
+ *  `a = 1.0;` with zero diagnostics (§52), and the docs called it a bug it did not catch.
+ *
+ *  NOT shadowed by `var a = a;`, which is what the issue proposed: that is `redeclaration of
+ *  'a'` on the same Tint, because a WGSL function's parameters and its top-level locals share
+ *  one scope. A shadow would therefore have to RENAME the local, changing the identifier the
+ *  author wrote and a debugger shows, to save one line. So the line is asked for instead. A
+ *  write THROUGH a parameter (`p.x = 1.`) keeps its own message, which `checkRootWritable`
+ *  raises before this.
+ *
+ *  ONE function because the three spellings lower in two different files: `lowerAssign` here
+ *  and `lowerUpdate` in control.ts, which built its own `{ op: 'param' }` target and so
+ *  emitted `a = (a + 1);` past this rule until it called this. */
+export function refuseParamWrite(
+  node: ts.Node,
+  name: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Cannot assign to "${name}" — a parameter is a value, not a variable. Copy it ` +
+      `into a local first: "let ${name}_ = ${name};", then write that.`,
+    TS_CODES.ASSIGN_TARGET,
+  )
 }
