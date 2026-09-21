@@ -430,6 +430,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       '`reflect`, `refract` and `faceForward` light a bump, `transpose` and `determinant` read the host matrix, and the bit builtins (`firstLeadingBit`, `reverseBits`, `countOneBits`, `extractBits`, `insertBits`) band the screen, with `fwidthCoarse` marking where a band starts (§10). GLSL ES 3.00 spells several of them differently and casts `findMSB` back to `uint`; the gate runs both.',
     renderable: true,
   },
+  {
+    id: 'builtin-breadth',
+    title: 'Packing, bitcast and the constructors',
+    blurb:
+      'The portable builtins WGSL has that this surface lacked (§44): the pack/unpack family round-tripped per channel, `bitcast` reading the exponent bits of a coordinate, `quantizeToF16` on a vector, the zero-value `vec2()` and the type-argument `vec3<u32>(...)`, an `array(...)` that infers its own element and count, and `all`/`any` on a plain bool. GLSL ES 3.00 has six of the pack ids natively under other names, neither 4x8 form and no `quantizeToF16`; the gate runs both.',
+    renderable: true,
+  },
 ]
 
 /**

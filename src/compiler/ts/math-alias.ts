@@ -163,9 +163,29 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
  *
  *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
  *  a cast or the select Expr. */
+/** The bit-level builtins #150 made authorable: the ten pack/unpack ids the registry could
+ *  already spell, plus `quantizeToF16` and `bitcast`. Listed here so a file that declares its
+ *  own function under one of these names keeps the call, by the same additivity rule item 8's
+ *  builtins follow: before #150 each was an ordinary unknown name. */
+export const BIT_BUILTIN_NAMES: readonly string[] = [
+  'quantizeToF16',
+  'bitcast',
+  'pack4x8unorm',
+  'pack4x8snorm',
+  'unpack4x8unorm',
+  'unpack4x8snorm',
+  'pack2x16float',
+  'pack2x16unorm',
+  'pack2x16snorm',
+  'unpack2x16float',
+  'unpack2x16unorm',
+  'unpack2x16snorm',
+]
+
 export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   // Item 8's builtins: a function the file declares under one of these names keeps the call.
   ...BREADTH_BUILTINS,
+  ...BIT_BUILTIN_NAMES,
   'arrayLength',
   'atomicLoad',
   'atomicStore',

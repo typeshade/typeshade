@@ -432,6 +432,66 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) =>
       `(vec4(uvec4(${a[0]}, ${a[0]} >> 8, ${a[0]} >> 16, ${a[0]} >> 24) & 0xFFu) / 255.0)`,
   },
+  // 4×8 SNORM, the signed twin of the pair above (#150). GLSL ES 3.00 has no
+  // packSnorm4x8/unpackSnorm4x8 either (ES 3.10 / GLSL 4.00), so both are inlined by hand.
+  //
+  // WGSL §17.10: pack4x8snorm quantises each component as ⌊0.5 + 127 × clamp(e, -1, 1)⌋ and
+  // keeps the low 8 bits of the two's complement; component 0 is the LOW byte. `floor(0.5 + x)`
+  // is not `round(x)` on this half: GLSL's `round` is implementation-chosen at an exact half
+  // and `roundEven` goes to even, while WGSL rounds -0.5 toward +∞ to 0. Written as the floor
+  // form so the two targets agree on -0.5/127 and 0.5/127, which is the divergence #141 records
+  // for the UNORM twin above.
+  pack4x8snorm: {
+    wgsl: (a) => `pack4x8snorm(${join(a)})`,
+    glsl: (a) =>
+      `(uint(int(floor(0.5 + clamp(${a[0]}.x, -1.0, 1.0) * 127.0)) & 0xFF) | ` +
+      `(uint(int(floor(0.5 + clamp(${a[0]}.y, -1.0, 1.0) * 127.0)) & 0xFF) << 8) | ` +
+      `(uint(int(floor(0.5 + clamp(${a[0]}.z, -1.0, 1.0) * 127.0)) & 0xFF) << 16) | ` +
+      `(uint(int(floor(0.5 + clamp(${a[0]}.w, -1.0, 1.0) * 127.0)) & 0xFF) << 24))`,
+    // The argument is a `.x`/`.y`/`.z`/`.w` postfix BASE — see `atomArgs` above.
+    atomArgs: true,
+  },
+  // The inverse: sign-extend each byte, then `max(v / 127, -1)` (WGSL §17.11 — the -128
+  // pattern would give -1.0079, which the max clamps). Sign extension is a 24-bit left shift
+  // into an ivec4 followed by an ARITHMETIC right shift, which is what `>>` is on a signed
+  // integer in GLSL ES 3.00 §5.9.
+  unpack4x8snorm: {
+    wgsl: (a) => `unpack4x8snorm(${join(a)})`,
+    glsl: (a) =>
+      `max(vec4(ivec4(uvec4(${a[0]}, ${a[0]} >> 8, ${a[0]} >> 16, ${a[0]} >> 24) << 24) >> 24) ` +
+      `/ 127.0, vec4(-1.0))`,
+    // `${a[0]} >> 8` re-embeds the argument as an operator operand.
+    atomArgs: true,
+  },
+  // `quantizeToF16(e)` (#150, wgsl.txt:23036): round to what an IEEE-754 binary16 can hold and
+  // come back as an f32, so a shader can see the precision an f16 pipeline would give it
+  // without the shader-f16 extension. GLSL ES 3.00 has no such builtin, but it has the pair
+  // that does exactly this: pack a half and unpack it again.
+  //
+  // One id per WIDTH, as the texture reads do, because the registry spells argument STRINGS
+  // and has no type to switch on: WGSL's overload takes an f32 or a vecN<f32>, and the GLSL
+  // round trip is two components at a time.
+  quantizeToF16: {
+    wgsl: (a) => `quantizeToF16(${join(a)})`,
+    glsl: (a) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}, 0.0))).x`,
+  },
+  quantizeToF16Vec2: {
+    wgsl: (a) => `quantizeToF16(${join(a)})`,
+    glsl: (a) => `unpackHalf2x16(packHalf2x16(${join(a)}))`,
+  },
+  quantizeToF16Vec3: {
+    wgsl: (a) => `quantizeToF16(${join(a)})`,
+    glsl: (a) =>
+      `vec3(unpackHalf2x16(packHalf2x16(${a[0]}.xy)), ` +
+      `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.z, 0.0))).x)`,
+    atomArgs: true,
+  },
+  quantizeToF16Vec4: {
+    wgsl: (a) => `quantizeToF16(${join(a)})`,
+    glsl: (a) =>
+      `vec4(unpackHalf2x16(packHalf2x16(${a[0]}.xy)), unpackHalf2x16(packHalf2x16(${a[0]}.zw)))`,
+    atomArgs: true,
+  },
   // bitcast<u32>(f) on WGSL; floatBitsToUint(f) on GLSL. The neutral id drops the
   // WGSL generic-call syntax that used to live in the IR.
   bitcastU32: {

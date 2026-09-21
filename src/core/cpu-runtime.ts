@@ -247,6 +247,13 @@ const f16BitsToF32 = (h: number): number => {
   return _bitcastView.getFloat32(0, true)
 }
 
+/** `quantizeToF16` on a scalar or on any width of vector (#150): the f16 round trip applied
+ *  per component. Shared by the four neutral ids, which differ only in how GLSL spells them. */
+const quantizeF16 = (x: CpuValue): CpuValue =>
+  isArr(x)
+    ? (x as number[]).map((c) => f16BitsToF32(f32ToF16Bits(c)))
+    : f16BitsToF32(f32ToF16Bits(x as number))
+
 /** Whether a comparison of values of type `t` rounds to f32 first: an f32 scalar or a vector
  *  of f32. The GPU computes f32, so exact f64 equality would silently disagree with it. */
 export const comparesAsF32 = (t: ShaderType): boolean =>
@@ -629,6 +636,34 @@ export const BUILTINS: Record<string, Builtin> = {
     const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
   },
+  // The signed twin (#150, WGSL §17.10): ⌊0.5 + 127 × clamp(e, -1, 1)⌋, low 8 bits of the
+  // two's complement, component 0 in the low byte. `Math.round` IS ⌊0.5 + x⌋ in JS, including
+  // the toward-+∞ negative halves WGSL asks for, which is why it is written with it here and
+  // as `floor(0.5 + …)` in the GLSL template, where `round` would be the driver's choice.
+  pack4x8snorm: (v) => {
+    const a = v as number[]
+    const q = (x: number): number => Math.round(Math.max(-1, Math.min(1, x)) * 127) & 0xff
+    return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
+  },
+  // Sign-extend each byte, then max(v / 127, -1): the -128 pattern is -1.0079 before the
+  // clamp (WGSL §17.11).
+  unpack4x8snorm: (u) => {
+    const n = (u as number) >>> 0
+    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) =>
+      Math.max(((b << 24) >> 24) / 127, -1),
+    )
+  },
+  // Round to what an IEEE-754 binary16 holds and come back as an f32 (#150, WGSL §17.7.28).
+  // The same encode the 2×16 float pack uses, so a value that survives one survives the other.
+  //
+  // FOUR ids, one behaviour: the registry spells argument strings and has no type to switch
+  // on, and the GLSL round trip is two components at a time, so the front end picks the id by
+  // the argument's width. Here the width is visible in the value, so one function serves all
+  // four and the vector ids cannot drift from the scalar one.
+  quantizeToF16: quantizeF16,
+  quantizeToF16Vec2: quantizeF16,
+  quantizeToF16Vec3: quantizeF16,
+  quantizeToF16Vec4: quantizeF16,
   // ── 2×16 pack/unpack — native builtins on BOTH targets (only the names
   // diverge; see the intrinsic registry). Component 0 → the 16 LOW bits, per
   // both specs. Quantisation follows WGSL's ⌊0.5 + scale·clamp(e)⌋, which JS

@@ -247,3 +247,164 @@ export function fs(): vec4 {
     expect(r.eval('fs', [])).toEqual([3, 3, 3, 1])
   })
 })
+
+// The bit-level builtins #150 made authorable. The IR and both backends have spelled the eight
+// pack/unpack ids and the two bitcast ids since the registry was written; nothing on this
+// surface could NAME them, so every one was TS8004 "Unknown function". `quantizeToF16` and the
+// 4x8 snorm pair are new rows. What is pinned here: the WGSL and GLSL spelling of each, and the
+// CPU value against the number the spec fixes.
+describe('the bit-level builtins: pack, unpack, bitcast and quantizeToF16', () => {
+  /** `fs` over no bindings, on both CPU paths. */
+  const value = (body: string): number[] => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+${body}
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const out: number[][] = []
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(r.module)
+      out.push(cm.fns['fs']!([0, 0]) as number[])
+    }
+    expect(out[0], 'the two CPU paths must agree').toEqual(out[1])
+    return out[0]!
+  }
+
+  it('quantizeToF16 keeps a value binary16 holds and rounds one it does not', () => {
+    // 1 + 2^-10 is the next binary16 after 1, so it survives the round trip exactly. 1 + 2^-11
+    // is exactly halfway to it and rounds to even, which is 1.
+    expect(value('  return vec4(quantizeToF16(1.0009765625), 0., 0., 1.)')[0]).toBe(1.0009765625)
+    expect(value('  return vec4(quantizeToF16(1.00048828125), 0., 0., 1.)')[0]).toBe(1)
+    // 65504 is the largest finite binary16; one step past the halfway point to it overflows.
+    expect(value('  return vec4(quantizeToF16(65504.), 0., 0., 1.)')[0]).toBe(65504)
+    expect(value('  return vec4(quantizeToF16(1e-8), 0., 0., 1.)')[0]).toBe(0)
+  })
+
+  it('quantizeToF16 takes a vector, one id per width', () => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return quantizeToF16(vec4(uv, 1.0009765625, 1.))
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('quantizeToF16(vec4<f32>(uv, 1.0009765625, 1.0))')
+    // GLSL has no such builtin: the half round trip, two components at a time.
+    expect(r.glsl?.fragment).toContain('unpackHalf2x16(packHalf2x16(')
+    expect(
+      value(
+        '  const q = quantizeToF16(vec2(1.0009765625, 1.00048828125))\n  return vec4(q, 0., 1.)',
+      ),
+    ).toEqual([1.0009765625, 1, 0, 1])
+  })
+
+  /** A packed `u32` asserted by COMPARING it in the shader, not by casting it to an f32 and
+   *  reading the number out. Every bit pattern worth pinning here is over 24 bits, and `f32()`
+   *  of one rounds on a GPU while the f64 oracle would hand back the exact integer — so a test
+   *  written that way would pass here and mean nothing about the target. */
+  const packs = (expr: string, expected: number): void => {
+    expect(
+      value(`  return vec4(select(0., 1., ${expr} === u32(${expected})), 0., 0., 1.)`)[0],
+    ).toBe(1)
+  }
+
+  it('pack2x16float packs component 0 into the low half, as both specs say', () => {
+    // 1.0 is 0x3C00 as a binary16, 0.0 is 0x0000, and component 0 is the LOW 16 bits.
+    packs('pack2x16float(vec2(1., 0.))', 0x00003c00)
+    packs('pack2x16float(vec2(0., 1.))', 0x3c000000)
+  })
+
+  it('the 4x8 snorm pair round-trips through the sign-extended bytes', () => {
+    // 1 -> 127 (0x7F), -1 -> -127 (0x81), 0 -> 0x00; component 0 is the LOW byte, so
+    // (1, -1, 0, 1) packs to 0x7F00817F.
+    packs('pack4x8snorm(vec4(1., -1., 0., 1.))', 0x7f00817f)
+    expect(value('  return unpack4x8snorm(pack4x8snorm(vec4(1., -1., 0., 1.)))')).toEqual([
+      1, -1, 0, 1,
+    ])
+    // The unorm twin for contrast: 1 -> 255, -1 clamps to 0.
+    packs('pack4x8unorm(vec4(1., -1., 0., 1.))', 0xff0000ff)
+  })
+
+  it('bitcast reads the same 32 bits the other way, and round-trips', () => {
+    // 1.0f is 0x3F800000.
+    packs('bitcast<u32>(1.)', 0x3f800000)
+    expect(value('  return vec4(bitcast<f32>(u32(1065353216)), 0., 0., 1.)')[0]).toBe(1)
+    expect(value('  return vec4(bitcast<f32>(bitcast<u32>(0.15625)), 0., 0., 1.)')[0]).toBe(0.15625)
+  })
+
+  it('spells each one on both targets', () => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const a = pack4x8unorm(vec4(uv, 0., 1.))
+  const b = pack4x8snorm(vec4(uv, 0., 1.))
+  const c = pack2x16float(uv)
+  const d = pack2x16unorm(uv)
+  const e = pack2x16snorm(uv)
+  const f = unpack4x8unorm(a) + unpack4x8snorm(b)
+  const g = unpack2x16float(c) + unpack2x16unorm(d) + unpack2x16snorm(e)
+  return f + vec4(g, 0., 0.) + vec4(f32(bitcast<u32>(uv.x)), quantizeToF16(uv.y), 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const wgsl = r.wgsl ?? ''
+    for (const spelling of [
+      'pack4x8unorm(',
+      'pack4x8snorm(',
+      'pack2x16float(',
+      'pack2x16unorm(',
+      'pack2x16snorm(',
+      'unpack4x8unorm(',
+      'unpack4x8snorm(',
+      'unpack2x16float(',
+      'unpack2x16unorm(',
+      'unpack2x16snorm(',
+      'bitcast<u32>(',
+      'quantizeToF16(',
+    ])
+      expect(wgsl, spelling).toContain(spelling)
+    const glsl = r.glsl?.fragment ?? ''
+    // The three GLSL ES 3.00 natives, and the hand-inlined pair that spec lacks.
+    expect(glsl).toContain('packHalf2x16(')
+    expect(glsl).toContain('packUnorm2x16(')
+    expect(glsl).toContain('packSnorm2x16(')
+    expect(glsl).toContain('floatBitsToUint(')
+    expect(glsl).not.toContain('packSnorm4x8(')
+    expect(glsl).not.toContain('quantizeToF16(')
+  })
+
+  it('refuses the wrong shape, naming the one overload each has', () => {
+    expect(errorsOf(FS('  return vec4(f32(pack4x8unorm(uv)), 0., 0., 1.)'))).toEqual([
+      'TS8003 pack4x8unorm takes a vec4<f32>; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00 the same.',
+    ])
+    expect(errorsOf(FS('  return unpack2x16float(uv)'))).toEqual([
+      'TS8003 unpack2x16float takes a u32; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00 the same.',
+    ])
+    expect(errorsOf(FS('  return vec4(f32(quantizeToF16(u.k)), 0., 0., 1.)'))).toEqual([
+      'TS8003 quantizeToF16 takes an f32 or a vector of them; got u32.',
+    ])
+    expect(errorsOf(FS('  return vec4(f32(bitcast(uv.x)), 0., 0., 1.)'))).toEqual([
+      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x). Those are the two reinterpretations both targets spell.',
+    ])
+    expect(errorsOf(FS('  return vec4(f32(bitcast<i32>(uv.x)), 0., 0., 1.)'))).toEqual([
+      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x); got bitcast<i32>. Those are the two reinterpretations both targets spell.',
+    ])
+    expect(errorsOf(FS('  return vec4(f32(bitcast<u32>(u.k)), 0., 0., 1.)'))).toEqual([
+      'TS8003 bitcast<u32> reads the bits of an f32; got u32. A bitcast reinterprets 32 bits, it does not convert: u32(x) is the conversion.',
+    ])
+  })
+
+  it('a bare number in an unpack is retargeted, as every integer position is', () => {
+    // The bit pattern is written as a number; nobody should have to spell `u32(65536)`.
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  return vec4(unpack2x16unorm(65536), 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('unpack2x16unorm(65536u)')
+  })
+})

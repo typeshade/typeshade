@@ -178,3 +178,96 @@ describe('what stays rejected', () => {
     )
   })
 })
+
+// WGSL's own two constructor spellings this surface lacked (#150): the TYPE ARGUMENT
+// (wgsl.txt:20889) and the ZERO value (wgsl.txt:20015-20030).
+describe('vecN<T>(...) names the element, and vecN() is the zero', () => {
+  it('vec3<u32>(1, 2, 3) builds an unsigned vector and vec3() the zero', () => {
+    // The type argument was read by NOBODY: `vec3<u32>(1, 2, 3)` compiled clean and emitted
+    // `vec3<f32>(1.0, 2.0, 3.0)`, so a program that asked for an unsigned vector silently got
+    // a float one and a following `f32(v.x)` cast nothing.
+    expect(typeKey(lowerReturn('vec3<u32>(1, 2, 3)', '', 'vec3u').type)).toBe('vec3<u32>')
+    expect(typeKey(lowerReturn('vec2<i32>(1, 2)', '', 'vec2i').type)).toBe('vec2<i32>')
+    expect(typeKey(lowerReturn('vec4<f32>(1., 2., 3., 4.)', '', 'vec4').type)).toBe('vec4<f32>')
+    expect(typeKey(lowerReturn('vec3<bool>(true, false, true)', '', 'vec3b').type)).toBe(
+      'vec3<bool>',
+    )
+    expect(typeKey(lowerReturn('vec3()', '', 'vec3').type)).toBe('vec3<f32>')
+    expect(typeKey(lowerReturn('vec4u()', '', 'vec4u').type)).toBe('vec4<u32>')
+  })
+
+  it('emits the element the type argument named, on both targets', () => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  const u = vec3<u32>(1, 2, 3)
+  const z = vec3()
+  return vec4(f32(u.x) + z.x, 0., 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('vec3<u32>(1u, 2u, 3u)')
+    expect(r.wgsl).toContain('vec3<f32>(0.0, 0.0, 0.0)')
+    expect(r.glsl?.fragment).toContain('uvec3(1u, 2u, 3u)')
+    expect(r.glsl?.fragment).toContain('vec3(0.0, 0.0, 0.0)')
+  })
+
+  it('refuses a second element name, and one that is not an element at all', () => {
+    expect(diagnose('vec3u<f32>(1, 2, 3)', '', 'vec3u')).toBe(
+      'vec3u<f32> names two element types; vec3u is already u32. Write vec3<f32> or vec3u.',
+    )
+    expect(diagnose('vec3<mat4>(1, 2, 3)', '', 'vec3')).toBe(
+      'vec3<mat4> is not a vector element type; write vec3<f32>, <i32>, <u32> or <bool>, or the short form vec3f.',
+    )
+    // The short name AGREEING with its own element is not a contradiction, so it is taken.
+    expect(typeKey(lowerReturn('vec3u<u32>(1, 2, 3)', '', 'vec3u').type)).toBe('vec3<u32>')
+  })
+
+  it('has no zero form for the emulated double, whose zero is a pair', () => {
+    expect(diagnose('vec3f64()', '', 'vec3f64')).toBe(
+      'vec3f64() has no zero-value form; write vec3f64(f64(0.)).',
+    )
+  })
+})
+
+// `array(e1, e2, ...)` with no type arguments (#150, wgsl.txt:20133).
+describe('array(...) infers its element type and its count', () => {
+  it('array(1., 2., 3.) infers array<f32, 3>', () => {
+    expect(typeKey(lowerReturn('array(1., 2., 3.)[0]', '', 'f32').type)).toBe('f32')
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  const a = array(1., 2., 3.)
+  return vec4(a[0], a[1], a[2], 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('array<f32, 3>(1.0, 2.0, 3.0)')
+    expect(r.glsl?.fragment).toContain('float[3](1.0, 2.0, 3.0)')
+  })
+
+  it('infers a vector element too, and keeps the explicit form working', () => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const a = array(uv, uv)
+  const b = array<f32, 2>(1., 2.)
+  return vec4(a[0], b[0], b[1])
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('array<vec2<f32>, 2>(uv, uv)')
+    expect(r.wgsl).toContain('array<f32, 2>(1.0, 2.0)')
+  })
+
+  it('refuses elements that disagree, and an empty list with nothing to infer from', () => {
+    expect(diagnose('array(1., i32(2))[0]', '', 'f32')).toBe(
+      'array(...) infers one element type from its elements; element 0 is f32 and element 1 ' +
+        'is i32. Cast the odd one, or write the type out: array<f32, 2>(...).',
+    )
+    expect(diagnose('array()[0]', '', 'f32')).toBe(
+      'array() has no elements to infer from; write array<f32, 4>() for a zero-filled array, ' +
+        'or give it elements.',
+    )
+  })
+})

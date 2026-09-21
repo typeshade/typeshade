@@ -757,3 +757,55 @@ describe('a name this item adds does not shadow a function the file declares', (
     }
   })
 })
+
+// `all(e: bool)` and `any(e: bool)` are overloads of both builtins and both "Return e"
+// (wgsl.txt:21294-21314). The ambient lib always admitted the scalar; the front end refused it,
+// so the editor and the compiler disagreed about a program WGSL defines (#150).
+describe('all(bool) and any(bool) return the bool on both targets', () => {
+  const both = (src: string): { wgsl: string; glsl: string } => {
+    const r = compile(src)
+    expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([])
+    return { wgsl: r.wgsl ?? '', glsl: r.glsl?.fragment ?? '' }
+  }
+  const FS = (body: string): string => `"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+${body}
+}
+`
+
+  it('lowers to the argument itself, so neither target spells a one-component reduction', () => {
+    // NOT a call: a one-component reduction is the value, and GLSL ES 3.00 has no `all(bool)`
+    // overload at all, so emitting the call would fail there.
+    const { wgsl, glsl } = both(
+      FS(`  const c = uv.x > 0.5
+  return vec4(select(0., 1., all(c)), select(0., 1., any(c)), 0., 1.)`),
+    )
+    expect(wgsl).toContain('select(0.0, 1.0, c)')
+    expect(wgsl).not.toMatch(/\ball\(/)
+    expect(wgsl).not.toMatch(/\bany\(/)
+    expect(glsl).not.toMatch(/\ball\(/)
+    expect(glsl).not.toMatch(/\bany\(/)
+  })
+
+  it('agrees with the vector form on the CPU, for both answers', () => {
+    const r = compile(
+      FS(`  const c = uv.x > 0.5
+  return vec4(select(0., 1., all(c)), select(0., 1., any(c)), 0., 1.)`),
+    )
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.eval('fs', [[1, 0]])).toEqual([1, 1, 0, 1])
+    expect(r.eval('fs', [[0, 0]])).toEqual([0, 0, 0, 1])
+  })
+
+  it('still reduces a vector of bools, which is the form that needs the builtin', () => {
+    const { wgsl, glsl } = both(
+      FS(`  const m = uv > vec2(0.5, 0.5)
+  return vec4(select(0., 1., all(m)), select(0., 1., any(m)), 0., 1.)`),
+    )
+    expect(wgsl).toContain('all(m)')
+    expect(wgsl).toContain('any(m)')
+    expect(glsl).toContain('all(m)')
+    expect(glsl).toContain('any(m)')
+  })
+})

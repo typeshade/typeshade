@@ -101,6 +101,30 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   determinant: 'Returns the determinant of a `mat4` as an `f32`.',
   ldexp:
     'Returns `x * 2^e`: an `f32` or float vector `x` with an `i32` or integer vector exponent `e` of the same shape. A bare literal exponent is an `i32`. Spelled through `intBitsToFloat` on GLSL ES 3.00, which has no `ldexp`.',
+  quantizeToF16:
+    'Rounds `e` to what an IEEE-754 binary16 can hold and returns it as an `f32`, so a shader can see the precision an f16 pipeline would give it without the `shader-f16` extension. Takes an `f32` or a float vector. GLSL ES 3.00 has no such builtin, so it is spelled as a `packHalf2x16`/`unpackHalf2x16` round trip, whose rounding of an exact half that spec does not pin.',
+  pack4x8unorm:
+    'Packs a `vec4` of values in [0, 1] into the four bytes of a `u32`, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packUnorm4x8` (that is ES 3.10).',
+  pack4x8snorm:
+    'Packs a `vec4` of values in [-1, 1] into the four bytes of a `u32` as signed bytes, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packSnorm4x8` (that is ES 3.10).',
+  unpack4x8unorm:
+    'Unpacks the four bytes of a `u32` into a `vec4` of values in [0, 1], the low byte into component 0. The inverse of `pack4x8unorm`.',
+  unpack4x8snorm:
+    'Unpacks the four bytes of a `u32` into a `vec4` of values in [-1, 1], reading each as a signed byte, the low byte into component 0. The inverse of `pack4x8snorm`.',
+  pack2x16float:
+    'Packs a `vec2` into two IEEE-754 binary16 halves of a `u32`, component 0 in the low 16 bits. `packHalf2x16` on GLSL ES 3.00.',
+  pack2x16unorm:
+    'Packs a `vec2` of values in [0, 1] into two 16-bit halves of a `u32`, component 0 in the low 16 bits. `packUnorm2x16` on GLSL ES 3.00.',
+  pack2x16snorm:
+    'Packs a `vec2` of values in [-1, 1] into two signed 16-bit halves of a `u32`, component 0 in the low 16 bits. `packSnorm2x16` on GLSL ES 3.00.',
+  unpack2x16float:
+    'Unpacks the two binary16 halves of a `u32` into a `vec2`, the low 16 bits into component 0. `unpackHalf2x16` on GLSL ES 3.00.',
+  unpack2x16unorm:
+    'Unpacks the two 16-bit halves of a `u32` into a `vec2` of values in [0, 1], the low 16 bits into component 0. `unpackUnorm2x16` on GLSL ES 3.00.',
+  unpack2x16snorm:
+    'Unpacks the two signed 16-bit halves of a `u32` into a `vec2` of values in [-1, 1], the low 16 bits into component 0. `unpackSnorm2x16` on GLSL ES 3.00.',
+  bitcast:
+    'Reads the same 32 bits as another type: `bitcast<u32>(x)` on an `f32` and `bitcast<f32>(x)` on a `u32`. It reinterprets, it does not convert; `u32(x)` is the conversion. `floatBitsToUint` / `uintBitsToFloat` on GLSL ES 3.00.',
   countOneBits:
     'The number of 1 bits in each component of a `u32` or `i32` (or vector of them). A `_popcnt` helper on GLSL ES 3.00, which has no bit builtins.',
   reverseBits:

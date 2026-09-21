@@ -93,21 +93,31 @@ export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES
 
 const vecCtorOverloads = (name: string, elem: VecElem): string => {
   const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4
-  const type = vecTypeName(elem, n)
-  // A component of a bool vector (§27) is a bool; of every other vector, a number.
-  const c = elem === 'bool' ? 'bool' : 'number'
+  // The PLAIN `vecN` names take WGSL's type argument, `vec3<u32>(1, 2, 3)` (#150). The short
+  // names (`vec3u`) name their element already and the compiler refuses a second one, so they
+  // stay ungeneric and the editor's "Expected 0 type arguments" is the right answer for them.
+  const generic = /^vec[234]$/.test(name)
+  const type = generic ? `VecFor${n}<T>` : vecTypeName(elem, n)
+  const head = generic ? `declare function ${name}<T = f32>` : `declare function ${name}`
+  // A component of a bool vector (§27) is a bool; of every other vector, a number. On the
+  // generic names the element rides on T, so a component is either.
+  const c = generic ? 'number | bool' : elem === 'bool' ? 'bool' : 'number'
   const lines: string[] = []
+  // `vec3()` is the ZERO value (wgsl.txt:20015-20030). Not on the emulated double, whose zero
+  // is a pair the fp64 pass assembles rather than a literal the constructor can write — the
+  // compiler refuses `vec3f64()` for the same reason.
+  if (elem !== 'f64') lines.push(`${head}(): ${type}`)
   if (n === 2) {
-    lines.push(`declare function ${name}(x: ${c}, y: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}): ${type}`)
   } else if (n === 3) {
-    lines.push(`declare function ${name}(x: ${c}, y: ${c}, z: ${c}): ${type}`)
-    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 2)}, z: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}): ${type}`)
+    lines.push(`${head}(v: ${vecTypeName(elem, 2)}, z: ${c}): ${type}`)
   } else {
-    lines.push(`declare function ${name}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`)
-    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 3)}, w: ${c}): ${type}`)
-    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 2)}, z: ${c}, w: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`)
+    lines.push(`${head}(v: ${vecTypeName(elem, 3)}, w: ${c}): ${type}`)
+    lines.push(`${head}(v: ${vecTypeName(elem, 2)}, z: ${c}, w: ${c}): ${type}`)
   }
-  lines.push(`declare function ${name}(scalar: ${c}): ${type}`)
+  lines.push(`${head}(scalar: ${c}): ${type}`)
   // The element-CONVERTING form (#8 A8): one whole vector of this constructor's own size and
   // a different element kind. The compiler's rule (`isConvertibleVector`) is exactly "native
   // vec, same n, different elem", so the overloads are the two other native kinds — and an
@@ -116,7 +126,7 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
   if (elem !== 'f64') {
     for (const other of NATIVE_VEC_ELEMS) {
       if (other === elem) continue
-      lines.push(`declare function ${name}(v: ${vecTypeName(other, n)}): ${type}`)
+      lines.push(`${head}(v: ${vecTypeName(other, n)}): ${type}`)
     }
   }
   return lines.join('\n')
@@ -497,6 +507,27 @@ type vec3f64 = Vec64<3>
 type vec4f64 = Vec64<4>
 
 ${vecTypeAliases}
+
+/** The vector a \`vecN<T>(...)\` call builds, from the type argument the author wrote (#150).
+ *
+ * Keyed on \`keyof\`, not on assignability. The scalar brands are OPTIONAL properties (see the
+ * note above \`scalarBrands\`), which keeps a plain \`number\` flowing into any of them but also
+ * makes \`f32\` and \`u32\` mutually ASSIGNABLE — so \`T extends u32\` matches every scalar and
+ * cannot tell them apart. \`keyof\` sees a declared key whether or not it is optional, so
+ * \`typeof u32Tag extends keyof T\` is exactly "T is the u32 brand". \`bool\` is \`boolean\` and
+ * carries no tag, so it is discriminated by assignability, where it is genuinely disjoint. */
+type VecElemOf<T, U, I, D, B, F> = T extends boolean
+  ? B
+  : typeof u32Tag extends keyof T
+    ? U
+    : typeof i32Tag extends keyof T
+      ? I
+      : typeof f64Tag extends keyof T
+        ? D
+        : F
+type VecFor2<T> = VecElemOf<T, vec2u, vec2i, vec2f64, vec2b, vec2>
+type VecFor3<T> = VecElemOf<T, vec3u, vec3i, vec3f64, vec3b, vec3>
+type VecFor4<T> = VecElemOf<T, vec4u, vec4i, vec4f64, vec4b, vec4>
 
 type Numeric = number | vec2 | vec3 | vec4 | vec2i | vec3i | vec4i | vec2u | vec3u | vec4u
 
@@ -1002,6 +1033,32 @@ ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
 ${renderJSDoc(FUNCTION_DOCS.arrayLength)}
 declare function arrayLength<T>(xs: array<T>): u32
+${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}
+declare function quantizeToF16(e: f32): f32
+${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}
+declare function quantizeToF16<T extends vec2 | vec3 | vec4>(e: T): T
+${renderJSDoc(FUNCTION_DOCS.pack4x8unorm)}
+declare function pack4x8unorm(e: vec4): u32
+${renderJSDoc(FUNCTION_DOCS.pack4x8snorm)}
+declare function pack4x8snorm(e: vec4): u32
+${renderJSDoc(FUNCTION_DOCS.unpack4x8unorm)}
+declare function unpack4x8unorm(e: u32): vec4
+${renderJSDoc(FUNCTION_DOCS.unpack4x8snorm)}
+declare function unpack4x8snorm(e: u32): vec4
+${renderJSDoc(FUNCTION_DOCS.pack2x16float)}
+declare function pack2x16float(e: vec2): u32
+${renderJSDoc(FUNCTION_DOCS.pack2x16unorm)}
+declare function pack2x16unorm(e: vec2): u32
+${renderJSDoc(FUNCTION_DOCS.pack2x16snorm)}
+declare function pack2x16snorm(e: vec2): u32
+${renderJSDoc(FUNCTION_DOCS.unpack2x16float)}
+declare function unpack2x16float(e: u32): vec2
+${renderJSDoc(FUNCTION_DOCS.unpack2x16unorm)}
+declare function unpack2x16unorm(e: u32): vec2
+${renderJSDoc(FUNCTION_DOCS.unpack2x16snorm)}
+declare function unpack2x16snorm(e: u32): vec2
+${renderJSDoc(FUNCTION_DOCS.bitcast)}
+declare function bitcast<T extends u32 | f32>(e: T extends u32 ? f32 : u32): T
 ${renderJSDoc(FUNCTION_DOCS.atomicLoad)}
 declare function atomicLoad<T extends u32 | i32>(location: atomic<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atomicStore)}

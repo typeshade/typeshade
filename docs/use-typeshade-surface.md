@@ -3008,6 +3008,75 @@ emit for a module composed through the EDSL. Both ways of missing an id have hap
 2D texture was answered by the backend rather than by a sentence about the author's own file. A
 test now holds the two equal and derives what they should contain from the intrinsic catalogue.
 
+## 44. Packing, bitcast and the constructors WGSL spells
+
+The IR and both backends have spelled the eight pack/unpack ids and the two `bitcast` ids since
+the registry was written. Nothing on this surface could NAME them, so every one was
+`Unknown function`. They are authorable now, with `quantizeToF16` and the 4x8 signed pair added
+beside them:
+
+| Written | WGSL | GLSL ES 3.00 |
+| --- | --- | --- |
+| `pack4x8unorm(v)`, `pack4x8snorm(v)` | the builtin | hand-inlined (ES 3.10 has the builtin, ES 3.00 does not) |
+| `unpack4x8unorm(u)`, `unpack4x8snorm(u)` | the builtin | hand-inlined |
+| `pack2x16float/unorm/snorm(v)` | the builtin | `packHalf2x16` / `packUnorm2x16` / `packSnorm2x16` |
+| `unpack2x16float/unorm/snorm(u)` | the builtin | `unpackHalf2x16` / `unpackUnorm2x16` / `unpackSnorm2x16` |
+| `bitcast<u32>(x)`, `bitcast<f32>(x)` | `bitcast<T>(x)` | `floatBitsToUint` / `uintBitsToFloat` |
+| `quantizeToF16(x)` | the builtin | `unpackHalf2x16(packHalf2x16(...))`, two components at a time |
+
+A pack takes exactly the vector its name says and yields a `u32`; an unpack takes a `u32` and
+yields the vector. There is one overload each, so a wrong shape is one sentence:
+`pack4x8unorm takes a vec4<f32>; got vec2<f32>.` The bit pattern of an unpack may be written as
+a bare number — `unpack2x16unorm(65536)` — because an integer literal is retargeted in every
+integer position.
+
+`bitcast` names its target as a TYPE ARGUMENT, as WGSL does. It reinterprets rather than
+converts, and the two are easy to confuse, so the refusal says which is which:
+
+```
+bitcast<u32> reads the bits of an f32; got u32. A bitcast reinterprets 32 bits, it does not
+convert: u32(x) is the conversion.
+```
+
+`quantizeToF16(x)` rounds to what an IEEE-754 binary16 holds and comes back as an `f32`, so a
+shader can see the precision an f16 pipeline would give it without the `shader-f16` extension.
+It takes an `f32` or a float vector. It is a `target` row in the determinism report (§38): WGSL
+converts with one rounding, and GLSL ES 3.00 does not pin the rounding of its half conversion,
+so a value exactly halfway between two binary16 neighbours may come back one step apart.
+
+### The constructors
+
+Three spellings WGSL has that this surface lacked:
+
+```ts
+const zero = vec3();               // the zero value: every component the element's zero
+const ids = vec3<u32>(1, 2, 3);    // the element named as a type argument
+const xs = array(1., 2., 3.);      // the element type and the count inferred
+```
+
+`vec3<u32>(1, 2, 3)` is the one that mattered most, because it used to compile clean and build a
+`vec3<f32>`: a program that asked for an unsigned vector silently got a float one, and a
+following `f32(v.x)` looked like a cast while casting nothing. The short names already say their
+element, so a second one is a contradiction rather than a synonym:
+
+```
+vec3u<f32> names two element types; vec3u is already u32. Write vec3<f32> or vec3u.
+```
+
+`array(...)` infers ONE element type from its elements, because an array has one; elements that
+disagree are refused with the explicit form named, rather than a guess at which was meant. A
+bare integer literal still lowers to an `f32` here, so `array(1, 2, 3)` is an `array<f32, 3>` —
+the same type `const x = 1` gives.
+
+### `all` and `any` on a plain bool
+
+Both builtins have a scalar overload in WGSL, and both return the argument. The ambient lib
+always admitted it; the front end refused it, so the editor and the compiler disagreed about a
+program WGSL defines. It is now lowered to the argument itself rather than to a call — a
+one-component reduction is the value, and GLSL ES 3.00 has no `all(bool)` overload to emit.
+
+`examples/builtin-breadth.shade.ts` runs all of this on both halves of the gate.
+
 ---
 
 Last updated: 2026-09-21

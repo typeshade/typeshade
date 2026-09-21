@@ -8,6 +8,7 @@ import {
   storageTexel,
   typeKey,
   u32T,
+  vec2fT,
   vec2uT,
   vec3uT,
   vec4fT,
@@ -72,6 +73,33 @@ const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = 
  *  double the fp64 pass assembles, and bool (§27). */
 type VecCtorElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
 
+/** What a `vecN<T>(…)` type argument may name, by the text the author wrote (#150). `f64` is
+ *  here because `vec3<f64>` is the long spelling of `vec3f64`, which the surface already has. */
+const TYPE_ARG_ELEM: Readonly<Record<string, VecCtorElem>> = {
+  f32: 'f32',
+  i32: 'i32',
+  u32: 'u32',
+  f64: 'f64',
+  bool: 'bool',
+}
+
+/** The short suffix each element kind has, for the message that offers it. */
+const SHORT_SUFFIX: Readonly<Record<string, string>> = {
+  f32: 'f',
+  i32: 'i',
+  u32: 'u',
+  f64: 'f64',
+  bool: 'b',
+}
+
+/** The zero of each element kind, for `vecN()`. The emulated double has none here: an `f64`
+ *  zero is a pair the fp64 pass assembles, not a literal this path can write. */
+function ctorZero(elem: VecCtorElem): Expr | undefined {
+  const t = elem === 'f32' ? f32T : elem === 'i32' ? i32T : elem === 'u32' ? u32T : undefined
+  if (t) return { op: 'lit', type: t, value: 0 }
+  return elem === 'bool' ? { op: 'lit', type: boolT, value: false } : undefined
+}
+
 export function lowerCall(
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -82,6 +110,8 @@ export function lowerCall(
   let intrinsicId: string | undefined
   let viaMath = false
   let ctor: { n: 2 | 3 | 4; elem: VecCtorElem } | undefined
+  /** The name the constructor was written under, for the messages that offer a short form. */
+  let ctorName = ''
 
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression
@@ -211,6 +241,7 @@ export function lowerCall(
     }
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     ctor = VEC_CTOR[name]
+    ctorName = name
     if (!ctor) {
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
       if (resolveMathExpand(name))
@@ -218,7 +249,13 @@ export function lowerCall(
       // A texture read is a canonical intrinsic name too, but its arity and result type both
       // depend on the texture argument, so it is routed to lowerTextureCall below rather than
       // through MATH_FN_ARITY, which records neither (#8 A7).
-      if (name === 'mod' || TEXTURE_CALLS.has(name) || isCanonicalMathFn(name)) intrinsicId = name
+      if (
+        name === 'mod' ||
+        TEXTURE_CALLS.has(name) ||
+        BIT_CALLS.has(name) ||
+        isCanonicalMathFn(name)
+      )
+        intrinsicId = name
       else {
         const decl = scope.resolveCallee(name)
         if (decl) return lowerUserCall(node, decl, sourceFile, scope, diagnostics)
@@ -245,22 +282,77 @@ export function lowerCall(
     args.push(lowered)
   }
 
-  if (ctor) {
+  if (ctor !== undefined) {
+    // `vec3<u32>(1, 2, 3)` is WGSL's own spelling (wgsl.txt:20889), and the type argument was
+    // read by nobody: the call built a `vec3<f32>` and emitted `vec3<f32>(1.0, 2.0, 3.0)` with
+    // zero diagnostics, so a program that asked for an unsigned vector silently got a float one
+    // and a following `f32(v.x)` looked like a cast while casting nothing (#150).
+    const written = node.typeArguments?.[0]?.getText(sourceFile)
+    if (written !== undefined) {
+      const named = TYPE_ARG_ELEM[written]
+      if (named === undefined) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `vec${ctor.n}<${written}> is not a vector element type; write vec${ctor.n}<f32>, ` +
+            `<i32>, <u32> or <bool>, or the short form vec${ctor.n}${SHORT_SUFFIX[ctor.elem] ?? ''}.`,
+          TS_CODES.UNKNOWN_TYPE,
+        )
+        return undefined
+      }
+      // `vec3u<f32>(…)` names its element twice and disagrees with itself. Only the plain
+      // `vecN` spelling, whose own element is the default f32, takes one.
+      if (!ctorName.endsWith(String(ctor.n)) && named !== ctor.elem) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `${ctorName}<${written}> names two element types; ${ctorName} is already ` +
+            `${ctor.elem}. Write vec${ctor.n}<${written}> or ${ctorName}.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      ctor = { n: ctor.n, elem: named }
+    }
+    const vc: { readonly n: 2 | 3 | 4; readonly elem: VecCtorElem } = ctor
+    // `vec3()` is the ZERO value (wgsl.txt:20015-20030): every component the element's zero.
+    // It was "Vector constructor component count mismatch.", which is true of nothing the
+    // author wrote — there are no components to count.
+    if (node.arguments.length === 0) {
+      const zero = ctorZero(vc.elem)
+      if (!zero) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `vec${vc.n}f64() has no zero-value form; write vec${vc.n}f64(f64(0.)).`,
+          TS_CODES.ARITY_MISMATCH,
+        )
+        return undefined
+      }
+      return {
+        op: 'construct',
+        type: vectorCtorType(vc.n, vc.elem),
+        args: Array.from({ length: vc.n }, () => zero),
+      }
+    }
     // `vec3u(1, 2, 3)` types each bare integer literal as the constructor's element kind
     // (#8 A3); an f32 constructor changes nothing, since retargetIntLitCtx only acts on an
     // integer target.
-    const elem = ctorElemType(ctor.elem)
+    const elem = ctorElemType(vc.elem)
     if (elem) {
       for (let i = 0; i < args.length; i++) {
         args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem)
       }
     }
-    if (args.length === 1 && isVectorCtorScalar(args[0]!.type, ctor.elem)) {
+    if (args.length === 1 && isVectorCtorScalar(args[0]!.type, vc.elem)) {
       const splat = args[0]!
       return {
         op: 'construct',
-        type: vectorCtorType(ctor.n, ctor.elem),
-        args: Array.from({ length: ctor.n }, () => splat),
+        type: vectorCtorType(vc.n, vc.elem),
+        args: Array.from({ length: vc.n }, () => splat),
       }
     }
     // vecN<T>(v: vecN<S>) — WGSL's element-converting constructor (`vec3f(v)`, `vec3u(v)`,
@@ -269,16 +361,16 @@ export function lowerCall(
     // size, a different element kind, every component converted. It is checked before the
     // component-count and element rules below, which are about composing a vector out of
     // parts and would reject it as an element-type mismatch.
-    if (args.length === 1 && isConvertibleVector(args[0]!.type, ctor)) {
-      return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args }
+    if (args.length === 1 && isConvertibleVector(args[0]!.type, vc)) {
+      return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args }
     }
     // fp64 lowering represents vecN<f64> as DF64VecN, while the constructor
     // contract is component-based. Flatten vec64 arguments here so the fp64 pass
     // only has to lower scalar f64 constructor components; it can then reassemble
     // the target DF64VecN from those scalar pairs without treating a whole vec64 as
     // an f64 operand.
-    const ctorArgs = ctor.elem === 'f64' ? flattenF64VectorArgs(args) : args
-    if (vectorComponentCount(ctorArgs) !== ctor.n) {
+    const ctorArgs = vc.elem === 'f64' ? flattenF64VectorArgs(args) : args
+    if (vectorComponentCount(ctorArgs) !== vc.n) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -288,22 +380,25 @@ export function lowerCall(
       )
       return undefined
     }
-    const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, ctor.elem))
+    const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, vc.elem))
     if (badArg) {
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `Vector constructor element type mismatch: expected ${ctor.elem}.`,
+        `Vector constructor element type mismatch: expected ${vc.elem}.`,
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined
     }
-    return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args: ctorArgs }
+    return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args: ctorArgs }
   }
 
   if (intrinsicId !== undefined && TEXTURE_CALLS.has(intrinsicId)) {
     return lowerTextureCall(intrinsicId, args, node, sourceFile, diagnostics)
+  }
+  if (intrinsicId !== undefined && BIT_CALLS.has(intrinsicId)) {
+    return lowerBitBuiltinCall(intrinsicId, args, node, sourceFile, diagnostics)
   }
   if (!intrinsicId) {
     // A call to a function this file declares and could not lower says nothing here: the
@@ -561,6 +656,14 @@ function lowerBoolReduce(
 ): Expr | undefined | 'not-a-bool-vector' {
   const peek = lowerExpression(node.arguments[0]!, sourceFile, scope, [])
   if (!peek) return 'not-a-bool-vector'
+  // `all(e: bool) -> bool` and `any(e: bool) -> bool` are overloads of both builtins, and both
+  // "Return e" (wgsl.txt:21294-21314). The ambient lib always admitted the scalar; the front
+  // end refused it, so the editor and the compiler disagreed about a program WGSL defines.
+  // Lowered to the ARGUMENT, not to a call: a one-component reduction is the value itself, and
+  // GLSL ES 3.00 has no `all(bool)` overload at all, so emitting the call would fail there.
+  if (peek.type.kind === 'scalar' && peek.type.scalar === 'bool') {
+    return lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
+  }
   if (peek.type.kind !== 'vec' || peek.type.elem !== 'bool') {
     // An array takes the fold's turn and its own message; anything else is neither shape.
     if (peek.type.kind === 'array') return 'not-a-bool-vector'
@@ -577,6 +680,153 @@ function lowerBoolReduce(
   const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
   if (!arg) return undefined
   return { op: 'call', type: boolT, fn: name, args: [arg] }
+}
+
+/** The bit-level builtins of WGSL §17.10-§17.11 and §17.7.28 (#150). The IR and both backends
+ *  have spelled these since the registry was written; nothing on this surface could NAME them.
+ *
+ *  Kept out of the generic math path because neither their argument nor their result follows
+ *  `args[0].type`: a pack takes a vector of `f32` and yields a `u32`, an unpack does the
+ *  reverse. The types are exact — WGSL has ONE overload each, so a `vec3` handed to
+ *  `pack4x8unorm` or an `i32` to `unpack2x16float` is refused here rather than by Tint. */
+const BIT_BUILTINS: Readonly<
+  Record<string, { readonly arg: ShaderType; readonly result: ShaderType }>
+> = {
+  pack4x8unorm: { arg: vec4fT, result: u32T },
+  pack4x8snorm: { arg: vec4fT, result: u32T },
+  unpack4x8unorm: { arg: u32T, result: vec4fT },
+  unpack4x8snorm: { arg: u32T, result: vec4fT },
+  pack2x16float: { arg: vec2fT, result: u32T },
+  pack2x16unorm: { arg: vec2fT, result: u32T },
+  pack2x16snorm: { arg: vec2fT, result: u32T },
+  unpack2x16float: { arg: u32T, result: vec2fT },
+  unpack2x16unorm: { arg: u32T, result: vec2fT },
+  unpack2x16snorm: { arg: u32T, result: vec2fT },
+}
+
+/** The names routed to {@link lowerBitBuiltinCall}: the ten above, plus the two whose id or
+ *  result the call site decides — `quantizeToF16`, whose GLSL spelling is one id per width,
+ *  and `bitcast`, whose result is its TYPE ARGUMENT. */
+const BIT_CALLS: ReadonlySet<string> = new Set([
+  ...Object.keys(BIT_BUILTINS),
+  'quantizeToF16',
+  'bitcast',
+])
+
+/** The neutral id `quantizeToF16` takes at each width: GLSL has no such builtin and spells it
+ *  as a half-precision round trip, which runs two components at a time. */
+const QUANTIZE_ID: Readonly<Record<number, string>> = {
+  1: 'quantizeToF16',
+  2: 'quantizeToF16Vec2',
+  3: 'quantizeToF16Vec3',
+  4: 'quantizeToF16Vec4',
+}
+
+/** `bitcast<T>(e)`: the same 32 bits read as another type (wgsl.txt:21147). The target type is
+ *  a TYPE ARGUMENT, not an argument, because that is how WGSL spells it and how the two
+ *  neutral ids already in the registry are shaped (`bitcastU32`, `bitcastF32`). */
+const BITCAST_ID: Readonly<
+  Record<string, { readonly id: string; readonly from: ShaderType; readonly article: string }>
+> = {
+  u32: { id: 'bitcastU32', from: f32T, article: 'an' },
+  f32: { id: 'bitcastF32', from: u32T, article: 'a' },
+}
+
+function lowerBitBuiltinCall(
+  id: string,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (!arityPlain(id, args, 1, node, sourceFile, diagnostics)) return undefined
+  const arg = args[0]!
+  if (id === 'bitcast') {
+    const written = node.typeArguments?.[0]?.getText(sourceFile)
+    const target = written === undefined ? undefined : BITCAST_ID[written]
+    if (!target) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x)` +
+          `${written === undefined ? '' : `; got bitcast<${written}>`}. Those are the two ` +
+          `reinterpretations both targets spell.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    if (typeKey(arg.type) !== typeKey(target.from)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `bitcast<${written}> reads the bits of ${target.article} ${typeKey(target.from)}; got ` +
+          `${typeKey(arg.type)}. A bitcast reinterprets 32 bits, it does not convert: ` +
+          `${written}(x) is the conversion.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: written === 'u32' ? u32T : f32T, fn: target.id, args: [arg] }
+  }
+  if (id === 'quantizeToF16') {
+    const n =
+      arg.type.kind === 'scalar' && arg.type.scalar === 'f32'
+        ? 1
+        : arg.type.kind === 'vec' && arg.type.elem === 'f32'
+          ? arg.type.n
+          : 0
+    if (n === 0) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `quantizeToF16 takes an f32 or a vector of them; got ${typeKey(arg.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: arg.type, fn: QUANTIZE_ID[n]!, args: [arg] }
+  }
+  const sig = BIT_BUILTINS[id]!
+  // `unpack2x16float(65536)` writes the bit pattern as a bare number, which lowers to an f32
+  // on this surface. Retargeted like every other integer literal in an integer position (#8
+  // A3), so the author is not asked to write `u32(65536)` for a constant.
+  const fixed = typeKey(sig.arg) === 'u32' ? retargetIntLitCtx(arg, node.arguments[0]!, u32T) : arg
+  if (typeKey(fixed.type) !== typeKey(sig.arg)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} takes a ${typeKey(sig.arg)}; got ${typeKey(fixed.type)}. WGSL gives it one ` +
+        `overload, and GLSL ES 3.00 the same.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return { op: 'call', type: sig.result, fn: id, args: [fixed] }
+}
+
+/** The arity check of the bit builtins, which name themselves rather than the texture they
+ *  read, so the texture `arity` helper's message does not fit. */
+function arityPlain(
+  id: string,
+  args: readonly Expr[],
+  want: number,
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (args.length === want) return true
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${id} expects ${want} argument(s), got ${args.length}.`,
+    TS_CODES.ARITY_MISMATCH,
+  )
+  return false
 }
 
 /** The texture reads this surface spells (#8 A7). They are kept out of the generic intrinsic

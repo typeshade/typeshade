@@ -130,6 +130,9 @@ const EMULATED_BOUND =
 const HALF_NOTE =
   'GLSL ES 3.00 rounds the scaled value with round(), whose exact half goes in an implementation-chosen direction; WGSL takes floor(0.5 + x), so an input that lands on a half may pack one step apart'
 
+const QUANTIZE_NOTE =
+  'WGSL converts to IEEE-754 binary16 and back with one rounding; GLSL ES 3.00 has no such builtin and the backend spells it as packHalf2x16 then unpackHalf2x16, whose conversion rounding that spec does not pin, so a value exactly halfway between two binary16 neighbours may come back one step apart'
+
 /** WGSL §15.7.4.1, the rows that are not "correctly rounded" or "correct result", keyed by the
  *  IR's name for the operation, plus the `target` rows where the GLSL ES 3.00 spelling can
  *  answer differently on an input WGSL settles. `degrees` and `radians` are inherited rows
@@ -190,6 +193,16 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   pack2x16snorm: target('correct result', HALF_NOTE),
   pack2x16unorm: target('correct result', HALF_NOTE),
   pack4x8unorm: target('correct result', HALF_NOTE),
+  // The four `quantizeToF16` widths (#150). WGSL converts to IEEE-754 binary16 and back with
+  // one rounding, and the CPU oracle implements round-to-nearest-even, the conversion real
+  // GPUs do. GLSL ES 3.00 has no such builtin, so the backend spells it as the
+  // packHalf2x16/unpackHalf2x16 round trip, and THAT spec does not pin the rounding of the
+  // f32 → binary16 conversion. A value exactly halfway between two binary16 neighbours may
+  // therefore come back one step apart on the two targets; every other value is one answer.
+  quantizeToF16: target('correct result', QUANTIZE_NOTE),
+  quantizeToF16Vec2: target('correct result', QUANTIZE_NOTE),
+  quantizeToF16Vec3: target('correct result', QUANTIZE_NOTE),
+  quantizeToF16Vec4: target('correct result', QUANTIZE_NOTE),
   pow: inherited('exp2(y * log2(x))'),
   radians: inherited('x * 0.017453292519943295474'),
   reflect: inherited('x - 2 * dot(x, y) * y'),
@@ -266,6 +279,13 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   '__fround',
   'pack2x16float',
   'unpack2x16float',
+  // #150. Unlike its unorm/snorm siblings above, this one has NO half divergence: the GLSL
+  // ES 3.00 spelling is hand-inlined (that spec's packSnorm4x8 is ES 3.10), and it is written
+  // `floor(0.5 + clamp(e, -1, 1) * 127.0)` — WGSL's own rule — rather than `round(...)`, whose
+  // exact half a driver may take either way. The CPU oracle's `Math.round` IS floor(0.5 + x),
+  // so all three agree on every input. (The `round()` spellings the unorm rows record are
+  // #141's to align.)
+  'pack4x8snorm',
   'countOneBits',
   'reverseBits',
   'countLeadingZeros',
