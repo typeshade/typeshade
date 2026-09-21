@@ -25,9 +25,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { readdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { shadeExamples, SHADE_EXT } from './_shade.js'
+import { shadeExamples, SHADE_EXT, SHADE_REFUSALS, SHADE_TWINS, NO_ENTRY_POINT } from './_shade.js'
 import { examples } from './index.js'
 import { checkGolden } from './_goldens.js'
 import { emitModule, emitGlslModule, reflect } from '../src/index.js'
@@ -139,4 +139,79 @@ describe('"use typeshade" examples — emit goldens', () => {
       checkGolden(`${ex.id}.fragment.glsl`, emitGlslModule(ex.module, 'fragment'))
     })
   }
+})
+
+// ═══ P1-40 and P1-41 of #155 ═══
+//
+// The arms above check coverage in ONE direction — every example has its goldens — and accept
+// ANY refusal as evidence for `renderable: false`. Both leave a hole a rename walks through:
+// a golden whose example was renamed stays in `__emit-goldens__/` forever, still green,
+// because nothing asks the reverse question; and an example that stops being renderable for a
+// NEW reason (a capability it did not need before) keeps its flag and its silence.
+describe('"use typeshade" examples — the goldens and the refusals are both exact', () => {
+  /** Every golden file the two registries imply, by the protocol each suite uses:
+   *  `<id>.wgsl` for every example, both GLSL stages for a renderable one, and — for a
+   *  `.shade.ts` file that claims a twin — the `.diff` and `.semantic.json` the twin suites
+   *  bake beside them. */
+  const expectedGoldens = (): string[] => {
+    const want = new Set<string>()
+    for (const ex of [...examples, ...shadeExamples]) {
+      want.add(`${ex.id}.wgsl`)
+      if (ex.renderable) {
+        want.add(`${ex.id}.vertex.glsl`)
+        want.add(`${ex.id}.fragment.glsl`)
+      }
+    }
+    for (const id of SHADE_TWINS.keys()) {
+      want.add(`${id}.diff`)
+      want.add(`${id}.semantic.json`)
+    }
+    return [...want].sort()
+  }
+
+  it('bakes exactly the goldens the registries imply — no missing file, and no orphan', () => {
+    // The orphan half is the new one: a renamed example leaves its old goldens behind, and
+    // they are never read again, so every suite stays green while the directory rots.
+    const onDiskGoldens = readdirSync(join(HERE, '__emit-goldens__')).sort()
+    expect(onDiskGoldens).toEqual(expectedGoldens())
+  })
+
+  it('states a refusal reason for every non-renderable example, and no reason for a renderable one', () => {
+    const nonRenderable = shadeExamples
+      .filter((e) => !e.renderable)
+      .map((e) => e.id)
+      .sort()
+    expect([...SHADE_REFUSALS.keys()].sort()).toEqual(nonRenderable)
+    expect(nonRenderable.length).toBeGreaterThan(0)
+  })
+
+  it('refuses every non-renderable example FOR THE REASON its registration states', () => {
+    // `:104`'s arm accepts any refusal, so an example that lost its GLSL form for a new
+    // reason — a capability it did not need before — keeps a flag that now means something
+    // else. Naming the reason in the registry is what turns the flag into a claim.
+    const wrong: string[] = []
+    for (const ex of shadeExamples.filter((e) => !e.renderable)) {
+      const reason = SHADE_REFUSALS.get(ex.id) ?? ''
+      const seen = (['vertex', 'fragment'] as const).map((stage) => {
+        try {
+          return emitGlslModule(ex.module, stage).includes('void main()')
+            ? 'emits a main()'
+            : NO_ENTRY_POINT
+        } catch (e) {
+          return e instanceof Error ? e.message : String(e)
+        }
+      })
+      if (!seen.some((s) => s.includes(reason))) {
+        wrong.push(`${ex.id}: states ${JSON.stringify(reason)}, got ${JSON.stringify(seen)}`)
+      }
+    }
+    expect(wrong).toEqual([])
+  })
+
+  it('names a reason that is a refusal, not a shrug', () => {
+    // A reason of `''` would match every message above and green the arm for free.
+    for (const [id, reason] of SHADE_REFUSALS) {
+      expect(reason.length, id).toBeGreaterThan(10)
+    }
+  })
 })

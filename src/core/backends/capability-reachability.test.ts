@@ -57,6 +57,8 @@ import { requiredCaps } from '../passes/required-caps.js'
 import { reflect } from '../reflect.js'
 import { emitModule, wgslBackend } from './wgsl.js'
 import { emitGlslModule, glslEs300Backend } from './glsl.js'
+import { compile } from '../../compiler/ts/compile.js'
+import { ALL_CAPABILITIES } from '../ir/nodes.js'
 
 // ── The probe module: the smallest thing that emits on BOTH backends ──
 const fragProbe = (enables?: readonly DeclarableCapability[]): ModuleDecl =>
@@ -516,5 +518,201 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
       'UNREACHABLE_ALLOWLIST entry with no issue number — an exemption nobody can trace ' +
         'is an exemption nobody will remove.',
     ).toEqual([])
+  })
+})
+
+// ═══ S3 — a `"use typeshade"` SOURCE witness per capability ═══
+//
+// The arms above prove the BACKEND profiles each capability: a module shape, a type constant,
+// an intrinsic id or a `@builtin` id resolves against the real surface. That is a statement
+// about the IR, and the IR is not the surface most authors write. The spec audit of
+// 2026-09-21 (#144, tests-critique S3) asked the next question: can a capability be reached
+// from `"use typeshade"` SOURCE, and does `reflect().requiredFeatures` then name it — which is
+// what the host reads to decide whether to request the device feature.
+//
+// Seven of the thirteen can. The other six are listed with a reason, and — where a program
+// could exist at all — with the very program that will become the witness once the gap closes,
+// so the list shrinks by measurement rather than by anyone remembering to look.
+
+/** A capability an author can reach by writing a program, and the program. Each is compiled
+ *  below and `reflect().requiredFeatures` must name the capability. */
+const SOURCE_WITNESSES: Readonly<Partial<Record<Capability, string>>> = {
+  storageBuffer: `"use typeshade"
+declare let out: storage<array<f32>>
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[gid.x] = 1.
+}
+`,
+  compute: `"use typeshade"
+declare let out: storage<array<f32>>
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[gid.x] = 1.
+}
+`,
+  msaaTextureLoad: `"use typeshade"
+declare const ms: texture_multisampled_2d<f32>
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V): vec4 {
+  return textureLoad(ms, vec2i(0, 0), 0)
+}
+`,
+  storageTexture: `"use typeshade"
+declare const dst: texture_storage_2d<"rgba8unorm", "write">
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+}
+`,
+  texture1d: `"use typeshade"
+declare const ramp: texture_1d<f32>
+declare const smp: sampler
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V): vec4 {
+  return textureSampleLevel(ramp, smp, v.uv.x, 0.)
+}
+`,
+  textureCubeArray: `"use typeshade"
+declare const envs: texture_cube_array<f32>
+declare const smp: sampler
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V): vec4 {
+  return textureSampleLevel(envs, smp, vec3(0., 0., 1.), 0, 0.)
+}
+`,
+  textureGather: `"use typeshade"
+declare const atlas: texture_2d<f32>
+declare const smp: sampler
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V): vec4 {
+  return textureGather(0, atlas, smp, v.uv)
+}
+`,
+}
+
+/** A capability no `"use typeshade"` program reaches today. `probe` is the program that WILL
+ *  be the witness once the gap closes — it is compiled below and must still fail, so an entry
+ *  cannot outlive its reason. A host-only capability has no probe by construction: nothing in
+ *  a module implies it, which is what `hostOnly` means in the witness table above. */
+const NO_SOURCE_WITNESS: Readonly<
+  Partial<Record<Capability, { readonly reason: string; readonly probe?: string }>>
+> = {
+  f16: {
+    reason:
+      'no f16 value type — `Scalar` is f32|i32|u32|bool (ir/types.ts); deferred by docs/roadmap.md:245 (After 1.0) and filed as #153',
+    probe: `"use typeshade"
+export function f(): f32 {
+  const a: f16 = 1.
+  return f32(a)
+}
+`,
+  },
+  subgroups: {
+    reason:
+      'no subgroup intrinsic in the registry; docs/roadmap.md:247 "A WebGPU extension with no WebGL2 equivalent and no oracle meaning yet"',
+    probe: `"use typeshade"
+export function f(x: f32): f32 {
+  return subgroupAdd(x)
+}
+`,
+  },
+  multiview: {
+    reason:
+      'directive-only — `@builtin("view_index")` has no spelling and `layout(num_views = N) in;` none at all; the builtin half rides #146',
+    probe: `"use typeshade"
+class Clip {
+  @builtin("position") pos: vec4;
+}
+@vertex
+export function vs(@builtin("view_index") vi: u32): Clip {
+  return { pos: vec4(f32(vi), 0., 0., 1.) }
+}
+`,
+  },
+  // The three host-only capabilities. A device feature that changes what a FORMAT can do is
+  // not implied by anything in a shader: the same module is valid with and without it, so
+  // there is no program to write. `hostOnly` in the witness table above says the same thing.
+  floatRenderTarget: {
+    reason: 'host-only: a device feature about the render-target FORMAT, which no module implies',
+  },
+  float32Blend: {
+    reason: 'host-only: a device feature about BLENDING an f32 target, which no module implies',
+  },
+  float32Filterable: {
+    reason: 'host-only: a device feature about FILTERING an f32 texture, which no module implies',
+  },
+}
+
+describe('every capability has a "use typeshade" source witness (S3)', () => {
+  it('claims every capability exactly once, as reachable from source or as not', () => {
+    const unclaimed = ALL_CAPABILITIES.filter(
+      (cap) => !(cap in SOURCE_WITNESSES) && !(cap in NO_SOURCE_WITNESS),
+    )
+    expect(unclaimed).toEqual([])
+    const both = ALL_CAPABILITIES.filter(
+      (cap) => cap in SOURCE_WITNESSES && cap in NO_SOURCE_WITNESS,
+    )
+    expect(both).toEqual([])
+  })
+
+  it('compiles every source witness clean, and reflect().requiredFeatures names the capability', () => {
+    const wrong: string[] = []
+    for (const [cap, src] of Object.entries(SOURCE_WITNESSES)) {
+      const result = compile(src)
+      const errors = result.diagnostics.filter((d) => d.category === 'error')
+      if (errors.length > 0) {
+        wrong.push(`${cap}: ${errors[0]?.message ?? ''}`)
+        continue
+      }
+      if (result.module === undefined) {
+        wrong.push(`${cap}: compiled with no module`)
+        continue
+      }
+      const features = reflect(result.module).requiredFeatures
+      if (!features.includes(cap as Capability)) {
+        wrong.push(`${cap}: requiredFeatures is ${JSON.stringify(features)}`)
+      }
+    }
+    expect(wrong).toEqual([])
+  })
+
+  it('loses the NO_SOURCE_WITNESS entry of a capability an author can now reach', () => {
+    // Shrink-only by measurement: the probe is the program the entry says cannot be written.
+    const reachable: string[] = []
+    for (const [cap, entry] of Object.entries(NO_SOURCE_WITNESS)) {
+      if (entry.probe === undefined) continue
+      const result = compile(entry.probe)
+      const errors = result.diagnostics.filter((d) => d.category === 'error')
+      if (errors.length === 0) reachable.push(cap)
+    }
+    expect(
+      reachable,
+      'This capability now compiles from source — move it to SOURCE_WITNESSES in the same ' +
+        'commit, so the host learns it needs the device feature.',
+    ).toEqual([])
+  })
+
+  it('states a reason that cites an issue, a roadmap row or the host-only rule', () => {
+    const vague = Object.entries(NO_SOURCE_WITNESS)
+      .filter(([, entry]) => !/#\d+|roadmap|host-only/.test(entry.reason))
+      .map(([cap]) => cap)
+    expect(vague).toEqual([])
   })
 })

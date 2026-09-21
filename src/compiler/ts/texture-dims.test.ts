@@ -356,3 +356,60 @@ declare const shadowSmp: sampler_comparison`,
     expect(cm.fns['fs']!([10, 20, 0, 1])).toEqual([0.5, 0.25, 1, 1])
   })
 })
+
+// P0-6 of the spec audit's tests critique (#155). `wgsl.txt:25081`, `:24615`, `:24734` type
+// `level`, `bias` and `depth_ref` as `f32`; `intArg` (`lower/expression-call.ts`) retypes a
+// LITERAL and early-returns on anything else, so a non-constant `i32` is emitted unchanged.
+//
+// THE VALUE COMES FROM A UNIFORM ON PURPOSE. Written as `const l: i32 = 2` the front end folds
+// it to the literal `2`, and a WGSL integer literal is an abstract-int that converts to `f32`
+// by itself — measured on Tint, which accepts that program. The defect needs a value no
+// constant folder can reach.
+describe('the scalar arguments have the type the spec gives them', () => {
+  const SCALAR_DECLS = `interface U {
+  lvl: i32;
+  bias: i32;
+  ref: i32;
+}
+declare const u: uniform<U>
+declare const atlas: texture_2d<f32>
+declare const shadowMap: texture_depth_2d
+declare const cmp: sampler_comparison
+declare const smp: sampler`
+
+  const scalar = (body: string): string => `"use typeshade"
+${SCALAR_DECLS}
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+${body}
+}
+`
+
+  const LEVEL = scalar('  return textureSampleLevel(atlas, smp, p.xy, u.lvl)')
+  const BIAS = scalar('  return textureSampleBias(atlas, smp, p.xy, u.bias)')
+  const DEPTH_REF = scalar(
+    '  return vec4(textureSampleCompare(shadowMap, cmp, p.xy, u.ref), 0., 0., 1.)',
+  )
+
+  it('passes an integer variable straight through today, which is the Tint-invalid shape', () => {
+    // Tint, measured 2026-09-21: "no matching call to
+    // 'textureSampleLevel(texture_2d<f32>, sampler, vec2<f32>, i32)'".
+    expect(compile(LEVEL).wgsl ?? '').toContain('textureSampleLevel(atlas, smp, p.xy, u.lvl)')
+    expect(compile(BIAS).wgsl ?? '').toContain('textureSampleBias(atlas, smp, p.xy, u.bias)')
+    expect(compile(DEPTH_REF).wgsl ?? '').toContain(
+      'textureSampleCompare(shadowMap, cmp, p.xy, u.ref)',
+    )
+  })
+
+  it.fails('refuses an integer variable as a level, naming f32 — flipped by #145', () => {
+    expect(errorsOf(LEVEL)).not.toEqual([])
+  })
+
+  it.fails('refuses an integer variable as a bias, naming f32 — flipped by #145', () => {
+    expect(errorsOf(BIAS)).not.toEqual([])
+  })
+
+  it.fails('refuses an integer variable as a reference depth, naming f32 — flipped by #145', () => {
+    expect(errorsOf(DEPTH_REF)).not.toEqual([])
+  })
+})

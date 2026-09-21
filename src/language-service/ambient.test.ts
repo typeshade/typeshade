@@ -6,6 +6,7 @@ import ts from 'typescript'
 import { createTypeshadeLanguageService } from './service.js'
 import { TypeshadeHost, AMBIENT_LIB_URI } from './host.js'
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
+import { compile } from '../compiler/ts/compile.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const EXAMPLES_DIR = join(HERE, '..', '..', 'examples')
@@ -613,4 +614,158 @@ describe('ATTRIBUTE_NAMES matches what lower/function.ts and structs.ts actually
     }
     expect(fn + structs).not.toContain("'interpolate'")
   })
+})
+
+// ═══ The six Tint-invalid texture programs, seen from the editor (P0-7 of #155) ═══
+//
+// The suite above asks whether TYPESCRIPT reports a program Tint refuses. For textures that
+// question is too narrow, and the critique's own wording ("reports") is refined here on
+// measurement: a stage rule is not expressible in a `.d.ts` at all — `tsc` cannot see which
+// entry a call sits in — so `textureSample` on a cube array in a vertex entry will never draw
+// a TS2345. What the author sees is the LANGUAGE SERVICE's list, which carries both halves:
+// TypeScript's own diagnostics and this compiler's. So the assertion is on that list.
+//
+// Four of the six are reported today, by one half or the other, and two are reported by
+// neither: an integer variable in an `f32` level or `depth_ref` slot, which `tsc` types as
+// `number` and the front end passes straight through (audit F25). Both were measured on Tint
+// on 2026-09-21 and both are refused there.
+describe('every texture program a GPU compiler rejects reaches the editor', () => {
+  const diagnosticsOf = (body: string): string[] => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
+  }
+
+  const FRAGMENT_TAIL = `class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}`
+
+  const reported: Readonly<Record<string, string>> = {
+    // T1b — `textureSample` on a cube array in a vertex entry (core.def:1143-1210 stages every
+    // textureSample overload "fragment"). Reported by the front end since #143.
+    'textureSample on a cube array in a vertex entry': `declare const envs: texture_cube_array<f32>
+declare const smp: sampler
+${FRAGMENT_TAIL}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): V {
+  const c = textureSample(envs, smp, vec3(0., 0., 1.), 0)
+  return { pos: c, uv: vec2(0., 0.) }
+}`,
+    // T2 — a texture write in a vertex entry (core.def:1484-1522). Reported since #143.
+    'textureStore in a vertex entry': `declare const dst: texture_storage_2d<"rgba8unorm", "write">
+${FRAGMENT_TAIL}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): V {
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+}`,
+    // T3 — a fractional layer on a storage array (wgsl.txt:25352 "A is i32, or u32").
+    'a fractional layer on a storage array': `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  textureStore(dst, vec2i(0, 0), 1.5, vec4(1., 0., 0., 1.))
+}`,
+    // T6 — a three-wide coordinate on a 2d storage texture. Reported by TypeScript, which
+    // types the coordinate `vec2i`; the front end's storage path does not check the width.
+    'a three-wide coordinate on a 2d storage texture': `declare const acc: texture_storage_2d<"r32float", "read_write">
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  const v = textureLoad(acc, vec3i(0, 0, 0))
+  textureStore(acc, vec2i(0, 0), v)
+}`,
+  }
+
+  for (const [name, body] of Object.entries(reported)) {
+    it(`${name}: reported, because Tint reports it too`, () => {
+      expect(diagnosticsOf(body), body).not.toEqual([])
+    })
+  }
+
+  const SCALAR_HEAD = `interface U {
+  lvl: i32;
+  ref: i32;
+}
+declare const u: uniform<U>
+declare const atlas: texture_2d<f32>
+declare const shadowMap: texture_depth_2d
+declare const cmp: sampler_comparison
+declare const smp: sampler
+${FRAGMENT_TAIL}`
+
+  const unreported: Readonly<Record<string, string>> = {
+    // T4 — Tint: "no matching call to 'textureSampleLevel(texture_2d<f32>, sampler,
+    // vec2<f32>, i32)'" (wgsl.txt:25081 types `level` f32).
+    'an integer variable as a level': `${SCALAR_HEAD}
+@fragment
+export function fs(v: V): vec4 {
+  return textureSampleLevel(atlas, smp, v.uv, u.lvl)
+}`,
+    // T10 — Tint: "no matching call to 'textureSampleCompare(texture_depth_2d,
+    // sampler_comparison, vec2<f32>, i32)'" (wgsl.txt:24734 types `depth_ref` f32).
+    'an integer variable as a reference depth': `${SCALAR_HEAD}
+@fragment
+export function fs(v: V): vec4 {
+  return vec4(textureSampleCompare(shadowMap, cmp, v.uv, u.ref), 0., 0., 1.)
+}`,
+  }
+
+  for (const [name, body] of Object.entries(unreported)) {
+    it.fails(`${name}: reported by neither half — flipped by #145 (or #157 for the lib)`, () => {
+      expect(diagnosticsOf(body), body).not.toEqual([])
+    })
+  }
+})
+
+// P1-20 of #155. `wgsl.txt:24129` and `:24155` say the texture COORDINATE is "i32, or u32", and
+// this compiler accepts `vec2u` and emits `textureLoad(t, vec2<u32>(0u, 0u), 0u)` — which Tint
+// takes. The ambient library types the coordinate `vec2i` only, so the editor underlines a
+// program the compiler and the spec both accept: the opposite polarity to the rows above.
+describe('the editor accepts an unsigned texture coordinate, as the compiler and the spec do', () => {
+  const tscErrors = (body: string): string[] => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
+    return service
+      .getDiagnostics('a.ts')
+      .filter((d) => d.source === 'typescript')
+      .map((d) => `${d.code}: ${d.message}`)
+  }
+
+  const LOAD = `declare const t: texture_2d<f32>
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V): vec4 {
+  return textureLoad(t, vec2u(0, 0), 0)
+}`
+
+  const STORE = `declare const dst: texture_storage_2d<"rgba8unorm", "write">
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  textureStore(dst, vec2u(0, 0), vec4(1., 0., 0., 1.))
+}`
+
+  it('the COMPILER takes both, which is what makes the editor the odd one out', () => {
+    const load = compile(`"use typeshade"\n${LOAD}\n`)
+    expect(load.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(load.wgsl ?? '').toContain('textureLoad(t, vec2<u32>(0u, 0u), 0u)')
+    const store = compile(`"use typeshade"\n${STORE}\n`)
+    expect(store.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+  })
+
+  it.fails(
+    'tsc takes an unsigned coordinate on textureLoad — flipped by #147 (ambient u32)',
+    () => {
+      expect(tscErrors(LOAD)).toEqual([])
+    },
+  )
+
+  it.fails(
+    'tsc takes an unsigned coordinate on textureStore — flipped by #147 (ambient u32)',
+    () => {
+      expect(tscErrors(STORE)).toEqual([])
+    },
+  )
 })

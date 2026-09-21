@@ -324,3 +324,58 @@ describe('the write is an effect', () => {
     expect(wgsl.match(/textureStore\(/g)).toHaveLength(3)
   })
 })
+
+// P0-4 (second half) and P0-5 of the spec audit's tests critique (#155). The storage path in
+// `lower/expression-call.ts` runs neither the coordinate-width check the sampled path runs nor
+// the vertex-stage rule `textureStore` got, so both shapes below compile clean here and Tint
+// refuses the emit. Written as `it.fails` so the lane that adds the check flips them.
+describe('what the storage path does not check yet', () => {
+  const store = (decls: string, body: string): string => `"use typeshade"
+${decls}
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+${body}
+}
+`
+
+  const WRONG_WIDTH = store(
+    `declare const acc: texture_storage_2d<"r32float", "read_write">`,
+    `  const v = textureLoad(acc, vec3i(0, 0, 0))
+  textureStore(acc, vec2i(0, 0), v)`,
+  )
+
+  const VERTEX_READ = `"use typeshade"
+declare const src: texture_storage_2d<"r32float", "read_write">
+class Clip {
+  @builtin("position") pos: vec4;
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  const v = textureLoad(src, vec2i(0, 0))
+  return { pos: v }
+}
+`
+
+  it('emits a three-wide coordinate on a 2d storage texture today, which Tint refuses', () => {
+    // Tint, measured 2026-09-21: "no matching call to
+    // 'textureLoad(texture_storage_2d<r32float, read_write>, vec3<i32>)'" (wgsl.txt:24255).
+    expect(wgslOf(WRONG_WIDTH)).toContain('textureLoad(acc, vec3<i32>(0, 0, 0))')
+  })
+
+  it.fails(
+    'refuses a coordinate of the wrong width, as on a sampled texture — flipped by #145',
+    () => {
+      expect(errorsOf(WRONG_WIDTH)).not.toEqual([])
+    },
+  )
+
+  it('emits a read of a WRITABLE storage texture from a vertex entry today', () => {
+    // `core.def:1585-1589` stages that read `fragment, compute`, exactly as `textureStore`,
+    // and the front end gates only the write (`lower/function.ts` NOT_IN_VERTEX_CALLS).
+    expect(wgslOf(VERTEX_READ)).toContain('textureLoad(src, vec2<i32>(0, 0))')
+  })
+
+  it.fails('refuses a storage read reachable from a vertex entry — flipped by #145', () => {
+    expect(errorsOf(VERTEX_READ)).not.toEqual([])
+  })
+})

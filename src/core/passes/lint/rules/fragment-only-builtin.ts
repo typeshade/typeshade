@@ -20,7 +20,7 @@ const DERIVATIVE_FIX =
  *  convention, which nothing ever enforced (no test compared the two) and which
  *  X-GIS #1651's array row had already broken. Per-id hints are pinned where they are
  *  authored: this rule's tests. */
-const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
+export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',
     'use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives',

@@ -49,21 +49,40 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 export const SHADE_EXT = '.shade.ts'
 
 /** The hand-written half of a `.shade.ts` registration: everything `compile()` cannot infer. */
-interface ShadeSpec {
+type ShadeSpec = {
   /** Registry id. Also the golden filename stem, so it must not collide with an `examples` id. */
   readonly id: string
   readonly title: string
   readonly blurb: string
-  /** Has a GLSL ES 3.00 form — both stages emit AND link. Authored, never derived: a flag
-   *  computed by try/catch around the emitter agrees with the emitter by construction, and
-   *  the compile gate would then have nothing left to catch. */
-  readonly renderable: boolean
   /** The `examples` id this file is the source-language TWIN of: the same shader, authored
    *  through the other surface. Set it and `shade-twins.test.ts` pins the two emits side by
    *  side and compares the lowered modules — which is what turns "the EDSL corpus is the
    *  oracle" from a claim in the surface document into something a suite can fail on. */
   readonly twinOf?: string
-}
+} & (
+  | {
+      /** Has a GLSL ES 3.00 form — both stages emit AND link. Authored, never derived: a flag
+       *  computed by try/catch around the emitter agrees with the emitter by construction, and
+       *  the compile gate would then have nothing left to catch. */
+      readonly renderable: true
+    }
+  | {
+      readonly renderable: false
+      /** WHY the GLSL backend cannot serve this example, checked rather than believed
+       *  (`shade-examples.test.ts`): a substring of the refusal the backend throws, or the
+       *  literal `NO_ENTRY_POINT` for a module that emits a stage with no `main()` because it
+       *  declares no entry point.
+       *
+       *  `renderable: false` without one would be a way to opt out of the compile gate for
+       *  free; with one, the flag and the reason are both claims a suite can fail. A UNION
+       *  rather than an optional field, so `tsc` refuses an entry that leaves it out. */
+      readonly reason: string
+    }
+)
+
+/** The `reason` of an example whose GLSL stages emit but carry no `main()`, because the module
+ *  declares no entry point at all. Not a refusal message — there is no throw to match. */
+export const NO_ENTRY_POINT = 'no entry point'
 
 /** The curated order, and the one place a `.shade.ts` file is registered.
  *
@@ -101,6 +120,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     // GLSL ES 3.00 refuses the vertex stage outright (`uniform binding 'scale' must be a
     // struct (a std140 UBO block)`), so there is no stage pair to compile or link.
     renderable: false,
+    reason: "uniform binding 'scale' must be a struct (a std140 UBO block)",
   },
   {
     id: 'hello-uniform-struct',
@@ -117,6 +137,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     // No `@vertex` / `@fragment` in the file: both GLSL stages emit, but what they emit is a
     // uniform block and a helper with no `main()`, which is not a linkable program.
     renderable: false,
+    reason: NO_ENTRY_POINT,
   },
   {
     id: 'array-literal-ramp',
@@ -260,6 +281,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       "`compute-reduction.ts` written in the source language: the EDSL's `reduce()` combinator spelled as the `for` loop it expands into. WGSL-only like its original — GLSL ES 3.00 has no compute stage.",
     renderable: false,
+    reason: 'missing capabilities: storageBuffer, compute',
     twinOf: 'compute-reduction',
   },
   {
@@ -268,6 +290,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       "The bounds guard every kernel over a runtime-sized storage array needs: `src.length` reads the bound buffer's length as WGSL `arrayLength(&src)`, a `u32`, so the guard is real where it once folded to `gid.x >= 0u` and returned every invocation (#46). WGSL-only: GLSL ES 3.00 has no storage buffers.",
     renderable: false,
+    reason: 'missing capabilities: storageBuffer, compute',
   },
   {
     id: 'block-scope',
@@ -282,6 +305,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       'Many invocations count into one bin at once with `atomicAdd(bins[bin], 1)`, one indivisible step each; a storage struct field and a bare `storage<atomic<u32>>` binding show the other two shapes of location, and the value an atomic returns is what it held before. WGSL-only: GLSL ES 3.00 has no storage buffers and no atomics.',
     renderable: false,
+    reason: 'missing capabilities: storageBuffer, compute',
   },
   {
     id: 'private-state',
@@ -296,6 +320,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       "`let tile: workgroup<array<f32, 64>>` is WGSL's `var<workgroup>`, one copy per workgroup its invocations share, here as scratch each invocation owns a slot of, beside a workgroup array of atomics and a per-invocation counter (§24). WGSL-only: WebGL2 has no compute stage and no workgroup memory.",
     renderable: false,
+    reason: 'missing capabilities: storageBuffer, compute',
   },
   {
     id: 'workgroup-reduce',
@@ -303,6 +328,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       '64 invocations sum 64 values into one through workgroup memory, with `workgroupBarrier()` ordering the rounds (§25). On the CPU it runs through `dispatch`, which holds every invocation of a workgroup at each barrier; a workgroup whose invocations disagree about a barrier is refused with the line and the counts. WGSL-only: WebGL2 has no compute stage.',
     renderable: false,
+    reason: 'missing capabilities: storageBuffer, compute',
   },
   {
     id: 'default-args',
@@ -387,6 +413,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       'A colour ramp as a `texture_1d<f32>`, two environment maps as a `texture_cube_array<f32>` picked by layer, a hand-written percentage-closer filter from `textureGatherCompare`, a `textureGather` of one channel from four texels, and a point light\u2019s shadow as a `texture_depth_cube_array` (\u00a736). GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives a capability (`texture1d`, `textureCubeArray`, `textureGather`) with a WGSL row and no GLSL row: this example runs on the Tint half of the gate alone. The argument order is the spec\u2019s: the component first on a colour texture, none on a depth one, the layer after the coordinate, the reference after the layer.',
     renderable: false,
+    reason: 'missing capabilities: texture1d, textureCubeArray, textureGather',
   },
   {
     id: 'msaa-resolve',
@@ -394,6 +421,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       'An MSAA render target as a `texture_multisampled_2d<f32>` read one sample at a time with `textureLoad(t, coords, sampleIndex)` and averaged over `textureNumSamples`, and its depth attachment as a `texture_depth_multisampled_2d` (\u00a737). A multisampled texture cannot be used with a sampler, so every sampling form is refused with the load named instead. WGSL-only: GLSL ES 3.00 has no `sampler2DMS`, so the binding derives `msaaTextureLoad` and the Tint half of the gate alone runs it.',
     renderable: false,
+    reason: 'missing capabilities: msaaTextureLoad',
   },
   {
     id: 'storage-texture',
@@ -401,6 +429,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       'An image a compute entry writes by texel coordinate, with no sampler and no filtering (\u00a733). The format and the access mode are part of the type, as they are in WGSL, and are written as string literal types so `tsc` checks a mistyped format in the editor. Three bindings: one `"write"`, one `"read_write"` at `"r32float"` (the only formats a device reads and writes through one binding), and one integer format whose texel is a `vec4u`. WGSL-only: GLSL ES 3.00 has no image load/store, which is ES 3.10. Two things it refuses that Tint does not, because Tint compiles a shader and a device binds one.',
     renderable: false,
+    reason: 'missing capabilities: storageTexture, compute',
   },
   {
     id: 'particle-step',
@@ -408,6 +437,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     blurb:
       'A `class Particle` whose `step`, `bounce` and `tick` assign to `this`, called on a storage element: each takes and returns the struct and the call statement writes the receiver back, `ps[gid.x] = Particle_tick(ps[gid.x], dt)` (§26). WGSL-only: a storage buffer and a compute stage have no WebGL2 form.',
     renderable: false,
+    reason: 'missing capabilities: storageBuffer, compute',
   },
   {
     id: 'pick-composite',
@@ -480,4 +510,12 @@ export const SHADE_TWINS: ReadonlyMap<string, string> = new Map(
   SHADE_ORDER.flatMap((spec) =>
     spec.twinOf === undefined ? [] : [[spec.id, spec.twinOf] as const],
   ),
+)
+
+/** Non-renderable id → the reason its `renderable: false` states, for the suite that checks
+ *  the flag rather than believing it (`shade-examples.test.ts`). Kept here beside `SHADE_TWINS`
+ *  for the same reason: the relationship belongs to this corpus, and `_shared.ts` is the shape
+ *  the site consumes. */
+export const SHADE_REFUSALS: ReadonlyMap<string, string> = new Map(
+  SHADE_ORDER.flatMap((spec) => (spec.renderable ? [] : [[spec.id, spec.reason] as const])),
 )

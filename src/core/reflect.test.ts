@@ -14,12 +14,14 @@ import {
   texture2diT,
   texture2dArrayuT,
   samplerT,
+  samplerComparisonT,
   fn,
   module,
   vec4,
   toF32,
   type StructDecl,
   type ModuleDecl,
+  type ShaderType,
 } from './ir/index.js'
 import { uniformStruct } from './sot.js'
 
@@ -334,5 +336,109 @@ describe('reflect() reports the bindings a LOWERING injects, not just the declar
       funcs: [fn('fs', {}, () => vec4(U.field.k, 0.0, 0.0, 1.0), { stage: 'fragment' })],
     })
     expect(reflect(plain).bindGroups.flatMap((g) => g.entries.map((e) => e.name))).toEqual(['p'])
+  })
+})
+
+// ═══ P1-23 of #155 — every handle kind the IR can hold, reflected ═══
+//
+// `reflect()` is what a host reads to build a bind group layout, and it is pinned at CORE level
+// for three texture shapes only (2d, 2d-array, 2d-ms, each f32, plus one sampler). Every other
+// handle — 1d, 3d, cube, cube array, the integer elements, the five depth dims, the storage
+// textures at three access modes, the comparison sampler — is pinned only through a compiler
+// suite, where the front end sits in between. So a `reflect()` change the front end happens to
+// mask (a dropped field, a renamed access spelling) passes everything.
+//
+// This is the table, built from the IR type directly. `group`, `binding`, `name`, `space`,
+// `owner` and `stages` are dropped from the comparison: they come from the binding, not from
+// its TYPE, and the arms above already pin them.
+describe('reflect — every handle kind the IR can hold', () => {
+  const entryFor = (type: ShaderType): Record<string, unknown> => {
+    const m = {
+      consts: [],
+      structs: [],
+      bindings: [{ group: 0, binding: 0, name: 'h', space: 'uniform', type }],
+      funcs: [],
+    } as unknown as ModuleDecl
+    const entry = reflect(m).bindGroups[0]?.entries[0] as unknown as Record<string, unknown>
+    const { group, binding, name, space, owner, stages, ...rest } = entry
+    void group
+    void binding
+    void name
+    void space
+    void owner
+    void stages
+    return rest
+  }
+
+  const sampled = (dim: string, elem: string): ShaderType =>
+    ({ kind: 'texture', dim, elem }) as unknown as ShaderType
+  const depth = (dim: string): ShaderType =>
+    ({ kind: 'depth-texture', dim }) as unknown as ShaderType
+  const storage = (dim: string, format: string, access: string): ShaderType =>
+    ({ kind: 'storage-texture', dim, format, access }) as unknown as ShaderType
+
+  const DIMS = ['1d', '2d', '2d-array', '3d', 'cube', 'cube-array', '2d-ms'] as const
+  const ELEMS = ['f32', 'i32', 'u32'] as const
+
+  it('carries the dim and the element of every sampled texture, for every pair', () => {
+    const wrong: string[] = []
+    for (const elem of ELEMS) {
+      for (const dim of DIMS) {
+        const got = entryFor(sampled(dim, elem))
+        const want = { resourceKind: 'texture', textureDim: dim, textureElem: elem }
+        if (JSON.stringify(got) !== JSON.stringify(want)) {
+          wrong.push(`${dim}<${elem}>: ${JSON.stringify(got)}`)
+        }
+      }
+    }
+    expect(wrong).toEqual([])
+    // The floor: 21 pairs, so a `DIMS` or `ELEMS` that shrank to nothing cannot green the arm.
+    expect(DIMS.length * ELEMS.length).toBe(21)
+  })
+
+  it('marks a depth texture by textureDepth and gives it NO element, on every dim', () => {
+    // Deliberate, and the shape a host needs: WebGPU's `sampleType` for a depth binding is
+    // 'depth', not a float/uint/sint the element would name.
+    for (const dim of ['2d', '2d-array', 'cube', 'cube-array', '2d-ms'] as const) {
+      expect(entryFor(depth(dim)), dim).toEqual({
+        resourceKind: 'texture',
+        textureDim: dim,
+        textureDepth: true,
+      })
+    }
+  })
+
+  it('spells the storage access the way WebGPU does, at every access mode and dim', () => {
+    // `read-only` appears in no other suite; the compiler tests reach write-only and
+    // read-write only. The three spellings are the `GPUStorageTextureAccess` values a host
+    // passes straight through to `createBindGroupLayout`.
+    for (const dim of ['1d', '2d', '2d-array', '3d'] as const) {
+      expect(entryFor(storage(dim, 'rgba8unorm', 'write')), dim).toEqual({
+        resourceKind: 'storage-texture',
+        textureDim: dim,
+        storageFormat: 'rgba8unorm',
+        storageAccess: 'write-only',
+      })
+      expect(entryFor(storage(dim, 'rgba8unorm', 'read')), dim).toEqual({
+        resourceKind: 'storage-texture',
+        textureDim: dim,
+        storageFormat: 'rgba8unorm',
+        storageAccess: 'read-only',
+      })
+      expect(entryFor(storage(dim, 'r32float', 'read_write')), dim).toEqual({
+        resourceKind: 'storage-texture',
+        textureDim: dim,
+        storageFormat: 'r32float',
+        storageAccess: 'read-write',
+      })
+    }
+  })
+
+  it('tells a comparison sampler from a filtering one, which is a different bind-group type', () => {
+    expect(entryFor(samplerT)).toEqual({ resourceKind: 'sampler' })
+    expect(entryFor(samplerComparisonT)).toEqual({
+      resourceKind: 'sampler',
+      samplerComparison: true,
+    })
   })
 })

@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { fn, module, f32, vec4, u32T, f32T, vec4fT, vec2fT } from './ir/index.js'
 import type { FuncDecl, ShaderType, Stmt } from './ir/index.js'
 import { compileModule, ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './oracle.js'
-import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, INTRINSICS } from './intrinsics.js'
+import {
+  ATOMIC_INTRINSICS,
+  BARRIER_INTRINSICS,
+  INTRINSICS,
+  PORTABLE_INTRINSICS,
+} from './intrinsics.js'
 import { pow, fract, round, unpack4x8unorm, pack4x8unorm, bitcastU32 } from './ir/index.js'
 
 // ═══ X-GIS #763 Phase O — the CPU oracle is a backend too ═══
@@ -212,5 +217,140 @@ describe('X-GIS #763 O — oracle backend parity', () => {
     }
     const m = compileModule(module({ funcs: [decl] }))
     expect(m.fns['o6']!(-8)).toBe(-4) // fail-before: logical shift → 2147483644
+  })
+})
+
+// ═══ O3b and O5b — every stub, by value, and every portable id, by twin (P1-25, P1-26) ═══
+//
+// O3 above pins the stub contract for six ids by hand. The contract is a PROMISE about all 46:
+// evaluating one without `{ gpuStubs: true }` throws, and with it yields a documented
+// placeholder that keeps the rest of the shader finite. Neither half was checked for the other
+// forty, and O5 cannot catch a break: it compares NAMES, so a stub whose key is misspelled or
+// whose body starts returning `undefined` passes it while every shader that calls it silently
+// computes `NaN`.
+//
+// The table below is the placeholder VALUES, written out, with the rule each one follows —
+// a texel has no identity so it is opaque black; a factor does, so a comparison is 1; a count
+// or a size is 1 so a divide by it stays finite. A new stub has to join the table, which is
+// where its author states which rule it follows.
+describe('O3b/O5b — the GPU stub contract, for every stub', () => {
+  /** A texel: the oracle has no texture memory, and opaque black is not a colour a shader
+   *  would mistake for a measurement. */
+  const BLACK = [0, 0, 0, 1]
+  /** How much of the filter footprint passed. 1 is the identity for the multiply it feeds, so
+   *  the absence of a shadow map leaves the rest of the shader alone. */
+  const PASSED = 1
+  /** Four of the above, one per gathered texel. */
+  const PASSED4 = [1, 1, 1, 1]
+
+  const EXPECTED: Readonly<Record<string, unknown>> = {
+    // Reads: a texel.
+    textureSample: BLACK,
+    textureSampleLevel: BLACK,
+    textureLoad: BLACK,
+    textureSampleArray: BLACK,
+    textureSampleLevelArray: BLACK,
+    textureLoadArray: BLACK,
+    textureSampleBias: BLACK,
+    textureSampleBiasArray: BLACK,
+    textureSampleGrad: BLACK,
+    textureSampleGradArray: BLACK,
+    textureSampleCubeArray: BLACK,
+    textureSampleLevelCubeArray: BLACK,
+    textureSampleBiasCubeArray: BLACK,
+    textureSampleGradCubeArray: BLACK,
+    textureGather: BLACK,
+    textureGatherArray: BLACK,
+    textureLoadMs: BLACK,
+    // Depth reads and comparisons: a pass factor, or the far plane, which is the same number
+    // for the same reason — nothing occludes.
+    textureGatherDepth: PASSED4,
+    textureGatherDepthArray: PASSED4,
+    textureGatherCompare: PASSED4,
+    textureGatherCompareArray: PASSED4,
+    textureSampleCompare: PASSED,
+    textureSampleCompareArray: PASSED,
+    textureSampleCompareLevel: PASSED,
+    textureSampleCompareLevelArray: PASSED,
+    textureSampleCompareCube: PASSED,
+    textureSampleCompareLevelCube: PASSED,
+    textureSampleCompareCubeArray: PASSED,
+    textureSampleCompareLevelCubeArray: PASSED,
+    textureLoadDepthMs: PASSED,
+    // Queries: a finite 1, so a divide or a modulo by the answer stays finite.
+    textureDimensions: [1, 1],
+    textureDimensions3d: [1, 1, 1],
+    textureDimensions1d: 1,
+    textureDimensionsMs: [1, 1],
+    textureNumSamples: 1,
+    textureNumLayers: 1,
+    // A write goes nowhere; `textureStore` is `void`, so nothing reads the value.
+    textureStore: 0,
+    // The derivatives keep the ARGUMENT's shape: `dpdx(v)` on a vec2 is a vec2 of zeros, not
+    // the scalar 0, or `dpdx(v).x` is `undefined` and `length(fwidth(v))` throws.
+    fwidth: [0, 0],
+    fwidthCoarse: [0, 0],
+    fwidthFine: [0, 0],
+    dpdx: [0, 0],
+    dpdxCoarse: [0, 0],
+    dpdxFine: [0, 0],
+    dpdy: [0, 0],
+    dpdyCoarse: [0, 0],
+    dpdyFine: [0, 0],
+  }
+
+  /** `fn probe(x: vec2) -> f32 { return <id>(x) }`. One vec2 argument serves every stub: the
+   *  texture ones ignore their arguments, and the derivatives need exactly one whose shape
+   *  they mirror — which is what makes the vec2 rows above a real assertion. */
+  const probeDecl = (id: string): FuncDecl =>
+    ({
+      name: 'probe',
+      params: [{ name: 'x', type: vec2fT }],
+      ret: f32T,
+      body: [
+        {
+          s: 'return',
+          expr: {
+            op: 'call',
+            fn: id,
+            type: f32T,
+            args: [{ op: 'param', type: vec2fT, name: 'x' }],
+          },
+        },
+      ],
+    }) as unknown as FuncDecl
+
+  it('O3b: every GPU stub is in the value table, and the table names no stub that is gone', () => {
+    expect(Object.keys(EXPECTED).sort()).toEqual([...ORACLE_GPU_STUB_NAMES].sort())
+  })
+
+  it('O3b: every GPU stub THROWS in strict mode — a plausible-wrong value is the worst failure', () => {
+    for (const id of ORACLE_GPU_STUB_NAMES) {
+      const strict = compileModule(module({ funcs: [probeDecl(id)] }))
+      expect(() => strict.fns['probe']!([1, 2]), id).toThrow(/GPU-only/)
+    }
+  })
+
+  it('O3b: every GPU stub returns its documented placeholder under gpuStubs', () => {
+    for (const [id, value] of Object.entries(EXPECTED)) {
+      const loose = compileModule(module({ funcs: [probeDecl(id)] }), { gpuStubs: true })
+      expect(loose.fns['probe']!([1, 2]), id).toEqual(value)
+    }
+  })
+
+  it('O5b: every PORTABLE id has a CPU twin too, not only the divergent ones', () => {
+    // O5 iterates `INTRINSICS` — the DIVERGENT map — so a portable id with no CPU body throws
+    // `unknown fn` at the first `compile().eval`. The two sets can cross: `fwidth` is portable
+    // AND a stub, which is the proof that "portable" says nothing about the oracle.
+    const EXPR_COVERED = new Set([
+      'select',
+      ...Object.keys(ATOMIC_INTRINSICS),
+      ...BARRIER_INTRINSICS,
+    ])
+    const missing = [...PORTABLE_INTRINSICS].filter(
+      (id) =>
+        !ORACLE_BUILTIN_NAMES.has(id) && !ORACLE_GPU_STUB_NAMES.has(id) && !EXPR_COVERED.has(id),
+    )
+    expect(missing).toEqual([])
   })
 })

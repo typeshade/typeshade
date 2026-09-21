@@ -1662,3 +1662,78 @@ describe('glsl-es300 — GlslEmitOptions.floatPrecision (X-GIS #1673)', () => {
     expect(header(med, MEDIUMP_ARR)).toBe(MEDIUMP_ARR)
   })
 })
+
+// ═══ P1-21 of #155 — one precision line per sampler type GLSL ES 3.00 does not predeclare ═══
+//
+// GLSL ES 3.00 predeclares a default precision for `sampler2D` and `samplerCube` only
+// (`glsl-es-300.txt:2193-2201`); every other sampler type a fragment shader declares needs a
+// `precision highp <type>;` line or the driver refuses the program. The emitter derives the
+// list from the module's bindings and filters those two out.
+//
+// Nine of the thirteen were pinned, one at a time, by whichever suite happened to declare that
+// texture; `isampler3D` and `isampler2DArray` had none, and the ABSENCE for the two
+// predeclared types was asserted nowhere — so "emit a line for every sampler" and "emit one
+// for none" would both have passed. This arm is the whole table, and it derives each spelling
+// from the emit rather than restating it, so a new dim or element kind joins by itself.
+describe('every spellable sampler type gets exactly the precision line GLSL ES 3.00 lacks', () => {
+  /** GLSL ES 3.00 predeclares a default precision for exactly these two, so a line for either
+   *  is a redeclaration the emitter must not write. */
+  const PREDECLARED = new Set(['sampler2D', 'samplerCube'])
+
+  const bindingOnly = (type: ShaderType, count = 1): ModuleDecl =>
+    ({
+      consts: [],
+      structs: [],
+      bindings: Array.from({ length: count }, (_unused, i) => ({
+        group: 0,
+        binding: i,
+        name: `probe_tex${String(i)}`,
+        space: 'uniform',
+        type,
+      })),
+      funcs: [],
+    }) as unknown as ModuleDecl
+
+  const SAMPLER_TYPES: readonly ShaderType[] = [
+    ...(['f32', 'i32', 'u32'] as const).flatMap((elem) =>
+      (['2d', '2d-array', '3d', 'cube'] as const).map(
+        (dim) => ({ kind: 'texture', dim, elem }) as unknown as ShaderType,
+      ),
+    ),
+    ...(['2d', '2d-array', 'cube'] as const).map(
+      (dim) => ({ kind: 'depth-texture', dim }) as unknown as ShaderType,
+    ),
+  ]
+
+  it('declares fifteen distinct sampler spellings, of which thirteen need a line', () => {
+    // The floor: if `SAMPLER_TYPES` or the spelling reader came back empty the arms below
+    // would pass over nothing.
+    const spellings = SAMPLER_TYPES.map(
+      (t) => /uniform (\w+) probe_tex0;/.exec(emitGlslModule(bindingOnly(t), 'fragment'))?.[1],
+    )
+    expect(spellings.filter((s) => s !== undefined)).toHaveLength(15)
+    expect(new Set(spellings).size).toBe(15)
+    expect(spellings.filter((s) => s !== undefined && !PREDECLARED.has(s))).toHaveLength(13)
+  })
+
+  it('emits the line exactly once for a type GLSL ES 3.00 does not predeclare, and never for one it does', () => {
+    const wrong: string[] = []
+    for (const type of SAMPLER_TYPES) {
+      const text = emitGlslModule(bindingOnly(type), 'fragment')
+      const spelling = /uniform (\w+) probe_tex0;/.exec(text)?.[1] ?? '<not declared>'
+      const lines = [...text.matchAll(/precision highp (\w+);/g)].map((m) => m[1])
+      const seen = lines.filter((l) => l === spelling).length
+      const want = PREDECLARED.has(spelling) ? 0 : 1
+      if (seen !== want) wrong.push(`${spelling}: ${String(seen)} lines, expected ${String(want)}`)
+    }
+    expect(wrong).toEqual([])
+  })
+
+  it('emits one line for two bindings of the same sampler type, not two', () => {
+    const text = emitGlslModule(
+      bindingOnly({ kind: 'texture', dim: '2d', elem: 'u32' } as unknown as ShaderType, 2),
+      'fragment',
+    )
+    expect([...text.matchAll(/precision highp usampler2D;/g)]).toHaveLength(1)
+  })
+})
