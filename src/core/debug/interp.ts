@@ -59,6 +59,7 @@ import {
   matVecShaped,
   matTransposeShaped,
   matColumn,
+  setMatColumn,
   matMulShaped,
   vecMatShaped,
   f32ToU32Sat,
@@ -562,6 +563,11 @@ function* setLValue(
   if (target.op === 'index') {
     const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[]
     const idx = (yield* evalExpr(target.idx, env, ctx)) as number
+    // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
+    if (target.base.type.kind === 'mat') {
+      setMatColumn(base as number[], idx, target.base.type.rows, value as number[])
+      return
+    }
     base[idx] = value
     return
   }

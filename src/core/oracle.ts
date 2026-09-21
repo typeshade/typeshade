@@ -65,6 +65,7 @@ import {
   bitBuiltin,
   matTransposeShaped,
   matColumn,
+  setMatColumn,
   matVecShaped,
   vecMatShaped,
   matMulShaped,
@@ -451,7 +452,13 @@ function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ct
   }
   if (target.op === 'index') {
     const base = evalExpr(target.base, env, ctx) as CpuValue[]
-    base[evalExpr(target.idx, env, ctx) as number] = value
+    const i = evalExpr(target.idx, env, ctx) as number
+    // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
+    if (target.base.type.kind === 'mat') {
+      setMatColumn(base as number[], i, target.base.type.rows, value as number[])
+      return
+    }
+    base[i] = value
     return
   }
   throw new Error(`typeshade/cpu: bad assignment target ${target.op}`)

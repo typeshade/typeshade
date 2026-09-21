@@ -425,6 +425,20 @@ function lowerBinary(
       )
       return undefined
     }
+    // WGSL gives a matrix `+`, `-` and `*` and no `/` or `%` (and GLSL ES 3.00 agrees). Two
+    // matrices of one shape pass the key check above without ever reaching `binResultType`,
+    // so `m / n` was accepted here and emitted `(a / b)`, which both compilers refuse.
+    if (left.type.kind === 'mat' && (arith === '/' || arith === '%')) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Cannot ${arith} ${typeKey(left.type)}: a matrix has + - and * on both targets and no ` +
+          `${arith}. Divide the columns, or multiply by the inverse you computed.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
     // `%` is the one arithmetic operator the emulation has no body for: there is no
     // df64 remainder, and `binResultType` refuses the pair in the fn() EDSL for the same
     // reason. Same-typed operands pass the key check above, so without this the program

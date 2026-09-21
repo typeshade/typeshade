@@ -236,14 +236,34 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
   //   v * m         vecR * matCxR -> vecC        (the vector is a row)
   //   m * n         matKxR * matCxK -> matCxR    (the shared dimension cancels)
   if (isMat(a) && isMat(b)) {
+    // The PRODUCT rule is `*`'s alone. WGSL gives `+` and `-` on two matrices the
+    // component-wise meaning, which needs identical shapes, and gives a matrix no `/` or `%`
+    // at all. Applying the product's dimension rule to every operator made `m + n` between
+    // incompatible shapes build a third shape and refused two matrices that do add (#149
+    // review).
+    if (ctx === '+' || ctx === '-') {
+      if (!typeEq(a, b)) throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`)
+      return a
+    }
+    if (ctx !== '*') throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
+    // Both matrices must share an element kind: without this an f32 matrix times a mat64
+    // emitted `(a * b)` between a `mat4x4<f32>` and a `DF64Mat4`, which Tint refuses.
+    if (a.elem !== b.elem) throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
     if (a.cols !== b.rows) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`)
     return { kind: 'mat', cols: b.cols, rows: a.rows, elem: a.elem }
   }
+  // A matrix product's vector side must be f32 too: `vec3<i32> * mat3x3<f32>` emitted
+  // `(v * m)` and Tint refuses it. The TS front end checks this in `matVecMul`; the EDSL
+  // did not, so the two surfaces disagreed.
   if (isMat(a) && isVec(b)) {
+    if (ctx !== '*') throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
+    if (a.elem !== b.elem) throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
     if (a.cols !== b.n) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`)
     return { kind: 'vec', n: a.rows, elem: b.elem }
   }
   if (isVec(a) && isMat(b)) {
+    if (ctx !== '*') throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
+    if (a.elem !== b.elem) throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
     if (b.rows !== a.n) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`)
     return { kind: 'vec', n: b.cols, elem: a.elem }
   }

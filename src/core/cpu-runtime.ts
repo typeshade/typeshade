@@ -1007,6 +1007,14 @@ export function matColumn(m: number[], j: number, rows: number): number[] {
   return m.slice(j * rows, j * rows + rows)
 }
 
+/** Write column `j` of a column-major matrix in place — the twin of {@link matColumn}. A
+ *  matrix is one FLAT component list at run time, so a plain `base[j] = v` splices the column
+ *  ARRAY into the list and leaves a nested value where `rows` numbers belong; every evaluator
+ *  did that, and the GPU (which writes the column properly) disagreed with all three. */
+export function setMatColumn(m: number[], j: number, rows: number, v: readonly number[]): void {
+  for (let r = 0; r < rows; r++) m[j * rows + r] = v[r]!
+}
+
 /** Transpose of a column-major matrix of `cols` columns and `rows` rows: the result has
  *  `rows` columns of `cols` components, and element (r, c) of the input becomes (c, r) of the
  *  output. `matTranspose` below keeps the square-only entry point the BUILTINS table uses. */

@@ -105,8 +105,16 @@ function typeLayout(
       // — derive the layout from THAT struct through the same engine (single
       // authority), so authored and lowered reflections agree byte-for-byte.
       if (t.elem === 'f64') {
-        // The emulation is square-only, so cols === rows here; `mat.elem === 'f64'` with
-        // cols !== rows is refused at the front end and never reaches a layout.
+        // The emulation is square-only. The front end refuses a non-square `matCxR<f64>` and
+        // `binResultType` refuses one built another way, but `matT(c, r, 'f64')` is public, so
+        // a hand-built one reaches here — and taking `cols` alone would report a mat2x3<f64>
+        // with a mat2x2<f64>'s size. Fail loud instead of answering a plausible wrong number.
+        if (t.cols !== t.rows) {
+          throw new Error(
+            `wgslLayout: ${typeKey(t)} has no layout — the emulated-double matrices are square ` +
+              `(the fp64 pass has one df64 body per dimension, not per shape)`,
+          )
+        }
         const n = t.cols
         const vecT: ShaderType = { kind: 'vec', n, elem: 'f32' }
         const colStruct: StructDecl = {

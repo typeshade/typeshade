@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { compileModule } from '../../core/oracle.js'
+import { compileModuleJs } from '../../core/cpu-codegen.js'
 import { emitModule, emitGlslModule } from '../../index.js'
 
 const errorsOf = (src: string): string[] =>
@@ -86,6 +87,38 @@ export function row(a: ${m}, v: vec${rows}): vec${cols} { return v * a }
   })
 })
 
+// The JS-codegen CPU backend is a DIFFERENTIAL of the interpreter — `cpu-codegen.ts` states
+// that `compileModuleJs(m).fns.f(args)` and `compileModule(m).fns.f(args)` agree element for
+// element. Nothing compared them on a matrix, so `transpose` stayed square-only on the codegen
+// path after the interpreter learned the shape, and every non-square example was silently
+// wrong there. This is the gate that closes.
+describe('the two CPU backends agree on every shape', () => {
+  it.each(ALL)('mat%ix%i: interpreter and codegen give the same numbers', (cols, rows) => {
+    const m = nameOf(cols, rows)
+    const r = compile(`"use typeshade"
+export function t(a: ${m}): ${nameOf(rows, cols)} { return transpose(a) }
+export function apply(a: ${m}, v: vec${cols}): vec${rows} { return a * v }
+export function row(a: ${m}, v: vec${rows}): vec${cols} { return v * a }
+export function col(a: ${m}): vec${rows} { return a[0] }
+export function write(a: ${m}, v: vec${rows}): ${m} { let w = a; w[0] = v; return w }
+`)
+    expect(
+      r.diagnostics.filter((d) => d.category === 'error'),
+      m,
+    ).toEqual([])
+    const interp = compileModule(r.module)
+    const gen = compileModuleJs(r.module)
+    const mat = Array.from({ length: cols * rows }, (_, i) => i + 1)
+    const vc = Array.from({ length: cols }, (_, i) => i + 1)
+    const vr = Array.from({ length: rows }, (_, i) => i + 1)
+    expect(gen.fns.t!(mat), `${m} transpose`).toEqual(interp.fns.t!(mat))
+    expect(gen.fns.apply!(mat, vc), `${m} * v`).toEqual(interp.fns.apply!(mat, vc))
+    expect(gen.fns.row!(mat, vr), `v * ${m}`).toEqual(interp.fns.row!(mat, vr))
+    expect(gen.fns.col!(mat), `${m}[0]`).toEqual(interp.fns.col!(mat))
+    expect(gen.fns.write!(mat, vr), `${m}[0] = v`).toEqual(interp.fns.write!(mat, vr))
+  })
+})
+
 describe('the products', () => {
   it('m * s, s * m and v * m type per the spec table', () => {
     // wgsl.txt:9960-9995. Each line is a shape the table gives and the surface refused.
@@ -123,6 +156,61 @@ export function mul(a: mat3x2, b: mat2x3): mat2x2 { return a * b }
     // a = [[1,2],[3,4],[5,6]], b = [[1,0,0],[0,1,0]] selects a's first two columns.
     const out = compileModule(r.module).fns.mul!([1, 2, 3, 4, 5, 6], [1, 0, 0, 0, 1, 0]) as number[]
     expect(out).toEqual([1, 2, 3, 4])
+  })
+})
+
+describe('the operators a matrix does and does not have', () => {
+  it('adds and subtracts two matrices of the SAME shape, and nothing else', () => {
+    expect(
+      errorsOf(`"use typeshade"
+export function a(x: mat2x3, y: mat2x3): mat2x3 { return x + y }
+export function b(x: mat3, y: mat3): mat3 { return x - y }
+`),
+    ).toEqual([])
+    // Different shapes do not add, in either order.
+    expect(
+      errorsOf(
+        `"use typeshade"\nexport function f(x: mat3x2, y: mat2x3): mat2x2 { return x + y }\n`,
+      ),
+    ).not.toEqual([])
+  })
+
+  it('refuses matrix division, which neither target has', () => {
+    // WGSL gives a matrix no `/` and no `%`; emitting `(a / b)` is a compile error on both.
+    for (const op of ['/', '%']) {
+      expect(
+        errorsOf(
+          `"use typeshade"\nexport function f(x: mat3, y: mat3): mat3 { return x ${op} y }\n`,
+        ),
+        op,
+      ).not.toEqual([])
+    }
+  })
+
+  it('refuses a scalar of the wrong element kind beside an emulated-double matrix', () => {
+    // The fp64 pass has a body for matmul, matvec and transpose only, so a scaled mat64 has
+    // no lowering; it used to emit `(s * m)` on a DF64Mat3, which Tint refuses.
+    for (const body of [
+      'export function f(m: mat3<f64>, s: f64): mat3<f64> { return m * s }',
+      'export function f(m: mat3<f64>, s: f64): mat3<f64> { return s * m }',
+    ]) {
+      const errors = errorsOf(`"use typeshade"\n${body}\n`)
+      expect(errors, body).toHaveLength(1)
+      // At the operator, with both types named — not a span-less SD0041 from the backend.
+      expect(errors[0], body).toContain('mat3x3<f64>')
+      expect(errors[0], body).not.toContain('Backend emit failed')
+    }
+  })
+
+  it('does not let a matrix constructor shadow a function the file declares', () => {
+    // "An addition may not change what a program means" — the rule the vector constructors
+    // already follow (#8 A6).
+    const r = compile(`"use typeshade"
+function mat3(x: f32): f32 { return x * 2. }
+export function f(x: f32): f32 { return mat3(x) }
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(compileModule(r.module).fns.f!(3)).toBe(6)
   })
 })
 

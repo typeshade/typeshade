@@ -33,6 +33,6 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let tall = transpose(wide);
   let row = (vo.normal * wide);
   let col = (tall * vo.normal);
-  let rgb = ((scaled * u.tint) * vec3<f32>(row.x, col.y, abs((row.y - col.x))));
+  let rgb = ((scaled * u.tint) * vec3<f32>(row.x, col.y, abs((row.y - col.y))));
   return vec4<f32>(rgb, 1.0);
 }

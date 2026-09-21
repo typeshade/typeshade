@@ -156,10 +156,15 @@ export function matVecMul(left: Expr, right: Expr): Expr | undefined {
     return mul(rt)
   }
   // Component-wise scaling by a scalar of the matrix's own element kind, either side.
-  if (lt.kind === 'mat' && rt.kind === 'scalar' && rt.scalar === lt.elem) return mul(lt)
-  if (lt.kind === 'scalar' && rt.kind === 'mat' && lt.scalar === rt.elem) return mul(rt)
-  if (lt.kind === 'mat' && lt.elem === 'f64' && rt.kind === 'f64') return mul(lt)
-  if (lt.kind === 'f64' && rt.kind === 'mat' && rt.elem === 'f64') return mul(rt)
+  // Component-wise scaling by a scalar of the matrix's own element kind, either side. NOT
+  // offered for the emulated-double matrices: `binResultType` refuses a scalar beside a
+  // mat64 and the fp64 pass has a body only for matmul, matvec and transpose, so admitting
+  // `s * m64` here emitted `(s * m)` on a DF64Mat3, which Tint answers with "no matching
+  // overload for operator * (vec2<f32>, DF64Mat3)" (#149 review).
+  if (lt.kind === 'mat' && lt.elem === 'f32' && rt.kind === 'scalar' && rt.scalar === 'f32')
+    return mul(lt)
+  if (lt.kind === 'scalar' && lt.scalar === 'f32' && rt.kind === 'mat' && rt.elem === 'f32')
+    return mul(rt)
   return undefined
 }
 

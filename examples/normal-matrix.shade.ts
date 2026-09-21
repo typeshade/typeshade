@@ -69,9 +69,12 @@ export function fs(vo: VsOut): vec4 {
   const tall: mat3x2 = transpose(wide)
   // `v * m` is the row-vector product: a vec3 against a mat2x3 gives a vec2.
   const row: vec2 = vo.normal * wide
-  // And the column form on the transpose gives the same two numbers, which is the identity
-  // `v * M == transpose(M) * v` — the readback test checks exactly that.
+  // And the column form on the transpose gives the same two numbers, COMPONENT FOR COMPONENT:
+  // `v * M == transpose(M) * v`. So `row.y - col.y` is the residual of that identity and is 0
+  // for every input; `row.y - col.x` would compare two different components and only happens
+  // to vanish when the vector makes them equal. `examples/normal-matrix.test.ts` evaluates
+  // this function on the CPU oracle and pins the residual at exactly 0.
   const col: vec2 = tall * vo.normal
-  const rgb: vec3 = scaled * u.tint * vec3(row.x, col.y, abs(row.y - col.x))
+  const rgb: vec3 = scaled * u.tint * vec3(row.x, col.y, abs(row.y - col.y))
   return vec4(rgb, 1.)
 }

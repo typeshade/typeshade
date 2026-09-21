@@ -110,6 +110,35 @@ describe('X-GIS #763 O — oracle backend parity', () => {
     expect(t.fns['o2nsT']!(m, [0, 0, 1])).toEqual([5, 6])
   })
 
+  // The row #149 names for this suite. `determinant` is the one matrix builtin whose value
+  // the oracle computes rather than reshuffles, so a wrong cofactor expansion would be a
+  // plausible number rather than a crash — which is exactly what a parity gate is for.
+  it('O2: determinant of a 2 and a 3 agree with the hand computation', () => {
+    const det = (t: ShaderType, name: string): FuncDecl => ({
+      name,
+      params: [{ name: 'm', type: t }],
+      ret: f32T,
+      body: [
+        {
+          s: 'return',
+          expr: {
+            op: 'call',
+            type: f32T,
+            fn: 'determinant',
+            args: [{ op: 'param', type: t, name: 'm' } as unknown as never],
+          } as unknown as never,
+        },
+      ],
+    })
+    const m = compileModule(module({ funcs: [det(matT(2, 2), 'd2'), det(matT(3, 3), 'd3')] }))
+    // Column-major [[a,b],[c,d]] is the matrix (a c / b d), determinant ad - cb.
+    expect(m.fns['d2']!([1, 2, 3, 4])).toBe(1 * 4 - 3 * 2)
+    // A singular 3x3 (third column is the sum of the first two) must be exactly 0.
+    expect(m.fns['d3']!([1, 2, 3, 4, 5, 6, 5, 7, 9])).toBe(0)
+    // And a scaling matrix is the product of its diagonal.
+    expect(m.fns['d3']!([2, 0, 0, 0, 3, 0, 0, 0, 4])).toBe(24)
+  })
+
   it('O3: GPU-only stubs throw by default, return placeholders only under opt-in', () => {
     const tex = { op: 'param', type: { kind: 'texture', dim: '2d' }, name: 't' }
     const smp = { op: 'param', type: { kind: 'sampler' }, name: 's' }

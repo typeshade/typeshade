@@ -116,11 +116,13 @@ const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
     const t = `mat${cols}x${rows}`
     const columns = Array.from({ length: cols }, (_, i) => `c${i}: vec${rows}`).join(', ')
     const comps = Array.from({ length: cols * rows }, (_, i) => `e${i}: number`).join(', ')
+    // Every source at least this size, the EQUAL one included: `lowerMatrixCtor` refuses only
+    // `src.cols < cols || src.rows < rows`, so `mat3(m3)` is a legal identity construction and
+    // the editor has to agree (it reported "No overload matches this call" on a program the
+    // compiler accepts).
     const bigger = MAT_ARITIES.flatMap((c2) =>
       MAT_ARITIES.flatMap((r2) =>
-        (c2 > cols && r2 >= rows) || (c2 >= cols && r2 > rows)
-          ? [`declare function NAME(m: mat${c2}x${r2}): ${t}`]
-          : [],
+        c2 >= cols && r2 >= rows ? [`declare function NAME(m: mat${c2}x${r2}): ${t}`] : [],
       ),
     )
     const forms = [
@@ -648,7 +650,14 @@ declare const matTag: unique symbol
  * \`m[1]\` and refuse \`m[7]\`. */
 type Mat<E extends string, C extends 2 | 3 | 4, R extends 2 | 3 | 4> = {
   readonly [matTag]: readonly [E, C, R]
-} & Pick<{ 0: VecOf<'f32', R>; 1: VecOf<'f32', R>; 2: VecOf<'f32', R>; 3: VecOf<'f32', R> }, LaneKeys<C>>
+} & Pick<
+  { 0: MatColumn<E, R>; 1: MatColumn<E, R>; 2: MatColumn<E, R>; 3: MatColumn<E, R> },
+  LaneKeys<C>
+>
+/** A column of a matrix: a \`vecR\` of its element. An emulated-double matrix has no column
+ * type an author can hold — the compiler refuses indexing one — so it resolves to \`never\`
+ * rather than quietly reading as a vector of f32. */
+type MatColumn<E extends string, R extends 2 | 3 | 4> = E extends 'f32' ? VecOf<'f32', R> : never
 ${matTypeAliases}
 
 declare const arrayTag: unique symbol

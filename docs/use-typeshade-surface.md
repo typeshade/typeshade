@@ -3102,7 +3102,9 @@ It is refused rather than silently padded because padding would make the WGSL a 
 disagree with the offsets `reflect()` reports for it, and keeping those two the same is the
 whole job of the layout layer. Every other shape agrees byte for byte and needs no ceremony —
 a `mat3` rides a uniform block as it is. Outside a uniform block, in a storage buffer, there is
-no such rule: std430 does not round columns, so all nine shapes are laid out identically.
+no such rule and all nine shapes are admitted: std430 does not round a column up to a `vec4`,
+so the two targets agree on every shape. (A three-row column is still padded from 12 bytes to
+16 in both layouts, because that is `vec3`'s own alignment rather than std140's rounding.)
 
 **Emulated doubles stay square.** `mat2<f64>`, `mat3<f64>` and `mat4<f64>` carry `*` and
 `transpose`; a non-square one is refused, because the fp64 pass has one `df64` body per

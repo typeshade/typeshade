@@ -17,6 +17,6 @@ void main() {
   mat3x2 tall = transpose(wide);
   vec2 row = (normal * wide);
   vec2 col = (tall * normal);
-  vec3 rgb = ((scaled * u.tint) * vec3(row.x, col.y, abs((row.y - col.x))));
+  vec3 rgb = ((scaled * u.tint) * vec3(row.x, col.y, abs((row.y - col.y))));
   _ret = vec4(rgb, 1.0);
 }

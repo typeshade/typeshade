@@ -52,6 +52,8 @@ import {
   matMulShaped,
   vecMatShaped,
   matColumn,
+  matTransposeShaped,
+  setMatColumn,
   BUILTINS,
   GPU_STUBS,
   f32ToU32Sat,
@@ -262,6 +264,15 @@ function emitExpr(e: Expr, S: FnCtx): string {
           return `$.${e.fn === 'u32' ? 'u32Sat' : 'i32Sat'}(${args[0]})`
         }
       }
+      // `transpose` needs the matrix's SHAPE, baked in here from the static type: a flat
+      // column-major list cannot tell a mat2x3 from a mat3x2, and `BUILTINS.transpose`
+      // recovers its dimension from the array length, which is only right for a square one.
+      // The interpreter and the stepper have the same arm — all three must agree, which is
+      // the contract at the head of this file (#149).
+      if (e.declRef === undefined && e.fn === 'transpose') {
+        const t = e.args[0]!.type
+        if (t.kind === 'mat') return `$.matTransposeShaped(${args[0]}, ${t.cols}, ${t.rows})`
+      }
       // A bit builtin whose value depends on the argument's kind (§10) takes the static kind,
       // baked at compile time as the interpreter reads it at run time.
       if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
@@ -458,6 +469,10 @@ function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
     return `(${base})[${q(target.field)}] = ${valueStr}`
   }
   if (target.op === 'index') {
+    // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
+    if (target.base.type.kind === 'mat') {
+      return `$.setMatColumn(${emitExpr(target.base, S)}, ${emitExpr(target.idx, S)}, ${target.base.type.rows}, ${valueStr})`
+    }
     return `(${emitExpr(target.base, S)})[${emitExpr(target.idx, S)}] = ${valueStr}`
   }
   throw new CodegenUnsupported(`assignment target ${target.op}`)
@@ -571,6 +586,8 @@ interface CodegenRuntime {
   matMul: typeof matMul
   matVecShaped: typeof matVecShaped
   matColumn: typeof matColumn
+  matTransposeShaped: typeof matTransposeShaped
+  setMatColumn: typeof setMatColumn
   matMulShaped: typeof matMulShaped
   vecMatShaped: typeof vecMatShaped
   B: typeof BUILTINS
@@ -763,6 +780,8 @@ export function compileModuleJs(
     matMulShaped,
     vecMatShaped,
     matColumn,
+    matTransposeShaped,
+    setMatColumn,
     B: BUILTINS,
     bindings: {},
     vars: {},
