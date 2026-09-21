@@ -46,8 +46,11 @@ const errorsOf = (src: string) =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`)
 
+// The binding is `sink`, not `out`: `out` is a GLSL ES 3.00 keyword, and a render module that
+// declares one is refused by name now (#103), which would be a second diagnostic in the
+// fragment case below and nothing to do with where a barrier may stand.
 const HEAD = `"use typeshade"
-declare let out: storage<array<f32>>
+declare let sink: storage<array<f32>>
 `
 const kernel = (body: string) => `${HEAD}@compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
@@ -62,7 +65,7 @@ describe('barriers: the WGSL', () => {
     expect(r.wgsl).toContain('  workgroupBarrier();')
     expect(r.wgsl).not.toContain('_ = workgroupBarrier')
     const s = compile(
-      kernel('  out[gid.x] = 1.\n  storageBarrier()\n  out[gid.x] = out[gid.x] + 1.'),
+      kernel('  sink[gid.x] = 1.\n  storageBarrier()\n  sink[gid.x] = sink[gid.x] + 1.'),
     )
     expect(s.diagnostics).toEqual([])
     expect(s.wgsl).toContain('  storageBarrier();')
@@ -237,7 +240,7 @@ export function fs(): vec4 {
 
   it('a function the file declares under the name keeps the call', () => {
     const r = compileTsSource(`${HEAD}function workgroupBarrier(): void {
-  out[0] = 1.
+  sink[0] = 1.
 }
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
@@ -254,7 +257,7 @@ describe('a call that returns nothing is not a value', () => {
     // Before this it emitted `let x = store(1u);`, which Tint refuses, with no diagnostic.
     expect(
       errorsOf(`${HEAD}function store(i: u32): void {
-  out[i] = 1.
+  sink[i] = 1.
 }
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {

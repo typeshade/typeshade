@@ -16,89 +16,24 @@
 import type { ModuleDecl, FuncDecl, Expr, Stmt } from '../ir/index.js'
 import { mapChildren, mapStmtExpr } from '../ir/visit.js'
 import { UnsupportedFeatureError } from '../backend.js'
+import { GLSL_ES300_RESERVED } from '../reserved-words.js'
 
+// What ANGLE refuses as an identifier at shader version 300, kept in one place beside WGSL's
+// own set (`GLSL_ES300_RESERVED`, issue #103) rather than as a second list here — this file's
+// own history is a list that drifted from the spec: it had `half` and `fixed` but not `float`
+// or `void`, and none of the image or 1D sampler names §3.6 reserves.
+//
+// Five spellings are renamed here that the language does NOT reserve at 300, because renaming
+// costs nothing and emitting them does: `buffer` and `shared` are ES 3.10 keywords, `packed`
+// is reserved in ES 1.00, and `texture` and `sampler` are a built-in function and a type name
+// a local of that name would shadow for the rest of the scope.
 const GLSL_RESERVED: ReadonlySet<string> = new Set([
-  'input',
-  'output',
-  'in',
-  'out',
-  'inout',
-  'attribute',
-  'varying',
-  'uniform',
+  ...GLSL_ES300_RESERVED,
   'buffer',
   'shared',
-  'coherent',
-  'volatile',
-  'restrict',
-  'readonly',
-  'writeonly',
-  'atomic_uint',
-  'layout',
-  'centroid',
-  'flat',
-  'smooth',
-  'noperspective',
-  'patch',
-  'sample',
-  'subroutine',
-  'precision',
-  'invariant',
-  'precise',
-  'common',
-  'partition',
-  'active',
-  'asm',
-  'class',
-  'union',
-  'enum',
-  'typedef',
-  'template',
-  'this',
   'packed',
-  'resource',
-  'goto',
-  'inline',
-  'noinline',
-  'public',
-  'static',
-  'extern',
-  'external',
-  'interface',
-  'long',
-  'short',
-  'half',
-  'fixed',
-  'unsigned',
-  'superp',
-  'filter',
-  'sizeof',
-  'cast',
-  'namespace',
-  'using',
   'texture',
-  // ── sampler types (GLSL ES 3.00 §3.7) ──
-  // The float 2D/3D/Cube trio was all this list carried, which dates it to the ES 1.00
-  // era. Every spelling below is a KEYWORD in ES 3.00, so a DSL local or param named
-  // `usampler2D` emitted `float usampler2D = …` and died on the driver. The gate in
-  // glsl.test.ts ties this set to what glslType() can actually declare, so a new texture
-  // shape cannot reopen the gap (X-GIS #1703).
   'sampler',
-  'sampler2D',
-  'sampler3D',
-  'samplerCube',
-  'sampler2DShadow',
-  'samplerCubeShadow',
-  'sampler2DArray',
-  'sampler2DArrayShadow',
-  'isampler2D',
-  'isampler3D',
-  'isamplerCube',
-  'isampler2DArray',
-  'usampler2D',
-  'usampler3D',
-  'usamplerCube',
-  'usampler2DArray',
 ])
 
 /** Rename any param/local-var identifier that collides with a GLSL reserved word

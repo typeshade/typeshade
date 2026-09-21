@@ -120,6 +120,24 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **A name a target reserves is refused where it is written** (§62,
+  [#103](https://github.com/typeshade/typeshade/issues/103), `TS8068 RESERVED_NAME`). A struct
+  field named `half` compiled to WGSL Tint accepts and to GLSL ANGLE answers with
+  `'half' : Illegal use of reserved word` — a line number in generated text, for a word the
+  author wrote on a line of their own; the same held for a module constant, an override, a
+  module variable, a binding, a struct's own name and, on the WGSL side, for each of the 146
+  tokens that spec reserves for future use. The check runs on the name the emit CARRIES, so a
+  class's static field is judged as `Cls_member` and a namespace's member as `Ns_member`, and
+  the message names both spellings when they differ while underlining what the author typed. A
+  module with no `@vertex` or `@fragment` entry has no GLSL ES 3.00 form, so it is not held to
+  that language's list: `examples/array-length.shade.ts` now carries the `half` field and Tint
+  takes it on every gate run. What the GLSL writer renames for itself — a local, a parameter, a
+  function name — is not refused, and `glsl-sanitize` now renames from the same list, which
+  covers the words its own had drifted from (`float`, `void`, every image and 1D sampler name
+  §3.6 reserves). Both lists are the target's own: WGSL's 27 keywords and 146 reserved words
+  transcribed from the spec source, GLSL ES 3.00's read off ANGLE's version-gated lexer at
+  shader version 300 — which is why `buffer`, `shared` and `packed` are absent, all three being
+  spellings a WebGL2 driver accepts and a later spec does not.
 - **A `bool` module const that is neither true nor false is refused on its declaration**
   (§12, [#64](https://github.com/typeshade/typeshade/issues/64)). `const K: bool = 2` reached
   the fail-closed bool arm of each writer's `literal` and came back as

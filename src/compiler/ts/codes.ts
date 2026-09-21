@@ -93,6 +93,13 @@ export const TS_CODES = {
    *  used to fall through to the default of 64 with no diagnostic, so the author dispatched
    *  against a size they never asked for. The y/z rule stays `WORKGROUP_SHAPE`. */
   WORKGROUP_ARG: 'TS8037',
+  /** A declared name that a target reserves, checked on the name the emit actually carries
+   *  (#103): `half` as a struct field, which ANGLE answers with "Illegal use of reserved
+   *  word" in generated text the author never wrote, or `as` as a local, which Tint refuses.
+   *  The message names the target that reserves the word, and the emitted name when the
+   *  flattening (`Cls_member`, `Ns_member`) made it differ from the written one. A module
+   *  with no GLSL form is not held to GLSL ES 3.00's list. */
+  RESERVED_NAME: 'TS8068',
   UNSUPPORTED: 'TS8099',
 } as const
 

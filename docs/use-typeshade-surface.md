@@ -2919,6 +2919,69 @@ The list is the input to the divergence report of roadmap item 19: when a GPU re
 oracle disagree, the operations here are where the spec allows it, and everything else is a bug
 in one of the two.
 
+## 62. A name a target reserves
+
+Each of the two shading languages reserves a vocabulary of its own, and a name that lands on
+one used to reach the author as a line number in text they never wrote:
+
+```
+glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
+```
+
+That was a struct field named `half` ([#103](https://github.com/typeshade/typeshade/issues/103)).
+A declared name is now checked against the reserved words of the targets the module is
+**actually emitted for**, and refused where it is written, with `TS8068`:
+
+<!-- doc-snippets: skip — the block IS the refusal: a field named `half` is what TS8068 reports -->
+
+```ts
+"use typeshade"
+
+class Vertex {
+  @builtin("position") pos: vec4
+  @location(0) half: vec2 // TS8068 "half" is reserved in GLSL ES 3.00, so a field of that
+} //                         name cannot be emitted for the WebGL2 target. Rename it.
+```
+
+**The name that is checked is the one the emit carries.** A class's static field is `Cls_K`, a
+namespace's member is `Ns_K`, an inherited field is `Cls_super_Base_member`: the flattening is
+what a backend sees, so that is what the check reads. A class `S` with a static `half` is
+`S_half` and compiles; a class `atomic` with a static `uint` is `atomic_uint`, which GLSL ES
+3.00 reserves, and the message names both spellings — `"uint" is emitted as "atomic_uint",
+which is reserved in GLSL ES 3.00, …` — while underlining the member the author wrote.
+
+**A target the module never reaches does not get a vote.** A module with no `@vertex` or
+`@fragment` entry has no GLSL ES 3.00 form at all, so a compute kernel may name a field `half`;
+WGSL is every module's target and is always checked. `examples/array-length.shade.ts` carries
+exactly that field, so Tint accepts the name on every gate run.
+
+**What the GLSL writer renames for itself is not refused.** A local, a parameter and a function
+name that collides with a GLSL word is rewritten with every reference to it (`let out` becomes
+`out_`), and that has always worked. The module surface it cannot rename is what this check
+covers: a struct and its fields (the std140 offsets and the cross-stage varying contract), a
+module constant, an override's `#define`, a module variable and a binding, whose name is the
+host's reflection key. WGSL renames nothing, so every kind is checked for it, including the two
+rules that are shapes rather than words: a name beginning with `__`, and the bare `_`.
+
+**Both lists are the target's own, measured on the compiler that receives the text.** WGSL's are
+the 27 keywords and 146 reserved words of the spec, transcribed from its source; GLSL ES 3.00's
+are read off ANGLE's version-gated lexer at shader version 300, which is what a WebGL2 context
+gives. Measured in Chromium, through the compile gate's instrument:
+
+| Written | WGSL on Tint | GLSL ES 3.00 on ANGLE |
+| --- | --- | --- |
+| a field or constant named `half` | accepted | `'half' : Illegal use of reserved word` |
+| a local named `as` | `'as' is a reserved keyword` | — |
+| a local named `discard` | `expected identifier for variable declaration` | — |
+| a name named `filter` | `'filter' is a reserved keyword` | `'filter' : Illegal use of reserved word` |
+| a local named `__x` | `identifiers must not start with two or more underscores` | — |
+| a name named `input`, `sample`, `image2D` | accepted | `Illegal use of reserved word` |
+| a name named `buffer`, `shared`, `packed` | accepted | accepted |
+
+The last row is why the list is read from the version-gated lexer rather than from a later
+spec: `buffer` and `shared` become keywords in ES 3.10 and `packed` is reserved in ES 1.00, so
+refusing any of the three at 300 would refuse a program that compiles.
+
 ---
 
 Last updated: 2026-09-21
