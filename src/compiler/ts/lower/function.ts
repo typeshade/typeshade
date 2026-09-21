@@ -1351,20 +1351,54 @@ function parseStage(
     else if (/^@fragment\b/.test(text)) stage = 'fragment'
     else if (/^@compute\b/.test(text)) {
       stage = 'compute'
-      const m = text.match(/@compute\(\s*\[\s*(\d+)\s*(?:,\s*(\d+))?\s*(?:,\s*(\d+))?\s*\]/)
-      workgroupSize = m ? Number(m[1]) : 64
-      const y = m?.[2] !== undefined ? Number(m[2]) : undefined
-      const z = m?.[3] !== undefined ? Number(m[3]) : undefined
-      if ((y !== undefined && y !== 1) || (z !== undefined && z !== 1)) {
-        const shape = [m![1], m![2], m![3]].filter((v) => v !== undefined).join(', ')
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          d,
-          `@compute workgroup shape [${shape}] must have y and z equal to 1: the backend only ` +
-            `carries the x workgroup size today, and would silently drop the rest.`,
-          TS_CODES.WORKGROUP_SHAPE,
+      workgroupSize = 64
+      // Read the decorator's AST, not its text (#118). `@compute` and `@compute()` take the
+      // default; `@compute([x, y, z])` is a call whose one argument is an array literal of one
+      // to three whole numbers, written across lines or through `as const` if the author likes.
+      // Anything else used to fall through to 64 with no diagnostic — `@compute({ workgroup:
+      // [8, 8, 1] })`, `@compute(128)`, `@compute(SIZE)` — so the author asked for one size and
+      // dispatched against another. It is reported now, at the argument.
+      const call = ts.isCallExpression(d.expression) ? d.expression : undefined
+      if (call !== undefined && call.arguments.length > 0) {
+        const written = call.arguments.map((a) => a.getText(sourceFile)).join(', ')
+        let arg: ts.Expression = call.arguments[0]!
+        while (
+          ts.isParenthesizedExpression(arg) ||
+          ts.isAsExpression(arg) ||
+          ts.isSatisfiesExpression(arg)
         )
+          arg = arg.expression
+        const shape =
+          call.arguments.length === 1 && ts.isArrayLiteralExpression(arg) ? arg : undefined
+        const sizes = shape?.elements.map((e) => (ts.isNumericLiteral(e) ? Number(e.text) : NaN))
+        if (
+          sizes === undefined ||
+          sizes.length === 0 ||
+          sizes.length > 3 ||
+          sizes.some((n) => !Number.isInteger(n) || n < 1)
+        ) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            call.arguments[0]!,
+            `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or ` +
+              `no argument for the default of 64; "${written}" is not a workgroup shape.`,
+            TS_CODES.WORKGROUP_ARG,
+          )
+        } else {
+          workgroupSize = sizes[0]!
+          const [, y, z] = sizes
+          if ((y !== undefined && y !== 1) || (z !== undefined && z !== 1)) {
+            pushDiag(
+              diagnostics,
+              sourceFile,
+              d,
+              `@compute workgroup shape [${sizes.join(', ')}] must have y and z equal to 1: the ` +
+                `backend only carries the x workgroup size today, and would silently drop the rest.`,
+              TS_CODES.WORKGROUP_SHAPE,
+            )
+          }
+        }
       }
     }
   }

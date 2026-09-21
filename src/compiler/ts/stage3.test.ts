@@ -4,6 +4,7 @@
 // the right code) case.
 
 import { describe, expect, it } from 'vitest'
+import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { TS_CODES } from './codes.js'
 
@@ -160,6 +161,61 @@ describe('@compute workgroup shape (WORKGROUP_SHAPE)', () => {
     `)
     expect(r1.diagnostics.filter((d) => d.code === TS_CODES.WORKGROUP_SHAPE)).toEqual([])
     expect(r2.diagnostics.filter((d) => d.code === TS_CODES.WORKGROUP_SHAPE)).toEqual([])
+  })
+})
+
+describe('@compute argument shapes (#118, WORKGROUP_ARG)', () => {
+  const cs = (deco: string) => `
+      "use typeshade";
+      const SIZE = 64;
+      ${deco}
+      export function cs(): void {
+      }
+    `
+  it('refuses an object, a bare number, a string and an identifier instead of defaulting to 64', () => {
+    // Every row compiled with zero diagnostics and emitted `@workgroup_size(64)` (#118): the
+    // author asked for one size and dispatched against another.
+    for (const written of ['{ workgroup: [8, 8, 1] }', '128', '"big"', 'SIZE']) {
+      const r = diag(cs(`@compute(${written})`))
+      const d = r.diagnostics.find((d) => d.code === TS_CODES.WORKGROUP_ARG)
+      expect(d, `expected WORKGROUP_ARG for @compute(${written})`).toBeDefined()
+      expect(d!.category).toBe('error')
+      expect(d!.message).toContain(`"${written}" is not a workgroup shape`)
+      expect(d!.message).toContain('@compute([64, 1, 1])')
+    }
+  })
+
+  it('refuses an empty array, a fourth axis, a fraction and a zero', () => {
+    for (const written of ['[]', '[64, 1, 1, 1]', '[1.5]', '[0]']) {
+      const r = diag(cs(`@compute(${written})`))
+      expect(
+        r.diagnostics.some((d) => d.code === TS_CODES.WORKGROUP_ARG),
+        `expected WORKGROUP_ARG for @compute(${written})`,
+      ).toBe(true)
+    }
+  })
+
+  it('keeps the default of 64 for a bare @compute and for @compute()', () => {
+    for (const deco of ['@compute', '@compute()']) {
+      const r = compile(cs(deco))
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+      expect(r.wgsl).toContain('@workgroup_size(64)')
+    }
+  })
+
+  it('reads the size the author wrote, across lines and through as const', () => {
+    const r1 = compile(
+      cs(`@compute([
+        128,
+        1,
+        1,
+      ])`),
+    )
+    expect(r1.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r1.wgsl).toContain('@workgroup_size(128)')
+    const r2 = compile(cs('@compute([256] as const)'))
+    expect(r2.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r2.wgsl).toContain('@workgroup_size(256)')
   })
 })
 

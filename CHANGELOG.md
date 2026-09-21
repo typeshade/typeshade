@@ -87,6 +87,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **`@compute(...)` refuses an argument it cannot read instead of defaulting to 64**
+  ([#118](https://github.com/typeshade/typeshade/issues/118), `TS8037 WORKGROUP_ARG`).
+  `@compute({ workgroup: [8, 8, 1] })`, `@compute(128)`, `@compute("big")` and `@compute(SIZE)`
+  compiled with zero diagnostics and emitted `@workgroup_size(64)`, so the author asked for one
+  size and dispatched against another. The decorator is now read from its AST: `@compute` and
+  `@compute()` keep the default of 64, an array literal of one to three whole numbers (across
+  lines, or through `as const`) is the size, and anything else is reported at the argument in
+  one sentence naming the form. The y/z rule (`TS8026`) is unchanged.
+
 - **A conditional on a struct or a fixed-length array emitted code both backends reject** (§31,
   [#113](https://github.com/typeshade/typeshade/issues/113)). `c ? a : b` on two structs compiled
   with zero diagnostics and emitted `select(Ray, Ray, bool)` on WGSL, which Tint refuses —
