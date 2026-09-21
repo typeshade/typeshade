@@ -152,10 +152,11 @@ describe('emit ↔ reflection conformance (X-GIS #1714)', () => {
 //
 // The arms above compare which bindings each text declares. This one compares the BYTES: a
 // `var<uniform>` struct's array members must reach WGSL with an element stride that is a
-// multiple of 16 — Tint refuses anything else outright — and `reflect()` has always reported
-// those arrays at stride 16, so a bare `array<f32, N>` in the emitted text was the emit and
-// the reflection describing different memory. Swept over BOTH corpora, so a `.shade.ts`
-// example counts too.
+// multiple of 16, which is what `reflect()` has always reported for them, so a bare
+// `array<f32, N>` in the emitted text was the emit and the reflection describing different
+// memory. Swept over BOTH corpora, so a `.shade.ts` example counts too. This is the arm that
+// catches a regression: an implementation offering `uniform_buffer_standard_layout` accepts
+// the unpadded form, so the compile gate would stay green through one.
 describe('an emitted uniform struct lays out the bytes reflect() reports', () => {
   /** A struct body split into MEMBERS. Not `body.split(',')`: a comma also separates a type's
    *  own arguments, so that turns `xs: array<Pad, 4>` into two fragments matching nothing —
@@ -216,8 +217,8 @@ describe('an emitted uniform struct lays out the bytes reflect() reports', () =>
    *  element whose own stride is under 16 (`array<P, 3>` with `struct P { a: f32, b: f32 }`)
    *  needs a wrapper too, and telling that from a legitimate `array<Item, 2>` whose members
    *  already reach 16 would take a WGSL layout engine in this file. That case is covered
-   *  directly, against real Tint's own layout note, in `src/compiler/ts/uniform-layout.test.ts`;
-   *  this sweep is the corpus-wide net for the common spellings. */
+   *  directly in `src/compiler/ts/uniform-layout.test.ts`; this sweep is the corpus-wide net
+   *  for the common spellings. */
   const UNDER_16 = /array<\s*(f32|i32|u32|vec2<(?:f32|i32|u32)>)\s*,/
 
   it('no uniform-reachable array reaches WGSL with an element stride under 16', () => {
@@ -237,7 +238,10 @@ describe('an emitted uniform struct lays out the bytes reflect() reports', () =>
         }
       }
     }
-    expect(checked).toBeGreaterThan(5)
+    // The corpus reads ~180 uniform-reachable members today. A floor of 5 would pass on a
+    // reader that had collapsed by 97%, so the floor is set where a real regression in the
+    // READER shows up as a failure rather than as a quiet pass.
+    expect(checked).toBeGreaterThan(100)
     expect(offenders.join('\n')).toBe('')
   })
 

@@ -593,7 +593,7 @@ function mapGeneric(
         diagnostics,
         sourceFile,
         nNode ?? typeNode,
-        `array<T, ${String(n)}> has no elements. A list's length is a whole number of 1 or ` +
+        `array<T, ${String(n)}> is not a list. A list's length is a whole number of 1 or ` +
           `more; a list whose length the shader does not know is array<T> in storage.`,
       )
       return undefined

@@ -1,19 +1,18 @@
 // The WGSL uniform layout rules (§51, #156) — the BLOCKER the spec audit called L15.
 //
 // A `uniform` buffer's array elements must start on 16-byte boundaries. The compiler emitted
-// `array<f32, 4>` into a `var<uniform>` struct with zero diagnostics, which Tint refuses:
+// `array<f32, 4>` into a `var<uniform>` struct with zero diagnostics, while `reflect()` had
+// always reported that array at stride 16 — so the emit and the reflection described different
+// bytes, and GLSL ES 3.00's std140 block linked on WebGL2 with the layout reflect() described.
 //
-//   'uniform' storage requires that array elements are aligned to 16 bytes, but array element
-//   of type 'f32' has a stride of 4 bytes. Consider using a vector or struct as the element
-//   type instead.
-//
-// while `reflect()` had always reported that array at stride 16 — so the emit and the
-// reflection described different bytes, and GLSL ES 3.00's std140 block linked on WebGL2 with
-// the layout reflect() described. Two shapes were measured against that Tint before the fix:
-// `@align(16) @size(64)` on the MEMBER is refused with the same text (the rule is on the
-// ELEMENT), and a wrapper struct carrying `@size(16)` is accepted. The wrapper is what the
-// pass emits, and `examples/uniform-array.shade.ts` carries it through the gate on both
-// targets.
+// THIS FILE RUNS IN NODE. It asserts the emitted text and `reflect()`; it launches no browser
+// and calls no WebGPU. The real-compiler half was hand-measured on Chromium 141
+// (`chromium_headless_shell-1194`), which lacks the optional `uniform_buffer_standard_layout`
+// language feature and therefore refuses the unpadded module with `'uniform' storage requires
+// that array elements are aligned to 16 bytes…`, and which reports the emitted struct's
+// offsets as the ones `reflect()` gives. Chromium 153 — what `gate:compile` launches with no
+// `TYPESHADE_CHROMIUM`, and what CI installs — HAS that feature and accepts the unpadded form,
+// so the compile gate is not what pins this. These assertions are.
 //
 // The other half is the rules a struct HIDES, which the type map cannot see and the backend
 // meets only as emitted text: a `bool` field, an empty list, and the two runtime-array rules.
@@ -62,11 +61,9 @@ describe('a uniform array is padded to a 16-byte element stride', () => {
 
   it('aligns the member as well as the element, so a scalar may precede the array', () => {
     // The half a wrapper cannot supply. A struct's alignment comes from its members, and
-    // `@size` does not raise it, so with the stride alone Tint answers `the offset of a
-    // struct member of type 'array<_Pad16_f32, 3>' in address space 'uniform' must be a
-    // multiple of 16 bytes, but 'xs' is currently at offset 4` — and 4 is exactly the offset
-    // `reflect()` does NOT report. Measured: with `@align(16)` the member sits at 16 on real
-    // Tint, which is what reflect has always said.
+    // `@size` does not raise it, so with the stride alone the array lands at offset 4 — which
+    // is exactly the offset `reflect()` does NOT report. With `@align(16)` it sits at 16 on
+    // Chromium 141's own layout note, which is what reflect has always said.
     const c = compiled(`interface U { k: f32; xs: array<f32, 3> }
 declare const U_: uniform<U>
 @fragment
@@ -85,8 +82,8 @@ export function fs(): vec4 { return vec4(U_.k * U_.xs[2]) }`)
     // to the address space. Reading it as 16 let `array<{a: f32, b: f32}, 3>` through with a
     // stride of 8. And the wrapper's `@size` must be computed from the element AS EMITTED:
     // with `Item` holding a padded array of its own, sizing the wrapper from the authored
-    // `Item` gave `@size(16)` over a 48-byte type, which Tint reports as `'@size' must be at
-    // least as big as the type's size (48)`.
+    // `Item` gave `@size(16)` over a 48-byte type, which BOTH Chromium builds reject with
+    // `'@size' must be at least as big as the type's size (48)`.
     const flat = compiled(`interface P { a: f32; b: f32 }
 interface U { ps: array<P, 3>; k: f32 }
 declare const U_: uniform<U>
@@ -289,7 +286,7 @@ declare const U_: uniform<U>
 declare const U_: uniform<U>
 @fragment export function fs(): vec4 { return vec4(U_.xs[0]) }`,
       TS_CODES.UNKNOWN_TYPE,
-      "array<T, 0> has no elements. A list's length is a whole number of 1 or more; a list " +
+      "array<T, 0> is not a list. A list's length is a whole number of 1 or more; a list " +
         'whose length the shader does not know is array<T> in storage.',
     ],
   ])('refuses %s in one sentence', (_what, source, code, message) => {

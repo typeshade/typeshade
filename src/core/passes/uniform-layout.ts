@@ -1,12 +1,18 @@
 // ═══ The WGSL uniform layout rule: an array element is aligned to 16 bytes (§51) ═══
 //
 // WGSL's uniform address space requires every array element to start on a 16-byte boundary;
-// `array<f32, 4>` inside a `var<uniform>` is a shader-creation error. Measured on the Tint the
-// compile gate runs:
+// `array<f32, 4>` inside a `var<uniform>` is a shader-creation error unless the implementation
+// offers the optional `uniform_buffer_standard_layout` language feature, which relaxes exactly
+// that rule. Measured on Chromium 141 (`chromium_headless_shell-1194`), which does not:
 //
 //   'uniform' storage requires that array elements are aligned to 16 bytes, but array element
 //   of type 'f32' has a stride of 4 bytes. Consider using a vector or struct as the element
 //   type instead.
+//
+// Chromium 153 — what `gate:compile` launches with no `TYPESHADE_CHROMIUM`, and what CI
+// installs — DOES list that feature and accepts the unpadded module. So the reason to pad is
+// not "every driver refuses it". It is the two things true on both: the emit and `reflect()`
+// describe the same bytes, and the module runs where the relaxation is absent.
 //
 // TWO attributes fix two different things, and both were measured before either was chosen:
 //
@@ -16,7 +22,9 @@
 //                                       attribute reaches it.
 //   @align(16) on the member            the array's OFFSET. A struct's alignment comes from
 //                                       its members and `@size` does not raise it, so with the
-//                                       stride alone Tint answers `the offset of a struct
+//                                       stride alone the array lands at offset 4 — which is
+//                                       also the offset `reflect()` does not report, and which
+//                                       Chromium 141 states outright: `the offset of a struct
 //                                       member of type 'array<_Pad16_f32, 3>' in address space
 //                                       'uniform' must be a multiple of 16 bytes, but 'xs' is
 //                                       currently at offset 4`.
@@ -29,7 +37,7 @@
 //
 // which is the memory `reflect()` already reports for that struct (its std140 arm rounds a
 // uniform array's stride and alignment to 16), so the emit and the reflection describe the
-// same bytes. Checked against Tint's own layout note on four struct shapes.
+// same bytes. Checked by hand against Tint's own layout note on nine struct shapes.
 //
 // WGSL-ONLY, and therefore a step of that backend's lowering alone. GLSL ES 3.00 needs
 // nothing: a std140 block gives `float[4]` a 16-byte stride natively, which is why the very
@@ -42,7 +50,7 @@
 // no `member` node to rewrite, so `_licm0[i]` came out typed as the wrapper.
 
 import type { BindingDecl, Expr, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js'
-import { typeKey, type ShaderType } from '../ir/types.js'
+import { arrayT, structT, typeKey, type ShaderType } from '../ir/types.js'
 import { eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js'
 import { UnsupportedFeatureError } from '../backend.js'
 
@@ -261,7 +269,7 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
       return {
         ...f,
         align: UNIFORM_ARRAY_ALIGN,
-        type: { kind: 'array', elem: { kind: 'struct', name }, size: f.type.size } as ShaderType,
+        type: arrayT(structT(name), f.type.size),
       }
     })
     return changed ? { ...s, fields } : s

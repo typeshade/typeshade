@@ -2985,10 +2985,12 @@ Tint of the Chromium the compile gate runs (2026-09-21):
   from the author, not closer.
 - `@builtin("frag_depth", "less")`, the conservative-depth mode, is refused at the comma:
   `expected ')' for builtin attribute`. There is nothing to lower it to.
-- `requires uniform_buffer_standard_layout;` is refused outright: `feature
-  'uniform_buffer_standard_layout' is not supported`. Nothing this compiler emits asks for it:
-  the layout layer already reports a uniform array under std140's 16-byte element stride, so
-  the module never depends on the device relaxing the rule.
+- `requires uniform_buffer_standard_layout;` is refused by Chromium 141
+  (`chromium_headless_shell-1194`) with `feature 'uniform_buffer_standard_layout' is not
+  supported`, and accepted by Chromium 153, which lists the feature. Either way nothing this
+  compiler emits asks for it, and that is the point: a `requires` naming a feature an
+  implementation lacks is itself a shader-creation error, so emitting it could only NARROW
+  where a module runs. §51 pads the uniform array instead, which needs nothing of the device.
 
 And four by design, with no measurement to take:
 
@@ -3030,7 +3032,9 @@ A `uniform` buffer is the one place WGSL changes the bytes under you, and it use
 them behind the compiler's back.
 
 **Every array element in a uniform starts on a 16-byte boundary.** So `array<f32, 4>` is not
-sixteen bytes, it is sixty-four. Tint refuses a module that says otherwise:
+sixteen bytes, it is sixty-four. That is core WGSL, and an implementation that does not offer
+the optional `uniform_buffer_standard_layout` language feature refuses a module that says
+otherwise — measured on Chromium 141 (`chromium_headless_shell-1194`):
 
 ```
 'uniform' storage requires that array elements are aligned to 16 bytes, but array element of
@@ -3038,14 +3042,27 @@ type 'f32' has a stride of 4 bytes. Consider using a vector or struct as the ele
 instead.
 ```
 
+**Mind which implementation you measured.** Chromium 153, which is what `bun run gate:compile`
+launches when `TYPESHADE_CHROMIUM` is unset (and what CI installs), lists
+`uniform_buffer_standard_layout` in `navigator.gpu.wgslLanguageFeatures` and **accepts** the
+unpadded module. So "every driver refuses this" is not the argument. Two things that hold on
+both builds are:
+
+- the emit and `reflect()` describe the same bytes, which they did not before; and
+- the module runs on an implementation without the relaxation, which core WGSL allows there to
+  be.
+
+A consequence worth stating plainly: on the newer build the compile gate cannot tell a padded
+emit from an unpadded one, so the gate is not what pins this. The unit tests are.
+
 The compiler emits the padding itself. A wrapper struct carries `@size(16)` and the reads are
 rewritten one field deeper:
 
 ```ts
 class Palette {
+  count: f32               // a scalar BEFORE the list, which is where @align earns its keep
   weights: array<f32, 4>   // four floats in the source
   stops: array<vec4, 2>    // already 16 bytes an element — untouched
-  count: f32
 }
 declare const U: uniform<Palette>
 ```
@@ -3056,9 +3073,9 @@ struct _Pad16_f32 {
 }
 
 struct Palette {
+  count: f32,
   @align(16) weights: array<_Pad16_f32, 4>,
   stops: array<vec4<f32>, 2>,
-  count: f32,
 }
 
 …  U.weights[i].v
@@ -3067,7 +3084,9 @@ struct Palette {
 **Two attributes, fixing two different things.** `@size(16)` inside the wrapper is the element
 STRIDE. `@align(16)` on the member is the array's OFFSET, and the wrapper cannot supply it: a
 struct's alignment comes from its members, and `@size` does not raise it. With the stride
-alone, a scalar before the array puts it at the wrong place, and Tint says so:
+alone, `count` before `weights` puts the array at offset 4 rather than 16 — and 4 is the
+offset `reflect()` does not report, which is the whole bug in one line. On Chromium 141 that
+is also a hard error:
 
 ```
 the offset of a struct member of type 'array<_Pad16_f32, 3>' in address space 'uniform' must
@@ -3075,25 +3094,24 @@ be a multiple of 16 bytes, but 'xs' is currently at offset 4. Consider setting '
 this member
 ```
 
-— and 4 is also the offset `reflect()` does not report, which is the whole bug in one line.
-
-Measured against that same Tint: `@align(16) @size(64)` on the member of a BARE `array<f32, 4>`
-is refused with the stride text, because the stride rule is on the element and no member
-attribute reaches it; the wrapper supplies the stride and the member attribute the offset, and
-together they are accepted. `array<vec2, N>` is padded too (a `vec2` is eight bytes);
-`array<vec4, N>` and `array<mat4, N>` are not, because their stride is already a multiple of
-16.
+On the same build, `@align(16) @size(64)` on the member of a BARE `array<f32, 4>` is refused
+with the stride text, because the stride rule is on the element and no member attribute reaches
+it; the wrapper supplies the stride and the member attribute the offset, and together they are
+accepted. `array<vec2, N>` is padded too (a `vec2` is eight bytes); `array<vec4, N>` and
+`array<mat4, N>` are not, because their stride is already a multiple of 16.
 
 **The emit and `reflect()` now describe the same memory.** `reflect()` has always reported a
 uniform array under std140's 16-byte stride; it was the emit that disagreed, which is exactly
 the class of bug a host discovers as garbled uniforms. For the struct above,
-`reflect().uniforms[0]` for `interface U { k: f32; xs: array<f32, 3> }` reads `k` at 0 and
-`xs` at 16, total 64 — and Tint's own layout note for the emitted struct now reads
-`offset(0) k : f32` and `offset(16) xs : array<_Pad16_f32, 3>`, total 64. Four shapes were
-checked that way against the real compiler, and five more for the nested shapes: an array of
-structs that hold arrays, a struct element whose own stride is 8, a `vec2` array between a
-scalar and a `vec3`, a `u32` array before a `mat4`, and a nested struct holding a padded
-array. Every offset, and every struct size, agrees.
+For `interface U { k: f32; xs: array<f32, 3> }`, `reflect().uniforms[0]` reads `k` at 0 and
+`xs` at 16, total 64 — and Tint's own layout note for the emitted struct reads `offset(0) k :
+f32`, `offset(16) xs : array<_Pad16_f32, 3>`, total 64. Nine shapes were checked that way by
+hand against Chromium 141, including an array of structs that hold arrays, a struct element
+whose own stride is 8, a `vec2` array between a scalar and a `vec3`, a `u32` array before a
+`mat4`, and a nested struct holding a padded array. Every offset and every struct size agrees.
+Those were hand measurements, not a pinned gate: what the suite pins is the emitted text and
+`reflect()`, in `src/compiler/ts/uniform-layout.test.ts`, which runs in Node and launches no
+browser.
 
 The one number that is NOT the WGSL `SizeOf` is `reflect().uniforms[].size`: it is the std140
 size, which rounds the struct up to 16, while WGSL's own `SizeOf` may be smaller. A host that
@@ -3134,15 +3152,18 @@ from reading as a blanket ban on lists.
 reflection ignored it is the very disagreement this section closes. They stay refused until
 both halves move together.
 
-**Four shapes a struct used to hide.** The type map sees a field's type; it does not see which
+**Three shapes a struct used to hide.** The type map sees a field's type; it does not see which
 address space the field ends up in, so these reached the backend as text a driver refuses:
 
 | Written | Refused with |
 | --- | --- |
 | `interface U { flag: bool }` in a `uniform` or `storage` | `TS8051` — `"U.flag" is a bool; a uniform struct holds numeric scalars only (WGSL's host-shareable rule). Use u32.` |
-| `array<f32, 0>` | `TS8002` — a list's length is a whole number of 1 or more |
 | `interface S { xs: array<f32>; k: f32 }` | `TS8051` — a runtime-sized list that is not the last field, so nothing after it has an offset |
 | `uniform<array<f32>>` | `TS8051` — a uniform buffer has one size; give the list a length or declare it `storage<T>` |
+
+Beside them, and not an address-space rule at all: `array<T, 0>` (and a negative or fractional
+length) is refused at the type as `TS8002`, wherever it is written. A list of no elements has
+no use and every index into it is out of range.
 
 `bool` is the one worth dwelling on: Tint says `type 'bool' cannot be used in address space
 'uniform' as it is non-host-shareable`, while the GLSL writer emitted it into the std140 block

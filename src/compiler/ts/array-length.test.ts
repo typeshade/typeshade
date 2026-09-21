@@ -93,6 +93,7 @@ export function fs(): vec4 { return vec4(f32(arrayLength(u)), 0., 0., 1.) }
     // Two independent problems, so both are reported: the `arrayLength` call below, and the
     // declaration itself — a runtime-sized array cannot live in the uniform address space at
     // all (`TS8051`, §51), which is the more fundamental of the two.
+    expect(uniform).toHaveLength(2)
     expect(uniform.filter((m) => m.startsWith(TS_CODES.LAYOUT))).toHaveLength(1)
     const lengthError = uniform.filter((m) => m.startsWith(TS_CODES.UNSIZED_ARRAY_LENGTH))
     expect(lengthError).toHaveLength(1)

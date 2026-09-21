@@ -15,13 +15,15 @@
 // Both attributes are load-bearing and fix different things. `@size(16)` inside the wrapper is
 // the element STRIDE; `@align(16)` on the member is the array's OFFSET, which the wrapper
 // cannot supply because a struct's alignment comes from its members and `@size` does not raise
-// it. With only the stride, Tint reports `weights` at offset 4 — which is also the offset
-// `reflect()` does not report.
+// it. With only the stride, `weights` lands at offset 4 — which is also the offset `reflect()`
+// does not report, and which Chromium 141 refuses outright.
 //
-// GLSL ES 3.00 needs none of it: a std140 block gives `float[4]` a 16-byte stride natively,
-// which is why the unpadded program links on WebGL2 and dies on WebGPU. That divergence is
-// the whole reason this example is renderable on BOTH targets — one host packing, two texts,
-// the same memory.
+// GLSL ES 3.00 needs none of it: a std140 block gives `float[4]` a 16-byte stride natively.
+// That is the whole reason this example is renderable on BOTH targets — one host packing, two
+// texts, the same memory. Note what the gate does and does not prove here: Chromium 153, which
+// `gate:compile` uses unless `TYPESHADE_CHROMIUM` names an older one, has the
+// `uniform_buffer_standard_layout` relaxation and would accept the UNPADDED emit too, so a
+// green gate is not evidence for the padding. `src/compiler/ts/uniform-layout.test.ts` is.
 //
 // `stops: array<vec4, 2>` is the control: a `vec4` is already 16 bytes, so it is emitted as
 // written and nothing is padded that does not need to be.

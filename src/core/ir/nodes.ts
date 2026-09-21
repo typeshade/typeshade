@@ -432,10 +432,12 @@ export interface StructField {
    *  (§51) and by nothing else, for the same reason `size` is, and it is the other half of the
    *  same fix: `@size(16)` on a wrapper's field gives the ARRAY ELEMENT its 16-byte stride,
    *  and `@align(16)` on the MEMBER holding that array gives the array its 16-byte offset.
-   *  Measured — with the stride fixed but the member unaligned, Tint answers `the offset of a
+   *  With the stride fixed but the member unaligned the array lands at offset 4, which is the
+   *  offset `reflect()` does NOT report; Chromium 141 states it outright (`the offset of a
    *  struct member of type 'array<_Pad16_f32, 3>' in address space 'uniform' must be a
-   *  multiple of 16 bytes, but 'xs' is currently at offset 4`, which is also the offset
-   *  `reflect()` does NOT report. */
+   *  multiple of 16 bytes, but 'xs' is currently at offset 4`), and an implementation with
+   *  `uniform_buffer_standard_layout` accepts the same text while laying it out differently
+   *  from what reflection reports. */
   readonly align?: number
 }
 /** A `ModuleDecl.structs` entry: a WGSL `struct` declaration. On GLSL it becomes a
