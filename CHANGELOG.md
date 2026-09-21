@@ -13,6 +13,20 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **The surface baker prints a union's members sorted** (#61). A union's constituent order in
+  TypeScript is a function of the whole program rather than of the declaration, so adding
+  `./debug` to `API_SUBPATHS` re-spelled `TypeshadeSymbolKind` in `src/__api__/surface.md` while
+  `src/language-service/types.ts` was byte-identical on both sides — and every future subpath
+  addition would have shuffled unrelated rows into its own surface diff, which is the noise that
+  trains a reviewer to skim the one file this gate exists to have read. Members are a set, so
+  sorting them loses nothing; the guard is that the printed form must split into balanced parts,
+  which leaves `boolean` (internally `false | true`), an enum, and any union nested inside a
+  signature exactly as TypeScript printed them. 27 such nested unions remain, all inside
+  parameter lists, and sorting those needs the signature rebuilt from the type rather than
+  post-processed as text. Measured both ways: before, removing `./debug` moved
+  `TypeshadeSymbolKind`; after, it moves only `./debug`'s own rows. The re-bake in this commit
+  is reordering alone — all 50 changed rows were checked to be permutations of their old
+  members, token for token — and a new arm keeps every top-level union sorted from here.
 - **The order that makes a shadowed varying correct is now asserted** (#62). Three porting
   twins emit a fragment `main()` that declares a local with the same name as an `in` varying,
   and the shader is correct only because the gather prelude is emitted BEFORE the body, so the

@@ -143,7 +143,7 @@ function memberText(prop: ts.Symbol): string {
   const type =
     decl === undefined
       ? '<no-declaration>'
-      : checker.typeToString(checker.getTypeOfSymbolAtLocation(prop, decl), undefined, FORMAT)
+      : typeText(checker.getTypeOfSymbolAtLocation(prop, decl), FORMAT)
   // The `?` is load-bearing: X-GIS #1670 made `Reflection.requiredFeatures` REQUIRED, which broke
   // every hand-built literal. That change is invisible in a name-only snapshot.
   const optional = prop.getFlags() & ts.SymbolFlags.Optional ? '?' : ''
@@ -165,6 +165,51 @@ function memberText(prop: ts.Symbol): string {
  *  and a long line is the right trade: TypeScript's default cut-off would put a blind spot in
  *  exactly the region this gate claims to watch, and a diagnostic code joining `CODES` is a
  *  real change to what a consumer branches on. */
+/** The printed form of a type, with a UNION's members sorted (#61).
+ *
+ *  TypeScript's constituent order for a union is a function of the whole program, not of the
+ *  declaration: adding `./debug` to `API_SUBPATHS` re-spelled `TypeshadeSymbolKind` from
+ *  `"function" | "struct" | "variable" | …` to `"function" | "struct" | "entry" | "variable" | …`
+ *  while `src/language-service/types.ts` was byte-identical on both sides. Both trees were
+ *  individually stable under a re-bake, so nothing was wrong — but every future subpath
+ *  addition would have shuffled unrelated rows into its own surface diff, which is exactly the
+ *  noise that trains a reviewer to skim the one file this gate exists to have read.
+ *
+ *  A union's members are a SET, so sorting them loses nothing. The guard is the BALANCE check:
+ *  reorder only when splitting the printed form on ` | ` yields parts that are each balanced in
+ *  `{}`, `()`, `[]` and `<>`. A printed form whose separator sits inside a member — `{ a: x | y }
+ *  | z` — splits into unbalanced pieces and is left exactly as TypeScript printed it. So is
+ *  anything that does not print as a ` | ` join at all: `boolean` is internally `false | true`
+ *  and prints as one word, an enum prints as its name, and both fall through untouched.
+ *
+ *  Sorted by the default comparator, not `localeCompare`: this is machine output compared byte
+ *  for byte by the snapshot, and a locale-aware collation reorders punctuation in ways that
+ *  read as arbitrary (`"read_write"` before `"read"`).
+ *
+ *  WHAT IS NOT COVERED, measured rather than assumed: a union NESTED inside a larger printed
+ *  form keeps TypeScript's order, because the separator that would split it is not at the top
+ *  level — 27 of them today, every one inside a function signature (`stage?: "vertex" |
+ *  "fragment"` within a parameter list). Sorting those needs the signature rebuilt from the
+ *  type rather than post-processed as text, which is a different change. The measured effect
+ *  of this one is what #61 asked for: adding or removing a subpath now moves only that
+ *  subpath's own rows, where before it re-spelled `TypeshadeSymbolKind`. */
+function typeText(type: ts.Type, format: ts.TypeFormatFlags): string {
+  const printed = checker.typeToString(type, undefined, format)
+  if (!printed.includes(' | ')) return printed
+  const parts = printed.split(' | ')
+  const balanced = (s: string): boolean => {
+    let depth = 0
+    for (const ch of s) {
+      if (ch === '{' || ch === '(' || ch === '[' || ch === '<') depth++
+      else if (ch === '}' || ch === ')' || ch === ']' || ch === '>') depth--
+      if (depth < 0) return false
+    }
+    return depth === 0
+  }
+  if (!parts.every(balanced)) return printed
+  return [...parts].sort().join(' | ')
+}
+
 function shapeOf(sym: ts.Symbol): string {
   const f = sym.getFlags()
   if (f & (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Class)) {
@@ -174,11 +219,11 @@ function shapeOf(sym: ts.Symbol): string {
       if (props.length > 0) return `{ ${props.map(memberText).sort().join('; ')} }`
     }
     // A union, an intersection, a primitive alias, or an empty shape — spell the type itself.
-    return checker.typeToString(declared, undefined, FORMAT_DECLARED)
+    return typeText(declared, FORMAT_DECLARED)
   }
   const decl = sym.getDeclarations()?.[0]
   if (decl === undefined) return '<no-declaration>'
-  return checker.typeToString(checker.getTypeOfSymbolAtLocation(sym, decl), undefined, FORMAT)
+  return typeText(checker.getTypeOfSymbolAtLocation(sym, decl), FORMAT)
 }
 
 function exportsOf(sub: string): readonly Export[] {
@@ -206,6 +251,28 @@ function exportsOf(sub: string): readonly Export[] {
 }
 
 const perSubpath = new Map<string, readonly Export[]>(API_SUBPATHS.map((s) => [s, exportsOf(s)]))
+
+/** Every top-level ` | ` join in a rendered shape, as its members. A nested union (inside a
+ *  signature or an object type) is not one of these — see `typeText`. */
+function topLevelUnions(text: string): string[][] {
+  const out: string[][] = []
+  for (const line of text.split('\n')) {
+    const shape = line.split('  ').slice(2).join('  ')
+    if (!shape.includes(' | ')) continue
+    const parts = shape.split(' | ')
+    const balanced = (s: string): boolean => {
+      let depth = 0
+      for (const ch of s) {
+        if (ch === '{' || ch === '(' || ch === '[' || ch === '<') depth++
+        else if (ch === '}' || ch === ')' || ch === ']' || ch === '>') depth--
+        if (depth < 0) return false
+      }
+      return depth === 0
+    }
+    if (parts.every(balanced)) out.push(parts)
+  }
+  return out
+}
 
 /** Shapes keyed by DEFINITION, so a symbol reachable from three subpaths is described once.
  *  The per-subpath name lists above are what answer "importable from where". */
@@ -272,6 +339,20 @@ describe('the reader sees the surface at all', () => {
         expect(d.shape, `${sub}#${d.name}: no shape`).not.toBe('')
       }
     }
+  })
+
+  it('prints every top-level union with its members SORTED (#61)', () => {
+    // A union's members are a set, and TypeScript's order for them is a function of the whole
+    // program rather than of the declaration — so without this, adding a subpath shuffles
+    // unrelated rows into its own surface diff. Measured before the fix: adding `./debug`
+    // re-spelled `TypeshadeSymbolKind` while its source file was byte-identical.
+    const unions = topLevelUnions(render())
+    expect(
+      unions.length,
+      'no top-level union found — the reader, not the surface, is broken',
+    ).toBeGreaterThan(20)
+    const unsorted = unions.filter((parts) => parts.join('|') !== [...parts].sort().join('|'))
+    expect(unsorted.map((p) => p.join(' | '))).toEqual([])
   })
 
   it('leaks no compiler-internal symbol id into a shape', () => {
