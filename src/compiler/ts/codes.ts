@@ -98,6 +98,16 @@ export const TS_CODES = {
    *  used to fall through to the default of 64 with no diagnostic, so the author dispatched
    *  against a size they never asked for. The y/z rule stays `WORKGROUP_SHAPE`. */
   WORKGROUP_ARG: 'TS8037',
+  /** An emulated double (`f64`, a `vec64`) on an entry's IO boundary — a `@location`
+   *  parameter, a `@location` field of an IO struct, or an entry's return (#151, §39). A
+   *  double is a pair of `f32` words after lowering, and a varying interpolates each word on
+   *  its own, which is not the interpolation of the double they encode; a `vec64` attribute
+   *  would need two slots. Its own code rather than the `UNSUPPORTED` bucket because the
+   *  remedy is specific and an author can look it up: narrow with `f32(x)`, or read the
+   *  double in the stage that needs it, since a uniform or a storage binding carries an
+   *  `f64` and every stage can see one. There is deliberately NO author-facing way to split
+   *  a double into its two `f32` words — they are the emulation's business (§39). */
+  F64_ENTRY_IO: 'TS8038',
   /** A declared name that a target reserves, checked on the name the emit actually carries
    *  (#103): `half` as a struct field, which ANGLE answers with "Illegal use of reserved
    *  word" in generated text the author never wrote, or `as` as a local, which Tint refuses.

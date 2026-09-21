@@ -9,8 +9,8 @@
 //   a + - * / b           → df64_add/sub/mul/div(a, b)
 //   a < <= > >= == != b   → df64_lt/le/gt/ge/eq/ne(a, b)
 //   -a                    → -(vec2 pair)                 (componentwise, exact)
-//   sqrt/abs/min/max/mix/floor/fract → df64_*
-//   abs/min/max/mix/floor/fract/normalize on vecN<f64> → df64_vN_*
+//   sqrt/abs/min/max/mix/floor/fract/round/sin/cos → df64_*
+//   abs/min/max/mix/floor/fract/round/normalize/sin/cos on vecN<f64> → df64_vN_*
 //   f64(x)  (toF64)       → vec2<f32>(x, 0.0)            (exact widen)
 //   f32(x)  (toF32 on f64)→ df64_narrow(x)               (hi + lo)
 //   f64 param/var/field/binding/const → vec2<f32>        (type map)
@@ -47,6 +47,7 @@ import type {
 } from '../ir/nodes.js'
 import { stageOf } from '../ir/nodes.js'
 import { eachExpr, eachStmtExpr } from '../ir/visit.js'
+import { F64_SCALAR_TWIN_FN, F64_VEC_TWIN_KIND } from '../fp64/twins.js'
 import {
   type ShaderType,
   f32T,
@@ -131,7 +132,7 @@ const vecFT = (n: 2 | 3 | 4): ShaderType => ({ kind: 'vec', n, elem: 'f32' })
 function mapType(t: ShaderType): ShaderType {
   if (isF64(t)) return vec2fT
   if (isVec64(t)) return structT(vec64StructName(t.n))
-  if (isMat64(t)) return structT(mat64StructName(t.n))
+  if (isMat64(t)) return structT(mat64StructName(mat64Dim(t)))
   if (t.kind === 'array' && containsF64(t.elem))
     return {
       kind: 'array',
@@ -155,29 +156,23 @@ const CMP_FN: Record<CmpOp, string> = {
   '==': 'df64_eq',
   '!=': 'df64_ne',
 }
-/** Whitelisted builtin ids on f64 operands → their df64 twin. */
-const CALL_FN: Record<string, string> = {
-  sqrt: 'df64_sqrt',
-  abs: 'df64_abs',
-  floor: 'df64_floor',
-  fract: 'df64_fract',
-  min: 'df64_min',
-  max: 'df64_max',
-  mix: 'df64_mix',
-  sin: 'df64_sin',
-  cos: 'df64_cos',
-}
-/** Whitelisted componentwise builtins on vec64 → their df64_vN_* twin shape. */
-const VEC_CALL_KIND: Record<string, 'unary' | 'binary' | 'mix'> = {
-  abs: 'unary',
-  floor: 'unary',
-  fract: 'unary',
-  normalize: 'unary',
-  sin: 'unary',
-  cos: 'unary',
-  min: 'binary',
-  max: 'binary',
-  mix: 'mix',
+/** Whitelisted builtin ids on f64 operands → their df64 twin, and the shape of the
+ *  componentwise `vec64` twins. Both tables live in fp64/twins.ts, because the front end
+ *  reads them to refuse at the call span exactly what this pass cannot lower (#151). */
+const CALL_FN = F64_SCALAR_TWIN_FN
+const VEC_CALL_KIND = F64_VEC_TWIN_KIND
+
+/** The dimension of an emulated-double matrix.
+ *
+ *  The df64 matrix library has one body per DIMENSION — `DF64MatN`, `df64_mN_matmul`,
+ *  `df64_mN_matvec`, `df64_mN_transpose` — not one per shape, so only a SQUARE matrix of
+ *  doubles can be lowered. The front end refuses a non-square one where it is written
+ *  (`matCxR<f64>` in type-map.ts) and `binResultType` refuses one built any other way, so
+ *  reaching here with cols !== rows means a module was hand-built past both: fail loud rather
+ *  than emit a `DF64Mat3` for a `mat3x2<f64>` and let the backend spell nonsense (#149). */
+const mat64Dim = (t: Extract<ShaderType, { kind: 'mat' }>): 2 | 3 | 4 => {
+  if (t.cols !== t.rows) throw dslError('SD0041', `${typeKey(t)} — the df64 matrices are square`)
+  return t.cols
 }
 
 const litF32 = (v: number): Expr => ({ op: 'lit', type: f32T, value: v })
@@ -308,8 +303,9 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
   if (isVec64(e.type)) ctx.vecWidths.add(e.type.n)
   // A DF64MatN nests DF64VecN columns, so a mat width forces its vec width too.
   if (isMat64(e.type)) {
-    ctx.matWidths.add(e.type.n)
-    ctx.vecWidths.add(e.type.n)
+    const n = mat64Dim(e.type)
+    ctx.matWidths.add(n)
+    ctx.vecWidths.add(n)
   }
   /** Lower an expr that must land as an f64 PAIR: an f64 operand lowers to its
    *  vec2 form; a (legal) f32 operand widens exactly. Anything else is a gate
@@ -343,7 +339,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // would misroute into the componentwise vec64 branch below.
       if (isMat64(e.a.type)) {
         if (e.bop !== '*') throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
-        const n = e.a.type.n
+        const n = mat64Dim(e.a.type)
         if (isMat64(e.b.type))
           return callHelper(ctx, `df64_m${n}_matmul`, structT(mat64StructName(n)), [
             walk(e.a),
@@ -429,7 +425,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // transpose(M) on a mat64 → df64_mN_transpose (gathers lane i of every
       // old column into new column i — no new numerics, only a reshuffle).
       if (e.fn === 'transpose' && isMat64(e.args[0]!.type)) {
-        const n = e.args[0]!.type.n
+        const n = mat64Dim(e.args[0]!.type)
         return callHelper(ctx, `df64_m${n}_transpose`, structT(mat64StructName(n)), [
           walk(e.args[0]!),
         ])
@@ -495,12 +491,16 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const sTy = structT(vec64StructName(n))
         const kind = VEC_CALL_KIND[e.fn]!
         if (kind === 'unary') {
-          // fract (per-lane sub), normalize (per-lane div), and sin/cos (their
-          // reduction's per-lane df64_div/df64_sub) cancel internally, so a loaded
-          // operand needs the renorm; abs/floor do not cancel.
+          // fract and round (per-lane sub), normalize (per-lane div), and sin/cos
+          // (their reduction's per-lane df64_div/df64_sub) cancel internally, so a
+          // loaded operand needs the renorm; abs/floor do not cancel.
           const arg = vecOperand(e.args[0]!, n)
           const cancels =
-            e.fn === 'fract' || e.fn === 'normalize' || e.fn === 'sin' || e.fn === 'cos'
+            e.fn === 'fract' ||
+            e.fn === 'round' ||
+            e.fn === 'normalize' ||
+            e.fn === 'sin' ||
+            e.fn === 'cos'
           const a = cancels ? renormForCancelVec(ctx, arg, n) : arg
           return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [a])
         }
@@ -552,7 +552,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
           // operand too (the reduction's df64_div(a, 2π) / df64_sub(a, …) are the
           // FIRST ops on a, so a loaded lo must be recomputed first). The other
           // whitelisted scalar builtins (sqrt/abs/floor/min/max) don't cancel.
-          if (e.fn === 'fract' || e.fn === 'sin' || e.fn === 'cos') {
+          if (e.fn === 'fract' || e.fn === 'round' || e.fn === 'sin' || e.fn === 'cos') {
             return callHelper(ctx, mapped, vec2fT, [renormForCancel(ctx, pairOperand(e.args[0]!))])
           }
           const ret = isF64(e.type) ? vec2fT : mapType(e.type)
@@ -597,7 +597,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // DF64MatN. Each column arg lowers via vecOperand (vec64 direct, scalar
       // broadcast), so the column-major struct is assembled directly.
       if (e.type.kind === 'mat' && e.type.elem === 'f64') {
-        const n = e.type.n
+        const n = mat64Dim(e.type)
         return {
           op: 'construct',
           type: structT(mat64StructName(n)),
@@ -1006,8 +1006,9 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
     if (isVec64(t)) ctx.vecWidths.add(t.n)
     // A mat width forces its vec width — DF64MatN nests DF64VecN columns.
     else if (isMat64(t)) {
-      ctx.matWidths.add(t.n)
-      ctx.vecWidths.add(t.n)
+      const n = mat64Dim(t)
+      ctx.matWidths.add(n)
+      ctx.vecWidths.add(n)
     } else if (t.kind === 'array') recordWidths(t.elem)
   }
 

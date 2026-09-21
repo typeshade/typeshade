@@ -430,6 +430,20 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       '`reflect`, `refract` and `faceForward` light a bump, `transpose` and `determinant` read the host matrix, and the bit builtins (`firstLeadingBit`, `reverseBits`, `countOneBits`, `extractBits`, `insertBits`) band the screen, with `fwidthCoarse` marking where a band starts (§10). GLSL ES 3.00 spells several of them differently and casts `findMSB` back to `uint`; the gate runs both.',
     renderable: true,
   },
+  {
+    id: 'normal-matrix',
+    title: 'Matrices beyond mat4',
+    blurb:
+      'Every `matCxR` is a type (§40): the normal matrix is the model matrix truncated with `mat3(m)` rather than padded to a `mat4`, `determinant` on the 3×3 gives the handedness, a `mat2x3` transposes into a `mat3x2`, and `v * m` and `transpose(m) * v` are checked against each other. A `mat3` rides the std140 block unchanged — a TWO-ROW matrix is the one shape whose column stride the two targets disagree on, measured, and that one is refused.',
+    renderable: true,
+  },
+  {
+    id: 'fp64-lane-stripes',
+    title: 'Emulated doubles',
+    blurb:
+      'The `f64` surface as source (§39): an `f64` uniform field lifted against a literal and an f32, a lane of a `vec3f64` read as `p.x` and `p[1]`, `vec3(p)` narrowing per lane, `length`/`dot` typed `f64`, `round` through the ties-to-even df64 body, and nothing crossing the entry boundary: a double cannot be a varying, so the fragment stage reads the uniform itself, which is the remedy the refusal names. A world coordinate near 10⁷ stripes on the emulated half and goes flat on the plain-f32 half; the gate runs both targets and the oracle checks the numeric core against the double.',
+    renderable: true,
+  },
 ]
 
 /**

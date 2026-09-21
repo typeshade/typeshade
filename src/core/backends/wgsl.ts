@@ -61,10 +61,10 @@ export function wgslType(t: ShaderType): string {
     case 'vec':
       return `vec${t.n}<${t.elem}>`
     case 'mat':
-      // matNxN<f64> is a PRE-LOWERING type too (→ DF64MatN); reaching here means
+      // matCxR<f64> is a PRE-LOWERING type too (→ DF64MatN); reaching here means
       // fp64Lower was bypassed — fail loud, never spell an invalid mat<f64>.
-      if (t.elem === 'f64') throw dslError('SD0040', `wgslType(mat${t.n}x${t.n}<f64>)`)
-      return `mat${t.n}x${t.n}<${t.elem}>`
+      if (t.elem === 'f64') throw dslError('SD0040', `wgslType(mat${t.cols}x${t.rows}<f64>)`)
+      return `mat${t.cols}x${t.rows}<${t.elem}>`
     case 'struct':
       return t.name
     case 'array':

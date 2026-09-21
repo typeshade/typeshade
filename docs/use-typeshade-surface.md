@@ -496,8 +496,8 @@ derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
 `**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
 as `pow(i32, i32)`, which neither compiler accepts.
 
-`transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
-emulated-double matrix, so there is nothing to expose yet.
+`transpose` applies to every matrix shape and `determinant` to the square ones; §40 has the
+table.
 
 **One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
 rather than about this table: a declared function is emitted with the name the author wrote,
@@ -2918,6 +2918,207 @@ other.
 The list is the input to the divergence report of roadmap item 19: when a GPU result and the
 oracle disagree, the operations here are where the spec allows it, and everything else is a bug
 in one of the two.
+
+## 39. `f64`: the emulated double
+
+Neither target has a 64-bit float. `f64` is an *emulated* double: a pair of `f32` words whose
+sum is the value, and a library of error-free transforms over that pair. The type is yours to
+write; a pass rewrites every `f64` into `vec2<f32>` plus `df64_*` calls before any backend sees
+one, so WGSL and GLSL ES 3.00 both receive ordinary `f32` code and the CPU oracle evaluates the
+same program as a JavaScript double, which *is* an IEEE binary64.
+
+What that buys is significand, not range: about 48 bits against `f32`'s 24. A world coordinate
+near 10⁷ has an `f32` ulp of 1, so `fract(x)` there is a constant and the detail is gone;
+the same expression on an `f64` keeps it. `examples/fp64-lane-stripes.shade.ts` draws both
+halves side by side.
+
+```ts
+"use typeshade"
+
+class Uniforms {
+  origin: f64   // one vec2<f32> slot; the host writes the two words
+  span: f32
+}
+declare const u: uniform<Uniforms>
+
+export function stripes(t: f32): f64 {
+  const stripe: f64 = 0.125       // a literal in a DECLARED f64 position keeps the double
+  const world = u.origin * 2.5    // a literal beside an f64 is lifted to an f64 literal
+  const swept = world + u.span * t // an f32 beside an f64 widens exactly, as vec2<f32>(x, 0.)
+  return fract(swept / stripe)
+}
+```
+
+A literal is retyped only where the surrounding type *says* `f64` — a declaration, a parameter,
+a field, a return, or the other side of an operator. `f64(0.1)` says it explicitly and is left
+alone; it carries the whole double too (the cast folds a literal argument at full precision),
+so the two spellings emit the same pair. What the retype buys is that the natural one compiles:
+`const k: f64 = 0.1` used to be a type mismatch, `f64` against the `f32` every bare literal
+lowers to, and the only way to write an f64 constant was the explicit cast.
+
+**Vectors.** `vec2f64`, `vec3f64` and `vec4f64` are vectors of doubles. They swizzle and index
+like any other vector — a lane is a swizzle of the hi and lo planes the pass lowers the vector
+into — and `vecN(v)` narrows one per lane, which is `f32(lane)` N times.
+
+```ts
+export function lanes(p: vec3f64): vec3 {
+  const x = p.x        // f64
+  const first = p[1]   // f64 — a CONSTANT lane; p[i] with a variable i has no lowering
+  const pair = p.xy    // vec2f64
+  return vec3(p)       // the per-lane narrow
+}
+```
+
+`length`, `distance` and `dot` on a `vec3f64` are `f64`, not `f32`: the pass composes each from
+the scalar transforms and hands back the pair. `determinant` is the exception — a matrix of
+doubles carries only `*` and `transpose`, so `determinant` on one is refused at the call, and
+the remedy is to declare that matrix `mat4`.
+
+**What is emulated, and what is refused.** There is a `df64_*` body for ten builtins on a scalar
+and thirteen on a vector, and for nothing else:
+
+| shape | lowered |
+| --- | --- |
+| `f64` | `abs`, `cos`, `floor`, `fract`, `max`, `min`, `mix`, `round`, `sin`, `sqrt`, and `+ - * /` with the six comparisons |
+| `vecN<f64>` | the same, minus `sqrt`, plus `normalize`, and the reductions `dot`, `length`, `distance` |
+| `matNxN<f64>` | `*` and `transpose` |
+
+Everything else is refused **at the call**, naming the list and the narrow:
+
+```
+ceil has no emulated-double form; got f64. On an f64 the pass lowers abs, cos, floor,
+fract, max, min, mix, round, sin and sqrt — narrow first, e.g. ceil(f32(x)).
+```
+
+On a vector the same refusal names the vector narrow, `ceil(vec3(v))`: `f32(v)` on a `vec64`
+is not a narrow at all and the pass has no body for it.
+
+`%` is refused too, at the operator — there is no df64 remainder — and so are `i32(x)` and
+`u32(x)` on a double, which have no direct body either: narrow to `f32` first, `i32(f32(x))`.
+A lane is a READ. `v.x = …` and `v[0] = …` are refused, because after lowering the vector is
+two separate hi/lo planes and a lane of it is a swizzle of both, which is not a place; rebuild
+the whole vector instead.
+
+`round` is WGSL's: the nearest integer with ties going to the **even** one, which is what the
+CPU oracle answers. (The library also carries `nint`, whose ties go toward +∞ because the
+mod-2π reduction needs that convention; the two disagree at every half-integer, and `round` is
+not it.) `%` has no emulation and stays refused, as does an `f64` in any slot a target takes as
+a plain `f32` — a mip level, a sampling bias, a comparison's reference depth:
+
+```
+textureSampleLevel's level must be an f32; got f64. Write f32(x).
+```
+
+**Across an entry boundary.** A double cannot be a varying. A `@location` field interpolates
+each of its two `f32` words on its own, and the interpolation of the words is not the
+interpolation of the double they encode, so the compiler refuses an `f64` on an entry's
+`@location` parameter, on an IO struct field and on an entry's return:
+
+```
+Parameter "p" carries f64: an emulated double is a pair of f32 words, and a @location
+varying interpolates each word on its own, which is not the interpolation of the double.
+Narrow it with f32(x), or compute the double in the stage that needs it — a uniform or
+storage binding carries an f64 and every stage can read one.
+```
+
+Both remedies are ordinary. There is **no author-facing way to split a double into its words
+and rebuild it**, and that is deliberate: the two `f32` words are the emulation's business, not
+the language's, and a program written against them would be written against an implementation
+detail. A double two stages need is read in each of them — a uniform or a storage binding
+carries an `f64` and every stage can see one — or narrowed to an `f32` at the boundary when
+`f32` is enough for what crosses it.
+
+The one `@location` an `f64` may sit on is a **vertex** input, which is a buffer read rather
+than a varying: the pair fits the single slot the attribute already is. A `vec3f64` attribute
+would need two slots and is refused.
+
+(Carrying the words as two `@interpolate(flat)` varyings and rebuilding them transparently
+would be exact, since flat interpolation does no blending. It is not done, because this
+surface has no `@interpolate` attribute: an author can neither ask for a flat varying nor see
+that one was chosen, so a double silently made flat would change what the program draws with
+nothing to point at. If `@interpolate` lands, this is worth revisiting.)
+
+**The guard.** A module that uses the emulation gets a `_fp64` binding injected at lowering: a
+1×1 `texture_2d<f32>` the host must fill with `1.0`. It is what stops a driver's fast-math from
+algebraically cancelling the error-free transforms — the pair only works because the compiler is
+not allowed to "simplify" `(a + b) - a`, and a value read from a texture is one it cannot fold
+through. `reflect()` reports it like any other binding, group and slot included, so bind what
+reflection lists and the guard is covered; a host that skipped it got a WebGPU validation error
+or, on WebGL2, a silently wrong picture.
+
+## 40. Matrices: every `matCxR`
+
+A matrix is `cols` columns of `rows` components, column-major, which is what both targets are.
+All nine shapes of `C, R ∈ {2, 3, 4}` are types, spelled `matCxR`, and a square one also
+answers to `matN`:
+
+```ts
+"use typeshade"
+
+export function shapes(a: mat3, b: mat2x3, c: mat4x3): vec3 {
+  //  mat3   = mat3x3   3 columns of 3
+  //  mat2x3           2 columns of 3
+  //  mat4x3           4 columns of 3
+  return a[0] + b[1] + c[3]
+}
+```
+
+`m[j]` is **column j**, a `vecR` — not row j, and not one component. The two readings coincide
+only on a square matrix, which is why it was worth saying once here.
+
+**Constructors.** Four forms, and a matrix takes whichever one fits:
+
+```ts
+const fromColumns = mat3(vec3(1., 0., 0.), vec3(0., 1., 0.), vec3(0., 0., 1.))
+const fromParts   = mat2x3(1., 2., 3., 4., 5., 6.)   // column by column
+const zero        = mat2()
+const truncated   = mat3(model)                       // the upper-left 3×3 of a mat4
+```
+
+Truncation is offered and widening is not: `mat3(m4)` is the normal matrix a renderer wants,
+while `mat4(m3)` would have to invent a fourth column, and which one it should be is the
+author's choice rather than the compiler's.
+
+**Products.** The table is wgsl.txt:9960-9995, and GLSL ES 3.00 spells each one the same way:
+
+| written | means | result |
+| --- | --- | --- |
+| `m * s`, `s * m` | component-wise scaling | the matrix's own type |
+| `m * v` | the column-vector product, `matCxR * vecC` | `vecR` |
+| `v * m` | the **row**-vector product, `vecR * matCxR`, which is `transpose(m) * v` | `vecC` |
+| `a * b` | `matKxR * matCxK`, the shared dimension cancelling | `matCxR` |
+
+`v * m` and `m * v` are different products, so the one you want is the one you write. A pair
+whose dimensions do not meet is refused, naming both shapes.
+
+**Builtins.** `transpose(m)` on a `matCxR` gives a `matRxC` — a different type unless the
+matrix is square. `determinant(m)` takes a square matrix only, since a non-square one has
+none; asking for it names that.
+
+**`matCx2` in a uniform block is refused**, and it is the only shape that is. Measured on a
+real WebGL2 driver and on Tint: std140 rounds every matrix column up to 16 bytes, while WGSL's
+column stride is `AlignOf(vecR<f32>)` — 8 when the matrix has two rows and 16 otherwise. So a
+`mat2x2`, `mat3x2` or `mat4x2` field would sit at different byte offsets on the two targets,
+and so would every field after it:
+
+```
+wgslLayout: mat2x2 in std140 is not supported — WGSL gives a two-row matrix a column
+stride of 8 and GLSL std140 rounds every column to 16, so the two targets would disagree
+on this field and every field after it; carry it as mat2x4 (measured: both targets stride
+16) or as 2 vec2 fields
+```
+
+It is refused rather than silently padded because padding would make the WGSL a module emits
+disagree with the offsets `reflect()` reports for it, and keeping those two the same is the
+whole job of the layout layer. Every other shape agrees byte for byte and needs no ceremony —
+a `mat3` rides a uniform block as it is. Outside a uniform block, in a storage buffer, there is
+no such rule and all nine shapes are admitted: std430 does not round a column up to a `vec4`,
+so the two targets agree on every shape. (A three-row column is still padded from 12 bytes to
+16 in both layouts, because that is `vec3`'s own alignment rather than std140's rounding.)
+
+**Emulated doubles stay square.** `mat2<f64>`, `mat3<f64>` and `mat4<f64>` carry `*` and
+`transpose`; a non-square one is refused, because the fp64 pass has one `df64` body per
+dimension rather than per shape. §39 has the rest of the `f64` surface.
 
 ## 62. A name a target reserves
 

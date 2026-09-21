@@ -92,7 +92,9 @@ function sourceTypeName(t: ShaderType): string | undefined {
     case 'vec64':
       return `vec${t.n}f64`
     case 'mat':
-      return t.elem === 'f32' && t.n === 4 ? 'mat4x4' : undefined
+      // Every matCxR has a source spelling since #149, so a watch can name any of them; the
+      // f64 matrices have no author-facing column type and stay out.
+      return t.elem === 'f32' ? `mat${t.cols}x${t.rows}` : undefined
     case 'struct':
       return t.name
     case 'array': {
