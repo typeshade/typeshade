@@ -444,6 +444,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       'The two builtins the registry called portable and are not (§45): GLSL ES 3.00 has no `abs(uint)` and no integer `dot`, so an unsigned `abs` becomes the identity there and an integer `dot` becomes a `_idot` helper, while the signed `abs` and the float `dot` beside them keep the portable spelling as controls. The GLSL half links only because of the fix, so the gate is the test.',
     renderable: true,
   },
+  {
+    id: 'packed-bytes',
+    title: 'Packed 4x8 integer builtins',
+    blurb:
+      'The eight builtins that read a `u32` as four bytes or write four back (§47): both packed dot products, both unpacks and all four packs, truncating and saturating. WGSL-only — GLSL ES 3.00 has no form of any of them, so this one is `renderable: false` and the gate runs its Tint half alone, which is exactly what the `packed4x8Dot` capability promises. The values it computes were dispatched on a real device and read back, and the CPU oracle returns the same ones.',
+    renderable: false,
+  },
 ]
 
 /**

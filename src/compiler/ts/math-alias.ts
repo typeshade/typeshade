@@ -169,6 +169,16 @@ export const BIT_BUILTIN_NAMES: readonly string[] = [
   'unpack2x16float',
   'unpack2x16unorm',
   'unpack2x16snorm',
+  // The packed 4x8 integer family (#152), added by the same additivity rule: each was an
+  // ordinary unknown name before, so a file declaring its own `pack4xU8` keeps the call.
+  'dot4U8Packed',
+  'dot4I8Packed',
+  'pack4xU8',
+  'pack4xI8',
+  'pack4xU8Clamp',
+  'pack4xI8Clamp',
+  'unpack4xU8',
+  'unpack4xI8',
 ]
 
 /** The builtin names #8 A6 added to this surface, plus the two scalar casts it added.

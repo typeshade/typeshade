@@ -105,6 +105,22 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Rounds `e` to what an IEEE-754 binary16 can hold and returns it as an `f32`, so a shader can see the precision an f16 pipeline would give it without the `shader-f16` extension. Takes an `f32` or a float vector. GLSL ES 3.00 has no such builtin, so it is spelled as a `packHalf2x16`/`unpackHalf2x16` round trip, whose rounding of an exact half that spec does not pin.',
   pack4x8unorm:
     'Packs a `vec4` of values in [0, 1] into the four bytes of a `u32`, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packUnorm4x8` (that is ES 3.10).',
+  dot4U8Packed:
+    'Reads both `u32` arguments as four UNSIGNED bytes and sums the four products into a `u32`. WebGPU-only: GLSL ES 3.00 has no form of it, so a module using it emits WGSL alone. The host should check `navigator.gpu.wgslLanguageFeatures` for `packed_4x8_integer_dot_product`, which `reflect().requiredLanguageFeatures` reports.',
+  dot4I8Packed:
+    'Reads both `u32` arguments as four SIGNED bytes and sums the four products into an `i32`, wrapping at 32 bits. WebGPU-only, like `dot4U8Packed`.',
+  pack4xU8:
+    'Packs the low byte of each component of a `vec4u` into a `u32`, component 0 in the low byte. A component that does not fit is TRUNCATED, not clamped; `pack4xU8Clamp` saturates instead. WebGPU-only.',
+  pack4xI8:
+    'Packs the low byte of each component of a `vec4i` into an `i32`, component 0 in the low byte. A component that does not fit is TRUNCATED; `pack4xI8Clamp` saturates instead. WebGPU-only.',
+  pack4xU8Clamp:
+    'Packs a `vec4u` into a `u32` as four bytes, clamping each component into [0, 255] first. WebGPU-only.',
+  pack4xI8Clamp:
+    'Packs a `vec4i` into an `i32` as four bytes, clamping each component into [-128, 127] first. WebGPU-only.',
+  unpack4xU8:
+    'Unpacks the four bytes of a `u32` into a `vec4u`, the low byte into component 0. The inverse of `pack4xU8`. WebGPU-only.',
+  unpack4xI8:
+    'Unpacks the four bytes of a `u32` into a `vec4i`, sign-extending each byte, the low byte into component 0. The inverse of `pack4xI8`. WebGPU-only.',
   pack4x8snorm:
     'Packs a `vec4` of values in [-1, 1] into the four bytes of a `u32` as signed bytes, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packSnorm4x8` (that is ES 3.10).',
   unpack4x8unorm:

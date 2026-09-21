@@ -168,6 +168,9 @@ export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, kind: NumKind = '
 // canonical target.
 const minNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.min(a, b))
 const maxNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.max(a, b))
+/** An integer clamped into a byte range, for the saturating packs (#152). Plain `Math` rather
+ *  than the NaN-aware pair above: the operands are integers by the time they reach it. */
+const clampNum = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v)
 
 // ── Builtins (vec-aware where WGSL is component-wise) ──
 type Builtin = (...args: CpuValue[]) => CpuValue
@@ -631,6 +634,44 @@ export const BUILTINS: Record<string, Builtin> = {
   unpack4x8unorm: (u) => {
     const n = (u as number) >>> 0
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255)
+  },
+  // ── The packed 4x8 integer family (#152) ──
+  //
+  // A `u32` read as four bytes, component 0 in the LOW byte (wgsl.txt:21906/21920). The signed
+  // forms sign-extend each byte, the `Clamp` packs saturate instead of truncating, and both
+  // dots accumulate in 32 bits the way the hardware does. Verified against a real device by
+  // dispatching each one and reading the buffer back, not by reading the spec twice.
+  unpack4xU8: (e) => {
+    const n = (e as number) >>> 0
+    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff]
+  },
+  unpack4xI8: (e) => {
+    const n = (e as number) >>> 0
+    return [0, 8, 16, 24].map((sh) => (((n >>> sh) & 0xff) << 24) >> 24)
+  },
+  pack4xU8: (v) => (v as number[]).reduce((acc, x, i) => acc | ((x & 0xff) << (8 * i)), 0) >>> 0,
+  pack4xI8: (v) => (v as number[]).reduce((acc, x, i) => acc | ((x & 0xff) << (8 * i)), 0) >>> 0,
+  pack4xU8Clamp: (v) =>
+    (v as number[]).reduce((acc, x, i) => acc | (clampNum(x, 0, 255) << (8 * i)), 0) >>> 0,
+  pack4xI8Clamp: (v) =>
+    (v as number[]).reduce((acc, x, i) => acc | ((clampNum(x, -128, 127) & 0xff) << (8 * i)), 0) >>>
+    0,
+  dot4U8Packed: (a, b) => {
+    const x = (a as number) >>> 0
+    const y = (b as number) >>> 0
+    let acc = 0
+    for (const sh of [0, 8, 16, 24]) acc = (acc + ((x >>> sh) & 0xff) * ((y >>> sh) & 0xff)) >>> 0
+    return acc >>> 0
+  },
+  dot4I8Packed: (a, b) => {
+    const x = (a as number) >>> 0
+    const y = (b as number) >>> 0
+    let acc = 0
+    for (const sh of [0, 8, 16, 24]) {
+      const p = Math.imul((((x >>> sh) & 0xff) << 24) >> 24, (((y >>> sh) & 0xff) << 24) >> 24)
+      acc = (acc + p) | 0
+    }
+    return acc | 0
   },
   // `abs` on an unsigned value is the identity, and the integer `dot` is the sum of the
   // component-wise products (#154). Their own ids because GLSL ES 3.00 spells neither.

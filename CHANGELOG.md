@@ -163,6 +163,28 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **The packed 4x8 integer builtins** (§47, #152). Eight builtins that read a `u32` as four bytes
+  or write four back — `dot4U8Packed`, `dot4I8Packed`, `pack4xU8`, `pack4xI8`, their two `Clamp`
+  twins, `unpack4xU8` and `unpack4xI8` — were each an unknown name. They are authorable now,
+  with the types WGSL gives them (the unsigned dot is a `u32`, the signed one an `i32`; a plain
+  pack TRUNCATES each component to its low byte while the `Clamp` form saturates first). The
+  values are not read off a specification: each call was DISPATCHED on a real device and the
+  buffer read back, and the CPU oracle was written to those numbers — `dot4U8Packed(0x01010101,
+0x01010101)` is 4, `dot4I8Packed(0x80808080, 0x01010101)` is -512,
+  `pack4xU8(vec4u(0x1FF, 0, 0, 0))` truncates to 0xFF, `pack4xU8Clamp(vec4u(400, …))` saturates
+  to the same byte, and `unpack4xI8(0x04FD02FF)` is (-1, 2, -3, 4).
+  GLSL ES 3.00 has no form of any of them, so a module using one derives the new
+  `packed4x8Dot` capability and fails closed there with the capability named, while its WGSL
+  half still emits. On the WGSL side there is NOTHING to declare, and the issue's expectation of
+  an `enable` directive is measurably wrong: Tint refuses `enable
+packed_4x8_integer_dot_product;` as not an extension ("Possible values: 'clip_distances',
+  'dual_source_blending', 'f16', 'primitive_index', 'subgroups'") and compiles every one of the
+  eight with nothing declared. It is a WGSL LANGUAGE feature, so the emitted module carries no
+  directive and `reflect().requiredLanguageFeatures` reports
+  `packed_4x8_integer_dot_product` for a host to check on `navigator.gpu.wgslLanguageFeatures`.
+  A file that declares its own function under one of the eight names keeps the call to its own
+  function, and then needs neither the capability nor the language feature.
+  `examples/packed-bytes.shade.ts` is the gate witness, registered `renderable: false`.
 - **An unsigned texel coordinate reaches GLSL in a form it takes** (§46, #147). WGSL types a
   texel coordinate `i32, or u32` and this surface accepted both, but GLSL's `texelFetch` has no
   unsigned overload: measured on a WebGL2 driver, `texelFetch(t, uvec2(0u, 0u), 0)` is "no

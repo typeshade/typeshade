@@ -10,7 +10,7 @@
 import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js'
 import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js'
 import { collectFnRefs } from '../ir/collect-refs.js'
-import { TEXTURE_GATHER_IDS } from '../intrinsics.js'
+import { PACKED_4X8_IDS, TEXTURE_GATHER_IDS } from '../intrinsics.js'
 
 /** Capability DEPENDENCIES (X-GIS #1670) — declaring the key implies needing the values, so a
  *  host activating off `reflect().requiredFeatures` gets the whole set rather than the
@@ -25,6 +25,20 @@ import { TEXTURE_GATHER_IDS } from '../intrinsics.js'
  *  activate both. */
 const CAP_IMPLIES: Readonly<Partial<Record<Capability, readonly Capability[]>>> = {
   float32Blend: ['floatRenderTarget'],
+}
+
+/** Whether the module CALLS one of the packed 4x8 integer builtins (#152), as opposed to
+ *  merely naming one: a module that declares its own `pack4xU8` keeps the call to its own
+ *  function, so the builtin is not reached and the capability is not needed.
+ *
+ *  Shared with reflection, which reports the WGSL language feature from the same fact. */
+export function usesPacked4x8(m: ModuleDecl): boolean {
+  const declared = new Set(m.funcs.map((f) => f.name))
+  for (const f of m.funcs) {
+    const refs = collectFnRefs(f)
+    for (const id of PACKED_4X8_IDS) if (refs.calls.has(id) && !declared.has(id)) return true
+  }
+  return false
 }
 
 /** The capabilities a module's emit requires. */
@@ -61,6 +75,12 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
   for (const f of m.funcs) {
     const refs = collectFnRefs(f)
     for (const id of TEXTURE_GATHER_IDS) if (refs.calls.has(id)) caps.add('textureGather')
+    // The packed 4x8 integer family is a capability of the CALLS too (#152): the values it
+    // reads are ordinary u32s and vectors, so nothing in the module's declarations says it.
+    // A call to a function the MODULE declares under one of those names is not one of them —
+    // the surface's additivity rule keeps such a call pointing at the author's function, so
+    // deriving the capability from the name alone would assert a feature the module never uses.
+    if (usesPacked4x8(m)) caps.add('packed4x8Dot')
   }
   for (const f of m.funcs) {
     // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built

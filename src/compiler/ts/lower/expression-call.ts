@@ -12,6 +12,8 @@ import {
   vec2uT,
   vec3uT,
   vec4fT,
+  vec4iT,
+  vec4uT,
   voidT,
 } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
@@ -36,7 +38,7 @@ import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
 import { lowerAtomicCall } from './atomics.js'
 import { lowerClassCall } from './class-methods.js'
-import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../../core/intrinsics.js'
+import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js'
 import { divergentIntegerId } from '../../../core/ir/divergent-int.js'
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js'
 import {
@@ -748,6 +750,25 @@ const BIT_BUILTINS: Readonly<
   unpack2x16float: { arg: u32T, result: vec2fT },
   unpack2x16unorm: { arg: u32T, result: vec2fT },
   unpack2x16snorm: { arg: u32T, result: vec2fT },
+  // The packed 4x8 INTEGER family (#152, wgsl.txt:21906/21920): a `u32` read as four bytes,
+  // component 0 in the low byte. Same one-overload shape as the rows above, so the same table.
+  // The two `dot4*Packed` forms take TWO arguments and live in their own table below.
+  pack4xU8: { arg: vec4uT, result: u32T },
+  pack4xU8Clamp: { arg: vec4uT, result: u32T },
+  pack4xI8: { arg: vec4iT, result: i32T },
+  pack4xI8Clamp: { arg: vec4iT, result: i32T },
+  unpack4xU8: { arg: u32T, result: vec4uT },
+  unpack4xI8: { arg: u32T, result: vec4iT },
+}
+
+/** The two packed 4x8 DOT products (#152). Their own table because they take two `u32`s, not
+ *  one argument: `dot4U8Packed` sums four unsigned byte products into a `u32`, `dot4I8Packed`
+ *  four signed ones into an `i32`. Measured on a real device by dispatching both:
+ *  `dot4U8Packed(0x01010101, 0x01010101)` is 4 and `dot4I8Packed(0x80808080, 0x01010101)` is
+ *  -512. WGSL-only; the `packed4x8Dot` capability fails a module closed on GLSL ES 3.00. */
+const PACKED_DOTS: Readonly<Record<string, ShaderType>> = {
+  dot4U8Packed: u32T,
+  dot4I8Packed: i32T,
 }
 
 /** The names routed to {@link lowerBitBuiltinCall}: the ten above, plus the two whose id or
@@ -755,6 +776,7 @@ const BIT_BUILTINS: Readonly<
  *  and `bitcast`, whose result is its TYPE ARGUMENT. */
 const BIT_CALLS: ReadonlySet<string> = new Set([
   ...Object.keys(BIT_BUILTINS),
+  ...Object.keys(PACKED_DOTS),
   'quantizeToF16',
   'bitcast',
 ])
@@ -785,6 +807,28 @@ function lowerBitBuiltinCall(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // The two packed dots take two `u32`s, so they are answered before the one-argument arity
+  // check below rather than by it.
+  const dotResult = PACKED_DOTS[id]
+  if (dotResult) {
+    if (!arityPlain(id, args, 2, node, sourceFile, diagnostics)) return undefined
+    for (const [i, a] of args.entries()) {
+      const retyped = retargetIntLitCtx(a, node.arguments[i]!, u32T)
+      if (typeKey(retyped.type) !== 'u32') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.arguments[i]!,
+          `${id} reads each argument as four packed bytes, so both are u32; ` +
+            `argument ${String(i + 1)} is ${typeKey(a.type)}. Write u32(x).`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      ;(args as Expr[])[i] = retyped
+    }
+    return { op: 'call', type: dotResult, fn: id, args: [...args] }
+  }
   if (!arityPlain(id, args, 1, node, sourceFile, diagnostics)) return undefined
   const arg = args[0]!
   if (id === 'bitcast') {
@@ -846,7 +890,12 @@ function lowerBitBuiltinCall(
       sourceFile,
       node,
       `${id} takes a ${typeKey(sig.arg)}; got ${typeKey(fixed.type)}. WGSL gives it one ` +
-        `overload, and GLSL ES 3.00 the same.`,
+        // "and GLSL ES 3.00 the same" is true of the ten pack/unpack rows this message was
+        // written for and FALSE of the packed 4x8 family (#152), which GLSL ES 3.00 has no
+        // form of at all — so the sentence names the target that actually has the overload.
+        (PACKED_4X8_IDS.has(id)
+          ? `overload, and GLSL ES 3.00 has no form of it at all.`
+          : `overload, and GLSL ES 3.00 the same.`),
       TS_CODES.TYPE_MISMATCH,
     )
     return undefined

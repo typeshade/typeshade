@@ -295,6 +295,19 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'absU',
   'dotI',
   'dotU',
+  // The packed 4x8 integer family (#152). Every one is integer bit manipulation with one
+  // answer: a byte extract, a byte pack (truncating or saturating), or a sum of four byte
+  // products that wraps at 32 bits. Each was DISPATCHED on a real device and the buffer read
+  // back, and the CPU oracle returns the same values, so `exact` is measured rather than
+  // argued. WGSL-only, so there is no second target for one of them to differ on.
+  'dot4U8Packed',
+  'dot4I8Packed',
+  'pack4xU8',
+  'pack4xI8',
+  'pack4xU8Clamp',
+  'pack4xI8Clamp',
+  'unpack4xU8',
+  'unpack4xI8',
   'countOneBits',
   'reverseBits',
   'countLeadingZeros',

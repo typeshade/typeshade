@@ -160,6 +160,8 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "determinant",
         "distance",
         "dot",
+        "dot4I8Packed",
+        "dot4U8Packed",
         "dotI",
         "dotU",
         "dpdx",
@@ -202,6 +204,10 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "pack2x16unorm",
         "pack4x8snorm",
         "pack4x8unorm",
+        "pack4xI8",
+        "pack4xI8Clamp",
+        "pack4xU8",
+        "pack4xU8Clamp",
         "pow",
         "quantizeToF16",
         "quantizeToF16Vec2",
@@ -275,6 +281,8 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "unpack2x16unorm",
         "unpack4x8snorm",
         "unpack4x8unorm",
+        "unpack4xI8",
+        "unpack4xU8",
         "workgroupBarrier",
       ]
     `)

@@ -1158,6 +1158,22 @@ ${renderJSDoc(FUNCTION_DOCS.unpack2x16unorm)}
 declare function unpack2x16unorm(e: u32): vec2
 ${renderJSDoc(FUNCTION_DOCS.unpack2x16snorm)}
 declare function unpack2x16snorm(e: u32): vec2
+${renderJSDoc(FUNCTION_DOCS.dot4U8Packed)}
+declare function dot4U8Packed(a: u32, b: u32): u32
+${renderJSDoc(FUNCTION_DOCS.dot4I8Packed)}
+declare function dot4I8Packed(a: u32, b: u32): i32
+${renderJSDoc(FUNCTION_DOCS.pack4xU8)}
+declare function pack4xU8(e: vec4u): u32
+${renderJSDoc(FUNCTION_DOCS.pack4xU8Clamp)}
+declare function pack4xU8Clamp(e: vec4u): u32
+${renderJSDoc(FUNCTION_DOCS.pack4xI8)}
+declare function pack4xI8(e: vec4i): i32
+${renderJSDoc(FUNCTION_DOCS.pack4xI8Clamp)}
+declare function pack4xI8Clamp(e: vec4i): i32
+${renderJSDoc(FUNCTION_DOCS.unpack4xU8)}
+declare function unpack4xU8(e: u32): vec4u
+${renderJSDoc(FUNCTION_DOCS.unpack4xI8)}
+declare function unpack4xI8(e: u32): vec4i
 ${renderJSDoc(FUNCTION_DOCS.bitcast)}
 declare function bitcast<T extends u32 | f32>(e: BitcastArg<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atomicLoad)}

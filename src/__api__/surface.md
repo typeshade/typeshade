@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 451 exports
+## `.` — 453 exports
 
 ```
 abs
@@ -278,6 +278,8 @@ pack2x16snorm
 pack2x16unorm
 pack4x8unorm
 PackBinding
+PACKED_4X8_IDS
+PACKED_4X8_LANGUAGE_FEATURE
 PackEntry
 packJson
 packModule
@@ -867,7 +869,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 559 definitions
+## Shapes — 561 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
@@ -888,7 +890,7 @@ src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "err
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; dereference?: (name: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitModuleVar?: (v: ModuleVarDecl) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; paramDecl?: (p: { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; mode?: "inout"; }) => string; phonyAssign?: string; placeholderStmt: (tag: string) => string; postLower?: (lowered: ModuleDecl) => ModuleDecl; rawStmt: (s: RawStmt) => string; reference?: (lvalue: string) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string; vectorCompare?: (cop: CmpOp, a: string, b: string) => string; vectorSelect?: (ifFalse: string, ifTrue: string, cond: string, type: ShaderType) => string }
-src/core/backend.ts#CapProfile  type  { bgra8unormStorage?: <no-declaration>; compute?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; storageBuffer?: <no-declaration>; storageTexture?: <no-declaration>; subgroups?: <no-declaration>; texture1d?: <no-declaration>; textureCubeArray?: <no-declaration>; textureGather?: <no-declaration> }
+src/core/backend.ts#CapProfile  type  { bgra8unormStorage?: <no-declaration>; compute?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; packed4x8Dot?: <no-declaration>; storageBuffer?: <no-declaration>; storageTexture?: <no-declaration>; subgroups?: <no-declaration>; texture1d?: <no-declaration>; textureCubeArray?: <no-declaration>; textureGather?: <no-declaration> }
 src/core/backend.ts#CapSupport  interface  { directive?: string; hostFeature?: string }
 src/core/backend.ts#CapSupportKind  type  "native" | "directive" | "host-feature" | "unsupported"
 src/core/backend.ts#Capabilities  class  { covers: (reqs: Iterable<Capability>) => boolean; has: (c: Capability) => boolean; missing: (reqs: Iterable<Capability>) => Capability[]; set: ReadonlySet<Capability> }
@@ -991,6 +993,8 @@ src/core/intrinsics.ts#INTRINSICS  const  Readonly<Record<string, Spelling>>
 src/core/intrinsics.ts#INTRINSIC_BINDING_REFS  const  Readonly<Record<string, readonly string[]>>
 src/core/intrinsics.ts#INTRINSIC_HELPERS  const  Readonly<Record<string, { readonly fn: string; readonly def: string; }>>
 src/core/intrinsics.ts#IntrinsicTarget  type  "wgsl" | "glsl"
+src/core/intrinsics.ts#PACKED_4X8_IDS  const  ReadonlySet<string>
+src/core/intrinsics.ts#PACKED_4X8_LANGUAGE_FEATURE  const  "packed_4x8_integer_dot_product"
 src/core/intrinsics.ts#PORTABLE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#PRE_EMIT_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#TEXTURE_GATHER_IDS  const  ReadonlySet<string>
@@ -1165,12 +1169,12 @@ src/core/ir/node.ts#vec4  const  (...a: NodeLike[]) => Node<"vec4<f32>">
 src/core/ir/node.ts#vec4f64  const  (...a: Vec64Arg[]) => Node<"vec4<f64>">
 src/core/ir/node.ts#vec4i  const  (...a: NodeLike[]) => Node<"vec4<i32>">
 src/core/ir/node.ts#vec4u  const  (...a: NodeLike[]) => Node<"vec4<u32>">
-src/core/ir/nodes.ts#ALL_CAPABILITIES  const  readonly ["storageBuffer", "compute", "msaaTextureLoad", "storageTexture", "texture1d", "textureCubeArray", "textureGather", "f16", "subgroups", "floatRenderTarget", "float32Blend", "float32Filterable", "multiview", "bgra8unormStorage"]
+src/core/ir/nodes.ts#ALL_CAPABILITIES  const  readonly ["storageBuffer", "compute", "msaaTextureLoad", "storageTexture", "texture1d", "textureCubeArray", "textureGather", "f16", "subgroups", "floatRenderTarget", "float32Blend", "float32Filterable", "multiview", "bgra8unormStorage", "packed4x8Dot"]
 src/core/ir/nodes.ts#ASSEMBLED_AS  const  typeof ASSEMBLED_AS
 src/core/ir/nodes.ts#AddressSpace  type  "uniform" | "storage"
 src/core/ir/nodes.ts#BinOp  type  "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
 src/core/ir/nodes.ts#BindingDecl  interface  { access?: "read" | "read_write"; binding: number; glsl?: "std140-block" | "loose"; group: number; name: string; owner?: "module" | "host"; precision?: "highp" | "mediump" | "lowp"; space: AddressSpace; type: ShaderType }
-src/core/ir/nodes.ts#Capability  type  "compute" | "storageBuffer" | "msaaTextureLoad" | "storageTexture" | "texture1d" | "textureCubeArray" | "textureGather" | "f16" | "subgroups" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview" | "bgra8unormStorage"
+src/core/ir/nodes.ts#Capability  type  "compute" | "storageBuffer" | "msaaTextureLoad" | "storageTexture" | "texture1d" | "textureCubeArray" | "textureGather" | "f16" | "subgroups" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview" | "bgra8unormStorage" | "packed4x8Dot"
 src/core/ir/nodes.ts#CmpOp  type  "<" | ">" | "<=" | ">=" | "==" | "!="
 src/core/ir/nodes.ts#ConstDecl  interface  { cpuValue: number; name: string; type: ShaderType; valueExpr?: Expr; wgslValue: number }
 src/core/ir/nodes.ts#DeclarableCapability  type  "f16" | "subgroups" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview"

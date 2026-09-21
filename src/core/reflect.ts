@@ -30,7 +30,8 @@ import {
   workgroupSizeOf,
 } from './ir/index.js'
 import { entryIo, type IoField } from './ir/entry-io.js'
-import { requiredCaps } from './passes/required-caps.js'
+import { requiredCaps, usesPacked4x8 } from './passes/required-caps.js'
+import { PACKED_4X8_LANGUAGE_FEATURE } from './intrinsics.js'
 import { bindingStages } from './passes/stage-bindings.js'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 
@@ -865,11 +866,13 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // requested anywhere (#147, wgsl.txt:3229-3233). A `"write"` storage texture is core; a
   // `"read"` or `"read_write"` one is the language feature below, so the binding's access mode
   // is the whole derivation.
-  const requiredLanguageFeatures = m.bindings.some(
-    (b) => b.type.kind === 'storage-texture' && b.type.access !== 'write',
-  )
-    ? ['readonly_and_readwrite_storage_textures']
-    : []
+  const languageFeatures: string[] = []
+  if (m.bindings.some((b) => b.type.kind === 'storage-texture' && b.type.access !== 'write'))
+    languageFeatures.push('readonly_and_readwrite_storage_textures')
+  // The packed 4x8 family is a feature of the CALLS (#152), the same derivation requiredCaps
+  // performs for `packed4x8Dot`.
+  if (usesPacked4x8(m)) languageFeatures.push(PACKED_4X8_LANGUAGE_FEATURE)
+  const requiredLanguageFeatures = languageFeatures.sort()
 
   return {
     bindGroups,

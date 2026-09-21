@@ -366,6 +366,38 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
     }),
   },
 
+  // #152: the packed 4x8 integer family, derived from a call the same way textureGather is.
+  packed4x8Dot: {
+    kind: 'moduleShape',
+    what: 'a call to dot4U8Packed in a function body',
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'packed_probe',
+          params: [],
+          ret: { kind: 'scalar', scalar: 'u32' },
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'call',
+                type: { kind: 'scalar', scalar: 'u32' },
+                fn: 'dot4U8Packed',
+                args: [
+                  { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: 0x01010101 },
+                  { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: 0x01010101 },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  },
+
   // ── OPT-IN caps whose whole surface is host activation. ──
   floatRenderTarget: hostOnly('floatRenderTarget'),
   float32Blend: hostOnly('float32Blend'),

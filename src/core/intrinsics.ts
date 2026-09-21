@@ -186,6 +186,32 @@ export const TEXTURE_GATHER_IDS: ReadonlySet<string> = new Set([
   'textureGatherCompareArray',
 ])
 
+/** The eight packed 4x8 integer builtins (#152, wgsl.txt:21906/21920). Exported so the
+ *  capability pass derives `packed4x8Dot` from a call without a second list, and so
+ *  reflection can name the WGSL language feature they belong to.
+ *
+ *  Exported from `typeshade`.
+ */
+export const PACKED_4X8_IDS: ReadonlySet<string> = new Set([
+  'dot4U8Packed',
+  'dot4I8Packed',
+  'pack4xU8',
+  'pack4xI8',
+  'pack4xU8Clamp',
+  'pack4xI8Clamp',
+  'unpack4xU8',
+  'unpack4xI8',
+])
+
+/** The WGSL LANGUAGE feature a module using {@link PACKED_4X8_IDS} depends on, as
+ *  `navigator.gpu.wgslLanguageFeatures` names it. Not an extension: measured on Tint,
+ *  `enable packed_4x8_integer_dot_product;` is refused ("expected extension") while the calls
+ *  compile bare, so there is no directive to emit and the check belongs at the host.
+ *
+ *  Exported from `typeshade`.
+ */
+export const PACKED_4X8_LANGUAGE_FEATURE = 'packed_4x8_integer_dot_product'
+
 function gatherSpellings(): Record<string, Spelling> {
   const out: Record<string, Spelling> = {}
   for (const id of TEXTURE_GATHER_IDS) {
@@ -203,6 +229,17 @@ function gatherSpellings(): Record<string, Spelling> {
   }
   return out
 }
+
+/** A builtin WGSL spells natively and GLSL ES 3.00 has no form of at all. The GLSL column
+ *  throws rather than inventing one, which is the same shape the storage-texture rows use: a
+ *  module reaching it has already slipped past the capability gate, and a throw from the writer
+ *  is better than emitted source no driver accepts. */
+const wgslOnly = (name: string): Spelling => ({
+  wgsl: (a) => `${name}(${join(a)})`,
+  glsl: () => {
+    throw new Error(`glsl-es300: ${name} has no GLSL ES 3.00 form`)
+  },
+})
 
 /** The spelling of each builtin id on each target, keyed by id. Only builtins whose spelling
  *  differs between WGSL and GLSL ES 3.00 have an entry; a builtin with no entry is spelled the
@@ -762,6 +799,28 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
       )
     },
   },
+  // ── The packed 4x8 integer family (#152, wgsl.txt:21906/21920) ──
+  //
+  // Eight builtins that read a `u32` as four packed bytes, or write four back. They are WGSL's
+  // and WGSL's alone: GLSL ES 3.00 has no dot-product-of-packed-bytes and no byte pack, so every
+  // GLSL column here throws and the `packed4x8Dot` capability is what fails a module closed on
+  // that target before any writer is asked to spell one.
+  //
+  // Measured on Tint, with a broken shader fed to the same instrument first: all eight compile
+  // with NO directive. `enable packed_4x8_integer_dot_product;` is refused — "expected
+  // extension | Possible values: 'clip_distances', 'dual_source_blending', 'f16',
+  // 'primitive_index', 'subgroups'" — because it is a LANGUAGE feature, not an extension. A
+  // `requires packed_4x8_integer_dot_product;` is accepted and changes nothing, and the browser
+  // reports the name in `navigator.gpu.wgslLanguageFeatures`. So the emitted module carries no
+  // directive and `reflect().requiredLanguageFeatures` is where a host learns to check.
+  dot4U8Packed: wgslOnly('dot4U8Packed'),
+  dot4I8Packed: wgslOnly('dot4I8Packed'),
+  pack4xU8: wgslOnly('pack4xU8'),
+  pack4xI8: wgslOnly('pack4xI8'),
+  pack4xU8Clamp: wgslOnly('pack4xU8Clamp'),
+  pack4xI8Clamp: wgslOnly('pack4xI8Clamp'),
+  unpack4xU8: wgslOnly('unpack4xU8'),
+  unpack4xI8: wgslOnly('unpack4xI8'),
   // The fp64 anti-fast-math guard VALUE (runtime 1.0), spelled as a texel
   // fetch from the injected `_fp64` 1×1 texture (passes/fp64-lower.ts owns
   // the binding; the name is reserved). A UBO-sourced guard is defeated by

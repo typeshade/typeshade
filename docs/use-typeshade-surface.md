@@ -3353,6 +3353,67 @@ is a `vec4u` in both; every texel coordinate takes either integer vector; and `b
 in the format union, admitted at `"write"` and refused at the other two by the same conditional
 type that already enforced the `read_write` rule.
 
+## 47. The packed 4x8 integer builtins
+
+Eight builtins that read a `u32` as four bytes, or write four back (wgsl.txt:21906/21920). Every
+one was an unknown name on this surface:
+
+```ts
+const lit = dot4U8Packed(weights, texels); // u32: four unsigned byte products, summed
+const signed = dot4I8Packed(weights, texels); // i32: four signed byte products, summed
+const bytes = unpack4xU8(texels); // vec4u, the low byte into component 0
+const signedBytes = unpack4xI8(texels); // vec4i, each byte SIGN-EXTENDED
+const packed = pack4xU8(bytes); // u32, each component TRUNCATED to its low byte
+const saturated = pack4xU8Clamp(bytes); // u32, each component clamped into [0, 255] first
+const packedI = pack4xI8(signedBytes); // i32, truncated
+const saturatedI = pack4xI8Clamp(signedBytes); // i32, clamped into [-128, 127] first
+```
+
+The values are not read off the specification. Each call was DISPATCHED on a real device through
+the compile gate's own instruments and the buffer read back, and the CPU oracle was written to
+those numbers:
+
+| call | the device wrote |
+| --- | --- |
+| `dot4U8Packed(0x01010101, 0x01010101)` | `4` |
+| `dot4U8Packed(0xFF000000, 0xFF000000)` | `65025`, which is 255 × 255 |
+| `dot4I8Packed(0xFF000000, 0xFF000000)` | `1`, because 0xFF is −1 signed |
+| `dot4I8Packed(0x80808080, 0x01010101)` | `-512`, which is 4 × (−128 × 1) |
+| `pack4xU8(vec4u(0x1FF, 0, 0, 0))` | `0xFF` — TRUNCATED, not clamped |
+| `pack4xU8Clamp(vec4u(400, 2, 3, 4))` | `0x040302FF` — 400 saturates to 255 |
+| `pack4xI8Clamp(vec4i(400, -400, 3, 4))` | `0x0403807F` — 127 and −128 |
+| `unpack4xI8(0x04FD02FF)` | `(-1, 2, -3, 4)` |
+
+### WGSL-only, and not an extension
+
+GLSL ES 3.00 has no dot product of packed bytes, no byte pack and no byte unpack, so a module
+using one of the eight derives the `packed4x8Dot` capability and fails closed on that target —
+the WGSL half still emits, and the GLSL half is absent with the capability named, the same shape
+the storage-texture rows use. `examples/packed-bytes.shade.ts` is registered `renderable: false`
+for that reason, and the gate runs its Tint half alone.
+
+On the WGSL side there is nothing to declare, and that is measured rather than assumed:
+
+| spelling | Tint |
+| --- | --- |
+| the call, with nothing declared | accepts |
+| `requires packed_4x8_integer_dot_product;` | accepts, changes nothing |
+| `enable packed_4x8_integer_dot_product;` | **"expected extension \| Possible values: 'clip_distances', 'dual_source_blending', 'f16', 'primitive_index', 'subgroups'"** |
+
+It is a WGSL *language* feature, not an extension: a property of the browser's implementation
+rather than of the device, and not something requested at `requestDevice`. So the emitted module
+carries no directive and the host checks for it before it builds the shader module:
+
+```ts
+for (const f of reflect(m).requiredLanguageFeatures) {
+  if (!navigator.gpu.wgslLanguageFeatures.has(f)) throw new Error(`WGSL lacks ${f}`);
+}
+```
+
+A module that declares its own function under one of the eight names keeps the call to its own
+function, by the additivity rule every builtin this surface adds follows — and it then needs
+neither the capability nor the language feature, because it never reaches the builtin.
+
 ---
 
 Last updated: 2026-09-21
