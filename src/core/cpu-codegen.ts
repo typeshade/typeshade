@@ -41,6 +41,7 @@ import { validate } from './passes/validate.js'
 import { autoVars } from './passes/opt/index.js'
 import { froundF32 } from './passes/precision.js'
 import type { CpuPrecision } from './oracle.js'
+import type { ConsoleSink } from './console.js'
 import {
   type CpuValue,
   FIELD_IDX,
@@ -243,6 +244,9 @@ function emitExpr(e: Expr, S: FnCtx): string {
       // reads and writes it back in one step, mirroring the interpreter's `evalAtomic`.
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return emitAtomic(e, S)
       const args = e.args.map((a) => emitExpr(a, S))
+      if (e.declRef === undefined && e.fn.startsWith('console.')) {
+        return `$.console(${q(e.fn.slice('console.'.length))}, [${args.join(', ')}], ${e.span ? q(JSON.stringify(e.span)) : 'undefined'})`
+      }
       // f32→u32/i32 SATURATES per WGSL — the SAME static-type branch the
       // interpreter takes (oracle.ts 'call'), baked at compile time so the
       // twins stay bit-identical. Integer sources fall through to the wrapping
@@ -570,6 +574,7 @@ interface CodegenRuntime {
   selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue
   vecMatThrow: () => never
+  console: (method: string, args: CpuValue[], span?: unknown) => void
   /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
   atomicAt: (
     fn: string,
@@ -648,7 +653,7 @@ interface CodegenRuntime {
  */
 export function compileModuleJs(
   m: ModuleDecl,
-  opts?: { gpuStubs?: boolean; precision?: CpuPrecision },
+  opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink },
 ): CpuModule {
   // Identical preamble to compileModule so the generated code walks the SAME IR
   // the interpreter would (validate rejects malformed modules; autoVars
@@ -779,6 +784,9 @@ export function compileModuleJs(
     },
     vecMatThrow: () => {
       throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
+    },
+    console: (method, args, span) => {
+      opts?.consoleSink?.({ method: method as any, args, span: typeof span === 'string' ? JSON.parse(span) : (span as any) })
     },
   }
 

@@ -67,6 +67,7 @@ import {
   bitBuiltin,
 } from './cpu-runtime.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
+import type { ConsoleSink } from './console.js'
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js'
 
 // Preserve the historical `typeshade` oracle surface: the value-model
@@ -95,6 +96,7 @@ interface Ctx {
    *  instead of throwing. OFF by default — plausible-wrong is the worst failure
    *  mode for a reference backend. */
   gpuStubs: boolean
+  consoleSink?: ConsoleSink
 }
 
 /** The shape both CPU backends return, so a caller can compile with {@link compileModuleJs}
@@ -217,6 +219,11 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       // declares its own `atomicAdd` carries `declRef` and takes the declared-function path.
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return evalAtomic(e, env, ctx)
       const args = e.args.map((a) => evalExpr(a, env, ctx))
+      if (e.declRef === undefined && e.fn.startsWith('console.')) {
+        const method = e.fn.slice('console.'.length)
+        if (ctx.consoleSink) ctx.consoleSink({ method: method as any, args, span: e.span })
+        return undefined as unknown as CpuValue
+      }
       // f32→u32/i32 SATURATES per WGSL (integer sources keep wrapping — see
       // cpu-runtime's f32To*Sat). The value alone cannot tell the sources apart,
       // so branch on the ARG's static type; cpu-codegen bakes the same branch at
@@ -629,7 +636,7 @@ export type CpuPrecision = 'f64' | 'f32'
  */
 export function compileModule(
   m: ModuleDecl,
-  opts?: { gpuStubs?: boolean; precision?: CpuPrecision },
+  opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink },
 ): CpuModule {
   // Same validation gate as the WGSL/GLSL writers — the oracle is the third
   // backend over the same IR, so it must reject a structurally-invalid module.
@@ -649,6 +656,7 @@ export function compileModule(
     vars: {},
     structs: new Map(m.structs.map((s) => [s.name, s])),
     gpuStubs: opts?.gpuStubs ?? false,
+    consoleSink: opts?.consoleSink,
   }
   // Populate consts in declaration order so a later const may reference an
   // earlier one. A `valueExpr` const (vec / array / struct literal) is evaluated
