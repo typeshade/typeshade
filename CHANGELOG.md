@@ -118,6 +118,9 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **`getDiagnostics` lists the two halves in document order.** The language service appended
+  every TypeShade diagnostic after every TypeScript one, so a problem list could read 28:1
+  before 27:3. The merged list is now sorted by span start, then span length, then source.
 - **`compileTsSources` keeps the structs, bindings and overrides `compileTsSource` accepts**
   ([#74](https://github.com/typeshade/typeshade/issues/74), roadmap 0.5 item 14). The multi-file
   entry point lowered functions and module constants and collected nothing else, so a one-file
