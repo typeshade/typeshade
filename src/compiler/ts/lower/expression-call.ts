@@ -596,6 +596,7 @@ const TEXTURE_CALLS = new Set([
   'textureSampleGrad',
   'textureGather',
   'textureGatherCompare',
+  'textureNumSamples',
 ])
 
 /** `textureStore(dst, coord, value)`, `textureLoad(src, coord)` and `textureDimensions(t)` on a
@@ -705,6 +706,11 @@ function lowerDepthTextureCall(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // A multisampled depth texture is loaded, never compared (roadmap 0.4 item 13); WGSL-only by
+  // the msaaTextureLoad capability, so the fused-sampler reason that defers a plain read of the
+  // other depth textures does not arise for it.
+  if (tex.dim === '2d-ms')
+    return lowerMultisampledCall(id, tex, args, node, sourceFile, diagnostics)
   const suffix = arraySuffix(tex.dim)
   const isArray = suffix !== ''
   const shown = typeKey(tex)
@@ -846,6 +852,11 @@ function lowerTextureCall(
   }
   // The array forms are their own ids: `Array` for a 2d array, `CubeArray` for a cube array
   // (roadmap 0.4 item 12), since the two restructure their GLSL arguments differently.
+  // A multisampled texture is read one sample at a time and never sampled (roadmap 0.4 item
+  // 13): its own path, since the third argument of its load is a sample index, not a level.
+  if (tex.type.dim === '2d-ms') {
+    return lowerMultisampledCall(id, tex.type, args, node, sourceFile, diagnostics)
+  }
   const suffix = arraySuffix(tex.type.dim)
   const isArray = suffix !== ''
   const shown = typeKey(tex.type)
@@ -890,6 +901,15 @@ function lowerTextureCall(
       return tex.type.dim === '3d'
         ? { op: 'call', type: vec3uT, fn: 'textureDimensions3d', args: [...args] }
         : { op: 'call', type: vec2uT, fn: id, args: [...args] }
+    case 'textureNumSamples':
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureNumSamples takes a texture_multisampled_2d; a ${shown} has one sample per texel.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
     case 'textureNumLayers':
       if (!isArray) {
         pushDiag(
@@ -1033,6 +1053,77 @@ function lowerTextureCall(
       return { op: 'call', type: texel, fn: isArray ? 'textureLoadArray' : id, args: out }
     }
     default:
+      return undefined
+  }
+}
+
+/** The reads of a multisampled texture, colour or depth (roadmap 0.4 item 13): `textureLoad(t,
+ *  coords, sampleIndex)` yields one sample (`vec4<T>`, or `f32` on the depth twin),
+ *  `textureNumSamples(t)` the count and `textureDimensions(t)` the size. Nothing else applies —
+ *  WGSL §6.6.3: a multisampled texture cannot be used with a sampler — so every sampling,
+ *  comparison and gather form is refused with the read that does apply. WGSL-only under the
+ *  `msaaTextureLoad` capability the binding derives; GLSL ES 3.00 has no `sampler2DMS`. */
+function lowerMultisampledCall(
+  id: string,
+  tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' }>,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const shown = typeKey(tex)
+  const depth = tex.kind === 'depth-texture'
+  switch (id) {
+    case 'textureDimensions':
+      return arity(id, args, 1, node, sourceFile, diagnostics)
+        ? { op: 'call', type: vec2uT, fn: 'textureDimensionsMs', args: [...args] }
+        : undefined
+    case 'textureNumSamples':
+      return arity(id, args, 1, node, sourceFile, diagnostics)
+        ? { op: 'call', type: u32T, fn: id, args: [...args] }
+        : undefined
+    case 'textureLoad': {
+      if (!arity(id, args, 3, node, sourceFile, diagnostics)) return undefined
+      if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
+        return undefined
+      // The third argument is a SAMPLE INDEX, an integer like a level, retyped the same way.
+      const sample = intArg(
+        args[2]!,
+        node.arguments[2]!,
+        u32T,
+        'sample index',
+        sourceFile,
+        diagnostics,
+      )
+      if (!sample) return undefined
+      const type: ShaderType = depth ? f32T : { kind: 'vec', n: 4, elem: tex.elem }
+      return {
+        op: 'call',
+        type,
+        fn: depth ? 'textureLoadDepthMs' : 'textureLoadMs',
+        args: [args[0]!, args[1]!, sample],
+      }
+    }
+    case 'textureNumLayers':
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureNumLayers needs an array texture; a ${shown} has samples, not layers, and ` +
+          `textureNumSamples(t) is their count.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    default:
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${id} cannot read a ${shown}: a multisampled texture cannot be used with a sampler. ` +
+          `Read one sample with textureLoad(t, coords, sampleIndex); textureNumSamples(t) is ` +
+          `how many there are.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
       return undefined
   }
 }

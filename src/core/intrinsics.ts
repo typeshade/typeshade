@@ -577,6 +577,43 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
         ? `uvec3(textureSize(${a[0]}, int(${a[1]})))`
         : `uvec3(textureSize(${a[0]}, 0))`,
   },
+  // The multisampled reads (roadmap 0.4 item 13, WGSL-only under msaaTextureLoad). WGSL spells
+  // them textureLoad / textureDimensions / textureNumSamples; GLSL ES 3.00 has no sampler2DMS
+  // at all (ES 3.10), so every column fails closed. Their own ids rather than the 2d ones:
+  // `texelFetch(t, c, int(s))` would be well-formed, wrong text for a sample index, and the
+  // 2d wrapper's `textureSize(t, 0)` takes a level a multisampled texture has none of.
+  textureLoadMs: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: a multisampled load has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
+      )
+    },
+  },
+  textureLoadDepthMs: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: a multisampled depth load has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
+      )
+    },
+  },
+  textureDimensionsMs: {
+    wgsl: (a) => `textureDimensions(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: textureDimensions on a multisampled texture has no GLSL ES 3.00 spelling',
+      )
+    },
+  },
+  textureNumSamples: {
+    wgsl: (a) => `textureNumSamples(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: textureNumSamples has no GLSL ES 3.00 spelling (textureSamples is ES 3.10)',
+      )
+    },
+  },
   // textureDimensions1d(t) — ONE wide, a `u32` (roadmap 0.4 item 12); its own id for the reason
   // the 3d one is. GLSL ES 3.00 has no 1d texture, so the column fails closed.
   textureDimensions1d: {

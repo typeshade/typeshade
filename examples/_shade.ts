@@ -389,6 +389,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: false,
   },
   {
+    id: 'msaa-resolve',
+    title: 'A multisampled texture, resolved by hand',
+    blurb:
+      'An MSAA render target as a `texture_multisampled_2d<f32>` read one sample at a time with `textureLoad(t, coords, sampleIndex)` and averaged over `textureNumSamples`, and its depth attachment as a `texture_depth_multisampled_2d` (\u00a737). A multisampled texture cannot be used with a sampler, so every sampling form is refused with the load named instead. WGSL-only: GLSL ES 3.00 has no `sampler2DMS`, so the binding derives `msaaTextureLoad` and the Tint half of the gate alone runs it.',
+    renderable: false,
+  },
+  {
     id: 'storage-texture',
     title: 'A storage texture',
     blurb:

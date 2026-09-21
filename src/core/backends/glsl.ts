@@ -19,7 +19,8 @@
 // element (X-GIS #1703) prefixes the spelling — `usampler2D` / `isampler2DArray` / … — also
 // core, also Capability-free; those are LOAD-ONLY in both targets (see TextureElem),
 // so they reuse textureLoad/textureLoadArray with an integer result type and add no
-// spelling of their own. `2d-ms` remains the one texture dim that FAILS CLOSED here.
+// spelling of their own. `2d-ms`, `1d` and `cube-array` are the texture dims that FAIL CLOSED
+// here, each behind a derived capability.
 //
 // FAIL-CLOSED (GLSL ES 3.00 has no compute / MSAA-load): a `@compute` entry and a
 // multisampled-texture load raise UnsupportedFeatureError — enforced UP FRONT by
@@ -109,6 +110,10 @@ const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): st
       throw new UnsupportedFeatureError(
         'glsl-es300: texture_depth_cube_array has no GLSL ES 3.00 spelling (no cube-array samplers)',
       )
+    case '2d-ms':
+      throw new UnsupportedFeatureError(
+        'glsl-es300: texture_depth_multisampled_2d has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
+      )
   }
 }
 
@@ -166,7 +171,7 @@ function glslType(t: ShaderType): string {
       switch (t.dim) {
         case '2d-ms':
           throw new UnsupportedFeatureError(
-            'glsl-es300: multisampled texture sampling — resolve first (later step)',
+            'glsl-es300: multisampled texture load — sampler2DMS is ES 3.10 (msaaTextureLoad fails the module closed first)',
           )
         case '2d-array':
           return `${p}sampler2DArray`

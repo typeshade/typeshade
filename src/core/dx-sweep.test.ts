@@ -243,13 +243,13 @@ describe('X-GIS #763 X — type-surface sweep', () => {
     expect(g.decl.name).toBe('ns')
   })
 
-  it('X-GIS #1703: a multisampled INTEGER texture is unrepresentable, not a runtime throw', () => {
-    // The texture type is a two-arm union pinned to `elem: 'f32'` on '2d-ms', so this
-    // never reaches emit — where it would have been a plausible-looking
-    // `texture_multisampled_2d<u32>` that GLSL fails closed on anyway.
-    // @ts-expect-error — '2d-ms' admits no element but f32
-    const bad = { kind: 'texture', dim: '2d-ms', elem: 'u32' } as const satisfies ShaderType
-    void bad
+  it('roadmap 0.4 item 13: a multisampled INTEGER texture is representable, as WGSL §6.6.3 has it', () => {
+    // X-GIS #1703 pinned '2d-ms' to f32 while nothing read the type. The spec parameterises
+    // `texture_multisampled_2d` by f32, i32 or u32 and `textureLoad` yields `vec4<T>`; GLSL
+    // fails closed by the msaaTextureLoad capability whatever the element, so the pin bought
+    // nothing and the integer form is a type, with its own key on both spellings.
+    const ms_u = { kind: 'texture', dim: '2d-ms', elem: 'u32' } as const satisfies ShaderType
+    expect(typeKey(ms_u)).toBe('texture_multisampled_2d<u32>')
     expect(typeKey(texture2dMsfT)).toBe('texture_multisampled_2d<f32>')
     // typeKey must stay byte-identical to KeyOf's arms — they are two spellings of the
     // same key and a drift between them is invisible until an overload silently stops

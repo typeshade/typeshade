@@ -591,6 +591,9 @@ type texture_3d<E = f32> = { readonly [textureTag]: readonly [E, '3d'] }
  * neither, so a module using one emits WGSL alone. */
 type texture_1d<E = f32> = { readonly [textureTag]: readonly [E, '1d'] }
 type texture_cube_array<E = f32> = { readonly [textureTag]: readonly [E, 'cube-array'] }
+/** A multisampled colour texture (roadmap 0.4 item 13): read one sample at a time with
+ * \`textureLoad(t, coords, sampleIndex)\`, never sampled. WebGPU-only. */
+type texture_multisampled_2d<E = f32> = { readonly [textureTag]: readonly [E, '2d-ms'] }
 type sampler = { readonly [samplerTag]: true }
 
 declare const storageTextureTag: unique symbol
@@ -662,6 +665,8 @@ type texture_depth_2d_array = { readonly [depthTextureTag]: true }
 type texture_depth_cube = { readonly [depthTextureTag]: 'cube' }
 /** The shadow maps of N point lights in one binding; WebGPU-only, like \`texture_cube_array\`. */
 type texture_depth_cube_array = { readonly [depthTextureTag]: 'cube-array' }
+/** The depth attachment of an MSAA target, read one sample at a time and never compared. */
+type texture_depth_multisampled_2d = { readonly [depthTextureTag]: '2d-ms' }
 /** The sampler a depth comparison takes. Not interchangeable with \`sampler\` in either
  * direction, which the overloads below make the editor say before the compiler does. */
 type sampler_comparison = { readonly [samplerComparisonTag]: true }
@@ -933,6 +938,10 @@ declare function textureLoad<E>(tex: texture_3d<E>, coord: vec3i, level: number)
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E>(tex: texture_1d<E>, coord: number, level: number): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
+declare function textureLoad<E>(tex: texture_multisampled_2d<E>, coord: vec2i, sampleIndex: number): vec4
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
+declare function textureLoad(tex: texture_depth_multisampled_2d, coord: vec2i, sampleIndex: number): f32
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
   tex: texture_storage_2d<F, A>,
   coord: vec2i,
@@ -965,8 +974,19 @@ declare function textureDimensions<E>(tex: texture_3d<E>): vec3u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<E>(tex: texture_1d<E>): u32
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
+declare function textureDimensions<E>(tex: texture_multisampled_2d<E>): vec2u
+${renderJSDoc(FUNCTION_DOCS.textureNumSamples)}
+declare function textureNumSamples<E>(
+  tex: texture_multisampled_2d<E> | texture_depth_multisampled_2d,
+): u32
+${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions(
-  tex: texture_depth_2d | texture_depth_2d_array | texture_depth_cube | texture_depth_cube_array,
+  tex:
+    | texture_depth_2d
+    | texture_depth_2d_array
+    | texture_depth_cube
+    | texture_depth_cube_array
+    | texture_depth_multisampled_2d,
 ): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_cube_array<E>): u32
