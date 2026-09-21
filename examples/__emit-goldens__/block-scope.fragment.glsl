@@ -10,6 +10,8 @@ void main() {
   float r = length(uv);
   float band = (r * RINGS);
   band = (band - 1.0 * trunc(band / 1.0));
+  vec2 cell = (uv * RINGS);
+  cell = (cell - 1.0 * trunc(cell / 1.0));
   float acc = 0.0;
   for (uint i = 0u; (i < 4u); i = (i + 1u)) {
     float p = (float(i) * 0.25);
@@ -26,6 +28,7 @@ void main() {
   }
   uint levels = (uint((band * 255.0)) >> 4u);
   float stepped = (float((levels << 4u)) / 255.0);
-  vec3 shaded = ((tint * acc) + (stepped * 0.1));
+  float grid = min(abs(cell.x), abs(cell.y));
+  vec3 shaded = (((tint * acc) + (stepped * 0.1)) + (grid * 0.05));
   color = vec4(((shaded / RINGS) * 4.0), 1.0);
 }

@@ -235,10 +235,19 @@ export function collectStructs(
       const heritage = basesOf(candidate.name, candidate.heritage, sourceFile, diagnostics)
       if (heritage === undefined) continue
       const before = diagnostics.length
+      // An interface and a type alias are two of the three spellings of one struct, and the
+      // emitters spell all three the same way — so their names have to reach the declared-symbol
+      // table too, or a check that reads it sees a `class` field and not the `interface` field
+      // beside it (issue #103: `interface S { half: f32 }` is the uniform block ANGLE refuses).
+      recordDeclaration(symbols, sourceFile, candidate.nameNode, {
+        name: candidate.name,
+        kind: 'struct',
+        type: structT(candidate.name),
+      })
       add(
         candidate.name,
         candidate.nameNode,
-        signatureFields(candidate.members, candidate.name, sourceFile, diagnostics),
+        signatureFields(candidate.members, candidate.name, sourceFile, diagnostics, symbols),
         candidate.spelling,
         before,
         undefined,
@@ -807,6 +816,7 @@ function signatureFields(
   owner: string,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  symbols?: DeclaredSymbolSink,
 ): StructField[] {
   const fields: StructField[] = []
   for (const member of members) {
@@ -857,6 +867,12 @@ function signatureFields(
       : undefined
     if (!type) continue
     fields.push({ name: member.name.text, type })
+    recordDeclaration(symbols, sourceFile, member.name, {
+      name: member.name.text,
+      kind: 'field',
+      type,
+      struct: owner,
+    })
   }
   return fields
 }

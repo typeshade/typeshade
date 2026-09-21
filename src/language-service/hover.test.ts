@@ -200,6 +200,56 @@ describe("getHover: the compiler's type for a symbol declared in this document",
   })
 })
 
+// #56 — `nodeAtPosition`'s span test is half-open, so one offset past a name was the
+// whitespace or the punctuation after it, and the hover fell through to TypeScript's quick
+// info: `let k: number` where the compiler lowered an `f32`. The end of a name is where an
+// editor leaves the caret after typing it. Measured before the fix, on the source above: `k`
+// answered `let k: f32` on the name and `let k: number` one offset later.
+describe("getHover: the touching rule at a name's end position (#56)", () => {
+  const source = [
+    '"use typeshade";',
+    'class Vertex {',
+    '  @location(0) pos: vec3',
+    '}',
+    '@vertex',
+    'export function vs(i: u32, p: Vertex): vec4 {',
+    '  let k = 1.;',
+    '  return vec4(k, p.pos.x, f32(i), 1.);',
+    '}',
+  ].join('\n')
+
+  function hoverAt(offset: number): string | undefined {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('touch.ts', source)
+    return service.getHover('touch.ts', service.positionAt('touch.ts', offset))?.contents
+  }
+
+  it.each([
+    ['a local, at its declaration', 'let k'.length, 'let k', 'let k: f32'],
+    ['a local, at a use', 'vec4(k'.length, 'vec4(k', 'let k: f32'],
+    ['a parameter', 'vs(i'.length, 'vs(i', '(parameter) i: u32'],
+    ['a struct field', 'p.pos'.length, 'p.pos', '(property) Vertex.pos: vec3<f32>'],
+  ])('answers for %s at name.end', (_label, length, prefix, expected) => {
+    const end = source.indexOf(prefix) + length
+    // The offset really is one past the name: the character there is not part of it.
+    expect(/[A-Za-z0-9_]/.test(source[end]!)).toBe(false)
+    expect(hoverAt(end)).toContain(expected)
+  })
+
+  it('still answers for the name the position is INSIDE, never the one after it', () => {
+    // `k` ends where the space before `p` begins, and `p` starts one offset later: a caret on
+    // `p` is `p`'s, not `k`'s, which is what the rule has to leave alone.
+    const p = source.indexOf('p.pos')
+    expect(hoverAt(p)).toContain('(parameter) p: Vertex')
+  })
+
+  it('leaves a position that touches no name alone', () => {
+    // The offset after `{` is neither inside a name nor at the end of one.
+    const brace = source.indexOf('vec4 {') + 'vec4 {'.length
+    expect(hoverAt(brace)).toBeUndefined()
+  })
+})
+
 describe('getHover: an ambient name this document declares nothing of', () => {
   // The pre-filter in `getHover` skips the definition query for an identifier whose text is in
   // neither `analysis.symbols` nor `analysis.bindings`, on the ground that neither answer could

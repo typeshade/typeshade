@@ -595,6 +595,12 @@ take a component, field or element — `vec3(UP.x, 0., 0.)` is refused even thou
 would fold it. `XS.length` is a constant too, so an array constant can bound a loop. An array
 **of arrays** is refused: the GLSL ES 3.00 spelling it would produce is not one ANGLE accepts.
 
+A scalar constant's value has to be one its declared type can spell, and that is checked on
+the declaration. An `i32` or `u32` one must be a whole number inside its 32-bit range; a `bool`
+one takes `true`, `false`, `1` or `0`, and a number that is neither
+([#64](https://github.com/typeshade/typeshade/issues/64)) is refused where it is written rather
+than reaching the writer, which has only the file's `"use typeshade"` directive to point at.
+
 An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
 followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and
 `const NV: vec3<i32> = vec3<i32>(N, N, N);`. Before that fix the backend's `emitConst` spelled
@@ -1456,7 +1462,11 @@ of safety.
 **A float `%=` on GLSL ES 3.00** is written `x = (x - y * trunc(x / y));`, the `floatMod`
 spelling the binary `%` has always taken there, because GLSL's `%` is for integers. The compound
 assignment wrote `x %= y;` and the driver refused it while the WGSL beside it was fine (issue
-#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator on both.
+#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator on both. The rule
+holds at any width: a `vec2` target takes the same componentwise
+`cell = (cell - 1.0 * trunc(cell / 1.0));`, since GLSL ES 3.00 has no float `%` for a vector
+either. `examples/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
+evidence on both targets.
 
 ```ts
 "use typeshade"
@@ -2908,6 +2918,88 @@ other.
 The list is the input to the divergence report of roadmap item 19: when a GPU result and the
 oracle disagree, the operations here are where the spec allows it, and everything else is a bug
 in one of the two.
+
+## 62. A name a target reserves
+
+Each of the two shading languages reserves a vocabulary of its own, and a name that lands on
+one used to reach the author as a line number in text they never wrote:
+
+```
+glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
+```
+
+That was a struct field named `half` ([#103](https://github.com/typeshade/typeshade/issues/103)).
+A declared name is now checked against the reserved words of the targets the module is
+**actually emitted for**, and refused where it is written, with `TS8068`:
+
+<!-- doc-snippets: skip — the block IS the refusal: a field named `half` is what TS8068 reports -->
+
+```ts
+"use typeshade"
+
+class Vertex {
+  @builtin("position") pos: vec4
+  @location(0) half: vec2 // TS8068 "half" is reserved in GLSL ES 3.00, so a field of that
+} //                         name cannot be emitted for the WebGL2 target. Rename it.
+```
+
+**The name that is checked is the one the emit carries.** A class's static field is `Cls_K`, a
+namespace's member is `Ns_K`, an inherited field is `Cls_super_Base_member`: the flattening is
+what a backend sees, so that is what the check reads. A class `S` with a static `half` is
+`S_half` and compiles; a class `atomic` with a static `uint` is `atomic_uint`, which GLSL ES
+3.00 reserves, and the message names both spellings — `"uint" is emitted as "atomic_uint",
+which is reserved in GLSL ES 3.00, …` — while underlining the member the author wrote.
+
+**A target the module never reaches does not get a vote.** A compute kernel has no GLSL ES 3.00
+form — that is the one stage the language does not have — so it may name a field `half`; WGSL is
+every module's target and is always checked. `examples/array-length.shade.ts` carries exactly
+that field, so Tint accepts the name on every gate run.
+
+**The severity follows the target's role.** A WGSL word is an **error**: WGSL is the program,
+and the module does not compile. A GLSL ES 3.00 word is a **warning**, which is what this
+package already answers for "the second target cannot take this module" — `wgsl` is still
+there, `glsl` comes back `undefined`, exactly as for a compute entry beside the render pair or
+a storage binding the emulation cannot spell. The GLSL writer fails the emit closed on the same
+names, so the warning is never the only thing between a reserved word and a driver, and a
+render module that would not have produced GLSL anyway is never refused outright for a word it
+would never have emitted.
+
+**What the GLSL writer renames for itself is not refused.** A local, a parameter and a function
+name that collides with a GLSL word is rewritten with every reference to it (`let out` becomes
+`out_`), and that has always worked. The module surface it cannot rename is what this check
+covers: a struct and its fields (the std140 offsets and the cross-stage varying contract), a
+module constant, an override's `#define`, a module variable and a binding, whose name is the
+host's reflection key. WGSL renames nothing, so every kind is checked for it, including the two
+rules that are shapes rather than words: a name beginning with `__`, and the bare `_`. GLSL ES
+3.00 §3.6 has two shape rules of its own, and both are read here too: a name beginning with
+`gl_`, which it keeps for built-ins, and one containing `__` anywhere, not only at the front.
+
+All three spellings of a struct are read — a `class`, an `interface` and a `type` alias are one
+struct to the emitters, so they are one struct here.
+
+**Both lists are the target's own, measured on the compiler that receives the text.** WGSL's are
+the 26 keywords and 146 reserved words of the spec, transcribed from its source; GLSL ES 3.00's
+are read off ANGLE's version-gated lexer at shader version 300, which is what a WebGL2 context
+gives. Measured in Chromium, through the compile gate's instrument:
+
+| Written | WGSL on Tint | GLSL ES 3.00 on ANGLE |
+| --- | --- | --- |
+| a field or constant named `half` | accepted | `'half' : Illegal use of reserved word` |
+| a local named `as` | `'as' is a reserved keyword` | — |
+| a local named `discard` | `expected identifier for variable declaration` | — |
+| a name named `filter` | `'filter' is a reserved keyword` | `'filter' : Illegal use of reserved word` |
+| a local named `__x` | `identifiers must not start with two or more underscores` | — |
+| a name named `input`, `sample`, `image2D` | accepted | `Illegal use of reserved word` |
+| a name named `gl_Scale` | accepted | `'gl_' : reserved built-in name` |
+| a name named `a__b` | accepted | `identifiers containing two consecutive underscores (__) are reserved` |
+| a name named `buffer`, `packed` | accepted | accepted |
+| a name named `shared`, `with` | `is a reserved keyword` | accepted |
+
+The last two rows are why each list is read from its own target's authority rather than from
+one merged vocabulary. `buffer` and `shared` become GLSL keywords in ES 3.10 and `packed` is
+reserved in ES 1.00, so refusing any of them at 300 would refuse a program a WebGL2 driver
+compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
+says and what Tint enforces.
 
 ---
 
