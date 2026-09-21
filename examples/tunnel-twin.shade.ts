@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Tunnel (source twin)",
+  "blurb": "`tunnel.ts` written in the source language: polar coordinates with 1/r for the receding wall, twisted by an angle that grows with depth.",
+  "renderable": true,
+  "twinOf": "tunnel"
+}
+*/
+
 // The `"use typeshade"` twin of `tunnel.ts`. `screenCoords` is a helper function
 // here rather than an import — see `plasma-twin.shade.ts` on the repeated head.
 

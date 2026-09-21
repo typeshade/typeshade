@@ -13,6 +13,26 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Each `.shade.ts` example registers itself** (#65). Every example used to be registered by
+  appending an object literal to one hand-ordered array in `examples/_shade.ts`, so two branches
+  that each added an example added adjacent lines to the same region and git could not tell the
+  two additions apart: every such pair conflicted on every merge, five hand resolutions across
+  three branches in one afternoon, none of them a real disagreement — and resolving one by
+  taking a side dropped an example silently. The hand-written half `compile()` cannot infer
+  (`title`, `blurb`, `renderable`, `twinOf`, and the refusal `reason`) now lives in the shader
+  it describes, as a JSON block in a comment after the `"use typeshade"` directive, and
+  `_shade.ts` scans the directory for them in id order. Two branches adding two examples touch
+  two NEW files and no shared line.
+
+  A sibling MODULE per example — the shape first proposed — does not work: `shadeExamples` is
+  consumed at module scope as a plain array by five callers, so discovery has to be synchronous,
+  which rules out `import()`; static imports would leave one import line and one array entry per
+  example, halving the conflict class rather than removing it. A comment costs no new file and
+  cannot drift away from, or outlive, the shader it describes. A `.shade.ts` file stays exactly
+  as non-importable as it was, and the block is REQUIRED — a shader without one, or with one
+  that is not JSON, or that claims `renderable: false` with no reason, fails loudly instead of
+  going unregistered. No golden changed and the gate is unmoved at 85 examples.
+
 - **The surface baker prints a union's members sorted** (#61). A union's constituent order in
   TypeScript is a function of the whole program rather than of the declaration, so adding
   `./debug` to `API_SUBPATHS` re-spelled `TypeshadeSymbolKind` in `src/__api__/surface.md` while

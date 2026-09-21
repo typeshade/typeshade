@@ -24,10 +24,17 @@
 // every WGSL here goes to Tint and every renderable GLSL pair to a real WebGL2 context.
 
 import { describe, it, expect } from 'vitest'
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { shadeExamples, SHADE_EXT, SHADE_REFUSALS, SHADE_TWINS, NO_ENTRY_POINT } from './_shade.js'
+import {
+  shadeExamples,
+  SHADE_EXT,
+  SHADE_REFUSALS,
+  SHADE_TWINS,
+  NO_ENTRY_POINT,
+  readSpecForTest,
+} from './_shade.js'
 import { examples } from './index.js'
 import { checkGolden } from './_goldens.js'
 import { emitModule, emitGlslModule, reflect } from '../src/index.js'
@@ -51,9 +58,72 @@ describe('"use typeshade" examples — the directory and the registry agree', ()
   })
 
   it('every .shade.ts file is registered, and every registration has a file', () => {
-    // Both directions in one assertion, so a diff shows the unregistered file and the stale
-    // registration together rather than one failing run each.
+    // Since #65 each shader carries its own `@example` block and `_shade.ts` SCANS for them, so
+    // this direction is now true by construction — `readSpec` throws on a file without a block
+    // rather than skipping it, which is the stronger form of the same guarantee. The arm stays
+    // because the construction is what is being asserted: a scanner that silently dropped a
+    // file (a filter typo, a changed extension) would show up here and nowhere else.
     expect([...shadeExamples].map((e) => e.id).sort()).toEqual(onDisk)
+  })
+
+  it('reads the hand-written half out of every shader, not a default', () => {
+    // The half `compile()` cannot infer. A scanner that returned a stub for a file it could not
+    // parse would keep every arm above green and quietly register 49 identical examples.
+    for (const ex of shadeExamples) {
+      expect(ex.title, `${ex.id} has no title`).not.toBe('')
+      expect(ex.blurb.length, `${ex.id} has a stub blurb`).toBeGreaterThan(40)
+    }
+    expect(new Set(shadeExamples.map((e) => e.title)).size).toBe(shadeExamples.length)
+    expect(new Set(shadeExamples.map((e) => e.blurb)).size).toBe(shadeExamples.length)
+  })
+
+  it('refuses a shader whose @example block is missing, malformed or incomplete', () => {
+    // The instrument: the four refusals `readSpec` exists to make. Without them a shader could
+    // go unregistered — exactly the failure the one hand-ordered array used to allow through a
+    // mis-resolved merge — or register half-described.
+    const bodyOf = (id: string): string =>
+      readFileSync(join(HERE, `${id}${SHADE_EXT}`), 'utf8').replace(
+        /\/\*\s*@example[\s\S]*?\*\//,
+        '',
+      )
+    const hello = bodyOf('hello')
+    const withBlock = (json: string): string =>
+      `"use typeshade"\n\n/* @example\n${json}\n*/\n${hello}`
+    for (const [why, source] of [
+      ['no block at all', `"use typeshade"\n${hello}`],
+      ['not JSON', withBlock('{ title: "x" }')],
+      [
+        'no title',
+        withBlock(
+          '{ "blurb": "a blurb long enough to pass the length floor", "renderable": true }',
+        ),
+      ],
+      [
+        'no renderable',
+        withBlock('{ "title": "x", "blurb": "a blurb long enough to pass the length floor" }'),
+      ],
+      [
+        'renderable false with no reason',
+        withBlock('{ "title": "x", "blurb": "a blurb long enough", "renderable": false }'),
+      ],
+    ] as const) {
+      expect(() => readSpecForTest('probe', source), why).toThrow()
+    }
+    // …and the positive control, so the arm is not passing because everything throws.
+    expect(() =>
+      readSpecForTest('probe', withBlock('{ "title": "x", "blurb": "y", "renderable": true }')),
+    ).not.toThrow()
+  })
+
+  it('registers in id order, so there is no order for two branches to disagree about', () => {
+    expect([...shadeExamples].map((e) => e.id)).toEqual([...shadeExamples].map((e) => e.id).sort())
+  })
+
+  it('names a real EDSL example in every twinOf claim', () => {
+    const edsl = new Set(examples.map((e) => e.id))
+    const dangling = [...SHADE_TWINS.entries()].filter(([, twin]) => !edsl.has(twin))
+    expect(dangling).toEqual([])
+    expect(SHADE_TWINS.size).toBeGreaterThan(0)
   })
 
   it('each registration names its own file', () => {

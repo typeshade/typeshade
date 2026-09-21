@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Starfield (source twin)",
+  "blurb": "`starfield.ts` written in the source language: three parallax layers accumulated into one mutated `vec3` local across a `for` loop, each cell hashed for whether it holds a star.",
+  "renderable": true,
+  "twinOf": "starfield"
+}
+*/
+
 // The `"use typeshade"` twin of `starfield.ts`. `screenCoords` is a helper
 // function here rather than an import — see `plasma-twin.shade.ts` on the
 // repeated head.

@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A tuple and a branded alias",
+  "blurb": "A tuple is a list of a length the type fixes, which is what `array<T, N>` is, so `[f32, f32]` IS `array<f32, 2>` (§28): it is returned, taken as a parameter and written as a list at the call site, and the emitted WGSL and GLSL know only the array. A brand, `f32 & { readonly [m]: 'm' }`, is the nominal-typing idiom; it carries no data, so it is erased and the parameter is an f32.",
+  "renderable": true
+}
+*/
+
 // Two TypeScript shapes that carry no GPU meaning of their own, and so cost nothing to keep
 // (roadmap 0.3 item T10, #92).
 //

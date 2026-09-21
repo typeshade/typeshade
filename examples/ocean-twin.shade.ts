@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Ocean horizon (source twin)",
+  "blurb": "`ocean.ts` written in the source language: the fBm octave accumulator as a `for` loop over three mutated locals, where the EDSL mutates three auto-vars. Sky and sea both evaluated, blended by a horizon step.",
+  "renderable": true,
+  "twinOf": "ocean"
+}
+*/
+
 // The `"use typeshade"` twin of `ocean.ts`. See `plasma-twin.shade.ts` on the
 // repeated fullscreen head.
 

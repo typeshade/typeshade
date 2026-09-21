@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Block scope",
+  "blurb": "Two sequential loops over `i`, a `p` in a loop body beside a `p` in an `if` arm, and an inner `p` that shadows the outer one: the block scoping TypeScript has and the IR now follows, with the second declaration of each name emitted as `i_1`, `p_1` (#38). Also a float `%=` for GLSL ES 3.00 (#20) and a shift inside 0 to 31 (#71). Renders concentric rings.",
+  "renderable": true
+}
+*/
+
 // Block scope, the way TypeScript has it and the IR did not (#38): two sequential loops over
 // `i`, a `p` in a loop body beside a `p` in an `if` arm, and an inner `p` that shadows the
 // outer one. Before the fix the lowerer handed both bindings one name and the emit refused the

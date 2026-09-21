@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Builtin breadth",
+  "blurb": "`reflect`, `refract` and `faceForward` light a bump, `transpose` and `determinant` read the host matrix, and the bit builtins (`firstLeadingBit`, `reverseBits`, `countOneBits`, `extractBits`, `insertBits`) band the screen, with `fwidthCoarse` marking where a band starts (§10). GLSL ES 3.00 spells several of them differently and casts `findMSB` back to `uint`; the gate runs both.",
+  "renderable": true
+}
+*/
+
 // Builtin breadth (roadmap 0.2 item 8, §10): `reflect`, `refract` and `faceForward` light a
 // bump, `transpose` and `determinant` read the host's matrix, `ldexp` halves the diffuse term,
 // the bit builtins band the screen by the column's index, and `fwidthCoarse` draws a line where
