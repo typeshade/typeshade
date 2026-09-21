@@ -16,62 +16,11 @@
 // `select` whose cond folded to a bool literal → the chosen branch. These expose
 // the dead branches that dead-branch.ts then removes.
 
-import type { Expr, ModuleDecl, BinOp } from '../../ir/index.js'
+import type { Expr, ModuleDecl } from '../../ir/index.js'
 import { boolT } from '../../ir/index.js'
 import { mapModuleExprs } from './ir-transform.js'
-import { intElemOf, wrapInt } from './expr-utils.js'
+import { foldIntLit, intElemOf, wrapInt } from './expr-utils.js'
 import { BUILTINS } from '../../cpu-runtime.js'
-
-/** Fold two INTEGER literals with the target's semantics, not JavaScript's.
- *
- *  This arm exists because the float arm below is wrong for integers in three separate
- *  ways, each measured against gcc 13.3 -O2 and each reachable once const-prop has
- *  substituted two known constants:
- *    • DIVISION TRUNCATES. `i32 7 / 2` is 3, not 3.5 — and a fractional value carried in
- *      an i32-typed `lit` emits as the literal `3.5`, which is not an i32 at all. The u32
- *      spelling `3.5u` is not even WGSL grammar.
- *    • ARITHMETIC WRAPS. `i32 2147483647 + 1` is -2147483648 and `i32 100000 * 100000` is
- *      1410065408; folding in f64 kept 2147483648 and 10000000000, values the type cannot
- *      hold.
- *    • u32 IS UNSIGNED. `u32 0 - 1` is 4294967295. Folding in f64 produced `-1`, emitted
- *      as `-1u` — again not WGSL grammar, and a compile error rather than a wrong pixel.
- *  `%`, `&`, `|`, `^`, `<<`, `>>` were previously left unfolded entirely; they are folded
- *  here because on integers they are exactly as well-defined as `+`. Multiplication goes
- *  through `Math.imul`, which is the wrapping 32-bit product — `a * b` in f64 loses bits
- *  above 2^53 and would wrap the WRONG value. */
-function foldIntLit(bop: BinOp, a: number, b: number, elem: 'i32' | 'u32'): number | undefined {
-  const ua = elem === 'u32' ? a >>> 0 : a | 0
-  const ub = elem === 'u32' ? b >>> 0 : b | 0
-  switch (bop) {
-    case '+':
-      return wrapInt(ua + ub, elem)
-    case '-':
-      return wrapInt(ua - ub, elem)
-    case '*':
-      return wrapInt(Math.imul(ua, ub), elem)
-    case '/':
-      // Truncating division (C99 / WGSL). i32 INT_MIN / -1 overflows; wrapInt gives
-      // INT_MIN back, which is what the hardware produces.
-      return ub === 0 ? undefined : wrapInt(Math.trunc(ua / ub), elem)
-    case '%':
-      // JS `%` truncates toward zero, same as C and WGSL: -7 % 2 === -1.
-      return ub === 0 ? undefined : wrapInt(ua % ub, elem)
-    case '&':
-      return wrapInt(ua & ub, elem)
-    case '|':
-      return wrapInt(ua | ub, elem)
-    case '^':
-      return wrapInt(ua ^ ub, elem)
-    // A shift count outside [0, 31] is not folded: JS masks it to 5 bits, and leaning on
-    // that would bake one interpretation of a case the targets do not agree on.
-    case '<<':
-      return ub < 0 || ub > 31 ? undefined : wrapInt(ua << ub, elem)
-    case '>>':
-      return ub < 0 || ub > 31 ? undefined : wrapInt(elem === 'u32' ? ua >>> ub : ua >> ub, elem)
-    default:
-      return undefined
-  }
-}
 
 /** The builtins with one correct answer, folded over scalar literals (issue #73). Each of
  *  these is exact on every target, so the value JS computes is the value the GPU computes,
@@ -94,7 +43,39 @@ const EXACT_BUILTINS: ReadonlySet<string> = new Set([
   'step',
 ])
 
+/** An INTEGER conversion of an integer literal, folded to the literal the target holds (#154).
+ *
+ *  This is not an optimization; it is the only spelling of the conversion both targets accept.
+ *  WGSL spells a concrete `i32` literal with an `i` suffix and this backend deliberately does
+ *  not, so an i32 literal in the emitted module is an ABSTRACT integer — and an AbstractInt
+ *  argument to `u32()` must be representable in `u32`. Measured on Tint: `u32(-1)` is "value -1
+ *  cannot be represented as 'u32'" while `u32(-1i)` compiles, and GLSL ES 3.00 compiles
+ *  `uint(-1)` and answers 4294967295. Once const-prop has substituted a negative `i32` const
+ *  into a `u32()` call, the module Tint sees is the one it refuses, and the compile gate cannot
+ *  reach it because nothing in the source said `-1`.
+ *
+ *  Folding removes the question: `u32(-1)` becomes the literal `4294967295u`, which is the
+ *  value BOTH targets compute for the conversion and which needs no suffix to say what it is.
+ *  The wrap is {@link wrapInt}, the same reinterpretation the hardware performs and the one
+ *  {@link foldIntLit} already uses for arithmetic. A FLOAT operand is not folded here: an
+ *  out-of-range float conversion is where the two targets genuinely differ, and the front end
+ *  refuses that one rather than picking a winner. */
+function foldIntConvert(e: Extract<Expr, { op: 'call' }>): Expr | undefined {
+  if (e.declRef !== undefined || (e.fn !== 'i32' && e.fn !== 'u32')) return undefined
+  const to = intElemOf(e.type)
+  if (to === undefined || e.args.length !== 1) return undefined
+  const arg = e.args[0]!
+  if (arg.op !== 'lit' || typeof arg.value !== 'number') return undefined
+  const from = intElemOf(arg.type)
+  if (from === undefined) return undefined
+  return { op: 'lit', type: e.type, value: wrapInt(arg.value, to) }
+}
+
 function foldNode(e: Expr): Expr {
+  if (e.op === 'call') {
+    const converted = foldIntConvert(e)
+    if (converted) return converted
+  }
   if (
     e.op === 'call' &&
     e.declRef === undefined &&

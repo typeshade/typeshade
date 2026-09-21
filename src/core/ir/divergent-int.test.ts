@@ -68,6 +68,26 @@ describe('the divergent integer builtins pick the same id on both authoring surf
     expect(cpu.fns.dot_i!([2147483647, 1, 0], [1, 1, 0])).toBe(-2147483648)
   })
 
+  it('parenthesises the unsigned abs under minimal parens, where its column is its argument', () => {
+    // `absU`'s GLSL spelling is the argument with no call around it, which is the most extreme
+    // re-embedding in the registry: the emit walk renders an argument at the LOOSEST precedence
+    // because an argument slot reparses anything. Under the default `parens: 'full'` every
+    // operand is bracketed anyway and nothing shows; under `parens: 'minimal'`, which is what
+    // `emit-prod` ships, the template was handed a bare `n - 1u` and spliced it into a
+    // multiply: `abs(n - 1) * n` became `n - 1u * n` — different arithmetic, no diagnostic,
+    // measured as different pixels on a real driver. `atomArgs: true` is what makes the walk
+    // wrap it, and THIS mode is the one that would catch its removal.
+    const shade = fn('shade', { n: u32T }, ({ n }) => abs(n.sub(1)).mul(n))
+    const m = module({ funcs: [shade.decl] })
+    const minimal = emitGlslModule(m, undefined, { parens: 'minimal' })
+    expect(minimal).toContain('(n - 1u) * n')
+    expect(minimal).not.toMatch(/[^(]n - 1u \* n/)
+    // `atomArgs` is a property of the ID, not of one target's column, so the WGSL call gets
+    // the same bracket it does not need. One redundant pair on the target whose spelling is a
+    // real call is the price of the rule being one rule.
+    expect(emitModule(m, { parens: 'minimal' })).toContain('abs((n - 1u)) * n')
+  })
+
   it('agrees with the "use typeshade" front end, id for id', () => {
     const r = compile(`"use typeshade"
 @fragment

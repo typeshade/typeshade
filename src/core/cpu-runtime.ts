@@ -635,10 +635,16 @@ export const BUILTINS: Record<string, Builtin> = {
   // `abs` on an unsigned value is the identity, and the integer `dot` is the sum of the
   // component-wise products (#154). Their own ids because GLSL ES 3.00 spells neither.
   absU: (x) => x,
-  // Every multiply and every add wraps at 32 bits, as both targets do. Reducing in doubles and
-  // wrapping once at the end is not the same function: a component product past 2^53 is rounded
-  // before the wrap, and `dot(vec2i(2147483647, 1), vec2i(2147483647, 1))` came out 0 here
-  // against 2 on Tint AND 2 on a WebGL2 driver. `Math.imul` is the 32-bit multiply.
+  // Every multiply and every add wraps at 32 bits. Reducing in doubles and wrapping once at the
+  // end is not the same function: a component product past 2^53 is rounded before the wrap, and
+  // `dot(vec2i(2147483647, 1), vec2i(2147483647, 1))` came out 0 here against 2 on Tint AND 2
+  // on a WebGL2 driver. `Math.imul` is the 32-bit multiply.
+  //
+  // The two signednesses are backed differently, and the difference is worth naming. WGSL
+  // MANDATES the wrap for `i32` and for `u32` alike, and GLSL ES 3.00 mandates it for `uint`;
+  // for `int` it leaves overflow UNDEFINED (§4.1.3). So `dotU` is spec-backed on both targets,
+  // and `dotI` matches WGSL's rule and the driver measured above rather than a guarantee GLSL
+  // gives. The determinism report is where that asymmetry is recorded for an author.
   dotI: (a, b) => {
     const xs = a as number[]
     const ys = b as number[]

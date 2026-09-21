@@ -3132,56 +3132,71 @@ are there, and they return `i32` and `u32`.
 
 ### The scalar conversions
 
-`u32(e)`, `i32(e)` and `f32(e)` take a SCALAR, and a literal the target can hold:
+`u32(e)`, `i32(e)` and `f32(e)` take a SCALAR, and a FLOAT the target can hold:
 
 ```
-u32(-1) is out of range: a u32 holds 0 to 4294967295. The two targets compute different values
-for one that does not: measured, u32(-1.) is 0 on WGSL and 4294967295 on GLSL ES 3.00. Clamp it
-first if you want one answer, e.g. u32(clamp(x, 0., 1.)).
+u32(-1) is out of range: a u32 holds 0 to 4294967295, and the two targets compute different
+values for a float that does not. Measured: u32(-1.) is 0 on WGSL and 4294967295 on GLSL ES
+3.00, and u32(4.3e9) is 4294967295 there and 5032960 here. Clamp it first if you want one
+answer, e.g. u32(clamp(x, 0., 4294967295.)).
 
 f32() takes a scalar; got vec3<f32>. A vector is converted component-wise by its own
 constructor, e.g. vec3(v).
 ```
 
-Both used to go through. `u32(-1)` emitted `u32(-1.0)` — a negated literal is not a literal, so
-the fold that retypes one never saw it — and Tint accepts that while refusing the `u32(-1)` the
-author actually wrote. `f32(vec3(...))` is the sharper case: Tint refuses it outright, and a
-WebGL2 driver compiles `float(vec3)` and silently takes `.x`. The two targets did not differ on
-a corner; they disagreed about whether the program existed.
+Both used to go through. A bare `-1` is an `f32` on this surface, so `u32(-1)` emitted the FLOAT
+conversion `u32(-1.0)` — a value the two targets define and define differently. `f32(vec3(...))`
+is the sharper case: Tint refuses it outright, and a WebGL2 driver compiles `float(vec3)` and
+silently takes `.x`. The two targets did not differ on a corner; they disagreed about whether
+the program existed.
 
-The refusal names the reason the OPERAND'S OWN TYPE gives, because the two are different
-failures. A bare `-1` is an `f32` on this surface, so `u32(-1)` would emit the float conversion,
-which both targets define and define differently — measured, `u32(-1.)` is 0 on WGSL and
-4294967295 on GLSL ES 3.00, and `u32(4.3e9)` is 4294967295 there and 5032960 here. An INTEGER
-that does not fit is not a divergence at all: it is a WGSL shader-creation error, and the
-message says so and does not suggest a `clamp` the type would refuse.
+The refusal is for FLOATS only, and that is a measurement rather than a simplification.
 
-### A const is a value, a `let` is a conversion
+### An integer conversion is a reinterpretation, not a range check
 
-The rule folds a reference, not just a spelled-out literal, because that is the shape that
-reached a driver:
+`u32(i)` on an `i32` — and `i32(u)` on a `u32` — is a bit reinterpretation. Both targets perform
+it and both agree on the answer:
+
+| spelling | WGSL (Tint) | GLSL ES 3.00 (WebGL2) |
+| --- | --- | --- |
+| `u32(-1i)` | accepts, 4294967295 | `uint(-1)` accepts, 4294967295 |
+| `i32(4294967295u)` | accepts, -1 | `int(4294967295u)` accepts, -1 |
+| `u32(-1)` | **"value -1 cannot be represented as 'u32'"** | `uint(-1)` accepts |
+
+The last row is the whole problem, and it is about the SPELLING. An unsuffixed integer literal
+in WGSL is an *abstract* integer, and an abstract integer has to be representable in whatever it
+is converted to; with the `i` suffix it is a concrete `i32` and the conversion is the ordinary
+reinterpretation. This backend writes `u32` literals with their `u` and `i32` literals with no
+suffix at all, so once const propagation had substituted a negative `i32` constant into a
+`u32()` call, the module Tint saw was the one it refuses — and nothing said so, because nothing
+in the author's file said `-1`.
+
+So the conversion is FOLDED rather than refused. `u32(-1)` becomes the literal `4294967295u`,
+which is the value both targets compute and which needs no suffix to say what it is:
 
 ```ts
 const k: i32 = -1;
-const bits = u32(k); // refused; this EMITTED u32(-1), which Tint rejects outright
+const bits = u32(k); // emits 4294967295u on WGSL and 4294967295u on GLSL ES 3.00
 ```
 
-Const propagation writes the value into the call before either backend sees it, so the call the
-author wrote is not the call the driver reads. Nothing in the pipeline had an opinion about it:
-Tint rejected the module and GLSL ES 3.00 compiled `uint(-1)` and answered `0xFFFFFFFF`. A local
-`const` also carries the value a FOLDED literal initializer has now, so `const k = -1.` — a
-negated literal, and therefore not a literal — is a compile-time value to every rule that reads
-one, this one included.
+The fold wraps the way the hardware wraps, and that matters more than it sounds. The compile-time
+folder used to work in doubles while the const-fold pass worked in 32-bit integers, so the two
+disagreed about the same expression: `i32 100000 * 100000` is 1410065408 on both targets and
+10000000000 in doubles, `u32 0 - 1` is 4294967295 there and -1 here, and `i32 1 / 2` is 0 there
+and 0.5 here. Both now use one helper, so a rule that compares a compile-time value against what
+the GPU will compute is comparing the same number.
 
-A RUNTIME conversion is untouched, and it is the escape hatch:
+A RUNTIME conversion is untouched:
 
 ```ts
 let k: i32 = -1;
-const bits = u32(k); // fine: bit-preserving on WGSL and on GLSL ES 3.00, one answer
+const bits = u32(k); // stays a conversion: bit-preserving on WGSL and on GLSL ES 3.00
 ```
 
-A mutable binding has no compile-time value, so `u32(k)` stays a conversion both targets agree
-on. An in-range const keeps its call too — the fold decides the CHECK, not the emitted text.
+A mutable binding has no compile-time value, so nothing folds and the call is emitted as
+written. On the float side a local `const` now carries whatever the compile-time folder can
+compute — a negated literal, an alias of another const, a `Math.floor(...)` — so the divergent
+`u32(-1.)` is caught through a reference as well as when it is spelled out.
 
 An emulated double is a scalar for this rule, so `f32(f64(x))` is the narrowing it has always
 been. And an integer-written literal in a builtin that has no float form is typed `i32`, the way

@@ -181,17 +181,31 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 - **The scalar conversions take a scalar, and a literal that fits** (§45, #154). `u32(-1)`
   emitted `u32(-1.0)` — a negated literal is not a literal, so the fold that retypes one never
   saw it — and Tint accepts that while refusing the `u32(-1)` the author wrote; it is now
-  `u32(-1) is out of range: a u32 holds 0 to 4294967295. …`, with the rest of the sentence
-  naming the reason the operand's own type gives: an INTEGER that does not fit is a WGSL
-  shader-creation error, while a FLOAT that does not fit is defined on both targets and defined
-  differently (measured, `u32(-1.)` is 0 on WGSL and 4294967295 on GLSL ES 3.00). The rule folds
-  a `const` REFERENCE too, which is the shape that actually reached a driver: const propagation
-  writes `const k: i32 = -1` into the call before either backend sees it, so `u32(k)` emitted
-  the `u32(-1)` Tint refuses, with no diagnostic anywhere. A local const now
-  carries the value a folded literal initializer has, so an unannotated `const k = -1.` — a
-  negated literal, and therefore not a literal — is a compile-time value to every rule that
-  reads one. A RUNTIME conversion is untouched: `let k: i32 = -1; u32(k)` is bit-preserving on
-  both targets, one answer, and stays a call. `f32(vec3(...))` was accepted by
+  `u32(-1) is out of range: a u32 holds 0 to 4294967295, and the two targets compute different
+values for a float that does not. …`, with the two numbers each of them answers and a `clamp`
+  example carrying the TARGET's own bounds. The refusal is for FLOATS, because that is where the
+  two targets disagree: measured, `u32(-1.)` is 0 on WGSL and 4294967295 on GLSL ES 3.00, and
+  `u32(4.3e9)` is 4294967295 there and 5032960 here. It reaches a `const` REFERENCE as well as a
+  spelled-out literal, which is the shape that actually got to a driver — const propagation
+  writes the value into the call before either backend sees it — so a negated literal, an alias
+  of another const and a `Math.floor(…)` initializer are all values the rule can see. A RUNTIME
+  conversion is untouched: `let k: i32 = -1; u32(k)` stays a call, bit-preserving on both.
+- **An integer conversion is folded, not range-checked** (§45, #154). `u32(i)` on an `i32` is a
+  bit REINTERPRETATION, and both targets perform it and agree: measured, `u32(-1i)` compiles on
+  Tint and is 4294967295, and a WebGL2 driver compiles `uint(-1)` and answers 4294967295 too.
+  What Tint refuses is the unsuffixed `u32(-1)`, because an unsuffixed integer literal is an
+  ABSTRACT integer and an abstract integer must be representable in its target — a fact about
+  the spelling, not about the program. This backend writes `u32` literals with their `u` and
+  `i32` literals with no suffix, so once const propagation had substituted a negative `i32`
+  constant into a `u32()` call, the module Tint saw was the one it refuses, with nothing in the
+  author's file saying `-1`. The conversion is now folded to the literal it yields — `u32(-1)`
+  is emitted as `4294967295u` — so no spelling Tint refuses is produced and no legal program is
+  turned away. The fold WRAPS the way the hardware wraps, through the same helper the const-fold
+  pass uses: the compile-time folder worked in doubles while the pass worked in 32-bit integers,
+  so the two disagreed about the same expression (`i32 100000 * 100000` is 1410065408 on both
+  targets and 10000000000 in doubles, `i32 1 / 2` is 0 there and 0.5 here), and every rule that
+  compares a compile-time value against what the GPU will compute was comparing the wrong one.
+- **The scalar conversions, continued.** `f32(vec3(...))` was accepted by
   the surface, refused by Tint ("no matching constructor") and compiled by a WebGL2 driver as
   `float(vec3)`, which silently takes `.x` — the two targets disagreed about whether the
   program existed, and it is now `f32() takes a scalar; got vec3<f32>.` An emulated double is a
@@ -214,7 +228,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   generated code, and GLSL ES 3.00 silently rounds. An author now reads one sentence naming the
   cast in their own file: `textureSampleLevel level must be an f32; got i32. Write f32(l).`,
   `textureStore on a texture_storage_2d<rgba8unorm, write> takes a vec2 coordinate; got
-  vec3<i32>.` A sampled read takes a normalised `f32` coordinate, a texel fetch a whole `i32` or
+vec3<i32>.` A sampled read takes a normalised `f32` coordinate, a texel fetch a whole `i32` or
   `u32` one, a layer, mip level and sample index an integer, and a `level`, `bias` and
   `depth_ref` an `f32`. A BARE number is still retargeted rather than refused, because it has no
   type of its own on this surface — `textureSampleLevel(t, s, uv, 0)` still emits `0.0` and
@@ -238,8 +252,8 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   — recognised by the argument's own type, because that rule is about the RESOURCE and
   `textureLoad` is the id a sampled texture uses too. A `"read"` storage texture and every
   sampled fetch stay legal in a vertex entry. The refusal is `"atomicAdd" is only valid in a
-  fragment or compute shader; "vs" is a vertex entry. WGSL allows an atomic built-in in a
-  fragment or compute stage only.`; `textureStore`'s wording moved from "is not valid in a
+fragment or compute shader; "vs" is a vertex entry. WGSL allows an atomic built-in in a
+fragment or compute stage only.`; `textureStore`'s wording moved from "is not valid in a
   vertex shader" to the same shape. `FRAGMENT_ONLY_CALLS` and the new
   `FRAGMENT_OR_COMPUTE_CALLS` are exported for the derivative-uniformity walk to seed from, and
   the front end's table and the lint's are pinned EQUAL by a test that derives what they should

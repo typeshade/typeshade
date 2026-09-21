@@ -23,7 +23,7 @@ import { lowerFor, lowerSwitch, lowerUpdate, lowerWhile } from './control.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { withSpan } from '../span.js'
 import { foldNumericLit } from '../lit-coerce.js'
-import { foldConstNumber, foldConstComponents } from '../loop-bound.js'
+import { foldConstNumber, foldConstComponents, foldConstValue } from '../loop-bound.js'
 import { TS_CODES, type TsCode } from '../codes.js'
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -377,13 +377,14 @@ function lowerVariableDeclaration(
     return undefined
   }
   const bindingType = annotated ?? init.type
-  // Folded, not just `init.op === 'lit'`: a NEGATED literal is a unop, so `const k = -1.` used
-  // to carry no compile-time value at all while the const-propagation pass still substituted
-  // it downstream — which is how `u32(k)` reached the backend as the divergent `u32(-1.0)` with
-  // no diagnostic (#154). `foldNumericLit` is the same fold the scalar cast runs on a literal
-  // argument, so a const binding now knows exactly what a spelled-out literal would.
-  const folded = foldNumericLit(init)
-  const constValue = folded.op === 'lit' ? folded.value : undefined
+  // Folded through the SCOPE, not just `init.op === 'lit'` (#154). A negated literal is a unop,
+  // an alias is a varref and `Math.floor(-1.5)` is a call, so all three used to leave the
+  // binding with no compile-time value at all while the const-propagation pass substituted one
+  // downstream regardless — which is how `u32(k)` reached a backend as a conversion nothing had
+  // checked. `foldConstValue` is the folder every other compile-time rule already uses (loop
+  // bounds, the zero-divisor proof), so a const binding now knows exactly what they know, with
+  // the same integer wrap the emitted module carries.
+  const constValue = foldConstValue(init, scope)
   // `const a = src` keeps the name it copies, so `a.length` on a storage array is answered the
   // way `src.length` is (#46). Only a bare name; an element or a field is a different value.
   const aliasOf = init.op === 'varref' ? init.name : undefined
