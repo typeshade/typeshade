@@ -425,7 +425,7 @@ export function lowerCall(
   }
 
   if (intrinsicId !== undefined && TEXTURE_CALLS.has(intrinsicId)) {
-    return lowerTextureCall(intrinsicId, args, node, sourceFile, diagnostics)
+    return lowerTextureCall(intrinsicId, args, node, sourceFile, scope, diagnostics)
   }
   if (intrinsicId !== undefined && BIT_CALLS.has(intrinsicId)) {
     return lowerBitBuiltinCall(intrinsicId, args, node, sourceFile, diagnostics)
@@ -919,8 +919,41 @@ function lowerStorageTextureCall(
   const texel: ShaderType = { kind: 'vec', n: 4, elem: storageTexel(tex.format) }
   const shown = typeKey(tex)
   if (id === 'textureDimensions') {
+    // NO mip level here, unlike every sampled and depth texture. A storage texture has exactly
+    // one level, and WGSL gives its `textureDimensions` no level overload at all — measured on
+    // Tint: `no matching call to 'textureDimensions(texture_storage_2d<r32float, read>, u32)'`,
+    // against 33 candidates. So the extra argument is refused where it is written rather than
+    // emitted for Tint to reject.
+    if (args.length > 1) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureDimensions on a ${shown} takes the texture alone: a storage texture has one ` +
+          `mip level, so there is no level to ask for.`,
+        TS_CODES.ARITY_MISMATCH,
+      )
+      return undefined
+    }
     return arity(id, args, 1, node, sourceFile, diagnostics)
       ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
+      : undefined
+  }
+  if (id === 'textureNumLayers') {
+    // A storage ARRAY has layers, and answering "takes a sampled texture … has no sampler" was
+    // the wrong reason as well as the wrong answer (wgsl.txt:24360; measured accepted on Tint).
+    if (!isArray) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureNumLayers needs a texture_storage_2d_array; "${shown}" has no layers.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return arity(id, args, 1, node, sourceFile, diagnostics)
+      ? { op: 'call', type: u32T, fn: 'textureNumLayersStorage', args: [...args] }
       : undefined
   }
   if (id === 'textureLoad') {
@@ -1030,9 +1063,8 @@ function lowerDepthTextureCall(
   const shown = typeKey(tex)
   if (id === 'textureDimensions') {
     // A cube's size is the size of one face, two wide on both targets, so it keeps the 2d id.
-    return arity(id, args, 1, node, sourceFile, diagnostics)
-      ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
-      : undefined
+    const out = dimsArgs(id, args, node, sourceFile, diagnostics)
+    return out ? { op: 'call', type: vec2uT, fn: id, args: out } : undefined
   }
   if (id === 'textureNumLayers') {
     if (!isArray) {
@@ -1134,12 +1166,13 @@ function lowerTextureCall(
   args: readonly Expr[],
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
+  scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   // A gather takes its texture SECOND on a colour texture, after the component (roadmap 0.4
   // item 12), so it is routed before anything below reads args[0] as the texture.
   if (id === 'textureGather' || id === 'textureGatherCompare') {
-    return lowerGatherCall(id, args, node, sourceFile, diagnostics)
+    return lowerGatherCall(id, args, node, sourceFile, scope, diagnostics)
   }
   const tex = args[0]
   // A storage texture is read and written by texel coordinate (roadmap 0.4 item 10), so the
@@ -1216,16 +1249,18 @@ function lowerTextureCall(
     return undefined
   }
   switch (id) {
-    case 'textureDimensions':
-      if (!arity(id, args, 1, node, sourceFile, diagnostics)) return undefined
+    case 'textureDimensions': {
+      const out = dimsArgs(id, args, node, sourceFile, diagnostics)
+      if (!out) return undefined
       // A 3d texture's size is three wide, and its own id on GLSL (`uvec3` where the 2d wrapper
       // is `uvec2`); a cube's is the size of one face, two wide on both targets (item 12).
       // A 1d texture's size is ONE wide, a u32, and its own id for the same reason (item 12).
       if (tex.type.dim === '1d')
-        return { op: 'call', type: u32T, fn: 'textureDimensions1d', args: [...args] }
+        return { op: 'call', type: u32T, fn: 'textureDimensions1d', args: out }
       return tex.type.dim === '3d'
-        ? { op: 'call', type: vec3uT, fn: 'textureDimensions3d', args: [...args] }
-        : { op: 'call', type: vec2uT, fn: id, args: [...args] }
+        ? { op: 'call', type: vec3uT, fn: 'textureDimensions3d', args: out }
+        : { op: 'call', type: vec2uT, fn: id, args: out }
+    }
     case 'textureNumSamples':
       pushDiag(
         diagnostics,
@@ -1403,7 +1438,20 @@ function lowerTextureCall(
       )
       if (!level) return undefined
       out[levelIndex] = level
-      return { op: 'call', type: texel, fn: isArray ? 'textureLoadArray' : id, args: out }
+      // An UNSIGNED coordinate takes a wrapping id: GLSL's `texelFetch` has no unsigned
+      // overload (measured), so the coordinate is wrapped in the signed constructor of the
+      // texture's own width. The signed ids are the ones every existing program already uses.
+      const unsignedCoord = out[1]!.type.kind === 'vec' && out[1]!.type.elem === 'u32'
+      const fn = isArray
+        ? unsignedCoord
+          ? 'textureLoadArrayU'
+          : 'textureLoadArray'
+        : unsignedCoord
+          ? tex.type.dim === '3d'
+            ? 'textureLoad3dU'
+            : 'textureLoadU'
+          : id
+      return { op: 'call', type: texel, fn, args: out }
     }
     default:
       return undefined
@@ -1491,6 +1539,19 @@ function arraySuffix(dim: string): '' | 'Array' | 'CubeArray' {
   return dim === '2d-array' ? 'Array' : dim === 'cube-array' ? 'CubeArray' : ''
 }
 
+/** The gather component folded to a literal: a written number, or a module `const` whose value
+ *  is a scalar. WGSL takes any const-expression (wgsl.txt:23916-23925); these two are the ones
+ *  this surface can prove. */
+function foldConstComponent(arg: Expr, scope: LoweringScope): Expr {
+  if (arg.op === 'constref') {
+    const binding = scope.resolve(arg.name)
+    if (binding?.kind === 'module' && typeof binding.constValue === 'number') {
+      return { op: 'lit', type: arg.type, value: binding.constValue }
+    }
+  }
+  return foldNumericLit(arg)
+}
+
 /** `textureGather(component, tex, smp, coords[, layer])` on a colour texture,
  *  `textureGather(tex, smp, coords[, layer])` on a depth texture, and
  *  `textureGatherCompare(tex, smp, coords[, layer], ref)` on a depth texture through a comparison
@@ -1509,6 +1570,7 @@ function lowerGatherCall(
   args: readonly Expr[],
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
+  scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const at = args.findIndex((a) => a.type.kind === 'texture' || a.type.kind === 'depth-texture')
@@ -1561,7 +1623,11 @@ function lowerGatherCall(
       )
       return undefined
     }
-    const lit = foldNumericLit(args[0]!)
+    // WGSL asks for a const-EXPRESSION here, not a literal (wgsl.txt:23916-23925): a module
+    // `const C = 1` used as the component is a program Tint accepts (measured), and this
+    // refused it for being "not written in the call". A module const's scalar value is on its
+    // binding, so folding one is a lookup.
+    const lit = foldConstComponent(args[0]!, scope)
     if (
       lit.op !== 'lit' ||
       typeof lit.value !== 'number' ||
@@ -1573,8 +1639,9 @@ function lowerGatherCall(
         diagnostics,
         sourceFile,
         node.arguments[0]!,
-        `textureGather's component must be a whole number from 0 to 3 written in the call ` +
-          `(0 is red, 3 is alpha); WGSL requires a constant there and refuses any other value.`,
+        `textureGather's component must be a whole number from 0 to 3 known at compile time ` +
+          `(0 is red, 3 is alpha): a literal, or a module const. WGSL requires a ` +
+          `const-expression there and refuses any other value.`,
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined
@@ -1864,6 +1931,38 @@ function intArg(
   }
   if (typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32') return lit
   return { op: 'lit', type: want, value: v }
+}
+
+/** `textureDimensions(t)` or `textureDimensions(t, level)` (#147, wgsl.txt:23649). The level
+ *  is optional and is an INTEGER: WGSL types it `i32` or `u32`, and the GLSL column already
+ *  spells the 2-argument form as `textureSize(t, int(level))`, so nothing new is needed on
+ *  either target — the front end simply refused the second argument as an arity error.
+ *
+ *  Measured accepted on Tint (`textureDimensions(t, 0)` and with a `u32` variable) and on a
+ *  WebGL2 driver (`uvec2(textureSize(t, int(0)))`, and with a non-constant level).
+ *
+ *  Returns the arguments to emit, or undefined when it has reported. */
+function dimsArgs(
+  id: string,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr[] | undefined {
+  if (args.length === 1) return [...args]
+  if (args.length !== 2) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} on a ${typeKey(args[0]!.type)} expects 1 argument(s), or 2 with an explicit mip ` +
+        `level, got ${args.length}.`,
+      TS_CODES.ARITY_MISMATCH,
+    )
+    return undefined
+  }
+  const level = intArg(id, args[1]!, node.arguments[1]!, u32T, 'mip level', sourceFile, diagnostics)
+  return level ? [args[0]!, level] : undefined
 }
 
 /** One arity check, with the message naming what the texture's own shape requires — an array

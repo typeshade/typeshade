@@ -542,6 +542,31 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) =>
       a.length >= 3 ? `texelFetch(${a[0]}, ${a[1]}, int(${a[2]}))` : `texelFetch(${join(a)})`,
   },
+  // WGSL's texel coordinate is "i32, or u32" (wgsl.txt:24129); GLSL's `texelFetch` takes a
+  // SIGNED one only. Measured on a WebGL2 driver: `texelFetch(t, uvec2(0u, 0u), 0)` is "no
+  // matching overloaded function found", while `texelFetch(t, ivec2(uvec2(0u, 0u)), 0)`
+  // compiles. So an UNSIGNED coordinate gets its own ids, which wrap it in the signed
+  // constructor of the texture's own width; the signed ids above are untouched, and no emit
+  // that already worked moves a byte. The width is the texture's and the registry sees
+  // argument STRINGS, which is why it is an id per width — as `textureDimensions3d` is.
+  textureLoadU: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) =>
+      a.length >= 3
+        ? `texelFetch(${a[0]}, ivec2(${a[1]}), int(${a[2]}))`
+        : `texelFetch(${a[0]}, ivec2(${a[1]}), 0)`,
+  },
+  textureLoad3dU: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) =>
+      a.length >= 3
+        ? `texelFetch(${a[0]}, ivec3(${a[1]}), int(${a[2]}))`
+        : `texelFetch(${a[0]}, ivec3(${a[1]}), 0)`,
+  },
+  textureLoadArrayU: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) => `texelFetch(${a[0]}, ivec3(ivec2(${a[1]}), int(${a[2]})), int(${a[3]}))`,
+  },
   // GLSL textureSize REQUIRES an int lod (WGSL textureDimensions(t) defaults to base
   // level 0); supply 0 when absent, else cast the given level to int. WGSL
   // textureDimensions returns vec2<u32> but GLSL textureSize returns a SIGNED ivec2 —
@@ -724,6 +749,18 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   textureNumLayers: {
     wgsl: (a) => `textureNumLayers(${join(a)})`,
     glsl: (a) => `uint(textureSize(${a[0]}, 0).z)`,
+  },
+  // The layer count of a STORAGE array (#147, wgsl.txt:24360; measured accepted on Tint). Its
+  // own id because a storage texture has no mip levels: GLSL's `imageSize` takes no level and
+  // is ES 3.10 anyway, so the whole storage family fails closed on GLSL through the
+  // `storageTexture` capability and this column is never reached.
+  textureNumLayersStorage: {
+    wgsl: (a) => `textureNumLayers(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: a storage texture has no GLSL ES 3.00 spelling (image load/store is ES 3.10)',
+      )
+    },
   },
   // The fp64 anti-fast-math guard VALUE (runtime 1.0), spelled as a texel
   // fetch from the injected `_fp64` 1×1 texture (passes/fp64-lower.ts owns

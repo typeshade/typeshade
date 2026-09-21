@@ -768,6 +768,15 @@ export const GPU_STUBS: Record<string, Builtin> = {
   dpdyCoarse: (x) => zeroLike(x),
   dpdyFine: (x) => zeroLike(x),
   textureLoad: () => [0, 0, 0, 1],
+  // The UNSIGNED-coordinate fetch ids (#147). They differ from the signed ones only in the
+  // GLSL column, which wraps the coordinate in the signed constructor GLSL's `texelFetch`
+  // takes, so the oracle answers exactly what the signed ids answer.
+  textureLoadU: () => [0, 0, 0, 1],
+  textureLoad3dU: () => [0, 0, 0, 1],
+  textureLoadArrayU: () => [0, 0, 0, 1],
+  // The layer count of a storage array (#147): a fact about the binding the host made, which
+  // the oracle has no memory of, so it is a stub like the reads.
+  textureNumLayersStorage: () => 1,
   // 2d-array reads (X-GIS #1651) — same placeholder/throw contract as their 2d twins:
   // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.
   textureSampleArray: () => [0, 0, 0, 1],

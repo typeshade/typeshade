@@ -368,16 +368,44 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     expect(r.wgsl).toContain('textureGather(0, atlas, smp,')
   })
 
-  it('refuses a component that is not a whole number from 0 to 3 written in the call', () => {
+  it('refuses a component that is not a whole number from 0 to 3 known at compile time', () => {
     expect(errorsOf(fragment(`  return textureGather(4, atlas, smp, p.xy)`))[0]).toContain(
-      "textureGather's component must be a whole number from 0 to 3 written in the call",
+      "textureGather's component must be a whole number from 0 to 3 known at compile time",
     )
+    // A LOCAL is not a const-expression: its value is not known until the shader runs.
     expect(
       errorsOf(
         fragment(`  const c = 1
   return textureGather(c, atlas, smp, p.xy)`),
       )[0],
-    ).toContain('written in the call')
+    ).toContain('known at compile time')
+  })
+
+  it('takes a module const as the gather component', () => {
+    // WGSL asks for a const-EXPRESSION, not a literal (wgsl.txt:23916-23925), and
+    // `textureGather(C, t, s, uv)` with a module `const C: i32 = 1` is measured accepted on
+    // Tint. It used to be refused for not being "written in the call".
+    const r = compile(`"use typeshade"
+${DECLS}
+const CHANNEL = 1
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  return textureGather(CHANNEL, atlas, smp, p.xy)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([])
+    expect(r.wgsl).toContain('textureGather(1, atlas, smp,')
+    // Out of range is still out of range, wherever the value came from.
+    expect(
+      errorsOf(`"use typeshade"
+${DECLS}
+const CHANNEL = 9
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  return textureGather(CHANNEL, atlas, smp, p.xy)
+}
+`)[0],
+    ).toContain('known at compile time')
   })
 
   it('refuses a component on a depth texture, and its absence on a colour one', () => {

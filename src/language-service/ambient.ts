@@ -637,27 +637,47 @@ declare const samplerTag: unique symbol
  * which is exactly what the compiler enforces. \`E\` is the sampled element kind and
  * \`A\` whether the view is an array, so \`textureNumLayers\` can refuse a plain 2D texture in
  * the editor the way the compiler refuses it. */
-type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
-type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
+/** What a sampled texture's element may be: "T must be f32, i32, or u32" (wgsl.txt:7047-7048).
+ * It was unconstrained, so \`texture_2d<bool>\` typechecked in the editor while the compiler
+ * refused it. */
+type TextureElem = f32 | i32 | u32
+/** The \`vec4\` a texel fetch yields, by the texture's element: WGSL's \`textureLoad\` returns
+ * \`vec4<T>\` (wgsl.txt:24137-24176), and every overload used to say \`vec4\`, so a fetch from a
+ * \`texture_2d<u32>\` read as an f32 vector in the editor. Keyed on \`keyof\` for the reason
+ * \`VecElemOf\` is: the scalar brands are optional properties and so are mutually assignable. */
+type VecOfElem<E> = typeof u32Tag extends keyof E
+  ? vec4u
+  : typeof i32Tag extends keyof E
+    ? vec4i
+    : vec4
+/** A texel coordinate: WGSL takes "i32, or u32" (wgsl.txt:24129) and the ambient overloads took
+ * the signed one alone, so \`textureLoad(t, vec2u(...), 0)\` — which Tint accepts, measured —
+ * was red in the editor and green in the compiler. */
+type IVec2 = vec2i | vec2u
+type IVec3 = vec3i | vec3u
+type texture_2d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, false] }
+type texture_2d_array<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, true] }
 /** A cube texture is six faces looked up by a DIRECTION, and a 3D texture a volume addressed
- * by a \`vec3\` coordinate; both are core in both targets (roadmap 0.4 item 12). A cube is
- * only ever sampled, since neither target has a texel fetch for one, so its element is
- * \`f32\` alone: the editor refuses \`texture_cube<u32>\` here and the compiler says why. */
-type texture_cube<E = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
-type texture_3d<E = f32> = { readonly [textureTag]: readonly [E, '3d'] }
+ * by a \`vec3\` coordinate. A cube's element is not \`f32\` alone: \`textureGather\` reads an
+ * integer cube, so the element is the same \`TextureElem\` every sampled texture takes, and it
+ * is SAMPLING that is float-only — which the compiler says at the call rather than at the
+ * declaration. */
+type texture_cube<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
+type texture_3d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '3d'] }
 /** WebGPU-only (roadmap 0.4 item 12): a 1D texture is a row of texels addressed by ONE number,
  * and a cube array is N cube maps addressed by a direction and a layer. GLSL ES 3.00 has
  * neither, so a module using one emits WGSL alone. */
-type texture_1d<E = f32> = { readonly [textureTag]: readonly [E, '1d'] }
-type texture_cube_array<E = f32> = { readonly [textureTag]: readonly [E, 'cube-array'] }
+type texture_1d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '1d'] }
+type texture_cube_array<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, 'cube-array'] }
 /** A multisampled colour texture (roadmap 0.4 item 13): read one sample at a time with
  * \`textureLoad(t, coords, sampleIndex)\`, never sampled. WebGPU-only. */
-type texture_multisampled_2d<E = f32> = { readonly [textureTag]: readonly [E, '2d-ms'] }
+type texture_multisampled_2d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '2d-ms'] }
 type sampler = { readonly [samplerTag]: true }
 
 declare const storageTextureTag: unique symbol
 /** The texel formats a storage texture may carry: the sixteen every WebGPU device stores to
- * with no feature requested. Measured against a real device, not read off a spec — a format
+ * with no feature requested, plus \`"bgra8unorm"\`, which needs the \`bgra8unorm-storage\`
+ * feature and stores only. Measured against a real device, not read off a spec — a format
  * outside them compiles and then fails when the host builds the bind group. */
 type StorageFormat =
   | 'rgba8unorm'
@@ -676,12 +696,17 @@ type StorageFormat =
   | 'rgba32uint'
   | 'rgba32sint'
   | 'rgba32float'
+  | 'bgra8unorm'
 /** How a shader may touch a storage texture. \`"read_write"\` is the three single-channel
  * 32-bit formats only, which {@link texture_storage_2d} enforces. */
 type StorageAccess = 'write' | 'read' | 'read_write'
 /** The formats a device stores AND loads through one binding. Every other format is
  * \`"write"\` or \`"read"\`, one at a time. */
 type ReadWriteStorageFormat = 'r32uint' | 'r32sint' | 'r32float'
+/** The formats a device stores to and never loads from, which is \`"bgra8unorm"\` alone.
+ * Measured: a bind group layout for it at \`read-only\` or \`read-write\` is refused with
+ * "does not support storage texture access", on a device that requested the feature. */
+type WriteOnlyStorageFormat = 'bgra8unorm'
 /** The texel a format's channel kind decides: a \`"…uint"\` format is a \`vec4u\`, a
  * \`"…sint"\` one a \`vec4i\`, and every other one — unorm, snorm and float — a \`vec4\`.
  * Written as a conditional type so the editor refuses a mismatched store the way the compiler
@@ -698,19 +723,27 @@ type StorageTexel<F extends StorageFormat> = F extends \`\${string}uint\`
 type texture_storage_2d<
   F extends StorageFormat,
   A extends StorageAccess = 'write',
-> = A extends 'read_write'
-  ? F extends ReadWriteStorageFormat
-    ? { readonly [storageTextureTag]: readonly [F, A, false] }
-    : never
-  : { readonly [storageTextureTag]: readonly [F, A, false] }
+> = A extends 'write'
+  ? { readonly [storageTextureTag]: readonly [F, A, false] }
+  : F extends WriteOnlyStorageFormat
+    ? never
+    : A extends 'read_write'
+      ? F extends ReadWriteStorageFormat
+        ? { readonly [storageTextureTag]: readonly [F, A, false] }
+        : never
+      : { readonly [storageTextureTag]: readonly [F, A, false] }
 type texture_storage_2d_array<
   F extends StorageFormat,
   A extends StorageAccess = 'write',
-> = A extends 'read_write'
-  ? F extends ReadWriteStorageFormat
-    ? { readonly [storageTextureTag]: readonly [F, A, true] }
-    : never
-  : { readonly [storageTextureTag]: readonly [F, A, true] }
+> = A extends 'write'
+  ? { readonly [storageTextureTag]: readonly [F, A, true] }
+  : F extends WriteOnlyStorageFormat
+    ? never
+    : A extends 'read_write'
+      ? F extends ReadWriteStorageFormat
+        ? { readonly [storageTextureTag]: readonly [F, A, true] }
+        : never
+      : { readonly [storageTextureTag]: readonly [F, A, true] }
 
 declare const depthTextureTag: unique symbol
 declare const samplerComparisonTag: unique symbol
@@ -791,9 +824,14 @@ declare function textureSampleCompareLevel(
   ref: number,
 ): f32
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
-declare function textureGather<E>(component: number, tex: texture_2d<E>, smp: sampler, uv: vec2): vec4
+declare function textureGather<E extends TextureElem = f32>(
+  component: number,
+  tex: texture_2d<E>,
+  smp: sampler,
+  uv: vec2,
+): VecOfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
-declare function textureGather<E>(
+declare function textureGather<E extends TextureElem = f32>(
   component: number,
   tex: texture_2d_array<E>,
   smp: sampler,
@@ -801,9 +839,14 @@ declare function textureGather<E>(
   layer: number,
 ): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
-declare function textureGather<E>(component: number, tex: texture_cube<E>, smp: sampler, dir: vec3): vec4
+declare function textureGather<E extends TextureElem = f32>(
+  component: number,
+  tex: texture_cube<E>,
+  smp: sampler,
+  dir: vec3,
+): VecOfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
-declare function textureGather<E>(
+declare function textureGather<E extends TextureElem = f32>(
   component: number,
   tex: texture_cube_array<E>,
   smp: sampler,
@@ -984,58 +1027,83 @@ declare function textureSampleGrad(
   ddy: vec3,
 ): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(tex: texture_2d<E>, coord: vec2i, level: number): vec4
+declare function textureLoad<E extends TextureElem = f32>(
+  tex: texture_2d<E>,
+  coord: IVec2,
+  level: number,
+): VecOfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(
+declare function textureLoad<E extends TextureElem = f32>(
   tex: texture_2d_array<E>,
-  coord: vec2i,
+  coord: IVec2,
   layer: number,
   level: number,
-): vec4
+): VecOfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(tex: texture_3d<E>, coord: vec3i, level: number): vec4
+declare function textureLoad<E extends TextureElem = f32>(
+  tex: texture_3d<E>,
+  coord: IVec3,
+  level: number,
+): VecOfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(tex: texture_1d<E>, coord: number, level: number): vec4
+declare function textureLoad<E extends TextureElem = f32>(
+  tex: texture_1d<E>,
+  coord: number,
+  level: number,
+): VecOfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(tex: texture_multisampled_2d<E>, coord: vec2i, sampleIndex: number): vec4
+declare function textureLoad<E extends TextureElem = f32>(
+  tex: texture_multisampled_2d<E>,
+  coord: IVec2,
+  sampleIndex: number,
+): VecOfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad(tex: texture_depth_multisampled_2d, coord: vec2i, sampleIndex: number): f32
+declare function textureLoad(tex: texture_depth_multisampled_2d, coord: IVec2, sampleIndex: number): f32
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
   tex: texture_storage_2d<F, A>,
-  coord: vec2i,
+  coord: IVec2,
 ): StorageTexel<F>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
   tex: texture_storage_2d_array<F, A>,
-  coord: vec2i,
+  coord: IVec2,
   layer: number,
 ): StorageTexel<F>
 ${renderJSDoc(FUNCTION_DOCS.textureStore)}
 declare function textureStore<F extends StorageFormat, A extends 'write' | 'read_write'>(
   tex: texture_storage_2d<F, A>,
-  coord: vec2i,
+  coord: IVec2,
   value: StorageTexel<F>,
 ): void
 ${renderJSDoc(FUNCTION_DOCS.textureStore)}
 declare function textureStore<F extends StorageFormat, A extends 'write' | 'read_write'>(
   tex: texture_storage_2d_array<F, A>,
-  coord: vec2i,
+  coord: IVec2,
   layer: number,
   value: StorageTexel<F>,
 ): void
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+declare function textureDimensions<E extends TextureElem = f32>(
+  tex: texture_2d<E> | texture_2d_array<E>,
+  level?: number,
+): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_cube<E> | texture_cube_array<E>): vec2u
+declare function textureDimensions<E extends TextureElem = f32>(
+  tex: texture_cube<E> | texture_cube_array<E>,
+  level?: number,
+): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_3d<E>): vec3u
+declare function textureDimensions<E extends TextureElem = f32>(
+  tex: texture_3d<E>,
+  level?: number,
+): vec3u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_1d<E>): u32
+declare function textureDimensions<E extends TextureElem = f32>(tex: texture_1d<E>, level?: number): u32
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_multisampled_2d<E>): vec2u
+declare function textureDimensions<E extends TextureElem = f32>(tex: texture_multisampled_2d<E>): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumSamples)}
-declare function textureNumSamples<E>(
+declare function textureNumSamples<E extends TextureElem = f32>(
   tex: texture_multisampled_2d<E> | texture_depth_multisampled_2d,
 ): u32
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
@@ -1046,9 +1114,10 @@ declare function textureDimensions(
     | texture_depth_cube
     | texture_depth_cube_array
     | texture_depth_multisampled_2d,
+  level?: number,
 ): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
-declare function textureNumLayers<E>(tex: texture_cube_array<E>): u32
+declare function textureNumLayers<E extends TextureElem = f32>(tex: texture_cube_array<E>): u32
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers(tex: texture_depth_cube_array): u32
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
@@ -1058,7 +1127,11 @@ declare function textureDimensions<F extends StorageFormat, A extends StorageAcc
   tex: texture_storage_2d<F, A> | texture_storage_2d_array<F, A>,
 ): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
-declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
+declare function textureNumLayers<E extends TextureElem = f32>(tex: texture_2d_array<E>): u32
+${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
+declare function textureNumLayers<F extends StorageFormat, A extends StorageAccess>(
+  tex: texture_storage_2d_array<F, A>,
+): u32
 ${renderJSDoc(FUNCTION_DOCS.arrayLength)}
 declare function arrayLength<T>(xs: array<T>): u32
 ${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}

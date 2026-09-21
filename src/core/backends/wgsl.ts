@@ -209,8 +209,12 @@ const WGSL_CAP_PROFILE = {
   msaaTextureLoad: {},
   // A storage texture needs no device feature at the sixteen core formats (roadmap 0.4 item
   // 10) — measured against a real adapter, which built a bind group layout for each of them
-  // with nothing requested. The formats that DO need one are not in `StorageTextureFormat`.
+  // with nothing requested. The seventeenth, `bgra8unorm`, is the row below.
   storageTexture: {},
+  // `bgra8unorm` storage, derived from the binding's own format (#147). Measured: the layout
+  // is refused on a device with nothing requested and built on one that asked for this
+  // feature, and Tint compiles the module in both cases.
+  bgra8unormStorage: { hostFeature: 'bgra8unorm-storage' },
   // A 1d texture, a cube-array texture and textureGather are core WGSL (roadmap 0.4 item 12):
   // the rows are empty, and GLSL ES 3.00 has none of the three, so its profile has no row.
   texture1d: {},

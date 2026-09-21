@@ -182,10 +182,31 @@ export const BIT_BUILTIN_NAMES: readonly string[] = [
  *
  *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
  *  a cast or the select Expr. */
+/** The texture reads this surface spells. They joined the surface after the additivity rule was
+ *  written and were never added to the set below, so a file declaring its own `textureSample`
+ *  lost the call to the builtin — the one thing the rule exists to prevent (#147, audit DC11
+ *  and A4). Kept as one list so a new texture name joins by being spelled here. */
+export const TEXTURE_BUILTIN_NAMES: readonly string[] = [
+  'textureSample',
+  'textureSampleLevel',
+  'textureSampleBias',
+  'textureSampleGrad',
+  'textureSampleCompare',
+  'textureSampleCompareLevel',
+  'textureLoad',
+  'textureStore',
+  'textureGather',
+  'textureGatherCompare',
+  'textureDimensions',
+  'textureNumLayers',
+  'textureNumSamples',
+]
+
 export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   // Item 8's builtins: a function the file declares under one of these names keeps the call.
   ...BREADTH_BUILTINS,
   ...BIT_BUILTIN_NAMES,
+  ...TEXTURE_BUILTIN_NAMES,
   'arrayLength',
   'atomicLoad',
   'atomicStore',

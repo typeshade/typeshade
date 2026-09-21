@@ -660,6 +660,7 @@ export type Capability =
   | 'float32Blend'
   | 'float32Filterable'
   | 'multiview'
+  | 'bgra8unormStorage'
 
 /** Every {@link Capability}, as a runtime value: the list a capability matrix, a doc
  *  generator or a coverage check iterates. A union type has no runtime form, so the list
@@ -678,6 +679,7 @@ export const ALL_CAPABILITIES = [
   'float32Blend',
   'float32Filterable',
   'multiview',
+  'bgra8unormStorage',
 ] as const satisfies readonly Capability[]
 
 /** The capabilities a module may name in `ModuleDecl.enables`: {@link Capability} minus
@@ -699,6 +701,10 @@ export type DeclarableCapability = Exclude<
   | 'texture1d'
   | 'textureCubeArray'
   | 'textureGather'
+  // Derived from a binding's FORMAT rather than its kind (#147): a storage texture declared
+  // `bgra8unorm` needs the `bgra8unorm-storage` device feature and nothing else does, so the
+  // module's own shape says it and declaring it would restate the declaration.
+  | 'bgra8unormStorage'
 >
 
 /** The whole-shader unit: everything a backend needs to emit a complete WGSL or GLSL ES 3.00

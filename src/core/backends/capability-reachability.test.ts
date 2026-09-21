@@ -260,6 +260,28 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
     }),
   },
 
+  // #147: the one storage FORMAT that is not core. Its witness is the same module shape with
+  // `bgra8unorm` written where `rgba8unorm` is above, because the format is what requiredCaps
+  // reads for this cap.
+  bgra8unormStorage: {
+    kind: 'moduleShape',
+    what: "a storage-texture binding whose format is 'bgra8unorm'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'dst',
+          space: 'uniform',
+          type: { kind: 'storage-texture', dim: '2d', format: 'bgra8unorm', access: 'write' },
+        },
+      ],
+      funcs: [],
+    }),
+  },
+
   // Roadmap 0.4 item 12: a 1d or cube-array texture binding, and a textureGather call. Each is
   // derived from the module's shape, so each resolves through the real requiredCaps.
   texture1d: {

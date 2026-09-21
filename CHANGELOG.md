@@ -163,6 +163,56 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **An unsigned texel coordinate reaches GLSL in a form it takes** (§46, #147). WGSL types a
+  texel coordinate `i32, or u32` and this surface accepted both, but GLSL's `texelFetch` has no
+  unsigned overload: measured on a WebGL2 driver, `texelFetch(t, uvec2(0u, 0u), 0)` is "no
+  matching overloaded function found" while `texelFetch(t, ivec2(uvec2(0u, 0u)), 0)` compiles.
+  So `textureLoad(t, vec2u(...), 0)` compiled clean here and failed on WebGL2. An unsigned
+  coordinate now takes an id that wraps it in the signed constructor of the texture's own width,
+  on the 2d, 3d and array forms; a SIGNED coordinate keeps the ids every existing program
+  already uses, so no emit that worked moves a byte.
+- **A texture is asked about a level, a storage array about its layers, and a gather about a
+  const** (§46, #147). `textureDimensions(t, level)` was `expects 1 argument(s), got 2` while
+  the GLSL column had spelled `textureSize(t, int(level))` all along — measured accepted on
+  Tint and on WebGL2, including with a non-constant level. `textureNumLayers` on a
+  `texture_storage_2d_array` answered "takes a sampled texture; … has no sampler", the wrong
+  answer and the wrong reason; it is a `u32` now, WGSL-only like the rest of the storage family.
+  And `textureGather`'s component takes a module `const`, because WGSL asks for a
+  const-expression rather than a literal (a local is still refused: its value is not known until
+  the shader runs).
+- **`bgra8unorm` storage, behind the capability the device makes it need** (§46, #147). The
+  format list held the sixteen a device stores to with nothing requested, because a format
+  outside them compiles on Tint and then fails at `createBindGroupLayout`. `bgra8unorm` is the
+  seventeenth and the first that is not core: measured on two independent Chromium builds, a
+  device with no feature requested refuses it ("Texture format TextureFormat::BGRA8Unorm does
+  not support storage texture access StorageTextureAccess::WriteOnly"), a device that requested
+  `bgra8unorm-storage` takes it at `write`, and BOTH refuse it at `read` and at `read_write`.
+  Tint compiles every one of those spellings, so no shader compiler and no compile gate can
+  tell them apart. So the format is authorable at `write`, refused at the other two with the
+  reason that is about this format, and derives the new `bgra8unormStorage` capability from the
+  binding's own format — which is how `reflect().requiredFeatures` tells a host which feature
+  to request.
+- **`reflect().requiredLanguageFeatures`** (§46, #147). A WGSL LANGUAGE feature is not a device
+  feature: it is not requested at `requestDevice`, it is either in the browser's WGSL
+  implementation or not, and a host checks for it before it creates the shader module.
+  Reflection now reports `readonly_and_readwrite_storage_textures` when the module binds a
+  storage texture at `"read"` or `"read_write"`. Measured on Chromium:
+  `navigator.gpu.wgslLanguageFeatures` reports the name, the module compiles with and without a
+  `requires` directive, and a `requires` naming a feature the browser lacks is refused — so the
+  check belongs at the host and the emitted source carries no directive.
+- **A storage `textureDimensions` takes no mip level** (§46, #147). The sampled and depth
+  textures gained the two-argument form with this item; a storage texture must not have it, and
+  the difference is measured rather than reasoned: Tint answers `no matching call to
+'textureDimensions(texture_storage_2d<r32float, read>, u32)'` against 33 candidates, because a
+  storage texture has exactly one mip level. The extra argument is refused where it is written.
+- **The ambient texture declarations describe what the compiler lowers** (§46, #147). `E` is
+  constrained to `f32`, `i32` and `u32` ("T must be f32, i32, or u32"), so `texture_2d<bool>` is
+  red in the editor as it always was in the compiler; `textureLoad` and `textureGather` are
+  typed by the texture's element, so a fetch from a `texture_2d<u32>` is a `vec4u` in both
+  layers rather than a `vec4` in one; every texel coordinate takes either integer vector; and
+  the level query and the storage layer count are declared. Each of these was a program one
+  layer accepted and the other refused.
+
 - **The two portable spellings that were not** (§45, #154). `abs` and `dot` carried no registry
   entry, which claims a builtin spells the same on every target. Measured on a WebGL2 driver,
   `abs(uvec3)`, `abs(uint)`, `dot(ivec3, ivec3)` and `dot(uvec3, uvec3)` are each "no matching

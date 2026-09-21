@@ -39,6 +39,13 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     // load/store, so the capability is what fails a module closed on that target rather than
     // letting it reach `glslType` and throw from inside the emit.
     if (b.type.kind === 'storage-texture') caps.add('storageTexture')
+    // `bgra8unorm` is the one storage format that is not core (#147). Measured on two Chromium
+    // builds: a device with nothing requested refuses the bind group layout, a device that
+    // requested `bgra8unorm-storage` builds it, and Tint compiles the module either way. So the
+    // capability is derived from the FORMAT, and `reflect().requiredFeatures` is where a host
+    // learns which feature to ask for.
+    if (b.type.kind === 'storage-texture' && b.type.format === 'bgra8unorm')
+      caps.add('bgra8unormStorage')
     // A 1d or a cube-array texture is WebGPU-only too (roadmap 0.4 item 12): GLSL ES 3.00 has
     // no `sampler1D` (a reserved word) and no `samplerCubeArray` (a WebGL2 driver refuses the
     // extension). The depth cube array rides the same capability as the colour one.

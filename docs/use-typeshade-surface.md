@@ -3221,6 +3221,138 @@ with a genuine `+2147483648` answer — so telling them apart needs the oracle a
 wrap a call's result by its IR type, which is a change to every integer builtin rather than to
 this one. It is pinned as an `it.fails` so the day that changes is a deliberate edit.
 
+## 46. What a texture is asked, and by which integer
+
+Four things a texture read takes that WGSL spells and this surface did not (#147). Each was
+measured on real Tint and a real WebGL2 driver before it was written, with a broken shader fed
+to the same instrument first.
+
+### A mip level on the size query
+
+```ts
+const full = textureDimensions(atlas);
+const half = textureDimensions(atlas, 1);
+```
+
+The second form was `expects 1 argument(s), got 2`, and the GLSL column had spelled
+`textureSize(t, int(level))` all along — only the front end refused it. Measured accepted on
+Tint, and on WebGL2 with a non-constant level too. The level is an integer, so a fractional one
+is refused like every other texture level.
+
+### The layer count of a storage array
+
+`textureNumLayers` on a `texture_storage_2d_array` answered `takes a sampled texture; … has no
+sampler`, which is the wrong answer and the wrong reason. It is a `u32` now, and a storage
+texture with no layers is told so in its own words. WGSL-only, like the rest of the storage
+family: GLSL ES 3.00 has no image load/store at all.
+
+### Either integer as a texel coordinate
+
+WGSL types a texel coordinate `i32, or u32`. This surface accepted both and emitted both — and
+GLSL's `texelFetch` has no unsigned overload:
+
+```
+texelFetch(t, uvec2(0u, 0u), 0)         REJECTED: 'texelFetch' : no matching overloaded function
+texelFetch(t, ivec2(uvec2(0u, 0u)), 0)  COMPILES
+```
+
+So `textureLoad(t, vec2u(...), 0)` compiled clean here and failed on WebGL2. An unsigned
+coordinate is now wrapped in the signed constructor of the texture's own width. A signed
+coordinate — what every existing program writes — emits exactly the bytes it always did.
+
+### A const-expression as the gather component
+
+WGSL asks for a const-expression, not a literal, so a module constant is one:
+
+```ts
+const CHANNEL = 1;
+const four = textureGather(CHANNEL, atlas, smp, uv);
+```
+
+That was `must be … written in the call`. A LOCAL is still refused: its value is not known until
+the shader runs.
+
+### A mip level, except where there are none
+
+`textureDimensions(t, level)` is the two-argument form WGSL has for a sampled or a depth
+texture, and it was an arity error here while the GLSL column had spelled
+`textureSize(t, int(level))` all along. A STORAGE texture does not get it, and that is measured
+rather than reasoned:
+
+| spelling | WGSL (Tint) |
+| --- | --- |
+| `textureDimensions(t: texture_2d<f32>, 0u)` | accepts |
+| `textureDimensions(t: texture_2d<f32>, <runtime u32>)` | accepts |
+| `textureDimensions(t: texture_depth_2d, 0u)` | accepts |
+| `textureDimensions(t: texture_storage_2d<r32float, read>, 0u)` | **"no matching call"**, 33 candidates |
+| `textureDimensions(t: texture_multisampled_2d<f32>, 0u)` | **"no matching call"**, 33 candidates |
+
+A storage texture and a multisampled one have exactly one level, so there is no level to ask
+for, and the extra argument is refused where it is written rather than emitted for Tint to
+reject.
+
+### The storage format that is not core
+
+The format list is the set a device stores to with NOTHING requested, because a format outside
+it compiles on Tint and then fails when the host builds the bind group — a wrong program with
+no diagnostic anywhere. `bgra8unorm` is the seventeenth entry and the first that is not core.
+Measured on two independent Chromium builds, asking a real device for a bind group layout at
+each access mode:
+
+| device | `bgra8unorm` at `write` | at `read` | at `read_write` |
+| --- | --- | --- | --- |
+| nothing requested | **refused** | refused | refused |
+| requested `bgra8unorm-storage` | accepts | **refused** | **refused** |
+
+Tint compiles every one of those spellings, so neither a shader compiler nor the compile gate
+can tell them apart. So the format is authorable at `write`, refused at the other two with the
+reason that is about this format, and a module using it derives the `bgra8unormStorage`
+capability from the binding's own format:
+
+```ts
+declare const dst: texture_storage_2d<"bgra8unorm", "write">;
+// reflect(m).requiredFeatures includes 'bgra8unormStorage'
+// hostFeaturesFor(wgslBackend, …) turns that into 'bgra8unorm-storage'
+```
+
+The TIERED texture formats — `r8unorm`, `rg8unorm`, `rgb10a2unorm`, `rg16float` and their
+siblings — are still absent, and that is a measurement too: no adapter reachable from this
+repository reports `texture-formats-tier1`, both Chromium builds refuse every one of them at
+every access mode even with every adapter feature requested, and three of the names
+(`r16snorm`, `rg16snorm`, `rgba16snorm`) are not valid enum members there at all. `read_write`
+beyond `r32uint`, `r32sint` and `r32float` is in the same position: every format was refused on
+both builds with every adapter feature enabled. Adding either from the specification's word
+alone is exactly the mistake this list exists to prevent, so they wait for a device that can
+answer.
+
+### A WGSL language feature is not a device feature
+
+A language feature is a property of the shading language rather than of the device: it is not
+requested at `requestDevice`, it is either present in the browser's WGSL implementation or not.
+`reflect()` reports the ones the module's source uses:
+
+```ts
+for (const f of reflect(m).requiredLanguageFeatures) {
+  if (!navigator.gpu.wgslLanguageFeatures.has(f)) throw new Error(`WGSL lacks ${f}`);
+}
+```
+
+Today that is `readonly_and_readwrite_storage_textures`, reported when the module binds a
+storage texture at `"read"` or `"read_write"`; a `"write"` one is core and needs nothing.
+Measured on Chromium: `navigator.gpu.wgslLanguageFeatures` reports the name, the module
+compiles with and without a `requires` directive, and a `requires` naming a feature the browser
+lacks is refused — so the check belongs at the host, before the module is built, and the
+emitted source carries no directive.
+
+### What the editor says
+
+The ambient declarations now describe what the compiler lowers, and no more. `E` is constrained
+to `f32`, `i32` and `u32`, so `texture_2d<bool>` is red in the editor as it always was in the
+compiler; `textureLoad` is typed by the texture's element, so a fetch from a `texture_2d<u32>`
+is a `vec4u` in both; every texel coordinate takes either integer vector; and `bgra8unorm` is
+in the format union, admitted at `"write"` and refused at the other two by the same conditional
+type that already enforced the `read_write` rule.
+
 ---
 
 Last updated: 2026-09-21

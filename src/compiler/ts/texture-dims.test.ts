@@ -508,3 +508,83 @@ declare const shadowSmp: sampler_comparison`,
     expect(cm.fns['fs']!([10, 20, 0, 1])).toEqual([0.5, 0.25, 1, 1])
   })
 })
+
+// The level query and the unsigned coordinate (#147). Both were measured before they were
+// written: `textureDimensions(t, 0)` and `textureLoad(t, vec2u(0, 0), 0u)` are accepted by
+// Tint, `uvec2(textureSize(t, int(0)))` compiles on a WebGL2 driver — and
+// `texelFetch(t, uvec2(0u, 0u), 0)` is "no matching overloaded function found" there, which is
+// what the compiler was emitting.
+describe('a texture is asked about a level, and fetched by either integer', () => {
+  it('takes an explicit level on textureDimensions, on both targets', () => {
+    const { wgsl, glsl } = both(
+      fragment(`  const d = textureDimensions(atlas, 0)
+  return vec4(f32(d.x), 0., 0., 1.)`),
+    )
+    expect(wgsl).toContain('textureDimensions(atlas, 0u)')
+    // The GLSL column already spelled the 2-argument form; only the front end refused it.
+    expect(glsl).toContain('uvec2(textureSize(atlas, int(0u)))')
+    // The level-less form is untouched.
+    const plain = both(
+      fragment(`  const d = textureDimensions(atlas)
+  return vec4(f32(d.x), 0., 0., 1.)`),
+    )
+    expect(plain.wgsl).toContain('textureDimensions(atlas)')
+    expect(plain.glsl).toContain('uvec2(textureSize(atlas, 0))')
+  })
+
+  it('takes a level on a 3d texture, whose size is three wide', () => {
+    const { wgsl, glsl } = both(
+      fragment(`  const d = textureDimensions(lut, 1)
+  return vec4(f32(d.z), 0., 0., 1.)`),
+    )
+    expect(wgsl).toContain('textureDimensions(lut, 1u)')
+    expect(glsl).toContain('uvec3(textureSize(lut, int(1u)))')
+  })
+
+  it('refuses a level that is not a whole number, and a third argument', () => {
+    expect(
+      errorsOf(
+        fragment(`  const d = textureDimensions(atlas, 1.5)
+  return vec4(f32(d.x), 0., 0., 1.)`),
+      )[0],
+    ).toContain('must be a whole number of 0 or more')
+    expect(
+      errorsOf(
+        fragment(`  const d = textureDimensions(atlas, 0, 0)
+  return vec4(f32(d.x), 0., 0., 1.)`),
+      )[0],
+    ).toBe(
+      'textureDimensions on a texture_2d<f32> expects 1 argument(s), or 2 with an explicit mip level, got 3.',
+    )
+  })
+
+  it('takes an unsigned coordinate and a u32 variable as layer and level', () => {
+    // WGSL's texel coordinate is "i32, or u32"; GLSL's texelFetch takes the signed one only,
+    // so an unsigned coordinate is wrapped in the signed constructor of the texture's width.
+    // The level is a `u32` const, which the folder replaces with its value — what matters
+    // here is that an unsigned COORDINATE reaches both targets in a form each one takes.
+    const { wgsl, glsl } = both(
+      fragment(`  const c = vec2u(u32(1), u32(2))
+  return textureLoad(atlas, c, u32(0))`),
+    )
+    expect(wgsl).toContain('textureLoad(atlas, c, 0u)')
+    expect(glsl).toContain('texelFetch(atlas, ivec2(c), int(0u))')
+    // The SIGNED coordinate keeps the spelling every existing program already emits.
+    const signed = both(fragment(`  return textureLoad(atlas, vec2i(1, 2), 0)`))
+    expect(signed.glsl).toContain('texelFetch(atlas, ivec2(1, 2), int(0u))')
+    expect(signed.glsl).not.toContain('ivec2(ivec2(')
+  })
+
+  it('wraps an unsigned coordinate on a 3d and an array fetch too', () => {
+    const three = both(
+      fragment(`  const c = vec3u(u32(0), u32(0), u32(0))
+  return textureLoad(lut, c, 0)`),
+    )
+    expect(three.glsl).toContain('texelFetch(lut, ivec3(c), int(0u))')
+    const arr = both(
+      fragment(`  const c = vec2u(u32(0), u32(0))
+  return textureLoad(pages, c, 0, 0)`),
+    )
+    expect(arr.glsl).toContain('texelFetch(pages, ivec3(ivec2(c), int(0)), int(0u))')
+  })
+})

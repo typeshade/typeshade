@@ -36,11 +36,20 @@ export type TextureElem = 'f32' | 'u32' | 'i32'
  *  supports with `STORAGE_BINDING` and no optional feature (roadmap 0.4 item 10).
  *
  *  Measured rather than read off a spec: a real device was asked to build a bind group layout
- *  for each format at each access mode, and these sixteen are the ones it took. `bgra8unorm`
- *  needs the `bgra8unorm-storage` feature and `r8unorm`, `rg8unorm`, `rgb10a2unorm` and
- *  `rg16float` need the tiered texture-format features, so none of them is here: a module
- *  naming one compiles on Tint and then fails at `createBindGroupLayout` on every device,
- *  which is a wrong program emitted without a diagnostic. */
+ *  for each format at each access mode, and these sixteen are the ones a device with NOTHING
+ *  requested took. The tiered texture-format formats (`r8unorm`, `rg8unorm`, `rgb10a2unorm`,
+ *  `rg16float` and their siblings) are not here: a module naming one compiles on Tint and then
+ *  fails at `createBindGroupLayout`, which is a wrong program emitted without a diagnostic.
+ *
+ *  `bgra8unorm` IS here, as the seventeenth and the only one that is not core (#147). It is
+ *  measured too, on two independent Chromium builds: a device with no feature requested refuses
+ *  it ("Texture format TextureFormat::BGRA8Unorm does not support storage texture access
+ *  StorageTextureAccess::WriteOnly"), a device that requested `bgra8unorm-storage` takes it at
+ *  `write`, and BOTH refuse it at `read` and `read_write`. Tint accepts every one of those
+ *  spellings, so the compile gate cannot see the difference and a capability is what carries
+ *  it: a module using the format needs `bgra8unormStorage`, which `reflect().requiredFeatures`
+ *  hands the host as the feature to request. {@link WRITE_ONLY_STORAGE_FORMATS} is the access
+ *  half of the same measurement. */
 export type StorageTextureFormat =
   | 'rgba8unorm'
   | 'rgba8snorm'
@@ -58,6 +67,7 @@ export type StorageTextureFormat =
   | 'rgba32uint'
   | 'rgba32sint'
   | 'rgba32float'
+  | 'bgra8unorm'
 
 /** Every {@link StorageTextureFormat}, as a runtime value: the list a front end validates a
  *  written name against and a doc generator iterates. A union type has no runtime form, so the
@@ -79,6 +89,7 @@ export const ALL_STORAGE_TEXTURE_FORMATS = [
   'rgba32uint',
   'rgba32sint',
   'rgba32float',
+  'bgra8unorm',
 ] as const satisfies readonly StorageTextureFormat[]
 
 /** How a shader may touch a storage texture. WGSL spells these `write`, `read` and
@@ -96,6 +107,25 @@ export const READ_WRITE_STORAGE_FORMATS = [
   'r32sint',
   'r32float',
 ] as const satisfies readonly StorageTextureFormat[]
+
+/** The formats a device takes at `write` and at NO other access mode, which today is
+ *  `bgra8unorm` alone (#147). Every other {@link StorageTextureFormat} loads as well as stores,
+ *  and the three in {@link READ_WRITE_STORAGE_FORMATS} do both through one binding.
+ *
+ *  Measured, on two Chromium builds with every adapter feature requested: `bgra8unorm` at
+ *  `read-only` and at `read-write` is "Texture format TextureFormat::BGRA8Unorm does not
+ *  support storage texture access", while `write-only` builds. Tint compiles all three, so this
+ *  list is the only thing between the two spellings and a device error no shader compiler
+ *  reaches. */
+export const WRITE_ONLY_STORAGE_FORMATS = [
+  'bgra8unorm',
+] as const satisfies readonly StorageTextureFormat[]
+
+/** The device feature a format needs before any device will store to it, or undefined when the
+ *  format is core. The name is WebGPU's own, as `GPUAdapter.features` reports it, so a host can
+ *  pass it straight to `requestDevice({ requiredFeatures })`. */
+export const storageFormatFeature = (format: StorageTextureFormat): string | undefined =>
+  format === 'bgra8unorm' ? 'bgra8unorm-storage' : undefined
 
 /** The type of one texel of a storage texture, which its format's channel kind decides: a
  *  `…uint` format loads and stores `vec4<u32>`, a `…sint` format `vec4<i32>`, and every other

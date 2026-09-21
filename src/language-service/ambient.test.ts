@@ -393,6 +393,152 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
   })
 })
 
+// The editor says what the compiler says about a texture (#147). Each of these was a program
+// one layer accepted and the other refused, which is the gap the ambient library exists to
+// close: the compiler is the authority on what lowers, and the ambient declarations have to
+// describe exactly that — no wider, no narrower.
+describe('the ambient texture declarations match what the compiler lowers', () => {
+  const diagnosticsOf = (body: string): string[] => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
+  }
+  const FS = (decls: string, body: string): string =>
+    `${decls}\n@fragment\nexport function fs(): vec4 {\n${body}\n}`
+
+  it('accepts an unsigned coordinate on textureLoad and textureStore', () => {
+    // WGSL's texel coordinate is "i32, or u32" (wgsl.txt:24129) and Tint accepts the unsigned
+    // form (measured); every ambient overload took `vec2i` alone, so the editor was red on a
+    // program the compiler emitted.
+    expect(
+      diagnosticsOf(
+        FS('declare const t: texture_2d<f32>', '  return textureLoad(t, vec2u(u32(0), u32(0)), 0)'),
+      ),
+    ).toEqual([])
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const d: texture_storage_2d<"rgba8unorm", "write">',
+          '  textureStore(d, vec2u(u32(0), u32(0)), vec4(1., 0., 0., 1.))\n  return vec4(1.)',
+        ),
+      ),
+    ).toEqual([])
+    // The signed form is untouched.
+    expect(
+      diagnosticsOf(
+        FS('declare const t: texture_2d<f32>', '  return textureLoad(t, vec2i(0, 0), 0)'),
+      ),
+    ).toEqual([])
+  })
+
+  it('constrains the element of every sampled texture type', () => {
+    // "T must be f32, i32, or u32" (wgsl.txt:7047-7048). `E` was unconstrained, so
+    // `texture_2d<bool>` typechecked in the editor while the compiler refused it.
+    expect(
+      diagnosticsOf(FS('declare const t: texture_2d<bool>', '  return vec4(0., 0., 0., 1.)')).some(
+        (d) => d.startsWith('typescript 2344'),
+      ),
+    ).toBe(true)
+    for (const elem of ['f32', 'i32', 'u32']) {
+      expect(
+        diagnosticsOf(
+          FS(
+            `declare const t: texture_2d<${elem}>`,
+            '  const v = textureLoad(t, vec2i(0, 0), 0)\n  return vec4(f32(v.x), 0., 0., 1.)',
+          ),
+        ),
+        elem,
+      ).toEqual([])
+    }
+  })
+
+  it('types textureLoad by the element, as the compiler does', () => {
+    // Every overload returned `vec4`, so a fetch from a `texture_2d<u32>` read as a float
+    // vector in the editor while the compiler typed it `vec4<u32>`.
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const t: texture_2d<u32>',
+          '  const v: vec4u = textureLoad(t, vec2i(0, 0), 0)\n  return vec4(f32(v.x), 0., 0., 1.)',
+        ),
+      ),
+    ).toEqual([])
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const t: texture_2d<i32>',
+          '  const v: vec4i = textureLoad(t, vec2i(0, 0), 0)\n  return vec4(f32(v.x), 0., 0., 1.)',
+        ),
+      ),
+    ).toEqual([])
+    // And the wrong element is reported, by SOMEBODY: an f32 vector is not what a u32
+    // texture fetches.
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const t: texture_2d<u32>',
+          '  const v: vec4 = textureLoad(t, vec2i(0, 0), 0)\n  return v',
+        ),
+      ),
+    ).not.toEqual([])
+  })
+
+  it('declares the level query and the storage layer count the compiler now takes', () => {
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const t: texture_2d<f32>',
+          '  const d = textureDimensions(t, 0)\n  return vec4(f32(d.x), 0., 0., 1.)',
+        ),
+      ),
+    ).toEqual([])
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const a: texture_storage_2d_array<"r32float", "read">',
+          '  return vec4(f32(textureNumLayers(a)), 0., 0., 1.)',
+        ),
+      ),
+    ).toEqual([])
+  })
+
+  it('admits bgra8unorm at write and refuses it at the other two, as a device does', () => {
+    // The seventeenth storage format, and the only one that is not core. Measured on two
+    // Chromium builds: a device that requested `bgra8unorm-storage` builds a bind group layout
+    // for it at `write-only` and refuses `read-only` and `read-write`, and a device that
+    // requested nothing refuses all three. The editor carries the access half of that, by the
+    // same conditional type that already enforced the read_write rule, so the two layers refuse
+    // the same programs.
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const dst: texture_storage_2d<"bgra8unorm", "write">',
+          '  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))\n  return vec4(0.)',
+        ),
+      ),
+    ).toEqual([])
+    for (const access of ['read', 'read_write']) {
+      expect(
+        diagnosticsOf(
+          FS(
+            `declare const dst: texture_storage_2d<"bgra8unorm", "${access}">`,
+            '  const v: vec4 = textureLoad(dst, vec2i(0, 0))\n  return v',
+          ),
+        ),
+      ).not.toEqual([])
+    }
+    // An ordinary format is unaffected at every access mode it already had.
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const src: texture_storage_2d<"rgba8unorm", "read">',
+          '  const v: vec4 = textureLoad(src, vec2i(0, 0))\n  return v',
+        ),
+      ),
+    ).toEqual([])
+  })
+})
+
 // The texture half of the same claim (#145, tests-critique P0-7). These six programs were the
 // classes the front end passed and Tint refused, measured on SwiftShader through the compile
 // gate's own instruments.

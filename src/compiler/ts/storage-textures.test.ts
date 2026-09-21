@@ -180,6 +180,130 @@ ${body}
     ).toEqual([])
   })
 
+  it('answers textureNumLayers on a storage array', () => {
+    // The storage path had arms for textureDimensions, textureLoad and textureStore and
+    // nothing else, so every other read fell through to "takes a sampled texture; … has no
+    // sampler" — the wrong answer AND the wrong reason. Measured accepted on Tint.
+    const wgsl = wgslOf(
+      compute(
+        `declare const src: texture_storage_2d_array<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+        `  out[gid.x] = textureNumLayers(src)`,
+      ),
+    )
+    expect(wgsl).toContain('textureNumLayers(src)')
+    // A storage texture with no layers says so, rather than talking about samplers.
+    expect(
+      errorsOf(
+        compute(
+          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+          `  out[gid.x] = textureNumLayers(src)`,
+        ),
+      ),
+    ).toEqual([
+      'textureNumLayers needs a texture_storage_2d_array; "texture_storage_2d<r32float, read>" has no layers.',
+    ])
+  })
+
+  it('takes bgra8unorm at write, refuses it at read, and derives the capability', () => {
+    // The seventeenth format, and the only one that is not core (#147). Measured on two
+    // Chromium builds, asking a device for a bind group layout at each access mode:
+    //
+    //   default device          bgra8unorm write-only -> "Texture format
+    //                           TextureFormat::BGRA8Unorm does not support storage texture
+    //                           access StorageTextureAccess::WriteOnly"
+    //   + bgra8unorm-storage    write-only -> builds; read-only and read-write -> same refusal
+    //
+    // Tint compiles every one of those spellings, so neither the compile gate nor any shader
+    // compiler can tell them apart. The capability is what carries the requirement to the host,
+    // and the access rule is what stops the two spellings no device binds.
+    const src = compute(
+      `declare const dst: texture_storage_2d<"bgra8unorm", "write">`,
+      `  textureStore(dst, vec2i(i32(gid.x), 0), vec4(1., 0., 0., 1.))`,
+    )
+    expect(errorsOf(src)).toEqual([])
+    const r = compile(src)
+    expect(r.wgsl).toContain('texture_storage_2d<bgra8unorm, write>')
+    // The host learns which feature to request, from the module's own shape.
+    expect(reflect(r.module!).requiredFeatures).toContain('bgra8unormStorage')
+    // An ordinary format derives no such thing, so the capability really is about this one.
+    expect(
+      reflect(
+        compile(
+          compute(
+            `declare const dst: texture_storage_2d<"rgba8unorm", "write">`,
+            `  textureStore(dst, vec2i(i32(gid.x), 0), vec4(1., 0., 0., 1.))`,
+          ),
+        ).module!,
+      ).requiredFeatures,
+    ).not.toContain('bgra8unormStorage')
+    // Read and read_write are refused, with the reason that is about this format.
+    for (const access of ['read', 'read_write']) {
+      expect(
+        errorsOf(
+          compute(
+            `declare const dst: texture_storage_2d<"bgra8unorm", "${access}">`,
+            `  textureStore(dst, vec2i(i32(gid.x), 0), vec4(1., 0., 0., 1.))`,
+          ),
+        )[0],
+      ).toContain('"bgra8unorm" is "write" only.')
+    }
+  })
+
+  it('reports the WGSL language feature a readable storage texture needs', () => {
+    // A language feature is not a device feature: it is not requested at requestDevice, it is
+    // either in the browser's WGSL implementation or not. Measured on Chromium:
+    // `navigator.gpu.wgslLanguageFeatures` reports
+    // `readonly_and_readwrite_storage_textures`, the module compiles with and without a
+    // `requires` directive, and a `requires` naming a feature the browser lacks is refused —
+    // so the check belongs at the host, before the module is built, and the emitted source
+    // carries no directive.
+    const readable = compile(
+      compute(
+        `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+        `  out[gid.x] = textureDimensions(src).x`,
+      ),
+    )
+    expect(reflect(readable.module!).requiredLanguageFeatures).toEqual([
+      'readonly_and_readwrite_storage_textures',
+    ])
+    expect(readable.wgsl).not.toContain('requires ')
+    // A write-only storage texture is core WGSL and needs none.
+    const writeOnly = compile(
+      compute(
+        `declare const dst: texture_storage_2d<"r32float", "write">`,
+        `  textureStore(dst, vec2i(i32(gid.x), 0), vec4(1., 0., 0., 1.))`,
+      ),
+    )
+    expect(reflect(writeOnly.module!).requiredLanguageFeatures).toEqual([])
+  })
+
+  it('refuses a mip level on a storage textureDimensions, which has no levels', () => {
+    // The sampled and depth textures gained the two-argument form with this item; a storage
+    // texture must NOT, and the difference is measured rather than reasoned. Tint answers
+    // `no matching call to 'textureDimensions(texture_storage_2d<r32float, read>, u32)'` for
+    // the second argument and compiles the one-argument form, because a storage texture has
+    // exactly one mip level.
+    expect(
+      errorsOf(
+        compute(
+          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+          `  out[gid.x] = textureDimensions(src, 0).x`,
+        ),
+      ),
+    ).toEqual([
+      'textureDimensions on a texture_storage_2d<r32float, read> takes the texture alone: a ' +
+        'storage texture has one mip level, so there is no level to ask for.',
+    ])
+    expect(
+      wgslOf(
+        compute(
+          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
+          `  out[gid.x] = textureDimensions(src).x`,
+        ),
+      ),
+    ).toContain('textureDimensions(src)')
+  })
+
   it('refuses a QUERY of a writable storage texture from a vertex entry too', () => {
     // The rule is about the RESOURCE, not the builtin: "a resource with write or read_write
     // access must not be statically accessed by a vertex shader" (wgsl.txt:15343-15347). So it
