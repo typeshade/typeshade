@@ -1,4 +1,4 @@
-// A name a target reserves, refused where it is written (#103). Before this, the author got a
+// A name a target reserves, reported where it is written (#103). Before this, the author got a
 // line number in text they never wrote:
 //
 //   glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
@@ -65,7 +65,7 @@ export function fs(): vec4 { ${body} }
 `
 
 describe('GLSL ES 3.00 reserves the name, and the module has a GLSL form (#103)', () => {
-  it('refuses a struct field named half, on the field', () => {
+  it('reports a struct field named half, on the field', () => {
     const src = `"use typeshade"
 class V {
   @builtin("position") pos: vec4
@@ -120,7 +120,7 @@ export function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) }
     expect(errorsOf(render(decl))).toEqual([])
   })
 
-  it('refuses a struct whose own name is reserved', () => {
+  it('reports a struct whose own name is reserved, as an error since WGSL reserves it too', () => {
     // `Self` is on WGSL's list, and WGSL is every module's target, so WGSL is what answers.
     // A capitalized word keeps this to ONE diagnostic: a lowercase class name does not resolve
     // as a type here at all, which is a separate, pre-existing TS8002.
