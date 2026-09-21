@@ -23,6 +23,7 @@ import {
 } from '../math-alias.js'
 import { SCALAR_CAST, literalPeerType } from '../numeric.js'
 import { foldNumericLit, retargetIntLit, retargetIntLitCtx } from '../lit-coerce.js'
+import { spanOf } from '../span.js'
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
 import { lowerAtomicCall } from './atomics.js'
@@ -107,7 +108,9 @@ export function lowerCall(
         type: voidT,
         fn: `console.${method}`,
         args,
-        span: { file: sourceFile.fileName, start: node.getStart(sourceFile), length: node.getWidth(sourceFile) },
+        // The one span constructor every lowering uses: a `SourceSpan` carries line and character
+        // as well as the offset, and a hand-built `{ file, start, length }` is not one.
+        span: spanOf(sourceFile, node),
       }
     }
     if (ts.isIdentifier(obj) && obj.text === 'Math') {
