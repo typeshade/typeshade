@@ -18,12 +18,7 @@ import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { isMixinDeclaration } from '../mixins.js'
-import {
-  inferFrom,
-  instanceName,
-  typeSuffix,
-  withTypeArguments,
-} from '../generics.js'
+import { inferFrom, instanceName, typeSuffix, withTypeArguments } from '../generics.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import {
   boundNamesOf,
@@ -50,12 +45,7 @@ import {
   namespaceMemberName,
   refuseNamespaceStatement,
 } from '../namespaces.js'
-import {
-  collectClassFunctions,
-  ctorPrologue,
-  selfRef,
-  type Receiver,
-} from './class-methods.js'
+import { collectClassFunctions, ctorPrologue, selfRef, type Receiver } from './class-methods.js'
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -312,7 +302,10 @@ export function lowerSourceFunctions(
     const order = (generic.node.typeParameters ?? []).map((p) => p.name.text)
     const bound = typeArgumentsFor(generic.node, order, node, argTypes, sf, diags)
     if (bound === undefined) return undefined
-    const emitted = instanceName(name, order.map((n) => bound.get(n)!))
+    const emitted = instanceName(
+      name,
+      order.map((n) => bound.get(n)!),
+    )
     const had = instances.get(emitted)
     if (had !== undefined) return had
     const stub = withTypeArguments(bound, () =>
@@ -465,9 +458,14 @@ export function lowerSourceFunctions(
   return funcs
 }
 
-/** The ops WGSL and GLSL ES 3.00 allow only in the fragment stage: the kill, and the three
- *  screen-space derivatives, which need the neighbouring invocations of a quad. */
+/** The ops WGSL and GLSL ES 3.00 allow only in the fragment stage: the kill, the three
+ *  screen-space derivatives, which need the neighbouring invocations of a quad, and the depth
+ *  comparison with an IMPLICIT level of detail, which needs the same derivatives to pick its
+ *  level (roadmap 0.4 item 11; Tint: "built-in cannot be used by compute pipeline stage").
+ *  `textureSampleCompareLevel` samples level 0 and is legal in any stage, so it is not here. */
 const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
+  'textureSampleCompare',
+  'textureSampleCompareArray',
   'fwidth',
   'dpdx',
   'dpdy',
@@ -1501,7 +1499,7 @@ function typeArgumentsFor(
       `This call does not say what ${missing.map((n) => `"${n}"`).join(' and ')} ` +
         `${missing.length === 1 ? 'is' : 'are'} in "${shown}". A type argument is read off an ` +
         `argument whose parameter is written as it, or as array<it, N>; write it instead, as ` +
-        `"${shown}<${order.map((n) => out.get(n) === undefined ? 'f32' : typeSuffix(out.get(n)!)).join(', ')}>(…)".`,
+        `"${shown}<${order.map((n) => (out.get(n) === undefined ? 'f32' : typeSuffix(out.get(n)!))).join(', ')}>(…)".`,
       TS_CODES.UNKNOWN_TYPE,
     )
     return undefined

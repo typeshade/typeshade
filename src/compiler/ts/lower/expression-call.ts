@@ -556,6 +556,8 @@ const TEXTURE_CALLS = new Set([
   'textureDimensions',
   'textureNumLayers',
   'textureStore',
+  'textureSampleCompare',
+  'textureSampleCompareLevel',
 ])
 
 /** `textureStore(dst, coord, value)`, `textureLoad(src, coord)` and `textureDimensions(t)` on a
@@ -642,6 +644,101 @@ function lowerStorageTextureCall(
   return undefined
 }
 
+/** `textureSampleCompare(tex, smp, uv, ref)` and `textureSampleCompareLevel(…)` on a depth
+ *  texture, with the layer between the coordinate and the reference on the array form
+ *  (roadmap 0.4 item 11). Both yield an `f32`: how much of the filter footprint passed the
+ *  comparison, not a texel. The sampler has to be a `sampler_comparison`; an ordinary one has
+ *  no reference to compare against, and Tint refuses the pairing as "no matching call".
+ *
+ *  `textureSampleCompare` uses the implicit level of detail, so it is fragment-only, which
+ *  `FRAGMENT_ONLY_CALLS` in function.ts reports by stage; `…Level` samples level 0 anywhere.
+ *
+ *  A PLAIN read of a depth texture — `textureSample` with an ordinary sampler, `textureLoad` —
+ *  is refused here for now, with the reason: GLSL ES 3.00 fuses a texture and its sampler into
+ *  one object whose type is decided by the read (`sampler2D` for a plain one, `sampler2DShadow`
+ *  for a comparison), so a depth texture read both ways needs WebGPU's separate samplers, a
+ *  capability a later item adds. Until then every depth read is a comparison and the GLSL
+ *  combined type is one spelling per dim. */
+function lowerDepthTextureCall(
+  id: string,
+  tex: Extract<ShaderType, { kind: 'depth-texture' }>,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const isArray = tex.dim === '2d-array'
+  const shown = typeKey(tex)
+  if (id === 'textureDimensions') {
+    return arity(id, args, 1, node, sourceFile, diagnostics)
+      ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
+      : undefined
+  }
+  if (id === 'textureNumLayers') {
+    if (!isArray) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureNumLayers needs a texture_depth_2d_array; a plain depth texture has no layers.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return arity(id, args, 1, node, sourceFile, diagnostics)
+      ? { op: 'call', type: u32T, fn: id, args: [...args] }
+      : undefined
+  }
+  if (id === 'textureSampleCompare' || id === 'textureSampleCompareLevel') {
+    const smp = args[1]
+    if (smp === undefined || smp.type.kind !== 'sampler-comparison') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${id} compares through a sampler_comparison; got ` +
+          `${smp === undefined ? 'nothing' : typeKey(smp.type)}. An ordinary sampler filters a ` +
+          `texel and has no reference to compare against. Declare the sampler ` +
+          `"declare const smp: sampler_comparison".`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    if (!arity(id, args, isArray ? 5 : 4, node, sourceFile, diagnostics)) return undefined
+    const out = [...args]
+    if (isArray) {
+      // The layer is an integer, as on a sampled array texture; the reference depth that
+      // follows it is an f32 and is left as written.
+      const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
+      if (!layer) return undefined
+      out[3] = layer
+    }
+    return { op: 'call', type: f32T, fn: isArray ? `${id}Array` : id, args: out }
+  }
+  if (id === 'textureSample' || id === 'textureSampleLevel' || id === 'textureLoad') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${shown}" is read by comparison: textureSampleCompare(tex, smp, uv, ref) with a ` +
+        `sampler_comparison yields how much of the footprint passed. A plain read of a depth ` +
+        `texture — ${id} — is not here yet: on GLSL ES 3.00 the texture and its sampler are one ` +
+        `object whose type the read decides, so a depth texture read both ways needs separate ` +
+        `samplers, which a later item adds.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${id} does not take a depth texture; "${shown}" is read with textureSampleCompare.`,
+    TS_CODES.TYPE_MISMATCH,
+  )
+  return undefined
+}
+
 /**
  * Lower `textureSample(tex, smp, uv)` and its siblings.
  *
@@ -667,6 +764,11 @@ function lowerTextureCall(
   if (tex && tex.type.kind === 'storage-texture') {
     return lowerStorageTextureCall(id, tex.type, args, node, sourceFile, diagnostics)
   }
+  // A depth texture is read by COMPARISON (roadmap 0.4 item 11): its own path, since the reads
+  // that apply, the sampler they take and the type they yield all differ from a sampled one.
+  if (tex && tex.type.kind === 'depth-texture') {
+    return lowerDepthTextureCall(id, tex.type, args, node, sourceFile, diagnostics)
+  }
   if (!tex || tex.type.kind !== 'texture') {
     pushDiag(
       diagnostics,
@@ -691,6 +793,35 @@ function lowerTextureCall(
   }
   const isArray = tex.type.dim === '2d-array'
   const texel: ShaderType = { kind: 'vec', n: 4, elem: tex.type.elem }
+  // The two sampler kinds are not interchangeable in either direction, and Tint says so ("no
+  // matching call"); this says it first, in the author's own file (roadmap 0.4 item 11).
+  if (id === 'textureSampleCompare' || id === 'textureSampleCompareLevel') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} compares against a depth texture; "${typeKey(tex.type)}" is a sampled colour ` +
+        `texture with no depth to compare. Declare the shadow map "texture_depth_2d" and read ` +
+        `it with a "sampler_comparison".`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  if (
+    (id === 'textureSample' || id === 'textureSampleLevel') &&
+    args[1]?.type.kind === 'sampler-comparison'
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} filters a texel through an ordinary sampler; a sampler_comparison compares a ` +
+        `reference depth against the texel instead, and reads a texture_depth_2d with ` +
+        `textureSampleCompare. Declare this sampler "sampler" to sample with it.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   switch (id) {
     case 'textureDimensions':
       return arity(id, args, 1, node, sourceFile, diagnostics)

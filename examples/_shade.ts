@@ -368,6 +368,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'shadow-compare',
+    title: 'A shadow map, read by comparison',
+    blurb:
+      'A depth texture read through a `sampler_comparison` with `textureSampleCompare` and `textureSampleCompareLevel`, on a plain 2D shadow map and on a cascade array (\u00a734). Both targets have a spelling: WGSL keeps two bindings and puts the comparison on the sampler, GLSL ES 3.00 fuses them into one `sampler2DShadow` and folds the reference into the coordinate. Measured on Tint and on a WebGL2 driver; the two sampler kinds are not interchangeable, and the compiler says so before either backend does.',
+    renderable: true,
+  },
+  {
     id: 'storage-texture',
     title: 'A storage texture',
     blurb:

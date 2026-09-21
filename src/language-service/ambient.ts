@@ -623,6 +623,48 @@ type texture_storage_2d_array<
     : never
   : { readonly [storageTextureTag]: readonly [F, A, true] }
 
+declare const depthTextureTag: unique symbol
+declare const samplerComparisonTag: unique symbol
+/** A depth texture, the texture a shadow map is: single-channel float with no element type of
+ * its own, read by COMPARISON through a \`sampler_comparison\`. \`A\` is whether the view is
+ * an array. A plain read of one is not admitted yet, so no \`textureSample\` or
+ * \`textureLoad\` overload takes it. */
+type texture_depth_2d = { readonly [depthTextureTag]: false }
+type texture_depth_2d_array = { readonly [depthTextureTag]: true }
+/** The sampler a depth comparison takes. Not interchangeable with \`sampler\` in either
+ * direction, which the overloads below make the editor say before the compiler does. */
+type sampler_comparison = { readonly [samplerComparisonTag]: true }
+
+${renderJSDoc(FUNCTION_DOCS.textureSampleCompare)}
+declare function textureSampleCompare(
+  tex: texture_depth_2d,
+  smp: sampler_comparison,
+  uv: vec2,
+  ref: number,
+): f32
+${renderJSDoc(FUNCTION_DOCS.textureSampleCompare)}
+declare function textureSampleCompare(
+  tex: texture_depth_2d_array,
+  smp: sampler_comparison,
+  uv: vec2,
+  layer: number,
+  ref: number,
+): f32
+${renderJSDoc(FUNCTION_DOCS.textureSampleCompareLevel)}
+declare function textureSampleCompareLevel(
+  tex: texture_depth_2d,
+  smp: sampler_comparison,
+  uv: vec2,
+  ref: number,
+): f32
+${renderJSDoc(FUNCTION_DOCS.textureSampleCompareLevel)}
+declare function textureSampleCompareLevel(
+  tex: texture_depth_2d_array,
+  smp: sampler_comparison,
+  uv: vec2,
+  layer: number,
+  ref: number,
+): f32
 ${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(tex: texture_2d<f32>, smp: sampler, uv: vec2): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureSample)}
@@ -682,6 +724,10 @@ declare function textureStore<F extends StorageFormat, A extends 'write' | 'read
 ): void
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
+declare function textureDimensions(tex: texture_depth_2d | texture_depth_2d_array): vec2u
+${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
+declare function textureNumLayers(tex: texture_depth_2d_array): u32
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<F extends StorageFormat, A extends StorageAccess>(
   tex: texture_storage_2d<F, A> | texture_storage_2d_array<F, A>,

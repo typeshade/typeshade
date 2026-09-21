@@ -26,6 +26,9 @@ import {
   structT,
   arrayT,
   samplerT,
+  samplerComparisonT,
+  textureDepth2dT,
+  textureDepth2dArrayT,
   ALL_STORAGE_TEXTURE_FORMATS,
   READ_WRITE_STORAGE_FORMATS,
   type StorageTextureFormat,
@@ -74,6 +77,12 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
  *  `texture_*` names are generic and are handled in {@link mapGeneric}. */
 const HANDLE_MAP: Readonly<Record<string, ShaderType>> = {
   sampler: samplerT,
+  // A depth texture and the comparison sampler that reads it (roadmap 0.4 item 11). Bare names,
+  // like `sampler`: a depth texture has no element type to write, every one is single-channel
+  // float.
+  sampler_comparison: samplerComparisonT,
+  texture_depth_2d: textureDepth2dT,
+  texture_depth_2d_array: textureDepth2dArrayT,
 }
 
 /** The generic texture names and the `dim` each one carries. A `2d-ms` texture is left out:

@@ -191,12 +191,19 @@ function fromType(
   // the wrapper's address space, which is not what either backend emits for one, and the doc
   // says bare. Caught here rather than in the type map, because this is the one path that
   // resolves a binding's declared type.
-  if (mapped.kind === 'sampler' || mapped.kind === 'texture' || mapped.kind === 'storage-texture') {
+  if (
+    mapped.kind === 'sampler' ||
+    mapped.kind === 'sampler-comparison' ||
+    mapped.kind === 'texture' ||
+    mapped.kind === 'storage-texture' ||
+    mapped.kind === 'depth-texture'
+  ) {
+    const isSampler = mapped.kind === 'sampler' || mapped.kind === 'sampler-comparison'
     diagnostics.push(
       diag(
         sourceFile,
         type,
-        `"${name}" is a ${mapped.kind === 'sampler' ? 'sampler' : 'texture'}; it is declared ` +
+        `"${name}" is a ${isSampler ? 'sampler' : 'texture'}; it is declared ` +
           `bare, not inside ${kind}<...>: write "declare const ${name}: ${inner.getText(sourceFile)}".`,
       ),
     )

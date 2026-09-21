@@ -693,6 +693,16 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureSampleArray: () => [0, 0, 0, 1],
   textureSampleLevelArray: () => [0, 0, 0, 1],
   textureLoadArray: () => [0, 0, 0, 1],
+  // The depth comparisons (roadmap 0.4 item 11) yield how much of the filter footprint passed,
+  // which a shader multiplies its lighting by. 1, not 0: the oracle has no texture memory, so
+  // the honest placeholder is the one that leaves the rest of the shader alone — a factor of 1
+  // is the identity for that multiply, where 0 would black out every shaded pixel and look like
+  // a bug in the shader rather than the absence of a texture. Same reasoning as the 1×1
+  // dimensions below, not the opaque black above: a texel has no identity, a factor does.
+  textureSampleCompare: () => 1,
+  textureSampleCompareArray: () => 1,
+  textureSampleCompareLevel: () => 1,
+  textureSampleCompareLevelArray: () => 1,
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
   textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
   // A storage texture write (roadmap 0.4 item 10). The oracle has no texture memory, so the

@@ -178,7 +178,21 @@ export type ShaderType =
       readonly format: StorageTextureFormat
       readonly access: StorageTextureAccess
     }
+  // A depth texture (roadmap 0.4 item 11): the texture a shadow map is. Its OWN kind, for the
+  // reason the storage texture above has one — it is a different thing at every site. It has no
+  // element type (every depth texture is single-channel float), a read of one yields `f32` and
+  // not `vec4`, and only some calls apply to it. WGSL spells it `texture_depth_2d`; GLSL ES
+  // 3.00 fuses it with its sampler, and WHICH combined sampler depends on how it is used —
+  // `sampler2DShadow` when compared, `sampler2D` when plainly sampled — which is what the GLSL
+  // backend derives from the calls rather than from this type.
+  | { readonly kind: 'depth-texture'; readonly dim: '2d' | '2d-array' }
   | { readonly kind: 'sampler' }
+  // A comparison sampler (roadmap 0.4 item 11): the one `textureSampleCompare` takes, which
+  // compares a reference value against the texel and returns how much of the filter footprint
+  // passed rather than the texel itself. Its own kind rather than a flag on `sampler`, so a
+  // site that must tell the two apart cannot read one as the other by accident — Tint refuses
+  // both substitutions ("no matching call"), and so does this.
+  | { readonly kind: 'sampler-comparison' }
   | { readonly kind: 'void' }
 
 // `as const satisfies` keeps each constant's LITERAL type (so KeyOf<typeof f32T>
@@ -482,6 +496,30 @@ export const texture2dArrayiT = {
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export const samplerT = { kind: 'sampler' } as const satisfies ShaderType
+
+/** The comparison sampler `textureSampleCompare` takes (roadmap 0.4 item 11): it compares a
+ *  reference value against the texel and yields how much of the filter footprint passed, rather
+ *  than the texel itself. Not interchangeable with {@link samplerT} in either direction.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const samplerComparisonT = { kind: 'sampler-comparison' } as const satisfies ShaderType
+
+/** A 2D depth texture — the texture a shadow map is (roadmap 0.4 item 11). Single-channel
+ *  float with no element type of its own, and a read of one yields `f32`, not `vec4`.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepth2dT = { kind: 'depth-texture', dim: '2d' } as const satisfies ShaderType
+
+/** An array of 2D depth textures, the shape a cascaded shadow map takes (roadmap 0.4 item 11).
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepth2dArrayT = {
+  kind: 'depth-texture',
+  dim: '2d-array',
+} as const satisfies ShaderType
 /** The absent-value type: the return type of an `fn` whose body never returns a value (a
  *  statement-only vertex mutator, a compute entry point). Return-type inference falls back to
  *  it when it finds no `Return` in a body, so you rarely need to write it explicitly.
@@ -697,8 +735,14 @@ export function typeKey(t: ShaderType): string {
         : `texture_storage_2d<${t.format}, ${t.access}>`
     case 'atomic':
       return `atomic<${t.elem}>`
+    case 'depth-texture':
+      // Spelled as WGSL spells it, so the key a host or a golden reads is the declaration's
+      // own text; `dim` is written out for the reason the sampled texture writes it out.
+      return t.dim === '2d-array' ? 'texture_depth_2d_array' : 'texture_depth_2d'
     case 'sampler':
       return 'sampler'
+    case 'sampler-comparison':
+      return 'sampler_comparison'
     case 'void':
       return 'void'
   }

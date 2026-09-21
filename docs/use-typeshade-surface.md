@@ -2494,6 +2494,95 @@ argument's root. The CPU oracle has no texture memory, so the write goes nowhere
 same contract a texture read already keeps, where a load yields opaque black.
 `examples/storage-texture.shade.ts` is the gate's evidence on Tint.
 
+## 34. A shadow map, read by comparison
+
+Roadmap 0.4 item 11. The texture a shadow pass wrote is a **depth texture**: single-channel
+float with no element type of its own. The read that applies to it is not a sample but a
+**comparison** — a reference depth against the texel, through a `sampler_comparison`, yielding
+how much of the filter footprint passed. That number is the light factor.
+
+```ts
+declare const shadowMap: texture_depth_2d
+declare const shadowSmp: sampler_comparison
+declare const cascades: texture_depth_2d_array
+
+const lit = textureSampleCompare(shadowMap, shadowSmp, uv, depthHere)
+const litFar = textureSampleCompareLevel(cascades, shadowSmp, uv, band, depthHere)
+```
+
+```wgsl
+@group(0) @binding(0) var shadowMap: texture_depth_2d;
+@group(0) @binding(1) var shadowSmp: sampler_comparison;
+let lit = textureSampleCompare(shadowMap, shadowSmp, uv, depthHere);
+```
+
+```glsl
+precision highp sampler2DShadow;
+uniform sampler2DShadow shadowMap;
+float lit = texture(shadowMap, vec3(uv, depthHere));
+float litFar = textureGrad(cascades, vec4(uv, float(band), depthHere), vec2(0.0), vec2(0.0));
+```
+
+**Portable, unlike a storage texture.** Both targets have a spelling, so a module carrying one
+emits both halves and needs no capability. What differs is where the comparison lives. WGSL
+keeps the texture and the sampler as **two bindings** and puts it on the sampler. GLSL ES 3.00
+**fuses** them into one `sampler2DShadow` and folds the reference **into the coordinate** —
+`vec3(uv, ref)`, and `vec4(uv, layer, ref)` on the array, where the layer folds in too — the
+same fold the array layer already takes. A shadow sampler has no default precision in GLSL
+(§4.5.4 gives one to `sampler2D` and `samplerCube` only), so the header declares one; without
+it a real driver refuses the shader.
+
+**Measured, on Tint and on a WebGL2 driver.** Every accepted shape above compiles on both.
+Three refusals were measured too, and this surface says each first, in the author's own file:
+
+| written | Tint | this compiler |
+| --- | --- | --- |
+| an ordinary `sampler` in `textureSampleCompare` | `no matching call` | `compares through a sampler_comparison; got sampler` |
+| a `sampler_comparison` in `textureSample` | `no matching call` | `filters a texel through an ordinary sampler` |
+| `textureSampleCompare` in a compute entry | `built-in cannot be used by compute pipeline stage` | `is only valid in a fragment shader` |
+
+The two sampler kinds are **not interchangeable in either direction**, and they are two IR kinds
+rather than a flag on one, so no site can read one as the other by accident. `tsc` refuses the
+same three through the ambient lib, before this compiler sees the file.
+
+**`textureSampleCompare` is fragment-only; `…Level` is not.** The first uses the implicit level
+of detail, which needs the derivatives only a fragment quad has, and joins `dpdx` and `fwidth`
+in the fragment-only set. `textureSampleCompareLevel` samples level 0 and is legal in any
+stage — which is what `textureLod(…, 0.0)` is on GLSL, **on the 2D form**. GLSL ES 3.00 has no
+`textureLod` for `sampler2DArrayShadow` at all: the first bake of the example passed Tint and
+failed the WebGL2 half of the gate with `'textureLod' : no matching overloaded function found`.
+The array form therefore spells level 0 as `textureGrad` with zero gradients — a level of
+detail of −∞, clamped to the base level — which the same driver takes in a fragment and in a
+vertex stage. One of four spellings guessed from the spec was wrong, and the gate is what
+caught it.
+
+**A depth texture is its own IR kind**, for the reason a storage texture is (§33): it is a
+different thing at every site — no element type, yields `f32` not `vec4`, only some calls apply
+— so every existing `kind === 'texture'` switch keeps meaning "sampled" and a site that must
+decide fails to compile until it does. The comparison-ness stays on the **sampler**, as WGSL has
+it, so the IR keeps modelling its closest target.
+
+**A plain read of a depth texture is refused for now, with the reason.** `textureSample` with an
+ordinary sampler, or `textureLoad`, on a `texture_depth_2d` is legal WGSL and Tint takes it.
+On GLSL the combined sampler's type is decided by the *read* — `sampler2D` for a plain one,
+`sampler2DShadow` for a comparison — so a depth texture read both ways in one module needs
+WebGPU's separate samplers, which GLSL ES 3.00 has no form of. That is a capability of its own
+(`separateSamplers`, one texture through samplers of different kinds) and a later item; until
+it lands every depth read is a comparison and the GLSL combined type is one spelling per dim.
+The refusal names the read that does apply.
+
+**What the host is told.** A depth texture reflects as `resourceKind: 'texture'` with
+`textureDepth: true` — the same `GPUBindGroupLayoutEntry.texture` member a sampled texture
+takes, with `sampleType: 'depth'` — and no `textureElem`, since it has no element. A comparison
+sampler reflects as `resourceKind: 'sampler'` with `samplerComparison: true`, for
+`GPUSamplerBindingLayout.type: 'comparison'`. Both flags are always set on their kind and absent
+on every other, so a host never reads absence as "not depth" on a buffer.
+
+**The CPU twins yield 1.** The oracle has no texture memory. A comparison yields a *factor*, and
+the placeholder that leaves the rest of the shader alone is the identity for the multiply it
+feeds — where a texel read yields opaque black, because a texel has no identity and a factor
+does. `examples/shadow-compare.shade.ts` is the gate's evidence on both targets.
+
 ---
 
-Last updated: 2026-09-18
+Last updated: 2026-09-21

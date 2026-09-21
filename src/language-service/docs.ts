@@ -144,6 +144,10 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Samples a float texture at `uv` through the sampler `smp` at an explicit mip `level`. On a `texture_2d_array` the layer comes before the level. Compiles to `textureSampleLevel` on WGSL and `textureLod` on GLSL.',
   textureLoad:
     'Reads one texel at the integer `coord` and mip `level` without filtering. On a `texture_2d_array` the layer comes before the level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL.',
+  textureSampleCompare:
+    'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp`, with the implicit level of detail, in the fragment stage only; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference. Compiles to `textureSampleCompare` on WGSL and `texture(sampler2DShadow, vec3(uv, ref))` on GLSL, where the reference folds into the coordinate.',
+  textureSampleCompareLevel:
+    'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp` at mip level 0, in any stage; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference. Compiles to `textureSampleCompareLevel` on WGSL and to `textureLod` at level zero on a `sampler2DShadow` on GLSL, where the reference folds into the coordinate.',
   textureStore:
     'Writes one texel to a storage texture at the integer `coord`, on a binding declared `"write"` or `"read_write"`; returns nothing. The value is the texel the format decides: a `"…uint"` format stores a `vec4u`, a `"…sint"` one a `vec4i`, and every other one a `vec4`. Compiles to `textureStore` on WGSL; GLSL ES 3.00 has no image load/store, so a module using it emits WGSL alone and the CPU oracle, which has no texture memory, drops the write.',
   textureDimensions: "Returns the width and height of the texture's base mip level as a `vec2u`.",
