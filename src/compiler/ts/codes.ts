@@ -88,6 +88,11 @@ export const TS_CODES = {
    *  on the offending argument with the fix where one is short: splat the scalar, cast one
    *  side, give the vectors one size. */
   MATH_ARGUMENT: 'TS8036',
+  /** `@compute(...)` with an argument that is not an array literal of one to three whole
+   *  numbers (#118): an object, a bare number, an identifier, an empty or four-wide array. It
+   *  used to fall through to the default of 64 with no diagnostic, so the author dispatched
+   *  against a size they never asked for. The y/z rule stays `WORKGROUP_SHAPE`. */
+  WORKGROUP_ARG: 'TS8037',
   UNSUPPORTED: 'TS8099',
 } as const
 
