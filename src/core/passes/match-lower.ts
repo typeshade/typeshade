@@ -136,7 +136,7 @@ function hoistMatchExprs(s: Stmt, counter: Counter): { hoisted: Stmt[]; rewritte
     const switchStmt: Stmt = {
       s: 'switch',
       scrut,
-      cases: walked.cases.map(([v, ve]) => ({ value: v, body: [assignSlot(ve)] })),
+      cases: walked.cases.map(([v, ve]) => ({ values: [v], body: [assignSlot(ve)] })),
       defaultBody: [assignSlot(walked.default)],
     }
     hoisted.push({ s: 'var', name: slotName, type: slotType }, switchStmt)

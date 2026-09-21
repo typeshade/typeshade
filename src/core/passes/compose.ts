@@ -68,7 +68,7 @@ function swapInBody(
         s: 'switch',
         scrut: s.scrut,
         cases: s.cases.map((c) => ({
-          value: c.value,
+          values: c.values,
           body: swapInBody(c.body, swaps, seen, used),
         })),
         defaultBody: s.defaultBody ? swapInBody(s.defaultBody, swaps, seen, used) : undefined,

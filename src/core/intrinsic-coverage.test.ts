@@ -97,7 +97,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
     expect(overlap).toEqual([])
   })
 
-  it('every INTRINSICS entry is GENUINELY divergent (wgsl ≠ glsl) — a portable one belongs in the set, not the map', () => {
+  it('every INTRINSICS entry needs its map row — a plain name(args) pair belongs in the set', () => {
     const args = ['a', 'b', 'c'] // enough positional args for every entry's spelling
     // A column that THROWS (a builtin one target has no form for, such as `arrayLength` on
     // GLSL ES 3.00, which has no storage buffers) is the most divergent spelling there is.
@@ -108,10 +108,21 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         return undefined
       }
     }
-    const notDivergent = Object.entries(INTRINSICS)
-      .filter(([, s]) => spell(s.wgsl) === spell(s.glsl))
+    // What the map is FOR is a spelling the fall-through cannot produce. Two reasons qualify,
+    // and until `bitNot` (§52) only the first had ever arisen: the two targets spell it
+    // differently, or the spelling is not `name(args)` at all. `~a` is the same text on both
+    // and still cannot fall through, because the fall-through writes a CALL. An entry that is
+    // `name(args)` on both columns is the one that belongs in `PORTABLE_INTRINSICS` instead,
+    // and that is what this arm still catches.
+    const unjustified = Object.entries(INTRINSICS)
+      .filter(([id, s]) => {
+        const w = spell(s.wgsl)
+        const g = spell(s.glsl)
+        if (w !== g) return false
+        return w === `${id}(${args.join(', ')})`
+      })
       .map(([k]) => k)
-    expect(notDivergent).toEqual([])
+    expect(unjustified).toEqual([])
   })
 
   // Deliberate-diff catalogue: adding/removing a classified builtin must touch this snapshot,
@@ -145,6 +156,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "atomicStore",
         "atomicSub",
         "atomicXor",
+        "bitNot",
         "bitcastF32",
         "bitcastU32",
         "ceil",

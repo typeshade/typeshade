@@ -208,6 +208,12 @@ export interface Backend {
   constDecl(name: string, type: ShaderType, value: string): string
   /** A `switch` case label: `${v}u` for a u32 scrutinee on WGSL; `${v}` on GLSL. */
   caseLabel(value: number, scrutType: ShaderType): string
+  /** The whole `case …:` prefix for a clause, given each selector already spelled by
+   *  {@link Backend.caseLabel}. Only a target whose multi-selector form is not WGSL's
+   *  `case a, b:` declares one: GLSL ES 3.00 stacks `case a: case b:` instead. Absent, the
+   *  emitter writes `case ${'${labels.join(\', \')}'}:`, which is also the one-selector
+   *  spelling every backend wrote before a clause could hold more than one. */
+  caseLabels?(labels: readonly string[]): string
   /** The `switch` head: `switch ${scrut} {` (WGSL) vs `switch (${scrut}) {` (GLSL). */
   switchHead(scrut: string): string
   /** Optional. Spelling for `%` on float operands, for a target whose native `%` accepts

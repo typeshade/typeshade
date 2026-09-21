@@ -278,7 +278,7 @@ function renameLocals(s: Stmt, ren: ReadonlyMap<string, string>): Stmt {
         ...s,
         scrut: R(s.scrut),
         cases: s.cases.map((c) => ({
-          value: c.value,
+          values: c.values,
           body: c.body.map((b) => renameLocals(b, ren)),
         })),
         defaultBody: s.defaultBody?.map((b) => renameLocals(b, ren)),
@@ -338,7 +338,7 @@ function unrollBlock(body: readonly Stmt[], counter: { n: number }): Stmt[] {
     } else if (s.s === 'switch') {
       out.push({
         ...s,
-        cases: s.cases.map((c) => ({ value: c.value, body: unrollBlock(c.body, counter) })),
+        cases: s.cases.map((c) => ({ values: c.values, body: unrollBlock(c.body, counter) })),
         defaultBody: s.defaultBody ? unrollBlock(s.defaultBody, counter) : undefined,
       })
     } else {

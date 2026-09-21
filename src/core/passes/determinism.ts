@@ -267,6 +267,8 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'pack2x16float',
   'unpack2x16float',
   'countOneBits',
+  // `~x` (§52): one answer on every driver — it is the bit pattern, not an approximation.
+  'bitNot',
   'reverseBits',
   'countLeadingZeros',
   'countTrailingZeros',

@@ -69,8 +69,25 @@ void main() {
   uint word = _ibits(col, _popcnt(col), 8u, 4u);
   float _gv0 = float(lead);
   vec3 bands = vec3((_gv0 * 0.125), (float(nibble) * 0.0625), (float(_xbits(word, 8u, 4u)) * 0.125));
+  int shift = int(lead);
+  uint rolled = ((col << uint(shift)) & 255u);
+  uint inverted = (~rolled & 255u);
+  float step = 0.0;
+  switch ((int(nibble) & 3)) {
+    case 0: case 1: {
+      step = 0.25;
+      break;
+    }
+    case 2: {
+      step = 0.5;
+      break;
+    }
+    default: {
+      step = 1.0;
+    }
+  }
   float edge = min(fwidth(_gv0), 1.0);
-  vec3 lit = (bands * diffuse);
+  vec3 lit = (((bands * diffuse) * step) + vec3((float(inverted) * 0.001953125), 0.0, 0.0));
   vec3 tint = (bent * 0.1);
   vec3 base = (lit + tint);
   float _lc0 = (highlight * gain);

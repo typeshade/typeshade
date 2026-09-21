@@ -2,12 +2,13 @@
 import ts from 'typescript'
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, boolT, typeKey } from '../../../core/ir/types.js'
+import { f32T, boolT, i32T, u32T, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { irNameOf, type LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
+import { foldNumericLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { lowerArrayLiteral } from './expression-array.js'
@@ -26,6 +27,9 @@ const ARITH: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.SlashToken]: '/',
   [ts.SyntaxKind.PercentToken]: '%',
 }
+/** The largest finite f32, `(2 - 2^-23) * 2^127`. A literal past it has no f32 to be. */
+const MAX_F32 = 3.4028234663852886e38
+
 const BITWISE: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.AmpersandToken]: '&',
   [ts.SyntaxKind.BarToken]: '|',
@@ -111,7 +115,28 @@ export function lowerExpression(
   if (node.kind === ts.SyntaxKind.ThisKeyword)
     return lowerThis(node, sourceFile, scope, diagnostics)
   if (ts.isNewExpression(node)) return lowerNew(node, sourceFile, scope, diagnostics)
-  if (ts.isNumericLiteral(node)) return { op: 'lit', type: f32T, value: Number(node.text) }
+  if (ts.isNumericLiteral(node)) {
+    const v = Number(node.text)
+    // A decimal float literal that overflows f32 is a shader-creation error in WGSL and
+    // implementation-defined in GLSL ES 3.00 (§52). `1e40` reached the writer, which printed
+    // `1e+40` — a value f32 cannot hold, so the shader ran on a number nobody wrote. An
+    // Magnitude alone decides, with no "is it integer-written" test: `1e40` IS a whole
+    // number to JavaScript, and the integer kinds a literal can be retargeted to bound at
+    // ±2^31 and 2^32, far below this. So a value past the f32 range has no target type at
+    // all, and `lit-coerce.ts`'s own bound check never sees it.
+    if (Number.isFinite(v) && Math.abs(v) > MAX_F32) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${node.text} is outside the range of f32 (about ±3.4e38), and there is no wider ` +
+          `type here for it to take.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'lit', type: f32T, value: v }
+  }
   if (node.kind === ts.SyntaxKind.TrueKeyword) return { op: 'lit', type: boolT, value: true }
   if (node.kind === ts.SyntaxKind.FalseKeyword) return { op: 'lit', type: boolT, value: false }
   if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
@@ -308,8 +333,58 @@ function lowerPrefixUnary(
 ): Expr | undefined {
   const operand = lowerExpression(node.operand, sourceFile, scope, diagnostics)
   if (!operand) return undefined
-  if (node.operator === ts.SyntaxKind.MinusToken)
+  if (node.operator === ts.SyntaxKind.MinusToken) {
+    // WGSL defines unary `-` for the signed and floating kinds and their vectors, and NOT for
+    // u32 (§52): `-u` on a u32 emitted `(-u)` and Tint answered `no matching overload for
+    // 'operator - (u32)'`. The two spellings that do work are named, because "unsupported"
+    // alone leaves an author guessing which one they wanted.
+    const k = operand.type.kind === 'vec' ? operand.type.elem : typeKey(operand.type)
+    if (k === 'u32') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Unary "-" is not defined on ${typeKey(operand.type)}; WGSL has no negation for an ` +
+          `unsigned integer. Write 0u - x to wrap, or i32(x) to change kind first.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
     return { op: 'unop', type: operand.type, a: operand }
+  }
+  // Unary `+` is the identity WGSL and GLSL both give it, so it lowers to its operand and
+  // emits nothing (§52). Refusing it meant a program that reads `+1.` in a list of signed
+  // constants had to drop the sign that made the list line up.
+  if (node.operator === ts.SyntaxKind.PlusToken) {
+    const k = operand.type.kind === 'vec' ? operand.type.elem : typeKey(operand.type)
+    if (k === 'bool') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Unary "+" requires a numeric operand, got ${typeKey(operand.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return operand
+  }
+  // `~x`, the bitwise complement (§52). Both targets spell it `~x`; it is an INTRINSIC rather
+  // than an IR `unop`, because that node is negation-only and carries no operator field.
+  if (node.operator === ts.SyntaxKind.TildeToken) {
+    const k = operand.type.kind === 'vec' ? operand.type.elem : typeKey(operand.type)
+    if (k !== 'i32' && k !== 'u32') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Unary "~" requires an i32 or u32 operand, got ${typeKey(operand.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: operand.type, fn: 'bitNot', args: [operand] }
+  }
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
     // `!m` on a vector of bools is componentwise (§27): the same compare-with-false the scalar
     // form lowers to, against a vector of falses, which WGSL spells `!m` too and GLSL `not(m)`.
@@ -456,7 +531,8 @@ function lowerBinary(
     // shader-creation error and GLSL ES 3.00 leaves the result undefined (#71). The fold is
     // the loop bound's, so `16 + 16` and a module const are caught with the literal; a
     // runtime amount is left alone, since WGSL masks it to the low five bits.
-    if (bit === '<<' || bit === '>>') {
+    const isShift = bit === '<<' || bit === '>>'
+    if (isShift) {
       const amount = foldConstNumber(right, scope)
       if (amount !== undefined && (amount < 0 || amount >= 32)) {
         pushDiag(
@@ -468,6 +544,54 @@ function lowerBinary(
         )
         return undefined
       }
+    }
+    // A SHIFT amount is a u32 whatever the target is (§52). WGSL's only scalar overload is
+    // `e1 << e2` with `e2: u32`, so `x << n` with an i32 `n` emitted `(x << n)`, which Tint
+    // refuses with `no matching overload for 'operator << (i32, i32)'` — while `x << 1u`, the
+    // one spelling it accepts, was refused HERE by the equal-types rule below. The compound
+    // path (`y <<= n`) already did this; the binary path did not, which is the whole of row
+    // L38. An integer literal takes u32, an i32 amount goes through the `u32(...)` cast the
+    // surface already has, and GLSL ES 3.00 allows the mixed signedness that produces
+    // (glsl-es-300.txt §5.9: the operands of a shift need not have the same type). `&`, `|`
+    // and `^` keep the equality rule: there both operands must be one type on both targets.
+    if (isShift) {
+      // An integer-WRITTEN literal still types f32 by default (roadmap item 25), so
+      // `1 << 0` — the way a bit flag is spelled — arrived here as two f32s. Retarget each
+      // side to the kind a shift is defined for before the check below reads it; the amount
+      // is then retyped to u32 again a few lines on, which is idempotent for a literal.
+      left = retargetIntLitCtx(left, node.left, i32T)
+      right = retargetIntLitCtx(right, node.right, u32T)
+      const amountKind = typeKey(right.type)
+      if (amountKind !== 'i32' && amountKind !== 'u32') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.right,
+          `Bitwise "${bit}" needs an i32 or u32 shift amount, got ${amountKind}.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      const targetKind = typeKey(left.type)
+      if (targetKind !== 'i32' && targetKind !== 'u32') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.left,
+          `Bitwise "${bit}" needs an i32 or u32 target, got ${targetKind}.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      // A bare literal amount is retyped rather than wrapped, so `x << 1` stays one token.
+      const folded = foldNumericLit(right)
+      const amount: Expr =
+        folded.op === 'lit' && typeof folded.value === 'number' && Number.isInteger(folded.value)
+          ? { op: 'lit', type: u32T, value: folded.value }
+          : amountKind === 'i32'
+            ? { op: 'call', type: u32T, fn: 'u32', args: [right] }
+            : right
+      return { op: 'binop', type: left.type, bop: bit, a: left, b: amount }
     }
     if (typeKey(left.type) !== typeKey(right.type)) {
       pushDiag(

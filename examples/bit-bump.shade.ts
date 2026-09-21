@@ -53,9 +53,29 @@ export function fs(v: VsOut): vec4 {
   const nibble: u32 = extractBits(reverseBits(col), 28, 4)
   const word: u32 = insertBits(col, countOneBits(col), 8, 4)
   const bands: vec3 = vec3(f32(lead) / 8., f32(nibble) / 16., f32(extractBits(word, 8, 4)) / 8.)
+  // §52, on both targets. The shift amount is an i32 the compiler casts to u32 on WGSL
+  // (`x << u32(n)`) and carries as `uint(n)` on GLSL, and `~` is the bitwise complement both
+  // spell the same way; the mask keeps the result inside the byte the band reads.
+  const shift: i32 = i32(lead)
+  const rolled: u32 = (col << shift) & u32(255)
+  const inverted: u32 = ~rolled & u32(255)
+  // …and one switch clause under two selectors, which WGSL writes `case 0, 1:` and GLSL ES
+  // 3.00 as two stacked labels. Both are one clause with a list of selectors in the IR.
+  let step: f32 = 0.
+  switch (i32(nibble) & 3) {
+    case 0:
+    case 1:
+      step = 0.25
+      break
+    case 2:
+      step = 0.5
+      break
+    default:
+      step = 1.
+  }
   // The coarse derivative of the leading bit is nonzero only where a band starts.
   const edge: f32 = min(fwidthCoarse(f32(lead)), 1.)
-  const lit: vec3 = bands * diffuse
+  const lit: vec3 = bands * diffuse * step + vec3(f32(inverted) / 512., 0., 0.)
   const tint: vec3 = bent * 0.1
   const base: vec3 = lit + tint
   const shine: vec3 = vec3(highlight * gain, highlight * gain, highlight * gain)

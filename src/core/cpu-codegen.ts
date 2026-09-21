@@ -515,7 +515,10 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       // `return` / discard propagates, same as the interpreter's signals.
       const scrut = emitExpr(s.scrut, S)
       const cases = s.cases.map(
-        (c) => `case ${jsNum(c.value)}: {\n${emitBody(c.body, S)}\nbreak;\n}`,
+        // JavaScript shares a body between labels by stacking them, which is what a
+        // multi-selector clause is: `case 0: case 1: { … break; }`.
+        (c) =>
+          `${c.values.map((v) => `case ${jsNum(v)}:`).join(' ')} {\n${emitBody(c.body, S)}\nbreak;\n}`,
       )
       const dflt = s.defaultBody ? `default: {\n${emitBody(s.defaultBody, S)}\nbreak;\n}` : ''
       return `switch (${scrut}) {\n${cases.join('\n')}\n${dflt}\n}`
@@ -786,7 +789,11 @@ export function compileModuleJs(
       throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
     },
     console: (method, args, span) => {
-      opts?.consoleSink?.({ method: method as any, args, span: typeof span === 'string' ? JSON.parse(span) : (span as any) })
+      opts?.consoleSink?.({
+        method: method as any,
+        args,
+        span: typeof span === 'string' ? JSON.parse(span) : (span as any),
+      })
     },
   }
 

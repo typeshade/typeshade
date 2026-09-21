@@ -358,7 +358,10 @@ export class Builder {
     this.push({
       s: 'switch',
       scrut: scrut.expr,
-      cases: cases.map(([value, fn]) => ({ value, body: subBody(this, fn, 'Switch case body') })),
+      cases: cases.map(([value, fn]) => ({
+        values: [value],
+        body: subBody(this, fn, 'Switch case body'),
+      })),
       defaultBody: defaultBody ? subBody(this, defaultBody, 'Switch default body') : undefined,
     })
   }

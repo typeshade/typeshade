@@ -154,6 +154,32 @@ function lowerStatementNode(
     return lowerVariableStatement(node, sourceFile, scope, diagnostics)
   if (ts.isExpressionStatement(node))
     return lowerExpressionStatement(node, sourceFile, scope, diagnostics)
+  // Two shapes that deserve their own sentence rather than the catch-all below (§52). Both
+  // are recorded deferrals, not oversights: the reason is in the message and in the docs.
+  if (ts.isDoStatement(node)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `do…while is not supported: every loop here needs a bound the compiler can read from ` +
+        `its header, and a do…while has no header. Write "while (c) { … }", or a counted ` +
+        `"for" with the body's first pass unrolled.`,
+      TS_CODES.LOOP_BOUND,
+    )
+    return undefined
+  }
+  if (ts.isLabeledStatement(node)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A labelled statement is not supported: neither WGSL nor GLSL ES 3.00 has a label, so ` +
+        `"break ${node.label.text}" has nothing to name. Restructure with a flag, or hoist ` +
+        `the inner loop into a function and return from it.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   pushDiag(
     diagnostics,
     sourceFile,
@@ -786,6 +812,29 @@ function lowerExpressionStatement(
     return lowerUpdate(expr, sourceFile, scope, diagnostics)
   }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    // `_ = f()`, WGSL's phony assignment (§52): call it and drop the result, explicitly. It
+    // is what an author reaches for when a `@must_use` builtin's value is not wanted, and it
+    // read as `Cannot assign to unknown name "_"` before. `_` is only phony when nothing
+    // declares it, so a program with its own `_` keeps assigning to that.
+    if (ts.isIdentifier(expr.left) && expr.left.text === '_' && scope.resolve('_') === undefined) {
+      const dropped = lowerExpression(expr.right, sourceFile, scope, diagnostics)
+      if (!dropped) return undefined
+      if (dropped.op !== 'call') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr.right,
+          `"_ = ..." drops the result of a call. "${truncate(expr.right.getText(sourceFile))}" ` +
+            `is not one, so there is nothing to drop; remove the line.`,
+          TS_CODES.UNSUPPORTED,
+        )
+        return undefined
+      }
+      // The same IR a bare `f();` makes. The BACKEND decides whether the target needs the
+      // `_ = ` spelling — WGSL writes it for a builtin whose result is `@must_use`, GLSL
+      // never — so the author's `_` is a statement of intent, not a token to carry through.
+      return { s: 'call', expr: dropped }
+    }
     return lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics)
   }
   if (ts.isBinaryExpression(expr)) {
@@ -1074,12 +1123,28 @@ export function lowerLValue(
     )
     return undefined
   }
-  if (binding.kind === 'param')
-    return withSpan(
-      { op: 'param', type: binding.type, name: irNameOf(binding) } as Expr,
+  if (binding.kind === 'param') {
+    // A WHOLE-parameter write. WGSL formal parameters are values, not references, and Tint
+    // says so outright: `cannot assign to parameter 'a'` / `parameters are immutable`. The
+    // compiler emitted `a = 1.0;` with zero diagnostics (§52), and the docs called it a bug
+    // it did not catch.
+    //
+    // NOT shadowed by `var a = a;`, which is what the issue proposed: that is `redeclaration
+    // of 'a'` on the same Tint, because a WGSL function's parameters and its top-level
+    // locals share one scope. A shadow would therefore have to RENAME the local, changing
+    // the identifier the author wrote and a debugger shows, to save one line. So the line is
+    // asked for instead. A write THROUGH a parameter (`p.x = 1.`) keeps its own message,
+    // which `checkRootWritable` raises before this.
+    pushDiag(
+      diagnostics,
       sourceFile,
       node,
+      `Cannot assign to "${node.text}" — a parameter is a value, not a variable. Copy it ` +
+        `into a local first: "let ${node.text}_ = ${node.text};", then write that.`,
+      TS_CODES.ASSIGN_TARGET,
     )
+    return undefined
+  }
   return withSpan(
     { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
     sourceFile,

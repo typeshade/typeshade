@@ -536,7 +536,9 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
       }
       case 'switch': {
         const v = evalExpr(s.scrut, env, ctx) as number
-        const hit = s.cases.find((c) => c.value === v)
+        // A clause may hold SEVERAL selectors (`case 0, 1:` in WGSL), so the match is
+        // membership, not equality.
+        const hit = s.cases.find((c) => c.values.includes(v))
         const chosen = hit ? hit.body : s.defaultBody
         if (chosen) {
           const r = execBody(chosen, env, ctx)

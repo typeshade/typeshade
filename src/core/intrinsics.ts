@@ -340,6 +340,11 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // The spelling is therefore the same whatever the type.
   countOneBits: { wgsl: (a) => `countOneBits(${join(a)})`, glsl: (a) => `_popcnt(${join(a)})` },
   reverseBits: { wgsl: (a) => `reverseBits(${join(a)})`, glsl: (a) => `_brev(${join(a)})` },
+  // The bitwise complement (§52). A PREFIX OPERATOR on both targets, not a call, which is why
+  // it is an intrinsic and not an IR `unop`: that node is negation-only and carries no
+  // operator field. `atomArgs` because the operand is re-embedded in a position that binds
+  // tighter than an argument slot — `~a | b` and `~(a | b)` are different programs.
+  bitNot: { wgsl: (a) => `~${a[0] ?? ''}`, glsl: (a) => `~${a[0] ?? ''}`, atomArgs: true },
   countLeadingZeros: {
     wgsl: (a) => `countLeadingZeros(${join(a)})`,
     glsl: (a) => `_clz(${join(a)})`,

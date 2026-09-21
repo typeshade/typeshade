@@ -345,7 +345,7 @@ describe('switch, with the break TypeScript requires', () => {
     const sw = body.find((s) => s.s === 'switch')!
     expect(sw.s).toBe('switch')
     if (sw.s !== 'switch') return
-    expect(sw.cases.map((c) => c.value)).toEqual([0, 1])
+    expect(sw.cases.map((c) => c.values)).toEqual([[0], [1]])
     for (const c of sw.cases) expect(c.body.some((s) => s.s === 'break')).toBe(false)
   })
 
@@ -393,7 +393,7 @@ describe('switch, with the break TypeScript requires', () => {
     `)
     const sw = body.find((s) => s.s === 'switch')!
     if (sw.s !== 'switch') throw new Error('expected a switch')
-    expect(sw.cases.map((c) => c.value)).toEqual([-1, 2])
+    expect(sw.cases.map((c) => c.values)).toEqual([[-1], [2]])
     // The `const MODE: i32 = 2` line itself still emits as `2.0`; that is #13, in the
     // backend's emitConst, not this front end — the folded case value above is already 2.
   })
@@ -478,17 +478,23 @@ describe('switch, with the break TypeScript requires', () => {
         }
       `),
     ).toBe('switch case must be an integer constant: a literal or a module const.')
+    // `case 0: case 1:` is NOT one of these any more (§52): an empty clause above a full one
+    // is how TypeScript spells two selectors sharing a body, which is `case 0, 1:` in WGSL.
+    // What is still refused is a selector with nothing below it to share.
     expect(
       diagnose(`
         export function f(x: i32): f32 {
           switch (x) {
-            case 0:
-            case 1: return 1.;
+            case 0: return 1.;
+            case 2:
             default: return 0.;
           }
         }
       `),
-    ).toBe('switch case fall-through is not allowed.')
+    ).toBe(
+      'switch case 2 has no body: an empty case shares the body of the case below it, and ' +
+        'there is none. Give it a body, or delete it.',
+    )
   })
 
   it('refuses a label the selector cannot hold, and one that repeats', () => {

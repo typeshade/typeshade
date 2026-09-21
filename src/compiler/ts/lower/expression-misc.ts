@@ -1,4 +1,5 @@
 import ts from 'typescript'
+import { stageOf } from '../../../core/ir/nodes.js'
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
 import { f32T, typeKey } from '../../../core/ir/types.js'
@@ -161,6 +162,22 @@ export function lowerUserCall(
 ): Expr | undefined {
   const leading = opts.leading ?? []
   const shown = opts.shown ?? decl.name
+  // An entry point may not be called (§52). WGSL says so outright, and the emitted call was
+  // accepted here with zero diagnostics — the pipeline invokes an entry, nothing else may.
+  // Named on the call, since that is the line to change: the body goes in a helper both the
+  // entry and this caller use.
+  const stage = stageOf(decl)
+  if (stage !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${shown}" is a ${stage} entry point and cannot be called; the pipeline invokes it. ` +
+        `Move the body into a plain function and call that from both.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   const written = node.arguments ?? []
   const args: Expr[] = [...leading]
   if (opts.lowered !== undefined) args.push(...opts.lowered)

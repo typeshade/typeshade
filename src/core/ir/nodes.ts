@@ -251,7 +251,14 @@ export type Stmt =
   | {
       readonly s: 'switch'
       readonly scrut: Expr
-      readonly cases: ReadonlyArray<{ readonly value: number; readonly body: readonly Stmt[] }>
+      /** One clause per entry. `values` is the SELECTORS that share the clause's body, in
+       *  source order: WGSL spells them `case 0, 1: { … }` and GLSL ES 3.00
+       *  `case 0: case 1: { … }`, which is why the IR carries the list rather than one
+       *  number and a fall-through. Never empty. */
+      readonly cases: ReadonlyArray<{
+        readonly values: readonly number[]
+        readonly body: readonly Stmt[]
+      }>
       readonly defaultBody?: readonly Stmt[]
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */

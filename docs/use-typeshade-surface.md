@@ -3171,6 +3171,93 @@ without complaint. That is a silent divergence between the two targets, not a sh
 and silent divergence is what this compiler exists to remove. A `bool` local, parameter or
 return is untouched — the rule is about host-shared bytes.
 
+## 52. Operators, switch and statements: what WGSL spells, and what it does not
+
+**A shift amount is a `u32`, whatever it shifts.** WGSL's only scalar overload is `e1 << e2`
+with `e2: u32`. The compound path had always known this; the binary path had not, so
+`x << n` with an `i32` `n` emitted `(x << n)` — `no matching overload for 'operator << (i32,
+i32)'` on Tint — while `x << 1u`, the one spelling Tint accepts, was refused here by the
+equal-types rule. Both paths now agree:
+
+```ts
+export function f(x: i32, n: i32, u: u32): i32 {
+  const a = x << n        // WGSL (x << u32(n))
+  const b = x >> u         // WGSL (x >> u), no cast needed
+  const c = x << 3         // WGSL (x << 3u), the literal retyped rather than wrapped
+  return a + b + c
+}
+```
+
+GLSL ES 3.00 carries the same cast, as `uint(n)`. Its §5.9 lets a shift's two operands have
+different kinds, so the cast is legal rather than required there — the IR is one tree and both
+writers read it, which is how the compound path has always behaved. `&`, `|` and `^` keep the
+equal-types rule: there both operands must be one type on both targets. The 0..31 bound on a
+literal amount is unchanged.
+
+**`~`, unary `+`, and the minus WGSL does not have.**
+
+| Written | Result |
+| --- | --- |
+| `~x` on an `i32` or `u32` | `~x` on both targets. Its value differs by kind, and the CPU oracle routes it by the static kind as it does the other bit builtins: `~5` is `-6` on an `i32` and `4294967290` on a `u32`. |
+| `+x` on a number | `x`. The identity both targets give it, emitting nothing. |
+| `-u` on a `u32` | Refused. WGSL defines unary `-` for the signed and float kinds only, and `(-u)` is `no matching overload for 'operator - (u32)'`. The message names both fixes: `0u - x` to wrap, `i32(x)` to change kind. |
+| `~x` on an `f32`, `+b` on a `bool` | Refused, naming the kinds each takes. |
+
+**One switch clause, several selectors.** TypeScript spells "two labels, one body" as an empty
+clause above a full one, and that read as `switch case fall-through is not allowed` — the one
+shape that is *not* fall-through, since an empty clause has nothing to fall through:
+
+```ts
+switch (k) {
+  case 0:
+  case 1: return 10   // WGSL `case 0, 1: {`   ·   GLSL `case 0: case 1: {`
+  case 2: return 20
+  default: return 99
+}
+```
+
+The IR carries the selector list, so both CPU engines match on membership. A selector with
+nothing below it to share — a trailing `case 2:`, or one sitting above `default:` — is refused,
+because neither target has a label with no body and TypeScript's own fall-through would reach
+the default, which is not what either target would do.
+
+**A parameter is a value.** `a = 1.` emitted `a = 1.0;`, which Tint refuses with `cannot assign
+to parameter 'a'` / `parameters are immutable`; the docs called it a bug the compiler did not
+catch. It is caught now, and the message names the line to add:
+
+```
+Cannot assign to "a" — a parameter is a value, not a variable. Copy it into a local first:
+"let a_ = a;", then write that.
+```
+
+It is *not* shadowed by `var a = a;`, which is what the obvious fix would be. Measured on the
+same Tint, that is `redeclaration of 'a'`: a WGSL function's parameters and its top-level
+locals share one scope. A shadow would therefore have to rename the local, changing the
+identifier the author wrote and a debugger shows, to save one line — so the line is asked for
+instead. A write *through* a parameter (`p.x = 1.`) keeps the message it already had.
+
+**Two more that now say what is wrong.**
+
+- Calling an entry point is refused. WGSL says an entry point may not be called; the pipeline
+  invokes it. The fix is to move the body into a plain function both call.
+- `_ = f()` is WGSL's phony assignment: call it, drop the result. It read as `Cannot assign to
+  unknown name "_"`. `_` is only phony when nothing declares it, so a program with its own `_`
+  keeps assigning to that one, and `_ = 1.` (not a call) is still refused.
+- A decimal literal past the f32 range is refused. `1e40` reached the writer, which printed
+  `1e+40` — a value no f32 holds, so the shader ran on a number nobody wrote.
+
+**Three rows this deliberately does not reach.**
+
+- **`do … while`.** It would need a loop whose bound the compiler cannot read from a header,
+  because a `do … while` has no header — and the constant-bound rule is a recorded design
+  premise of the loop-to-kernel proof and of forward-mode `grad` (`docs/roadmap.md`), not a
+  safety rail to drop in passing. Refused with that reason and the `while` form to use, rather
+  than the catch-all "Unsupported statement" it used to get.
+- **A labelled `break` or `continue`.** Neither target has a label, so `break outer` has
+  nothing to name. Refused with the two restructurings that work.
+- **`==` and `>>>`** keep the refusals they had. `===` is the equality both targets have, and
+  WGSL has no unsigned right shift.
+
 ---
 
 Last updated: 2026-09-21

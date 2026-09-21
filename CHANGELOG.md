@@ -13,6 +13,33 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Operators, switch and statements as WGSL spells them** (§52,
+  [#160](https://github.com/typeshade/typeshade/issues/160)). A shift amount is a `u32`
+  whatever it shifts: `x << n` with an `i32` `n` emitted `(x << n)`, which Tint refuses with
+  `no matching overload for 'operator << (i32, i32)'`, while `x << 1u` — the one spelling it
+  accepts — was refused here by the equal-types rule. The binary path now casts the way the
+  compound path always did, retyping a bare integer literal rather than wrapping it; `&`, `|`
+  and `^` keep the equal-types rule. `~x` lowers to `~x` on both targets, with the CPU oracle
+  routing it by the static kind (`~5` is `-6` on an `i32`, `4294967290` on a `u32`); unary `+`
+  is the identity both targets give it; and `-u` on a `u32` is refused naming both fixes,
+  since WGSL defines unary minus for the signed and float kinds only. One switch clause may
+  carry several selectors: `case 0: case 1:` is `case 0, 1:` on WGSL and stacked labels on
+  GLSL ES 3.00, which is what the IR now holds, and it used to be refused as "fall-through" —
+  the one shape that is not fall-through. Calling an entry point is refused, `_ = f()` is
+  WGSL's phony assignment rather than an unknown name, and a decimal literal past the f32
+  range is refused instead of reaching the writer as `1e+40`.
+
+  **A parameter is a value, and the shadow that would have hidden it is not spellable.**
+  `a = 1.` emitted `a = 1.0;`, which Tint refuses (`cannot assign to parameter 'a'`); the
+  docs called it a bug the compiler did not catch. It is caught now, with the line to add in
+  the message. The obvious fix — shadowing the parameter with `var a = a;` — was measured on
+  Chromium 141 and is `redeclaration of 'a'`, because a WGSL function's parameters and its
+  top-level locals share one scope; a shadow would have to rename what the author wrote, so
+  the line is asked for instead. `do … while` and a labelled `break` are likewise refused with
+  their own reason rather than the catch-all: the first would need a loop bound with no header
+  to read it from, which the constant-bound rule is a recorded premise of, and neither target
+  has a label for the second.
+
 - **A uniform lays out the bytes `reflect()` reports** (§51,
   [#156](https://github.com/typeshade/typeshade/issues/156)). WGSL's uniform address space
   aligns every array element to 16 bytes, so `array<f32, 4>` in a `uniform` is sixty-four bytes

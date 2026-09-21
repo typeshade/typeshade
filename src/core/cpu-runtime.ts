@@ -313,6 +313,9 @@ const sub = zip2((a, b) => a - b)
  *  sign-extended), which the value alone cannot tell; the CPU paths pass the static kind. The
  *  {@link BUILTINS} entries of those names are the u32 forms. */
 export const TYPED_BIT_BUILTINS: ReadonlySet<string> = new Set([
+  // `~x` (§52) is one of them: the bit pattern is the same either way, but `~5` reads as
+  // -6 on an i32 and 4294967290 on a u32, and only the static kind says which.
+  'bitNot',
   'reverseBits',
   'firstLeadingBit',
   'firstTrailingBit',
@@ -323,6 +326,8 @@ const asKind = (v: number, kind: 'u32' | 'i32'): number => (kind === 'i32' ? v |
 const bitOne = (fn: string, kind: 'u32' | 'i32', x: number, more: number[]): number => {
   const u = x >>> 0
   switch (fn) {
+    case 'bitNot':
+      return asKind(~u, kind)
     case 'reverseBits': {
       let r = 0
       for (let i = 0; i < 32; i++) r = ((r << 1) | ((u >>> i) & 1)) >>> 0
@@ -430,6 +435,7 @@ export const BUILTINS: Record<string, Builtin> = {
     return u === 0 ? 32 : 31 - Math.clz32(u & -u)
   }),
   // The u32 forms of the kind-dependent ones; the CPU paths route by the static kind.
+  bitNot: (x) => bitBuiltin('bitNot', [x], 'u32'),
   reverseBits: (x) => bitBuiltin('reverseBits', [x], 'u32'),
   firstLeadingBit: (x) => bitBuiltin('firstLeadingBit', [x], 'u32'),
   firstTrailingBit: (x) => bitBuiltin('firstTrailingBit', [x], 'u32'),

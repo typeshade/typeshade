@@ -521,6 +521,10 @@ export const glslEs300Backend: Backend = {
   // oracle's JS `%` (also trunc-mod), so all three backends now agree.
   floatMod: (a, b) => `(${a} - ${b} * trunc(${a} / ${b}))`,
   // C-style GLSL switch falls through — each case must `break` or it leaks into the next.
+  // GLSL ES 3.00 has no label LIST: several selectors sharing one body are STACKED labels,
+  // which that spec explicitly allows ("Fall through labels are allowed", §6.2). WGSL's
+  // `case 0, 1:` is a parse error here.
+  caseLabels: (labels) => labels.map((l) => `case ${l}:`).join(' '),
   caseBreak: 'break;',
   // X-GIS #1671 — emit THIS target's payload. A raw carrying only the WGSL spelling
   // still cannot lower (raw text is opaque to the IR, so there is nothing to
