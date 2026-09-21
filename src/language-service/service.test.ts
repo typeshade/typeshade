@@ -267,11 +267,14 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
     expect(d!.message).toContain('vec4<f32>')
   })
 
-  it('reports mat2 as unsupported with source typeshade and the right code', () => {
+  // `mat2<f32>` used to be the TS8027 sample here. Every `matCxR` is a type since #149, so
+  // the sample moved to what TS8027 still marks: a NON-SQUARE matrix of emulated doubles,
+  // which the fp64 pass has no df64 body for (it has one per dimension, not per shape).
+  it('reports a non-square f64 matrix as unsupported with source typeshade and the right code', () => {
     const service = createTypeshadeLanguageService()
     const text =
       '"use typeshade";\n' +
-      'export function f(m: mat2<f32>): vec2 {\n' +
+      'export function f(m: mat2x3<f64>): vec2 {\n' +
       '  return vec2(0., 0.)\n' +
       '}\n'
     service.openDocument('mat2.ts', text)
@@ -280,6 +283,15 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
       .find((d) => d.source === 'typeshade' && d.code === 'TS8027')
     expect(d, 'expected a TS8027 (MAT_UNSUPPORTED) diagnostic').toBeDefined()
     expect(d!.severity).toBe('error')
+  })
+
+  it('reports nothing for mat2, which is now an ordinary type', () => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument(
+      'mat2ok.ts',
+      '"use typeshade";\nexport function f(m: mat2<f32>): vec2 {\n  return m * vec2(1., 0.)\n}\n',
+    )
+    expect(service.getDiagnostics('mat2ok.ts')).toEqual([])
   })
 })
 

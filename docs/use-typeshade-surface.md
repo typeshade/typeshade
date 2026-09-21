@@ -496,8 +496,8 @@ derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
 `**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
 as `pow(i32, i32)`, which neither compiler accepts.
 
-`transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
-emulated-double matrix, so there is nothing to expose yet.
+`transpose` applies to every matrix shape and `determinant` to the square ones; §40 has the
+table.
 
 **One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
 rather than about this table: a declared function is emitted with the name the author wrote,
@@ -594,6 +594,12 @@ not call a declared function or a derivative (`fwidth`, `dpdx`, `dpdy`), read a 
 take a component, field or element — `vec3(UP.x, 0., 0.)` is refused even though both writers
 would fold it. `XS.length` is a constant too, so an array constant can bound a loop. An array
 **of arrays** is refused: the GLSL ES 3.00 spelling it would produce is not one ANGLE accepts.
+
+A scalar constant's value has to be one its declared type can spell, and that is checked on
+the declaration. An `i32` or `u32` one must be a whole number inside its 32-bit range; a `bool`
+one takes `true`, `false`, `1` or `0`, and a number that is neither
+([#64](https://github.com/typeshade/typeshade/issues/64)) is refused where it is written rather
+than reaching the writer, which has only the file's `"use typeshade"` directive to point at.
 
 An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
 followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and
@@ -1456,7 +1462,11 @@ of safety.
 **A float `%=` on GLSL ES 3.00** is written `x = (x - y * trunc(x / y));`, the `floatMod`
 spelling the binary `%` has always taken there, because GLSL's `%` is for integers. The compound
 assignment wrote `x %= y;` and the driver refused it while the WGSL beside it was fine (issue
-#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator on both.
+#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator on both. The rule
+holds at any width: a `vec2` target takes the same componentwise
+`cell = (cell - 1.0 * trunc(cell / 1.0));`, since GLSL ES 3.00 has no float `%` for a vector
+either. `examples/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
+evidence on both targets.
 
 ```ts
 "use typeshade"
@@ -2909,6 +2919,207 @@ The list is the input to the divergence report of roadmap item 19: when a GPU re
 oracle disagree, the operations here are where the spec allows it, and everything else is a bug
 in one of the two.
 
+## 39. `f64`: the emulated double
+
+Neither target has a 64-bit float. `f64` is an *emulated* double: a pair of `f32` words whose
+sum is the value, and a library of error-free transforms over that pair. The type is yours to
+write; a pass rewrites every `f64` into `vec2<f32>` plus `df64_*` calls before any backend sees
+one, so WGSL and GLSL ES 3.00 both receive ordinary `f32` code and the CPU oracle evaluates the
+same program as a JavaScript double, which *is* an IEEE binary64.
+
+What that buys is significand, not range: about 48 bits against `f32`'s 24. A world coordinate
+near 10⁷ has an `f32` ulp of 1, so `fract(x)` there is a constant and the detail is gone;
+the same expression on an `f64` keeps it. `examples/fp64-lane-stripes.shade.ts` draws both
+halves side by side.
+
+```ts
+"use typeshade"
+
+class Uniforms {
+  origin: f64   // one vec2<f32> slot; the host writes the two words
+  span: f32
+}
+declare const u: uniform<Uniforms>
+
+export function stripes(t: f32): f64 {
+  const stripe: f64 = 0.125       // a literal in a DECLARED f64 position keeps the double
+  const world = u.origin * 2.5    // a literal beside an f64 is lifted to an f64 literal
+  const swept = world + u.span * t // an f32 beside an f64 widens exactly, as vec2<f32>(x, 0.)
+  return fract(swept / stripe)
+}
+```
+
+A literal is retyped only where the surrounding type *says* `f64` — a declaration, a parameter,
+a field, a return, or the other side of an operator. `f64(0.1)` says it explicitly and is left
+alone; it carries the whole double too (the cast folds a literal argument at full precision),
+so the two spellings emit the same pair. What the retype buys is that the natural one compiles:
+`const k: f64 = 0.1` used to be a type mismatch, `f64` against the `f32` every bare literal
+lowers to, and the only way to write an f64 constant was the explicit cast.
+
+**Vectors.** `vec2f64`, `vec3f64` and `vec4f64` are vectors of doubles. They swizzle and index
+like any other vector — a lane is a swizzle of the hi and lo planes the pass lowers the vector
+into — and `vecN(v)` narrows one per lane, which is `f32(lane)` N times.
+
+```ts
+export function lanes(p: vec3f64): vec3 {
+  const x = p.x        // f64
+  const first = p[1]   // f64 — a CONSTANT lane; p[i] with a variable i has no lowering
+  const pair = p.xy    // vec2f64
+  return vec3(p)       // the per-lane narrow
+}
+```
+
+`length`, `distance` and `dot` on a `vec3f64` are `f64`, not `f32`: the pass composes each from
+the scalar transforms and hands back the pair. `determinant` is the exception — a matrix of
+doubles carries only `*` and `transpose`, so `determinant` on one is refused at the call, and
+the remedy is to declare that matrix `mat4`.
+
+**What is emulated, and what is refused.** There is a `df64_*` body for ten builtins on a scalar
+and thirteen on a vector, and for nothing else:
+
+| shape | lowered |
+| --- | --- |
+| `f64` | `abs`, `cos`, `floor`, `fract`, `max`, `min`, `mix`, `round`, `sin`, `sqrt`, and `+ - * /` with the six comparisons |
+| `vecN<f64>` | the same, minus `sqrt`, plus `normalize`, and the reductions `dot`, `length`, `distance` |
+| `matNxN<f64>` | `*` and `transpose` |
+
+Everything else is refused **at the call**, naming the list and the narrow:
+
+```
+ceil has no emulated-double form; got f64. On an f64 the pass lowers abs, cos, floor,
+fract, max, min, mix, round, sin and sqrt — narrow first, e.g. ceil(f32(x)).
+```
+
+On a vector the same refusal names the vector narrow, `ceil(vec3(v))`: `f32(v)` on a `vec64`
+is not a narrow at all and the pass has no body for it.
+
+`%` is refused too, at the operator — there is no df64 remainder — and so are `i32(x)` and
+`u32(x)` on a double, which have no direct body either: narrow to `f32` first, `i32(f32(x))`.
+A lane is a READ. `v.x = …` and `v[0] = …` are refused, because after lowering the vector is
+two separate hi/lo planes and a lane of it is a swizzle of both, which is not a place; rebuild
+the whole vector instead.
+
+`round` is WGSL's: the nearest integer with ties going to the **even** one, which is what the
+CPU oracle answers. (The library also carries `nint`, whose ties go toward +∞ because the
+mod-2π reduction needs that convention; the two disagree at every half-integer, and `round` is
+not it.) `%` has no emulation and stays refused, as does an `f64` in any slot a target takes as
+a plain `f32` — a mip level, a sampling bias, a comparison's reference depth:
+
+```
+textureSampleLevel's level must be an f32; got f64. Write f32(x).
+```
+
+**Across an entry boundary.** A double cannot be a varying. A `@location` field interpolates
+each of its two `f32` words on its own, and the interpolation of the words is not the
+interpolation of the double they encode, so the compiler refuses an `f64` on an entry's
+`@location` parameter, on an IO struct field and on an entry's return:
+
+```
+Parameter "p" carries f64: an emulated double is a pair of f32 words, and a @location
+varying interpolates each word on its own, which is not the interpolation of the double.
+Narrow it with f32(x), or compute the double in the stage that needs it — a uniform or
+storage binding carries an f64 and every stage can read one.
+```
+
+Both remedies are ordinary. There is **no author-facing way to split a double into its words
+and rebuild it**, and that is deliberate: the two `f32` words are the emulation's business, not
+the language's, and a program written against them would be written against an implementation
+detail. A double two stages need is read in each of them — a uniform or a storage binding
+carries an `f64` and every stage can see one — or narrowed to an `f32` at the boundary when
+`f32` is enough for what crosses it.
+
+The one `@location` an `f64` may sit on is a **vertex** input, which is a buffer read rather
+than a varying: the pair fits the single slot the attribute already is. A `vec3f64` attribute
+would need two slots and is refused.
+
+(Carrying the words as two `@interpolate(flat)` varyings and rebuilding them transparently
+would be exact, since flat interpolation does no blending. It is not done, because this
+surface has no `@interpolate` attribute: an author can neither ask for a flat varying nor see
+that one was chosen, so a double silently made flat would change what the program draws with
+nothing to point at. If `@interpolate` lands, this is worth revisiting.)
+
+**The guard.** A module that uses the emulation gets a `_fp64` binding injected at lowering: a
+1×1 `texture_2d<f32>` the host must fill with `1.0`. It is what stops a driver's fast-math from
+algebraically cancelling the error-free transforms — the pair only works because the compiler is
+not allowed to "simplify" `(a + b) - a`, and a value read from a texture is one it cannot fold
+through. `reflect()` reports it like any other binding, group and slot included, so bind what
+reflection lists and the guard is covered; a host that skipped it got a WebGPU validation error
+or, on WebGL2, a silently wrong picture.
+
+## 40. Matrices: every `matCxR`
+
+A matrix is `cols` columns of `rows` components, column-major, which is what both targets are.
+All nine shapes of `C, R ∈ {2, 3, 4}` are types, spelled `matCxR`, and a square one also
+answers to `matN`:
+
+```ts
+"use typeshade"
+
+export function shapes(a: mat3, b: mat2x3, c: mat4x3): vec3 {
+  //  mat3   = mat3x3   3 columns of 3
+  //  mat2x3           2 columns of 3
+  //  mat4x3           4 columns of 3
+  return a[0] + b[1] + c[3]
+}
+```
+
+`m[j]` is **column j**, a `vecR` — not row j, and not one component. The two readings coincide
+only on a square matrix, which is why it was worth saying once here.
+
+**Constructors.** Four forms, and a matrix takes whichever one fits:
+
+```ts
+const fromColumns = mat3(vec3(1., 0., 0.), vec3(0., 1., 0.), vec3(0., 0., 1.))
+const fromParts   = mat2x3(1., 2., 3., 4., 5., 6.)   // column by column
+const zero        = mat2()
+const truncated   = mat3(model)                       // the upper-left 3×3 of a mat4
+```
+
+Truncation is offered and widening is not: `mat3(m4)` is the normal matrix a renderer wants,
+while `mat4(m3)` would have to invent a fourth column, and which one it should be is the
+author's choice rather than the compiler's.
+
+**Products.** The table is wgsl.txt:9960-9995, and GLSL ES 3.00 spells each one the same way:
+
+| written | means | result |
+| --- | --- | --- |
+| `m * s`, `s * m` | component-wise scaling | the matrix's own type |
+| `m * v` | the column-vector product, `matCxR * vecC` | `vecR` |
+| `v * m` | the **row**-vector product, `vecR * matCxR`, which is `transpose(m) * v` | `vecC` |
+| `a * b` | `matKxR * matCxK`, the shared dimension cancelling | `matCxR` |
+
+`v * m` and `m * v` are different products, so the one you want is the one you write. A pair
+whose dimensions do not meet is refused, naming both shapes.
+
+**Builtins.** `transpose(m)` on a `matCxR` gives a `matRxC` — a different type unless the
+matrix is square. `determinant(m)` takes a square matrix only, since a non-square one has
+none; asking for it names that.
+
+**`matCx2` in a uniform block is refused**, and it is the only shape that is. Measured on a
+real WebGL2 driver and on Tint: std140 rounds every matrix column up to 16 bytes, while WGSL's
+column stride is `AlignOf(vecR<f32>)` — 8 when the matrix has two rows and 16 otherwise. So a
+`mat2x2`, `mat3x2` or `mat4x2` field would sit at different byte offsets on the two targets,
+and so would every field after it:
+
+```
+wgslLayout: mat2x2 in std140 is not supported — WGSL gives a two-row matrix a column
+stride of 8 and GLSL std140 rounds every column to 16, so the two targets would disagree
+on this field and every field after it; carry it as mat2x4 (measured: both targets stride
+16) or as 2 vec2 fields
+```
+
+It is refused rather than silently padded because padding would make the WGSL a module emits
+disagree with the offsets `reflect()` reports for it, and keeping those two the same is the
+whole job of the layout layer. Every other shape agrees byte for byte and needs no ceremony —
+a `mat3` rides a uniform block as it is. Outside a uniform block, in a storage buffer, there is
+no such rule and all nine shapes are admitted: std430 does not round a column up to a `vec4`,
+so the two targets agree on every shape. (A three-row column is still padded from 12 bytes to
+16 in both layouts, because that is `vec3`'s own alignment rather than std140's rounding.)
+
+**Emulated doubles stay square.** `mat2<f64>`, `mat3<f64>` and `mat4<f64>` carry `*` and
+`transpose`; a non-square one is refused, because the fp64 pass has one `df64` body per
+dimension rather than per shape. §39 has the rest of the `f64` surface.
+
 ## 42. Every texture argument is checked before emit
 
 A texture read has one texture argument and several plain ones, and WGSL types each of the plain
@@ -3544,6 +3755,87 @@ Both layers refuse the literal, so nothing disagrees — but the refusal is a ga
 rule. Accepting it means synthesising an anonymous struct: a name, a place in the module's
 structs, a layout. That is a compiler feature and not an editor-parity fix, and it is pinned
 here as it stands so both layers move together the day it lands.
+## 62. A name a target reserves
+
+Each of the two shading languages reserves a vocabulary of its own, and a name that lands on
+one used to reach the author as a line number in text they never wrote:
+
+```
+glsl: fragment: ERROR: 0:16: 'half' : Illegal use of reserved word
+```
+
+That was a struct field named `half` ([#103](https://github.com/typeshade/typeshade/issues/103)).
+A declared name is now checked against the reserved words of the targets the module is
+**actually emitted for**, and refused where it is written, with `TS8068`:
+
+<!-- doc-snippets: skip — the block IS the refusal: a field named `half` is what TS8068 reports -->
+
+```ts
+"use typeshade"
+
+class Vertex {
+  @builtin("position") pos: vec4
+  @location(0) half: vec2 // TS8068 "half" is reserved in GLSL ES 3.00, so a field of that
+} //                         name cannot be emitted for the WebGL2 target. Rename it.
+```
+
+**The name that is checked is the one the emit carries.** A class's static field is `Cls_K`, a
+namespace's member is `Ns_K`, an inherited field is `Cls_super_Base_member`: the flattening is
+what a backend sees, so that is what the check reads. A class `S` with a static `half` is
+`S_half` and compiles; a class `atomic` with a static `uint` is `atomic_uint`, which GLSL ES
+3.00 reserves, and the message names both spellings — `"uint" is emitted as "atomic_uint",
+which is reserved in GLSL ES 3.00, …` — while underlining the member the author wrote.
+
+**A target the module never reaches does not get a vote.** A compute kernel has no GLSL ES 3.00
+form — that is the one stage the language does not have — so it may name a field `half`; WGSL is
+every module's target and is always checked. `examples/array-length.shade.ts` carries exactly
+that field, so Tint accepts the name on every gate run.
+
+**The severity follows the target's role.** A WGSL word is an **error**: WGSL is the program,
+and the module does not compile. A GLSL ES 3.00 word is a **warning**, which is what this
+package already answers for "the second target cannot take this module" — `wgsl` is still
+there, `glsl` comes back `undefined`, exactly as for a compute entry beside the render pair or
+a storage binding the emulation cannot spell. The GLSL writer fails the emit closed on the same
+names, so the warning is never the only thing between a reserved word and a driver, and a
+render module that would not have produced GLSL anyway is never refused outright for a word it
+would never have emitted.
+
+**What the GLSL writer renames for itself is not refused.** A local, a parameter and a function
+name that collides with a GLSL word is rewritten with every reference to it (`let out` becomes
+`out_`), and that has always worked. The module surface it cannot rename is what this check
+covers: a struct and its fields (the std140 offsets and the cross-stage varying contract), a
+module constant, an override's `#define`, a module variable and a binding, whose name is the
+host's reflection key. WGSL renames nothing, so every kind is checked for it, including the two
+rules that are shapes rather than words: a name beginning with `__`, and the bare `_`. GLSL ES
+3.00 §3.6 has two shape rules of its own, and both are read here too: a name beginning with
+`gl_`, which it keeps for built-ins, and one containing `__` anywhere, not only at the front.
+
+All three spellings of a struct are read — a `class`, an `interface` and a `type` alias are one
+struct to the emitters, so they are one struct here.
+
+**Both lists are the target's own, measured on the compiler that receives the text.** WGSL's are
+the 26 keywords and 146 reserved words of the spec, transcribed from its source; GLSL ES 3.00's
+are read off ANGLE's version-gated lexer at shader version 300, which is what a WebGL2 context
+gives. Measured in Chromium, through the compile gate's instrument:
+
+| Written | WGSL on Tint | GLSL ES 3.00 on ANGLE |
+| --- | --- | --- |
+| a field or constant named `half` | accepted | `'half' : Illegal use of reserved word` |
+| a local named `as` | `'as' is a reserved keyword` | — |
+| a local named `discard` | `expected identifier for variable declaration` | — |
+| a name named `filter` | `'filter' is a reserved keyword` | `'filter' : Illegal use of reserved word` |
+| a local named `__x` | `identifiers must not start with two or more underscores` | — |
+| a name named `input`, `sample`, `image2D` | accepted | `Illegal use of reserved word` |
+| a name named `gl_Scale` | accepted | `'gl_' : reserved built-in name` |
+| a name named `a__b` | accepted | `identifiers containing two consecutive underscores (__) are reserved` |
+| a name named `buffer`, `packed` | accepted | accepted |
+| a name named `shared`, `with` | `is a reserved keyword` | accepted |
+
+The last two rows are why each list is read from its own target's authority rather than from
+one merged vocabulary. `buffer` and `shared` become GLSL keywords in ES 3.10 and `packed` is
+reserved in ES 1.00, so refusing any of them at 300 would refuse a program a WebGL2 driver
+compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
+says and what Tint enforces.
 
 ---
 

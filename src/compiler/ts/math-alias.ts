@@ -241,6 +241,15 @@ export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   'select',
   'bool',
   'f64',
+  // The matrix constructors (#149). Nine shapes plus the three square shorthands: a file
+  // that declares its own `mat3` keeps the call, as it does for every other name an addition
+  // introduced — "an addition may not change what a program means" is the rule the vector
+  // constructors already follow.
+  ...([2, 3, 4] as const).flatMap((cols) =>
+    ([2, 3, 4] as const).flatMap((rows) =>
+      cols === rows ? [`mat${cols}x${rows}`, `mat${cols}`] : [`mat${cols}x${rows}`],
+    ),
+  ),
 ])
 
 export function resolveMathFn(jsName: string): string | undefined {

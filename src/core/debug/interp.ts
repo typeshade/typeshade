@@ -56,8 +56,12 @@ import {
   BUILTINS,
   GPU_STUBS,
   zeroOf,
-  matVec,
-  matMul,
+  matVecShaped,
+  matTransposeShaped,
+  matColumn,
+  setMatColumn,
+  matMulShaped,
+  vecMatShaped,
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
@@ -214,20 +218,28 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
     case 'binop': {
       const av = yield* evalExpr(e.a, env, ctx)
       const bv = yield* evalExpr(e.b, env, ctx)
+      // The SHAPE comes from the static type, as it does in the interpreter and the codegen:
+      // a flat column-major list cannot tell a mat2x3 from a mat3x2 (#149). All three
+      // evaluators dispatch identically, which is what `debug-step.test.ts` checks.
       if (
         e.bop === '*' &&
         e.a.type.kind === 'mat' &&
         (e.b.type.kind === 'vec' || e.b.type.kind === 'vec64')
       ) {
-        return matVec(av as number[], bv as number[])
+        return matVecShaped(av as number[], bv as number[], e.a.type.cols, e.a.type.rows)
       }
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat') {
-        return matMul(av as number[], bv as number[])
-      }
-      if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
-        throw new Error(
-          'typeshade/debug: vec*mat (row-vector form) is not implemented; use mat*vec',
+        return matMulShaped(
+          av as number[],
+          bv as number[],
+          e.a.type.cols,
+          e.a.type.rows,
+          e.b.type.cols,
         )
+      }
+      // vecR * matCxR — the row-vector product, `transpose(m) * v`.
+      if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
+        return vecMatShaped(av as number[], bv as number[], e.b.type.cols, e.b.type.rows)
       }
       return applyBin(e.bop, av, bv, numKindOf(e.type))
     }
@@ -274,6 +286,12 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
           return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number)
         }
+      }
+      // `transpose` needs the matrix's shape, which a flat list cannot carry — the same arm
+      // the interpreter has, so the stepper and the oracle stay bit-identical (#149).
+      if (e.declRef === undefined && e.fn === 'transpose') {
+        const t = e.args[0]!.type
+        if (t.kind === 'mat') return matTransposeShaped(args[0] as number[], t.cols, t.rows)
       }
       if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
         return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32')
@@ -356,6 +374,8 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
     case 'index': {
       const base = (yield* evalExpr(e.base, env, ctx)) as CpuValue[]
       const idx = (yield* evalExpr(e.idx, env, ctx)) as number
+      // `m[j]` is COLUMN j — see matColumn; the three evaluators must agree.
+      if (e.base.type.kind === 'mat') return matColumn(base as number[], idx, e.base.type.rows)
       return base[idx]
     }
     case 'matchExpr': {
@@ -545,6 +565,11 @@ function* setLValue(
   if (target.op === 'index') {
     const base = (yield* evalExpr(target.base, env, ctx)) as CpuValue[]
     const idx = (yield* evalExpr(target.idx, env, ctx)) as number
+    // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
+    if (target.base.type.kind === 'mat') {
+      setMatColumn(base as number[], idx, target.base.type.rows, value as number[])
+      return
+    }
     base[idx] = value
     return
   }

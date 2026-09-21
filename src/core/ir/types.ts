@@ -210,12 +210,29 @@ export type ShaderType =
   // arithmetic runs on whole vecN hi/lo planes. Own kind, same rationale.
   | { readonly kind: 'vec64'; readonly n: 2 | 3 | 4 }
   | { readonly kind: 'vec'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'i32' | 'u32' | 'bool' }
-  // A matrix. elem 'f32' is native (matNxN<f32>); elem 'f64' is emulated double
-  // precision — it lowers to `struct DF64MatN { c0..c(N-1): DF64VecN }` (columns
-  // of df64), and matmul / mat·vec / transpose compose the SCALAR df64 EFTs the
-  // same way length/dot do. Own elem arm, so every `t.kind === 'mat'` consumer is
-  // forced to decide about f64 (verified-by-construction).
-  | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'f64' }
+  // A matrix of `cols` columns and `rows` rows, which is WGSL's `matCxR<T>` and GLSL's
+  // `matCxR` (`matN` when square). Column-major on every target, so a column is a `vecR` and
+  // indexing one with `m[j]` yields that column.
+  //
+  // COLS AND ROWS, not one `n`: the nine shapes are not interchangeable, and a single `n`
+  // could only ever spell the three square ones. It also could not carry the fact the layout
+  // layer needs, which is that the ROW count alone decides the column stride — measured on
+  // ANGLE, every std140 column rounds up to 16 bytes, while WGSL's stride is
+  // AlignOf(vecR<f32>), so a two-ROW matrix (mat2x2, mat3x2, mat4x2) lays out differently on
+  // the two targets and every other shape agrees (#149).
+  //
+  // elem 'f32' is native; elem 'f64' is emulated double precision — it lowers to
+  // `struct DF64MatN { c0..c(N-1): DF64VecN }` (columns of df64), and matmul / mat·vec /
+  // transpose compose the SCALAR df64 EFTs the same way length/dot do. The emulation is
+  // SQUARE-ONLY (the pass has a body per dimension, not per shape), so a non-square f64
+  // matrix is refused where it is written rather than lowered. Own elem arm, so every
+  // `t.kind === 'mat'` consumer is forced to decide about f64 (verified-by-construction).
+  | {
+      readonly kind: 'mat'
+      readonly cols: 2 | 3 | 4
+      readonly rows: 2 | 3 | 4
+      readonly elem: 'f32' | 'f64'
+    }
   | { readonly kind: 'struct'; readonly name: string }
   | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
   // An atomic integer (roadmap 0.2 item 4): `atomic<u32>` / `atomic<i32>`, a location in
@@ -482,13 +499,39 @@ export const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies Shad
  */
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
 /** A native `mat4x4<f32>`, the model-view-projection or view matrix type of a typical
- *  per-frame uniform (`mvp: mat4x4fT`). It is the only native float matrix size with a named
- *  constant: a 2×2 or 3×3 float matrix lays out differently under the WGSL and GLSL std140
- *  rules and is rejected.
+ *  per-frame uniform (`mvp: mat4x4fT`). Every `matCxR<f32>` is spellable — build one with
+ *  {@link matT} — and this is the one with a named constant because it is the one a renderer
+ *  reaches for. (It was once the ONLY float matrix, on the recorded ground that "a 2×2 or 3×3
+ *  float matrix lays out differently under the WGSL and GLSL std140 rules". Measured on real
+ *  ANGLE and Tint, that is half right: a 2×2 does diverge and a 3×3 does not, and what
+ *  actually decides is the ROW count — see the `mat` arm of {@link ShaderType} and
+ *  `wgslLayout`.)
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
-export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies ShaderType
+export const mat4x4fT = { kind: 'mat', cols: 4, rows: 4, elem: 'f32' } as const satisfies ShaderType
+/** Any `matCxR<f32>` or `matCxR<f64>`: `cols` columns of `rows` components each, column-major
+ *  as both targets are. The named constants above are the shapes with a spelling of their own;
+ *  this is how the front end and a host build the other six.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ *
+ *  @param cols Number of columns — the `C` of `matCxR`.
+ *  @param rows Number of rows — the `R` of `matCxR`, and the component count of one column.
+ *  @param elem `'f32'` for a native matrix, `'f64'` for the emulated-double one (square only).
+ *
+ *  @example
+ *  ```ts
+ *  import { matT, typeKey } from 'typeshade'
+ *
+ *  typeKey(matT(2, 3)) // 'mat2x3<f32>'
+ *  ```
+ */
+export const matT = (
+  cols: 2 | 3 | 4,
+  rows: 2 | 3 | 4,
+  elem: 'f32' | 'f64' = 'f32',
+): Extract<ShaderType, { kind: 'mat' }> => ({ kind: 'mat', cols, rows, elem })
 /** A 2×2 emulated-double matrix, logically `mat2x2<f64>`. Before emit it is rewritten into a
  *  struct of two {@link vec2f64T} columns, and {@link mulMat64}, {@link transformMat64} and
  *  {@link transpose64} on it compose the scalar double-double error-free transforms the same
@@ -496,19 +539,19 @@ export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies Sh
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
-export const mat2f64T = { kind: 'mat', n: 2, elem: 'f64' } as const satisfies ShaderType
+export const mat2f64T = { kind: 'mat', cols: 2, rows: 2, elem: 'f64' } as const satisfies ShaderType
 /** A 3×3 emulated-double matrix; see {@link mat2f64T} for how it is emitted and the matrix
  *  operations available on it.
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
-export const mat3f64T = { kind: 'mat', n: 3, elem: 'f64' } as const satisfies ShaderType
+export const mat3f64T = { kind: 'mat', cols: 3, rows: 3, elem: 'f64' } as const satisfies ShaderType
 /** A 4×4 emulated-double matrix; see {@link mat2f64T} for how it is emitted and the matrix
  *  operations available on it.
  *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
-export const mat4f64T = { kind: 'mat', n: 4, elem: 'f64' } as const satisfies ShaderType
+export const mat4f64T = { kind: 'mat', cols: 4, rows: 4, elem: 'f64' } as const satisfies ShaderType
 /** A sampled 2D float texture (WGSL `texture_2d<f32>`, GLSL ES 3.00 `sampler2D`): the ordinary
  *  single-layer binding type behind {@link textureSample} and {@link textureLoad}, for colour
  *  ramps, lookup tables and atlases (`resource('atlas_tex', texture2dfT, { … })`). For exact
@@ -762,8 +805,13 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
       ? `vec${N}<f64>`
       : T extends { kind: 'vec'; n: infer N extends number; elem: infer E extends string }
         ? `vec${N}<${E}>`
-        : T extends { kind: 'mat'; n: infer N extends number; elem: infer E extends string }
-          ? `mat${N}x${N}<${E}>`
+        : T extends {
+              kind: 'mat'
+              cols: infer C extends number
+              rows: infer R extends number
+              elem: infer E extends string
+            }
+          ? `mat${C}x${R}<${E}>`
           : // X-GIS #2456 — struct / array / void arms. typeKey has emitted `struct:Name`,
             // `array<K,N>` and `void` since forever; KeyOf had no arm for any of them, so
             // every struct-typed and array-typed node fell through to the `string` fallback
@@ -881,7 +929,7 @@ export function typeKey(t: ShaderType): string {
     case 'vec':
       return `vec${t.n}<${t.elem}>`
     case 'mat':
-      return `mat${t.n}x${t.n}<${t.elem}>`
+      return `mat${t.cols}x${t.rows}<${t.elem}>`
     case 'struct':
       return `struct:${t.name}`
     case 'array':

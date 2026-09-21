@@ -268,21 +268,23 @@ describe('entry function missing a return type annotation but returning a value 
   })
 })
 
-describe('mat2/mat3 rejection (MAT_UNSUPPORTED)', () => {
-  it('rejects mat2<f32> as a parameter type (the generic form that used to widen to mat4x4)', () => {
+// `mat2` and `mat3` used to be refused as MAT_UNSUPPORTED, on the recorded ground that "a 2×2
+// or 3×3 float matrix lays out differently under the WGSL and GLSL std140 rules". Measured
+// (#149), that is half right: a two-ROW matrix diverges and a 3×3 does not, and the divergence
+// belongs to the uniform LAYOUT rather than to the type. Every `matCxR` is spellable now; what
+// MAT_UNSUPPORTED still marks is the shape the fp64 pass cannot carry.
+describe('every matCxR is a type, and the f64 ones are square-only (MAT_UNSUPPORTED)', () => {
+  it('accepts mat2<f32> as a parameter type, the generic form that used to be refused', () => {
     const r = diag(`
       "use typeshade";
       export function f(m: mat2<f32>): vec2 {
-        return vec2(0., 0.)
+        return m * vec2(1., 0.)
       }
     `)
-    const d = r.diagnostics.find((d) => d.code === TS_CODES.MAT_UNSUPPORTED)
-    expect(d, 'expected a MAT_UNSUPPORTED diagnostic').toBeDefined()
-    expect(d!.category).toBe('error')
-    expect(d!.message).toContain('mat2')
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
   })
 
-  it('rejects mat3<f32> as a return type', () => {
+  it('accepts mat3<f32> as a return type', () => {
     const r = diag(`
       "use typeshade";
       declare const m: uniform<mat3<f32>>
@@ -290,7 +292,47 @@ describe('mat2/mat3 rejection (MAT_UNSUPPORTED)', () => {
         return m
       }
     `)
-    expect(r.diagnostics.some((d) => d.code === TS_CODES.MAT_UNSUPPORTED)).toBe(true)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+  })
+
+  it('accepts every one of the nine shapes, bare and generic', () => {
+    for (const cols of [2, 3, 4] as const) {
+      for (const rows of [2, 3, 4] as const) {
+        const name = `mat${cols}x${rows}`
+        const r = diag(`
+          "use typeshade";
+          export function f(m: ${name}): vec${rows} {
+            return m * vec${cols}(${Array.from({ length: cols }, () => '1.').join(', ')})
+          }
+        `)
+        expect(
+          r.diagnostics.filter((d) => d.category === 'error'),
+          name,
+        ).toEqual([])
+      }
+    }
+  })
+
+  it('still refuses a NON-SQUARE matrix of emulated doubles, which the fp64 pass has no body for', () => {
+    const r = diag(`
+      "use typeshade";
+      export function f(m: mat2x3<f64>): f32 {
+        return 0.
+      }
+    `)
+    const d = r.diagnostics.find((d) => d.code === TS_CODES.MAT_UNSUPPORTED)
+    expect(d, 'expected a MAT_UNSUPPORTED diagnostic').toBeDefined()
+    expect(d!.message).toContain('square matrix of doubles only')
+  })
+
+  it('keeps the SQUARE emulated-double matrices working', () => {
+    const r = diag(`
+      "use typeshade";
+      export function f(m: mat3<f64>): mat3<f64> {
+        return transpose(m)
+      }
+    `)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
   })
 
   it('leaves mat4/mat4x4, bare and generic, working as before', () => {

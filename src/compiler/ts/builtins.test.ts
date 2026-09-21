@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { compileTsSource } from './source-file.js'
 import { compile } from './compile.js'
+import { TS_CODES } from './codes.js'
 import { typeKey } from '../../core/ir/types.js'
 import type { Expr } from '../../core/ir/nodes.js'
 
@@ -485,7 +486,11 @@ describe('discard', () => {
     ).toBe('"discard" is only valid in a fragment shader; "k" is a compute entry.')
   })
 
-  it('leaves a local named discard alone', () => {
+  // The name is still a NAME and never becomes the statement — that is what this pins. It is
+  // also a name WGSL cannot emit: measured on Tint, `var discard: f32 = 1.0;` is "expected
+  // identifier for variable declaration", so the local is reported where it is written now
+  // (#103) instead of reaching the driver as text nobody wrote.
+  it('leaves a local named discard alone, and refuses the name WGSL reserves', () => {
     const r = compileTsSource(`
       "use typeshade";
       export function f(x: f32): f32 {
@@ -494,7 +499,9 @@ describe('discard', () => {
         return discard;
       }
     `)
-    expect(r.diagnostics).toEqual([])
+    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `${TS_CODES.RESERVED_NAME} "discard" is reserved in WGSL, so a local of that name cannot be emitted for the WebGPU target. Rename it.`,
+    ])
     expect(r.funcs[0]!.body.some((s) => s.s === 'discard')).toBe(false)
   })
 })

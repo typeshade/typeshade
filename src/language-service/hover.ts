@@ -7,7 +7,7 @@ import type { ShaderType } from '../core/ir/types.js'
 import { wgslType } from '../core/backends/wgsl.js'
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js'
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js'
-import { nodeAtPosition, rangeForSpan, wordSpan } from './positions.js'
+import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js'
 import type { TypeshadeHover } from './types.js'
 
 function isBuiltinStringLiteral(node: ts.Node): node is ts.StringLiteralLike {
@@ -95,7 +95,7 @@ export function spellShaderType(t: ShaderType): string {
     case 'vec64':
       return `vec${t.n}<f64>`
     case 'mat':
-      return t.elem === 'f64' ? `mat${t.n}x${t.n}<f64>` : wgslType(t)
+      return t.elem === 'f64' ? `mat${t.cols}x${t.rows}<f64>` : wgslType(t)
     case 'array':
       return t.size !== undefined
         ? `array<${spellShaderType(t.elem)}, ${t.size}>`
@@ -186,7 +186,10 @@ export function getHover(
   offset: number,
   analysis: CompileTsSourceResult,
 ): TypeshadeHover | undefined {
-  const node = nodeAtPosition(sourceFile, offset)
+  // The touching rule: a caret at the end of a name answers for that name (#56). TypeScript's
+  // own quick info already works that way, which is why the fall-through below looked right at
+  // such a position while quietly being TypeScript's answer instead of the compiler's.
+  const node = touchingNodeAtPosition(sourceFile, offset)
 
   if (isBuiltinStringLiteral(node) && WGSL_BUILTIN_NAMES.includes(node.text)) {
     const doc = BUILTIN_DOCS[node.text]

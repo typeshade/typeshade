@@ -9,14 +9,27 @@
 //
 // GLSL ES 3.00 has no storage buffer and so no form of this module; like
 // `compute-reduction-twin` it is WGSL-only, and the compile gate runs it on Tint.
+//
+// That makes it the gate's evidence for the other half of #103: `half` is a word GLSL ES 3.00
+// reserves — a field of that name is "Illegal use of reserved word" on ANGLE, which is how the
+// issue was found — and a word WGSL does not. A module with no GLSL form is emitted for WGSL
+// alone, so the compiler does not hold this field to the other target's list, and Tint takes
+// the name on every gate run. A render module declaring the same field is refused with TS8068.
 
 declare const src: storage<array<f32>>
 declare let dst: storage<array<f32>>
+
+// The two parts a scale of 2 is split into, named for what they hold.
+class Weights {
+  half: f32
+  rest: f32
+}
 
 @compute([64, 1, 1])
 export function scale_all(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= src.length) {
     return
   }
-  dst[gid.x] = src[gid.x] * 2.
+  const w: Weights = { half: 0.5, rest: 1.5 }
+  dst[gid.x] = src[gid.x] * (w.half + w.rest)
 }

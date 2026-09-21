@@ -47,13 +47,24 @@ function stripParens(node: ts.Expression): ts.Expression {
 /** Retargets a bare numeric literal on one side of an arithmetic op to the kind its `peer`
  *  asks for. Against a native vector or a scalar this is {@link retargetIntLit} with the
  *  vector's element scalar as the peer (`v * 2` with `v: vec3<u32>` types the `2` as u32; a
- *  scalar peer behaves as before). Against an emulated-double vector (vec64) a literal that
- *  lowered to an f32 (`0.1`, `-2`, `Math.PI`, a folded `1. / 3.`) becomes an f64 literal
- *  carrying the full double, as liftAgainst in src/core/ir/node.ts does for `v.mul(0.1)`; the
- *  fp64 pass splits it into (hi, lo) halves, so the low half is kept instead of being widened
- *  from the f32 rounding as (x, 0.0). An explicit call such as `f32(0.1)` is left alone. */
+ *  scalar peer behaves as before). Against an emulated double — a `vec64` or, since #151, a
+ *  scalar `f64` — it is {@link retargetF64Lit}. */
 export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
-  if (!isVec64(peer)) return retargetIntLit(expr, node, literalPeerType(peer))
+  if (isF64(peer) || isVec64(peer)) return retargetF64Lit(expr, node)
+  return retargetIntLit(expr, node, literalPeerType(peer))
+}
+
+/** The emulated-double arm of {@link retargetLit}, kept apart from the integer one so the two
+ *  literal kinds are separate branches of the same decision.
+ *
+ *  A literal that lowered to an f32 (`0.1`, `-2`, `Math.PI`, a folded `1. / 3.`) beside an f64
+ *  or a `vec64` becomes an f64 literal carrying the full double, so the fp64 pass splits the
+ *  value the author WROTE into its (hi, lo) halves instead of widening the f32 rounding of it
+ *  as (x, 0.0). It is what `liftAgainst` in ir/node.ts does for `v.mul(0.1)` in the fn() EDSL;
+ *  a SCALAR f64 peer was the half that had been left out, so `s * 2.5` on an `s: f64` was a
+ *  type mismatch with nothing an author could write instead (#151 F64-02). An explicit call
+ *  such as `f32(0.1)` is left alone: it says which precision it means. */
+function retargetF64Lit(expr: Expr, node: ts.Expression): Expr {
   const folded = foldNumericLit(expr)
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded
   if (typeKey(folded.type) !== 'f32') return folded
@@ -62,6 +73,24 @@ export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): 
 }
 
 const BROADCAST_OPS: ReadonlySet<BinOp> = new Set<BinOp>(['+', '-', '*', '/', '%'])
+
+/** Result type of an arithmetic op between a scalar `f64` and a scalar `f32`: `f64`, the rule
+ *  `binResultType` in src/core/ir/node.ts applies in the fn() EDSL and the one the fp64 pass
+ *  is written to ("A mixed f64∘f32 operand (legal per binResultType) widens the f32 side",
+ *  passes/fp64-lower.ts) — the widen is EXACT, `vec2<f32>(x, 0.0)`, so it loses nothing. The
+ *  front end refused the pair outright, which left `s * t` with an f64 `s` and an f32 `t` with
+ *  no spelling at all short of widening by hand (#151 F64-02). `%` has no df64 emulation and
+ *  stays refused, as it is on a vec64. A vector pair is {@link broadcastResultType}'s. */
+export function f64WidenResultType(
+  left: ShaderType,
+  right: ShaderType,
+  bop: BinOp,
+): ShaderType | undefined {
+  if (!BROADCAST_OPS.has(bop) || bop === '%') return undefined
+  if (!isF64(left) && !isF64(right)) return undefined
+  const other = isF64(left) ? right : left
+  return isScalar(other) && other.scalar === 'f32' ? f64T : undefined
+}
 
 /** Result type of an arithmetic op (`+ - * / %`) between a vector and a scalar, or undefined
  *  when the pair does not broadcast. This follows binResultType in src/core/ir/node.ts, the
@@ -202,6 +231,15 @@ export function lowerScalarCast(
       return `f64() widens an f32, got ${typeKey(arg.type)}. Cast to f32 first, e.g. f64(f32(x)).`
     }
     return { op: 'call', type: f64T, fn: 'f64', args: [arg] }
+  }
+  // An emulated double has a narrow to f32 (`df64_narrow`) and no direct integer one: the
+  // fp64 pass raises SD0041 for `i32()`/`u32()` on an f64, which reached the author as a
+  // span-less backend failure. Said here, at the cast, with the two-step form that works.
+  if ((name === 'i32' || name === 'u32') && (isF64(arg.type) || isVec64(arg.type))) {
+    return (
+      `${name}() has no emulated-double form, got ${typeKey(arg.type)}. A double narrows to ` +
+      `f32 first, so write ${name}(f32(x)).`
+    )
   }
   // `f32(vec3(...))` was accepted and emitted `f32(vec3<f32>(...))` on WGSL and `float(vec3)`
   // on GLSL. Measured: Tint REFUSES it ("no matching constructor for 'f32(vec3<f32>)'"), and a

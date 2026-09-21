@@ -107,9 +107,20 @@ function typeLayout(
       // — derive the layout from THAT struct through the same engine (single
       // authority), so authored and lowered reflections agree byte-for-byte.
       if (t.elem === 'f64') {
-        const vecT: ShaderType = { kind: 'vec', n: t.n, elem: 'f32' }
+        // The emulation is square-only. The front end refuses a non-square `matCxR<f64>` and
+        // `binResultType` refuses one built another way, but `matT(c, r, 'f64')` is public, so
+        // a hand-built one reaches here — and taking `cols` alone would report a mat2x3<f64>
+        // with a mat2x2<f64>'s size. Fail loud instead of answering a plausible wrong number.
+        if (t.cols !== t.rows) {
+          throw new Error(
+            `wgslLayout: ${typeKey(t)} has no layout — the emulated-double matrices are square ` +
+              `(the fp64 pass has one df64 body per dimension, not per shape)`,
+          )
+        }
+        const n = t.cols
+        const vecT: ShaderType = { kind: 'vec', n, elem: 'f32' }
         const colStruct: StructDecl = {
-          name: `DF64Vec${t.n}`,
+          name: `DF64Vec${n}`,
           fields: [
             { name: 'hi', type: vecT },
             { name: 'lo', type: vecT },
@@ -119,8 +130,8 @@ function typeLayout(
         nested.set(colStruct.name, colStruct)
         const sl = structLayout(
           {
-            name: `DF64Mat${t.n}`,
-            fields: Array.from({ length: t.n }, (_, j) => ({
+            name: `DF64Mat${n}`,
+            fields: Array.from({ length: n }, (_, j) => ({
               name: `c${j}`,
               type: { kind: 'struct', name: colStruct.name } as ShaderType,
             })),
@@ -130,25 +141,35 @@ function typeLayout(
         )
         return { size: sl.size, align: sl.align }
       }
-      // X-GIS #763 P7 — mat2 std140 DIVERGES between WGSL uniform rules (column stride 8)
-      // and real GLSL std140 (columns round to vec4 → stride 16). The GLSL UBO emit
-      // declares this layout THE offset contract, so a mat2 field would drift host
-      // bytes vs GL for it and every following field. No producer exists (types.ts
-      // exports only mat4x4fT) — reject until the vec4-rounded rule + a layout test land.
-      if (layout === 'std140' && t.n === 2) {
+      // A TWO-ROW matrix in std140 diverges, and only a two-row one. Measured (#149): on a
+      // real WebGL2 context ANGLE reports UNIFORM_MATRIX_STRIDE 16 for every shape, because
+      // std140 rounds each column up to a vec4; WGSL's column stride is AlignOf(vecR<f32>),
+      // which is 8 for R = 2 and 16 for R = 3 and R = 4. So mat2x2, mat3x2 and mat4x2 lay
+      // out differently on the two targets and the other six agree byte for byte. The GLSL
+      // UBO emit declares this layout THE offset contract, so a two-row field would drift
+      // host bytes against GL for itself and every field after it.
+      //
+      // Refused rather than padded: padding would make the WGSL this module emits disagree
+      // with the offsets reflect() reports for it, which is the one thing this layer exists
+      // to prevent. (The earlier note here said "mat2", on the recorded ground that a 2×2 or
+      // 3×3 both diverge; the measurement says a 3×3 does not — X-GIS #763 P7.)
+      if (layout === 'std140' && t.rows === 2) {
         throw new Error(
-          'wgslLayout: mat2 in std140 is not supported — WGSL uniform rules (stride 8) and GLSL std140 (stride 16) disagree; add the dual-rule layout + tests before using mat2 in a UBO',
+          `wgslLayout: mat${t.cols}x2 in std140 is not supported — WGSL gives a two-row ` +
+            `matrix a column stride of 8 and GLSL std140 rounds every column to 16, so the ` +
+            `two targets would disagree on this field and every field after it; carry it as ` +
+            `mat${t.cols}x4 (measured: both targets stride 16) or as ${t.cols} vec2 fields`,
         )
       }
-      // matNxN<f32>: N columns of vecN; column stride = round(size,align) of the column vec.
+      // matCxR<f32>: C columns of vecR; column stride = round(size, align) of the column vec.
       const col =
-        t.n === 2
+        t.rows === 2
           ? { size: 8, align: 8 }
-          : t.n === 3
+          : t.rows === 3
             ? { size: 12, align: 16 }
             : { size: 16, align: 16 }
       const stride = roundUp(col.size, col.align)
-      return { size: stride * t.n, align: col.align }
+      return { size: stride * t.cols, align: col.align }
     }
     case 'struct': {
       const sl = structLayout(structByName(structs, t.name), layout, structs)
