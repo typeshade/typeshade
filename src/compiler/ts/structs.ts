@@ -519,11 +519,6 @@ export function collectStructs(
             struct: structName,
           })
         }
-        // Struct-WIDE, so it belongs here and not in the per-entry walk: the same struct is a
-        // vertex output and a fragment input, and raising a slot collision or a bool varying
-        // from there printed one mistake twice, word for word (§53). `function.ts` keeps the
-        // checks that read the STAGE, which genuinely differ between the two uses.
-        checkLocationSlots(diagnostics, sourceFile, stmt, structName, fields)
         const members: ClassMembers | undefined =
           methods.length > 0 || ctor !== undefined || fieldInits.length > 0
             ? { node: stmt, methods, ctor, fieldInits }
@@ -579,7 +574,20 @@ export function collectStructs(
       }
     }
   }
-  return applyInheritance(out, sourceFile, nodeOf, diagnostics)
+  const inherited = applyInheritance(out, sourceFile, nodeOf, diagnostics)
+  // Struct-WIDE, so it belongs here and not in the per-entry walk: the same struct is a
+  // vertex output and a fragment input, and raising a slot collision or a bool varying from
+  // there printed one mistake twice, word for word (§53). `function.ts` keeps the checks that
+  // read the STAGE, which genuinely differ between the two uses.
+  //
+  // AFTER `applyInheritance`, because a base's fields are spliced in there: `class VsOut
+  // extends Base` with `@location(0)` on each side is one struct with two members at one slot,
+  // and checking the class's own fields alone walked straight past it (Tint:
+  // `'@location(0)' appears multiple times`).
+  for (const s of inherited) {
+    checkLocationSlots(diagnostics, sourceFile, nodeOf.get(s.decl.name), s.decl.name, s.decl.fields)
+  }
+  return inherited
 }
 
 function classDiag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
@@ -962,20 +970,23 @@ function diag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiag
 function checkLocationSlots(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
-  node: ts.Node,
+  node: ts.Node | undefined,
   structName: string,
   fields: readonly StructField[],
 ): void {
+  const at = node ?? sourceFile
   const atLocation = new Map<string, string>()
+  const blendSources = new Set<number>()
   for (const field of fields) {
     if (field.location === undefined) continue
+    if (field.blendSrc !== undefined) blendSources.add(field.blendSrc)
     const slot = `${String(field.location)}:${String(field.blendSrc ?? -1)}`
     const prev = atLocation.get(slot)
     if (prev !== undefined) {
       diagnostics.push(
         makeDiagnostic(
           sourceFile,
-          node,
+          at,
           `Struct "${structName}" puts "${prev}" and "${field.name}" both at ` +
             `@location(${String(field.location)})` +
             `${field.blendSrc !== undefined ? ` @blend_src(${String(field.blendSrc)})` : ''}; ` +
@@ -984,6 +995,32 @@ function checkLocationSlots(
         ),
       )
     } else atLocation.set(slot, field.name)
-    checkLocationType(diagnostics, sourceFile, node, `${structName}.${field.name}`, field.type)
+    checkLocationType(
+      diagnostics,
+      sourceFile,
+      at,
+      `${structName}.${field.name}`,
+      field.type,
+      field.interpolate,
+    )
+  }
+  // A dual-source blend mixes TWO colours, so `@blend_src` comes as a pair: WGSL requires
+  // that a struct declaring one declares both, at the same `@location`. One alone emitted
+  // `enable dual_source_blending;` and a single source, which is not a shape the pipeline
+  // has. Stated from the spec rather than measured: the gate's adapter has no
+  // `dual-source-blending` feature, so Tint answers `extension 'dual_source_blending' is not
+  // allowed in the current environment` before it reaches the rule.
+  if (blendSources.size === 1) {
+    const only = [...blendSources][0]!
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        at,
+        `Struct "${structName}" declares @blend_src(${String(only)}) and not ` +
+          `@blend_src(${String(1 - only)}); a dual-source blend mixes two colours, so both sit ` +
+          `at the same @location.`,
+        TS_CODES.STRUCT_FIELD,
+      ),
+    )
   }
 }

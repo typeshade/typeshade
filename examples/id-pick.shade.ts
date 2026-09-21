@@ -6,8 +6,9 @@
 // The integer varying is the row this example exists for. WGSL requires every integral
 // user-defined IO to carry `@interpolate(flat)` — there is no way to interpolate a `u32` — and
 // the compiler emitted `@location(0) id: u32,` bare, which Tint refuses with "integral
-// user-defined vertex output must have a flat interpolation attribute". GLSL ES 3.00 says the
-// same thing (`flat in uint`), and the GLSL writer had always added the qualifier, so the two
+// user-defined vertex outputs must have a '@interpolate(flat)' attribute". GLSL ES 3.00 says
+// the same thing (`'in' : must use 'flat' interpolation here`), and the GLSL writer had always
+// added the qualifier, so the two
 // targets disagreed about a program neither author nor compiler had written down. The
 // attribute is derived now, from the type, on both writers.
 //

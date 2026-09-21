@@ -22,15 +22,18 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   check passing on both compilers first: the bare WGSL form is `integral user-defined vertex
 outputs must have a '@interpolate(flat)' attribute` and the bare GLSL form is `'in' : must
 use 'flat' interpolation here`; both are accepted with the qualifier. The attribute is
-  derived from the TYPE now, for a scalar and a vector alike, on both writers, and
-  `examples/id-pick.shade.ts` compiles it on Tint and on ANGLE.
+  derived from the TYPE now, for a scalar and a vector alike, on both writers, and for both
+  spellings of a varying — a struct field and a bare entry parameter, which reaches no struct
+  and so stayed bare (`integral user-defined fragment inputs must have a '@interpolate(flat)'
+attribute`). A vertex entry's `@location` parameters are vertex attributes, not varyings, and
+  are left alone. `examples/id-pick.shade.ts` compiles it on Tint and on ANGLE.
 
   `@interpolate`, `@invariant` and `@blend_src` are attributes an author writes, and all three
   reach the emitted struct: `@interpolate("perspective", "centroid")` is
   `@interpolate(perspective, centroid)` on WGSL and `smooth centroid` on GLSL ES 3.00,
   `@invariant` on `@builtin("position")` is `invariant gl_Position;` there, and a
   `@blend_src(0)` / `@blend_src(1)` pair at one `@location` derives the `dualSourceBlending`
-  capability and emits `enable dual_source_blending;`. The two shapes GLSL ES 3.00 does not
+  capability and emits `enable dual_source_blending;`. The three shapes GLSL ES 3.00 does not
   have — `"linear"`, the `"sample"` position, and the second blend source — fail the module
   CLOSED there rather than emitting something else: it simply has no GLSL half, the way a
   storage texture already does not. No example carries `@blend_src`:
@@ -38,10 +41,18 @@ use 'flat' interpolation here`; both are accepted with the qualifier. The attrib
   answers `extension 'dual_source_blending' is not allowed in the current environment`, so a
   gate example would test the adapter rather than the emit.
 
-  **And five shapes that emitted clean text nothing would run.** A `bool` at a `@location`, two
-  members at one `@location` (a dual-source pair excepted — there the slot is the location AND
-  the blend source), a `@location` on a compute entry, a `@builtin` declared with a type WGSL
-  does not give it, and a vertex output and fragment input that disagree at one slot. The last
+  **And seven shapes that emitted clean text nothing would run.** A `bool` at a `@location`;
+  two members at one `@location` (a dual-source pair excepted — there the slot is the location
+  AND the blend source), checked after `extends` splices a base's fields in and across an
+  entry's parameter list as well as a struct; a `@location` on a compute entry, in both the
+  bare-parameter and the struct spelling; a `@builtin` declared with a type WGSL does not give
+  it; a non-`flat` `@interpolate` on an integer varying, which Tint refuses with
+  `interpolation type must be 'flat' for integral user-defined IO types` while GLSL answers
+  from the type and emits `flat` regardless; a `@blend_src` with no pair; and a vertex output
+  and fragment input that disagree at one slot. The interstage pair is compared in WGSL's own
+  canonical form, so `@interpolate(flat)` and `@interpolate(flat, first)` are one answer and so
+  are `@interpolate(perspective, center)` and no attribute at all — comparing the spelling
+  refused pairs both targets take. The last
   is the one that needed somewhere new to live: when both stages share a struct they agree by
   construction, but two structs — which is what an author writes when the fragment reads a
   subset — let them drift, and a `vec2` output read as a `vec3` input emitted clean WGSL and

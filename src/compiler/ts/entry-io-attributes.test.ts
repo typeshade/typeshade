@@ -57,7 +57,8 @@ describe('an integer varying is flat, because neither target can interpolate one
   it('emits @interpolate(flat) on every integer varying and GLSL keeps flat', () => {
     const c = compiled(VARYINGS)
     expect(c.wgsl).toContain('@location(0) @interpolate(flat) id: u32,')
-    // The float varying beside it is untouched: it has an interpolation, so nothing is derived.
+    // The float varying beside it is untouched, because it is a float: it interpolates, which
+    // is the whole point of a varying, so nothing is derived for it.
     expect(c.wgsl).toContain('@location(1) uv: vec2<f32>,')
     expect(c.glsl!.vertex).toContain('flat out uint id;')
     expect(c.glsl!.fragment).toContain('flat in uint id;')
@@ -80,6 +81,60 @@ describe('an integer varying is flat, because neither target can interpolate one
     expect(c.wgsl).toContain('@location(1) @interpolate(flat) sign: i32,')
     expect(c.glsl!.fragment).toContain('flat in uvec2 cell;')
     expect(c.glsl!.fragment).toContain('flat in int sign;')
+  })
+})
+
+describe('a varying spelled as a bare entry parameter, not a struct field', () => {
+  const VS = `class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) id: u32
+  @location(1) uv: vec2
+}
+@vertex export function vs(@builtin("vertex_index") vi: u32): VsOut {
+  return { pos: vec4(0., 0., 0., 1.), id: vi, uv: vec2(0., 0.) }
+}`
+
+  it('derives flat for an integer varying taken as a parameter', () => {
+    // The struct rewrite reaches no struct here, so this spelling stayed bare: Tint answers
+    // `integral user-defined fragment inputs must have a '@interpolate(flat)' attribute`
+    // while the GLSL writer, which reads the field's own type wherever it finds one, emitted
+    // `flat in uint id;` — one source, two programs.
+    const c = compiled(`${VS}
+@fragment export function fs(@location(0) id: u32, @location(1) uv: vec2): vec4 {
+  return vec4(f32(id), uv, 1.)
+}`)
+    expect(c.wgsl).toContain('fn fs(@location(0) @interpolate(flat) id: u32')
+    expect(c.wgsl).toContain('@location(1) uv: vec2<f32>')
+    expect(c.glsl!.fragment).toContain('flat in uint id;')
+  })
+
+  it('carries an @interpolate written on a parameter to both targets', () => {
+    // It was read on a struct field and nowhere else, so the attribute an author wrote here
+    // was dropped silently and reached neither target.
+    const c = compiled(`class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) @interpolate("perspective", "centroid") uv: vec2
+}
+@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
+@fragment export function fs(@location(0) @interpolate("perspective", "centroid") uv: vec2): vec4 {
+  return vec4(uv, 0., 1.)
+}`)
+    expect(c.wgsl).toContain('@location(0) @interpolate(perspective, centroid) uv: vec2<f32>')
+    expect(c.glsl!.fragment).toContain('smooth centroid in vec2 uv;')
+  })
+
+  it('refuses two parameters at one @location, and @interpolate on a @builtin parameter', () => {
+    expect(
+      diagnose(`@vertex export function vs(): vec4 { return vec4(0., 0., 0., 1.) }
+@fragment export function fs(@location(0) a: f32, @location(0) b: f32): vec4 {
+  return vec4(a, b, 0., 1.)
+}`).message,
+    ).toContain('"fs" puts "a" and "b" both at @location(0)')
+    expect(
+      diagnose(`@vertex export function vs(@builtin("vertex_index") @interpolate("flat") vi: u32): vec4 {
+  return vec4(f32(vi), 0., 0., 1.)
+}`).message,
+    ).toContain('@interpolate belongs on a @location parameter')
   })
 })
 
@@ -160,6 +215,64 @@ describe('the entry IO shapes that are refused, one sentence each', () => {
     expect(d.message).toContain('which has no user IO')
   })
 
+  it('refuses a non-flat @interpolate on an integer varying', () => {
+    // Tint: `interpolation type must be 'flat' for integral user-defined IO types`. It
+    // mattered because the GLSL writer answers from the TYPE and emitted `flat` whatever the
+    // attribute said, so the one source described two programs again.
+    const d = diagnose(`class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) @interpolate("perspective") id: u32
+}
+@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), id: u32(1) } }
+@fragment export function fs(v: VsOut): vec4 { return vec4(f32(v.id)) }`)
+    expect(d.code).toBe(TS_CODES.TYPE_MISMATCH)
+    expect(d.message).toContain('so its interpolation is "flat"')
+    // `flat` with either of its samplings is what an integer HAS, so it stays legal.
+    expect(
+      compiled(`class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) @interpolate("flat", "either") id: u32
+}
+@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), id: u32(1) } }
+@fragment export function fs(v: VsOut): vec4 { return vec4(f32(v.id)) }`).wgsl,
+    ).toContain('@interpolate(flat, either)')
+  })
+
+  it('refuses a duplicate @location that arrives through extends', () => {
+    // The slot rule ran on the class's own fields, before the base was spliced in, so this
+    // walked past it: Tint answers `'@location(0)' appears multiple times`.
+    const d = diagnose(`class Base { @location(0) a: vec2 }
+class VsOut extends Base {
+  @builtin("position") pos: vec4
+  @location(0) b: vec2
+}
+@vertex export function vs(): VsOut {
+  return { pos: vec4(0., 0., 0., 1.), a: vec2(0., 0.), b: vec2(0., 0.) }
+}
+@fragment export function fs(v: VsOut): vec4 { return vec4(v.a, v.b.x, 1.) }`)
+    expect(d.code).toBe(TS_CODES.STRUCT_FIELD)
+    expect(d.message).toContain('both at @location(0)')
+  })
+
+  it('refuses a @location on a compute entry reached through a struct', () => {
+    const d = diagnose(`declare let buf: storage<array<f32>>
+class CsIn {
+  @builtin("global_invocation_id") gid: vec3u
+  @location(0) x: f32
+}
+@compute([64, 1, 1]) export function cs(i: CsIn): void { buf[i.gid.x] = i.x }`)
+    expect(d.message).toContain('which has no user IO')
+  })
+
+  it('refuses a @blend_src with no pair', () => {
+    // Stated from the spec rather than measured: the gate's adapter has no
+    // `dual-source-blending` feature, so Tint refuses the directive before reaching the rule.
+    const d = diagnose(`class Out { @location(0) @blend_src(0) color: vec4 }
+@fragment export function fs(): Out { return { color: vec4(1., 1., 1., 1.) } }`)
+    expect(d.code).toBe(TS_CODES.STRUCT_FIELD)
+    expect(d.message).toContain('a dual-source blend mixes two colours')
+  })
+
   it('refuses a builtin declared with a type WGSL does not give it', () => {
     const d = diagnose(`@vertex export function vs(@builtin("vertex_index") i: f32): vec4 {
   return vec4(0., 0., 0., 1.)
@@ -175,6 +288,23 @@ class FsIn { @builtin("position") pos: vec4; @location(0) uv: vec3 }
 @fragment export function fs(v: FsIn): vec4 { return vec4(v.uv, 1.) }`)
     expect(d.message).toContain('leaves "vs" as vec2<f32> (VsOut.uv)')
     expect(d.message).toContain('enters "fs" as vec3<f32> (FsIn.uv)')
+  })
+
+  it('compares the EMITTED interpolation, not the spelling', () => {
+    // Three pairs WGSL resolves to one answer, and comparing the text refused all three.
+    for (const [out, into] of [
+      ['@interpolate("flat") id: u32', 'id: u32'],
+      ['@interpolate("flat", "first") uv: vec2', '@interpolate("flat") uv: vec2'],
+      ['@interpolate("perspective", "center") uv: vec2', 'uv: vec2'],
+    ] as const) {
+      const field = out.includes('u32') ? 'id: u32(1)' : 'uv: vec2(0., 0.)'
+      const read = out.includes('u32') ? 'vec4(f32(v.id))' : 'vec4(v.uv, 0., 1.)'
+      const c = compiled(`class VsOut { @builtin("position") pos: vec4; @location(0) ${out} }
+class FsIn { @builtin("position") pos: vec4; @location(0) ${into} }
+@vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), ${field} } }
+@fragment export function fs(v: FsIn): vec4 { return ${read} }`)
+      expect(c.wgsl, `${out} / ${into}`).toBeDefined()
+    }
   })
 
   it('refuses an interstage pair that disagrees about interpolation', () => {
@@ -195,7 +325,9 @@ class FsIn { @builtin("position") pos: vec4; @location(3) uv: vec2 }
 @fragment export function fs(v: FsIn): vec4 { return vec4(v.uv, 0., 1.) }`)
     expect(d.message).toContain('which "vs" does not produce')
   })
+})
 
+describe('the interstage shapes that stay legal', () => {
   it('takes a fragment that reads a SUBSET of the vertex output', () => {
     // WGSL constrains only the slots the fragment names, so an output it ignores is fine.
     const c = compiled(`class VsOut {
@@ -210,7 +342,9 @@ class FsIn { @builtin("position") pos: vec4; @location(0) uv: vec2 }
 @fragment export function fs(v: FsIn): vec4 { return vec4(v.uv, 0., 1.) }`)
     expect(c.wgsl).toContain('@location(1) extra: vec2<f32>,')
   })
+})
 
+describe('one more refusal, about where an attribute belongs', () => {
   it('refuses @interpolate on a @builtin, which carries its own rule', () => {
     const d = diagnose(`class VsOut {
   @builtin("position") @interpolate("flat") pos: vec4

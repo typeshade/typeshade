@@ -452,7 +452,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     id: 'id-pick',
     title: 'An integer varying, and the interpolation it has no choice about',
     blurb:
-      'Entry IO as WGSL declares it (§53). A `u32` at a `@location` is an INTEGRAL varying, and neither target can interpolate one: WGSL requires `@interpolate(flat)` on it ("integral user-defined vertex output must have a flat interpolation attribute" on Tint) and GLSL ES 3.00 requires `flat`. The compiler emitted the WGSL bare while the GLSL writer added the qualifier, so one source described two different programs; the attribute is derived from the type now, on both writers. Beside it, the two attributes that pass through as written: `@interpolate("perspective", "centroid")` on a float varying, which GLSL spells `smooth centroid`, and `@invariant` on the position, which it spells `invariant gl_Position;`.',
+      'Entry IO as WGSL declares it (§53). A `u32` at a `@location` is an INTEGRAL varying, and neither target can interpolate one: WGSL requires `@interpolate(flat)` on it (Tint: "integral user-defined vertex outputs must have a \'@interpolate(flat)\' attribute") and GLSL ES 3.00 requires `flat`. The compiler emitted the WGSL bare while the GLSL writer added the qualifier, so one source described two different programs; the attribute is derived from the type now, on both writers. Beside it, the two attributes that pass through as written: `@interpolate("perspective", "centroid")` on a float varying, which GLSL spells `smooth centroid`, and `@invariant` on the position, which it spells `invariant gl_Position;`.',
     renderable: true,
   },
 ]

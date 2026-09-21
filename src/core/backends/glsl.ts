@@ -67,6 +67,7 @@ import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../f
 import { bodyHasRaw } from '../passes/opt/dce.js'
 import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js'
 import { singleExitBody } from '../passes/single-exit.js'
+import { isIntegerVarying } from '../passes/varying-interpolate.js'
 import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js'
 import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js'
 import { reachFrom } from '../passes/stage-bindings.js'
@@ -220,13 +221,10 @@ function glslType(t: ShaderType): string {
   }
 }
 
-// An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage varyings.
-function isIntType(t: ShaderType): boolean {
-  return (
-    (t.kind === 'scalar' && (t.scalar === 'i32' || t.scalar === 'u32')) ||
-    (t.kind === 'vec' && (t.elem === 'i32' || t.elem === 'u32'))
-  )
-}
+// An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage
+// varyings, and so does WGSL. ONE predicate for both writers and for the interstage rule
+// (§53): the spelling differs per target, the question does not.
+const isIntType = isIntegerVarying
 
 function glslLit(value: number | boolean, t: ShaderType): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false'

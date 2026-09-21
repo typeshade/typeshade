@@ -104,7 +104,7 @@ spellings used to disagree: an interface refused it and a class emitted it as re
 refuse it alike now. Inheritance is roadmap 0.3 item T5, which flattens the base's fields
 rather than dropping them.
 
-Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
+Field metadata (`@location`, `@builtin`, `@interpolate`, `@invariant`, `@blend_src`, `@align`, `@size`, `@offset`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
 
 ```ts
 class Camera {
@@ -120,7 +120,8 @@ class VsIn {
 ```
 
 Of that list the compiler applies `@location`, `@builtin`, `@interpolate`, `@invariant` and
-`@blend_src` today (§53). `@align` on a field is an error (`TS8010`) rather than a silent
+`@blend_src` today (§53). `@location`, `@builtin` and `@interpolate` also apply to a bare entry
+PARAMETER, which is how a fragment entry that takes one varying writes it. `@align` on a field is an error (`TS8010`) rather than a silent
 no-op — the `@align(16)` above is *(target)*. `@size`, `@offset` and `@ignore` parse but do not
 reach the emitted struct yet.
 
@@ -3338,7 +3339,12 @@ instrument check passing on both compilers first:
 | GLSL ES 3.00 `in uint id;` | `'in' : must use 'flat' interpolation here` |
 | GLSL ES 3.00 `flat in uint id;` | accepted |
 
-The attribute is derived from the TYPE now, for a scalar and a vector alike, on both writers:
+The attribute is derived from the TYPE now, for a scalar and a vector alike, on both writers,
+and for both spellings of a varying — a struct field and a bare entry parameter. The parameter
+form is its own row: a fragment entry that takes `@location(0) id: u32` and declares no struct
+reaches no struct, so rewriting the structs alone left it bare and Tint answered `integral
+user-defined fragment inputs must have a '@interpolate(flat)' attribute`. A VERTEX entry's
+`@location` parameters are vertex ATTRIBUTES, not varyings, and are left alone.
 
 ```ts
 class VsOut {
@@ -3378,10 +3384,12 @@ carries its own rule, and WGSL has no interpolation to give it.
 | Written | Why |
 | --- | --- |
 | `@location(0) ok: bool` | a value passed between stages is a numeric scalar or a numeric vector; `bool` is not host-shareable. Send a `u32` and compare it. |
-| two members at one `@location` | each slot carries one value. The exception is a dual-source pair, where the slot is the location AND the blend source. |
-| `@location(0) x: f32` on a `@compute` entry | a compute shader has no user IO: it reads its work from resources and the `@builtin` invocation ids. |
+| two members at one `@location` | each slot carries one value. The exception is a dual-source pair, where the slot is the location AND the blend source. Checked after `extends` splices a base's fields in, and across an entry's parameter list as well as a struct. |
+| `@location(0) x: f32` on a `@compute` entry | a compute shader has no user IO: it reads its work from resources and the `@builtin` invocation ids. Both spellings — a bare parameter and a struct member. |
 | `@builtin("vertex_index") i: f32` | each built-in value has one type, which `WGSL_BUILTIN_TYPES` holds; this one is `u32`. |
-| a vertex output and a fragment input that disagree at one `@location` | an interstage slot is one type, interpolated one way, on both sides. |
+| `@interpolate("perspective")` on a `u32` varying | an integer has one interpolation and it is `flat`. Tint: `interpolation type must be 'flat' for integral user-defined IO types`, while GLSL answers from the type and emits `flat` whatever the attribute says. |
+| `@blend_src(0)` with no `@blend_src(1)` | a dual-source blend mixes two colours, so both sit at the same `@location`. Stated from the spec: the gate's adapter has no `dual-source-blending` feature, so Tint refuses the directive before reaching the rule. |
+| a vertex output and a fragment input that disagree at one `@location` | an interstage slot is one type, interpolated one way, on both sides. Compared in WGSL's canonical form, so `@interpolate(flat)` and `@interpolate(flat, first)` are one answer, and so are `@interpolate(perspective, center)` and no attribute at all. |
 
 The interstage rule is the one that needed somewhere new to live. When both stages share a
 struct they agree by construction; two structs — which is what an author writes when the

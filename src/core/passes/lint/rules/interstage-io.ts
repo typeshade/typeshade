@@ -1,6 +1,7 @@
 import type { LintRule } from '../engine.js'
 import type { FuncDecl, StructDecl, StructField } from '../../../ir/nodes.js'
 import { typeKey, type ShaderType } from '../../../ir/types.js'
+import { canonicalInterpolation, emittedInterpolation } from '../../varying-interpolate.js'
 
 /** One `@location(n)` slot as a stage declares it. */
 interface Varying {
@@ -25,7 +26,14 @@ function varyings(
   where: string,
 ): Varying[] {
   if (own.location !== undefined) {
-    return [{ location: own.location, type, interpolate: own.interpolate, where }]
+    return [
+      {
+        location: own.location,
+        type,
+        interpolate: emittedInterpolation({ type, ...own }),
+        where,
+      },
+    ]
   }
   if (type.kind !== 'struct') return []
   const s = structs.find((x) => x.name === type.name)
@@ -35,8 +43,11 @@ function varyings(
     if (f.location === undefined) continue
     out.push({
       location: f.location,
+      // The EMITTED interpolation, not the authored one: an integer varying takes `flat` on
+      // both targets whether or not the author spelled it, so comparing what was written
+      // refused a legal pair where one side spelled it and the other did not (§53).
       type: f.type,
-      interpolate: f.interpolate,
+      interpolate: emittedInterpolation(f),
       where: `${s.name}.${f.name}`,
     })
   }
@@ -98,7 +109,10 @@ export function interstageMismatches(
         )
         continue
       }
-      if ((have.interpolate ?? '') !== (want.interpolate ?? '')) {
+      // Compared in WGSL's own canonical form, so the several spellings of one interpolation
+      // are one answer: `flat` is `flat, first`, and no attribute at all is
+      // `perspective, center`. Comparing the text refused pairs Tint accepts.
+      if (canonicalInterpolation(have.interpolate) !== canonicalInterpolation(want.interpolate)) {
         say(
           `${slot} leaves "${vertex.name}" with ${shown(have.interpolate)} (${have.where}) and ` +
             `enters "${fragment.name}" with ${shown(want.interpolate)} (${want.where}); ` +
@@ -126,7 +140,7 @@ export const interstageIo: LintRule = {
   create: (ctx) => ({
     Module(m) {
       for (const f of interstageMismatches(m.structs, m.funcs)) {
-        ctx.report(`interstage IO: ${f.message}`, { code: 'SD0021' })
+        ctx.report(`interstage IO: ${f.message}`, { code: 'SD0020' })
       }
     },
   }),

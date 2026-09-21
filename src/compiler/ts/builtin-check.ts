@@ -16,6 +16,7 @@ import { typeKey, type ShaderType } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { makeDiagnostic } from './diagnostic.js'
 import { TS_CODES } from './codes.js'
+import { isIntegerVarying } from '../../core/passes/varying-interpolate.js'
 
 /** The pipeline stage a `@builtin(...)` id is being checked against. */
 export type BuiltinStage = 'vertex' | 'fragment' | 'compute'
@@ -293,7 +294,28 @@ export function checkLocationType(
   node: ts.Node,
   name: string,
   type: ShaderType,
+  interpolate?: string,
 ): void {
+  // An INTEGRAL varying has one interpolation and it is `flat` — there is nothing to
+  // interpolate between two integers. WGSL says so outright (Tint: `interpolation type must
+  // be 'flat' for integral user-defined IO types`), and the attribute is derived from the
+  // type for a field that spells none (§53) — so the only way to reach an integer varying
+  // that is not flat is to write another one, which is refused here. It mattered: the GLSL
+  // writer answers the same question from the type and emitted `flat out uint id;` whatever
+  // the attribute said, so the one source described two programs again.
+  if (interpolate !== undefined && isIntegerVarying(type) && !/^flat\b/.test(interpolate)) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        node,
+        `"${name}" is "${typeKey(type)}" at a @location, so its interpolation is "flat"; ` +
+          `@interpolate(${interpolate}) is not one an integer has. Drop the attribute — it is ` +
+          `derived from the type — or send an f32.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
+    return
+  }
   const ok =
     (type.kind === 'scalar' && type.scalar !== 'bool') ||
     (type.kind === 'vec' && type.elem !== 'bool')
@@ -314,10 +336,12 @@ export function checkLocationType(
 
 /** Validates the TYPE declared for a `@builtin(...)` id against what WGSL fixes for it.
  *
- *  One id today: `clip_distances`, whose `array<f32, N ≤ 8>` shape is the one an author picks
- *  and therefore the one an author can get wrong. Every other id has a single type, which is
- *  {@link WGSL_BUILTIN_TYPES}' subject and a separate row. A name with no rule is left alone,
- *  so an unknown id (already reported by {@link checkBuiltinName}) adds no second diagnostic. */
+ *  Two shapes of rule. Every id with a SINGLE type is checked against {@link WGSL_BUILTIN_TYPES},
+ *  which `core/sot.ts` already writes down — `@builtin("vertex_index") i: f32` used to emit
+ *  and die at the driver (§53). `clip_distances` is the one id whose type an AUTHOR picks,
+ *  `array<f32, N ≤ 8>`, so it has a rule of its own below rather than a row. A name with no
+ *  rule of either kind is left alone, so an unknown id (already reported by
+ *  {@link checkBuiltinName}) adds no second diagnostic. */
 export function checkBuiltinType(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,

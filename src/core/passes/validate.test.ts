@@ -102,6 +102,9 @@ describe('X-GIS #763 V1 — CORE rule firing fixtures', () => {
       // `@builtin(clip_distances)` emits `enable clip_distances;` whatever the struct is used
       // for, so the type rule has to be read off the IR too, on every surface.
       'builtin-value-type',
+      // A vertex output and the fragment input reading it must agree slot for slot (§53): both
+      // writers emit the two declarations from the same fields, and a drift between them is
+      // clean text on both targets that fails at pipeline creation.
       'interstage-io',
     ])
   })

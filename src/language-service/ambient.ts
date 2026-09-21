@@ -83,7 +83,8 @@ export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES
  * (`"@align on a field is not applied"`) and neither the struct nor the function lowering
  * recognizes `size` or `ignore` at all. `interpolate`, `invariant` and `blend_src` joined
  * the list in §53, where the struct collector gained real readers for all three. See the
- * phase report for the original deviation from the design doc's speculative list. Re-exported from `compiler/ts/builtin-check.ts`
+ * phase report for the original deviation from the design doc's speculative list.
+ * Re-exported from `compiler/ts/builtin-check.ts`
  * rather than retyped here, the same way `WGSL_BUILTIN_NAMES` below re-exports `core/sot.ts`'s
  * array: that module also uses this exact list to flag a misspelled attribute (`checkAttributeName`),
  * so the language service and the compiler's own diagnostics can never name two different
