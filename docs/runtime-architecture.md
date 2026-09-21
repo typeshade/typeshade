@@ -185,7 +185,9 @@ and:
 "use typeshade"
 
 class Tile {
-  // TypeScript syntax with TypeShade GPU semantics
+  // TypeScript syntax with TypeShade GPU semantics: a struct the GPU lays out
+  origin: vec2
+  zoom: f32
 }
 ```
 
