@@ -128,7 +128,13 @@ export function k(
       '  if (lid.x > 60) {\n    return\n  }\n  tile[lid.x] = src[gid.x]\n',
     )
     const r = compile(src)
-    expect(r.diagnostics).toEqual([])
+    // The front end catches this one at the line now (§54): a `return` under a condition the
+    // invocations do not share leaves a subset of them to reach the barrier, and Tint says so
+    // too — measured, `if (id.x > 4u) { return }` above a barrier is `'workgroupBarrier' must
+    // only be called from uniform control flow`. The runtime check below is what still stands
+    // behind a module that reaches it anyway, assembled by the EDSL or composed at run time,
+    // and it is the one that can count the invocations.
+    expect(new Set(r.diagnostics.map((d) => d.code))).toEqual(new Set([TS_CODES.UNIFORMITY]))
     const cm = compileModule(r.module)
     cm.setBinding(
       'src',

@@ -108,8 +108,15 @@ export const TS_CODES = {
    *  struct's last member, or a runtime-sized array in a uniform, whose type must be
    *  constructible. */
   LAYOUT: 'TS8051',
-  /** A call that needs uniform control flow — `textureSample` and the other implicit-LOD forms, the derivatives, or a barrier — reached under a condition that is not uniform across the invocations that run together (§54). */
+  /** A call that needs uniform control flow — `textureSample` and the other implicit-LOD
+   *  forms, the derivatives, or a barrier — reached under a condition that is not uniform
+   *  across the invocations that run together (§54). */
   UNIFORMITY: 'TS8052',
+  /** A DEPRECATION warning, not an error: an integer-written literal in a declaration that
+   *  declares no type still becomes `f32` and will become `i32` (§13, roadmap item 25).
+   *  Reported only when the caller asks for it with `deprecations: true`; the compiler's
+   *  behaviour has not changed. */
+  INT_LITERAL_DEPRECATION: 'TS8053',
   UNSUPPORTED: 'TS8099',
 } as const
 

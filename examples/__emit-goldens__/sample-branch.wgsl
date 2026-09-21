@@ -20,17 +20,23 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
 }
 
-fn banded(uv: vec2<f32>) -> vec4<f32> {
-  if ((uv.x > 0.5)) {
-    return textureSample(albedo, smp, uv);
-  }
+fn sharp(uv: vec2<f32>) -> vec4<f32> {
+  return textureSample(albedo, smp, uv);
+}
+
+fn wide(uv: vec2<f32>) -> vec4<f32> {
   let inner = (uv * 0.5);
   return textureSample(albedo, smp, inner);
 }
 
 @fragment
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
-  let base = banded(v.uv);
+  var base: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  if ((v.uv.x > 0.5)) {
+    base = sharp(v.uv);
+  } else {
+    base = wide(v.uv);
+  }
   if ((tint.rgb.w > 0.5)) {
     let near = (v.uv * 0.75);
     let warm = textureSample(albedo, smp, near);

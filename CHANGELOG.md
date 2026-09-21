@@ -11,7 +11,38 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ## [Unreleased]
 
+### Changed
+
+- **A barrier's placement rule is the spec's, not a stricter one** (§54,
+  [#161](https://github.com/typeshade/typeshade/issues/161)). `workgroupBarrier()` and
+  `storageBarrier()` were refused inside any `if` or `switch` at all. What WGSL and Tint refuse
+  is a branch on a value the invocations do not share: measured on Chromium 141 and 153 alike,
+  a barrier under a condition on a uniform buffer value is ACCEPTED, and one under
+  `if (id.x > 4u)` on `local_invocation_id` is `'workgroupBarrier' must only be called from
+uniform control flow`. The rule is now the uniformity walk's verdict, which reports a barrier
+  unless the control flow is PROVABLY uniform — so a kernel branching on a dispatch-wide flag
+  compiles, a shape the walk cannot read keeps the refusal it had, and the code that moved is
+  `TS8034` becoming `TS8052`.
+
 ### Added
+
+- **A deprecation window before an integer-written literal types as `i32`** (§13,
+  [#148](https://github.com/typeshade/typeshade/issues/148)). Where nothing declares a type —
+  `let i = 0`, `const K = 5` — a literal still takes `f32`, so `xs[i]` is `Index must be i32 or
+u32`. WGSL concretizes an abstract integer to `i32` when nothing else decides, GLSL's `5` is
+  an `int`, and a TypeScript reader expects `let i = 0` to index an array, so that default will
+  change. **It has not changed here.** This release carries step one of the window and nothing
+  else: `compile(source, { deprecations: true })` reports a `TS8053` WARNING on every
+  declaration the flip will move, naming the one-line edit that keeps `f32`, and the flag moves
+  no emitted byte — `wgsl` and `glsl` are byte-identical with it on and with it off, which is
+  what makes it safe to turn on in a build. A literal written as a float, and one in a position
+  that declares a type, are both left alone: the flip does not move them.
+
+  `RELEASING.md` §7 now states the policy a meaning change follows — one release with the
+  diagnostic and no behaviour change, then one release that flips the default as a breaking
+  change with every golden re-baked and reviewed — and carries the list of windows that are
+  open. A change to what a spelling ACCEPTS breaks nobody; a change to what it MEANS breaks
+  everybody, silently, and a shader is the hardest place to see a silent change.
 
 - **Derivative uniformity is analysed, or switched off on request, before Tint sees the module**
   (§54, [#161](https://github.com/typeshade/typeshade/issues/161)). WGSL requires
@@ -35,18 +66,30 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   runs Tint's own check on every example and needs no pipeline leg — the issue's acceptance
   item rests on a premise the measurement disproves.
 
-  **The barrier rule is the spec's now, not a stricter one.** It refused every `if` and
-  `switch`; `if (k > 0.5)` on a uniform buffer value is accepted by Tint and is accepted here.
+  The severity is honoured rather than merely emitted: `off` silences the rule, `info` and
+  `warning` demote it to a warning, `error` is the default it already has — and none of them
+  silences a BARRIER, whose requirement is not `derivative_uniformity` and is not filterable
+  (measured: Tint still answers `'workgroupBarrier' must only be called from uniform control
+flow` with the directive in the module).
+
   The analysis is three-valued on purpose, because the two callers want opposite answers from
   one walk: a derivative is refused only when its control flow is DEFINITELY non-uniform, so
   anything the walk cannot follow goes through to Tint rather than becoming a false positive;
-  a barrier is accepted only when its control flow is DEFINITELY uniform, so the relaxation can
+  a barrier is reported unless its control flow is DEFINITELY uniform, so the relaxation can
   only ever admit what has been proven and a shape the walk cannot read keeps its old refusal.
-  The seeds are the spec's four uniform built-in values, the `uniform` address space, and the
-  module and `override` constants; a local takes the join of its initialiser and every write,
-  so a condition copied into a name is followed. GLSL ES 3.00 needs none of it — an implicit
-  derivative in non-uniform control flow is undefined there rather than refused — and its text
-  does not move.
+  It is FLOW-SENSITIVE — the environment threaded in statement order, branches merged at their
+  join, loop bodies iterated to a fixpoint — and INTERPROCEDURAL, with entries starting uniform
+  and a helper starting at the join of the control flow at its call sites. Both are what make
+  those thresholds true rather than merely stated: order decides, so `let g = v.uv.x; g = 0.25;
+if (g > 0.5)` is accepted as Tint accepts it, and a copy chain of any length is followed, so
+  a barrier under one is refused as Tint refuses it. A call into a user function is `unknown`
+  and never the join of its arguments, since its body can read a module `var` or a built-in
+  value the walk never sees. A `return` under a non-uniform condition makes everything after it
+  non-uniform; a `discard` does not, both measured — an invocation that discards is demoted to
+  a helper and goes on contributing the neighbour a derivative differences against, which is
+  why `discard` beside `fwidth` is the ordinary antialiased-cutout idiom. GLSL ES 3.00 needs
+  none of it — an implicit derivative in non-uniform control flow is undefined there rather
+  than refused — and its text does not move.
 
 - **Entry IO attributes, and the interpolation an integer varying has no choice about** (§53,
   [#158](https://github.com/typeshade/typeshade/issues/158)). WGSL requires every integral

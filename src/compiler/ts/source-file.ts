@@ -29,7 +29,11 @@ import {
   syntaxDiagnostics,
 } from './diagnostic.js'
 import { collectEnables } from './enables.js'
-import { collectDiagnosticDirectives, derivativeUniformityOff } from './diagnostic-directive.js'
+import { reportIntegerLiteralDeprecations } from './integer-literal-deprecation.js'
+import {
+  collectDiagnosticDirectives,
+  derivativeUniformitySeverity,
+} from './diagnostic-directive.js'
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js'
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js'
 
@@ -54,6 +58,12 @@ export interface CompileTsSourceOptions {
    * text and never set this); when set, `source` is not re-parsed and `options.fileName` is
    * ignored in favor of `sourceFile.fileName`. */
   readonly sourceFile?: ts.SourceFile
+  /** When `true`, report the DEPRECATION warnings for spellings whose meaning is scheduled to
+   * change. One today: an integer-written literal in a declaration that declares no type still
+   * types as `f32` and will type as `i32` (§13, roadmap item 25). Off by default, and off is
+   * the whole of the compiler's behaviour: the flag adds warnings and moves no emitted byte,
+   * so a build that turns it on and a build that does not produce the same shader. */
+  readonly deprecations?: boolean
 }
 
 /**
@@ -187,6 +197,8 @@ export function compileTsSource(
   }
 
   analyzeSemantics(sourceFile, diagnostics)
+  // Opt-in, and additive: warnings only, no emitted byte moves (§13, #148).
+  if (options.deprecations === true) reportIntegerLiteralDeprecations(sourceFile, diagnostics)
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
   const enables = collectEnables(sourceFile, diagnostics)
   const directives = collectDiagnosticDirectives(sourceFile, diagnostics)
@@ -247,7 +259,7 @@ export function compileTsSource(
   // through the statements a function holds, and reported here, where the IR's span can point
   // at the call the author wrote. Silent when the file has switched the rule off: WGSL will
   // not refuse the module either, which is the whole point of the directive.
-  if (!derivativeUniformityOff(directives)) {
+  {
     const shaped: ModuleDecl = {
       consts: [...consts],
       structs: emittedStructDecls(structs),
@@ -256,7 +268,16 @@ export function compileTsSource(
       overrides: [...overrides],
       vars: [...vars],
     }
+    // The filter sets the DERIVATIVE rule and nothing else: a barrier's requirement is not
+    // `derivative_uniformity` and is not filterable, measured on Tint with the directive in
+    // the module. `off` drops the derivative rows, `info` and `warning` demote them.
+    const severity = derivativeUniformitySeverity(directives)
     for (const v of uniformityViolations(shaped)) {
+      if (v.kind === 'derivative' && severity === 'off') continue
+      const category =
+        v.kind === 'derivative' && (severity === 'warning' || severity === 'info')
+          ? 'warning'
+          : 'error'
       diagnostics.push(
         diagnosticAtSpan(
           sourceFile,
@@ -264,6 +285,7 @@ export function compileTsSource(
           entryDeclaration(sourceFile, v.fn),
           uniformityMessage(v),
           TS_CODES.UNIFORMITY,
+          category,
         ),
       )
     }
@@ -372,11 +394,22 @@ function uniformityMessage(v: UniformityViolation): string {
       `@builtin("workgroup_id")).`
     )
   }
+  // Two fixes, not one. A SAMPLE has a same-shape alternative that carries the level the
+  // author wrote, so the message names it. A DERIVATIVE does not — a screen-space difference
+  // is what `dpdx` IS, so there is nothing to swap it for and the fix is to restructure. The
+  // `fragment-only-builtin` rule splits its fix string for the same reason.
+  const fix = v.isDerivativeBuiltin
+    ? `Hoist the call above the branch and select from its result, or compute the quantity ` +
+      `some other way — a screen-space derivative has no alternative form`
+    : `Hoist the call above the branch, or use textureSampleLevel or textureSampleGrad, whose ` +
+      `level of detail is the one you wrote`
   return (
     `${v.callee}() is reached under ${v.cause}, which WGSL's derivative_uniformity rule ` +
-    `refuses: the implicit level of detail is a difference between neighbouring invocations, ` +
-    `and one that did not run has no value to difference against. Hoist the call above the ` +
-    `branch, use textureSampleLevel or textureSampleGrad, or write ` +
+    `refuses: ${
+      v.isDerivativeBuiltin
+        ? 'it differences neighbouring invocations'
+        : 'the implicit level of detail is a difference between neighbouring invocations'
+    }, and one that did not run has no value to difference against. ${fix}, or write ` +
     `@diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`
   )
 }

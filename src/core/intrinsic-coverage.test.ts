@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
+  DERIVATIVE_INTRINSICS,
   INTRINSICS,
   PORTABLE_INTRINSICS,
   PRE_EMIT_INTRINSICS,
   isKnownIntrinsic,
 } from './intrinsics.js'
+import { FRAGMENT_ONLY_IDS } from './passes/lint/rules/fragment-only-builtin.js'
 import {
   f32,
   u32,
@@ -368,5 +370,55 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       .map((e) => e.fn)
       .filter((id) => !isKnownIntrinsic(id) && !PRE_EMIT_INTRINSICS.has(id))
     expect(unclassified).toEqual([])
+  })
+})
+
+describe('DERIVATIVE_INTRINSICS (§54)', () => {
+  it('holds every implicit-LOD sampling form and every derivative, and nothing else', () => {
+    // Derived from the catalogue rather than listed, so a sampling id added there joins by
+    // construction. The two halves of the rule are spelled out here so that a change to the
+    // derivation is a change to this list and not a silent widening.
+    expect([...DERIVATIVE_INTRINSICS].sort()).toEqual([
+      'dpdx',
+      'dpdxCoarse',
+      'dpdxFine',
+      'dpdy',
+      'dpdyCoarse',
+      'dpdyFine',
+      'fwidth',
+      'fwidthCoarse',
+      'fwidthFine',
+      'textureSample',
+      'textureSampleArray',
+      'textureSampleBias',
+      'textureSampleBiasArray',
+      'textureSampleBiasCubeArray',
+      'textureSampleCompare',
+      'textureSampleCompareArray',
+      'textureSampleCompareCube',
+      'textureSampleCompareCubeArray',
+      'textureSampleCubeArray',
+    ])
+    // The explicit-LOD forms are the fix the diagnostic names, so they must NOT be in it.
+    for (const id of [
+      'textureSampleLevel',
+      'textureSampleGrad',
+      'textureSampleCompareLevel',
+      'textureSampleLevelArray',
+    ]) {
+      expect(DERIVATIVE_INTRINSICS.has(id), id).toBe(false)
+    }
+  })
+
+  it("is a superset of the fragment-only rule's ids, which the comment claims", () => {
+    // `intrinsics.ts` says FRAGMENT_ONLY_IDS is a subset of this set, "pinned by a test rather
+    // than derived" — the two answer different questions (which STAGE may reach an id, with a
+    // per-id fix string, versus which need uniform control flow), and a claim nothing enforces
+    // is the failure `fragment-only-builtin.ts` criticises in its own header. This is the test.
+    for (const id of FRAGMENT_ONLY_IDS.keys()) {
+      expect(DERIVATIVE_INTRINSICS.has(id), `${id} is fragment-only but not a derivative`).toBe(
+        true,
+      )
+    }
   })
 })

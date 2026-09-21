@@ -19,8 +19,12 @@ const DERIVATIVE_FIX =
  *  "first row byte-identical to the catalogue hint / one string, two surfaces"
  *  convention, which nothing ever enforced (no test compared the two) and which
  *  X-GIS #1651's array row had already broken. Per-id hints are pinned where they are
- *  authored: this rule's tests. */
-const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
+ *  authored: this rule's tests.
+ *
+ *  EXPORTED so that its relationship to `DERIVATIVE_INTRINSICS` (§54) is a test and not a
+ *  comment: every id here needs uniform control flow too, and `intrinsics.ts` says so. A claim
+ *  nothing enforces is the failure this very header criticises. */
+export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',
     'use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives',

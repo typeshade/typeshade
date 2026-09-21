@@ -869,7 +869,7 @@ WGSL_BUILTIN_NAMES
 ## Shapes — 559 definitions
 
 ```
-src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
+src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
 src/compiler/ts/compile.ts#CompileResult  interface  { determinism: readonly DeterminismEntry[]; diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
 src/compiler/ts/compile.ts#compile  function  (source: string, options?: CompileOptions) => CompileResult
 src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
@@ -881,7 +881,7 @@ src/compiler/ts/pack.ts#PackBinding  interface  { access?: "read" | "read_write"
 src/compiler/ts/pack.ts#PackEntry  interface  { name: string; stage: string }
 src/compiler/ts/pack.ts#packJson  function  (m: ModuleDecl) => string
 src/compiler/ts/pack.ts#packModule  function  (m: ModuleDecl) => Pack
-src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
+src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { deprecations?: boolean; emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
 src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; directives: readonly DiagnosticDirective[]; enables: readonly DeclarableCapability[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; vars: readonly ModuleVarDecl[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult

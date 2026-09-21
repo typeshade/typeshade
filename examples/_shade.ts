@@ -462,6 +462,14 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       'WGSL requires `textureSample` to be called from UNIFORM control flow (§54): the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. A sample inside an `if` on a varying is a shader-creation error — Tint: `\'textureSample\' must only be called from uniform control flow` — and the compiler emitted it with zero diagnostics. This file is the other half of the rule: the author who wants the branch anyway writes `@diagnostic("off", "derivative_uniformity")` on the entry, which emits WGSL\'s module-scope `diagnostic(off, derivative_uniformity);` and takes the module as written. Beside it, a sample under a `uniform` condition, which needs no directive because every invocation takes the same side of it.',
     renderable: true,
   },
+  {
+    id: 'voronoi-twin',
+    title: 'Voronoi (source twin)',
+    blurb:
+      "`voronoi.ts` written in the source language, and the gate for issue #40. The 3×3 neighbour scan is spelled the natural way — `for (let j: i32 = -1; j <= 1; j++)` — and that declaration was the one shape the source lowerer could not write: a negative literal is a `PrefixUnaryExpression`, so the two declaration sites that special-cased a `lit` node never saw it. The `for` init emitted `var j: i32 = -1.0;` with zero diagnostics, which Tint refuses with `cannot convert value of type 'abstract-float' to type 'i32'`, while `let k: i32 = -1` outside a loop was refused outright. Everything in the repo except the gate missed it, because no `.shade.ts` example had a signed loop counter. This one does.",
+    renderable: true,
+    twinOf: 'voronoi',
+  },
 ]
 
 /**

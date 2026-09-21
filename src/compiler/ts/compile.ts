@@ -97,6 +97,17 @@ export interface CompileOptions {
   readonly fileName?: string
   /** Host sink for `console.*` calls made by CPU/debug evaluation. */
   readonly consoleSink?: ConsoleSink
+  /**
+   * Report DEPRECATION warnings for spellings whose meaning is scheduled to change. One
+   * today: an integer-written literal in a declaration that declares no type still types as
+   * `f32` and will type as `i32` (§13, roadmap item 25).
+   *
+   * Off by default, and off is the whole of the compiler's behaviour: the flag adds
+   * `category: 'warning'` diagnostics and moves no emitted byte, so `wgsl` and `glsl` are
+   * byte-identical with it on and with it off. It is how a build finds the lines the flip
+   * will move, one release ahead of it.
+   */
+  readonly deprecations?: boolean
 }
 
 /**
@@ -120,7 +131,10 @@ export interface CompileOptions {
  * default placeholder is not good enough.
  */
 export function compile(source: string, options: CompileOptions = {}): CompileResult {
-  const r = compileTsSource(source, { fileName: options.fileName })
+  const r = compileTsSource(source, {
+    fileName: options.fileName,
+    ...(options.deprecations === true ? { deprecations: true } : {}),
+  })
   const module: ModuleDecl = {
     consts: [...r.consts],
     structs: emittedStructDecls(r.structs),

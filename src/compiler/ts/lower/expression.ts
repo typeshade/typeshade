@@ -8,7 +8,12 @@ import { irNameOf, type LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
-import { foldNumericLit, retargetIntLitCtx } from '../lit-coerce.js'
+import {
+  foldNumericLit,
+  retargetIntLitCtx,
+  shiftAmountMessage,
+  shiftAmountOutOfRange,
+} from '../lit-coerce.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { lowerArrayLiteral } from './expression-array.js'
@@ -545,12 +550,12 @@ function lowerBinary(
     const isShift = bit === '<<' || bit === '>>'
     if (isShift) {
       const amount = foldConstNumber(right, scope)
-      if (amount !== undefined && (amount < 0 || amount >= 32)) {
+      if (amount !== undefined && shiftAmountOutOfRange(amount)) {
         pushDiag(
           diagnostics,
           sourceFile,
           node.right,
-          `A shift amount must be between 0 and 31, got ${String(amount)}: a 32-bit integer has no bit to shift into.`,
+          shiftAmountMessage(amount),
           TS_CODES.TYPE_MISMATCH,
         )
         return undefined

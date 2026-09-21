@@ -68,9 +68,17 @@ export function diagnosticAtSpan(
   fallback: ts.Node | undefined,
   message: string,
   code: TsCode,
+  category: TsCompilerDiagnostic['category'] = 'error',
 ): TsCompilerDiagnostic {
-  if (span === undefined) return makeDiagnostic(sourceFile, fallback, message, code)
-  return diagnosticForSpan(sourceFile, span.start, span.start + span.length, message, code, 'error')
+  if (span === undefined) return makeDiagnostic(sourceFile, fallback, message, code, category)
+  return diagnosticForSpan(
+    sourceFile,
+    span.start,
+    span.start + span.length,
+    message,
+    code,
+    category,
+  )
 }
 
 /**

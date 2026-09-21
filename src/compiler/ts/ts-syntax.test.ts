@@ -194,7 +194,9 @@ describe('the bitwise compound assignments', () => {
     // makes `y |= -2` work on an i32 target.
     expect(
       diagnose('export function f(i: i32): i32 {\n  let y: i32 = i;\n  y <<= -1;\n  return y;\n}'),
-    ).toBe('Bitwise "<<=" needs a non-negative shift amount, got -1.')
+    ).toBe(
+      'A shift amount must be between 0 and 31, got -1: a 32-bit integer has no bit to shift into.',
+    )
     expect(
       diagnose('export function f(i: u32): u32 {\n  let y: u32 = i;\n  y |= -2;\n  return y;\n}'),
     ).toBe('Bitwise "|=" on a u32 target needs a non-negative value, got -2.')

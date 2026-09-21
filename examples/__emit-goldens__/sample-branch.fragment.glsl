@@ -11,10 +11,11 @@ uniform sampler2D albedo;
 layout(std140) uniform Tint {
   vec4 rgb;
 } tint;
-vec4 banded(vec2 uv) {
-  if ((uv.x > 0.5)) {
-    return texture(albedo, uv);
-  }
+vec4 sharp(vec2 uv) {
+  return texture(albedo, uv);
+}
+
+vec4 wide(vec2 uv) {
   vec2 inner = (uv * 0.5);
   return texture(albedo, inner);
 }
@@ -22,7 +23,12 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_impl(VsOut v) {
-  vec4 base = banded(v.uv);
+  vec4 base = vec4(0.0, 0.0, 0.0, 1.0);
+  if ((v.uv.x > 0.5)) {
+    base = sharp(v.uv);
+  } else {
+    base = wide(v.uv);
+  }
   if ((tint.rgb.w > 0.5)) {
     vec2 near = (v.uv * 0.75);
     vec4 warm = texture(albedo, near);

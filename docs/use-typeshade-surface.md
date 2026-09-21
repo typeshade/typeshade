@@ -738,9 +738,27 @@ Three edges of the rule, each of which the diagnostics still cover:
   (`pow(2, i)`) keeps its `f32` first argument, so the argument check (TS8036) names `i` as the
   odd one out.
 
-`const N: u32 = 16` is the **front end** only: the `ConstDecl` it builds carries `u32` and
-`16`, and the backend's `emitConst` still spells every scalar constant with a float literal,
-so the emitted line reads `const N: u32 = 16.0;`. That half is issue #13, with #17 as its fix.
+`const N: u32 = 16` emits `const N: u32 = 16u;`. That was not true when this section was
+written — the backend spelled every scalar constant with a float literal, so the line read
+`const N: u32 = 16.0;`, which is the half issues #13 and #17 were about — and it has been true
+since they landed.
+
+**A window is open on the default (§54's neighbour, roadmap item 25).** Everything above is
+about a position that DECLARES a type. Where nothing declares one — `let i = 0`, `const K = 5`
+— the literal still takes `f32`, so `xs[i]` is `Index must be i32 or u32`. WGSL concretizes an
+abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-4104), GLSL's `5`
+is an `int`, and a TypeScript reader expects `let i = 0` to index an array — so that default
+will change. It has NOT changed yet: this release carries the window, not the flip. A build
+that wants to see which of its lines the flip will move asks for the warning, which is off by
+default and moves no emitted byte:
+
+```ts
+compile(source, { deprecations: true })
+// TS8053 (warning): "i" is written as an integer and types as f32 today; it will type as i32
+// (§13, roadmap item 25). Write "i = 0." to keep f32, or leave it and take i32.
+```
+
+`RELEASING.md` §7 is the policy the window follows and the list of the windows that are open.
 
 ## 14. TypeScript shapes the parser already had
 
@@ -3425,11 +3443,24 @@ broken-shader instrument check passing on both compilers first:
 | `dpdx` under a condition on a fragment input | `'dpdx' must only be called from uniform control flow` |
 | `workgroupBarrier` under a condition on a uniform buffer value | accepted |
 | `workgroupBarrier` under `if (id.x > 4u)` on `local_invocation_id` | `'workgroupBarrier' must only be called from uniform control flow` |
+| the same, **with** `diagnostic(off, derivative_uniformity);` in the module | still `'workgroupBarrier' must only be called from uniform control flow` |
+| `if (uv.x > 1.) { return … }` above a `textureSample` | `'textureSample' must only be called from uniform control flow` |
+| `if (uv.x > 1.) { discard }` above a `textureSample`, and above a `fwidth` | accepted |
+| `break` out of a loop under a non-uniform condition, above a barrier | accepted |
 
 Every one of those is reported by `createShaderModule`, not only by `createRenderPipeline` — so
 the compile gate already runs Tint's own uniformity check on every example, and the acceptance
 item asking for a pipeline leg rests on a premise the measurement disproves. There is nothing
 to add to the gate.
+
+Three of those rows decide as much as the first. **The filter is the derivative rule's**, so
+the off switch does not silence a barrier: a barrier's requirement is not `derivative_uniformity`
+and is not filterable, and silencing it here would hand an author a module that fails at
+`createShaderModule` instead of at the line. **A `return` under a non-uniform condition makes
+everything after it non-uniform** — those invocations are gone. **A `discard` does not**: the
+invocation is demoted to a helper rather than ended, so it goes on contributing the neighbour a
+derivative differences against, which is why `discard` beside `fwidth` is the ordinary
+antialiased-cutout idiom and `examples/cutout.shade.ts` compiles.
 
 **What the compiler says now.** The call is refused at the call, naming the value the control
 flow depends on and the three ways out:
@@ -3456,13 +3487,38 @@ the call above the branch, use textureSampleLevel or textureSampleGrad, or write
 The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups`,
 `subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
 `override` constant is uniform, and every other built-in value and user input varies by
-invocation. A local takes the join of its initialiser and every write to it, so a condition
-copied into a name is followed:
+invocation. A call into a USER function is `unknown`, never the join of its arguments: its body
+can read a module `var`, a storage buffer or a built-in value the walk never sees, so reading
+the arguments alone would PROVE uniform a call that is not one — and that proof is what the
+barrier rule rests on.
+
+It is **flow-sensitive**, which is what makes both thresholds true rather than merely stated.
+The environment is threaded in statement order and merged at each branch's join:
 
 ```ts
-const edge = v.uv.x > 0.5     // non-uniform: it came from a @location input
-if (edge) { return textureSample(t, s, v.uv) }   // refused, naming "edge"
+const edge = v.uv.x > 0.5
+if (edge) { return textureSample(t, s, v.uv) }   // refused, naming VsOut.uv — the root, not the name
+
+let g: f32 = v.uv.x
+g = 0.25
+if (g > 0.5) { return textureSample(t, s, v.uv) }   // accepted: order decides, and so does Tint
 ```
+
+An earlier version joined every write to a name regardless of order, and was wrong in both
+directions at once: it refused the second program, which Tint accepts, and a copy chain three
+deep (`a = b; b = c; c = f32(lid.x)`) settled at `uniform` for a name that is not, so a barrier
+under it was admitted though Tint refuses it. A loop body is iterated to a fixpoint, so a value
+carried round the loop is seen however long the chain is.
+
+It is **interprocedural**, for the same reason: a barrier at a helper's top level is uniform
+only if every call of that helper is. The walk runs to a fixpoint over the call graph — entries
+start uniform, a helper starts at the join of the control flow at its call sites, and a helper
+nothing calls starts `unknown`, which keeps its barrier refused.
+
+What it does not reach is stated rather than implied: it runs in the `"use typeshade"` front
+end only, where a diagnostic can point at the authoring line, so an EDSL-assembled module
+reaches Tint — which owns the complete rule — unchanged; and a `raw` statement's text is opaque
+to it.
 
 **The barrier rule is the spec's now, not a stricter one.** It used to refuse every `if` and
 `switch`. `if (k > 0.5)` on a uniform buffer value is accepted by Tint, and is accepted here —
@@ -3482,9 +3538,16 @@ analysis and emits WGSL's module-scope directive:
 diagnostic(off, derivative_uniformity);
 ```
 
-`examples/sample-branch.shade.ts` is the gate's evidence for the whole path — the attribute
-in, the module-scope directive out, compiled on Tint and on ANGLE, with a sample under a
-`uniform` condition beside it that needs no directive at all.
+`examples/sample-branch.shade.ts` is the gate's evidence for the whole path — the attribute in,
+the module-scope directive out, compiled on Tint and on ANGLE. Its non-uniform branch is in the
+ENTRY, on a `@location` input, so deleting the directive line turns the file into the refusal
+above; a sample under a `uniform` condition sits beside it, needing no directive at all.
+
+The severity is HONOURED, not merely emitted: `off` silences the rule, `info` and `warning`
+demote it to a warning, and `error` is the default it already has. A directive the emit carried
+while the front end went on reporting an error would be a line that reads as a decision and is
+not one — the module would never reach the compiler the author aimed it at, because the WGSL is
+withheld whenever a diagnostic is an error.
 
 Written on the entry, emitted at module scope, and that is deliberate: WGSL's `@diagnostic` on
 a function covers that function's own body and not the functions it calls, and a sample is as

@@ -12,12 +12,18 @@
 // `@diagnostic("off", "derivative_uniformity")` on the entry emits WGSL's module-scope
 // `diagnostic(off, derivative_uniformity);`, and Tint takes the module as written. It is on
 // the entry because that is where the decision belongs, and module-scope in the emit because
-// WGSL's function attribute does not reach the functions the entry calls — `banded` here is
-// one, and the sample is inside it.
+// WGSL's function attribute does not reach the functions the entry calls.
+//
+// The branch on `v.uv.x` is in the ENTRY, deliberately: that is the one the analysis has an
+// answer about — `v.uv` is a `@location` input, which varies by invocation by definition — so
+// deleting the directive line turns this file into the refusal §54 is about, and the gate
+// compiles the module the directive allows. A sample under a HELPER's parameter would not
+// prove the same thing: a parameter is only as uniform as the argument, which the walk reads
+// from the call site rather than from the parameter, so that shape says nothing here.
 //
 // The uniform branch beside it is the row that used to be refused for the wrong reason: every
-// invocation takes the same side of `tint.x > 0.5`, because a `uniform` holds one value for
-// the whole draw, so the sample under it needs no directive at all.
+// invocation takes the same side of `tint.rgb.w > 0.5`, because a `uniform` holds one value
+// for the whole draw, so the sample under it needs no directive at all.
 //
 // GLSL ES 3.00 has nothing to say about any of it: an implicit derivative in non-uniform
 // control flow is undefined there rather than refused, so its text carries no directive and
@@ -43,12 +49,13 @@ export function vs(@builtin("vertex_index") vi: u32): VsOut {
   return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) }
 }
 
-// The sample under a NON-uniform condition, in a helper the entry calls. Legal only because
-// the entry carries the directive; without it this is the refusal §54 is about.
-function banded(uv: vec2): vec4 {
-  if (uv.x > 0.5) {
-    return textureSample(albedo, smp, uv)
-  }
+// The two samples the branch below chooses between. Both are called from uniform control flow
+// inside this helper; what is not uniform is the branch in the entry that picks one.
+function sharp(uv: vec2): vec4 {
+  return textureSample(albedo, smp, uv)
+}
+
+function wide(uv: vec2): vec4 {
   const inner: vec2 = uv * 0.5
   return textureSample(albedo, smp, inner)
 }
@@ -56,7 +63,15 @@ function banded(uv: vec2): vec4 {
 @diagnostic("off", "derivative_uniformity")
 @fragment
 export function fs(v: VsOut): vec4 {
-  const base: vec4 = banded(v.uv)
+  // The sample under a NON-uniform condition — `v.uv` is a @location input, so the two sides
+  // of this branch are taken by different invocations of the same quad. Legal only because
+  // this entry carries the directive; delete that line and this is the refusal §54 is about.
+  let base: vec4 = vec4(0., 0., 0., 1.)
+  if (v.uv.x > 0.5) {
+    base = sharp(v.uv)
+  } else {
+    base = wide(v.uv)
+  }
   // A UNIFORM condition: one value for the whole draw, so every invocation takes the same
   // side and the sample under it needs no directive.
   if (tint.rgb.w > 0.5) {

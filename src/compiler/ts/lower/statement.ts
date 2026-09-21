@@ -15,7 +15,12 @@ import { lowerUserCall } from './expression-misc.js'
 import { localFunctionOf } from './local-functions.js'
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
 import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
-import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
+import {
+  retargetDeclaredIntLit,
+  retargetIntLitCtx,
+  shiftAmountMessage,
+  shiftAmountOutOfRange,
+} from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerCall } from './expression-call.js'
 import { lowerArrayLiteral } from './expression-array.js'
@@ -962,7 +967,7 @@ function lowerBitwiseAssignOp(
         sourceFile,
         right,
         isShift
-          ? `Bitwise "${bop}=" needs a non-negative shift amount, got ${String(folded.value)}.`
+          ? shiftAmountMessage(folded.value)
           : `Bitwise "${bop}=" on a u32 target needs a non-negative value, got ${String(folded.value)}.`,
         TS_CODES.TYPE_MISMATCH,
       )
@@ -970,19 +975,14 @@ function lowerBitwiseAssignOp(
     }
     value = { op: 'lit', type: want, value: folded.value }
   }
-  // A constant amount of 32 or more has no bit to shift into: WGSL makes it a shader-creation
-  // error and GLSL ES 3.00 leaves the result undefined, so it is refused here, as the negative
-  // amount above is. The fold is the one the loop bound uses, so `16 + 16` and a module const
-  // are caught with the literal; a runtime amount is left alone, since WGSL masks it (#71).
+  // A constant amount outside 0..31 has no bit to shift into: WGSL makes it a shader-creation
+  // error and GLSL ES 3.00 leaves the result undefined, so it is refused here (#71). The fold
+  // is the one the loop bound uses, so `16 + 16` and a module const are caught with the
+  // literal; a runtime amount is left alone, since WGSL masks it. `shiftAmountMessage` is the
+  // same sentence the binary path raises — one rule, one wording.
   const amount = isShift ? foldConstNumber(value, scope) : undefined
-  if (amount !== undefined && amount >= 32) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      right,
-      `Bitwise "${bop}=" needs a shift amount less than 32, got ${String(amount)}: a 32-bit integer has no bit to shift into.`,
-      TS_CODES.TYPE_MISMATCH,
-    )
+  if (amount !== undefined && shiftAmountOutOfRange(amount)) {
+    pushDiag(diagnostics, sourceFile, right, shiftAmountMessage(amount), TS_CODES.TYPE_MISMATCH)
     return undefined
   }
   if (isShift && typeKey(value.type) === 'i32') {
