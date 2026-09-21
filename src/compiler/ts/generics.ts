@@ -81,7 +81,7 @@ export function typeSuffix(t: ShaderType): string {
     case 'vec64':
       return `vec${String(t.n)}f64`
     case 'mat':
-      return `mat${String(t.n)}x${String(t.n)}`
+      return `mat${String(t.cols)}x${String(t.rows)}`
     case 'struct':
       return t.name
     case 'array':

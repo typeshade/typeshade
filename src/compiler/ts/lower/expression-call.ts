@@ -4,7 +4,9 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import {
   boolT,
   f32T,
+  f64T,
   i32T,
+  isF64,
   storageTexel,
   typeKey,
   u32T,
@@ -71,6 +73,19 @@ const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = 
 /** The element kinds a vector constructor spells: the three native scalars, the emulated
  *  double the fp64 pass assembles, and bool (§27). */
 type VecCtorElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
+
+/** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621 plus the `matN`
+ *  shorthand for a square one, matching the type names `type-map.ts` accepts, so a type an
+ *  author can declare is a value an author can build. */
+const MAT_CTOR: Readonly<Record<string, { cols: 2 | 3 | 4; rows: 2 | 3 | 4 }>> = Object.fromEntries(
+  ([2, 3, 4] as const).flatMap((cols) =>
+    ([2, 3, 4] as const).flatMap((rows) =>
+      cols === rows
+        ? [[`mat${cols}x${rows}`, { cols, rows }] as const, [`mat${cols}`, { cols, rows }] as const]
+        : [[`mat${cols}x${rows}`, { cols, rows }] as const],
+    ),
+  ),
+)
 
 export function lowerCall(
   node: ts.CallExpression,
@@ -210,6 +225,13 @@ export function lowerCall(
       return undefined
     }
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
+    // A matrix constructor is its own function, deliberately NOT an arm of the vector one:
+    // the two share only a name shape. A vector composes a flat component list; a matrix
+    // composes COLUMNS, truncates another matrix, and has a zero form.
+    const matCtor = MAT_CTOR[name]
+    if (matCtor !== undefined) {
+      return lowerMatrixCtor(matCtor, node, sourceFile, scope, diagnostics)
+    }
     ctor = VEC_CTOR[name]
     if (!ctor) {
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
@@ -271,6 +293,47 @@ export function lowerCall(
     // parts and would reject it as an element-type mismatch.
     if (args.length === 1 && isConvertibleVector(args[0]!.type, ctor)) {
       return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args }
+    }
+    // vecN(v: vecN<f64>) — the per-lane NARROW, the one conversion an emulated-double vector
+    // has. There is nothing to reinterpret componentwise: each lane is a (hi, lo) pair, and
+    // `f32(lane)` is the df64_narrow the fp64 pass emits for it. Written out as the explicit
+    // component list, so all three backends and the CPU oracle see one ordinary vector
+    // constructor and the pass has no new shape to learn (#151 F64-05). The integer and bool
+    // constructors are not offered: the pass has no f64 → i32 body (SD0041) and saturating a
+    // double through f32 first is not a conversion an author should get by accident.
+    const from = args[0]
+    if (args.length === 1 && from !== undefined && from.type.kind === 'vec64') {
+      if (ctor.elem === 'f32' && from.type.n === ctor.n) {
+        return {
+          op: 'construct',
+          type: vectorCtorType(ctor.n, 'f32'),
+          args: Array.from({ length: ctor.n }, (_, i): Expr => ({
+            op: 'call',
+            type: f32T,
+            fn: 'f32',
+            args: [{ op: 'member', type: f64T, base: from, field: 'xyzw'[i]! }],
+          })),
+        }
+      }
+      if (ctor.elem !== 'f64') {
+        // `written` and not a captured `name`: the constructor's identifier is bound in the
+        // callee branch above, which has already closed here — and `lib.dom` declares a
+        // global `name: string`, so reading it type-checked and threw a ReferenceError at
+        // run time instead, taking the language service down with it.
+        const written = node.expression.getText(sourceFile)
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `${written}(${typeKey(from.type)}) — an emulated-double vector narrows to f32 lane ` +
+            `by lane and to nothing else; write vec${from.type.n}(v)` +
+            (ctor.elem === 'f32'
+              ? ' of its own width.'
+              : ` and cast that, e.g. ${written}(vec${from.type.n}(v)).`),
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
     }
     // fp64 lowering represents vecN<f64> as DF64VecN, while the constructor
     // contract is component-based. Flatten vec64 arguments here so the fp64 pass
@@ -366,6 +429,146 @@ export function lowerCall(
 
 /** The scalar type a vector constructor's components must have, or undefined for the
  *  emulated-double constructor, whose components the fp64 pass assembles. */
+/** `mat3(a, b, c)`, `mat4x3(...)`, `mat2()`, `mat3(m4)` — the matrix constructors of
+ *  wgsl.txt:20248ff, which GLSL ES 3.00 spells the same way.
+ *
+ *  Four forms, and the order they are tried in is the order WGSL gives them:
+ *
+ *    `matCxR()`            the zero matrix
+ *    `matCxR(m)`           from another matrix: the overlapping block, the rest from the
+ *                          identity — WGSL gives only the exact-shape conversion, so this
+ *                          surface offers the TRUNCATION a renderer actually asks for
+ *                          (`mat3(m4)`, the normal matrix) and refuses a widening one
+ *    `matCxR(c0, …, cC-1)` from C columns, each a `vecR`
+ *    `matCxR(e0, …, e*)`   from C*R scalars, column-major
+ *
+ *  Its own function rather than an arm of the vector constructor: a vector composes one flat
+ *  component list and a matrix composes columns, so sharing the code would mean a flattening
+ *  rule that is wrong for one of them. */
+function lowerMatrixCtor(
+  shape: { cols: 2 | 3 | 4; rows: 2 | 3 | 4 },
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const { cols, rows } = shape
+  const type: ShaderType = { kind: 'mat', cols, rows, elem: 'f32' }
+  const shown = typeKey(type)
+  const colT: ShaderType = { kind: 'vec', n: rows, elem: 'f32' }
+  const args: Expr[] = []
+  for (const arg of node.arguments) {
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!lowered) return undefined
+    args.push(lowered)
+  }
+
+  // `matCxR()` — the zero matrix (wgsl.txt:20015-20030, "T ()"). Written out as C zero
+  // columns so every backend and the oracle see an ordinary constructor.
+  if (args.length === 0) {
+    const zero: Expr = { op: 'lit', type: f32T, value: 0 }
+    return {
+      op: 'construct',
+      type,
+      args: Array.from({ length: cols }, () => ({
+        op: 'construct' as const,
+        type: colT,
+        args: Array.from({ length: rows }, () => zero),
+      })),
+    }
+  }
+
+  // `matCxR(m)` — from another matrix.
+  if (args.length === 1 && args[0]!.type.kind === 'mat') {
+    const from = args[0]!
+    const src = from.type as Extract<ShaderType, { kind: 'mat' }>
+    if (src.elem !== 'f32') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${shown} cannot be built from ${typeKey(src)}: the emulated-double matrices are ` +
+          `their own square shapes and do not convert.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    if (src.cols < cols || src.rows < rows) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${shown} cannot be built from the smaller ${typeKey(src)}: this surface truncates a ` +
+          `matrix and does not grow one, since the components it would have to invent are a ` +
+          `choice the author should make. Write the columns out.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    // The upper-left block, column by column: `mat3(m4)` is the rotation a normal matrix
+    // wants out of a model matrix, which is why the truncation is worth having at all.
+    return {
+      op: 'construct',
+      type,
+      args: Array.from({ length: cols }, (_, c): Expr => {
+        const column: Expr = {
+          op: 'index',
+          type: { kind: 'vec', n: src.rows, elem: 'f32' },
+          base: from,
+          idx: { op: 'lit', type: i32T, value: c },
+        }
+        return src.rows === rows
+          ? column
+          : { op: 'member', type: colT, base: column, field: 'xyzw'.slice(0, rows) }
+      }),
+    }
+  }
+
+  // `matCxR(c0, …)` — one `vecR` per column.
+  if (
+    args.length === cols &&
+    args.every((a) => a.type.kind === 'vec' && a.type.n === rows && a.type.elem === 'f32')
+  ) {
+    return { op: 'construct', type, args }
+  }
+
+  // `matCxR(e0, …)` — C*R scalars, column-major, gathered into columns here so the IR always
+  // carries a matrix as a list of columns whichever way it was written.
+  if (args.length === cols * rows) {
+    const bad = args.findIndex((a) => typeKey(a.type) !== 'f32')
+    if (bad >= 0) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.arguments[bad] ?? node,
+        `${shown} takes f32 components; argument ${bad + 1} is ${typeKey(args[bad]!.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return {
+      op: 'construct',
+      type,
+      args: Array.from({ length: cols }, (_, c) => ({
+        op: 'construct' as const,
+        type: colT,
+        args: args.slice(c * rows, c * rows + rows),
+      })),
+    }
+  }
+
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${shown} takes ${cols} vec${rows} columns, ${cols * rows} f32 components, a larger ` +
+      `matrix to truncate, or nothing for the zero matrix; got ${args.length} argument(s)` +
+      `${args.length > 0 ? ` (${args.map((a) => typeKey(a.type)).join(', ')})` : ''}.`,
+    TS_CODES.ARITY_MISMATCH,
+  )
+  return undefined
+}
+
 /** `arrayLength(src)`: the explicit spelling of what `src.length` reads on a runtime-sized
  *  storage array (#46). One argument, and `arrayLengthOf` decides whether it is what the
  *  builtin takes, so the call and the property agree. */
@@ -473,6 +676,15 @@ function retargetIntrinsicLiterals(
     // change to every intrinsic rather than to this rule, and is not additive.
     const argNode = node.arguments[i]
     if (!argNode) continue
+    // `mix`'s interpolant stays a plain f32 beside a SCALAR emulated double: the df64 body
+    // blends by a float, and the pass refuses an f64 `t` outright. Without this the literal
+    // in `mix(a64, b64, 0.25)` would take the f64 peer like any other later argument and then
+    // be refused at the argument check — a written 0.25 with no way to spell it (#151). A
+    // `vec64` peer needs no arm: `literalPeerType` leaves a literal beside one f32 already.
+    if (intrinsicId === 'mix' && i === 2 && isF64(target)) {
+      args[i] = retargetIntLitCtx(args[i]!, argNode, f32T)
+      continue
+    }
     args[i] = retargetIntLitCtx(args[i]!, argNode, target)
   }
 }
@@ -772,11 +984,16 @@ function lowerDepthTextureCall(
     const out = [...args]
     if (isArray) {
       // The layer is an integer, as on a sampled array texture; the reference depth that
-      // follows it is an f32 and is left as written.
+      // follows it is an f32.
       const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
       if (!layer) return undefined
       out[3] = layer
     }
+    const ref = isArray ? 4 : 3
+    if (
+      !floatArg(`${id}'s reference depth`, out[ref]!, node.arguments[ref]!, sourceFile, diagnostics)
+    )
+      return undefined
     // The cube form is its own id (roadmap 0.4 item 12): on GLSL the reference folds into a
     // vec4 after the vec3 direction, where the 2d form folds it into a vec3.
     const fn = isArray ? `${id}${suffix}` : tex.dim === 'cube' ? `${id}Cube` : id
@@ -983,14 +1200,19 @@ function lowerTextureCall(
       )
         return undefined
       const fn = `${id}${suffix}`
-      // The LAYER is an integer; the mip LEVEL of a sampled read is an f32 and is left as
-      // written. (`textureSampleLevel`'s level argument sits where the layer does on the
-      // non-array form, which is why the index is computed rather than fixed.)
+      // The LAYER is an integer; the mip LEVEL or BIAS of a sampled read is an f32.
+      // (`textureSampleLevel`'s level argument sits where the layer does on the non-array
+      // form, which is why the index is computed rather than fixed.)
       const out = [...args]
       if (isArray) {
         const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
         if (!layer) return undefined
         out[3] = layer
+      }
+      if (id === 'textureSampleLevel' || id === 'textureSampleBias') {
+        const k = isArray ? 4 : 3
+        const what = id === 'textureSampleLevel' ? `${id}'s level` : `${id}'s bias`
+        if (!floatArg(what, out[k]!, node.arguments[k]!, sourceFile, diagnostics)) return undefined
       }
       // The gradients have the coordinate's width, on both targets.
       if (id === 'textureSampleGrad') {
@@ -1350,6 +1572,33 @@ function vecArg(
   return false
 }
 
+/** A texture argument both targets take as a plain `f32` — a mip level, a sampling bias, the
+ *  reference depth of a comparison — checked for the one type that reaches it looking like a
+ *  float and is not one: an emulated double.
+ *
+ *  An `f64` is a PAIR of f32 words after the fp64 pass, so there is no `textureSampleLevel`
+ *  overload for it on either target. It used to be accepted here and refused by that pass as
+ *  SD0041 at emit — a diagnostic with no source span, after the call the author wrote was
+ *  gone. Said here, at the argument, with the narrow that makes it legal (#151 F64-06). The
+ *  native scalars are `tsc`'s to check through the ambient lib, as everywhere else. */
+function floatArg(
+  what: string,
+  arg: Expr,
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (arg.type.kind !== 'f64' && arg.type.kind !== 'vec64') return true
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${what} must be an f32; got ${typeKey(arg.type)}. Write f32(x).`,
+    TS_CODES.TYPE_MISMATCH,
+  )
+  return false
+}
+
 /** A layer or mip-level argument, retyped when it is a bare whole number and REPORTED when it
  *  is a number that cannot be one.
  *
@@ -1372,6 +1621,21 @@ function intArg(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // An emulated double is not a literal, so it used to sail through every check below and
+  // reach emit as a span-less SD0041. It needs its own message: this slot wants an INTEGER,
+  // so `f32(x)` alone is not the fix — the pass has no f64 → i32 body either, which makes
+  // the narrow a two-step one (#151).
+  if (arg.type.kind === 'f64' || arg.type.kind === 'vec64') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A texture ${what} must be an i32 or u32; got ${typeKey(arg.type)}. An emulated double ` +
+        `narrows to f32 first, so write i32(f32(x)).`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   // A NEGATED literal is a unop, not a lit, and reached the backend as `-(1.0)`. Folded first
   // so the range check below sees the number the author wrote.
   const lit = foldNumericLit(arg)

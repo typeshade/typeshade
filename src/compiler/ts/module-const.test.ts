@@ -78,6 +78,45 @@ describe('module const', () => {
     expect(r.wgsl).toBeUndefined()
   })
 
+  // #64 — the bool arm was not moved with the integer ones, so `const K: bool = 2` reached the
+  // writers' fail-closed bool literal arm and came back as a wrapped SD0017 (TS8015) anchored
+  // on the file's `"use typeshade"` directive, a line that says nothing about the declaration.
+  it.each([
+    ['2', '2'],
+    ['-1', '-1'],
+    ['0.5', '0.5'],
+  ])('rejects a bool module const that is neither true nor false (%s)', (value, shown) => {
+    const src = `"use typeshade";
+const K: bool = ${value};
+export function f(): bool { return K; }
+`
+    const r = compileTsSource(src)
+    const errs = r.diagnostics.filter((d) => d.category === 'error')
+    expect(errs[0]?.message).toBe(
+      `Module const "K" is bool, but ${shown} is neither true nor false. Write true, false, 1 or 0.`,
+    )
+    expect(errs[0]?.code).toBe(TS_CODES.TYPE_MISMATCH)
+    // On the declaration, the way the integer arms report, not on the directive.
+    expect(src.slice(errs[0]!.start, errs[0]!.start + errs[0]!.length)).toBe(`K: bool = ${value}`)
+    expect(r.wgsl).toBeUndefined()
+  })
+
+  it('keeps the four bool values a target can spell', () => {
+    const r = compileTsSource(`
+      "use typeshade";
+      const T: bool = true;
+      const F: bool = false;
+      const ONE: bool = 1;
+      const ZERO: bool = 0;
+      export function f(): bool { return T; }
+    `)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('const T: bool = true;')
+    expect(r.wgsl).toContain('const F: bool = false;')
+    expect(r.wgsl).toContain('const ONE: bool = true;')
+    expect(r.wgsl).toContain('const ZERO: bool = false;')
+  })
+
   it('rejects a fractional integer module const instead of truncating it', () => {
     // It used to become 1 through `Math.trunc`, with nothing said.
     const r = compileTsSource(`

@@ -35,10 +35,15 @@
 // already does, and it is the same reader `api-surface.test.ts` and `publish-manifest.test.ts`
 // use on this package's other generated artifacts.
 //
-// WHAT IT DOES NOT DO. It says nothing about SIGNATURES: that a name is WGSL's does not mean
-// TypeShade gives it WGSL's arguments (`atan` takes two here, `select` takes WGSL's argument
-// order). Those are the intrinsic tables' business, and `intrinsic-coverage.test.ts` is where
-// they are held. This test is about the vocabulary alone.
+// WHAT IT DOES NOT DO. It says nothing about the SIGNATURES of a WGSL name: that a name is
+// WGSL's does not mean TypeShade gives it WGSL's arguments (`atan` takes two here, `select`
+// takes WGSL's argument order). Those are the intrinsic tables' business, and
+// `intrinsic-coverage.test.ts` is where they are held. The one family whose signatures ARE
+// read here is the f64 family, because it has no WGSL signature to defer to and a second
+// signature of `f64` is the bridge again under the allowed id: `f64(hi: f32, lo: f32)` is not a
+// stray (the classifier reads names) and not a leak (`f64` has its row), so the last describe
+// below pins each of its constructors to the forms WGSL gives the type it stands in for
+// (docs/language-design.md Rule 9.2, Rule 2.2).
 
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -46,6 +51,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { SHADE_DTS } from '../../language-service/ambient.js'
+import { compile } from '../../compiler/ts/compile.js'
 import { isCanonicalMathFn, resolveMathFn } from '../../compiler/ts/math-alias.js'
 import { PRE_EMIT_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js'
 
@@ -211,6 +217,9 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'ScalarOf', reason: "a vector's element type, per its element kind" },
   { name: 'ComponentKeys', reason: 'which component members exist at each arity' },
   { name: 'Mat', reason: 'the matrix brand shape' },
+  { name: 'MatColumn', reason: "a matrix column's vector type, per its element" },
+  { name: 'LaneKeys', reason: 'which constant indices a vector or a matrix takes at each arity' },
+  { name: 'Vec64Any', reason: 'the union of the three `f64` vectors, taken by the reductions' },
   { name: 'MathObject', reason: 'the shape of the `Math` stand-in; lib.es5.d.ts calls it `Math`' },
   { name: 'AnyClass', reason: 'the constructor shape a mixin extends (surface document §29)' },
 
@@ -298,6 +307,86 @@ function interfaceMembers(dts: string, interfaceName: string): string[] {
     }
   })
   return members
+}
+
+/** Every `declare function` of one name, as the list of its parameters' type texts — the
+ *  overloads of a constructor, one entry per signature. */
+function functionSignatures(dts: string, name: string): string[][] {
+  const source = ts.createSourceFile(
+    'shade.d.ts',
+    dts,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
+  const signatures: string[][] = []
+  ts.forEachChild(source, (node) => {
+    if (!ts.isFunctionDeclaration(node) || node.name?.text !== name) return
+    signatures.push(node.parameters.map((p) => (p.type ? p.type.getText(source) : '')))
+  })
+  return signatures
+}
+
+// ── The f64 family's signatures: WGSL's constructor forms and no other ──
+
+/** The sentence a signature outside the constructor forms gets. */
+function signatureMessage(name: string, params: readonly string[], why: string): string {
+  return (
+    `${name}(${params.join(', ')}) is declared in the ambient library, and ${why}: the f64 family ` +
+    'takes the constructor forms WGSL gives the type it stands in for and no other signature ' +
+    '(docs/language-design.md Rule 9.2); a bridge between an f64 and its f32 halves is a ' +
+    'compiler-internal operation under any spelling, a second signature included (Rule 2.2).'
+  )
+}
+
+/** Every signature of `f64` and of the three `vecNf64` constructors that is not one of WGSL's
+ *  value-constructor forms (wgsl #value-constructor-builtin-function). `f64(x)` is the one-
+ *  argument scalar constructor, as `f32(x)` is. A `vecNf64` takes what `vecN<T>(...)` takes: a
+ *  splat (one scalar), N scalar components, or a narrower `f64` vector plus scalar components
+ *  that add up to N. A scalar component is spelled `number` (the untyped literal or an `f64`,
+ *  which the library types as a branded number); nothing of the family takes an `f32` vector,
+ *  since the only thing an f32 vector could be to an f64 constructor is a hi or a lo plane. */
+function f64FamilySignatureStrays(dts: string): string[] {
+  const out: string[] = []
+  for (const params of functionSignatures(dts, 'f64')) {
+    if (params.length !== 1) {
+      out.push(signatureMessage('f64', params, 'a scalar constructor takes exactly one argument'))
+    }
+  }
+  for (const n of [2, 3, 4] as const) {
+    const name = `vec${String(n)}f64`
+    for (const params of functionSignatures(dts, name)) {
+      // How many of the N components each parameter supplies, or undefined for a type no
+      // constructor form takes (`f32`, `vec2`, `vec2f`, a matrix, …).
+      const widths = params.map((type) => {
+        if (type === 'number') return 1
+        const m = /^vec([234])f64$/.exec(type)
+        return m ? Number(m[1]) : undefined
+      })
+      if (widths.some((w) => w === undefined)) {
+        out.push(
+          signatureMessage(
+            name,
+            params,
+            'a parameter is neither a component nor a narrower f64 vector',
+          ),
+        )
+        continue
+      }
+      const total = widths.reduce<number>((sum, w) => sum + (w ?? 0), 0)
+      const splat = params.length === 1 && widths[0] === 1
+      if (!splat && total !== n) {
+        out.push(
+          signatureMessage(
+            name,
+            params,
+            `its parameters supply ${String(total)} components, not ${String(n)}`,
+          ),
+        )
+      }
+    }
+  }
+  return out
 }
 
 /** The sentence a stray name gets. One per name, saying what it is and what to do about it. */
@@ -478,6 +567,53 @@ describe('a compiler-internal name is never authorable', () => {
     expect(reported[0]).toContain('remove the declaration')
     expect(reported[1]).toContain('has a TYPESHADE_EXTENSIONS row')
     expect(reported[1]).toContain('delete the row')
+  })
+})
+
+describe('the f64 family has the constructor signatures of the type it stands in for', () => {
+  it('the f64 family declares only the constructor forms WGSL gives the type it stands in for', () => {
+    // The route the name checks above cannot see: the bridge as a SECOND SIGNATURE of the one
+    // allowed id. Every `f64` overload takes one argument, as `f32(x)` does, and every
+    // `vecNf64` overload is one of WGSL's vector constructor forms; the short spellings
+    // `vec2d`/`vec3d`/`vec4d` are type names and never a call, as their rows say.
+    expect(f64FamilySignatureStrays(SHADE_DTS)).toEqual([])
+    expect(functionSignatures(SHADE_DTS, 'f64').length).toBeGreaterThan(0)
+    for (const n of [2, 3, 4]) {
+      expect(functionSignatures(SHADE_DTS, `vec${String(n)}f64`).length).toBeGreaterThan(0)
+      expect(functionSignatures(SHADE_DTS, `vec${String(n)}d`)).toEqual([])
+    }
+  })
+
+  it('reports the bridge when it is a second signature of an allowed name', () => {
+    // `f64FromParts` re-spelled as an overload of `f64`, and `f64Parts` reversed as a vector
+    // constructor from two f32 planes. Neither is a stray, neither is a leak; both are caught
+    // here, against copies of the library as the other sentinels are.
+    const asOverload = `${SHADE_DTS}\ndeclare function f64(hi: f32, lo: f32): f64\n`
+    expect(unaccounted(asOverload)).toEqual([])
+    expect(internalLeaks(asOverload, extensionRows)).toEqual([])
+    const overloadReport = f64FamilySignatureStrays(asOverload)
+    expect(overloadReport).toHaveLength(1)
+    expect(overloadReport[0]).toContain('f64(f32, f32)')
+    expect(overloadReport[0]).toContain('exactly one argument')
+
+    const asPlanes = `${SHADE_DTS}\ndeclare function vec2f64(hi: vec2, lo: vec2): vec2f64\n`
+    expect(unaccounted(asPlanes)).toEqual([])
+    const planesReport = f64FamilySignatureStrays(asPlanes)
+    expect(planesReport).toHaveLength(1)
+    expect(planesReport[0]).toContain('vec2f64(vec2, vec2)')
+    expect(planesReport[0]).toContain('neither a component nor a narrower f64 vector')
+  })
+
+  it('the compiler refuses a second argument to f64', () => {
+    // The call route of the same overload: the library above says what an editor accepts, and
+    // this says what the compiler accepts. A lane that added the overload would have to change
+    // both, and this pins the lowering's arity so that the change turns this case red.
+    const result = compile(
+      '"use typeshade"\nexport function f(a: f32, b: f32): f64 { return f64(a, b) }\n',
+    )
+    const codes = result.diagnostics.map((d) => `${d.code} ${d.message}`)
+    expect(codes).toContain('TS8019 f64() expects 1 argument.')
+    expect(result.wgsl).toBeUndefined()
   })
 })
 
