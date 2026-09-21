@@ -161,6 +161,29 @@ describe('texture_1d: one number in, a texel out', () => {
     ])
   })
 
+  it('refuses an integer coordinate on a 1d SAMPLE, literal or not', () => {
+    // A sampled read is by normalised f32 coordinate whatever the dim. The literal exemption
+    // that lets `textureLoad(ramp, 3, 0)` spell its integer used to be tested on the FOLDED
+    // value and applied to the sampled reads too, where no retarget follows: `u32(2)` folded
+    // to a lit, skipped the element check, and emitted `textureSample(ramp, smp, 2u)` — "no
+    // matching call" on Tint with no diagnostic here. `i32(2)` survived only by accident, the
+    // writer spelling an i32 lit bare so WGSL read it as abstract-int.
+    expect(errorsOf(fragment(`  return textureSample(ramp, smp, u32(2))`))).toEqual([
+      'textureSample on a texture_1d<f32> takes an f32 coordinate; got u32.',
+    ])
+    expect(errorsOf(fragment(`  return textureSample(ramp, smp, i32(2))`))).toEqual([
+      'textureSample on a texture_1d<f32> takes an f32 coordinate; got i32.',
+    ])
+    expect(errorsOf(fragment(`  return textureSampleLevel(ramp, smp, u32(2), 0.)`))).toEqual([
+      'textureSampleLevel on a texture_1d<f32> takes an f32 coordinate; got u32.',
+    ])
+    // A BARE number in a sampled slot is an f32 already and stays clean, as does the integer
+    // coordinate of a fetch, which is where the exemption belongs.
+    expect(errorsOf(fragment(`  return textureSample(ramp, smp, 2)`))).toEqual([])
+    expect(errorsOf(fragment(`  return textureLoad(ramp, 2, 0)`))).toEqual([])
+    expect(errorsOf(fragment(`  return textureLoad(ramp, u32(2), 0)`))).toEqual([])
+  })
+
   it('takes an integer 1d texture through textureLoad', () => {
     const wgsl = wgslOf(
       fragment(
@@ -265,8 +288,9 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
 // Two hand lists in two layers stay equal only if something compares them (tests-critique
 // P1-27). The front end's `FRAGMENT_ONLY_CALLS` reports at the entry, in the author's file,
 // with the call chain; the core lint's `FRAGMENT_ONLY_IDS` is the EDSL's only gate and reports
-// at emit. An id in one and not the other is exactly how `textureSample` on a
-// `texture_cube_array` reached Tint (T1b), so neither is allowed to drift from the other.
+// at emit. Both ways of missing an id have happened: `textureSample` on a `texture_cube_array`
+// was in NEITHER table and reached Tint (T1b, fixed by #143), and `textureSample` itself was in
+// the lint and not the front end until #145. Neither table may drift from the other.
 describe('the two fragment-only tables hold the same ids', () => {
   it('the front end and the lint agree, id for id', () => {
     expect([...FRAGMENT_ONLY_CALLS].sort()).toEqual([...FRAGMENT_ONLY_IDS.keys()].sort())

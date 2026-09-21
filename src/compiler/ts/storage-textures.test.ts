@@ -168,7 +168,7 @@ ${body}
         ),
       ),
     ).toEqual([
-      '"textureLoad" is only valid in a fragment or compute shader; "vs" is a vertex entry. A storage texture declared "write" or "read_write" must not be reached from a vertex stage at all, so reading one there is refused with writing it.',
+      '"textureLoad" is only valid in a fragment or compute shader; "vs" is a vertex entry. A storage texture declared "read_write" must not be reached from a vertex stage at all, so reading or measuring one there is refused with writing it. (A "write" one refuses the read itself, whatever the stage.)',
     ])
     expect(
       errorsOf(
@@ -178,6 +178,29 @@ ${body}
         ),
       ),
     ).toEqual([])
+  })
+
+  it('refuses a QUERY of a writable storage texture from a vertex entry too', () => {
+    // The rule is about the RESOURCE, not the builtin: "a resource with write or read_write
+    // access must not be statically accessed by a vertex shader" (wgsl.txt:15343-15347). So it
+    // cannot be a list of names — `textureDimensions` is the id a sampled texture uses — and a
+    // size query of a writable storage texture is refused with the read and the write.
+    const vs = (decl: string): string => `"use typeshade"
+class Clip { @builtin("position") pos: vec4 }
+${decl}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  const d = textureDimensions(acc)
+  return { pos: vec4(f32(d.x), 0., 0., 1.) }
+}
+`
+    expect(errorsOf(vs(`declare const acc: texture_storage_2d<"r32float", "read_write">`))).toEqual(
+      [
+        '"textureDimensions" is only valid in a fragment or compute shader; "vs" is a vertex entry. A storage texture declared "read_write" must not be reached from a vertex stage at all, so reading or measuring one there is refused with writing it. (A "write" one refuses the read itself, whatever the stage.)',
+      ],
+    )
+    // A "read" storage texture is reachable from a vertex stage, so its query is legal there.
+    expect(errorsOf(vs(`declare const acc: texture_storage_2d<"r32float", "read">`))).toEqual([])
   })
 
   it('refuses textureStore in a vertex entry, and in a helper the entry reaches', () => {

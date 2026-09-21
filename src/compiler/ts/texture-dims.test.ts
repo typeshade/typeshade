@@ -316,7 +316,7 @@ declare const shadowSmp: sampler_comparison`,
         fragment(`  const l: f32 = 2.
   return textureLoad(atlas, vec2i(0, 0), l)`),
       ),
-    ).toEqual(['textureLoad mip level must be an i32 or a u32; got f32. Write i32(l).'])
+    ).toEqual(['textureLoad mip level must be an i32 or a u32; got f32. Write u32(l).'])
     expect(
       errorsOf(
         fragment(
@@ -326,7 +326,52 @@ declare const shadowSmp: sampler_comparison`,
 declare const ms: texture_multisampled_2d<f32>`,
         ),
       ),
-    ).toEqual(['textureLoad sample index must be an i32 or a u32; got f32. Write i32(si).'])
+    ).toEqual(['textureLoad sample index must be an i32 or a u32; got f32. Write u32(si).'])
+  })
+
+  it('answers an explicit cast like any other expression, rather than deleting it', () => {
+    // A BARE number is the call's to type — it has none of its own on this surface — so
+    // `textureSampleLevel(t, s, uv, 0)` emits `0.0` and `textureLoad(t, c, 0)` emits the
+    // integer. `i32(0)` is not bare: it says what it is. Retargeting on the FOLDED value
+    // treated the two alike and silently emitted `0.0` for the cast, while refusing the same
+    // mistake spelled `const l: i32 = 0` — one author told to write a cast, another's deleted.
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, i32(0))`))).toEqual([
+      'textureSampleLevel level must be an f32; got i32. Write f32(i32(0)).',
+    ])
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, u32(2))`))).toEqual([
+      'textureSampleLevel level must be an f32; got u32. Write f32(u32(2)).',
+    ])
+    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2i(0, 0), f32(1))`))).toEqual([
+      'textureLoad mip level must be an i32 or a u32; got f32. Write u32(f32(1)).',
+    ])
+    // The bare forms are untouched, which is the whole point of the distinction.
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, 0)`))).toEqual([])
+    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2i(0, 0), 0)`))).toEqual([])
+  })
+
+  it('refuses an emulated double in a float slot, where it used to be narrowed', () => {
+    // `floatArg` folded first and accepted any numeric literal, so `f64(1e300)` became an
+    // f32-typed literal carrying the full double and emitted
+    // `textureSampleLevel(atlas, smp, p.xy, 1e+300)` — "cannot be represented as 'f32'" on
+    // Tint. An f64 in a float slot is now answered like an f64 anywhere else.
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, f64(1e300))`))).toEqual(
+      ['textureSampleLevel level must be an f32; got f64. Write f32(f64(1e300)).'],
+    )
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, f64(1.))`))).toEqual([
+      'textureSampleLevel level must be an f32; got f64. Write f32(f64(1.)).',
+    ])
+  })
+
+  it('refuses an emulated double as a coordinate, naming the element and not the width', () => {
+    // A `vec2f64` has the width a 2d texture wants; what is wrong with it is the element. The
+    // width gate used to reject it first and say "takes a vec2 coordinate; got vec2<f64>",
+    // which names a width that is right.
+    expect(
+      errorsOf(
+        fragment(`  const c = vec2f64(f64(0.), f64(0.))
+  return textureSample(atlas, smp, c)`),
+      ),
+    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<f64>.'])
   })
 
   it('cuts a long argument short rather than smearing the message', () => {

@@ -395,12 +395,23 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
 
 // The texture half of the same claim (#145, tests-critique P0-7). These six programs were the
 // classes the front end passed and Tint refused, measured on SwiftShader through the compile
-// gate's own instruments. They are asserted against the EDITOR SWEEP — every diagnostic the
-// service returns — and not against `reports` above, which counts TypeScript's TS2345/TS2769
-// alone: a STAGE rule is not a type, so no ambient declaration can ever express "textureStore
-// is not reachable from a vertex entry", and demanding a `typescript` code for it would pin a
-// thing that cannot exist. Which layer speaks is recorded per row, so a row moving from the
-// compiler to `tsc` (the ambient parity item) is a deliberate edit here.
+// gate's own instruments.
+//
+// Asserted against the EDITOR SWEEP — every diagnostic the service returns — and not against
+// `reports` above, which counts TypeScript's TS2345/TS2769 alone. Each row records WHICH LAYER
+// answers it, because that is the fact worth pinning and the two layers are not
+// interchangeable:
+//
+//   * T1b, T2 and G34 are STAGE rules. No ambient declaration can express "textureStore is not
+//     reachable from a vertex entry", so these are the compiler's forever.
+//   * T4 and T10 are ordinary TYPE errors — an `i32` in an `f32` slot — and `tsc` SHOULD catch
+//     them. It does not, because the ambient lib types every scalar texture argument `number`
+//     (`level: number`, `bias: number`), and `i32`/`u32` are branded `number` subtypes. That is
+//     an ambient-parity gap, not an impossibility: when the parity item types those parameters
+//     `f32`, these two rows gain a `typescript 2345` and this table is the deliberate edit that
+//     records it.
+//   * T6 is the one row `tsc` already answered before the compiler did, through the ambient
+//     `vec2i` parameter. It now carries both.
 describe('every texture shape a GPU compiler rejects is reported in the editor', () => {
   const diagnosticsOf = (body: string): string[] => {
     const service = createTypeshadeLanguageService()
@@ -409,53 +420,84 @@ describe('every texture shape a GPU compiler rejects is reported in the editor',
   }
   const VS_HEAD = 'class Clip { @builtin("position") pos: vec4 }\n@vertex\n'
 
-  const rejectedByTint: Readonly<Record<string, string>> = {
+  /** program → the diagnostic sources that must answer it, by `source code` prefix. */
+  const rejectedByTint: Readonly<
+    Record<string, { readonly src: string; readonly from: readonly string[] }>
+  > = {
     // T1b: a cube-array sample in a vertex entry — `@stage("fragment")` on every
-    // `textureSample` overload (core.def:1143-1210).
-    'textureSample(texture_cube_array) in a vertex entry': `declare const envs: texture_cube_array<f32>
+    // `textureSample` overload (core.def:1143-1210). A stage rule: compiler only.
+    'textureSample(texture_cube_array) in a vertex entry': {
+      from: ['typeshade TS8099'],
+      src: `declare const envs: texture_cube_array<f32>
 declare const smp: sampler
 ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
   return { pos: textureSample(envs, smp, vec3(0., 0., 1.), 0) }
 }`,
+    },
     // T2: a texture write in a vertex entry — core.def:1484-1522, wgsl.txt:7741-7742.
-    'textureStore in a vertex entry': `declare const dst: texture_storage_2d<"rgba8unorm", "write">
+    // A stage rule: compiler only.
+    'textureStore in a vertex entry': {
+      from: ['typeshade TS8099'],
+      src: `declare const dst: texture_storage_2d<"rgba8unorm", "write">
 ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
   textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
   return { pos: vec4(0., 0., 0., 1.) }
 }`,
-    // T4: an i32 variable where WGSL types the level f32 (wgsl.txt:25081).
-    'textureSampleLevel with an i32 level': `declare const t: texture_2d<f32>
+    },
+    // T4: an i32 where WGSL types the level f32 (wgsl.txt:25081). A TYPE error `tsc` misses
+    // today because the ambient `level` is `number` — see the note above.
+    'textureSampleLevel with an i32 level': {
+      from: ['typeshade TS8041'],
+      src: `declare const t: texture_2d<f32>
 declare const s: sampler
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
   const l: i32 = 2
   return textureSampleLevel(t, s, p.xy, l)
 }`,
+    },
     // T6: a vec3 coordinate on a 2d storage texture (core.def:1573-1592, `C` is a vec2).
-    'textureLoad with a vec3 coordinate on a 2d storage texture': `declare const src: texture_storage_2d<"r32float", "read">
+    // BOTH layers: the ambient parameter is a `vec2i`, and the compiler checks the width.
+    'textureLoad with a vec3 coordinate on a 2d storage texture': {
+      from: ['typescript 2345', 'typeshade TS8041'],
+      src: `declare const src: texture_storage_2d<"r32float", "read">
 declare let out: storage<array<vec4>>
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = textureLoad(src, vec3i(0, 0, 0))
 }`,
-    // T10: an i32 variable where WGSL types the reference depth f32 (wgsl.txt:24734).
-    'textureSampleCompare with an i32 depth_ref': `declare const sh: texture_depth_2d
+    },
+    // T10: an i32 where WGSL types the reference depth f32 (wgsl.txt:24734). Same ambient gap
+    // as T4.
+    'textureSampleCompare with an i32 depth_ref': {
+      from: ['typeshade TS8041'],
+      src: `declare const sh: texture_depth_2d
 declare const cs2: sampler_comparison
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
   const r: i32 = 1
   return vec4(textureSampleCompare(sh, cs2, p.xy, r))
 }`,
-    // G34: an atomic in a vertex entry (wgsl.txt:25422).
-    'atomicAdd in a vertex entry': `declare let total: storage<atomic<u32>>
+    },
+    // G34: an atomic in a vertex entry (wgsl.txt:25422). A stage rule: compiler only.
+    'atomicAdd in a vertex entry': {
+      from: ['typeshade TS8099'],
+      src: `declare let total: storage<atomic<u32>>
 ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
   const n = atomicAdd(total, 1)
   return { pos: vec4(f32(n), 0., 0., 1.) }
 }`,
+    },
   }
-  for (const [name, body] of Object.entries(rejectedByTint)) {
+  for (const [name, row] of Object.entries(rejectedByTint)) {
     it(`${name}: reported, because Tint reports it too`, () => {
-      expect(diagnosticsOf(body), body).not.toEqual([])
+      const got = diagnosticsOf(row.src)
+      for (const prefix of row.from) {
+        expect(
+          got.some((d) => d.startsWith(prefix)),
+          `${prefix} should answer:\n${row.src}\ngot: ${JSON.stringify(got)}`,
+        ).toBe(true)
+      }
     })
   }
 

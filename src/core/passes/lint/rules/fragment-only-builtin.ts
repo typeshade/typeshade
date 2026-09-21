@@ -28,9 +28,12 @@ const COMPARE_FIX = (args: string): string =>
  *  authored: this rule's tests.
  *
  *  EXPORTED since #145 so the front end's own stage walk (`FRAGMENT_ONLY_CALLS` in
- *  `compiler/ts/lower/function.ts`) can be pinned equal to it: an id in one table and not
- *  the other is how `textureSample` on a `texture_cube_array` reached Tint (tests-critique
- *  T1b), and two hand lists in two layers stay equal only if something compares them. */
+ *  `compiler/ts/lower/function.ts`) can be pinned equal to it. Two hand lists in two layers
+ *  stay equal only if something compares them, and each way of missing an id has already
+ *  happened: `textureSample` on a `texture_cube_array` was in NEITHER table (#143 added it to
+ *  both), and `textureSample` itself was in this one and not the front end's until #145, so a
+ *  vertex entry sampling a `texture_2d` was answered by an SD0109 from the backend instead of
+ *  by a sentence about the author's own file. */
 export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',

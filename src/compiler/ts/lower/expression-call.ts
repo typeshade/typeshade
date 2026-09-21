@@ -608,8 +608,9 @@ const TEXTURE_CALLS = new Set([
  *  a `read` one are both "no matching call" on Tint), and the value stored has to be the
  *  texel type the FORMAT decides — `rgba8uint` stores a `vec4u`, `rgba8unorm` a `vec4`.
  *
- *  The coordinate is left to the ordinary argument check: Tint takes a signed or an unsigned
- *  vector, so both `vec2i` and `vec2u` are written here as they are. */
+ *  The coordinate goes through `vecArg` like every other texture's (#145): its width is the
+ *  dim's and its element an `i32` or a `u32`, either of which Tint takes, so both `vec2i` and
+ *  `vec2u` are written here as they are. */
 function lowerStorageTextureCall(
   id: string,
   tex: Extract<ShaderType, { kind: 'storage-texture' }>,
@@ -1401,8 +1402,17 @@ function vecArg(
   const want =
     tex.dim === '1d' ? 1 : tex.dim === '2d' || tex.dim === '2d-array' || tex.dim === '2d-ms' ? 2 : 3
   // A 1d texture (roadmap 0.4 item 12) is addressed by ONE number: an f32 to sample, an integer
-  // to fetch.
-  if (want === 1 ? arg.type.kind !== 'scalar' : arg.type.kind !== 'vec' || arg.type.n !== want) {
+  // to fetch. An emulated double counts as the width it has — `f64` is a scalar and `vec64` a
+  // vector here — so a `vec2f64` coordinate on a 2d texture is answered by the ELEMENT check
+  // below, which is what is wrong with it, rather than by a width message about a width that
+  // is right.
+  const n =
+    arg.type.kind === 'vec' || arg.type.kind === 'vec64'
+      ? arg.type.n
+      : arg.type.kind === 'scalar' || arg.type.kind === 'f64'
+        ? 1
+        : 0
+  if (n !== want) {
     const shape =
       want === 1
         ? `single ${id === 'textureLoad' ? 'integer' : 'f32'} ${what}`
@@ -1414,7 +1424,7 @@ function vecArg(
       sourceFile,
       node,
       `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
-      TS_CODES.TYPE_MISMATCH,
+      TS_CODES.TEXTURE_ARGUMENT,
     )
     return false
   }
@@ -1423,9 +1433,14 @@ function vecArg(
   const wantInt = what === 'coordinate' && (id === 'textureLoad' || id === 'textureStore')
   const elem = elemNameOf(arg.type)
   const ok = wantInt ? elem === 'i32' || elem === 'u32' : elem === 'f32'
-  // A literal is retargeted, not refused: `textureLoad(t, 3, 0)` on a 1d texture is the form
-  // the surface spells, and `intArg` below turns the f32 lit into the i32 the call takes.
-  if (ok || foldNumericLit(arg).op === 'lit') return true
+  // A bare number in an INTEGER slot is retargeted, not refused: `textureLoad(t, 3, 0)` on a 1d
+  // texture is the form the surface spells, and `intArg` below turns the f32 lit into the i32
+  // the call takes. The exemption is only sound where that retarget follows. It used to test
+  // the FOLDED value and apply to the float slots too, where nothing retargets: `u32(2)` folded
+  // to a lit, skipped the check, and `textureSample(ramp, smp, u32(2))` emitted `2u` on a 1d
+  // texture — "no matching call" on Tint, with no diagnostic here. (`i32(2)` survived only
+  // because the writer spells an i32 lit bare, which WGSL reads as abstract-int.)
+  if (ok || (wantInt && isBareNumber(node))) return true
   pushDiag(
     diagnostics,
     sourceFile,
@@ -1437,6 +1452,19 @@ function vecArg(
     TS_CODES.TEXTURE_ARGUMENT,
   )
   return false
+}
+
+/** Whether the author wrote a bare number here: a numeric literal, or one behind a unary sign.
+ *
+ *  This is the shape the retargets below act on, and it is asked of the SOURCE rather than of
+ *  the folded value because `foldNumericLit` also folds an explicit cast: `i32(0)` folds to the
+ *  literal 0, so retargeting on the folded value silently deleted a cast the author wrote and
+ *  emitted `0.0` for `textureSampleLevel(t, s, uv, i32(0))` — while refusing the same mistake
+ *  spelled `const l: i32 = 0`. A bare `0` has no type of its own on this surface and is the
+ *  call's to type; `i32(0)` says what it is, and is answered like any other i32. */
+function isBareNumber(node: ts.Expression): boolean {
+  const inner = ts.isPrefixUnaryExpression(node) ? node.operand : node
+  return ts.isNumericLiteral(inner)
 }
 
 /** The source the author wrote for an argument, for the "Write f32(l)." half of a refusal.
@@ -1465,7 +1493,7 @@ function floatArg(
   const lit = foldNumericLit(arg)
   // A literal already typed f32 is returned AS WRITTEN, not as the folded lit: folding a
   // negated literal would rewrite `-1.0` and move the emit for no reason.
-  if (lit.op === 'lit' && typeof lit.value === 'number')
+  if (isBareNumber(node) && lit.op === 'lit' && typeof lit.value === 'number')
     return typeKey(lit.type) === 'f32' ? arg : { op: 'lit', type: f32T, value: lit.value }
   if (typeKey(arg.type) === 'f32') return arg
   pushDiag(
@@ -1509,14 +1537,15 @@ function intArg(
   // A NEGATED literal is a unop, not a lit, and reached the backend as `-(1.0)`. Folded first
   // so the range check below sees the number the author wrote.
   const lit = foldNumericLit(arg)
-  if (lit.op !== 'lit' || typeof lit.value !== 'number') {
+  if (!isBareNumber(node) || lit.op !== 'lit' || typeof lit.value !== 'number') {
     const key = typeKey(arg.type)
     if (key === 'i32' || key === 'u32') return arg
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `${id} ${what} must be an i32 or a u32; got ${key}. Write i32(${argText(node, sourceFile)}).`,
+      `${id} ${what} must be an i32 or a u32; got ${key}. ` +
+        `Write ${typeKey(want)}(${argText(node, sourceFile)}).`,
       TS_CODES.TEXTURE_ARGUMENT,
     )
     return undefined
@@ -1533,7 +1562,7 @@ function intArg(
       `A texture ${what} must be a whole number of 0 or more, got ${String(v)}. ` +
         `WGSL rejects a fractional or negative one and GLSL ES 3.00 silently rounds it, ` +
         `so the two targets would disagree.`,
-      TS_CODES.TYPE_MISMATCH,
+      TS_CODES.TEXTURE_ARGUMENT,
     )
     return undefined
   }

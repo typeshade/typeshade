@@ -2963,12 +2963,16 @@ the author's file, with the call chain named:
 | Rule | What it covers |
 | --- | --- |
 | fragment only | `textureSample` and `textureSampleBias` (the implicit level of detail needs the screen-space derivatives), `textureSampleCompare` (same, through a comparison sampler), and `dpdx` / `dpdy` / `fwidth` with their coarse and fine forms |
-| fragment or compute | `textureStore`, a read of a storage texture declared `"write"` or `"read_write"`, and every `atomic*` builtin |
+| fragment or compute | `textureStore`, ANY call touching a storage texture declared `"read_write"` — a read, a `textureDimensions`, a `textureNumLayers` — and every `atomic*` builtin |
 | any stage | `textureSampleLevel`, `textureSampleGrad`, `textureSampleCompareLevel`, `textureLoad`, `textureGather` and every query |
 
 The second row is not about the builtin but about the RESOURCE: a storage texture with write
-access must not be reached from a vertex stage at all, so reading one there is refused with
-writing it, while a `"read"` storage texture and every sampled fetch stay legal.
+access must not be reached from a vertex stage at all, so measuring or reading one there is
+refused with writing it, while a `"read"` storage texture and every sampled fetch stay legal.
+That is why it cannot be a list of names — `textureLoad` and `textureDimensions` are the ids a
+sampled texture uses too — and why the argument's own type is what decides. (A `"write"` texture
+is never read in any stage: `textureLoad` on one is refused by the access rule first, and says
+so.)
 
 <!-- doc-snippets: skip — the refusal this section is about; it is meant not to compile -->
 
@@ -2998,9 +3002,11 @@ vertex entry "vs"`.
 
 There are two tables behind the first row, because there are two ways into the emitter: the
 `"use typeshade"` front end reports at the entry, and the `fragment-only-builtin` lint reports at
-emit for a module composed through the EDSL. An id in one table and not the other is how
-`textureSample` on a `texture_cube_array` once reached Tint, so a test holds the two equal and
-derives what they should contain from the intrinsic catalogue.
+emit for a module composed through the EDSL. Both ways of missing an id have happened —
+`textureSample` on a `texture_cube_array` was in neither table and reached Tint, and
+`textureSample` itself was in the lint and not the front end, so a vertex entry sampling a plain
+2D texture was answered by the backend rather than by a sentence about the author's own file. A
+test now holds the two equal and derives what they should contain from the intrinsic catalogue.
 
 ---
 

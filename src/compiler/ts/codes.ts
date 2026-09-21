@@ -4,6 +4,11 @@
 // A gap (8011 is retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
+//
+// TS8038, TS8039 and TS8040 are RESERVED, not retired: the 1.0 list (#162) hands each parallel
+// session a block of codes to claim from so two of them cannot take one number, and this file
+// is edited from several branches at once. A block that goes unused is compacted when the
+// branches merge; until then the gap is deliberate and this note is what says so.
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
@@ -93,14 +98,22 @@ export const TS_CODES = {
    *  used to fall through to the default of 64 with no diagnostic, so the author dispatched
    *  against a size they never asked for. The y/z rule stays `WORKGROUP_SHAPE`. */
   WORKGROUP_ARG: 'TS8037',
-  /** A texture argument whose TYPE the target has no overload for (#145): a coordinate or
-   *  gradient whose element kind the read does not take (a sampled read is by normalised
-   *  `f32`, a texel fetch by whole `i32`/`u32` texel), a layer, mip level or sample index that
-   *  is not an integer, or a `level`, `bias` or `depth_ref` that is not an `f32`. Only a bare
-   *  numeric LITERAL is retargeted instead; a variable of the wrong type used to reach the
-   *  backend unchanged, where Tint answers "no matching call" about generated code and GLSL ES
-   *  3.00 silently rounds. The WIDTH of a coordinate stays `TYPE_MISMATCH`: it is the texture's
-   *  shape, not the argument's type. */
+  /** A plain argument of a texture read that the target has no overload for (#145): a
+   *  coordinate or gradient of the wrong WIDTH for the texture's dim or of an element kind the
+   *  read does not take (a sampled read is by normalised `f32`, a texel fetch by whole
+   *  `i32`/`u32` texel), a layer, mip level or sample index that is not an integer or is not a
+   *  whole number of 0 or more, and a `level`, `bias` or `depth_ref` that is not an `f32`. Only
+   *  a bare numeric LITERAL is retargeted instead; anything else used to reach the backend
+   *  unchanged, where Tint answers "no matching call" about generated code the author never
+   *  wrote and GLSL ES 3.00 silently rounds.
+   *
+   *  ONE code for the whole family, on purpose. The width check and the fractional-literal
+   *  check were `TYPE_MISMATCH` before this; splitting the family by which property of the
+   *  argument is wrong gave two codes to one sentence shape and no caller a reason to care,
+   *  and the 1d coordinate check moved between the two by being rewritten. The TEXTURE itself
+   *  being wrong — a sampled texture handed to `textureStore`, a depth texture read plainly,
+   *  an access mode that forbids the call — stays `TYPE_MISMATCH`: that is the binding's
+   *  declaration, not the call's argument. */
   TEXTURE_ARGUMENT: 'TS8041',
   UNSUPPORTED: 'TS8099',
 } as const
