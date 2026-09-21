@@ -273,7 +273,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     id: 'block-scope',
     title: 'Block scope',
     blurb:
-      'Two sequential loops over `i`, a `p` in a loop body beside a `p` in an `if` arm, and an inner `p` that shadows the outer one: the block scoping TypeScript has and the IR now follows, with the second declaration of each name emitted as `i_1`, `p_1` (#38). Also a float `%=` for GLSL ES 3.00 (#20) and a shift inside 0 to 31 (#71). Renders concentric rings.',
+      'Two sequential loops over `i`, a `p` in a loop body beside a `p` in an `if` arm, and an inner `p` that shadows the outer one: the block scoping TypeScript has and the IR now follows, with the second declaration of each name emitted as `i_1`, `p_1` (#38). Also a float `%=` for GLSL ES 3.00 (#20), on a scalar and on a vector, and a shift inside 0 to 31 (#71). Renders concentric rings with a faint square lattice.',
     renderable: true,
   },
   {

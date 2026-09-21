@@ -21,6 +21,8 @@ fn fs(v: VsOut) -> FsOut {
   let r = length(v.uv);
   var band: f32 = (r * RINGS);
   band %= 1.0;
+  var cell: vec2<f32> = (v.uv * RINGS);
+  cell %= 1.0;
   var acc: f32 = 0.0;
   for (var i: u32 = 0u; (i < 4u); i = (i + 1u)) {
     let p = (f32(i) * 0.25);
@@ -37,6 +39,7 @@ fn fs(v: VsOut) -> FsOut {
   }
   let levels = (u32((band * 255.0)) >> 4u);
   let stepped = (f32((levels << 4u)) / 255.0);
-  let shaded = ((tint * acc) + (stepped * 0.1));
+  let grid = min(abs(cell.x), abs(cell.y));
+  let shaded = (((tint * acc) + (stepped * 0.1)) + (grid * 0.05));
   return FsOut(vec4<f32>(((shaded / RINGS) * 4.0), 1.0));
 }

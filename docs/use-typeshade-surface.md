@@ -1456,7 +1456,11 @@ of safety.
 **A float `%=` on GLSL ES 3.00** is written `x = (x - y * trunc(x / y));`, the `floatMod`
 spelling the binary `%` has always taken there, because GLSL's `%` is for integers. The compound
 assignment wrote `x %= y;` and the driver refused it while the WGSL beside it was fine (issue
-#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator on both.
+#20). WGSL keeps `x %= y;`, and an integer `%=` keeps the native operator on both. The rule
+holds at any width: a `vec2` target takes the same componentwise
+`cell = (cell - 1.0 * trunc(cell / 1.0));`, since GLSL ES 3.00 has no float `%` for a vector
+either. `examples/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
+evidence on both targets.
 
 ```ts
 "use typeshade"

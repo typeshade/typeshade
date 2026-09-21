@@ -173,6 +173,13 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
 
 ### Changed
 
+- **`examples/block-scope.shade.ts` carries a float `%=` on a vector to the gate** (§22,
+  [#20](https://github.com/typeshade/typeshade/issues/20)). The compound-assignment emit sites
+  route a float `%` through the backend's `floatMod` spelling at any width, but the corpus
+  carried the scalar only, so the vector form — `cell %= 1.`, which WGSL keeps as the operator
+  and GLSL ES 3.00 takes componentwise as `(cell - 1.0 * trunc(cell / 1.0))` — was pinned by a
+  unit test and by no driver. The example now carries both, and Tint and a real WebGL2 driver
+  compile each of them on every run of `bun run gate:compile`.
 - **A method that changes its object takes it by reference** (§26). It took the struct and
   RETURNED it — `Particle_step(self_in: Particle, dt: f32) -> Particle` opening with
   `var self_ = self_in` and closing with `return self_` — and the call site read the receiver,
