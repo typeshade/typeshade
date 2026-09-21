@@ -3494,6 +3494,57 @@ one. The compile gate caught `'shared' is a reserved keyword` from Tint with no 
 the compiler first — the identifier sanitiser guards GENERATED names only. That is a real gap,
 and it is not this section's to close.
 
+## 49. The editor and the compiler agree
+
+The ambient library is a second implementation of this surface's type rules, written in
+TypeScript's vocabulary rather than the compiler's, and two implementations drift. A rule the
+ambient lib states more NARROWLY than the compiler is the worse failure: red squiggles on a
+program that compiles, which stops an author who was right. Four such rows are closed:
+
+| spelling | the editor used to say | now |
+| --- | --- | --- |
+| `select(a, b, c)` on bools | "Argument of type 'boolean' is not assignable to parameter of type 'Numeric'" | clean |
+| `select(vec2b(…), vec2b(…), c)` | the same, about `vec2b` | clean |
+| `vec3(x, v2)`, `vec4(x, v2, w)`, `vec4(x, y, v2)` | "Argument of type 'f32' is not assignable to parameter of type 'vec2'" | clean |
+| `f32(true)`, `i32(true)`, `u32(true)` | "Argument of type 'boolean' is not assignable to parameter of type 'number'" | clean |
+
+`select` takes any scalar or vector WGSL gives it, bools and emulated doubles included
+(wgsl.txt:21338-21352). The vector constructors take a component vector anywhere, not only
+first (20889/20987). A cast takes a `bool`, which is 1 or 0 (20207) — except `f64`, which
+WIDENS an `f32` and takes nothing else.
+
+`src/language-service/ambient-parity.test.ts` asserts the AGREEMENT rather than either verdict,
+with rows on both sides: a row where both refuse is as much the subject as one where both
+accept, and a test that only checked the accepting rows would be green on an ambient lib that
+had stopped saying anything at all.
+
+### Two compositions the editor still does not take
+
+`vec4(x, v3)` and `vec4(v2, v2)` are real WGSL and the compiler takes both. They are
+deliberately not declared, and the cost of declaring them is measured: adding a SECOND
+two-argument `vec4` overload costs TypeScript the contextual type it uses to infer through
+vector arithmetic. With one candidate, `vec4(mix(c * 0.5, d, 0.5), 1.)` contextually types its
+first argument `vec3` and `mix` infers `vec3`; with two, that context is gone, `mix` infers from
+the `number` the arithmetic erased `c * 0.5` to, and the call reports TS2769 on a program that
+compiles.
+
+`vec4(c * 0.5, 1.)` is a far more common spelling than either of the two, so the editor is
+better off without them until the #43 arithmetic filter can restore a shape through a NESTED
+call. Both are pinned as `it.fails` so the day that changes is a deliberate edit.
+
+### A binding still needs a named type
+
+```ts
+interface P { m: mat4 }
+declare const U: uniform<P>; // fine
+declare const V: uniform<{ m: mat4 }>; // Unsupported type syntax "{ m: mat4 }"
+```
+
+Both layers refuse the literal, so nothing disagrees — but the refusal is a gap rather than a
+rule. Accepting it means synthesising an anonymous struct: a name, a place in the module's
+structs, a layout. That is a compiler feature and not an editor-parity fix, and it is pinned
+here as it stands so both layers move together the day it lands.
+
 ---
 
 Last updated: 2026-09-21

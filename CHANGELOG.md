@@ -163,6 +163,28 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **The ambient library declares what the compiler lowers** (§49, #157). Four rules the editor
+  stated more NARROWLY than the compiler, which is the worse of the two drifts: red squiggles on
+  a program that compiles. `select` takes any scalar or vector WGSL gives it, bools and bool
+  vectors and emulated doubles included, where `T extends Numeric` refused the first two; the
+  vector constructors take a component vector anywhere rather than first only, so `vec3(x, v2)`,
+  `vec4(x, v2, w)` and `vec4(x, y, v2)` are clean in the editor as they always were in the
+  compiler; and a cast takes a `bool` (`f32(true)` is 1.0), except `f64`, which widens an `f32`
+  and takes nothing else. A new `ambient-parity.test.ts` asserts the AGREEMENT rather than
+  either verdict, with rows on both sides — a row where both refuse is as much the subject as
+  one where both accept, and several rows the audit listed as disagreements
+  (`normalize` of a scalar, `sign` of an unsigned vector, `ldexp` with a float exponent,
+  `arrayLength` of a fixed array) turned out to agree already and are pinned so.
+  TWO rows are left disagreeing on purpose, with the cost measured: `vec4(x, v3)` and
+  `vec4(v2, v2)` are real WGSL the compiler takes, and declaring either adds a second
+  TWO-argument `vec4` overload, which costs TypeScript the contextual type it uses to infer
+  through vector arithmetic — `vec4(mix(c * 0.5, d, 0.5), 1.)` then reports TS2769 on a program
+  that compiles, because `mix` infers from the `number` the arithmetic erased rather than from
+  the `vec3` the context supplied. `vec4(c * 0.5, 1.)` is far more common than either, so the
+  editor is better off without them until the #43 filter can restore a shape through a nested
+  call; both are pinned as `it.fails`. A binding declared with a TYPE LITERAL rather than an
+  interface is still refused by both layers: accepting it means synthesising an anonymous
+  struct, which is a compiler feature rather than a parity fix, and it is pinned as it stands.
 - **Compare-exchange, the uniform load and the texture barrier** (§48, #152).
   `atomicCompareExchangeWeak(x, cmp, val)` stores `val` only when the location holds `cmp` and
   answers a STRUCT — what the location held before, and whether the store happened. WGSL gives

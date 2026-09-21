@@ -120,10 +120,28 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
   } else if (n === 3) {
     lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}): ${type}`)
     lines.push(`${head}(v: ${shorter(2)}, z: ${c}): ${type}`)
+    // The composition WGSL allows in the other order (wgsl.txt:20889/20987). Only the
+    // vector-FIRST forms were declared, so `vec3(x, v2)` was red in the editor and green in
+    // the compiler — the editor reading the vector as the scalar the first parameter names
+    // ("Argument of type 'f32' is not assignable to parameter of type 'vec2'"). #157.
+    lines.push(`${head}(x: ${c}, v: ${shorter(2)}): ${type}`)
   } else {
     lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`)
     lines.push(`${head}(v: ${shorter(3)}, w: ${c}): ${type}`)
     lines.push(`${head}(v: ${shorter(2)}, z: ${c}, w: ${c}): ${type}`)
+    // The same gap at width 4, for the THREE-argument compositions.
+    lines.push(`${head}(x: ${c}, v: ${shorter(2)}, w: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}, v: ${shorter(2)}): ${type}`)
+    // NOT declared, and the omission is measured rather than an oversight: `vec4(x, v3)` and
+    // `vec4(v2, v2)` are real WGSL and the compiler accepts both, but adding a SECOND
+    // two-argument overload costs TypeScript the contextual type it uses to infer through
+    // vector arithmetic. With one candidate, `vec4(mix(c * 0.5, d, 0.5), 1.)` contextually
+    // types its first argument `vec3` and `mix` infers `vec3`; with two, the context is gone,
+    // `mix` infers from the `number` the arithmetic erased `c * 0.5` to, and the call reports
+    // TS2769 on a program that compiles. `vec4(c * 0.5, 1.)` is a far more common spelling
+    // than either of the two, so the editor is better off without them until the #43 filter
+    // can restore a shape through a NESTED call. Tracked on #157.
+    // The same gap at width 4: a vec2 or a vec3 anywhere but first, and the two-vector form.
   }
   lines.push(`${head}(scalar: ${c}): ${type}`)
   // `vec3<bool>(true, false, true)` and `vec3<bool>(true)`. Generic with NO default, so the
@@ -331,7 +349,13 @@ const scalarCasts = SCALAR_CAST_NAMES.map((name) => {
   // `bool()`. `bool` converts from a number and returns a boolean, so its argument is not
   // `number` in the general case; the generated line below is the numeric one it already had.
   const zero = name === 'f64' ? '' : `declare function ${name}(): ${name}\n`
-  const line = `${zero}declare function ${name}(x: number): ${name}`
+  // A cast takes a `bool` too (wgsl.txt:20207): `u32(b)` is 1 or 0, and the compiler has
+  // always lowered it. The editor read `f32(true)` as "Argument of type 'boolean' is not
+  // assignable to parameter of type 'number'", which is the false POSITIVE this file exists to
+  // prevent. `f64` is the exception: it WIDENS an f32 and the compiler refuses anything else,
+  // so admitting a bool there would be the opposite mistake (#157).
+  const arg = name === 'f64' ? 'number' : 'number | bool'
+  const line = `${zero}declare function ${name}(x: ${arg}): ${name}`
   const doc = FUNCTION_DOCS[name]
   if (!doc) return line
   return line
@@ -529,6 +553,9 @@ type Vec64<N extends 2 | 3 | 4> = { readonly [vec64Tag]: N }
 type vec2f64 = Vec64<2>
 type vec3f64 = Vec64<3>
 type vec4f64 = Vec64<4>
+/** The emulated-double vectors as one union, for the builtins that take any of them.
+ * \`Vec64\` itself is generic and cannot stand alone in a constraint. */
+type F64Vec = vec2f64 | vec3f64 | vec4f64
 
 ${vecTypeAliases}
 
@@ -1235,7 +1262,11 @@ ${langConsts}
 // from an arity alone: \`select\`'s third argument is a bool, \`atan\` has two arities, \`bool\`
 // takes a bool as well as a number, and \`discard\` is a statement, not a call.
 ${renderJSDoc(FUNCTION_DOCS.select)}
-declare function select<T extends Numeric>(falseValue: T, trueValue: T, cond: bool | BoolVec): T
+declare function select<T extends Numeric | bool | BoolVec | F64Vec | f64>(
+  falseValue: T,
+  trueValue: T,
+  cond: bool | BoolVec,
+): T
 ${renderJSDoc(FUNCTION_DOCS.any)}
 declare function any(v: bool | BoolVec): bool
 ${renderJSDoc(FUNCTION_DOCS.all)}
