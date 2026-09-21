@@ -425,6 +425,11 @@ export interface StructField {
   readonly builtin?: string
   /** Structured `@interpolate(mode)` (set alongside `location`). */
   readonly interpolate?: string
+  /** Structured `@blend_src(0|1)` on a fragment output (§53): the two colours a dual-source
+   *  blend mixes, which both sit at `@location(0)`. It derives the `dualSourceBlending`
+   *  capability, and GLSL ES 3.00 has no second source, so a module carrying one fails
+   *  closed there. */
+  readonly blendSrc?: number
   /** The byte size WGSL's `@size(n)` gives this field, when the field's own type is smaller.
    *  Set by the uniform-layout pass (§51) and by nothing else: it is how the wrapper struct
    *  that gives a uniform array its 16-byte element stride is spelled,
@@ -689,6 +694,7 @@ export type Capability =
   | 'subgroups'
   | 'clipDistances'
   | 'primitiveIndex'
+  | 'dualSourceBlending'
   | 'floatRenderTarget'
   | 'float32Blend'
   | 'float32Filterable'
@@ -709,6 +715,7 @@ export const ALL_CAPABILITIES = [
   'subgroups',
   'clipDistances',
   'primitiveIndex',
+  'dualSourceBlending',
   'floatRenderTarget',
   'float32Blend',
   'float32Filterable',

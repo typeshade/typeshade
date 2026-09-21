@@ -448,6 +448,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       "A `uniform` holding `array<f32, 4>` — the one shape WGSL lays out differently from everything else (§51). Its uniform address space aligns every array element to 16 bytes, so four floats occupy four sixteen-byte slots; the compiler emits that padding itself, as a wrapper struct carrying `@size(16)` with the reads rewritten through it, so the bytes the WGSL declares are the bytes `reflect()` reports. GLSL ES 3.00's std140 gives `float[4]` the same stride natively, which is why the unpadded program links on WebGL2 and dies on WebGPU. The `array<vec4, 2>` beside it is the control: already 16 bytes an element, emitted as written.",
     renderable: true,
   },
+  {
+    id: 'id-pick',
+    title: 'An integer varying, and the interpolation it has no choice about',
+    blurb:
+      'Entry IO as WGSL declares it (§53). A `u32` at a `@location` is an INTEGRAL varying, and neither target can interpolate one: WGSL requires `@interpolate(flat)` on it ("integral user-defined vertex output must have a flat interpolation attribute" on Tint) and GLSL ES 3.00 requires `flat`. The compiler emitted the WGSL bare while the GLSL writer added the qualifier, so one source described two different programs; the attribute is derived from the type now, on both writers. Beside it, the two attributes that pass through as written: `@interpolate("perspective", "centroid")` on a float varying, which GLSL spells `smooth centroid`, and `@invariant` on the position, which it spells `invariant gl_Position;`.',
+    renderable: true,
+  },
 ]
 
 /**

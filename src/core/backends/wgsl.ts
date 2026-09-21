@@ -36,6 +36,7 @@ import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js'
 import { selectComposite } from '../passes/select-composite.js'
 import { requiredCaps, requiredLanguageFeatures } from '../passes/required-caps.js'
 import { padUniformArrays } from '../passes/uniform-layout.js'
+import { flatIntegerVaryings } from '../passes/varying-interpolate.js'
 import { dslError } from '../diagnostics/error.js'
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
@@ -237,6 +238,11 @@ const WGSL_CAP_PROFILE = {
   // rejecting it should correct this one string.
   clipDistances: { directive: 'clip_distances', hostFeature: 'clip-distances' },
   primitiveIndex: { directive: 'primitive_index', hostFeature: 'primitive-index' },
+  // Dual-source blending (§53): `@blend_src` derives it, the same way the two built-in
+  // values above derive theirs. Refused by the gate's software adapter (`extension
+  // 'dual_source_blending' is not allowed in the current environment`), which is the adapter
+  // lacking the feature — `dual-source-blending` is what a host requests for it.
+  dualSourceBlending: { directive: 'dual_source_blending', hostFeature: 'dual-source-blending' },
   // Opt-in DEVICE features (X-GIS #1670) — no WGSL directive exists for any of these; the
   // host activates them at requestDevice time (or they are core).
   floatRenderTarget: {}, // core in WebGPU: an rgba32float render target needs no feature
@@ -393,7 +399,7 @@ export const wgslBackend: Backend = {
   // no `member` node left to rewrite, so `_licm0[i]` came out typed as the WRAPPER and was
   // multiplied as an f32. Padding first, LICM hoists the padded array and the index keeps
   // its `.v`.
-  optimize: (m) => fixpoint(padUniformArrays(m)),
+  optimize: (m) => fixpoint(flatIntegerVaryings(padUniformArrays(m))),
   // One copy of a pointer-taking function per address space its calls use — see wgsl-ptr.ts.
   // After the optimizer, since a pass that folds a call away removes a space with it.
   postLower: (m) => pointerSpaces(m),

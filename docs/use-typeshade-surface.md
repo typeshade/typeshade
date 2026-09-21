@@ -115,13 +115,14 @@ class Camera {
 
 class VsIn {
   @location(0) position: vec3
-  @location(1) @interpolate("linear") uv: vec2
+  @location(1) @interpolate("linear") uv: vec2 // WGSL only — GLSL ES 3.00 has no `linear`
 }
 ```
 
-Of that list the compiler applies `@location` and `@builtin` today. `@align` on a field is
-an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(target)*.
-`@size`, `@offset`, `@interpolate` and `@ignore` parse but do not reach the emitted struct yet.
+Of that list the compiler applies `@location`, `@builtin`, `@interpolate`, `@invariant` and
+`@blend_src` today (§53). `@align` on a field is an error (`TS8010`) rather than a silent
+no-op — the `@align(16)` above is *(target)*. `@size`, `@offset` and `@ignore` parse but do not
+reach the emitted struct yet.
 
 `class` here is a struct with attributes, not an object.
 
@@ -2947,6 +2948,8 @@ export function fs(@builtin("primitive_index") pi: u32): vec4 { // fragment INPU
 | `subgroup_invocation_id` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
 | `subgroup_size` | compute **or fragment** input | `u32` | `subgroups` · `enable subgroups;` · `subgroups` |
 
+`@blend_src(0|1)` on a fragment output derives `dualSourceBlending` the same way (§53).
+
 `clip_distances` used to be admitted with no stage rule and no size rule at all: it sat on a
 fragment input and emitted WGSL Tint refused. Each row's stage, direction and type is now
 checked at the authoring line. The subgroup pair read as compute-only, which refused a legal
@@ -2966,10 +2969,10 @@ by the file itself:
 ```
 
 One extension per directive, WGSL's own name. The vocabulary is the WGSL backend's capability
-profile, so it is exactly the list the writer can emit a directive for: `clip_distances`, `f16`,
-`primitive_index`, `subgroups`. A misspelled name is `TS8050` naming the four, and enables
-nothing — a typo does not also fail the module closed on a capability it never asked for. A file
-with no directive emits the same bytes it always did.
+profile, so it is exactly the list the writer can emit a directive for: `clip_distances`,
+`dual_source_blending`, `f16`, `primitive_index`, `subgroups`. A misspelled name is `TS8050`
+naming them, and enables nothing — a typo does not also fail the module closed on a capability
+it never asked for. A file with no directive emits the same bytes it always did.
 
 **The `requires` axis.** A WGSL *language* extension changes what the text may say and is
 checked by the host against `navigator.gpu.wgslLanguageFeatures`, not requested at
@@ -3001,12 +3004,12 @@ Tint of the Chromium the compile gate runs (2026-09-21):
 
 And four by design, with no measurement to take:
 
-- Three more WGSL extension names still have no capability of their own.
-  `dual_source_blending` belongs with `@blend_src`, which is the entry-IO item;
+- Two more WGSL extension names still have no capability of their own.
   `packed_4x8_integer_dot_product` belongs with the WGSL-only builtins (`dot4x8`,
-  `pack4xI8`) that would use it; and `atomic_vec2u_min_max` waits on `atomic<vec2<u32>>`,
+  `pack4xI8`) that would use it, and `atomic_vec2u_min_max` waits on `atomic<vec2<u32>>`,
   an After-1.0 row. Each is an extension whose whole surface is a feature this compiler
-  cannot spell yet, so a capability for it would gate nothing.
+  cannot spell yet, so a capability for it would gate nothing. (`dual_source_blending`
+  was the third; §53 gives it one, derived from `@blend_src`.)
 - `var<immediate>`, `const_assert` and `@must_use` on a user function have no spelling here.
   The first two have no TypeScript shape to hang on; `@must_use` is an emit decision the
   writer makes, not an author one.
@@ -3318,6 +3321,76 @@ past it. One function raises it, so the three sites cannot drift apart again.
   name it for. Refused with the two restructurings that work.
 - **`==` and `>>>`** keep the refusals they had (§28). `===` is the equality both targets have,
   and WGSL has no unsigned right shift.
+
+## 53. Entry IO: the interpolation an integer varying has no choice about
+
+**An integer varying is `flat`, and the two writers used to disagree about that.** WGSL requires
+every integral user-defined IO to carry `@interpolate(flat)` — there is no interpolation for a
+`u32` — and the compiler emitted `@location(0) id: u32,` bare. The GLSL writer had always added
+the qualifier. So one source described two different programs, and the WGSL half was one Tint
+refuses. Measured on Chromium 141 (`chromium_headless_shell-1194`), with the broken-shader
+instrument check passing on both compilers first:
+
+| Written | Verdict |
+| --- | --- |
+| WGSL `@location(0) id: u32` on a vertex output | `integral user-defined vertex outputs must have a '@interpolate(flat)' attribute` |
+| WGSL the same with `@interpolate(flat)` | accepted |
+| GLSL ES 3.00 `in uint id;` | `'in' : must use 'flat' interpolation here` |
+| GLSL ES 3.00 `flat in uint id;` | accepted |
+
+The attribute is derived from the TYPE now, for a scalar and a vector alike, on both writers:
+
+```ts
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) id: u32       // WGSL @interpolate(flat) · GLSL `flat out uint id;`
+  @location(1) uv: vec2      // untouched: a float varying interpolates
+}
+```
+
+`examples/id-pick.shade.ts` is the gate's evidence, compiled on Tint and on ANGLE.
+
+**`@interpolate`, `@invariant` and `@blend_src` are attributes an author writes.** All three
+parse and reach the emitted struct; `@align`, `@size`, `@offset` and `@ignore` still do not
+(§4).
+
+| Written | WGSL | GLSL ES 3.00 |
+| --- | --- | --- |
+| `@interpolate("flat")` | `@interpolate(flat)` | `flat` |
+| `@interpolate("perspective", "centroid")` | `@interpolate(perspective, centroid)` | `smooth centroid` |
+| `@interpolate("linear")`, `@interpolate(…, "sample")` | as written | **no form** — the module has no GLSL half |
+| `@invariant` on `@builtin("position")` | `@invariant @builtin(position)` | `invariant gl_Position;` |
+| `@blend_src(0)` / `@blend_src(1)` at one `@location` | `enable dual_source_blending;` + the attributes | **no form** — GLSL ES 3.00 has no second source |
+
+The two "no form" rows fail the module CLOSED on GLSL rather than emitting something else:
+`emitGlslModule` throws and the module simply has no GLSL text, the way a storage texture
+already does. `@blend_src` derives the `dualSourceBlending` capability (§50) from the field
+itself, so the directive is emitted for any module that declares one. No example carries it:
+`adapter.features.has('dual-source-blending')` is false on the gate's adapter, and Tint answers
+`extension 'dual_source_blending' is not allowed in the current environment` — so a gate example
+would test the adapter, not the emit.
+
+`@interpolate` belongs on a `@location` field. On a `@builtin` it is refused: a built-in value
+carries its own rule, and WGSL has no interpolation to give it.
+
+**What is refused, one sentence each.**
+
+| Written | Why |
+| --- | --- |
+| `@location(0) ok: bool` | a value passed between stages is a numeric scalar or a numeric vector; `bool` is not host-shareable. Send a `u32` and compare it. |
+| two members at one `@location` | each slot carries one value. The exception is a dual-source pair, where the slot is the location AND the blend source. |
+| `@location(0) x: f32` on a `@compute` entry | a compute shader has no user IO: it reads its work from resources and the `@builtin` invocation ids. |
+| `@builtin("vertex_index") i: f32` | each built-in value has one type, which `WGSL_BUILTIN_TYPES` holds; this one is `u32`. |
+| a vertex output and a fragment input that disagree at one `@location` | an interstage slot is one type, interpolated one way, on both sides. |
+
+The interstage rule is the one that needed somewhere new to live. When both stages share a
+struct they agree by construction; two structs — which is what an author writes when the
+fragment reads a subset — let them drift, and a `vec2` output read as a `vec3` input emitted
+clean WGSL and clean GLSL, with the failure arriving at pipeline creation in a message naming
+neither struct nor field. It is a CORE lint rule on the IR, so every authoring surface is
+covered at every emit, and the `"use typeshade"` front end runs the same function to point at
+the fragment declaration. A vertex output the fragment ignores is fine: WGSL constrains only
+the slots the fragment names.
 
 ---
 

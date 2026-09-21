@@ -154,7 +154,7 @@ export function fs(): vec4 { return vec4(0.) }`)
     const d = r.diagnostics.find((x) => x.code === TS_CODES.ENABLE_NAME)
     expect(d?.message).toBe(
       'Unknown WGSL extension "subgrops". "enable ..." takes one of: ' +
-        'clip_distances, f16, primitive_index, subgroups.',
+        'clip_distances, dual_source_blending, f16, primitive_index, subgroups.',
     )
     expect(r.enables).toEqual([])
   })

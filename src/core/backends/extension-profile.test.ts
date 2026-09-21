@@ -315,6 +315,10 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
       // not declared, and fail closed on GLSL ES 3.00, which has neither.
       clipDistances: { directive: 'clip_distances', hostFeature: 'clip-distances' },
       primitiveIndex: { directive: 'primitive_index', hostFeature: 'primitive-index' },
+      dualSourceBlending: {
+        directive: 'dual_source_blending',
+        hostFeature: 'dual-source-blending',
+      },
       floatRenderTarget: {},
       float32Blend: { hostFeature: 'float32-blendable' },
       float32Filterable: { hostFeature: 'float32-filterable' },
@@ -464,6 +468,7 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
     'subgroups',
     'clipDistances',
     'primitiveIndex',
+    'dualSourceBlending',
     'floatRenderTarget',
     'float32Blend',
     'float32Filterable',

@@ -22,6 +22,7 @@ import type { DeclaredSymbol } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
 import { collectEnables } from './enables.js'
+import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js'
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
@@ -208,6 +209,21 @@ export function compileTsSource(
     overrides,
     vars,
   )
+  // The interstage pair, once every entry is lowered: a `@location` a fragment reads must be
+  // produced by the vertex entry with the same type and the same interpolation (§53). The
+  // CORE lint rule answers the same question on the IR, so every authoring surface is covered
+  // at every emit; this runs the same function here because it can point at the fragment
+  // declaration the author wrote, and a backend throw cannot.
+  for (const m of interstageMismatches(emittedStructDecls(structs), funcs)) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        entryDeclaration(sourceFile, m.fragment),
+        m.message,
+        TS_CODES.STRUCT_FIELD,
+      ),
+    )
+  }
   let wgsl: string | undefined
   const shouldEmit = options.emit ?? true
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
@@ -286,4 +302,13 @@ export function reportCrossDeclarationCollisions(
       } else kindOf.set(d.name, kind)
     }
   }
+}
+
+/** The `function <name>` statement an entry was lowered from, so a whole-module diagnostic can
+ *  anchor at the declaration rather than at the file's first line. `undefined` when the name
+ *  names no top-level function, which {@link makeDiagnostic} already handles. */
+function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | undefined {
+  return sourceFile.statements.find(
+    (st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === name,
+  )
 }

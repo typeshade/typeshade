@@ -31,6 +31,7 @@ import { portableKernel } from './portable-kernel.js'
 import { noShadowedLocal } from './no-shadowed-local.js'
 import { usesDeclared } from './uses-declared.js'
 import { builtinValueType } from './builtin-value-type.js'
+import { interstageIo } from './interstage-io.js'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -58,6 +59,7 @@ export const RULES: readonly LintRule[] = [
   smoothstepEdgeOrder,
   fragmentOnlyBuiltin,
   builtinValueType,
+  interstageIo,
   portableKernel,
   noShadowedLocal,
   usesDeclared,
@@ -86,6 +88,8 @@ export {
   callSignature,
   smoothstepEdgeOrder,
   fragmentOnlyBuiltin,
+  builtinValueType,
+  interstageIo,
   portableKernel,
   noShadowedLocal,
   usesDeclared,
@@ -125,4 +129,8 @@ export const CORE_RULES: readonly LintRule[] = [
   // `@builtin(clip_distances)` emits `enable clip_distances;` whether or not the front end
   // ever saw it as entry IO, so the type rule has to be read off the IR too.
   builtinValueType,
+  // A vertex output and the fragment input that reads it must agree slot for slot (§53).
+  // CORE for the same reason: both writers emit the two declarations from the same fields, and
+  // a drift between them is clean text on both targets that fails at pipeline creation.
+  interstageIo,
 ]

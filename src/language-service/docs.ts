@@ -61,6 +61,12 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   builtin:
     'Binds a field or parameter to a WebGPU builtin value, such as `@builtin("vertex_index")`.',
   location: 'Binds a field to a numeric shader IO location, such as `@location(0)`.',
+  interpolate:
+    'How a `@location` varying is interpolated: `@interpolate("flat")`, or a type and a sampling as in `@interpolate("linear", "centroid")`. An integer varying takes `flat` automatically. GLSL ES 3.00 has `smooth`, `flat` and `centroid` only, so `"linear"` and the `"sample"` position fail the module closed on that target.',
+  invariant:
+    'On `@builtin("position")`: WGSL\'s promise that this position is computed the same way in two pipelines, so a depth pre-pass matches the shading pass. Emits `invariant gl_Position;` on GLSL ES 3.00.',
+  blend_src:
+    'Which of the two colours a dual-source blend mixes this fragment output is: `@blend_src(0)` and `@blend_src(1)`, both at `@location(0)`. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
 }
 
 /** One Markdown sentence per `@builtin(...)` id in `WGSL_BUILTIN_NAMES`. */

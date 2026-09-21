@@ -52,6 +52,7 @@ import {
   checkBuiltinName,
   checkBuiltinStage,
   checkBuiltinType,
+  checkLocationType,
   type BuiltinStage,
 } from '../builtin-check.js'
 
@@ -750,6 +751,22 @@ export function parseParams(
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input')
     }
     const location = numberDecorator(p, sourceFile, 'location')
+    if (location !== undefined) {
+      // WGSL: a compute entry point has no user-defined IO at all — its inputs are the
+      // builtin invocation ids and its resources. `@location(0) x: f32` on one was emitted
+      // and refused at the driver (§53).
+      if (stage === 'compute') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          p,
+          `"${p.name.text}" is at a @location on a compute entry, which has no user IO: a ` +
+            `compute shader reads its work from resources and the @builtin invocation ids.`,
+          TS_CODES.STRUCT_FIELD_MISSING_ATTR,
+        )
+      }
+      checkLocationType(diagnostics, sourceFile, p, p.name.text, pType)
+    }
     params.push({
       name: p.name.text,
       type: pType,
@@ -1462,6 +1479,10 @@ function checkStructBuiltinFields(
       : `WGSL requires every entry ${direction} struct member to declare one, and ` +
         `${collected.spelling === 'interface' ? 'an interface' : 'a type alias'} member cannot ` +
         `carry a decorator — declare "${structName}" as a class.`
+  // The slot-collision and varying-type rules read the struct alone and live in `structs.ts`,
+  // which sees each declaration once: raised here they printed one mistake twice, because a
+  // vertex output and a fragment input are the SAME struct. What is left below reads the
+  // stage, which is genuinely different between the two uses.
   for (const field of collected.decl.fields) {
     if (!field.builtin && field.location === undefined) {
       pushDiag(

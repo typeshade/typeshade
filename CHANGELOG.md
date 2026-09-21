@@ -13,6 +13,46 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Entry IO attributes, and the interpolation an integer varying has no choice about** (§53,
+  [#158](https://github.com/typeshade/typeshade/issues/158)). WGSL requires every integral
+  user-defined IO to carry `@interpolate(flat)` — there is no interpolation for a `u32` — and
+  the compiler emitted `@location(0) id: u32,` bare while the GLSL writer had always added
+  `flat`. One source described two different programs, and the WGSL half was one Tint refuses.
+  Measured on Chromium 141 (`chromium_headless_shell-1194`), with the broken-shader instrument
+  check passing on both compilers first: the bare WGSL form is `integral user-defined vertex
+outputs must have a '@interpolate(flat)' attribute` and the bare GLSL form is `'in' : must
+use 'flat' interpolation here`; both are accepted with the qualifier. The attribute is
+  derived from the TYPE now, for a scalar and a vector alike, on both writers, and
+  `examples/id-pick.shade.ts` compiles it on Tint and on ANGLE.
+
+  `@interpolate`, `@invariant` and `@blend_src` are attributes an author writes, and all three
+  reach the emitted struct: `@interpolate("perspective", "centroid")` is
+  `@interpolate(perspective, centroid)` on WGSL and `smooth centroid` on GLSL ES 3.00,
+  `@invariant` on `@builtin("position")` is `invariant gl_Position;` there, and a
+  `@blend_src(0)` / `@blend_src(1)` pair at one `@location` derives the `dualSourceBlending`
+  capability and emits `enable dual_source_blending;`. The two shapes GLSL ES 3.00 does not
+  have — `"linear"`, the `"sample"` position, and the second blend source — fail the module
+  CLOSED there rather than emitting something else: it simply has no GLSL half, the way a
+  storage texture already does not. No example carries `@blend_src`:
+  `adapter.features.has('dual-source-blending')` is false on the gate's adapter and Tint
+  answers `extension 'dual_source_blending' is not allowed in the current environment`, so a
+  gate example would test the adapter rather than the emit.
+
+  **And five shapes that emitted clean text nothing would run.** A `bool` at a `@location`, two
+  members at one `@location` (a dual-source pair excepted — there the slot is the location AND
+  the blend source), a `@location` on a compute entry, a `@builtin` declared with a type WGSL
+  does not give it, and a vertex output and fragment input that disagree at one slot. The last
+  is the one that needed somewhere new to live: when both stages share a struct they agree by
+  construction, but two structs — which is what an author writes when the fragment reads a
+  subset — let them drift, and a `vec2` output read as a `vec3` input emitted clean WGSL and
+  clean GLSL with the failure arriving at pipeline creation, in a message naming neither struct
+  nor field. It is a CORE lint rule on the IR, so every authoring surface is covered at every
+  emit, and the front end runs the same function to point at the fragment declaration. A vertex
+  output the fragment ignores stays legal: WGSL constrains only the slots the fragment names.
+  The slot and varying-type rules moved to the struct collector on the way, because raising
+  them per entry printed one mistake twice — a vertex output and a fragment input are the same
+  struct.
+
 - **Operators, switch and statements as WGSL spells them** (§52,
   [#160](https://github.com/typeshade/typeshade/issues/160)). A shift amount is a `u32`
   whatever it shifts: `x << n` with an `i32` `n` emitted `(x << n)`, which Tint refuses with

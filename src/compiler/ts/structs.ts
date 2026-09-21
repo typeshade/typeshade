@@ -12,6 +12,9 @@ import {
   checkAttributeName,
   checkBuiltinName,
   checkBuiltinType,
+  checkLocationType,
+  hasInvariantDecorator,
+  interpolateDecoratorArg,
 } from './builtin-check.js'
 import { applyMixins, isMixinHeritage, mixedMembers, type MixinApplication } from './mixins.js'
 import { pushTypeArguments } from './generics.js'
@@ -448,10 +451,63 @@ export function collectStructs(
           if (builtin) {
             checkBuiltinType(diagnostics, sourceFile, builtinArg!.argNode, builtin, type)
           }
+          // The entry-IO attributes (§53). `@interpolate` rides a `@location`; `@invariant`
+          // rides `@builtin("position")`, the one output WGSL lets it steady; `@blend_src`
+          // rides a `@location(0)` fragment output and derives a capability. Each is checked
+          // where it is written, so the message names the line rather than the emitted text.
+          const interpolate = interpolateDecoratorArg(diagnostics, sourceFile, decos)
+          const invariant = hasInvariantDecorator(decos)
+          const blendSrc = numberDecorator(member, 'blend_src')
+          if (interpolate !== undefined && loc === undefined) {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@interpolate belongs on a @location field: it says how a VARYING is ` +
+                  `interpolated, and a @builtin carries its own rule.`,
+              ),
+            )
+          }
+          if (invariant && builtin !== 'position') {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@invariant belongs on @builtin("position"): it is WGSL's promise that this ` +
+                  `position is computed the same way in two pipelines, and no other output ` +
+                  `has that meaning.`,
+              ),
+            )
+          }
+          if (blendSrc !== undefined && blendSrc !== 0 && blendSrc !== 1) {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@blend_src takes 0 or 1 — the two sources a dual-source blend mixes — ` +
+                  `not ${String(blendSrc)}.`,
+              ),
+            )
+          }
           if (loc !== undefined) (field as { location?: number }).location = loc
           if (builtin) (field as { builtin?: string }).builtin = builtin
-          if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
-          else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
+          if (interpolate !== undefined && loc !== undefined) {
+            // The WHOLE argument list, `flat` or `linear, centroid` — the GLSL writer needs
+            // the sampling as well as the type, and storing only the type silently dropped
+            // the `centroid` half.
+            ;(field as { interpolate?: string }).interpolate = interpolate.slice(
+              '@interpolate('.length,
+              -1,
+            )
+          }
+          const extra =
+            (invariant && builtin === 'position' ? '@invariant ' : '') +
+            (blendSrc !== undefined ? `@blend_src(${String(blendSrc)}) ` : '') +
+            (interpolate !== undefined && loc !== undefined ? `${interpolate} ` : '')
+          if (builtin) (field as { attr?: string }).attr = `${extra}@builtin(${builtin})`.trim()
+          else if (loc !== undefined)
+            (field as { attr?: string }).attr = `@location(${loc}) ${extra}`.trim()
+          if (blendSrc !== undefined) (field as { blendSrc?: number }).blendSrc = blendSrc
           fields.push(field)
           if (member.initializer !== undefined) {
             fieldInits.push({ name: field.name, type: field.type, init: member.initializer })
@@ -463,6 +519,11 @@ export function collectStructs(
             struct: structName,
           })
         }
+        // Struct-WIDE, so it belongs here and not in the per-entry walk: the same struct is a
+        // vertex output and a fragment input, and raising a slot collision or a bool varying
+        // from there printed one mistake twice, word for word (§53). `function.ts` keeps the
+        // checks that read the STAGE, which genuinely differ between the two uses.
+        checkLocationSlots(diagnostics, sourceFile, stmt, structName, fields)
         const members: ClassMembers | undefined =
           methods.length > 0 || ctor !== undefined || fieldInits.length > 0
             ? { node: stmt, methods, ctor, fieldInits }
@@ -886,4 +947,43 @@ function numberDecorator(node: ts.Node, name: string): number | undefined {
 
 function diag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
   return makeDiagnostic(sf, node, message, TS_CODES.STRUCT_FIELD)
+}
+
+/** Two entry-IO rules that read the struct alone, checked once per declaration.
+ *
+ *  A slot collision — two members at one `@location` — is refused by WGSL outright ("must not
+ *  contain two entries with the same location value") and was emitted here with no diagnostic.
+ *  The one shape that puts two members at one location on purpose is a DUAL-SOURCE pair,
+ *  `@location(0) @blend_src(0)` beside `@location(0) @blend_src(1)`, so the slot is the
+ *  location AND the blend source.
+ *
+ *  A `@location` carries a value between stages, which WGSL restricts to a numeric scalar or a
+ *  numeric vector; {@link checkLocationType} owns that wording. */
+function checkLocationSlots(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  structName: string,
+  fields: readonly StructField[],
+): void {
+  const atLocation = new Map<string, string>()
+  for (const field of fields) {
+    if (field.location === undefined) continue
+    const slot = `${String(field.location)}:${String(field.blendSrc ?? -1)}`
+    const prev = atLocation.get(slot)
+    if (prev !== undefined) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          node,
+          `Struct "${structName}" puts "${prev}" and "${field.name}" both at ` +
+            `@location(${String(field.location)})` +
+            `${field.blendSrc !== undefined ? ` @blend_src(${String(field.blendSrc)})` : ''}; ` +
+            `each slot carries one value.`,
+          TS_CODES.STRUCT_FIELD,
+        ),
+      )
+    } else atLocation.set(slot, field.name)
+    checkLocationType(diagnostics, sourceFile, node, `${structName}.${field.name}`, field.type)
+  }
 }

@@ -125,6 +125,11 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     const cap = BUILTIN_CAPS[b]
     if (cap !== undefined) caps.add(cap)
   }
+  // `@blend_src` derives dual-source blending the same way (§53): WGSL refuses the attribute
+  // without `enable dual_source_blending;`, so the use is the declaration.
+  for (const s of m.structs) {
+    for (const f of s.fields) if (f.blendSrc !== undefined) caps.add('dualSourceBlending')
+  }
   // OPT-IN language-feature caps (X-GIS #628) — f16 / subgroups the author turned on. Folded
   // in here so assertCaps gates them exactly like the derived resource caps (fail-closed
   // on GLSL); the WGSL backend then emits the matching `enable <ext>;` for each.

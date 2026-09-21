@@ -569,15 +569,28 @@ describe('only the bindings the entry reaches are judged', () => {
 
 describe('the guards a malformed declaration needs', () => {
   it('a scalar global_invocation_id is reported, not a raw TypeError', () => {
-    // The front end accepts `@builtin("global_invocation_id") gid: u32`, and a number has no
-    // `.map`. This used to die inside the resolver with a stack trace naming neither the
-    // configuration nor the shader.
-    const m = compiled(`"use typeshade"
+    // A number has no `.map`, and this used to die inside the resolver with a stack trace
+    // naming neither the configuration nor the shader.
+    //
+    // The front end now refuses this shape at the authoring line (§53: every `@builtin(...)`
+    // id but `clip_distances` has one type, and `global_invocation_id` is `vec3<u32>`), so
+    // the malformed module is built by retyping the parameter on the IR. The resolver guard
+    // is what is under test, and a hand-built or pass-produced module can still reach it.
+    const good = compiled(`"use typeshade"
 @compute([8])
-export function k(@builtin("global_invocation_id") gid: u32): void {
-  let x: u32 = gid
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  let x: u32 = gid.x
 }
 `)
+    const m: ModuleDecl = {
+      ...good,
+      funcs: good.funcs.map((f) => ({
+        ...f,
+        params: f.params.map((p) =>
+          p.builtin === 'global_invocation_id' ? { ...p, type: u32T } : p,
+        ),
+      })),
+    }
     const [msg] = problems(m, { entry: 'k', invocation: { global_invocation_id: 3 } })
     expect(msg).toContain('"global_invocation_id" is declared u32')
     expect(msg).toContain('declare it as a vec3u or supply each id explicitly')

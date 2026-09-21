@@ -603,14 +603,19 @@ describe('ATTRIBUTE_NAMES matches what lower/function.ts and structs.ts actually
     }
   })
 
-  it('does not list a name the compiler does not implement (interpolate/align/size/ignore)', () => {
+  it('does not list a name the compiler does not implement (align/size/ignore)', () => {
     const fn = readFileSync(FUNCTION_FILE, 'utf8')
     const structs = readFileSync(STRUCTS_FILE, 'utf8')
     // structs.ts only ever *rejects* @align ("on a field is not applied") — it never reads one
     // as a real decorator the way builtinDecoratorArg/numberDecorator read builtin/location.
-    for (const name of ['interpolate', 'align', 'size', 'ignore']) {
+    // `@interpolate` left this list in §53, along with `@invariant` and `@blend_src`: the
+    // struct collector reads all three now, so listing them is the truth.
+    for (const name of ['align', 'size', 'ignore']) {
       expect(ATTRIBUTE_NAMES, `${name} is not implemented by the compiler`).not.toContain(name)
     }
-    expect(fn + structs).not.toContain("'interpolate'")
+    expect(structs, '@interpolate is read by the struct collector now').toContain(
+      'interpolateDecoratorArg',
+    )
+    expect(fn + structs).not.toContain("'ignore'")
   })
 })

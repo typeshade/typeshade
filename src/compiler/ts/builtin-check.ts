@@ -6,7 +6,12 @@
 // one set of stage rules — see design doc §5 and §10 step 5.
 
 import ts from 'typescript'
-import { WGSL_BUILTIN_NAMES, type WgslBuiltinName } from '../../core/sot.js'
+import {
+  WGSL_BUILTIN_NAMES,
+  WGSL_BUILTIN_TYPES,
+  type FixedTypeBuiltinName,
+  type WgslBuiltinName,
+} from '../../core/sot.js'
 import { typeKey, type ShaderType } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { makeDiagnostic } from './diagnostic.js'
@@ -30,7 +35,85 @@ export const ATTRIBUTE_NAMES: readonly string[] = [
   'compute',
   'builtin',
   'location',
+  // The entry-IO attributes of §53. `@interpolate` and `@invariant` pass through to WGSL and
+  // become qualifiers on GLSL ES 3.00; `@blend_src` derives the `dualSourceBlending`
+  // capability and fails the module closed on GLSL, which has no second source.
+  'interpolate',
+  'invariant',
+  'blend_src',
 ]
+
+/** The interpolation TYPES WGSL names, and the SAMPLINGS each admits. `flat` takes `first`
+ *  or `either` and nothing else; `perspective` and `linear` take the three positions. A
+ *  sampling is optional everywhere. */
+const INTERPOLATE_TYPES: Readonly<Record<string, readonly string[]>> = {
+  perspective: ['center', 'centroid', 'sample'],
+  linear: ['center', 'centroid', 'sample'],
+  flat: ['first', 'either'],
+}
+
+/** Reads and checks an `@interpolate("type")` or `@interpolate("type", "sampling")` on a
+ *  field, returning the WGSL attribute text, or `undefined` when there is none (or when the
+ *  arguments were wrong, which is reported). */
+export function interpolateDecoratorArg(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  decorators: readonly ts.Decorator[],
+): string | undefined {
+  for (const d of decorators) {
+    if (!ts.isCallExpression(d.expression)) continue
+    if (!ts.isIdentifier(d.expression.expression)) continue
+    if (d.expression.expression.text !== 'interpolate') continue
+    const raw = d.expression.arguments.map((a) =>
+      ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a) ? a.text : undefined,
+    )
+    const [type, sampling] = raw
+    if (type === undefined || raw.length > 2 || (raw.length === 2 && sampling === undefined)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          d,
+          `@interpolate takes a type, and optionally a sampling, as strings: ` +
+            `@interpolate("flat") or @interpolate("linear", "centroid").`,
+          TS_CODES.ATTRIBUTE_NAME,
+        ),
+      )
+      return undefined
+    }
+    const samplings = INTERPOLATE_TYPES[type]
+    if (samplings === undefined) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          d,
+          `@interpolate type "${type}" is not one WGSL has: ` +
+            `${Object.keys(INTERPOLATE_TYPES).join(', ')}.`,
+          TS_CODES.ATTRIBUTE_NAME,
+        ),
+      )
+      return undefined
+    }
+    if (sampling !== undefined && !samplings.includes(sampling)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          d,
+          `@interpolate("${type}") takes the sampling ${samplings.join(' or ')}, ` +
+            `not "${sampling}".`,
+          TS_CODES.ATTRIBUTE_NAME,
+        ),
+      )
+      return undefined
+    }
+    return sampling === undefined ? `@interpolate(${type})` : `@interpolate(${type}, ${sampling})`
+  }
+  return undefined
+}
+
+/** Whether `decorators` carries a bare `@invariant`. */
+export function hasInvariantDecorator(decorators: readonly ts.Decorator[]): boolean {
+  return decorators.some((d) => ts.isIdentifier(d.expression) && d.expression.text === 'invariant')
+}
 
 /**
  * Attribute names the compiler recognizes but always rejects with their own dedicated message
@@ -199,6 +282,36 @@ const BUILTIN_STAGE_RULES: Readonly<
 /** The longest `array<f32, N>` WGSL's built-in value table lets `@builtin(clip_distances)` be. */
 const MAX_CLIP_DISTANCES = 8
 
+/** Validates the type of a `@location(n)` field or parameter (§53). WGSL: "the type of a
+ *  user-defined IO must be a numeric scalar or numeric vector" — a `bool` at a location was
+ *  emitted and Tint answered `cannot apply '@location' to declaration of type 'bool'`, while
+ *  the GLSL writer produced `out bool ok;`, which a WebGL2 driver reads as something else
+ *  again. A struct, an array or a matrix at a location is refused for the same reason. */
+export function checkLocationType(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  name: string,
+  type: ShaderType,
+): void {
+  const ok =
+    (type.kind === 'scalar' && type.scalar !== 'bool') ||
+    (type.kind === 'vec' && type.elem !== 'bool')
+  if (ok) return
+  diagnostics.push(
+    makeDiagnostic(
+      sourceFile,
+      node,
+      `"${name}" is at a @location and is "${typeKey(type)}"; a value passed between stages ` +
+        `is a numeric scalar or a numeric vector. ` +
+        (typeKey(type) === 'bool' || (type.kind === 'vec' && type.elem === 'bool')
+          ? 'Send a u32 and compare it.'
+          : 'Send its components as separate locations.'),
+      TS_CODES.TYPE_MISMATCH,
+    ),
+  )
+}
+
 /** Validates the TYPE declared for a `@builtin(...)` id against what WGSL fixes for it.
  *
  *  One id today: `clip_distances`, whose `array<f32, N ≤ 8>` shape is the one an author picks
@@ -212,6 +325,23 @@ export function checkBuiltinType(
   name: string,
   type: ShaderType,
 ): void {
+  // Every id but `clip_distances` has ONE type, which `core/sot.ts` already writes down — so
+  // a declaration that disagrees is checked against that table rather than guessed at (§53).
+  // `@builtin("vertex_index") i: f32` used to emit and die at the driver.
+  const fixed = WGSL_BUILTIN_TYPES[name as FixedTypeBuiltinName] as ShaderType | undefined
+  if (fixed !== undefined) {
+    if (typeKey(fixed) !== typeKey(type)) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          node,
+          `Builtin "${name}" is "${typeKey(fixed)}"; this declares it "${typeKey(type)}".`,
+          TS_CODES.TYPE_MISMATCH,
+        ),
+      )
+    }
+    return
+  }
   if (name !== 'clip_distances') return
   const shown = typeKey(type)
   const ok =

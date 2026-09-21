@@ -32,7 +32,17 @@ That module value is the input to four outputs:
   attributes and entry signatures.
 
 ```ts
-import { fn, module, abs, length, f32T, vec2fT, emitModule, compileModule, reflect } from 'typeshade'
+import {
+  fn,
+  module,
+  abs,
+  length,
+  f32T,
+  vec2fT,
+  emitModule,
+  compileModule,
+  reflect,
+} from 'typeshade'
 
 // One helper. The return type is inferred from the value the body returns.
 const ringMask = fn('ring_mask', { uv: vec2fT, radius: f32T }, (p) =>
@@ -66,7 +76,15 @@ the layout declarators, the WGSL and GLSL backends, the validator, the CPU oracl
 
 ```ts
 import { fn, module, vec4, If, Switch, when, emitModule, reflect } from 'typeshade'
-import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from 'typeshade'
+import {
+  ioStruct,
+  uniformStruct,
+  structDecl,
+  builtin,
+  location,
+  storageBuffer,
+  resource,
+} from 'typeshade'
 ```
 
 Other subpaths carry surface you do not need in order to author and emit, and an import
@@ -156,21 +174,21 @@ import {
 } from 'typeshade'
 ```
 
-Two kinds of name appear there. `vec2fT` and `vec4fT` are *type tokens*, which is what you
-write where a declaration needs a type. `vec2` and `vec4` build a *node*, a typed expression
+Two kinds of name appear there. `vec2fT` and `vec4fT` are _type tokens_, which is what you
+write where a declaration needs a type. `vec2` and `vec4` build a _node_, a typed expression
 the graph is made of. A node carries its type in TypeScript, and you build larger
 expressions by calling methods on it: `x.mul(4).sub(1)` is a multiply and a subtract. `sub`
 is the same subtraction as a free function, for the expression whose left side is a literal.
 
 ### A vertex entry point
 
-An *entry point* is a function the GPU calls directly: once per vertex, once per fragment,
+An _entry point_ is a function the GPU calls directly: once per vertex, once per fragment,
 or once per compute invocation. This page uses the first two. You declare one with `fn`
 and `opts.stage`. Everything else you write is a plain helper, declared with the same
 `fn`.
 
 The vertex stage runs once per vertex. It produces the clip space position and whatever
-the fragment stage needs from it, packed in an *IO struct*: a record of fields where each
+the fragment stage needs from it, packed in an _IO struct_: a record of fields where each
 field carries an attribute. `builtin('position', …)` marks the value the hardware itself
 consumes, and `location(0, …)` marks a value that is interpolated across the triangle and
 read back by the fragment stage.
@@ -242,7 +260,7 @@ have the same pair.
 
 ### Assembling the module
 
-A *module* is the unit that emits. `module` takes arrays of consts, structs, bindings and
+A _module_ is the unit that emits. `module` takes arrays of consts, structs, bindings and
 funcs, and each field defaults to empty, so this shader declares two of them:
 
 ```ts
@@ -339,7 +357,7 @@ one, mutate it, and tell when a value has to carry a name of its own.
 
 ### Type tokens
 
-A *type token* is a value that names a shader type. Every one ends in `T`. You write a
+A _type token_ is a value that names a shader type. Every one ends in `T`. You write a
 token where a declaration needs a type: a function parameter, a struct field, a bound
 resource, an array's element type. A token names a type, so it never stands in for a
 value, though a few value builders take one as an argument, as `arrayLit` and `.at` do
@@ -752,8 +770,8 @@ corrupting that module's emit.
 ## Control flow
 
 After this page you can branch, loop and dispatch inside a shader body, and you can tell a
-statement form from a value form. A *statement form* pushes code onto the body being built
-and hands back no value you can bind, the way `If` and `Loop` do. A *value form* builds
+statement form from a value form. A _statement form_ pushes code onto the body being built
+and hands back no value you can bind, the way `If` and `Loop` do. A _value form_ builds
 the same branch internally and returns a node you can bind to a `const`, the way `when` and
 `matchEnum` do. Reach for a value form when the branch exists to pick a value, and for a
 statement form when it exists to do something.
@@ -836,12 +854,16 @@ boundary, so a `Break()` inside a guard targets the loop around the guard.
 ```ts
 const dists = Var('dists', arrayT(f32T, 64))
 
-Loop(u32(0), (i) => i.lt(count), (i) => {
-  const d = Let(dists.at(i)) // an array node knows its own element type
-  If(d.lt(0), () => Continue()) // no distance recorded, next iteration
-  If(d.lt(0.001), () => Break()) // close enough, leave the loop
-  nearest.assign(min(nearest, d))
-})
+Loop(
+  u32(0),
+  (i) => i.lt(count),
+  (i) => {
+    const d = Let(dists.at(i)) // an array node knows its own element type
+    If(d.lt(0), () => Continue()) // no distance recorded, next iteration
+    If(d.lt(0.001), () => Break()) // close enough, leave the loop
+    nearest.assign(min(nearest, d))
+  },
+)
 
 If(alpha.lt(0.01), () => {
   Discard()
@@ -850,7 +872,7 @@ If(alpha.lt(0.01), () => {
 
 ### Switch
 
-`Switch(scrut)` dispatches on a single integer value, the *scrutinee*, which is an `i32` or
+`Switch(scrut)` dispatches on a single integer value, the _scrutinee_, which is an `i32` or
 a `u32` node. `.case(n, body)` adds a case label and `.default(body)` adds the optional
 default arm and closes the chain. It lowers to a real `switch` on both targets.
 
@@ -903,7 +925,7 @@ when there is a single integer scrutinee.
 
 ### Folding a loop with reduce
 
-An *accumulator* is a value carried from one iteration of a loop to the next. `reduce`
+An _accumulator_ is a value carried from one iteration of a loop to the next. `reduce`
 carries one for you. It takes the accumulator's initial value, then the loop's initial
 counter, condition, body and optional step. The body returns the next accumulator, and
 `reduce` returns the final one for use after the loop.
@@ -1333,7 +1355,10 @@ for (const group of reflect(m).bindGroups) {
 }
 
 // The same reachability question for an entry set you choose yourself:
-const reach = reachFrom(m, m.funcs.filter((f) => stageOf(f) === 'fragment'))
+const reach = reachFrom(
+  m,
+  m.funcs.filter((f) => stageOf(f) === 'fragment'),
+)
 reach.bindings // Set { 'U' }, the binding names that stage reads
 reach.fns // the call-graph closure from those entries, the entries included
 ```
@@ -1492,7 +1517,16 @@ still has to be set, because the module reads the texture and sampler variables 
 call is stubbed.
 
 ```ts
-import { module, fn, resource, texture2dfT, samplerT, vec2fT, textureSample, compileModule } from 'typeshade'
+import {
+  module,
+  fn,
+  resource,
+  texture2dfT,
+  samplerT,
+  vec2fT,
+  textureSample,
+  compileModule,
+} from 'typeshade'
 
 const tex = resource('tex', texture2dfT, { group: 0, binding: 0 })
 const smp = resource('smp', samplerT, { group: 0, binding: 1 })
@@ -1844,34 +1878,36 @@ module, so a backend that cannot spell the feature throws `UnsupportedFeatureErr
 
 ### What each id needs per target
 
-Two different costs hide behind one id. A *host feature* is something the host must activate
+Two different costs hide behind one id. A _host feature_ is something the host must activate
 before it creates a pipeline: `gl.getExtension('EXT_color_buffer_float')` on WebGL2, a
-`requiredFeatures` entry on WebGPU. A *source directive* is a token the emitted shader
+`requiredFeatures` entry on WebGPU. A _source directive_ is a token the emitted shader
 itself must carry, `#extension … : require` on GLSL ES 3.00 and `enable …;` on WGSL, which
 the backend writes for you, deduped and sorted, right after the `#version` line on GLSL and
 ahead of the declarations on WGSL.
 
 A capability can need either half, both halves, or neither.
 
-| `enables` id | WebGL2 and GLSL ES 3.00 | WebGPU and WGSL |
-| --- | --- | --- |
-| `floatRenderTarget` | host feature `EXT_color_buffer_float` | core, nothing to request |
-| `float32Blend` | host feature `EXT_float_blend` | host feature `float32-blendable` |
-| `float32Filterable` | host feature `OES_texture_float_linear` | host feature `float32-filterable` |
-| `multiview` | directive `GL_OVR_multiview2` and host feature `OVR_multiview2` | unsupported, fails closed |
-| `f16` | unsupported, fails closed | directive `f16` and host feature `shader-f16` |
-| `subgroups` | unsupported, fails closed | directive `subgroups` and host feature `subgroups` |
-| `clipDistances` | unsupported, fails closed | directive `clip_distances` and host feature `clip-distances` |
-| `primitiveIndex` | unsupported, fails closed | directive `primitive_index` and host feature `primitive-index` |
+| `enables` id         | WebGL2 and GLSL ES 3.00                                         | WebGPU and WGSL                                                          |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `floatRenderTarget`  | host feature `EXT_color_buffer_float`                           | core, nothing to request                                                 |
+| `float32Blend`       | host feature `EXT_float_blend`                                  | host feature `float32-blendable`                                         |
+| `float32Filterable`  | host feature `OES_texture_float_linear`                         | host feature `float32-filterable`                                        |
+| `multiview`          | directive `GL_OVR_multiview2` and host feature `OVR_multiview2` | unsupported, fails closed                                                |
+| `f16`                | unsupported, fails closed                                       | directive `f16` and host feature `shader-f16`                            |
+| `subgroups`          | unsupported, fails closed                                       | directive `subgroups` and host feature `subgroups`                       |
+| `clipDistances`      | unsupported, fails closed                                       | directive `clip_distances` and host feature `clip-distances`             |
+| `primitiveIndex`     | unsupported, fails closed                                       | directive `primitive_index` and host feature `primitive-index`           |
+| `dualSourceBlending` | unsupported, fails closed                                       | directive `dual_source_blending` and host feature `dual-source-blending` |
 
-`clipDistances` and `primitiveIndex` are the two rows nothing declares by hand: writing
-`@builtin("clip_distances")` or `@builtin("primitive_index")` derives the capability, because
-WGSL refuses the built-in value itself without the matching `enable`. In a `"use typeshade"`
-file the other two are spelled as a string directive beside `"use typeshade"`:
+`clipDistances`, `primitiveIndex` and `dualSourceBlending` are the rows nothing declares by
+hand: writing `@builtin("clip_distances")`, `@builtin("primitive_index")` or `@blend_src(n)`
+derives the capability, because WGSL refuses each of those without the matching `enable`. In a
+`"use typeshade"` file the other two are spelled as a string directive beside
+`"use typeshade"`:
 
 ```ts
-"use typeshade"
-"enable subgroups"
+'use typeshade'
+'enable subgroups'
 ```
 
 A capability with a host half and no source half costs zero emitted bytes: declaring it
@@ -1901,8 +1937,9 @@ Two notes before you trust a row.
   the table says and neither is authorable today, because there is no `f16` scalar type and
   no way to spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`. A module declaring
   `multiview` emits the directive and renders single-view. The other three are reachable:
-  `clipDistances` and `primitiveIndex` are what their built-in values need, and `subgroups`
-  is reached by `@builtin("subgroup_invocation_id")` or `@builtin("subgroup_size")` on a
+  `clipDistances`, `primitiveIndex` and `dualSourceBlending` are what their attributes need,
+  and `subgroups` is reached by `@builtin("subgroup_invocation_id")` or
+  `@builtin("subgroup_size")` on a
   compute or fragment entry — the subgroup INTRINSICS (`subgroupAdd` and friends) are still
   absent, which is a separate gap from the capability. Whether a given adapter HAS one of the
   three is what `reflect().requiredFeatures` is for, and a device only HAS an optional feature
@@ -2696,22 +2733,22 @@ A construct here is one piece of GLSL source you have to account for: a uniform 
 preprocessor branch, an `#include`, an extension directive. Find the row, follow the
 spelling to the page that explains it, and read the note for what changes.
 
-| GLSL construct | DSL spelling | WGSL result | Notes |
-| --- | --- | --- | --- |
-| `uniform Block { … }` that this module owns | [`uniformStruct`](/guide/authoring/layouts-and-resources/) | `@group`/`@binding` `var<uniform>` | the std140 layout comes from `reflect()`, so no offset is counted by hand |
-| `uniform float u_x;` that the host prelude already declares | `externVar` | the same reference, spelled per target | emits nothing, and lands in `reflect().requires` |
-| `uniform float u_x;` that this module declares and the host owns | `hostUniform` | `@group`/`@binding` `var<uniform>` | GLSL emits a loose default-block uniform instead of a block, and `reflect()` marks it `owner: 'host'` |
-| a whole block the host owns | `hostBlock` | one `@group`/`@binding` `var<uniform>` | `glsl: 'loose'` flattens it to one uniform per member and rewrites `blk.field` to `field` on the IR. The default `'std140-block'` keeps the block. WGSL keeps the block either way, because a host bind group is one unit |
-| a function the host provides | `externFn` | the same call on both targets | typed at the call site, with no declaration emitted |
-| `#ifdef FEATURE` where this module decides | [a builder parameter and a plain `if`](/guide/authoring/conditional-programs/) | no preprocessor | the losing arm is never built, so its bindings are never declared |
-| `#ifdef FEATURE` where the host decides | [`variantFamily`](/guide/authoring/conditional-programs/) | one module per point in the matrix | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define, and every arm is byte-identical to the standalone variant. For a ladder that goes inside an `#include`, `emitGuardedFragment` returns the same ladder with the preamble as data |
-| a variant that changes only a value | [`overrideConst` with `overrideValues`](/guide/authoring/conditional-programs/) | `override` plus pipeline constants | building a separate variant for this multiplies pipelines for nothing |
-| `#include "helper.glsl"` | [`emitGlslFragment` and `emitFragment`](/guide/authoring/emitting-and-reflection/) | a module fragment the host concatenates | the header comes back as `preamble`, as data |
-| a statement-level variant slot inside one module | [`composeModule` with `placeholder`](/guide/authoring/conditional-programs/) | the same | statement slots only, so it does not replace an `#include` |
-| `precision highp …` on one declaration | the `precision` option on `hostUniform` | nothing, since WGSL has no precision qualifiers | the [stage preamble](/guide/authoring/glsl-float-precision/) is the default. This option is for a fragment composed into a host program |
-| `usampler2D` and `isampler2D` | [`texture2duT` and `texture2diT`](/guide/authoring/layouts-and-resources/) | `texture_2d<u32>` and `texture_2d<i32>` | the sampler precision line is emitted for you |
-| `#extension … : require` | [`enables`](/guide/authoring/capabilities-extensions/) | `enable …;` | fails closed with SD0030 on a backend whose profile has no row. That page also says which capabilities survive on WGSL |
-| comparing two emits after an optimizer pass | [`semanticDiff`](/guide/authoring/production-emit/) | the same | compares IR and reflection, so folding and renaming do not drown the diff. Declare the production plugins as `transforms` and their rewrites classify into `explained` |
+| GLSL construct                                                   | DSL spelling                                                                       | WGSL result                                     | Notes                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uniform Block { … }` that this module owns                      | [`uniformStruct`](/guide/authoring/layouts-and-resources/)                         | `@group`/`@binding` `var<uniform>`              | the std140 layout comes from `reflect()`, so no offset is counted by hand                                                                                                                                                                                      |
+| `uniform float u_x;` that the host prelude already declares      | `externVar`                                                                        | the same reference, spelled per target          | emits nothing, and lands in `reflect().requires`                                                                                                                                                                                                               |
+| `uniform float u_x;` that this module declares and the host owns | `hostUniform`                                                                      | `@group`/`@binding` `var<uniform>`              | GLSL emits a loose default-block uniform instead of a block, and `reflect()` marks it `owner: 'host'`                                                                                                                                                          |
+| a whole block the host owns                                      | `hostBlock`                                                                        | one `@group`/`@binding` `var<uniform>`          | `glsl: 'loose'` flattens it to one uniform per member and rewrites `blk.field` to `field` on the IR. The default `'std140-block'` keeps the block. WGSL keeps the block either way, because a host bind group is one unit                                      |
+| a function the host provides                                     | `externFn`                                                                         | the same call on both targets                   | typed at the call site, with no declaration emitted                                                                                                                                                                                                            |
+| `#ifdef FEATURE` where this module decides                       | [a builder parameter and a plain `if`](/guide/authoring/conditional-programs/)     | no preprocessor                                 | the losing arm is never built, so its bindings are never declared                                                                                                                                                                                              |
+| `#ifdef FEATURE` where the host decides                          | [`variantFamily`](/guide/authoring/conditional-programs/)                          | one module per point in the matrix              | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define, and every arm is byte-identical to the standalone variant. For a ladder that goes inside an `#include`, `emitGuardedFragment` returns the same ladder with the preamble as data |
+| a variant that changes only a value                              | [`overrideConst` with `overrideValues`](/guide/authoring/conditional-programs/)    | `override` plus pipeline constants              | building a separate variant for this multiplies pipelines for nothing                                                                                                                                                                                          |
+| `#include "helper.glsl"`                                         | [`emitGlslFragment` and `emitFragment`](/guide/authoring/emitting-and-reflection/) | a module fragment the host concatenates         | the header comes back as `preamble`, as data                                                                                                                                                                                                                   |
+| a statement-level variant slot inside one module                 | [`composeModule` with `placeholder`](/guide/authoring/conditional-programs/)       | the same                                        | statement slots only, so it does not replace an `#include`                                                                                                                                                                                                     |
+| `precision highp …` on one declaration                           | the `precision` option on `hostUniform`                                            | nothing, since WGSL has no precision qualifiers | the [stage preamble](/guide/authoring/glsl-float-precision/) is the default. This option is for a fragment composed into a host program                                                                                                                        |
+| `usampler2D` and `isampler2D`                                    | [`texture2duT` and `texture2diT`](/guide/authoring/layouts-and-resources/)         | `texture_2d<u32>` and `texture_2d<i32>`         | the sampler precision line is emitted for you                                                                                                                                                                                                                  |
+| `#extension … : require`                                         | [`enables`](/guide/authoring/capabilities-extensions/)                             | `enable …;`                                     | fails closed with SD0030 on a backend whose profile has no row. That page also says which capabilities survive on WGSL                                                                                                                                         |
+| comparing two emits after an optimizer pass                      | [`semanticDiff`](/guide/authoring/production-emit/)                                | the same                                        | compares IR and reflection, so folding and renaming do not drown the diff. Declare the production plugins as `transforms` and their rewrites classify into `explained`                                                                                         |
 
 A block this module owns is the most common first row. `uniformStruct` takes the WGSL type
 name, the slot, and the field map, and gives back typed field access:
@@ -2735,16 +2772,16 @@ A builtin is a value the hardware supplies to a stage. The DSL's vocabulary for 
 WGSL's, typed as the closed union `WgslBuiltinName`, so a `gl_*` spelling or a typo is a
 `tsc` error that names the union. Each backend then spells the id its own way.
 
-| GLSL global | DSL spelling | Notes |
-| --- | --- | --- |
-| `gl_Position` | `builtin('position', vec4fT)` on the vertex output | writes `gl_Position` on GLSL |
-| `gl_FragCoord` | `builtin('position', vec4fT)` on a fragment input | reads `gl_FragCoord` on GLSL. Mind the y origin: GL window space is bottom-left and WGSL framebuffer space is top-left, so flip per target, or derive a y-symmetric value, before consuming `.y` |
-| `gl_VertexID` | `builtin('vertex_index', u32T)` | GLSL wraps the read as `uint(gl_VertexID)`, since the DSL types it u32 and GLSL's is int |
-| `gl_InstanceID` | `builtin('instance_index', u32T)` | the same `uint()` wrap |
-| `gl_FrontFacing` | `builtin('front_facing', boolT)` | |
-| `gl_FragDepth` | `builtin('frag_depth', f32T)` as the return attribute | |
-| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `@location(n)` corner uv |
-| float `mod(x, y)` | the free function `mod()` | that is floor-mod. `.mod()` and `%` are trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands |
+| GLSL global                        | DSL spelling                                          | Notes                                                                                                                                                                                            |
+| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gl_Position`                      | `builtin('position', vec4fT)` on the vertex output    | writes `gl_Position` on GLSL                                                                                                                                                                     |
+| `gl_FragCoord`                     | `builtin('position', vec4fT)` on a fragment input     | reads `gl_FragCoord` on GLSL. Mind the y origin: GL window space is bottom-left and WGSL framebuffer space is top-left, so flip per target, or derive a y-symmetric value, before consuming `.y` |
+| `gl_VertexID`                      | `builtin('vertex_index', u32T)`                       | GLSL wraps the read as `uint(gl_VertexID)`, since the DSL types it u32 and GLSL's is int                                                                                                         |
+| `gl_InstanceID`                    | `builtin('instance_index', u32T)`                     | the same `uint()` wrap                                                                                                                                                                           |
+| `gl_FrontFacing`                   | `builtin('front_facing', boolT)`                      |                                                                                                                                                                                                  |
+| `gl_FragDepth`                     | `builtin('frag_depth', f32T)` as the return attribute |                                                                                                                                                                                                  |
+| `gl_PointSize` and `gl_PointCoord` | unsupported on both writers                           | point size caps vary per vendor, and WebGPU point primitives are always one pixel. Expand an instanced quad in the vertex stage and interpolate a `@location(n)` corner uv                       |
+| float `mod(x, y)`                  | the free function `mod()`                             | that is floor-mod. `.mod()` and `%` are trunc-mod, which is WGSL's semantics and spells portably on GLSL too. Pick by the semantics you mean on negative operands                                |
 
 A fragment stage reads the framebuffer coordinate through the same `position` builtin the
 vertex stage writes:

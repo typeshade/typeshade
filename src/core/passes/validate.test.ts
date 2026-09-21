@@ -102,6 +102,7 @@ describe('X-GIS #763 V1 — CORE rule firing fixtures', () => {
       // `@builtin(clip_distances)` emits `enable clip_distances;` whatever the struct is used
       // for, so the type rule has to be read off the IR too, on every surface.
       'builtin-value-type',
+      'interstage-io',
     ])
   })
 })

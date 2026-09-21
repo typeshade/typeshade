@@ -652,6 +652,35 @@ export const glslEs300Backend: Backend = {
   },
 }
 
+/** The GLSL ES 3.00 interpolation qualifier for a WGSL `@interpolate(type, sampling)` on a
+ *  varying, or `''` when the default is right (§53).
+ *
+ *  That spec has `smooth`, `flat` and `centroid`, and nothing else: `linear`
+ *  (`noperspective` on desktop GL) and the `sample` positions are not in ES 3.00 at all, so a
+ *  module asking for one fails CLOSED here rather than linking with an interpolation it did
+ *  not ask for — which is the exact silent divergence this writer exists to prevent. An
+ *  integer varying takes `flat` whatever it says, since there is no interpolating it. */
+function glslInterpolation(interpolate: string | undefined, isInt: boolean): string {
+  if (isInt) return 'flat '
+  if (interpolate === undefined) return ''
+  const [type, sampling] = interpolate.split(/\s*,\s*/)
+  if (type === 'linear') {
+    throw new UnsupportedFeatureError(
+      'glsl-es300: @interpolate("linear") has no GLSL ES 3.00 form — that spec has smooth, ' +
+        'flat and centroid, and linear (desktop `noperspective`) is none of them. Use ' +
+        '"perspective", or keep the shader WGSL-only.',
+    )
+  }
+  if (sampling === 'sample') {
+    throw new UnsupportedFeatureError(
+      'glsl-es300: @interpolate(..., "sample") has no GLSL ES 3.00 form — per-sample ' +
+        'interpolation is ES 3.2. Use "center" or "centroid".',
+    )
+  }
+  const head = type === 'flat' ? 'flat ' : 'smooth '
+  return sampling === 'centroid' ? `${head}centroid ` : head
+}
+
 /** Emit a std140 UBO block for a uniform struct binding. The block tag is the STRUCT
  *  type name; the instance name is the BINDING name (the WGSL var name) — so field
  *  access `u.mvp` resolves identically across targets. Fields are declared in order;
@@ -900,11 +929,21 @@ function emitGlslEntry(
       // GLSL ES requires `flat` on an integer inter-stage varying (a fragment-IN that carries
       // an int/uint can't be interpolated). @interpolate(flat) float varyings match it (X-GIS #763 P4).
       // Vertex attributes (vertex-IN) are not varyings → no flat.
-      const flat =
-        stage === 'fragment' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
+      const flat = stage === 'fragment' ? glslInterpolation(s.interpolate, isIntType(s.type)) : ''
       lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`)
       inNames.add(inName(s.name))
     }
+  }
+  // `@invariant` on `@builtin("position")` (§53): WGSL writes it as a member attribute, GLSL
+  // ES 3.00 as a global re-declaration of the builtin it steadies (that spec §4.6.1,
+  // `invariant gl_Position;`). Vertex stage only — it is a promise about the position this
+  // stage COMPUTES, and the fragment stage reads `gl_FragCoord`, which is not it.
+  if (stage === 'vertex') {
+    const io = f.ret.kind === 'struct' ? structs.get(f.ret.name)?.fields : undefined
+    const steady =
+      io?.some((x) => x.builtin === 'position' && /@invariant\b/.test(x.attr ?? '')) ??
+      /@invariant\b/.test(f.retAttr ?? '')
+    if (steady) lines.push('invariant gl_Position;')
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
   if (
@@ -948,8 +987,7 @@ function emitGlslEntry(
     // @interpolate(flat) float varyings (X-GIS #763 P4) — both sides derive from the same
     // structured field, so the qualifier stays link-matched. A fragment draw buffer
     // (fragment-OUT) is not interpolated → no flat.
-    const flat =
-      stage === 'vertex' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
+    const flat = stage === 'vertex' ? glslInterpolation(s.interpolate, isIntType(s.type)) : ''
     lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`)
   }
 

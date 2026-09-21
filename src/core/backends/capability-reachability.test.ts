@@ -440,6 +440,39 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
       ],
     }),
   },
+  // Dual-source blending (§53): the witness is the module SHAPE, like the two extension-gated
+  // built-in values above — `@blend_src` on a fragment output derives the capability, because
+  // WGSL refuses the attribute without `enable dual_source_blending;`.
+  dualSourceBlending: {
+    kind: 'moduleShape',
+    what: 'a struct field with blendSrc set',
+    build: () => ({
+      consts: [],
+      structs: [
+        {
+          name: 'Out',
+          fields: [
+            {
+              name: 'a',
+              type: vec4fT,
+              attr: '@location(0) @blend_src(0)',
+              location: 0,
+              blendSrc: 0,
+            },
+            {
+              name: 'b',
+              type: vec4fT,
+              attr: '@location(0) @blend_src(1)',
+              location: 0,
+              blendSrc: 1,
+            },
+          ],
+        },
+      ],
+      bindings: [],
+      funcs: [],
+    }),
+  },
   // multiview needs BOTH halves: a per-view id to read (`gl_ViewID_OVR`, which this DSL
   // would spell `@builtin(view_index)`) and the `layout(num_views = N) in;` qualifier.
   // The builtin is the half a witness can resolve mechanically; the qualifier has no
