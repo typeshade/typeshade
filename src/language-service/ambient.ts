@@ -500,8 +500,8 @@ ${vecTypeAliases}
 
 type Numeric = number | vec2 | vec3 | vec4 | vec2i | vec3i | vec4i | vec2u | vec3u | vec4u
 
-/** JavaScript Console API surface exposed by the `"use typeshade"` authoring environment.
- * The source spelling is the standard `console.*` API; the compiler currently lowers the
+/** JavaScript Console API surface exposed by the \`"use typeshade"\` authoring environment.
+ * The source spelling is the standard \`console.*\` API; the compiler currently lowers the
  * logging-level methods below. Other Console methods remain visible to TypeScript only when
  * they are added here deliberately, so editor completion never advertises an unsupported
  * shader operation. */
@@ -512,6 +512,8 @@ interface Console {
   warn(...data: (Numeric | boolean)[]): void
   error(...data: (Numeric | boolean)[]): void
 }
+/** The standard console. Its logging methods are the ones declared on Console above; a
+ * call to one is delivered to the host's console sink when the program runs on the CPU. */
 declare const console: Console
 
 declare const matTag: unique symbol

@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 428 exports
+## `.` — 433 exports
 
 ```
 abs
@@ -78,6 +78,10 @@ CompileTsSourceResult
 composeModule
 ComposeOptions
 condExpr
+CONSOLE_METHODS
+ConsoleEvent
+ConsoleMethod
+ConsoleSink
 constDecl
 ConstDecl
 constExpr
@@ -201,6 +205,7 @@ IoStruct
 isAppleGpu
 isAtomicIntrinsic
 isBarrierIntrinsic
+isConsoleMethod
 isF64
 isKnownIntrinsic
 isMat
@@ -832,10 +837,10 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 536 definitions
+## Shapes — 541 definitions
 
 ```
-src/compiler/ts/compile.ts#CompileOptions  interface  { fileName?: string }
+src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
 src/compiler/ts/compile.ts#CompileResult  interface  { diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
 src/compiler/ts/compile.ts#compile  function  (source: string, options?: CompileOptions) => CompileResult
 src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
@@ -882,7 +887,12 @@ src/core/backends/wgsl.ts#intLit  function  (v: number, scalar: "i32" | "u32") =
 src/core/backends/wgsl.ts#lowerWgsl  const  (m: ModuleDecl, level: OptLevel) => ModuleDecl
 src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
-src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
+src/core/console.ts#CONSOLE_METHODS  const  ReadonlySet<ConsoleMethod>
+src/core/console.ts#ConsoleEvent  interface  { args: readonly CpuValue[]; method: ConsoleMethod; span?: SourceSpan }
+src/core/console.ts#ConsoleMethod  type  "error" | "log" | "info" | "debug" | "warn"
+src/core/console.ts#ConsoleSink  type  (event: ConsoleEvent) => void
+src/core/console.ts#isConsoleMethod  function  (name: string) => name is ConsoleMethod
+src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink; }) => CpuModule
 src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
 src/core/cpu-runtime.ts#CpuValue  type  number | boolean | number[] | boolean[] | CpuStruct
 src/core/cpu-runtime.ts#ORACLE_BUILTIN_NAMES  const  ReadonlySet<string>
@@ -1221,7 +1231,7 @@ src/core/measure.ts#profileEmit  function  (m: ModuleDecl, target?: "wgsl" | "gl
 src/core/oracle.ts#CpuModule  interface  { dispatch: (entry: string, workgroups: WorkgroupCount) => DispatchReport; fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
 src/core/oracle.ts#CpuPrecision  type  "f64" | "f32"
 src/core/oracle.ts#DispatchReport  interface  { barrierPhases: number; invocations: number; workgroups: number }
-src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
+src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink; }) => CpuModule
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
 src/core/passes/force-inline.ts#InlineDecision  interface  { callSites: number; fn: string; growth: number; inlined: boolean; ops: number; reason: "inlined" | "over-budget" | "not-inlinable" }
