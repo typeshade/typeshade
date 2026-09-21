@@ -217,6 +217,11 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = ${call}
 }
 `
+    // The plain sample too: its cube-array id was in neither fragment-only table, so a
+    // compute or vertex entry sampling one compiled clean and Tint refused the WGSL.
+    expect(errorsOf(compute('textureSample(envs, smp, dir, 0)'))).toEqual([
+      '"textureSample" is only valid in a fragment shader; "cs" is a compute entry.',
+    ])
     expect(errorsOf(compute('textureSampleBias(envs, smp, dir, 0, 1.)'))).toEqual([
       '"textureSampleBias" is only valid in a fragment shader; "cs" is a compute entry.',
     ])

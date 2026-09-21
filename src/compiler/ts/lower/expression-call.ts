@@ -639,9 +639,16 @@ function lowerStorageTextureCall(
       )
       return undefined
     }
-    return arity(id, args, isArray ? 3 : 2, node, sourceFile, diagnostics)
-      ? { op: 'call', type: texel, fn: id, args: [...args] }
-      : undefined
+    if (!arity(id, args, isArray ? 3 : 2, node, sourceFile, diagnostics)) return undefined
+    const out = [...args]
+    // The layer of an array texture is an integer: a bare `0` would lower to `0.0`, which
+    // Tint refuses ("no matching call"), so it is retyped like every other layer.
+    if (isArray) {
+      const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+      if (!layer) return undefined
+      out[2] = layer
+    }
+    return { op: 'call', type: texel, fn: id, args: out }
   }
   if (id === 'textureStore') {
     if (tex.access === 'read') {
@@ -657,7 +664,13 @@ function lowerStorageTextureCall(
       return undefined
     }
     if (!arity(id, args, isArray ? 4 : 3, node, sourceFile, diagnostics)) return undefined
-    const value = args[isArray ? 3 : 2]!
+    const out = [...args]
+    if (isArray) {
+      const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+      if (!layer) return undefined
+      out[2] = layer
+    }
+    const value = out[isArray ? 3 : 2]!
     if (typeKey(value.type) !== typeKey(texel)) {
       pushDiag(
         diagnostics,
@@ -670,7 +683,7 @@ function lowerStorageTextureCall(
       )
       return undefined
     }
-    return { op: 'call', type: voidT, fn: id, args: [...args] }
+    return { op: 'call', type: voidT, fn: id, args: out }
   }
   pushDiag(
     diagnostics,

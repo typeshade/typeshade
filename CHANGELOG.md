@@ -120,6 +120,14 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **Three texture programs Tint refused compiled clean.** `textureSample` on a
+  `texture_cube_array` in a vertex or compute entry (the cube-array id was in neither
+  fragment-only table) is now refused under the written name like the other implicit-LOD
+  forms; `textureStore` in a vertex entry, or in a helper one reaches, is refused in one sentence
+  (WGSL allows a texture write in a fragment or compute stage only); and the layer of
+  `textureLoad` and `textureStore` on a `texture_storage_2d_array` is retyped to an integer, so
+  a bare `0` no longer emits `0.0`. Found by the spec audit's test critique and confirmed with
+  `compile()` on main.
 - **`getDiagnostics` lists the two halves in document order.** The language service appended
   every TypeShade diagnostic after every TypeScript one, so a problem list could read 28:1
   before 27:3. The merged list is now sorted by span start, then span length, then source.
