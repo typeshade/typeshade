@@ -120,6 +120,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **A `bool` module const that is neither true nor false is refused on its declaration**
+  (§12, [#64](https://github.com/typeshade/typeshade/issues/64)). `const K: bool = 2` reached
+  the fail-closed bool arm of each writer's `literal` and came back as
+  `TS8015 Backend emit failed: … [SD0017]: bool literal 2`, anchored on the file's
+  `"use typeshade"` directive — the one line that says nothing about the declaration — while
+  its integer siblings have reported `TS8003` on the declaration since #17. The check now sits
+  beside theirs at lowering: `true`, `false`, `1` and `0` still emit, and anything else is
+  `Module const "K" is bool, but 2 is neither true nor false. Write true, false, 1 or 0.` on
+  the `K: bool = 2` it underlines. Like the integer arms, the constant is not defined, so each
+  use adds its own `TS8022`; the writers' `SD0017` arms stay, since the `fn()` EDSL surface can
+  hand them a `ConstDecl` carrying anything.
 - **Three texture programs Tint refused compiled clean.** `textureSample` on a
   `texture_cube_array` in a vertex or compute entry (the cube-array id was in neither
   fragment-only table) is now refused under the written name like the other implicit-LOD

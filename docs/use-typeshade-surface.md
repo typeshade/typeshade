@@ -595,6 +595,12 @@ take a component, field or element — `vec3(UP.x, 0., 0.)` is refused even thou
 would fold it. `XS.length` is a constant too, so an array constant can bound a loop. An array
 **of arrays** is refused: the GLSL ES 3.00 spelling it would produce is not one ANGLE accepts.
 
+A scalar constant's value has to be one its declared type can spell, and that is checked on
+the declaration. An `i32` or `u32` one must be a whole number inside its 32-bit range; a `bool`
+one takes `true`, `false`, `1` or `0`, and a number that is neither
+([#64](https://github.com/typeshade/typeshade/issues/64)) is refused where it is written rather
+than reaching the writer, which has only the file's `"use typeshade"` directive to point at.
+
 An **integer** earlier const is a valid component too, since #17 landed: `const N: i32 = 4`
 followed by `const NV = vec3i(N, N, N)` emits `const N: i32 = 4;` and
 `const NV: vec3<i32> = vec3<i32>(N, N, N);`. Before that fix the backend's `emitConst` spelled
