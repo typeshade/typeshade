@@ -243,7 +243,7 @@ export function isTypeshadeSource(source: string, fileName = 'check.ts'): boolea
  *  meant to keep. The declaration itself is not removed: the later `scope.define` is guarded,
  *  so one of the two wins silently rather than throwing, and the diagnostic is what stops the
  *  module being emitted. */
-function reportCrossDeclarationCollisions(
+export function reportCrossDeclarationCollisions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   consts: readonly { readonly name: string }[],

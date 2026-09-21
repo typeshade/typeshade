@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { compileTsSources } from './module.js'
+import { compile } from './compile.js'
 import { TS_CODES } from './codes.js'
 
 describe('compileTsSources import', () => {
@@ -214,6 +215,166 @@ describe('compileTsSources — what the merge carried over', () => {
     expect(
       r.diagnostics.some((d) => /Entry "nope.ts" is not in the source set/.test(d.message)),
     ).toBe(true)
+  })
+})
+
+describe('compileTsSources keeps the structs and bindings compileTsSource accepts (#74, roadmap 0.5 item 14)', () => {
+  const STRUCT = `"use typeshade"
+
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
+@vertex
+export function vs(@location(0) p: vec2): VsOut {
+  const o: VsOut = { pos: vec4(p, 0., 1.), uv: p * 0.5 + 0.5 }
+  return o
+}
+`
+  const TEXTURE = `"use typeshade"
+declare const atlas: texture_2d<f32>
+declare const smp: sampler
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return textureSample(atlas, smp, uv)
+}
+`
+  const STORAGE = `"use typeshade"
+declare let heights: storage<array<f32>>
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  heights[gid.x] = 1.
+}
+`
+  const errors = (r: { diagnostics: readonly { category: string; message: string }[] }) =>
+    r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)
+
+  it('compiles the three programs the issue measured, to the WGSL compile() emits', () => {
+    // Each compiled clean through compile() and was refused here: TS8022 "does not match a
+    // known struct", then "Unknown identifier" for the struct local, the texture and the
+    // storage array. The multi-file path lowered functions and constants and collected nothing
+    // else.
+    for (const source of [STRUCT, TEXTURE, STORAGE]) {
+      const multi = compileTsSources([{ fileName: 'x.shade.ts', source }], 'x.shade.ts')
+      expect(errors(multi)).toEqual([])
+      const single = compile(source)
+      expect(errors(single)).toEqual([])
+      expect(multi.wgsl).toBe(single.wgsl)
+    }
+  })
+
+  it('reports the structs, bindings and overrides it collected', () => {
+    const r = compileTsSources([{ fileName: 'x.shade.ts', source: TEXTURE }])
+    expect(r.bindings.map((b) => [b.name, b.group, b.binding])).toEqual([
+      ['atlas', 0, 0],
+      ['smp', 0, 1],
+    ])
+    const s = compileTsSources([{ fileName: 'x.shade.ts', source: STRUCT }])
+    expect(s.structs.map((d) => d.name)).toEqual(['VsOut'])
+  })
+
+  it('a struct declared in one file is the type a function in another file receives', () => {
+    // The struct is module scope, as it is in WGSL: the importing file reads `.uv` off the
+    // value the other file's function returned, and the module emits ONE struct.
+    const r = compileTsSources(
+      [
+        {
+          fileName: 'types.ts',
+          source: `"use typeshade"
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+export function make(p: vec2): VsOut {
+  const o: VsOut = { pos: vec4(p, 0., 1.), uv: p }
+  return o
+}
+`,
+        },
+        {
+          fileName: 'main.ts',
+          source: `"use typeshade"
+import { make } from "./types"
+@fragment
+export function fs(@location(0) p: vec2): vec4 {
+  const o = make(p)
+  return vec4(o.uv, 0., 1.)
+}
+`,
+        },
+      ],
+      'main.ts',
+    )
+    expect(errors(r)).toEqual([])
+    expect(r.wgsl).toContain('struct VsOut')
+    expect((r.wgsl!.match(/struct VsOut/g) ?? []).length).toBe(1)
+    expect(r.wgsl).toContain('let o = make(p);')
+  })
+
+  it('numbers the declare bindings of every file in file order, so two firsts do not collide', () => {
+    const r = compileTsSources([
+      {
+        fileName: 'a.ts',
+        source: `"use typeshade"
+declare const atlas: texture_2d<f32>
+declare const smp: sampler
+export function tap(uv: vec2): vec4 { return textureSample(atlas, smp, uv) }
+`,
+      },
+      {
+        fileName: 'b.ts',
+        source: `"use typeshade"
+declare const lut: texture_2d<f32>
+declare const smp2: sampler
+import { tap } from "./a"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 { return tap(uv) + textureSample(lut, smp2, uv) }
+`,
+      },
+    ])
+    expect(errors(r)).toEqual([])
+    expect(r.bindings.map((b) => [b.name, b.binding])).toEqual([
+      ['atlas', 0],
+      ['smp', 1],
+      ['lut', 2],
+      ['smp2', 3],
+    ])
+    expect(r.wgsl).toContain('@group(0) @binding(2) var lut: texture_2d<f32>;')
+  })
+
+  it('reports a struct two files both declare, once, naming both', () => {
+    const cls = `class P {\n  x: f32\n}\n`
+    const r = compileTsSources([
+      {
+        fileName: 'a.ts',
+        source: `"use typeshade"\n${cls}export function fa(p: P): f32 { return p.x }\n`,
+      },
+      {
+        fileName: 'b.ts',
+        source: `"use typeshade"\n${cls}export function fb(p: P): f32 { return p.x }\n`,
+      },
+    ])
+    const dup = r.diagnostics.filter((d) => d.code === TS_CODES.DUPLICATE_SYMBOL)
+    expect(dup.map((d) => d.message)).toEqual([
+      'Struct "P" is declared in both "a.ts" and "b.ts". A multi-file program is one module, so a name is declared once; rename one or move it.',
+    ])
+  })
+
+  it('reports two files whose explicit slots collide, in either spelling', () => {
+    const r = compileTsSources([
+      {
+        fileName: 'a.ts',
+        source: `"use typeshade"\nconst gain = uniform<f32>(3)\nexport function ga(): f32 { return gain }\n`,
+      },
+      {
+        fileName: 'b.ts',
+        source: `"use typeshade"\nconst bias = uniform<f32>({ group: 0, binding: 3 })\nexport function gb(): f32 { return bias }\n`,
+      },
+    ])
+    const dup = r.diagnostics.filter((d) => d.code === TS_CODES.DUPLICATE_SYMBOL)
+    expect(dup.length).toBe(1)
+    expect(dup[0]!.message).toContain('both occupy @group(0) @binding(3)')
   })
 })
 

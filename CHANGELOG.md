@@ -109,6 +109,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **`compileTsSources` keeps the structs, bindings and overrides `compileTsSource` accepts**
+  ([#74](https://github.com/typeshade/typeshade/issues/74), roadmap 0.5 item 14). The multi-file
+  entry point lowered functions and module constants and collected nothing else, so a one-file
+  program with a `class` struct, a `declare const atlas: texture_2d<f32>` or a
+  `declare let heights: storage<array<f32>>` compiled through `compile()` and was refused
+  through `compileTsSources` with "Unknown identifier", and a two-file program with either could
+  not be compiled at all. Every file's structs, bindings and overrides are collected and merged
+  now, a multi-file program being one module: a name two files declare is reported once, naming
+  both, each file's `declare` bindings are numbered after the earlier files' so two firsts do
+  not share a slot, and the result reports `structs`, `bindings` and `overrides`. Module
+  constants keep the entry-only rule.
 - **`@compute(...)` refuses an argument it cannot read instead of defaulting to 64**
   ([#118](https://github.com/typeshade/typeshade/issues/118), `TS8037 WORKGROUP_ARG`).
   `@compute({ workgroup: [8, 8, 1] })`, `@compute(128)`, `@compute("big")` and `@compute(SIZE)`
