@@ -56,7 +56,8 @@ export interface TypeshadeLanguageService {
   /** Closes a document; it is dropped from the underlying TypeScript program. */
   closeDocument(uri: string): void
 
-  /** TypeScript and TypeShade diagnostics for `uri`, merged (§5, §6). Empty when `uri` is not open. */
+  /** TypeScript and TypeShade diagnostics for `uri`, merged (§5, §6) and in document order: by
+   *  span start, then span length, then source. Empty when `uri` is not open. */
   getDiagnostics(uri: string): readonly TypeshadeDiagnostic[]
   /** Completion items at `position` in `uri` (§5). */
   getCompletions(uri: string, position: TypeshadePosition): readonly TypeshadeCompletionItem[]
@@ -161,6 +162,16 @@ function importSpecifiersOf(sourceFile: ts.SourceFile): string[] {
   return out
 }
 
+/** Document order for the merged list: span start, then span length (the enclosed row before
+ *  the enclosing one), then source, so the two halves interleave by position. Without it the
+ *  TypeShade rows all followed the TypeScript rows, and a problem list read 28:1 before 27:3. */
+function byDocumentOrder(a: TypeshadeDiagnostic, b: TypeshadeDiagnostic): number {
+  return (
+    a.span.start - b.span.start ||
+    a.span.length - b.span.length ||
+    (a.source < b.source ? -1 : a.source > b.source ? 1 : 0)
+  )
+}
 /**
  * Creates a Typeshade language service (design doc §4). `host` configures the ambient lib and
  * multi-file import resolution (`TypeshadeLanguageServiceHost`, defined in `host.ts`); omit it
@@ -243,7 +254,7 @@ export function createTypeshadeLanguageServiceWith(
     entry.diagnostics ??= [
       ...getTypeScriptDiagnostics(languageService, sourceFile, uri),
       ...getTypeshadeDiagnostics(entry.analysis, sourceFile, uri),
-    ]
+    ].sort(byDocumentOrder)
     return entry.diagnostics
   }
 

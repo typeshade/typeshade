@@ -322,6 +322,10 @@ twice per keystroke; the shim exists for other PR #6 callers, not for the Playgr
 
 The strategy's formula is _TypeScript Language Service + TypeShade semantic layer_. Concretely:
 
+The merged list `getDiagnostics` returns is in document order: by span start, then span length,
+then source. The two halves interleave by position, so an editor's problem list never jumps
+backwards from a TypeShade row to an earlier TypeScript one.
+
 | Method                                                                               | TypeScript Language Service (over the ambient lib)                                                                                      | TypeShade layer                                                                                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `getDiagnostics`                                                                     | syntax and semantic diagnostics, filtered (§6)                                                                                          | `compileTsSource`-style analysis of the front-end only (no emit), with `range` from `node.getStart()`/`node.getEnd()`; stage-3 checks: builtin name allow-list (`WgslBuiltinName`), builtin-to-stage compatibility, `@compute` workgroup shape, missing return annotation as an error     |
