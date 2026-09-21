@@ -81,10 +81,11 @@ const FLOAT_SAME = same(FLOAT)
 
 /** One entry per free math builtin the surface lowers as a `call`; `f32` (a cast), `select`,
  *  `any` and `all` are lowered elsewhere and are not here. A name without an entry is checked
- *  by arity alone, as before. */
-/** The rule per builtin. Exported for `math-args.test.ts`, which iterates it: the table is the
- *  contract, so the suite that pins the contract must be driven BY the table rather than by a
- *  second hand list beside it. */
+ *  by arity alone, as before.
+ *
+ *  Exported for `math-args.test.ts`, which iterates it: the table is the contract, so the suite
+ *  that pins the contract must be driven BY the table rather than by a second hand list beside
+ *  it. Not on the public barrel. */
 export const MATH_ARG_SPECS: Readonly<Record<string, Spec>> = {
   // Componentwise on floats.
   acos: FLOAT_SAME,

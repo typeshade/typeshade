@@ -361,6 +361,8 @@ describe('reflect — every handle kind the IR can hold', () => {
     } as unknown as ModuleDecl
     const entry = reflect(m).bindGroups[0]?.entries[0] as unknown as Record<string, unknown>
     const { group, binding, name, space, owner, stages, ...rest } = entry
+    // The six `void`s satisfy `noUnusedLocals`: the destructure exists to REMOVE those keys
+    // from `rest`, not to read them, and the rest element is the only part used.
     void group
     void binding
     void name

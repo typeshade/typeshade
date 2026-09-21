@@ -186,7 +186,8 @@ describe('"use typeshade" examples — the goldens and the refusals are both exa
   })
 
   it('refuses every non-renderable example FOR THE REASON its registration states', () => {
-    // `:104`'s arm accepts any refusal, so an example that lost its GLSL form for a new
+    // The 'genuinely cannot serve' arm above accepts ANY refusal, so an example that lost
+    // its GLSL form for a new
     // reason — a capability it did not need before — keeps a flag that now means something
     // else. Naming the reason in the registry is what turns the flag into a claim.
     const wrong: string[] = []

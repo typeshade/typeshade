@@ -682,9 +682,11 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     })
   }
 
+  // `dref`, not `ref`: the field name reaches the emitted WGSL verbatim and `ref` is a WGSL
+  // reserved keyword, which would make Tint refuse the module for a reason unrelated to the row.
   const SCALAR_HEAD = `interface U {
   lvl: i32;
-  ref: i32;
+  dref: i32;
 }
 declare const u: uniform<U>
 declare const atlas: texture_2d<f32>
@@ -706,7 +708,7 @@ export function fs(v: V): vec4 {
     'an integer variable as a reference depth': `${SCALAR_HEAD}
 @fragment
 export function fs(v: V): vec4 {
-  return vec4(textureSampleCompare(shadowMap, cmp, v.uv, u.ref), 0., 0., 1.)
+  return vec4(textureSampleCompare(shadowMap, cmp, v.uv, u.dref), 0., 0., 1.)
 }`,
   }
 

@@ -19,7 +19,13 @@ const DERIVATIVE_FIX =
  *  "first row byte-identical to the catalogue hint / one string, two surfaces"
  *  convention, which nothing ever enforced (no test compared the two) and which
  *  X-GIS #1651's array row had already broken. Per-id hints are pinned where they are
- *  authored: this rule's tests. */
+ *  authored: this rule's tests.
+ *
+ *  Exported for the spec-conformance suite (`src/core/spec-conformance/stage-rules.test.ts`),
+ *  which compares this map's keys, UNIONED with the front end's own `FRAGMENT_ONLY_CALLS`,
+ *  against the set derived from Tint's `core.def` `@stage("fragment")` rows. The union is
+ *  what matters: which of the two layers owns an id is an implementation detail, and an id
+ *  falling between them is how `textureSampleCubeArray` was lost. Not on the public barrel. */
 export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',

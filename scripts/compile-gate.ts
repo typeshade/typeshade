@@ -119,12 +119,19 @@ const ALL_EXAMPLES = [...examples, ...shadeExamples]
 
 // ── The render-pipeline leg (#155) ──
 //
-// WHAT IT ADDS. `createShaderModule` compiles a module; it does not create a PIPELINE, and
-// Tint defers two whole classes of error to that second call — the stage rules ("built-in
-// cannot be used by vertex pipeline stage") and the uniformity analysis. Measured on this
-// SwiftShader build on 2026-09-21: a vertex entry calling `textureSample` passes
-// `createShaderModule` with no message and is reported at `createRenderPipeline`. So without
-// this leg the gate cannot see the exact class the spec audit (#144) was written about.
+// WHAT IT ADDS, measured rather than assumed. The audit expected the stage rules to surface
+// only at `createRenderPipeline`; on THIS SwiftShader build (2026-09-21) they do not — a vertex
+// entry calling `textureSample` is reported by `createShaderModule` itself ("built-in cannot be
+// used by vertex pipeline stage"), and so are all eight of the storage-texture stage gaps. The
+// existing WGSL leg already sees that class, and the note is left here because the opposite
+// claim is easy to re-derive from the spec and wrong.
+//
+// What the pipeline leg demonstrably adds is everything validated ABOUT a module rather than
+// INSIDE it: the vertex state against the entry's `@location` inputs, and the colour targets
+// against its outputs. That is a real class — a shader whose attributes no buffer supplies
+// compiles and cannot draw — and it is the class the instrument check below exercises. A
+// future driver that does defer the stage or uniformity errors to pipeline creation is then
+// already covered, at no extra cost.
 //
 // WHAT IT NEEDS. A pipeline is more than a module: WebGPU validates the vertex state against
 // the entry's `@location` inputs and the fragment targets against its outputs. Both are
@@ -226,8 +233,14 @@ function pipelineOf(m: ModuleDecl): [PipelineSpec | null, string] {
   if (retStruct?.fields.some((f) => f.builtin === 'frag_depth') === true) {
     return [null, 'the fragment entry writes @builtin(frag_depth), which needs a depth attachment']
   }
+  // Targets are POSITIONAL in WebGPU, so a gap in the `@location` numbering (0 and 2) would put
+  // location 2's format at index 1 and validate the wrong thing. Refuse the module instead.
+  const sorted = [...outputs].sort((a, b) => a.location - b.location)
+  if (sorted.some((out, i) => out.location !== i)) {
+    return [null, 'the fragment @location numbers have a gap, which a target list cannot express']
+  }
   const targets: { format: string }[] = []
-  for (const out of outputs.sort((a, b) => a.location - b.location)) {
+  for (const out of sorted) {
     const format = targetFormat(out.type)
     if (format === '')
       return [null, `no colour-target format for a @location(${String(out.location)}) output`]

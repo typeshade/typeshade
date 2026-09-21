@@ -157,6 +157,37 @@ const VERTEX_GAPS: Readonly<Record<string, string>> = {
   atomicXor: 'audit G34, #162',
 }
 
+/** One `@vertex` program per `VERTEX_GAPS` id: the atomic call WGSL stages `fragment, compute`
+ *  sitting in a vertex entry. Each compiles clean today, which is the defect; the arm below
+ *  fails the moment one stops doing so. */
+const atomicVertex = (call: string, yieldsValue: boolean): string => `"use typeshade"
+declare let hist: storage<array<atomic<u32>>>
+class Clip {
+  @builtin("position") pos: vec4;
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+${
+  yieldsValue
+    ? `  const r = ${call}\n  return { pos: vec4(f32(r), 0., 0., 1.) }`
+    : `  ${call}\n  return { pos: vec4(0., 0., 0., 1.) }`
+}
+}
+`
+
+const ATOMIC_VERTEX_WITNESS: Readonly<Record<string, string>> = {
+  atomicAdd: atomicVertex('atomicAdd(hist[0], 1)', true),
+  atomicAnd: atomicVertex('atomicAnd(hist[0], 1)', true),
+  atomicExchange: atomicVertex('atomicExchange(hist[0], 1)', true),
+  atomicLoad: atomicVertex('atomicLoad(hist[0])', true),
+  atomicMax: atomicVertex('atomicMax(hist[0], 1)', true),
+  atomicMin: atomicVertex('atomicMin(hist[0], 1)', true),
+  atomicOr: atomicVertex('atomicOr(hist[0], 1)', true),
+  atomicStore: atomicVertex('atomicStore(hist[0], 1)', false),
+  atomicSub: atomicVertex('atomicSub(hist[0], 1)', true),
+  atomicXor: atomicVertex('atomicXor(hist[0], 1)', true),
+}
+
 const errorsOf = (src: string): string[] =>
   compile(src)
     .diagnostics.filter((d) => d.category === 'error')
@@ -209,7 +240,22 @@ describe('the compiler stage sets equal the sets core.def states (S4)', () => {
   })
 
   it('loses the VERTEX_GAPS entry of an id the compiler has since learned to refuse', () => {
-    expect(Object.keys(VERTEX_GAPS).filter((id) => NOT_IN_VERTEX_CALLS.has(id))).toEqual([])
+    // BY MEASUREMENT, not by set membership. The fix for the atomics belongs in
+    // `lower/atomics.ts`, which has no stage check at all — and that fix would NOT add the id
+    // to `NOT_IN_VERTEX_CALLS`, so an entry cleared only by looking at that set could outlive
+    // the defect it names. Compiling the program is the question the entry actually answers.
+    const refused: string[] = []
+    for (const id of Object.keys(VERTEX_GAPS)) {
+      const witness = ATOMIC_VERTEX_WITNESS[id]
+      expect(witness, `${id} is in VERTEX_GAPS with no program to measure it by`).toBeDefined()
+      if (witness === undefined) continue
+      if (errorsOf(witness).length > 0 || NOT_IN_VERTEX_CALLS.has(id)) refused.push(id)
+    }
+    expect(
+      refused,
+      'This id is now refused from a vertex entry — delete its VERTEX_GAPS entry in the same ' +
+        'commit, so the list cannot outlive the defect it records.',
+    ).toEqual([])
   })
 
   it('refuses a compute-only builtin from a vertex and from a fragment entry', () => {

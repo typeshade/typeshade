@@ -51,6 +51,7 @@
     "README.md",
     "!**/*.test.ts",
     "!**/__emit-goldens__",
+    "!**/spec-conformance/fixtures",
     "!**/AGENTS.md",
     "!**/*.tsbuildinfo"
   ],
@@ -64,6 +65,7 @@
     "bench:stepping": "bun scripts/bench-stepping.ts",
     "gate:compile": "bun scripts/compile-gate.ts",
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
+    "bake:coredef": "bun scripts/bake-coredef-textures.ts",
     "manifest:publish": "bun scripts/publish-manifest.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

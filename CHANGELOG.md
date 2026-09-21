@@ -19,35 +19,43 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   together, which is how six classes of program that this front end accepts and Tint refuses
   came to exist. Four suites now read an authority instead of a hand list.
   `src/core/spec-conformance/coredef-texture-overloads.test.ts` reads Tint's own overload table,
-  baked from `core.def` by `scripts/bake-coredef-textures.ts` into a checked-in fixture, and
+  baked from `core.def` into a checked-in fixture by `scripts/bake-coredef-textures.ts`
+  (`bun run bake:coredef`), and
   forces every one of its 184 `fn texture*` rows to be claimed: SUPPORTED by a `"use typeshade"`
   witness synthesised from the row's own parameter list, or DEFERRED with a reason and the issue
   that owns it. `stage-rules.test.ts` derives the fragment-only, fragment-or-compute and
-  compute-only sets from the same table's `@stage` attributes and compares them with the two
-  hand-written sets the compiler keeps in two layers — the pair that lost
+  compute-only sets from a second fixture off the same `core.def` — every builtin carrying a
+  `@stage`, the derivatives, the barriers and the atomics included — and compares them with the
+  two hand-written sets the compiler keeps in two layers, the pair that lost
   `textureSampleCubeArray`. `ambient-registry-closure.test.ts` pins the ambient library against
   the lowerer in both directions, the one pair of the four authorities nothing compared.
   `capability-reachability.test.ts` gains a `"use typeshade"` SOURCE witness per `Capability`,
-  seven of thirteen today, with a probe beside each of the other six that must keep failing.
-  Every allowlist in the four is shrink-only by MEASUREMENT: an entry whose program has since
-  started to work fails the suite that holds it.
+  seven of thirteen today; of the six without one, the three a program could exist for carry the
+  very probe that must keep failing, and the three host-only device features carry the reason
+  there is no program to write.
+  Every allowlist in the four is shrink-only: three of them by MEASUREMENT — an entry whose
+  program has since started to work fails the suite that holds it — and the ambient closure by
+  set membership, since "is this name declared" needs no program to answer.
 - **The compile gate creates a render pipeline** (#155). `createShaderModule` compiles a module;
-  it does not create a pipeline, and Tint defers the stage rules and the uniformity analysis to
-  `createRenderPipeline` — measured on this SwiftShader build, a vertex entry calling
-  `textureSample` passes the module call with no message and is refused at pipeline creation.
-  The gate now builds one render pipeline per render pair (74 of the 85 examples), with the
-  vertex buffer layouts and the colour targets derived from the IR entries rather than authored,
-  and prints the reason for every example it does not build one for. Its own instrument check
-  sits beside the two existing ones: a module Tint compiles, with a `@location` vertex input and
-  no buffer supplying it, must be REPORTED, or the leg is blind.
+  it does not create a pipeline, so everything WebGPU validates about a module rather than
+  inside it — the vertex state against the entry's `@location` inputs, the colour targets
+  against its outputs — went unseen, and a shader whose attributes no buffer supplies compiles
+  and cannot draw. The gate now builds one render pipeline per render pair (74 of the 85
+  examples), with the layouts and targets derived from the IR entries rather than authored, and
+  prints the reason for every example it does not build one for. Its own instrument check sits
+  beside the two existing ones: a module Tint compiles, with a `@location` vertex input and no
+  buffer supplying it, must be REPORTED, or the leg is blind. The audit expected the stage rules
+  to surface here too; measured on this SwiftShader build they do not — `createShaderModule`
+  reports them itself, and the gate's existing WGSL leg already sees that class.
 - **The Tint-invalid emits are pinned, as `it.fails` rows that a fix must flip** (#155).
   `src/compiler/ts/tint-invalid.test.ts` holds the four language programs that compile clean here
   and are refused by Chromium: an `array<f32, N>` in a `var<uniform>` (stride 4 where WGSL
   requires 16), a shift with an `i32` right-hand side, an integer varying with no
   `@interpolate(flat)`, and a helper that assigns to its whole parameter. Each was re-measured on
-  Tint on 2026-09-21 and each reads its value from a UNIFORM, which is load-bearing: written as a
-  `const` the front end folds it to a literal, and a WGSL integer literal is an abstract-int that
-  converts on its own — Tint accepts that program. The same shape covers the texture rows
+  Tint on 2026-09-21. Where the defect is a non-const integer in a slot the spec types otherwise
+  — the shift, and the texture rows — the operand comes from a UNIFORM, which is load-bearing:
+  written as a `const` the front end folds it to a literal, and a WGSL integer literal is an
+  abstract-int that converts on its own, so Tint accepts that program. The same shape covers the texture rows
   (`texture-dims.test.ts`, `storage-textures.test.ts`, `ambient.test.ts`), and the sweeps the
   audit asked for: every GPU stub's placeholder value and strict-mode throw, every PORTABLE id's
   CPU twin and its identical spelling through both real writers, every `INTRINSICS` row's text
@@ -55,11 +63,6 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   wrong shape, the precision line for each of the thirteen sampler types GLSL ES 3.00 does not
   predeclare, every handle kind `reflect()` can hold, the f64 twins from source against the
   double the oracle computes, and the golden set of both example registries with no orphan.
-- **`renderable: false` now states WHY** (#155). A `.shade.ts` registration that claims no GLSL
-  ES 3.00 form carries the refusal it expects, and `shade-examples.test.ts` checks it rather than
-  accepting any refusal — so an example that loses its GLSL form for a NEW reason keeps a flag
-  that no longer means what it says.
-
 - **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
   operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a
   ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the driver
@@ -220,6 +223,10 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
 
 ### Changed
 
+- **`renderable: false` now states WHY** (#155). A `.shade.ts` registration that claims no GLSL
+  ES 3.00 form carries the refusal it expects, and `shade-examples.test.ts` checks it rather than
+  accepting any refusal — so an example that loses its GLSL form for a NEW reason keeps a flag
+  that no longer means what it says.
 - **A method that changes its object takes it by reference** (§26). It took the struct and
   RETURNED it — `Particle_step(self_in: Particle, dt: f32) -> Particle` opening with
   `var self_ = self_in` and closing with `return self_` — and the call site read the receiver,

@@ -329,6 +329,11 @@ describe('the write is an effect', () => {
 // `lower/expression-call.ts` runs neither the coordinate-width check the sampled path runs nor
 // the vertex-stage rule `textureStore` got, so both shapes below compile clean here and Tint
 // refuses the emit. Written as `it.fails` so the lane that adds the check flips them.
+//
+// THE VERTEX ROW IS ALSO PINNED STRUCTURALLY, as the `STAGE_GAPS` entries of
+// `src/core/spec-conformance/coredef-texture-overloads.test.ts`, which reaches it per core.def
+// OVERLOAD rather than per program. Closing #145 empties that allowlist and flips this row, in
+// the same commit; the two are deliberate duplicates, one by case and one by class.
 describe('what the storage path does not check yet', () => {
   const store = (decls: string, body: string): string => `"use typeshade"
 ${decls}

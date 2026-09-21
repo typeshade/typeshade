@@ -90,6 +90,13 @@ describe('intrinsics — neutral registry (#3a)', () => {
 // the first arm, so a new divergent builtin arrives with its spelling written down where a
 // reviewer reads it rather than only inside a template.
 //
+// WHAT A ROW IS, AND IS NOT. It is the registry TEMPLATE, which is what `spellIntrinsic`
+// returns — not a promise about the bytes a backend finally emits. A writer may still special-
+// case a shape downstream: `select` is spelled `(c ? b : a)` here and the GLSL writer emits
+// `mix(vec3(0.0), vec3(1.0), m)` for a VECTOR condition, because a ternary on a `bvec` is not
+// legal GLSL. The end-to-end question — does the call survive both writers under its own name —
+// belongs to `intrinsic-coverage.test.ts`, which emits real modules for exactly that reason.
+//
 // SEVEN PLACEHOLDER ARGUMENTS, more than any overload takes, on purpose: the row describes the
 // TEMPLATE, not one call. An entry that joins its arguments shows all seven; one that
 // re-embeds particular ones shows exactly which, and in which order — which is the property

@@ -16,6 +16,18 @@
 // and both allowlists are shrink-only BY MEASUREMENT: a name that has since become lowerable
 // (or declared) fails the arm that holds its entry, so the lists cannot rot.
 //
+// WHAT THIS DOES NOT DO, and the measurement behind that. The audit's tests critique asked for
+// a companion (its row P1-38): parse `SHADE_DTS` with the TypeScript compiler API, synthesise
+// ONE CALL per declared overload from its parameter types, and assert that the generated
+// program both type-checks and compiles. That is not here, and the reason is a count. The
+// critique measured 121 `declare function` overloads; there are 329 today, over 59 distinct
+// parameter types, and eight of those are generic or union shapes — `T`, `E`, `F`, `A`,
+// `StorageTexel<F>`, `texture_2d<E> | texture_2d_array<E>` and two more — whose argument needs
+// the constraint solver `tsc` has and a lookup table does not. A sweep built on a table would
+// either skip them, leaving an allowlist larger than the assertion, or synthesise a wrong call
+// and pin a wrong answer. The closure below is the half that CAN be asserted exactly, and the
+// critique's own note says P1-38's findings would surface here as its failures.
+//
 // HOW "LOWERABLE" IS DERIVED. Not from a hand list: from the registries themselves — the
 // catalogue (`INTRINSICS` ∪ `PORTABLE_INTRINSICS` ∪ `PRE_EMIT_INTRINSICS`), the WGSL surface
 // name each id spells under, and the alias tables the front end resolves `Math.*` and the
@@ -40,9 +52,24 @@ const errorsOf = (src: string): string[] =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => d.message)
 
-/** Every `declare function` name of the ambient library — what the EDITOR admits. */
+/** `interface MathObject { … }` — the `Math.*` half of the surface, whose members are declared
+ *  as an interface rather than as free functions. Sliced out by name so a member of some other
+ *  interface cannot drift in. */
+function mathObjectMembers(dts: string): string[] {
+  const start = dts.indexOf('interface MathObject {')
+  if (start < 0) return []
+  const end = dts.indexOf('\n}', start)
+  const body = dts.slice(start, end < 0 ? undefined : end)
+  return [...body.matchAll(/^\s{2}(\w+)\s*[(<]/gm)].map((m) => m[1] ?? '')
+}
+
+/** Every name the EDITOR admits: the free `declare function` overloads and the `Math.*`
+ *  members. Both halves, because the closure below is only as wide as what it reads. */
 const DECLARED: readonly string[] = [
-  ...new Set([...SHADE_DTS.matchAll(/declare function (\w+)[(<]/g)].map((m) => m[1] ?? '')),
+  ...new Set([
+    ...[...SHADE_DTS.matchAll(/declare function (\w+)[(<]/g)].map((m) => m[1] ?? ''),
+    ...mathObjectMembers(SHADE_DTS),
+  ]),
 ].sort()
 
 const CATALOGUE: readonly string[] = [
@@ -172,11 +199,16 @@ const AUTHORABLE_NOT_DECLARED: Readonly<Record<string, string>> = {
 }
 
 describe('the ambient library and the lowerer are the same surface (S2)', () => {
-  it('reads both sides, so no arm below is vacuously green', () => {
+  it('reads both sides, and both HALVES of the declared side, so no arm below is vacuous', () => {
     expect(DECLARED.length).toBeGreaterThan(100)
     expect(CATALOGUE.length).toBeGreaterThan(100)
     expect(DECLARED).toContain('textureSample')
     expect(CATALOGUE).toContain('textureSampleCubeArray')
+    // The `Math.*` half is read by a slice of the `.d.ts` text, which a rename of the
+    // interface or a reindent would silently empty — and an empty half is a subset of
+    // everything, so `declared ⊆ lowerable` would pass over nothing.
+    expect(mathObjectMembers(SHADE_DTS).length).toBeGreaterThan(20)
+    expect(mathObjectMembers(SHADE_DTS)).toContain('acosh')
   })
 
   it('lowers every authoring form this file claims is one, witness by witness', () => {

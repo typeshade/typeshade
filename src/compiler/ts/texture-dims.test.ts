@@ -363,13 +363,20 @@ declare const shadowSmp: sampler_comparison`,
 //
 // THE VALUE COMES FROM A UNIFORM ON PURPOSE. Written as `const l: i32 = 2` the front end folds
 // it to the literal `2`, and a WGSL integer literal is an abstract-int that converts to `f32`
-// by itself — measured on Tint, which accepts that program. The defect needs a value no
-// constant folder can reach.
+// by itself — measured on Tint on 2026-09-21, which ACCEPTS that program. The defect needs a
+// value no constant folder can reach.
+//
+// ALSO PINNED IN `src/language-service/ambient.test.ts`, from the other side: there the same
+// two programs are asked whether the EDITOR reports them, which is a different layer and a
+// different fix. Closing #145 flips the rows in both files.
 describe('the scalar arguments have the type the spec gives them', () => {
+  // `dref`, not `ref`: a uniform field name reaches the emitted WGSL verbatim, and `ref` is a
+  // WGSL reserved keyword — Tint would refuse the module for THAT, before ever reaching the
+  // overload check these rows are about, and the refusal quoted below would be a fiction.
   const SCALAR_DECLS = `interface U {
   lvl: i32;
   bias: i32;
-  ref: i32;
+  dref: i32;
 }
 declare const u: uniform<U>
 declare const atlas: texture_2d<f32>
@@ -388,7 +395,7 @@ ${body}
   const LEVEL = scalar('  return textureSampleLevel(atlas, smp, p.xy, u.lvl)')
   const BIAS = scalar('  return textureSampleBias(atlas, smp, p.xy, u.bias)')
   const DEPTH_REF = scalar(
-    '  return vec4(textureSampleCompare(shadowMap, cmp, p.xy, u.ref), 0., 0., 1.)',
+    '  return vec4(textureSampleCompare(shadowMap, cmp, p.xy, u.dref), 0., 0., 1.)',
   )
 
   it('passes an integer variable straight through today, which is the Tint-invalid shape', () => {
@@ -397,7 +404,7 @@ ${body}
     expect(compile(LEVEL).wgsl ?? '').toContain('textureSampleLevel(atlas, smp, p.xy, u.lvl)')
     expect(compile(BIAS).wgsl ?? '').toContain('textureSampleBias(atlas, smp, p.xy, u.bias)')
     expect(compile(DEPTH_REF).wgsl ?? '').toContain(
-      'textureSampleCompare(shadowMap, cmp, p.xy, u.ref)',
+      'textureSampleCompare(shadowMap, cmp, p.xy, u.dref)',
     )
   })
 

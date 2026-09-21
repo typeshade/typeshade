@@ -25,7 +25,7 @@
 // every row the suite names as new. A row that arrives unclaimed FAILS the suite: that is the
 // whole point of the fixture.
 import { createHash } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -177,13 +177,18 @@ if (duplicates.length > 0) {
   console.error(`duplicate signatures:\n${duplicates.map((d) => `  ${d.signature}`).join('\n')}`)
   process.exit(1)
 }
-const fixture = {
-  source: URL,
-  sha256: createHash('sha256').update(def).digest('hex'),
-  baked: new Date().toISOString().slice(0, 10),
-  generator: 'scripts/bake-coredef-textures.ts',
-  rows,
-}
+const sha256 = createHash('sha256').update(def).digest('hex')
+// `baked` is the date the CONTENT changed, not the date the script last ran: re-baking an
+// unchanged `core.def` must produce no diff at all, or "regenerate it and see" stops being a
+// cheap thing to ask of a reviewer. The sha256 above is the real identity.
+const previous = existsSync(OUT)
+  ? (JSON.parse(readFileSync(OUT, 'utf8')) as { sha256?: string; baked?: string })
+  : {}
+const baked =
+  previous.sha256 === sha256 && previous.baked !== undefined
+    ? previous.baked
+    : new Date().toISOString().slice(0, 10)
+const fixture = { source: URL, sha256, baked, generator: 'scripts/bake-coredef-textures.ts', rows }
 // One row per line: a JSON blob with no newlines is unreviewable, and `JSON.stringify`'s
 // indented form costs 45 KB of leading spaces for a file that ships in the tarball.
 const body = rows.map((r) => `  ${JSON.stringify(r)}`).join(',\n')

@@ -29,6 +29,11 @@
 // spelled is compiled here, and one that has quietly started to work must lose its entry
 // (`a DEFERRED row the compiler has since learned`). So the table cannot rot into a list of
 // things that were true once.
+// SPEC CITATIONS. `wgsl.txt:N` and `glsl-es-300.txt:N` are the audit's own coordinates — the
+// line in the W3C WGSL and Khronos GLSL ES 3.00 spec TEXTS as #144 read them, not files in
+// this repository. They are kept verbatim so a row here can be matched against the issue
+// that filed it; `core.def:N` is Tint's intrinsic table, of which
+// `src/core/spec-conformance/fixtures/` holds the checked-in texture and stage slices.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -70,7 +75,8 @@ type Stage = 'fragment' | 'vertex' | 'compute'
 
 /** Format literals by the texel kind the row's `implicit(...)` names, per access mode.
  *  `read_write` uses `r32*` because a DEVICE reads and writes only those three
- *  (`src/core/ir/types.ts`, measured against `createBindGroupLayout`), and a witness has to
+ *  (`src/core/ir/types.ts`, measured against `createBindGroupLayout` when that rule was
+ *  written), and a witness has to
  *  be a program a device would take, not only one Tint compiles. */
 const FORMAT: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   f32_texel_format: { read: 'r32float', write: 'rgba8unorm', read_write: 'r32float' },
@@ -383,9 +389,11 @@ const DEFERRED: Readonly<Record<string, string>> = {
 //
 // A row here is SUPPORTED — its witness compiles — and this package does NOT yet refuse it
 // from a vertex entry although Tint's `@stage(...)` does. Each is a program the front end
-// accepts and a device rejects at pipeline creation, so the list is a defect list, not a
-// design one, and it is shrink-only: the arm below fails a row that has started to be
-// refused, so a fix must delete its entry in the same commit.
+// accepts and Tint rejects: measured on 2026-09-21, all eight are refused by
+// `createShaderModule` with "storage texture with 'write'/'read_write' access mode cannot be
+// used by vertex pipeline stage". So the list is a defect list, not a design one, and it is
+// shrink-only: the arm below fails a row that has started to be refused here, so a fix must
+// delete its entry in the same commit.
 const STAGE_GAPS: Readonly<Record<string, string>> = {
   // F21 (audit §2): `lower/function.ts` gates `textureStore` out of a vertex entry but not a
   // read of a WRITABLE storage texture, which `core.def` stages the same way. Closed by #145.

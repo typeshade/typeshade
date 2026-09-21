@@ -256,17 +256,55 @@ export function probe(${params.join(', ')}): f32 {
     for (const id of ids) expect(MATH_FN_ARITY[id], id).toBeGreaterThan(0)
   })
 
+  /** Rules whose SECOND argument has a role of its own, so a call with every parameter at the
+   *  first one's type is refused whatever the element kind is — `extractBits(x, offset, count)`
+   *  wants a `u32` offset, `ldexp(x, e)` an `i32` exponent, `refract(i, n, eta)` a scalar eta.
+   *  For these the wrong-kind probe cannot tell the element rule firing from the own-role rule
+   *  firing (both report TS8036), so the positive control is skipped and the arm is only a
+   *  "something refuses this" check. Measured 2026-09-21; shrink-only by the arm after it. */
+  const OWN_ROLE_MASKS_THE_KIND = new Set(['extractBits', 'insertBits', 'ldexp', 'refract'])
+
   it.each(ids)('refuses a wrong element kind for `%s`, with TS8036', (id) => {
     const spec = MATH_ARG_SPECS[id]!
     const arity = MATH_FN_ARITY[id]!
     const width = spec.vector === true || spec.vec3 === true ? 'vec3' : 'scalar'
+    const call = `${id}(${NAMES.slice(0, arity).join(', ')})`
+
+    // THE POSITIVE CONTROL FIRST. Without it the arm says nothing: a rule that refused EVERY
+    // call of its shape — because a later argument has its own role, or because the check
+    // broke into always-refuse — would pass the wrong-kind probe just as happily.
+    if (!OWN_ROLE_MASKS_THE_KIND.has(id)) {
+      const admitted = spell(width, admittedElem(spec.elems))
+      const clean = errorsOf(
+        probe(
+          NAMES.slice(0, arity).map((n) => `${n}: ${admitted}`),
+          call,
+        ),
+      )
+      expect(clean, `${id} refuses its OWN admitted element kind`).toEqual([])
+    }
+
     const type = spell(width, excludedElem(spec.elems))
     const params = NAMES.slice(0, arity).map((n) => `${n}: ${type}`)
-    const errors = errorsOf(probe(params, `${id}(${NAMES.slice(0, arity).join(', ')})`))
+    const errors = errorsOf(probe(params, call))
     expect(
       errors.some((e) => e.startsWith(M)),
       errors.join(' | '),
     ).toBe(true)
+  })
+
+  it('loses the OWN_ROLE_MASKS_THE_KIND entry of a rule whose admitted shape now compiles', () => {
+    const clean: string[] = []
+    for (const id of OWN_ROLE_MASKS_THE_KIND) {
+      const spec = MATH_ARG_SPECS[id]!
+      const arity = MATH_FN_ARITY[id]!
+      const width = spec.vector === true || spec.vec3 === true ? 'vec3' : 'scalar'
+      const admitted = spell(width, admittedElem(spec.elems))
+      const call = `${id}(${NAMES.slice(0, arity).join(', ')})`
+      const params = NAMES.slice(0, arity).map((n) => `${n}: ${admitted}`)
+      if (errorsOf(probe(params, call)).length === 0) clean.push(id)
+    }
+    expect(clean).toEqual([])
   })
 
   it.each(ids)('counts the arguments of `%s`, with TS8019', (id) => {

@@ -78,15 +78,45 @@ export function f(${params.map((p) => `${p}: f64`).join(', ')}): f64 {
     },
   )
 
-  it.fails(
-    'lowers `mix` on f64 scalars, which the pass table claims a twin for — flipped by #151',
-    () => {
-      // `fp64-lower.ts`'s `CALL_FN` has `mix: 'df64_mix'`, and a three-argument `mix` written in
-      // source still reaches the backend unrewritten: SD0041 at emit. A twin the surface cannot
-      // reach is the same gap as a twin that does not exist.
-      expect(errorsOf(scalar('mix', 3))).toEqual([])
-    },
-  )
+  it('lowers `mix` on an f64 pair with an f32 interpolant, and the CPU agrees', () => {
+    // `mix` is the one twin whose arguments are not all one type: `fp64-lower.ts` emits
+    // `df64_mix(a, b, t)` with `t` a single-precision factor, so the surface takes an `f32`
+    // there. Both spellings of that reach the twin.
+    for (const src of [
+      `"use typeshade"
+export function f(x: f64, y: f64, t: f32): f64 {
+  return mix(x, y, t)
+}
+`,
+      `"use typeshade"
+export function f(x: f64, y: f64): f64 {
+  return mix(x, y, 0.5)
+}
+`,
+    ]) {
+      const result = compile(src)
+      expect(
+        result.diagnostics.filter((d) => d.category === 'error').map((d) => d.message),
+      ).toEqual([])
+      expect(result.wgsl ?? '').toContain('df64_mix(')
+    }
+    expect(
+      compile(`"use typeshade"
+export function f(x: f64, y: f64, t: f32): f64 {
+  return mix(x, y, t)
+}
+`).eval('f', [2, 4, 0.5]),
+    ).toBeCloseTo(3, 15)
+  })
+
+  it('refuses an f64 INTERPOLANT, naming the narrowing that fixes it', () => {
+    // Not a missing twin — a stated contract, and the one shape of `mix` the pass will not
+    // lower. The message must keep naming `toF32`, or the refusal stops being actionable.
+    const errors = errorsOf(scalar('mix', 3))
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain('mix() interpolant t must be f32')
+    expect(errors[0]).toContain('toF32')
+  })
 
   /** The builtins with NO twin. Each is a program that compiles through the front end and
    *  fails at emit, which is the refusal an author meets. */

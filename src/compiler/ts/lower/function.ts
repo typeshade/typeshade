@@ -471,6 +471,9 @@ export function lowerSourceFunctions(
 const writtenName = (op: string): string =>
   op.replace(/^(texture\w+?)(CubeArray|Array|Cube)$/, '$1')
 
+/** Exported for the spec-conformance suite (`src/core/spec-conformance/stage-rules.test.ts`),
+ *  which compares it against the sets derived from Tint's `core.def` `@stage` rows. Not on the
+ *  public barrel: `core/` stays private. */
 export const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
   // The implicit level of detail of a plain sample needs the derivatives. The 2d, array and
   // cube ids are caught by the core lint (fragment-only-builtin); the cube-array id of roadmap
@@ -499,7 +502,11 @@ export const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
 
 /** The calls WGSL admits in a fragment or a compute stage but not in a vertex one: a texture
  *  write (`textureStore` is `@stage("fragment", "compute")` in Tint's table). Reported the way
- *  the fragment-only set is, over the call graph, but only for a vertex entry. */
+ *  the fragment-only set is, over the call graph, but only for a vertex entry.
+ *
+ *  Exported for the spec-conformance suite (`src/core/spec-conformance/stage-rules.test.ts`),
+ *  which compares it against the sets derived from Tint's `core.def` `@stage` rows. Not on the
+ *  public barrel: `core/` stays private. */
 export const NOT_IN_VERTEX_CALLS: ReadonlySet<string> = new Set(['textureStore'])
 
 /** Whether a function's OWN body uses a stage-restricted op, by the name to report it under. */
