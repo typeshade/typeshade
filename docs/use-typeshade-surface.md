@@ -97,12 +97,12 @@ does not make `vec3` a scalar. A generic alias has no one target type and keeps 
 generics are roadmap 0.3 item T9.
 
 A struct is the members written in it, whichever of the three spellings declared it: a method
-or call signature, an index signature, an optional (`a?: f32`) member, and an `extends` clause
-are each rejected, since a WGSL struct has no form for them and silently dropping one would
-change the buffer layout the host fills. The optional member is the one where the three
-spellings used to disagree: an interface refused it and a class emitted it as required. They
-refuse it alike now. Inheritance is roadmap 0.3 item T5, which flattens the base's fields
-rather than dropping them.
+or call signature, an index signature and an optional (`a?: f32`) member are each rejected,
+since a WGSL struct has no form for them and silently dropping one would change the buffer
+layout the host fills. The optional member is the one where the three spellings used to
+disagree: an interface refused it and a class emitted it as required. They refuse it alike
+now. An `extends` clause is inheritance (roadmap 0.3 item T5, §26): the base's fields come
+first and the derived ones after, so nothing is dropped.
 
 Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
 
@@ -128,7 +128,6 @@ an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(t
 Forbidden on these classes:
 
 - `new Camera()` as a resource (a `new` on a class with a constructor builds a value, §26)
-- `extends` (`TS8010`: the base's fields would silently vanish from the layout)
 - `@compute` / `@vertex` / `@fragment` methods (an entry is a top-level function)
 - no fields at all — a struct with an empty field list has no WGSL form
 - a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
