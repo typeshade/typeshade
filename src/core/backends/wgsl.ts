@@ -84,6 +84,14 @@ export function wgslType(t: ShaderType): string {
           return `texture_2d_array<${t.elem}>`
         case '2d':
           return `texture_2d<${t.elem}>`
+        case 'cube':
+          return `texture_cube<${t.elem}>`
+        case '3d':
+          return `texture_3d<${t.elem}>`
+        case '1d':
+          return `texture_1d<${t.elem}>`
+        case 'cube-array':
+          return `texture_cube_array<${t.elem}>`
         default:
           // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.
@@ -96,8 +104,25 @@ export function wgslType(t: ShaderType): string {
       return t.dim === '2d-array'
         ? `texture_storage_2d_array<${t.format}, ${t.access}>`
         : `texture_storage_2d<${t.format}, ${t.access}>`
+    case 'depth-texture':
+      // A depth texture has no element type: every one is single-channel float, and a read of
+      // one yields `f32` rather than `vec4`.
+      switch (t.dim) {
+        case '2d':
+          return 'texture_depth_2d'
+        case '2d-array':
+          return 'texture_depth_2d_array'
+        case 'cube':
+          return 'texture_depth_cube'
+        case 'cube-array':
+          return 'texture_depth_cube_array'
+        case '2d-ms':
+          return 'texture_depth_multisampled_2d'
+      }
     case 'sampler':
       return 'sampler'
+    case 'sampler-comparison':
+      return 'sampler_comparison'
     case 'void':
       return 'void'
   }
@@ -186,6 +211,11 @@ const WGSL_CAP_PROFILE = {
   // 10) — measured against a real adapter, which built a bind group layout for each of them
   // with nothing requested. The formats that DO need one are not in `StorageTextureFormat`.
   storageTexture: {},
+  // A 1d texture, a cube-array texture and textureGather are core WGSL (roadmap 0.4 item 12):
+  // the rows are empty, and GLSL ES 3.00 has none of the three, so its profile has no row.
+  texture1d: {},
+  textureCubeArray: {},
+  textureGather: {},
   // Opt-in LANGUAGE features — a WGSL `enable` directive AND a device feature.
   f16: { directive: 'f16', hostFeature: 'shader-f16' },
   subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },
@@ -288,7 +318,9 @@ export const wgslBackend: Backend = {
     if (
       b.type.kind === 'texture' ||
       b.type.kind === 'storage-texture' ||
-      b.type.kind === 'sampler'
+      b.type.kind === 'depth-texture' ||
+      b.type.kind === 'sampler' ||
+      b.type.kind === 'sampler-comparison'
     ) {
       return `@group(${b.group}) @binding(${b.binding}) var ${b.name}: ${wgslType(b.type)};`
     }

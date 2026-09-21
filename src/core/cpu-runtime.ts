@@ -693,7 +693,51 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureSampleArray: () => [0, 0, 0, 1],
   textureSampleLevelArray: () => [0, 0, 0, 1],
   textureLoadArray: () => [0, 0, 0, 1],
+  // Bias and gradient sampling (roadmap 0.4 item 12): a texel, so opaque black like the reads
+  // above. The cube and 3d textures need no ids of their own here — the coordinate's width
+  // rides on the IR type and the read ids are the same.
+  textureSampleBias: () => [0, 0, 0, 1],
+  textureSampleBiasArray: () => [0, 0, 0, 1],
+  textureSampleGrad: () => [0, 0, 0, 1],
+  textureSampleGradArray: () => [0, 0, 0, 1],
+  // The cube-array forms and the gathers (roadmap 0.4 item 12): a texel, so opaque black; a
+  // gather of a DEPTH texture yields four depths, and the placeholder is 1, the far plane, for
+  // the reason a comparison yields 1: nothing occludes, so the rest of the shader is left alone.
+  textureSampleCubeArray: () => [0, 0, 0, 1],
+  textureSampleLevelCubeArray: () => [0, 0, 0, 1],
+  textureSampleBiasCubeArray: () => [0, 0, 0, 1],
+  textureSampleGradCubeArray: () => [0, 0, 0, 1],
+  textureGather: () => [0, 0, 0, 1],
+  textureGatherArray: () => [0, 0, 0, 1],
+  textureGatherDepth: () => [1, 1, 1, 1],
+  textureGatherDepthArray: () => [1, 1, 1, 1],
+  // The depth comparisons (roadmap 0.4 item 11) yield how much of the filter footprint passed,
+  // which a shader multiplies its lighting by. 1, not 0: the oracle has no texture memory, so
+  // the honest placeholder is the one that leaves the rest of the shader alone — a factor of 1
+  // is the identity for that multiply, where 0 would black out every shaded pixel and look like
+  // a bug in the shader rather than the absence of a texture. Same reasoning as the 1×1
+  // dimensions below, not the opaque black above: a texel has no identity, a factor does.
+  textureSampleCompare: () => 1,
+  textureSampleCompareArray: () => 1,
+  textureSampleCompareLevel: () => 1,
+  textureSampleCompareLevelArray: () => 1,
+  textureSampleCompareCube: () => 1,
+  textureSampleCompareLevelCube: () => 1,
+  textureSampleCompareCubeArray: () => 1,
+  textureSampleCompareLevelCubeArray: () => 1,
+  // Four pass factors, each the identity for the multiply it feeds.
+  textureGatherCompare: () => [1, 1, 1, 1],
+  textureGatherCompareArray: () => [1, 1, 1, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
+  textureDimensions3d: () => [1, 1, 1], // the 3d twin: 1×1×1, for the same reason
+  textureDimensions1d: () => 1, // the 1d twin: one texel wide
+  // The multisampled reads (roadmap 0.4 item 13): a texel is opaque black, a depth sample the
+  // far plane, a size 1×1, and one sample per texel, so a resolve that divides by the count
+  // stays finite and leaves the rest of the shader alone.
+  textureLoadMs: () => [0, 0, 0, 1],
+  textureLoadDepthMs: () => 1,
+  textureDimensionsMs: () => [1, 1],
+  textureNumSamples: () => 1,
   textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
   // A storage texture write (roadmap 0.4 item 10). The oracle has no texture memory, so the
   // write goes nowhere and the call yields nothing — the same contract the reads above keep,
@@ -815,9 +859,11 @@ export function elemKindOf(t: ShaderType): ElemKind | undefined {
  */
 export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS))
 /** The names of every GPU-only intrinsic the CPU backends cannot genuinely evaluate, as a
- *  read-only set: `textureSample`, `textureSampleLevel`, `textureLoad`, their 2d-array
- *  forms (`textureSampleArray`, `textureSampleLevelArray`, `textureLoadArray`),
- *  `textureDimensions`, `textureNumLayers`, and the derivatives `fwidth`, `dpdx` and
+ *  read-only set: `textureSample`, `textureSampleLevel`, `textureSampleBias`,
+ *  `textureSampleGrad`, `textureLoad`, their 2d-array forms (`textureSampleArray`,
+ *  `textureSampleLevelArray`, `textureSampleBiasArray`, `textureSampleGradArray`,
+ *  `textureLoadArray`), the depth comparisons, `textureDimensions` (and its 3d twin),
+ *  `textureNumLayers`, and the derivatives `fwidth`, `dpdx` and
  *  `dpdy`. A texture read needs the GPU's sampler and texture memory, and a derivative
  *  needs neighbouring fragments; a CPU run of a single invocation has neither. Calling
  *  one of these from a module compiled with {@link compileModule} or

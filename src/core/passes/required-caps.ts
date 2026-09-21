@@ -9,6 +9,8 @@
 
 import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js'
 import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js'
+import { collectFnRefs } from '../ir/collect-refs.js'
+import { TEXTURE_GATHER_IDS } from '../intrinsics.js'
 
 /** Capability DEPENDENCIES (X-GIS #1670) — declaring the key implies needing the values, so a
  *  host activating off `reflect().requiredFeatures` gets the whole set rather than the
@@ -30,11 +32,28 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
   const caps = new Set<Capability>()
   for (const b of m.bindings) {
     if (b.space === 'storage') caps.add('storageBuffer')
-    if (b.type.kind === 'texture' && b.type.dim === '2d-ms') caps.add('msaaTextureLoad')
+    // The depth twin rides the same capability (roadmap 0.4 item 13).
+    if ((b.type.kind === 'texture' || b.type.kind === 'depth-texture') && b.type.dim === '2d-ms')
+      caps.add('msaaTextureLoad')
     // A storage texture is WebGPU-only (roadmap 0.4 item 10): GLSL ES 3.00 has no image
     // load/store, so the capability is what fails a module closed on that target rather than
     // letting it reach `glslType` and throw from inside the emit.
     if (b.type.kind === 'storage-texture') caps.add('storageTexture')
+    // A 1d or a cube-array texture is WebGPU-only too (roadmap 0.4 item 12): GLSL ES 3.00 has
+    // no `sampler1D` (a reserved word) and no `samplerCubeArray` (a WebGL2 driver refuses the
+    // extension). The depth cube array rides the same capability as the colour one.
+    if (b.type.kind === 'texture' && b.type.dim === '1d') caps.add('texture1d')
+    if (
+      (b.type.kind === 'texture' || b.type.kind === 'depth-texture') &&
+      b.type.dim === 'cube-array'
+    )
+      caps.add('textureCubeArray')
+  }
+  // A textureGather call is a capability of the CALLS, not of a binding (roadmap 0.4 item 12):
+  // the texture it reads is an ordinary 2d or cube one. GLSL ES 3.00 has no gather (ES 3.10).
+  for (const f of m.funcs) {
+    const refs = collectFnRefs(f)
+    for (const id of TEXTURE_GATHER_IDS) if (refs.calls.has(id)) caps.add('textureGather')
   }
   for (const f of m.funcs) {
     // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built

@@ -150,6 +150,60 @@ const atomicSpellings = (): Record<string, Spelling> =>
     ]),
   )
 
+/** The cube-array sampling ids (roadmap 0.4 item 12): WGSL spells each as the base builtin; GLSL
+ *  ES 3.00 has no cube-array sampler, so every column throws. */
+function cubeArraySpellings(): Record<string, Spelling> {
+  const out: Record<string, Spelling> = {}
+  for (const base of [
+    'textureSample',
+    'textureSampleLevel',
+    'textureSampleBias',
+    'textureSampleGrad',
+    'textureSampleCompare',
+    'textureSampleCompareLevel',
+  ]) {
+    out[`${base}CubeArray`] = {
+      wgsl: (a) => `${base}(${join(a)})`,
+      glsl: () => {
+        throw new Error(
+          `glsl-es300: ${base} on a cube array has no GLSL ES 3.00 spelling (no samplerCubeArray)`,
+        )
+      },
+    }
+  }
+  return out
+}
+
+/** The neutral ids a `textureGather` / `textureGatherCompare` call lowers to, one per WGSL
+ *  argument structure (roadmap 0.4 item 12). Exported so the capability pass can derive
+ *  `textureGather` from a call without a second list. */
+export const TEXTURE_GATHER_IDS: ReadonlySet<string> = new Set([
+  'textureGather',
+  'textureGatherArray',
+  'textureGatherDepth',
+  'textureGatherDepthArray',
+  'textureGatherCompare',
+  'textureGatherCompareArray',
+])
+
+function gatherSpellings(): Record<string, Spelling> {
+  const out: Record<string, Spelling> = {}
+  for (const id of TEXTURE_GATHER_IDS) {
+    const wgslName = id.startsWith('textureGatherCompare')
+      ? 'textureGatherCompare'
+      : 'textureGather'
+    out[id] = {
+      wgsl: (a) => `${wgslName}(${join(a)})`,
+      glsl: () => {
+        throw new Error(
+          `glsl-es300: ${wgslName} has no GLSL ES 3.00 spelling (textureGather is ES 3.10)`,
+        )
+      },
+    }
+  }
+  return out
+}
+
 /** The spelling of each builtin id on each target, keyed by id. Only builtins whose spelling
  *  differs between WGSL and GLSL ES 3.00 have an entry; a builtin with no entry is spelled the
  *  same way on both targets, as `name(args)`. The wgsl and glsl members of an entry each take
@@ -208,6 +262,51 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `textureLoad(${join(a)})`,
     glsl: (a) => `texelFetch(${a[0]}, ivec3(${a[1]}, int(${a[2]})), int(${a[3]}))`,
   },
+  // ── bias and gradient sampling (roadmap 0.4 item 12) — DISTINCT ids, never an arity branch ──
+  //
+  // textureSampleBias(tex, samp, coord, bias): the implicit level of detail shifted by a bias.
+  // It needs the derivatives only a fragment quad has, so it is fragment-only on BOTH targets —
+  // Tint: "built-in cannot be used by compute pipeline stage"; a WebGL2 driver refuses
+  // `texture(s, uv, bias)` in a vertex stage with "no matching overloaded function" (measured).
+  // The coordinate's width rides on the IR type (a vec2 on a 2d, a vec3 on a cube or 3d), so
+  // ONE id covers every dim, as it does for textureSample; the array form is its own id because
+  // it restructures the arguments — the layer folds into the coordinate on GLSL.
+  textureSampleBias: {
+    wgsl: (a) => `textureSampleBias(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, ${a[2]}, ${a[3]})`,
+  },
+  textureSampleBiasArray: {
+    wgsl: (a) => `textureSampleBias(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, vec3(${a[2]}, float(${a[3]})), ${a[4]})`,
+  },
+  // textureSampleGrad(tex, samp, coord, ddx, ddy): explicit gradients, so no derivative is
+  // taken and the read is legal in ANY stage on both targets (measured in a compute stage on
+  // Tint and in a vertex stage on a WebGL2 driver). The gradients have the coordinate's width.
+  textureSampleGrad: {
+    wgsl: (a) => `textureSampleGrad(${join(a)})`,
+    glsl: (a) => `textureGrad(${a[0]}, ${a[2]}, ${a[3]}, ${a[4]})`,
+  },
+  textureSampleGradArray: {
+    wgsl: (a) => `textureSampleGrad(${join(a)})`,
+    glsl: (a) => `textureGrad(${a[0]}, vec3(${a[2]}, float(${a[3]})), ${a[4]}, ${a[5]})`,
+  },
+  // ── cube-array sampling (roadmap 0.4 item 12, WGSL-only) ──
+  //
+  // WGSL spells each as the base builtin with the layer after the direction. GLSL ES 3.00 has
+  // no `samplerCubeArray` at all (a WebGL2 driver refuses the extension), so the column fails
+  // closed; the `textureCubeArray` capability refuses the module first. Their own ids rather
+  // than the 2d-array ones because the 2d-array spellings fold the layer into a `vec3(uv,
+  // layer)`, which would be well-formed and WRONG for a cube array: an id's text must never
+  // depend on the texture it happens to be called on.
+  ...cubeArraySpellings(),
+  // ── textureGather (roadmap 0.4 item 12, WGSL-only) ──
+  //
+  // The four texels a linear filter would blend, one channel each, in any stage. WGSL takes the
+  // component FIRST on a colour texture and none on a depth texture (one channel), the layer
+  // after the coordinate on an array, and the reference after that on the compare form. One id
+  // per argument structure. GLSL ES 3.00 has no gather (`textureGather` is ES 3.10), so the
+  // column fails closed; the `textureGather` capability refuses the module first.
+  ...gatherSpellings(),
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
   // round(x) — ties-to-EVEN on both targets. WGSL's round IS roundEven; GLSL ES
   // 3.00's own round() leaves the 0.5 case IMPLEMENTATION-CHOSEN (§8.3 "the
@@ -384,6 +483,53 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // the front end restricts it to what the builtins accept (an atomic in storage). GLSL ES
   // 3.00 has no atomic memory functions; the column fails closed like arrayLength's.
   ...atomicSpellings(),
+  // The depth comparisons (roadmap 0.4 item 11). Each shape takes its OWN neutral id, never an
+  // arity branch on one entry — the rule `textureSampleArray` is written under, and for the
+  // same reason: the ids restructure their arguments differently rather than merely adding one.
+  //
+  // On WGSL the sampler is an argument and the reference follows the coordinate. On GLSL the
+  // sampler FUSES into the combined `sampler2DShadow` and the reference folds INTO the
+  // coordinate — `vec3(uv, ref)`, and `vec4(uv, layer, ref)` on the array form, where the layer
+  // folds in too. Measured on a WebGL2 driver, which takes all four.
+  //
+  // `textureSampleCompare` needs implicit derivatives, so Tint allows it in a fragment stage
+  // only ("built-in cannot be used by compute pipeline stage"); `textureSampleCompareLevel`
+  // samples at level 0 and is legal anywhere, which is what `textureLod(..., 0.0)` is — on the
+  // 2D form. GLSL ES 3.00 has NO `textureLod` overload for `sampler2DArrayShadow` ("no matching
+  // overloaded function found", measured on a WebGL2 driver after the compile gate caught it),
+  // so the array form spells level 0 as `textureGrad` with zero gradients, which the same
+  // driver takes in a fragment AND a vertex stage. A zero gradient is a level of detail of
+  // -infinity, clamped to the base level: level 0, said the one way the target has to say it.
+  textureSampleCompare: {
+    wgsl: (a) => `textureSampleCompare(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, vec3(${a[2]}, ${a[3]}))`,
+  },
+  textureSampleCompareArray: {
+    wgsl: (a) => `textureSampleCompare(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, vec4(${a[2]}, float(${a[3]}), ${a[4]}))`,
+  },
+  textureSampleCompareLevel: {
+    wgsl: (a) => `textureSampleCompareLevel(${join(a)})`,
+    glsl: (a) => `textureLod(${a[0]}, vec3(${a[2]}, ${a[3]}), 0.0)`,
+  },
+  textureSampleCompareLevelArray: {
+    wgsl: (a) => `textureSampleCompareLevel(${join(a)})`,
+    glsl: (a) =>
+      `textureGrad(${a[0]}, vec4(${a[2]}, float(${a[3]}), ${a[4]}), vec2(0.0), vec2(0.0))`,
+  },
+  // The cube forms (roadmap 0.4 item 12): the coordinate is a vec3 DIRECTION, so the reference
+  // folds into a vec4 — their own ids, since `vec3(dir, ref)` would be a constructor with a
+  // component too many. `textureLod` has no `samplerCubeShadow` overload either (measured, the
+  // same gap as the 2d array's), so level 0 is again `textureGrad` with zero gradients, three
+  // wide this time because the gradients have the coordinate's width.
+  textureSampleCompareCube: {
+    wgsl: (a) => `textureSampleCompare(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, vec4(${a[2]}, ${a[3]}))`,
+  },
+  textureSampleCompareLevelCube: {
+    wgsl: (a) => `textureSampleCompareLevel(${join(a)})`,
+    glsl: (a) => `textureGrad(${a[0]}, vec4(${a[2]}, ${a[3]}), vec3(0.0), vec3(0.0))`,
+  },
   // textureStore(tex, coord, value) and its array form (roadmap 0.4 item 10). WGSL spells
   // both `textureStore`, with the layer between the coordinate and the value on the array one,
   // which is exactly the argument order the front end builds. GLSL ES 3.00 has no image
@@ -419,6 +565,62 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
       a.length >= 2
         ? `uvec2(textureSize(${a[0]}, int(${a[1]})))`
         : `uvec2(textureSize(${a[0]}, 0))`,
+  },
+  // textureDimensions3d(t) — a 3d texture's size is THREE wide (roadmap 0.4 item 12), so the
+  // uvec2() wrapper above would drop its depth: its own id, for the reason textureNumLayers
+  // is one. A cube's size is two wide on both targets (the size of one face), so a cube keeps
+  // the entry above.
+  textureDimensions3d: {
+    wgsl: (a) => `textureDimensions(${join(a)})`,
+    glsl: (a) =>
+      a.length >= 2
+        ? `uvec3(textureSize(${a[0]}, int(${a[1]})))`
+        : `uvec3(textureSize(${a[0]}, 0))`,
+  },
+  // The multisampled reads (roadmap 0.4 item 13, WGSL-only under msaaTextureLoad). WGSL spells
+  // them textureLoad / textureDimensions / textureNumSamples; GLSL ES 3.00 has no sampler2DMS
+  // at all (ES 3.10), so every column fails closed. Their own ids rather than the 2d ones:
+  // `texelFetch(t, c, int(s))` would be well-formed, wrong text for a sample index, and the
+  // 2d wrapper's `textureSize(t, 0)` takes a level a multisampled texture has none of.
+  textureLoadMs: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: a multisampled load has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
+      )
+    },
+  },
+  textureLoadDepthMs: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: a multisampled depth load has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
+      )
+    },
+  },
+  textureDimensionsMs: {
+    wgsl: (a) => `textureDimensions(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: textureDimensions on a multisampled texture has no GLSL ES 3.00 spelling',
+      )
+    },
+  },
+  textureNumSamples: {
+    wgsl: (a) => `textureNumSamples(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: textureNumSamples has no GLSL ES 3.00 spelling (textureSamples is ES 3.10)',
+      )
+    },
+  },
+  // textureDimensions1d(t) — ONE wide, a `u32` (roadmap 0.4 item 12); its own id for the reason
+  // the 3d one is. GLSL ES 3.00 has no 1d texture, so the column fails closed.
+  textureDimensions1d: {
+    wgsl: (a) => `textureDimensions(${join(a)})`,
+    glsl: () => {
+      throw new Error('glsl-es300: textureDimensions on a texture_1d has no GLSL ES 3.00 spelling')
+    },
   },
   // textureNumLayers(t) — the layer COUNT of a 2d-array texture (X-GIS #1658), i.e. the
   // ivec3 component the entry above deliberately DROPS. Its own id, not an overload

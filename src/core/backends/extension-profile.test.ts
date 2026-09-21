@@ -303,6 +303,11 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
       // A storage texture is core WGSL at the sixteen formats every device supports with
       // STORAGE_BINDING and no feature request (roadmap 0.4 item 10), so the row is empty.
       storageTexture: {},
+      // A 1d texture, a cube-array texture and textureGather are core WGSL with no feature to
+      // request (roadmap 0.4 item 12); GLSL ES 3.00 has none of the three, so no row there.
+      texture1d: {},
+      textureCubeArray: {},
+      textureGather: {},
       msaaTextureLoad: {},
       f16: { directive: 'f16', hostFeature: 'shader-f16' },
       subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },

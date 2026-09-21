@@ -432,4 +432,9 @@ const DERIVED_CAPABILITIES: ReadonlySet<Capability> = new Set([
   'compute',
   'msaaTextureLoad',
   'storageTexture',
+  // Roadmap 0.4 item 12: a 1d or cube-array texture binding, and a textureGather call. Each is
+  // core WebGPU and absent from GLSL ES 3.00, so the WGSL row is empty and GLSL has none.
+  'texture1d',
+  'textureCubeArray',
+  'textureGather',
 ])

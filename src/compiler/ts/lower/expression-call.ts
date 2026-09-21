@@ -9,6 +9,8 @@ import {
   typeKey,
   u32T,
   vec2uT,
+  vec3uT,
+  vec4fT,
   voidT,
 } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
@@ -23,6 +25,7 @@ import {
 } from '../math-alias.js'
 import { SCALAR_CAST, literalPeerType } from '../numeric.js'
 import { foldNumericLit, retargetIntLit, retargetIntLitCtx } from '../lit-coerce.js'
+import { spanOf } from '../span.js'
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
 import { lowerAtomicCall } from './atomics.js'
@@ -107,7 +110,9 @@ export function lowerCall(
         type: voidT,
         fn: `console.${method}`,
         args,
-        span: { file: sourceFile.fileName, start: node.getStart(sourceFile), length: node.getWidth(sourceFile) },
+        // The one span constructor every lowering uses: a `SourceSpan` carries line and character
+        // as well as the offset, and a hand-built `{ file, start, length }` is not one.
+        span: spanOf(sourceFile, node),
       }
     }
     if (ts.isIdentifier(obj) && obj.text === 'Math') {
@@ -585,6 +590,13 @@ const TEXTURE_CALLS = new Set([
   'textureDimensions',
   'textureNumLayers',
   'textureStore',
+  'textureSampleCompare',
+  'textureSampleCompareLevel',
+  'textureSampleBias',
+  'textureSampleGrad',
+  'textureGather',
+  'textureGatherCompare',
+  'textureNumSamples',
 ])
 
 /** `textureStore(dst, coord, value)`, `textureLoad(src, coord)` and `textureDimensions(t)` on a
@@ -671,6 +683,116 @@ function lowerStorageTextureCall(
   return undefined
 }
 
+/** `textureSampleCompare(tex, smp, uv, ref)` and `textureSampleCompareLevel(…)` on a depth
+ *  texture, with the layer between the coordinate and the reference on the array form
+ *  (roadmap 0.4 item 11). Both yield an `f32`: how much of the filter footprint passed the
+ *  comparison, not a texel. The sampler has to be a `sampler_comparison`; an ordinary one has
+ *  no reference to compare against, and Tint refuses the pairing as "no matching call".
+ *
+ *  `textureSampleCompare` uses the implicit level of detail, so it is fragment-only, which
+ *  `FRAGMENT_ONLY_CALLS` in function.ts reports by stage; `…Level` samples level 0 anywhere.
+ *
+ *  A PLAIN read of a depth texture — `textureSample` with an ordinary sampler, `textureLoad` —
+ *  is refused here for now, with the reason: GLSL ES 3.00 fuses a texture and its sampler into
+ *  one object whose type is decided by the read (`sampler2D` for a plain one, `sampler2DShadow`
+ *  for a comparison), so a depth texture read both ways needs WebGPU's separate samplers, a
+ *  capability a later item adds. Until then every depth read is a comparison and the GLSL
+ *  combined type is one spelling per dim. */
+function lowerDepthTextureCall(
+  id: string,
+  tex: Extract<ShaderType, { kind: 'depth-texture' }>,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  // A multisampled depth texture is loaded, never compared (roadmap 0.4 item 13); WGSL-only by
+  // the msaaTextureLoad capability, so the fused-sampler reason that defers a plain read of the
+  // other depth textures does not arise for it.
+  if (tex.dim === '2d-ms')
+    return lowerMultisampledCall(id, tex, args, node, sourceFile, diagnostics)
+  const suffix = arraySuffix(tex.dim)
+  const isArray = suffix !== ''
+  const shown = typeKey(tex)
+  if (id === 'textureDimensions') {
+    // A cube's size is the size of one face, two wide on both targets, so it keeps the 2d id.
+    return arity(id, args, 1, node, sourceFile, diagnostics)
+      ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
+      : undefined
+  }
+  if (id === 'textureNumLayers') {
+    if (!isArray) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        tex.dim === 'cube'
+          ? `textureNumLayers needs a texture_depth_2d_array or a texture_depth_cube_array; a ` +
+              `texture_depth_cube has six faces, not layers.`
+          : `textureNumLayers needs a texture_depth_2d_array; a plain depth texture has no layers.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return arity(id, args, 1, node, sourceFile, diagnostics)
+      ? { op: 'call', type: u32T, fn: id, args: [...args] }
+      : undefined
+  }
+  if (id === 'textureSampleCompare' || id === 'textureSampleCompareLevel') {
+    const smp = args[1]
+    if (smp === undefined || smp.type.kind !== 'sampler-comparison') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${id} compares through a sampler_comparison; got ` +
+          `${smp === undefined ? 'nothing' : typeKey(smp.type)}. An ordinary sampler filters a ` +
+          `texel and has no reference to compare against. Declare the sampler ` +
+          `"declare const smp: sampler_comparison".`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    if (!arity(id, args, isArray ? 5 : 4, node, sourceFile, diagnostics)) return undefined
+    if (!vecArg(id, tex, args[2]!, node.arguments[2]!, 'coordinate', sourceFile, diagnostics))
+      return undefined
+    const out = [...args]
+    if (isArray) {
+      // The layer is an integer, as on a sampled array texture; the reference depth that
+      // follows it is an f32 and is left as written.
+      const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
+      if (!layer) return undefined
+      out[3] = layer
+    }
+    // The cube form is its own id (roadmap 0.4 item 12): on GLSL the reference folds into a
+    // vec4 after the vec3 direction, where the 2d form folds it into a vec3.
+    const fn = isArray ? `${id}${suffix}` : tex.dim === 'cube' ? `${id}Cube` : id
+    return { op: 'call', type: f32T, fn, args: out }
+  }
+  if (id === 'textureSample' || id === 'textureSampleLevel' || id === 'textureLoad') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `"${shown}" is read by comparison: textureSampleCompare(tex, smp, uv, ref) with a ` +
+        `sampler_comparison yields how much of the footprint passed. A plain read of a depth ` +
+        `texture — ${id} — is not here yet: on GLSL ES 3.00 the texture and its sampler are one ` +
+        `object whose type the read decides, so a depth texture read both ways needs separate ` +
+        `samplers, which a later item adds.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${id} does not take a depth texture; "${shown}" is read with textureSampleCompare.`,
+    TS_CODES.TYPE_MISMATCH,
+  )
+  return undefined
+}
+
 /**
  * Lower `textureSample(tex, smp, uv)` and its siblings.
  *
@@ -689,12 +811,22 @@ function lowerTextureCall(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // A gather takes its texture SECOND on a colour texture, after the component (roadmap 0.4
+  // item 12), so it is routed before anything below reads args[0] as the texture.
+  if (id === 'textureGather' || id === 'textureGatherCompare') {
+    return lowerGatherCall(id, args, node, sourceFile, diagnostics)
+  }
   const tex = args[0]
   // A storage texture is read and written by texel coordinate (roadmap 0.4 item 10), so the
   // three calls that take one go down their own path: its access mode decides which of them
   // apply, and its FORMAT decides the texel type where a sampled texture's element would.
   if (tex && tex.type.kind === 'storage-texture') {
     return lowerStorageTextureCall(id, tex.type, args, node, sourceFile, diagnostics)
+  }
+  // A depth texture is read by COMPARISON (roadmap 0.4 item 11): its own path, since the reads
+  // that apply, the sampler they take and the type they yield all differ from a sampled one.
+  if (tex && tex.type.kind === 'depth-texture') {
+    return lowerDepthTextureCall(id, tex.type, args, node, sourceFile, diagnostics)
   }
   if (!tex || tex.type.kind !== 'texture') {
     pushDiag(
@@ -718,20 +850,80 @@ function lowerTextureCall(
     )
     return undefined
   }
-  const isArray = tex.type.dim === '2d-array'
+  // The array forms are their own ids: `Array` for a 2d array, `CubeArray` for a cube array
+  // (roadmap 0.4 item 12), since the two restructure their GLSL arguments differently.
+  // A multisampled texture is read one sample at a time and never sampled (roadmap 0.4 item
+  // 13): its own path, since the third argument of its load is a sample index, not a level.
+  if (tex.type.dim === '2d-ms') {
+    return lowerMultisampledCall(id, tex.type, args, node, sourceFile, diagnostics)
+  }
+  const suffix = arraySuffix(tex.type.dim)
+  const isArray = suffix !== ''
+  const shown = typeKey(tex.type)
   const texel: ShaderType = { kind: 'vec', n: 4, elem: tex.type.elem }
+  // The two sampler kinds are not interchangeable in either direction, and Tint says so ("no
+  // matching call"); this says it first, in the author's own file (roadmap 0.4 item 11).
+  if (id === 'textureSampleCompare' || id === 'textureSampleCompareLevel') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} compares against a depth texture; "${typeKey(tex.type)}" is a sampled colour ` +
+        `texture with no depth to compare. Declare the shadow map "texture_depth_2d" and read ` +
+        `it with a "sampler_comparison".`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  if (
+    (id === 'textureSample' || id === 'textureSampleLevel') &&
+    args[1]?.type.kind === 'sampler-comparison'
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} filters a texel through an ordinary sampler; a sampler_comparison compares a ` +
+        `reference depth against the texel instead, and reads a texture_depth_2d with ` +
+        `textureSampleCompare. Declare this sampler "sampler" to sample with it.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   switch (id) {
     case 'textureDimensions':
-      return arity(id, args, 1, node, sourceFile, diagnostics)
-        ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
-        : undefined
+      if (!arity(id, args, 1, node, sourceFile, diagnostics)) return undefined
+      // A 3d texture's size is three wide, and its own id on GLSL (`uvec3` where the 2d wrapper
+      // is `uvec2`); a cube's is the size of one face, two wide on both targets (item 12).
+      // A 1d texture's size is ONE wide, a u32, and its own id for the same reason (item 12).
+      if (tex.type.dim === '1d')
+        return { op: 'call', type: u32T, fn: 'textureDimensions1d', args: [...args] }
+      return tex.type.dim === '3d'
+        ? { op: 'call', type: vec3uT, fn: 'textureDimensions3d', args: [...args] }
+        : { op: 'call', type: vec2uT, fn: id, args: [...args] }
+    case 'textureNumSamples':
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureNumSamples takes a texture_multisampled_2d; a ${shown} has one sample per texel.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
     case 'textureNumLayers':
       if (!isArray) {
         pushDiag(
           diagnostics,
           sourceFile,
           node,
-          `textureNumLayers needs a texture_2d_array; a plain 2D texture has no layers.`,
+          tex.type.dim === '1d'
+            ? `textureNumLayers needs a texture_2d_array; a texture_1d has no layers.`
+            : tex.type.dim === 'cube'
+              ? `textureNumLayers needs a texture_2d_array or a texture_cube_array; a texture_cube has six faces, not layers.`
+              : tex.type.dim === '3d'
+                ? `textureNumLayers needs a texture_2d_array; a texture_3d has depth, not layers: ` +
+                  `textureDimensions(t).z is its slice count.`
+                : `textureNumLayers needs a texture_2d_array; a plain 2D texture has no layers.`,
           TS_CODES.TYPE_MISMATCH,
         )
         return undefined
@@ -740,7 +932,9 @@ function lowerTextureCall(
         ? { op: 'call', type: u32T, fn: id, args: [...args] }
         : undefined
     case 'textureSample':
-    case 'textureSampleLevel': {
+    case 'textureSampleLevel':
+    case 'textureSampleBias':
+    case 'textureSampleGrad': {
       // Sampling is float-only on both targets: an integer texture has no filtering, so WGSL
       // gives it no `textureSample` overload at all. textureLoad is the read it does have.
       if (tex.type.elem !== 'f32') {
@@ -748,15 +942,34 @@ function lowerTextureCall(
           diagnostics,
           sourceFile,
           node,
-          `${id} needs a float texture; ${typeKey(tex.type)} is read with textureLoad.`,
+          `${id} needs a float texture; ${shown} is read with ` +
+            `${tex.type.dim === 'cube' || tex.type.dim === 'cube-array' ? 'textureGather' : 'textureLoad'}.`,
           TS_CODES.TYPE_MISMATCH,
         )
         return undefined
       }
-      const base = id === 'textureSample' ? 3 : 4
+      // WGSL gives a 1d texture textureSample and textureSampleLevel only (roadmap 0.4 item 12).
+      if (tex.type.dim === '1d' && (id === 'textureSampleBias' || id === 'textureSampleGrad')) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `${id} has no texture_1d form on WGSL; a ${shown} is read with textureSample, ` +
+            `textureSampleLevel or textureLoad.`,
+          TS_CODES.UNSUPPORTED,
+        )
+        return undefined
+      }
+      // (tex, smp, coord) plus a level or a bias, or two gradients (roadmap 0.4 item 12); the
+      // array form adds its layer after the coordinate on every one of them.
+      const base = id === 'textureSample' ? 3 : id === 'textureSampleGrad' ? 5 : 4
       const want = isArray ? base + 1 : base
       if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined
-      const fn = isArray ? `${id}Array` : id
+      if (
+        !vecArg(id, tex.type, args[2]!, node.arguments[2]!, 'coordinate', sourceFile, diagnostics)
+      )
+        return undefined
+      const fn = `${id}${suffix}`
       // The LAYER is an integer; the mip LEVEL of a sampled read is an f32 and is left as
       // written. (`textureSampleLevel`'s level argument sits where the layer does on the
       // non-array form, which is why the index is computed rather than fixed.)
@@ -766,11 +979,57 @@ function lowerTextureCall(
         if (!layer) return undefined
         out[3] = layer
       }
+      // The gradients have the coordinate's width, on both targets.
+      if (id === 'textureSampleGrad') {
+        const first = isArray ? 4 : 3
+        for (const k of [first, first + 1]) {
+          if (
+            !vecArg(id, tex.type, out[k]!, node.arguments[k]!, 'gradient', sourceFile, diagnostics)
+          )
+            return undefined
+        }
+      }
       return { op: 'call', type: texel, fn, args: out }
     }
     case 'textureLoad': {
+      // Neither target has a texel fetch for a cube: WGSL's `textureLoad` and GLSL's
+      // `texelFetch` both stop at 2d, 2d-array and 3d (roadmap 0.4 item 12).
+      if (tex.type.dim === 'cube' || tex.type.dim === 'cube-array') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `textureLoad has no cube form on either target: a ${shown} is looked up by ` +
+            `direction, so read it with textureSample or textureSampleLevel.`,
+          TS_CODES.UNSUPPORTED,
+        )
+        return undefined
+      }
       const want = isArray ? 4 : 3
       if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined
+      if (
+        !vecArg(id, tex.type, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics)
+      )
+        return undefined
+      // A 1d texture's coordinate is ONE integer (roadmap 0.4 item 12): a bare `3` lowers to an
+      // f32 on this surface, so it is retargeted like a layer, and an f32 expression is refused,
+      // where Tint would refuse the generated `textureLoad(t, 3.0, 0u)`.
+      if (tex.type.dim === '1d') {
+        const c = intArg(args[1]!, node.arguments[1]!, i32T, 'coordinate', sourceFile, diagnostics)
+        if (!c) return undefined
+        if (typeKey(c.type) !== 'i32' && typeKey(c.type) !== 'u32') {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            node.arguments[1]!,
+            `textureLoad on a ${shown} takes an integer coordinate, an i32 or a u32; got ` +
+              `${typeKey(c.type)}.`,
+            TS_CODES.TYPE_MISMATCH,
+          )
+          return undefined
+        }
+        args = [args[0]!, c, ...args.slice(2)]
+      }
       // Both the layer and the mip level are integers here. A bare number lowers to f32, and
       // `textureLoad(t, c, 0.0)` is not valid WGSL — the same bug the EDSL fixed in its own
       // layerArg/levelArg (#1703), fixed the same way and with the same types.
@@ -796,6 +1055,286 @@ function lowerTextureCall(
     default:
       return undefined
   }
+}
+
+/** The reads of a multisampled texture, colour or depth (roadmap 0.4 item 13): `textureLoad(t,
+ *  coords, sampleIndex)` yields one sample (`vec4<T>`, or `f32` on the depth twin),
+ *  `textureNumSamples(t)` the count and `textureDimensions(t)` the size. Nothing else applies —
+ *  WGSL §6.6.3: a multisampled texture cannot be used with a sampler — so every sampling,
+ *  comparison and gather form is refused with the read that does apply. WGSL-only under the
+ *  `msaaTextureLoad` capability the binding derives; GLSL ES 3.00 has no `sampler2DMS`. */
+function lowerMultisampledCall(
+  id: string,
+  tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' }>,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const shown = typeKey(tex)
+  const depth = tex.kind === 'depth-texture'
+  switch (id) {
+    case 'textureDimensions':
+      return arity(id, args, 1, node, sourceFile, diagnostics)
+        ? { op: 'call', type: vec2uT, fn: 'textureDimensionsMs', args: [...args] }
+        : undefined
+    case 'textureNumSamples':
+      return arity(id, args, 1, node, sourceFile, diagnostics)
+        ? { op: 'call', type: u32T, fn: id, args: [...args] }
+        : undefined
+    case 'textureLoad': {
+      if (!arity(id, args, 3, node, sourceFile, diagnostics)) return undefined
+      if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
+        return undefined
+      // The third argument is a SAMPLE INDEX, an integer like a level, retyped the same way.
+      const sample = intArg(
+        args[2]!,
+        node.arguments[2]!,
+        u32T,
+        'sample index',
+        sourceFile,
+        diagnostics,
+      )
+      if (!sample) return undefined
+      const type: ShaderType = depth ? f32T : { kind: 'vec', n: 4, elem: tex.elem }
+      return {
+        op: 'call',
+        type,
+        fn: depth ? 'textureLoadDepthMs' : 'textureLoadMs',
+        args: [args[0]!, args[1]!, sample],
+      }
+    }
+    case 'textureNumLayers':
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureNumLayers needs an array texture; a ${shown} has samples, not layers, and ` +
+          `textureNumSamples(t) is their count.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    default:
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${id} cannot read a ${shown}: a multisampled texture cannot be used with a sampler. ` +
+          `Read one sample with textureLoad(t, coords, sampleIndex); textureNumSamples(t) is ` +
+          `how many there are.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+  }
+}
+
+/** The id suffix the array forms take: `Array` for a 2d array, `CubeArray` for a cube array
+ *  (roadmap 0.4 item 12), '' for a texture with no layers. Two suffixes rather than one because
+ *  the GLSL spellings fold the layer differently (a `vec3(uv, layer)` on a 2d array; nothing at
+ *  all on a cube array, which GLSL ES 3.00 has no sampler for), and an id's text must never
+ *  depend on the texture it is called on. */
+function arraySuffix(dim: string): '' | 'Array' | 'CubeArray' {
+  return dim === '2d-array' ? 'Array' : dim === 'cube-array' ? 'CubeArray' : ''
+}
+
+/** `textureGather(component, tex, smp, coords[, layer])` on a colour texture,
+ *  `textureGather(tex, smp, coords[, layer])` on a depth texture, and
+ *  `textureGatherCompare(tex, smp, coords[, layer], ref)` on a depth texture through a comparison
+ *  sampler (roadmap 0.4 item 12): the four texels a linear filter would blend at mip level 0, one
+ *  channel each, as a `vec4`, in any stage.
+ *
+ *  WGSL puts the COMPONENT first on a colour texture, because a depth texture has one channel
+ *  and takes none; this surface keeps that order, so the texture is found by its kind rather
+ *  than its position. The component must be a whole number from 0 to 3 written in the call: WGSL
+ *  requires a const-expression there and makes any other value a shader-creation error, so it is
+ *  said here, at the argument. Cube textures gather by direction like they sample; a 1d, 3d or
+ *  multisampled texture has no gather form. WGSL-only: GLSL ES 3.00 has no gather (ES 3.10), and
+ *  the `textureGather` capability fails the module closed on that target. */
+function lowerGatherCall(
+  id: string,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const at = args.findIndex((a) => a.type.kind === 'texture' || a.type.kind === 'depth-texture')
+  const tex = at === 0 || at === 1 ? args[at]! : undefined
+  if (tex === undefined || (tex.type.kind !== 'texture' && tex.type.kind !== 'depth-texture')) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} takes a texture as its first argument, or as its second after the component on a ` +
+        `colour texture: textureGather(0, tex, smp, uv).`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  const shown = typeKey(tex.type)
+  const compare = id === 'textureGatherCompare'
+  if (tex.type.dim === '1d' || tex.type.dim === '3d' || tex.type.dim === '2d-ms') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} gathers a 2d, 2d-array, cube or cube-array texture; a ${shown} has no gather form ` +
+        `on WGSL.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  if (compare && tex.type.kind !== 'depth-texture') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `textureGatherCompare compares against a depth texture; "${shown}" is a sampled colour ` +
+        `texture with no depth to compare. textureGather reads its channels.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  const out = [...args]
+  if (tex.type.kind === 'texture') {
+    if (at !== 1) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureGather on a ${shown} takes the component first: textureGather(0, tex, smp, ` +
+          `coords) reads the red channel of the four texels.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    const lit = foldNumericLit(args[0]!)
+    if (
+      lit.op !== 'lit' ||
+      typeof lit.value !== 'number' ||
+      !Number.isInteger(lit.value) ||
+      lit.value < 0 ||
+      lit.value > 3
+    ) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.arguments[0]!,
+        `textureGather's component must be a whole number from 0 to 3 written in the call ` +
+          `(0 is red, 3 is alpha); WGSL requires a constant there and refuses any other value.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    out[0] =
+      typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32'
+        ? lit
+        : { op: 'lit', type: i32T, value: lit.value }
+  } else if (at !== 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} on a ${shown} takes no component: a depth texture has one channel. Write ` +
+        `${id}(tex, smp, coords${compare ? ', ref' : ''}).`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  const smp = args[at + 1]
+  const wantSmp = compare ? 'sampler-comparison' : 'sampler'
+  if (smp === undefined || smp.type.kind !== wantSmp) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      compare
+        ? `textureGatherCompare compares through a sampler_comparison; got ` +
+            `${smp === undefined ? 'nothing' : typeKey(smp.type)}.`
+        : `textureGather reads through an ordinary sampler; got ` +
+            `${smp === undefined ? 'nothing' : typeKey(smp.type)}. A sampler_comparison ` +
+            `compares instead, with textureGatherCompare.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  const suffix = arraySuffix(tex.type.dim)
+  const isArray = suffix !== ''
+  const want = at + 3 + (isArray ? 1 : 0) + (compare ? 1 : 0)
+  if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined
+  if (
+    !vecArg(
+      id,
+      tex.type,
+      args[at + 2]!,
+      node.arguments[at + 2]!,
+      'coordinate',
+      sourceFile,
+      diagnostics,
+    )
+  )
+    return undefined
+  if (isArray) {
+    const k = at + 3
+    const layer = intArg(out[k]!, node.arguments[k]!, i32T, 'layer', sourceFile, diagnostics)
+    if (!layer) return undefined
+    out[k] = layer
+  }
+  // One id per WGSL argument structure; a cube gathers by direction with the 2d id, since the
+  // coordinate's width rides on the type, and the depth forms differ only in taking no component.
+  const fn =
+    tex.type.kind === 'texture'
+      ? isArray
+        ? 'textureGatherArray'
+        : 'textureGather'
+      : compare
+        ? isArray
+          ? 'textureGatherCompareArray'
+          : 'textureGatherCompare'
+        : isArray
+          ? 'textureGatherDepthArray'
+          : 'textureGatherDepth'
+  const type: ShaderType =
+    tex.type.kind === 'texture' ? { kind: 'vec', n: 4, elem: tex.type.elem } : vec4fT
+  return { op: 'call', type, fn, args: out }
+}
+
+/** The coordinate a texture is addressed by has the width its `dim` decides — a `vec2` on a 2d
+ *  texture (and on the array, whose layer is a separate argument), a `vec3` DIRECTION on a cube
+ *  and a `vec3` on a 3d texture — and the gradients of `textureSampleGrad` have the same width
+ *  (roadmap 0.4 item 12). Both targets refuse the wrong width ("no matching call" on Tint, "no
+ *  matching overloaded function" on a WebGL2 driver), so this says it first, at the argument.
+ *
+ *  Only the WIDTH is checked here. The element is `tsc`'s to check through the ambient lib, and
+ *  an integer literal in a float coordinate is retargeted by the ordinary numeric path. */
+function vecArg(
+  id: string,
+  tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' }>,
+  arg: Expr,
+  node: ts.Expression,
+  what: 'coordinate' | 'gradient',
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  const want =
+    tex.dim === '1d' ? 1 : tex.dim === '2d' || tex.dim === '2d-array' || tex.dim === '2d-ms' ? 2 : 3
+  // A 1d texture (roadmap 0.4 item 12) is addressed by ONE number: an f32 to sample, an integer
+  // to fetch. Only the width is checked, as for the vectors.
+  if (want === 1 ? arg.type.kind === 'scalar' : arg.type.kind === 'vec' && arg.type.n === want)
+    return true
+  const shape =
+    want === 1
+      ? `single ${id === 'textureLoad' ? 'integer' : 'f32'} ${what}`
+      : (tex.dim === 'cube' || tex.dim === 'cube-array') && what === 'coordinate'
+        ? 'vec3 direction'
+        : `vec${want} ${what}`
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
+    TS_CODES.TYPE_MISMATCH,
+  )
+  return false
 }
 
 /** A layer or mip-level argument, retyped when it is a bare whole number and REPORTED when it

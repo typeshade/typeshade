@@ -13,6 +13,60 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Multisampled loads** (§37, roadmap 0.4 item 13). `textureLoad(t, coords, sampleIndex)` on a
+  `texture_multisampled_2d<T>` yields one sample as a `vec4<T>`, and on the new
+  `texture_depth_multisampled_2d` an `f32`; `textureNumSamples(t)` is the count. The type existed
+  and nothing read it. A multisampled texture cannot be used with a sampler (WGSL §6.6.3), so
+  every sampling, comparison and gather form is refused in one sentence naming the load. WGSL-only
+  under the `msaaTextureLoad` capability the binding already derived, for the depth twin too. The
+  element is no longer pinned to `f32`, as the spec parameterises the type by `f32`, `i32` or
+  `u32`. `examples/msaa-resolve.shade.ts` runs on the Tint half of the gate.
+- **The WGSL-only textures: `texture_1d`, `texture_cube_array`, `textureGather`** (§36, roadmap
+  0.4 item 12, the second half). `declare const ramp: texture_1d<f32>` is sampled and fetched by
+  one number and its size is a `u32`; `declare const envs: texture_cube_array<f32>` samples like
+  a cube with the layer after the direction, on every sampling form, and
+  `texture_depth_cube_array` compares the same way; `textureGather(component, tex, smp, coords)`
+  reads one channel of the four texels a linear filter would blend, as a `vec4` of the
+  texture's element, in any stage, with the component first on a colour texture and absent on a
+  depth one, and `textureGatherCompare(tex, smpCmp, coords, ref)` returns four pass results.
+  GLSL ES 3.00 has none of the three (measured on a WebGL2 driver), so each derives its own
+  capability (`texture1d`, `textureCubeArray`, `textureGather`) with a WGSL row and no GLSL row;
+  `reflect().requiredFeatures` reports them. An integer cube (`texture_cube<u32>`) is admitted
+  now that gather reads it. Each refusal is one sentence: a component outside 0..3 or not written
+  in the call, a component on a depth texture, a bias or gradient on a 1d texture, the wrong
+  sampler kind. `examples/cube-array-gather.shade.ts` runs on the Tint half of the gate.
+- **Cube and 3D textures, bias and gradient sampling** (§35, roadmap 0.4 item 12, the portable
+  half). `declare const env: texture_cube<f32>` is looked up by a `vec3` direction and
+  `declare const lut: texture_3d<f32>` by a `vec3` coordinate, with the read ids a 2D texture
+  already has; `textureSampleBias(t, s, coord, bias)` shifts the implicit level of detail and is
+  fragment-only on both targets, `textureSampleGrad(t, s, coord, ddx, ddy)` takes the gradients
+  explicitly and is legal in any stage; `texture_depth_cube` is the shadow map of a point light,
+  compared by direction. All core in both targets, so no capability. The front end checks each
+  coordinate's and gradient's width against the texture's dim and refuses a cube `textureLoad`
+  (neither target has one) and an integer cube (only sampled, and sampling is float-only), each
+  in one sentence with the read to use instead. `textureDimensions` on a 3D texture is a `vec3u`.
+  Measured on Tint and a WebGL2 driver: GLSL ES 3.00 has no `textureLod` for a
+  `samplerCubeShadow`, so level 0 there is `textureGrad` with zero gradients, as on the 2D array
+  shadow. Reflection's `textureDim` gains `'cube'` and `'3d'`. `examples/cube-env.shade.ts`
+  runs on both halves of the gate.
+- **Depth textures and comparison samplers** (§34, roadmap 0.4 item 11). The texture a
+  shadow map is, read by comparison: `declare const shadowMap: texture_depth_2d`,
+  `declare const shadowSmp: sampler_comparison`, then
+  `textureSampleCompare(shadowMap, shadowSmp, uv, ref)` yields how much of the filter footprint
+  passed, as an `f32`; `textureSampleCompareLevel` is the any-stage form at level 0, and both
+  take a `texture_depth_2d_array` with the layer before the reference. Portable, unlike a
+  storage texture: WGSL keeps two bindings and puts the comparison on the sampler, GLSL ES 3.00
+  fuses them into one `sampler2DShadow` and folds the reference into the coordinate, and the
+  header declares the precision a shadow sampler has no default for. A depth texture and a
+  comparison sampler are each their own IR kind, so the two sampler kinds cannot be read as one
+  another by accident; the front end refuses both pairings, and a comparison in a compute entry,
+  in the words Tint would use a step later, and `tsc` refuses them independently through the
+  ambient lib. Reflection carries `textureDepth` and `samplerComparison` for the host's
+  `sampleType: 'depth'` and `type: 'comparison'`. A plain read of a depth texture is refused for
+  now with the reason: on GLSL the fused sampler's type is decided by the read, so a texture
+  read both ways needs separate samplers, a capability for a later item. Measured on Tint and on
+  a WebGL2 driver, both of which take every accepted shape and refuse every refused one.
+
 - **Storage textures and `textureStore`** (§33, roadmap 0.4 item 10). An image a shader reads and
   writes by texel coordinate, with no sampler and no filtering:
   `declare const dst: texture_storage_2d<"rgba8unorm", "write">`, then
@@ -54,6 +108,15 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   surface on both targets.
 
 ### Fixed
+
+- **`@compute(...)` refuses an argument it cannot read instead of defaulting to 64**
+  ([#118](https://github.com/typeshade/typeshade/issues/118), `TS8037 WORKGROUP_ARG`).
+  `@compute({ workgroup: [8, 8, 1] })`, `@compute(128)`, `@compute("big")` and `@compute(SIZE)`
+  compiled with zero diagnostics and emitted `@workgroup_size(64)`, so the author asked for one
+  size and dispatched against another. The decorator is now read from its AST: `@compute` and
+  `@compute()` keep the default of 64, an array literal of one to three whole numbers (across
+  lines, or through `as const`) is the size, and anything else is reported at the argument in
+  one sentence naming the form. The y/z rule (`TS8026`) is unchanged.
 
 - **A conditional on a struct or a fixed-length array emitted code both backends reject** (§31,
   [#113](https://github.com/typeshade/typeshade/issues/113)). `c ? a : b` on two structs compiled

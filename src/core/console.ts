@@ -29,6 +29,9 @@ export const CONSOLE_METHODS: ReadonlySet<ConsoleMethod> = new Set([
   'error',
 ])
 
+/** Whether `name` is one of the console methods the source compiler lowers, narrowing it to
+ *  {@link ConsoleMethod}. The front end asks this for every `console.<name>(...)` it meets, and
+ *  refuses the rest by name rather than inventing a TypeShade console of its own. */
 export function isConsoleMethod(name: string): name is ConsoleMethod {
   return CONSOLE_METHODS.has(name as ConsoleMethod)
 }

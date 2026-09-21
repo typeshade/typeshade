@@ -105,6 +105,15 @@ const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[]
   // is never swept. Calling `emitGlslModule(m, 'vertex')` on it directly does throw the same
   // way — but a stage the module does not have is not a stage this gate examines.
   { id: 'hello-uniform', stage: 'fragment', match: /must be a struct \(a std140 UBO block\)/ },
+  // The WGSL-only textures (roadmap 0.4 item 12, §36): a 1d texture, a cube array and a gather
+  // each derive a capability GLSL ES 3.00 has no row for, so BOTH stages are refused by the
+  // capability gate before any emit. The other WGSL-only examples are compute-only and have no
+  // GLSL stage for this sweep to examine.
+  { id: 'cube-array-gather', stage: 'vertex', match: /texture1d|textureCubeArray|textureGather/ },
+  { id: 'cube-array-gather', stage: 'fragment', match: /texture1d|textureCubeArray|textureGather/ },
+  // The multisampled resolve (item 13, §37): both stages refused under msaaTextureLoad.
+  { id: 'msaa-resolve', stage: 'vertex', match: /msaaTextureLoad/ },
+  { id: 'msaa-resolve', stage: 'fragment', match: /msaaTextureLoad/ },
 ]
 
 describe('every binding a stage mentions is a binding that stage declares', () => {

@@ -156,12 +156,22 @@ export type ShaderType =
   // texture_2d_array<f32>, GLSL ES 3.00 sampler2DArray — so it needs no Capability
   // (pinned by required-caps.test.ts); '2d-ms' still fails closed on GLSL.
   //
-  // Split into TWO arms (X-GIS #1703) so a multisampled INTEGER texture is unrepresentable
-  // by CONSTRUCTION rather than a runtime throw: '2d'/'2d-array' carry any
-  // TextureElem, '2d-ms' is pinned to f32. Narrowing still works off `dim` alone —
-  // every existing `t.dim === '…'` switch reads the same.
-  | { readonly kind: 'texture'; readonly dim: '2d' | '2d-array'; readonly elem: TextureElem }
-  | { readonly kind: 'texture'; readonly dim: '2d-ms'; readonly elem: 'f32' }
+  // '2d-ms' (roadmap 0.4 item 13) carries any TextureElem too: WGSL §6.6.3 parameterises
+  // `texture_multisampled_2d` by f32, i32 or u32, and `textureLoad` yields `vec4<T>`. It used
+  // to be pinned to f32 in an arm of its own (X-GIS #1703), when nothing read it; the spec is
+  // the authority now, and GLSL ES 3.00 fails closed by the `msaaTextureLoad` capability
+  // whatever the element, so the pin bought nothing.
+  //
+  // 'cube' and '3d' (roadmap 0.4 item 12) are core in both targets too — WGSL `texture_cube`
+  // and `texture_3d`, GLSL ES 3.00 `samplerCube` and `sampler3D` — so neither needs a
+  // Capability. A cube is addressed by a DIRECTION and a 3d texture by a `vec3` coordinate; that
+  // width rides on this type, so one neutral read id covers every dim and the front end checks
+  // the coordinate against the dim at each call.
+  | {
+      readonly kind: 'texture'
+      readonly dim: '2d' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array' | '2d-ms'
+      readonly elem: TextureElem
+    }
   // A storage texture (roadmap 0.4 item 10): an image a shader reads and writes by texel
   // coordinate, with no sampler and no filtering. Its OWN kind rather than another `dim` on
   // `texture`, because the two are different things at every site that touches one: a sampled
@@ -178,7 +188,30 @@ export type ShaderType =
       readonly format: StorageTextureFormat
       readonly access: StorageTextureAccess
     }
+  // A depth texture (roadmap 0.4 item 11): the texture a shadow map is. Its OWN kind, for the
+  // reason the storage texture above has one — it is a different thing at every site. It has no
+  // element type (every depth texture is single-channel float), a read of one yields `f32` and
+  // not `vec4`, and only some calls apply to it. WGSL spells it `texture_depth_2d`; GLSL ES
+  // 3.00 fuses it with its sampler, and WHICH combined sampler depends on how it is used —
+  // `sampler2DShadow` when compared, `sampler2D` when plainly sampled — which is what the GLSL
+  // backend derives from the calls rather than from this type.
+  //
+  // 'cube' (roadmap 0.4 item 12) is the shadow map of a point light, looked up by the direction
+  // from the light; both targets have it (`texture_depth_cube`, `samplerCubeShadow`).
+  //
+  // '2d-ms' (roadmap 0.4 item 13) is a multisampled depth attachment read one sample at a time,
+  // `texture_depth_multisampled_2d`; it cannot be sampled or compared (§6.6.3), only loaded.
+  | {
+      readonly kind: 'depth-texture'
+      readonly dim: '2d' | '2d-array' | 'cube' | 'cube-array' | '2d-ms'
+    }
   | { readonly kind: 'sampler' }
+  // A comparison sampler (roadmap 0.4 item 11): the one `textureSampleCompare` takes, which
+  // compares a reference value against the texel and returns how much of the filter footprint
+  // passed rather than the texel itself. Its own kind rather than a flag on `sampler`, so a
+  // site that must tell the two apart cannot read one as the other by accident — Tint refuses
+  // both substitutions ("no matching call"), and so does this.
+  | { readonly kind: 'sampler-comparison' }
   | { readonly kind: 'void' }
 
 // `as const satisfies` keeps each constant's LITERAL type (so KeyOf<typeof f32T>
@@ -482,6 +515,106 @@ export const texture2dArrayiT = {
  *  Exported from `typeshade`, `typeshade/core/ir`.
  */
 export const samplerT = { kind: 'sampler' } as const satisfies ShaderType
+
+/** The comparison sampler `textureSampleCompare` takes (roadmap 0.4 item 11): it compares a
+ *  reference value against the texel and yields how much of the filter footprint passed, rather
+ *  than the texel itself. Not interchangeable with {@link samplerT} in either direction.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const samplerComparisonT = { kind: 'sampler-comparison' } as const satisfies ShaderType
+
+/** A 2D depth texture — the texture a shadow map is (roadmap 0.4 item 11). Single-channel
+ *  float with no element type of its own, and a read of one yields `f32`, not `vec4`.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepth2dT = { kind: 'depth-texture', dim: '2d' } as const satisfies ShaderType
+
+/** An array of 2D depth textures, the shape a cascaded shadow map takes (roadmap 0.4 item 11).
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepth2dArrayT = {
+  kind: 'depth-texture',
+  dim: '2d-array',
+} as const satisfies ShaderType
+/** A cube depth texture (WGSL `texture_depth_cube`, GLSL ES 3.00 `samplerCubeShadow`): the
+ *  shadow map of a point light, compared by the direction from the light (roadmap 0.4 item 12).
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepthCubeT = {
+  kind: 'depth-texture',
+  dim: 'cube',
+} as const satisfies ShaderType
+/** A sampled float cube texture (WGSL `texture_cube<f32>`, GLSL ES 3.00 `samplerCube`): six
+ *  faces looked up by a `vec3` DIRECTION rather than a coordinate, the shape an environment map
+ *  or a skybox takes (roadmap 0.4 item 12). Core in both targets, so it needs no
+ *  {@link Capability}. A cube is only ever sampled: neither target has a texel fetch for one.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureCubefT = {
+  kind: 'texture',
+  dim: 'cube',
+  elem: 'f32',
+} as const satisfies ShaderType
+/** A sampled float 3D texture (WGSL `texture_3d<f32>`, GLSL ES 3.00 `sampler3D`): a volume
+ *  addressed by a `vec3` coordinate, the shape a colour-grading lookup table or a density field
+ *  takes (roadmap 0.4 item 12). Core in both targets, so it needs no {@link Capability}.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const texture3dfT = {
+  kind: 'texture',
+  dim: '3d',
+  elem: 'f32',
+} as const satisfies ShaderType
+/** A sampled float 1D texture (WGSL `texture_1d<f32>`): a row of texels addressed by one `f32`,
+ *  the shape a transfer function or a colour ramp takes (roadmap 0.4 item 12). WebGPU only:
+ *  GLSL ES 3.00 has no `sampler1D` (the word is reserved), so a module carrying one needs the
+ *  `texture1d` {@link Capability}, which the GLSL backend has no row for.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const texture1dfT = {
+  kind: 'texture',
+  dim: '1d',
+  elem: 'f32',
+} as const satisfies ShaderType
+/** An array of float cube textures (WGSL `texture_cube_array<f32>`): N environment maps in one
+ *  binding, looked up by a `vec3` direction and a layer (roadmap 0.4 item 12). WebGPU only: GLSL
+ *  ES 3.00 has no `samplerCubeArray` and a WebGL2 driver refuses the extension, so a module
+ *  carrying one needs the `textureCubeArray` {@link Capability}.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureCubeArrayfT = {
+  kind: 'texture',
+  dim: 'cube-array',
+  elem: 'f32',
+} as const satisfies ShaderType
+/** An array of cube depth textures (WGSL `texture_depth_cube_array`): the shadow maps of N point
+ *  lights in one binding (roadmap 0.4 item 12). WebGPU only, like {@link textureCubeArrayfT}.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepthCubeArrayT = {
+  kind: 'depth-texture',
+  dim: 'cube-array',
+} as const satisfies ShaderType
+/** A multisampled depth texture (WGSL `texture_depth_multisampled_2d`): the depth attachment of
+ *  an MSAA render target, read one sample at a time with `textureLoad(t, coords, sampleIndex)`
+ *  and never sampled or compared (roadmap 0.4 item 13). WebGPU only, under `msaaTextureLoad`:
+ *  GLSL ES 3.00 has no `sampler2DMS` (that is ES 3.10).
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepthMultisampled2dT = {
+  kind: 'depth-texture',
+  dim: '2d-ms',
+} as const satisfies ShaderType
 /** The absent-value type: the return type of an `fn` whose body never returns a value (a
  *  statement-only vertex mutator, a compute entry point). Return-type inference falls back to
  *  it when it finds no `Return` in a body, so you rarely need to write it explicitly.
@@ -577,8 +710,8 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                   : // X-GIS #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
                     // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
                     // to `string`, so a texture/sampler argument swap type-checked.
-                    T extends { kind: 'texture'; dim: '2d-ms' }
-                    ? 'texture_multisampled_2d<f32>'
+                    T extends { kind: 'texture'; dim: '2d-ms'; elem: infer E extends string }
+                    ? `texture_multisampled_2d<${E}>`
                     : // X-GIS #1651 — arm ORDER is immaterial here: the dims are exact literals, so
                       // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
                       // arm comes first. The real hazard is a MISSING arm — it drops an array
@@ -593,9 +726,23 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                       ? `texture_2d_array<${E}>`
                       : T extends { kind: 'texture'; dim: '2d'; elem: infer E extends string }
                         ? `texture_2d<${E}>`
-                        : T extends { kind: 'sampler' }
-                          ? 'sampler'
-                          : string
+                        : // Roadmap 0.4 item 12 — the cube and 3d arms, so a resource() of one lands
+                          // on its own key rather than the `string` fallback.
+                          T extends { kind: 'texture'; dim: 'cube'; elem: infer E extends string }
+                          ? `texture_cube<${E}>`
+                          : T extends { kind: 'texture'; dim: '3d'; elem: infer E extends string }
+                            ? `texture_3d<${E}>`
+                            : T extends { kind: 'texture'; dim: '1d'; elem: infer E extends string }
+                              ? `texture_1d<${E}>`
+                              : T extends {
+                                    kind: 'texture'
+                                    dim: 'cube-array'
+                                    elem: infer E extends string
+                                  }
+                                ? `texture_cube_array<${E}>`
+                                : T extends { kind: 'sampler' }
+                                  ? 'sampler'
+                                  : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
 
@@ -682,6 +829,14 @@ export function typeKey(t: ShaderType): string {
           return `texture_2d_array<${t.elem}>`
         case '2d':
           return `texture_2d<${t.elem}>`
+        case 'cube':
+          return `texture_cube<${t.elem}>`
+        case '3d':
+          return `texture_3d<${t.elem}>`
+        case '1d':
+          return `texture_1d<${t.elem}>`
+        case 'cube-array':
+          return `texture_cube_array<${t.elem}>`
         default:
           // Exhaustiveness on the whole ARM, not on `t.dim` (X-GIS #1703): the texture type
           // is now a two-arm union, so once every dim is handled `t` itself is `never`
@@ -697,8 +852,25 @@ export function typeKey(t: ShaderType): string {
         : `texture_storage_2d<${t.format}, ${t.access}>`
     case 'atomic':
       return `atomic<${t.elem}>`
+    case 'depth-texture':
+      // Spelled as WGSL spells it, so the key a host or a golden reads is the declaration's
+      // own text; `dim` is written out for the reason the sampled texture writes it out.
+      switch (t.dim) {
+        case '2d':
+          return 'texture_depth_2d'
+        case '2d-array':
+          return 'texture_depth_2d_array'
+        case 'cube':
+          return 'texture_depth_cube'
+        case 'cube-array':
+          return 'texture_depth_cube_array'
+        case '2d-ms':
+          return 'texture_depth_multisampled_2d'
+      }
     case 'sampler':
       return 'sampler'
+    case 'sampler-comparison':
+      return 'sampler_comparison'
     case 'void':
       return 'void'
   }

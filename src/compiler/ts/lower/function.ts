@@ -18,12 +18,7 @@ import type { CollectedStruct } from '../structs.js'
 import { recordDeclaration, type DeclaredSymbolSink } from '../symbols.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { isMixinDeclaration } from '../mixins.js'
-import {
-  inferFrom,
-  instanceName,
-  typeSuffix,
-  withTypeArguments,
-} from '../generics.js'
+import { inferFrom, instanceName, typeSuffix, withTypeArguments } from '../generics.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import {
   boundNamesOf,
@@ -50,12 +45,7 @@ import {
   namespaceMemberName,
   refuseNamespaceStatement,
 } from '../namespaces.js'
-import {
-  collectClassFunctions,
-  ctorPrologue,
-  selfRef,
-  type Receiver,
-} from './class-methods.js'
+import { collectClassFunctions, ctorPrologue, selfRef, type Receiver } from './class-methods.js'
 import {
   builtinDecoratorArg,
   checkAttributeName,
@@ -312,7 +302,10 @@ export function lowerSourceFunctions(
     const order = (generic.node.typeParameters ?? []).map((p) => p.name.text)
     const bound = typeArgumentsFor(generic.node, order, node, argTypes, sf, diags)
     if (bound === undefined) return undefined
-    const emitted = instanceName(name, order.map((n) => bound.get(n)!))
+    const emitted = instanceName(
+      name,
+      order.map((n) => bound.get(n)!),
+    )
     const had = instances.get(emitted)
     if (had !== undefined) return had
     const stub = withTypeArguments(bound, () =>
@@ -465,9 +458,29 @@ export function lowerSourceFunctions(
   return funcs
 }
 
-/** The ops WGSL and GLSL ES 3.00 allow only in the fragment stage: the kill, and the three
- *  screen-space derivatives, which need the neighbouring invocations of a quad. */
+/** The ops WGSL and GLSL ES 3.00 allow only in the fragment stage: the kill, the three
+ *  screen-space derivatives, which need the neighbouring invocations of a quad, and the depth
+ *  comparison with an IMPLICIT level of detail, which needs the same derivatives to pick its
+ *  level (roadmap 0.4 item 11; Tint: "built-in cannot be used by compute pipeline stage").
+ *  `textureSampleCompareLevel` samples level 0 and is legal in any stage, so it is not here. */
+/** The name the author wrote for a fragment-only call. The set below holds NEUTRAL ids, and the
+ *  array and cube forms of a texture read are ids of their own (`textureSampleCompareArray`,
+ *  `textureSampleBiasArray`, `textureSampleCompareCube`) that no author writes: the surface
+ *  spells every form with the one name and the texture's dim picks the id. So the suffix comes
+ *  off before the message, which otherwise names a function the file does not contain. */
+const writtenName = (op: string): string =>
+  op.replace(/^(texture\w+?)(CubeArray|Array|Cube)$/, '$1')
+
 const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
+  'textureSampleCompare',
+  'textureSampleCompareArray',
+  'textureSampleCompareCube',
+  // A bias shifts the IMPLICIT level of detail, so it needs the derivatives too; Tint and a
+  // WebGL2 driver both refuse it outside a fragment stage (roadmap 0.4 item 12).
+  'textureSampleBias',
+  'textureSampleBiasArray',
+  'textureSampleBiasCubeArray',
+  'textureSampleCompareCubeArray',
   'fwidth',
   'dpdx',
   'dpdy',
@@ -557,7 +570,7 @@ function checkFragmentOnlyOps(
           diagnostics,
           sourceFile,
           node.name,
-          `"${op}" is only valid in a fragment shader; ${where}.`,
+          `"${writtenName(op)}" is only valid in a fragment shader; ${where}.`,
           TS_CODES.UNSUPPORTED,
         )
       }
@@ -1341,20 +1354,54 @@ function parseStage(
     else if (/^@fragment\b/.test(text)) stage = 'fragment'
     else if (/^@compute\b/.test(text)) {
       stage = 'compute'
-      const m = text.match(/@compute\(\s*\[\s*(\d+)\s*(?:,\s*(\d+))?\s*(?:,\s*(\d+))?\s*\]/)
-      workgroupSize = m ? Number(m[1]) : 64
-      const y = m?.[2] !== undefined ? Number(m[2]) : undefined
-      const z = m?.[3] !== undefined ? Number(m[3]) : undefined
-      if ((y !== undefined && y !== 1) || (z !== undefined && z !== 1)) {
-        const shape = [m![1], m![2], m![3]].filter((v) => v !== undefined).join(', ')
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          d,
-          `@compute workgroup shape [${shape}] must have y and z equal to 1: the backend only ` +
-            `carries the x workgroup size today, and would silently drop the rest.`,
-          TS_CODES.WORKGROUP_SHAPE,
+      workgroupSize = 64
+      // Read the decorator's AST, not its text (#118). `@compute` and `@compute()` take the
+      // default; `@compute([x, y, z])` is a call whose one argument is an array literal of one
+      // to three whole numbers, written across lines or through `as const` if the author likes.
+      // Anything else used to fall through to 64 with no diagnostic — `@compute({ workgroup:
+      // [8, 8, 1] })`, `@compute(128)`, `@compute(SIZE)` — so the author asked for one size and
+      // dispatched against another. It is reported now, at the argument.
+      const call = ts.isCallExpression(d.expression) ? d.expression : undefined
+      if (call !== undefined && call.arguments.length > 0) {
+        const written = call.arguments.map((a) => a.getText(sourceFile)).join(', ')
+        let arg: ts.Expression = call.arguments[0]!
+        while (
+          ts.isParenthesizedExpression(arg) ||
+          ts.isAsExpression(arg) ||
+          ts.isSatisfiesExpression(arg)
         )
+          arg = arg.expression
+        const shape =
+          call.arguments.length === 1 && ts.isArrayLiteralExpression(arg) ? arg : undefined
+        const sizes = shape?.elements.map((e) => (ts.isNumericLiteral(e) ? Number(e.text) : NaN))
+        if (
+          sizes === undefined ||
+          sizes.length === 0 ||
+          sizes.length > 3 ||
+          sizes.some((n) => !Number.isInteger(n) || n < 1)
+        ) {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            call.arguments[0]!,
+            `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or ` +
+              `no argument for the default of 64; "${written}" is not a workgroup shape.`,
+            TS_CODES.WORKGROUP_ARG,
+          )
+        } else {
+          workgroupSize = sizes[0]!
+          const [, y, z] = sizes
+          if ((y !== undefined && y !== 1) || (z !== undefined && z !== 1)) {
+            pushDiag(
+              diagnostics,
+              sourceFile,
+              d,
+              `@compute workgroup shape [${sizes.join(', ')}] must have y and z equal to 1: the ` +
+                `backend only carries the x workgroup size today, and would silently drop the rest.`,
+              TS_CODES.WORKGROUP_SHAPE,
+            )
+          }
+        }
       }
     }
   }
@@ -1501,7 +1548,7 @@ function typeArgumentsFor(
       `This call does not say what ${missing.map((n) => `"${n}"`).join(' and ')} ` +
         `${missing.length === 1 ? 'is' : 'are'} in "${shown}". A type argument is read off an ` +
         `argument whose parameter is written as it, or as array<it, N>; write it instead, as ` +
-        `"${shown}<${order.map((n) => out.get(n) === undefined ? 'f32' : typeSuffix(out.get(n)!)).join(', ')}>(…)".`,
+        `"${shown}<${order.map((n) => (out.get(n) === undefined ? 'f32' : typeSuffix(out.get(n)!))).join(', ')}>(…)".`,
       TS_CODES.UNKNOWN_TYPE,
     )
     return undefined

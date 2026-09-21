@@ -368,6 +368,34 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'shadow-compare',
+    title: 'A shadow map, read by comparison',
+    blurb:
+      'A depth texture read through a `sampler_comparison` with `textureSampleCompare` and `textureSampleCompareLevel`, on a plain 2D shadow map and on a cascade array (\u00a734). Both targets have a spelling: WGSL keeps two bindings and puts the comparison on the sampler, GLSL ES 3.00 fuses them into one `sampler2DShadow` and folds the reference into the coordinate. Measured on Tint and on a WebGL2 driver; the two sampler kinds are not interchangeable, and the compiler says so before either backend does.',
+    renderable: true,
+  },
+  {
+    id: 'cube-env',
+    title: 'Cube and 3D textures, bias and gradients',
+    blurb:
+      'An environment map as a `texture_cube<f32>` looked up by direction, a colour-grading table as a `texture_3d<f32>` the shaded colour indexes, `textureSampleBias` and `textureSampleGrad`, and a point light\u2019s shadow as a `texture_depth_cube` compared by the direction from the light (\u00a735). All core in both targets, so both halves of the gate run it; the compiler checks each coordinate\u2019s width against the texture\u2019s dim and says so before either target refuses the generated code. Measured on Tint and on a WebGL2 driver: a bias is fragment-only on both, gradients are legal in any stage, and level 0 on a depth cube is `textureGrad` with zero gradients.',
+    renderable: true,
+  },
+  {
+    id: 'cube-array-gather',
+    title: 'The WGSL-only textures',
+    blurb:
+      'A colour ramp as a `texture_1d<f32>`, two environment maps as a `texture_cube_array<f32>` picked by layer, a hand-written percentage-closer filter from `textureGatherCompare`, a `textureGather` of one channel from four texels, and a point light\u2019s shadow as a `texture_depth_cube_array` (\u00a736). GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives a capability (`texture1d`, `textureCubeArray`, `textureGather`) with a WGSL row and no GLSL row: this example runs on the Tint half of the gate alone. The argument order is the spec\u2019s: the component first on a colour texture, none on a depth one, the layer after the coordinate, the reference after the layer.',
+    renderable: false,
+  },
+  {
+    id: 'msaa-resolve',
+    title: 'A multisampled texture, resolved by hand',
+    blurb:
+      'An MSAA render target as a `texture_multisampled_2d<f32>` read one sample at a time with `textureLoad(t, coords, sampleIndex)` and averaged over `textureNumSamples`, and its depth attachment as a `texture_depth_multisampled_2d` (\u00a737). A multisampled texture cannot be used with a sampler, so every sampling form is refused with the load named instead. WGSL-only: GLSL ES 3.00 has no `sampler2DMS`, so the binding derives `msaaTextureLoad` and the Tint half of the gate alone runs it.',
+    renderable: false,
+  },
+  {
     id: 'storage-texture',
     title: 'A storage texture',
     blurb:

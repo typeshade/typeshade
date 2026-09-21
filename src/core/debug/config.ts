@@ -582,7 +582,12 @@ export function resolveBindings(
   const out: Record<string, CpuValue> = {}
   for (const [name, type] of declared) {
     if (reached && !reached.has(name)) continue
-    if (type.kind === 'texture' || type.kind === 'sampler') {
+    if (
+      type.kind === 'texture' ||
+      type.kind === 'sampler' ||
+      type.kind === 'depth-texture' ||
+      type.kind === 'sampler-comparison'
+    ) {
       problems.push(
         `binding "${name}" is a ${typeKey(type)}, which a CPU run cannot supply: texture and ` +
           'sampler values are unsupported in this milestone (docs/debugging.md §4.4)',

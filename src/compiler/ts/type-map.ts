@@ -26,6 +26,12 @@ import {
   structT,
   arrayT,
   samplerT,
+  samplerComparisonT,
+  textureDepth2dT,
+  textureDepth2dArrayT,
+  textureDepthCubeT,
+  textureDepthCubeArrayT,
+  textureDepthMultisampled2dT,
   ALL_STORAGE_TEXTURE_FORMATS,
   READ_WRITE_STORAGE_FORMATS,
   type StorageTextureFormat,
@@ -74,14 +80,31 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
  *  `texture_*` names are generic and are handled in {@link mapGeneric}. */
 const HANDLE_MAP: Readonly<Record<string, ShaderType>> = {
   sampler: samplerT,
+  // A depth texture and the comparison sampler that reads it (roadmap 0.4 item 11). Bare names,
+  // like `sampler`: a depth texture has no element type to write, every one is single-channel
+  // float.
+  sampler_comparison: samplerComparisonT,
+  texture_depth_2d: textureDepth2dT,
+  texture_depth_2d_array: textureDepth2dArrayT,
+  texture_depth_cube: textureDepthCubeT,
+  texture_depth_cube_array: textureDepthCubeArrayT,
+  texture_depth_multisampled_2d: textureDepthMultisampled2dT,
 }
 
-/** The generic texture names and the `dim` each one carries. A `2d-ms` texture is left out:
- *  the multisampled load never reaches emit on either backend this compiler targets, and a
- *  name that maps to a type no shader can use is worse than no name. */
-const TEXTURE_DIM: Readonly<Record<string, '2d' | '2d-array'>> = {
+/** The generic texture names and the `dim` each one carries. A cube and a 3d texture (roadmap
+ *  0.4 item 12) are core in both targets and need nothing declared; the WebGPU-only ones each
+ *  derive their capability from the binding. `texture_multisampled_2d` (item 13) was left out
+ *  while nothing read it; `textureLoad(t, coords, sampleIndex)` does now. */
+const TEXTURE_DIM: Readonly<
+  Record<string, '2d' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array' | '2d-ms'>
+> = {
   texture_2d: '2d',
   texture_2d_array: '2d-array',
+  texture_cube: 'cube',
+  texture_3d: '3d',
+  texture_1d: '1d',
+  texture_cube_array: 'cube-array',
+  texture_multisampled_2d: '2d-ms',
 }
 
 /** The storage texture names and the `dim` each one carries (roadmap 0.4 item 10). Separate
