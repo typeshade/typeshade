@@ -432,7 +432,10 @@ export const wgslBackend: Backend = {
     // order of the two kinds; `enable` first is this writer's choice, for deterministic
     // bytes.
     const requires = requiredLanguageFeatures(m).map((f) => `requires ${f};`)
-    const lines = [...[...new Set(dirs)].sort().map((d) => `enable ${d};`), ...requires]
+    // `diagnostic(...)` first: WGSL fixes only that directives precede declarations, and a
+    // severity an author set reads better above the extensions it applies across (§54).
+    const rules = (m.diagnostics ?? []).map((d) => `diagnostic(${d.severity}, ${d.rule});`)
+    const lines = [...rules, ...[...new Set(dirs)].sort().map((d) => `enable ${d};`), ...requires]
     return lines.join('\n')
   },
 }

@@ -3400,6 +3400,104 @@ covered at every emit, and the `"use typeshade"` front end runs the same functio
 the fragment declaration. A vertex output the fragment ignores is fine: WGSL constrains only
 the slots the fragment names.
 
+## 54. Derivative uniformity: the control flow a sample may be reached under
+
+**`textureSample` inside an `if` on a fragment input is a shader-creation error, and the
+compiler had nothing to say about it.** WGSL's `derivative_uniformity` rule (wgsl.txt:17477-17482)
+requires that `textureSample`, `textureSampleBias`, `textureSampleCompare` and the screen-space
+derivatives be called from UNIFORM control flow — every invocation of the quad reaches the call,
+or none does — because the implicit level of detail is a difference between neighbouring
+invocations, and an invocation that did not run has no value to difference against. Its default
+severity is `error` (wgsl.txt:1646-1648). `workgroupBarrier` has the same shape for a different
+reason: a workgroup where some invocations reach the barrier and some do not waits forever.
+
+Measured on Chromium 141 (`chromium_headless_shell-1194`) and 153
+(`chromium_headless_shell-1243`, the build CI installs), IDENTICALLY on both, with the
+broken-shader instrument check passing on both compilers first:
+
+| Written | Verdict |
+| --- | --- |
+| `textureSample` under `if (uv.x > 0.5)` on a fragment input | `'textureSample' must only be called from uniform control flow` |
+| the same with `diagnostic(off, derivative_uniformity);` at module scope | accepted |
+| the same with `@diagnostic(off, derivative_uniformity)` on the entry | accepted |
+| `textureSample` under `if (k > 0.5)` on a uniform buffer value | accepted |
+| `textureSampleLevel` under a condition on a fragment input | accepted |
+| `dpdx` under a condition on a fragment input | `'dpdx' must only be called from uniform control flow` |
+| `workgroupBarrier` under a condition on a uniform buffer value | accepted |
+| `workgroupBarrier` under `if (id.x > 4u)` on `local_invocation_id` | `'workgroupBarrier' must only be called from uniform control flow` |
+
+Every one of those is reported by `createShaderModule`, not only by `createRenderPipeline` — so
+the compile gate already runs Tint's own uniformity check on every example, and the acceptance
+item asking for a pipeline leg rests on a premise the measurement disproves. There is nothing
+to add to the gate.
+
+**What the compiler says now.** The call is refused at the call, naming the value the control
+flow depends on and the three ways out:
+
+```
+textureSample() is reached under "VsOut.uv" (a fragment input at @location(0)), which WGSL's
+derivative_uniformity rule refuses: the implicit level of detail is a difference between
+neighbouring invocations, and one that did not run has no value to difference against. Hoist
+the call above the branch, use textureSampleLevel or textureSampleGrad, or write
+@diagnostic("off", "derivative_uniformity") on the entry to take the module as written.
+```
+
+**The analysis is three-valued, and that is the design, not a hedge.** A value is `uniform`,
+`non-uniform`, or `unknown`, and the two callers want opposite answers from the same walk:
+
+- A **derivative** is refused only when its control flow is DEFINITELY non-uniform. Anything
+  the walk cannot follow — a helper's parameters, a storage read whose index it does not track
+  — stays `unknown` and goes through to Tint, which owns the complete rule. A false positive
+  here would refuse a program both targets run.
+- A **barrier** is accepted only when its control flow is DEFINITELY uniform. The rule it
+  replaces refused every `if` and `switch` outright, so `unknown` keeps that refusal and the
+  relaxation can only ever admit a condition the walk has proven uniform.
+
+The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups`,
+`subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
+`override` constant is uniform, and every other built-in value and user input varies by
+invocation. A local takes the join of its initialiser and every write to it, so a condition
+copied into a name is followed:
+
+```ts
+const edge = v.uv.x > 0.5     // non-uniform: it came from a @location input
+if (edge) { return textureSample(t, s, v.uv) }   // refused, naming "edge"
+```
+
+**The barrier rule is the spec's now, not a stricter one.** It used to refuse every `if` and
+`switch`. `if (k > 0.5)` on a uniform buffer value is accepted by Tint, and is accepted here —
+which is the shape a kernel branching on a dispatch-wide flag needs. What is still refused is a
+branch on a value the invocations do not share, and a branch this compiler cannot read, which
+keeps the old answer.
+
+**Switching it off.** `@diagnostic("off", "derivative_uniformity")` on an entry silences the
+analysis and emits WGSL's module-scope directive:
+
+```ts
+@diagnostic("off", "derivative_uniformity")
+@fragment export function fs(v: VsOut): vec4 { … }
+```
+
+```wgsl
+diagnostic(off, derivative_uniformity);
+```
+
+`examples/sample-branch.shade.ts` is the gate's evidence for the whole path — the attribute
+in, the module-scope directive out, compiled on Tint and on ANGLE, with a sample under a
+`uniform` condition beside it that needs no directive at all.
+
+Written on the entry, emitted at module scope, and that is deliberate: WGSL's `@diagnostic` on
+a function covers that function's own body and not the functions it calls, and a sample is as
+often in a helper as in the entry — so the attribute form would switch off a rule the module
+still breaks elsewhere. One spelling in, the one that means what the author meant out. The
+severity vocabulary is WGSL's (`off`, `info`, `warning`, `error`); the rule vocabulary is what
+this compiler analyses, which is one rule, because a directive with nothing behind it is a line
+that reads as a decision and is not one.
+
+GLSL ES 3.00 needs none of this: an implicit derivative in non-uniform control flow is
+undefined there rather than refused (glsl-es-300.txt:3751-3752), so the GLSL text does not move
+for any of it.
+
 ---
 
 Last updated: 2026-09-21

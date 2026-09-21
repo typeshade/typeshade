@@ -818,6 +818,24 @@ export interface ModuleDecl {
    *  `@builtin(...)` id instead (`clipDistances`, `primitiveIndex`, `subgroups`, §50) are
    *  NOT excluded: deriving and declaring fold into one set, so naming one is harmless. */
   readonly enables?: readonly DeclarableCapability[]
+  /** The WGSL `diagnostic(<severity>, <rule>);` directives this module carries (§54). One
+   *  rule today: `derivative_uniformity`, whose default severity is `error`, so switching it
+   *  off is how an author says "I know this sample is under a non-uniform branch and I want it
+   *  anyway". MODULE-SCOPE, though the author writes it on an entry: WGSL's `@diagnostic` on a
+   *  function covers that function's own body and not the functions it calls, and a sample is
+   *  as often in a helper as in the entry.
+   *
+   *  The WGSL writer emits one line each, before every other directive. GLSL ES 3.00 has no
+   *  equivalent and needs none — implicit derivatives in non-uniform control flow are
+   *  undefined there rather than refused (glsl-es-300.txt:3751-3752) — so the GLSL text does
+   *  not move. Absent or empty leaves the emitted source unchanged. */
+  readonly diagnostics?: readonly DiagnosticDirective[]
+}
+
+/** One WGSL `diagnostic(severity, rule);` directive. */
+export interface DiagnosticDirective {
+  readonly severity: 'off' | 'info' | 'warning' | 'error'
+  readonly rule: string
 }
 
 /** The stage of a function declaration: `'vertex'`, `'fragment'` or `'compute'` for an

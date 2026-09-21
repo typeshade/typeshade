@@ -1076,6 +1076,8 @@ ${renderJSDoc(ATTRIBUTE_DOCS.invariant)}
 declare function invariant(target: unknown, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.blend_src)}
 declare function blend_src(n: number): (target: unknown, context?: unknown) => void
+${renderJSDoc(ATTRIBUTE_DOCS.diagnostic)}
+declare function diagnostic(severity: string, rule: string): (target: Function, context?: unknown) => void
 ${renderJSDoc(ATTRIBUTE_DOCS.vertex)}
 declare function vertex(target: Function, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.fragment)}

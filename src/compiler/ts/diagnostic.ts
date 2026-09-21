@@ -3,6 +3,7 @@
 import ts from 'typescript'
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { TS_CODES, type TsCode } from './codes.js'
+import type { SourceSpan } from '../../core/ir/span.js'
 
 /**
  * Builds the diagnostic from a raw `[start, end)` UTF-16 span, converting it into the
@@ -53,6 +54,23 @@ export function makeDiagnostic(
   const start = node ? node.getStart(sourceFile) : (fallback?.getStart(sourceFile) ?? 0)
   const end = node ? node.getEnd() : (fallback?.getEnd() ?? start)
   return diagnosticForSpan(sourceFile, start, end, message, code, category)
+}
+
+/**
+ * Builds the diagnostic from a {@link SourceSpan} the IR carries, for a rule answered on the
+ * module rather than at a `ts.Node`: the uniformity walk sees a `call` and its span, not the
+ * `ts.CallExpression` it came from. A node with no span — one a pass synthesised — falls back
+ * to `node`, which is the enclosing declaration the caller passes.
+ */
+export function diagnosticAtSpan(
+  sourceFile: ts.SourceFile,
+  span: SourceSpan | undefined,
+  fallback: ts.Node | undefined,
+  message: string,
+  code: TsCode,
+): TsCompilerDiagnostic {
+  if (span === undefined) return makeDiagnostic(sourceFile, fallback, message, code)
+  return diagnosticForSpan(sourceFile, span.start, span.start + span.length, message, code, 'error')
 }
 
 /**

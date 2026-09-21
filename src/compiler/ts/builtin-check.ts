@@ -42,6 +42,9 @@ export const ATTRIBUTE_NAMES: readonly string[] = [
   'interpolate',
   'invariant',
   'blend_src',
+  // §54: `@diagnostic("off", "derivative_uniformity")` on an entry, which becomes a
+  // module-scope `diagnostic(off, derivative_uniformity);`.
+  'diagnostic',
 ]
 
 /** The interpolation TYPES WGSL names, and the SAMPLINGS each admits. `flat` takes `first`

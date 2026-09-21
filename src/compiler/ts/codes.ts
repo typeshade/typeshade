@@ -108,6 +108,8 @@ export const TS_CODES = {
    *  struct's last member, or a runtime-sized array in a uniform, whose type must be
    *  constructible. */
   LAYOUT: 'TS8051',
+  /** A call that needs uniform control flow — `textureSample` and the other implicit-LOD forms, the derivatives, or a barrier — reached under a condition that is not uniform across the invocations that run together (§54). */
+  UNIFORMITY: 'TS8052',
   UNSUPPORTED: 'TS8099',
 } as const
 

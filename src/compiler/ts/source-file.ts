@@ -6,6 +6,8 @@ import type {
   ConstDecl,
   DeclarableCapability,
   FuncDecl,
+  DiagnosticDirective,
+  ModuleDecl,
   ModuleVarDecl,
   OverrideDecl,
 } from '../../core/ir/nodes.js'
@@ -20,8 +22,15 @@ import { collectModuleVars } from './module-vars.js'
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js'
 import type { DeclaredSymbol } from './symbols.js'
 import { TS_CODES } from './codes.js'
-import { backendDiagnostic, makeDiagnostic, syntaxDiagnostics } from './diagnostic.js'
+import {
+  backendDiagnostic,
+  diagnosticAtSpan,
+  makeDiagnostic,
+  syntaxDiagnostics,
+} from './diagnostic.js'
 import { collectEnables } from './enables.js'
+import { collectDiagnosticDirectives, derivativeUniformityOff } from './diagnostic-directive.js'
+import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js'
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js'
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
@@ -96,6 +105,13 @@ export interface CompileTsSourceResult {
    *  `@builtin(...)` ids do not need one, since `requiredCaps` derives their capability from
    *  the use. */
   readonly enables: readonly DeclarableCapability[]
+  /** The `diagnostic(severity, rule);` directives the file's entries ask for (§54), in source
+   *  order. Empty for a file that asks for none, which is most. Carried here rather than left
+   *  at the emit, because the assembled `ModuleDecl` an example registers is built from this
+   *  result — and a module missing the directive it was written with is one Tint refuses.
+   *  Named `directives` and not `diagnostics`: that name is taken, by the compiler's own
+   *  error list, and one of the two would have read as the other at every call site. */
+  readonly directives: readonly DiagnosticDirective[]
   /** Every name the front end declared while lowering `sourceFile`, with the `ShaderType` it
    *  gave it and the UTF-16 span of the declared name: the table an editor answers "what type
    *  is this symbol" from, since TypeScript infers plain `number` for a numeric literal that
@@ -142,6 +158,7 @@ export function compileTsSource(
     overrides: [] as OverrideDecl[],
     vars: [] as ModuleVarDecl[],
     enables: [] as DeclarableCapability[],
+    directives: [] as DiagnosticDirective[],
     symbols,
   }
 
@@ -172,6 +189,7 @@ export function compileTsSource(
   analyzeSemantics(sourceFile, diagnostics)
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
   const enables = collectEnables(sourceFile, diagnostics)
+  const directives = collectDiagnosticDirectives(sourceFile, diagnostics)
   const structs = collectStructs(sourceFile, diagnostics, symbols)
   // The structs, so a buffer binding's host-shareable rules can be read through its struct
   // type (§51) — collected first, which this order already guaranteed.
@@ -224,6 +242,32 @@ export function compileTsSource(
       ),
     )
   }
+  // Derivative uniformity, and the barriers that need the same property for a different
+  // reason (§54). Answered on the assembled module, because the walk follows a condition down
+  // through the statements a function holds, and reported here, where the IR's span can point
+  // at the call the author wrote. Silent when the file has switched the rule off: WGSL will
+  // not refuse the module either, which is the whole point of the directive.
+  if (!derivativeUniformityOff(directives)) {
+    const shaped: ModuleDecl = {
+      consts: [...consts],
+      structs: emittedStructDecls(structs),
+      bindings: [...bindings],
+      funcs: [...funcs],
+      overrides: [...overrides],
+      vars: [...vars],
+    }
+    for (const v of uniformityViolations(shaped)) {
+      diagnostics.push(
+        diagnosticAtSpan(
+          sourceFile,
+          v.span,
+          entryDeclaration(sourceFile, v.fn),
+          uniformityMessage(v),
+          TS_CODES.UNIFORMITY,
+        ),
+      )
+    }
+  }
   let wgsl: string | undefined
   const shouldEmit = options.emit ?? true
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
@@ -236,6 +280,7 @@ export function compileTsSource(
         overrides: [...overrides],
         vars: [...vars],
         enables,
+        ...(directives.length > 0 ? { diagnostics: directives } : {}),
       })
     } catch (e) {
       // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
@@ -248,6 +293,7 @@ export function compileTsSource(
     hasDirective: true,
     funcs,
     diagnostics,
+    directives,
     sourceFile,
     consts,
     bindings,
@@ -310,5 +356,27 @@ export function reportCrossDeclarationCollisions(
 function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | undefined {
   return sourceFile.statements.find(
     (st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === name,
+  )
+}
+
+/** The sentence a {@link UniformityViolation} reads as. Two rules with one walk behind them,
+ *  so two wordings: a derivative needs uniform control flow because its value is a difference
+ *  between neighbouring invocations, and a barrier because a workgroup where some invocations
+ *  arrive and some do not waits forever. */
+function uniformityMessage(v: UniformityViolation): string {
+  if (v.kind === 'barrier') {
+    return (
+      `${v.callee}() is reached under ${v.cause}, and every invocation of the workgroup has ` +
+      `to reach it: one that does not is a workgroup that waits forever. Move it out of the ` +
+      `branch, or branch on a value the whole workgroup shares (a uniform, a module const, ` +
+      `@builtin("workgroup_id")).`
+    )
+  }
+  return (
+    `${v.callee}() is reached under ${v.cause}, which WGSL's derivative_uniformity rule ` +
+    `refuses: the implicit level of detail is a difference between neighbouring invocations, ` +
+    `and one that did not run has no value to difference against. Hoist the call above the ` +
+    `branch, use textureSampleLevel or textureSampleGrad, or write ` +
+    `@diagnostic("off", "derivative_uniformity") on the entry to take the module as written.`
   )
 }

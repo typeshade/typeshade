@@ -184,12 +184,19 @@ export function fs(): vec4 { return vec4(1.) }
 })
 
 describe('barriers: where one may stand', () => {
-  const BRANCH = (name: string) =>
-    `${TS_CODES.BARRIER_PLACEMENT} ${name}() must be reached by every invocation of the workgroup: move it out of the if or switch. A barrier inside a branch on a value the invocations do not share is how a workgroup waits forever; a for loop with a constant bound is fine.`
+  // The rule is the UNIFORMITY of the branch, not the presence of one (§54). It used to be
+  // "no `if`, no `switch`", which is stricter than both the spec and Tint: measured on
+  // Chromium 141 and 153 alike, `if (k > 0.5)` on a uniform buffer value is ACCEPTED, and
+  // `if (id.x > 4u)` on `local_invocation_id` is `'workgroupBarrier' must only be called from
+  // uniform control flow`. What it means is unchanged — every invocation of the workgroup has
+  // to reach the barrier — and the walk reports one whenever the control flow is not PROVABLY
+  // uniform, so a shape it cannot read keeps the refusal it had.
+  const branchedOn = (name: string, cause: string) =>
+    `${TS_CODES.UNIFORMITY} ${name}() is reached under ${cause}, and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the branch, or branch on a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`
 
-  it('not inside an if or a switch body', () => {
+  it('not inside a branch on a value the invocations do not share', () => {
     expect(errorsOf(kernel('  if (gid.x > 1) {\n    workgroupBarrier()\n  }'))).toEqual([
-      BRANCH('workgroupBarrier'),
+      branchedOn('workgroupBarrier', '"gid" (@builtin(global_invocation_id))'),
     ])
     expect(
       errorsOf(
@@ -197,7 +204,35 @@ describe('barriers: where one may stand', () => {
           '  switch (gid.x) {\n    case 1: { storageBarrier(); break }\n    default: { break }\n  }',
         ),
       ),
-    ).toEqual([BRANCH('storageBarrier')])
+    ).toEqual([branchedOn('storageBarrier', '"gid" (@builtin(global_invocation_id))')])
+  })
+
+  it('inside a branch on a value the whole workgroup shares, it may', () => {
+    const uniform = `"use typeshade"
+declare let out: storage<array<f32>>
+declare const k: uniform<f32>
+@compute([64, 1, 1])
+export function g(@builtin("global_invocation_id") gid: vec3u): void {
+  if (k > 0.5) {
+    workgroupBarrier()
+  }
+  out[gid.x] = 1.
+}
+`
+    expect(errorsOf(uniform)).toEqual([])
+    // `@builtin("workgroup_id")` is one of the four WGSL declares uniform, so a branch on it
+    // is the same answer for every invocation of the group.
+    const byGroup = `"use typeshade"
+declare let out: storage<array<f32>>
+@compute([64, 1, 1])
+export function g(@builtin("workgroup_id") wg: vec3u, @builtin("local_invocation_id") id: vec3u): void {
+  if (wg.x > u32(1)) {
+    workgroupBarrier()
+  }
+  out[id.x] = 1.
+}
+`
+    expect(errorsOf(byGroup)).toEqual([])
   })
 
   it('inside a for loop, and inside a helper, it may', () => {

@@ -876,3 +876,28 @@ export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set(['f64', 'f64From
  */
 export const isKnownIntrinsic = (name: string): boolean =>
   Object.prototype.hasOwnProperty.call(INTRINSICS, name) || PORTABLE_INTRINSICS.has(name)
+
+/** The intrinsics whose value is a difference between neighbouring invocations, so WGSL
+ *  requires uniform control flow at the call (wgsl.txt:17477-17482, §54): the derivatives
+ *  themselves and every sampling form that derives its level of detail implicitly.
+ *
+ *  DERIVED from the catalogue above rather than listed, so a sampling id added there joins by
+ *  construction: every `textureSample…` id that is not an explicit-`Level` or `Grad` form needs
+ *  the implicit LOD, and `dpdx` / `dpdy` / `fwidth` and their `Coarse` and `Fine` variants ARE
+ *  the derivative. `textureSampleLevel`, `textureSampleGrad` and `textureSampleCompareLevel`
+ *  carry the level the author wrote and are therefore legal anywhere — which is why the
+ *  diagnostic for one of these names them as the fix.
+ *
+ *  Not the same question as `fragment-only-builtin`'s `FRAGMENT_ONLY_IDS`, which asks which
+ *  STAGE may reach an id and carries a per-id fix string; that map is a subset of this set,
+ *  pinned by a test rather than derived, because a fix sentence is written, not computed.
+ *
+ *  Exported from `typeshade`.
+ */
+export const DERIVATIVE_INTRINSICS: ReadonlySet<string> = new Set(
+  [...Object.keys(INTRINSICS), ...PORTABLE_INTRINSICS].filter(
+    (id) =>
+      (id.startsWith('textureSample') && !id.includes('Level') && !id.includes('Grad')) ||
+      /^(dpdx|dpdy|fwidth)/.test(id),
+  ),
+)

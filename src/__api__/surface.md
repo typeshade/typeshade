@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 449 exports
+## `.` — 451 exports
 
 ```
 abs
@@ -101,11 +101,13 @@ cross
 cse
 DeclarableCapability
 degrees
+DERIVATIVE_INTRINSICS
 DeterminismAccuracy
 DeterminismEntry
 DeterminismKind
 determinismReport
 Diagnostic
+DiagnosticDirective
 Discard
 DispatchReport
 distance
@@ -560,7 +562,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 259 exports
+## `./core/ir` — 260 exports
 
 ```
 abs
@@ -609,6 +611,7 @@ cosh
 cross
 DeclarableCapability
 degrees
+DiagnosticDirective
 Discard
 distance
 div
@@ -863,7 +866,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 557 definitions
+## Shapes — 559 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
@@ -879,7 +882,7 @@ src/compiler/ts/pack.ts#PackEntry  interface  { name: string; stage: string }
 src/compiler/ts/pack.ts#packJson  function  (m: ModuleDecl) => string
 src/compiler/ts/pack.ts#packModule  function  (m: ModuleDecl) => Pack
 src/compiler/ts/source-file.ts#CompileTsSourceOptions  interface  { emit?: boolean; fileName?: string; requireDirective?: boolean; sourceFile?: SourceFile }
-src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; enables: readonly DeclarableCapability[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; vars: readonly ModuleVarDecl[]; wgsl?: string }
+src/compiler/ts/source-file.ts#CompileTsSourceResult  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics: readonly TsCompilerDiagnostic[]; directives: readonly DiagnosticDirective[]; enables: readonly DeclarableCapability[]; funcs: readonly FuncDecl[]; hasDirective: boolean; overrides: readonly OverrideDecl[]; sourceFile: SourceFile; structs: readonly CollectedStruct[]; symbols: readonly DeclaredSymbol[]; vars: readonly ModuleVarDecl[]; wgsl?: string }
 src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "error" | "warning" | "message"; character: number; code?: string; endCharacter: number; endLine: number; fileName: string; length: number; line: number; message: string; start: number }
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
@@ -983,6 +986,7 @@ src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; prea
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
 src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 1; readonly returns: "value" | "void"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
+src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#INTRINSICS  const  Readonly<Record<string, Spelling>>
 src/core/intrinsics.ts#INTRINSIC_BINDING_REFS  const  Readonly<Record<string, readonly string[]>>
 src/core/intrinsics.ts#INTRINSIC_HELPERS  const  Readonly<Record<string, { readonly fn: string; readonly def: string; }>>
@@ -1010,7 +1014,7 @@ src/core/ir/builder.ts#If  const  (cond: ReadonlyNode<"bool">, body: () => void 
 src/core/ir/builder.ts#IfChain  class  { arms: { cond: Expr; body: Stmt[]; }[]; elif: (cond: ReadonlyNode<"bool">, body: (b: Builder) => void | ReadonlyNode<string>) => IfChain; else: (body: (b: Builder) => void | ReadonlyNode<string>) => void; parent: Builder; setElse: (body: Stmt[]) => void }
 src/core/ir/builder.ts#Let  function  { <K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>; <K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>; }
 src/core/ir/builder.ts#Loop  function  { (count: number, body: (i: Node<"u32">) => void | ReadonlyNode<string>): void; (name: string, count: number, body: (i: Node<"u32">) => void | ReadonlyNode<string>): void; <K extends string>(init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; <K extends string>(name: string, init: ReadonlyNode<K>, cond: (i: Node<K>) => ReadonlyNode<"bool">, body: (i: Node<K>) => void | ReadonlyNode<string>, step?: number | ReadonlyNode<ScalarKey>): void; }
-src/core/ir/builder.ts#ModuleParts  interface  { bindings?: readonly BindingDecl[]; consts?: readonly ConstDecl[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>; overrides?: readonly OverrideDecl[]; structs?: readonly StructDecl[]; uses?: readonly UsesHandle[]; vars?: readonly ModuleVarDecl[] }
+src/core/ir/builder.ts#ModuleParts  interface  { bindings?: readonly BindingDecl[]; consts?: readonly ConstDecl[]; diagnostics?: readonly DiagnosticDirective[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>; overrides?: readonly OverrideDecl[]; structs?: readonly StructDecl[]; uses?: readonly UsesHandle[]; vars?: readonly ModuleVarDecl[] }
 src/core/ir/builder.ts#OverrideHandle  interface  { decl: OverrideDecl; node: ReadonlyNode<K> }
 src/core/ir/builder.ts#ParamSpec  type  { [x: string]: ShaderType; }
 src/core/ir/builder.ts#Return  const  (value?: ReadonlyNode<string>) => void
@@ -1170,12 +1174,13 @@ src/core/ir/nodes.ts#Capability  type  "storageBuffer" | "compute" | "msaaTextur
 src/core/ir/nodes.ts#CmpOp  type  "<" | ">" | "<=" | ">=" | "==" | "!="
 src/core/ir/nodes.ts#ConstDecl  interface  { cpuValue: number; name: string; type: ShaderType; valueExpr?: Expr; wgslValue: number }
 src/core/ir/nodes.ts#DeclarableCapability  type  "f16" | "subgroups" | "clipDistances" | "primitiveIndex" | "dualSourceBlending" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview"
+src/core/ir/nodes.ts#DiagnosticDirective  interface  { rule: string; severity: "error" | "warning" | "info" | "off" }
 src/core/ir/nodes.ts#EntryParam  interface  { builtin?: string; location?: number; name: string; type: ShaderType }
 src/core/ir/nodes.ts#Expr  type  { readonly op: "lit"; readonly type: ShaderType; readonly value: number | boolean; } | { readonly op: "constref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "overrideref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "externref"; readonly type: ShaderType; readonly name: string; } | { readonly op: "param"; readonly type: ShaderType; readonly name: string; readonly span?: SourceSpan; } | { readonly op: "varref"; readonly type: ShaderType; readonly name: string; readonly span?: SourceSpan; } | { readonly op: "binop"; readonly type: ShaderType; readonly bop: BinOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "unop"; readonly type: ShaderType; readonly a: Expr; } | { readonly op: "compare"; readonly type: ShaderType; readonly cop: CmpOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "logical"; readonly type: ShaderType; readonly lop: LogOp; readonly a: Expr; readonly b: Expr; } | { readonly op: "call"; readonly type: ShaderType; readonly fn: string; readonly args: readonly Expr[]; readonly declRef?: FuncDecl; readonly span?: SourceSpan; } | { readonly op: "member"; readonly type: ShaderType; readonly base: Expr; readonly field: string; } | { readonly op: "construct"; readonly type: ShaderType; readonly args: readonly Expr[]; } | { readonly op: "select"; readonly type: ShaderType; readonly cond: Expr; readonly ifTrue: Expr; readonly ifFalse: Expr; } | { readonly op: "index"; readonly type: ShaderType; readonly base: Expr; readonly idx: Expr; readonly span?: SourceSpan; } | { readonly op: "matchExpr"; readonly type: ShaderType; readonly scrutinee: Expr; readonly cases: readonly (readonly [number, Expr])[]; readonly default: Expr; }
 src/core/ir/nodes.ts#ExternVarDecl  interface  { name: string; spelling?: { readonly wgsl?: string; readonly glsl?: string; }; stage?: "compute" | "vertex" | "fragment"; type: ShaderType }
 src/core/ir/nodes.ts#FuncDecl  interface  { [ASSEMBLED_AS]?: string; allowEarlyReturn?: boolean; attrs?: readonly string[]; body: readonly Stmt[]; lintDisable?: readonly string[]; name: string; nameSpan?: SourceSpan; opaque?: boolean; params: readonly { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; mode?: "inout"; }[]; portable?: boolean; ret: ShaderType; retAttr?: string; retBuiltin?: string; span?: SourceSpan; stage?: "compute" | "vertex" | "fragment"; workgroupSize?: number }
 src/core/ir/nodes.ts#LogOp  type  "&&" | "||"
-src/core/ir/nodes.ts#ModuleDecl  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs: readonly FuncDecl[]; overrides?: readonly OverrideDecl[]; structs: readonly StructDecl[]; vars?: readonly ModuleVarDecl[] }
+src/core/ir/nodes.ts#ModuleDecl  interface  { bindings: readonly BindingDecl[]; consts: readonly ConstDecl[]; diagnostics?: readonly DiagnosticDirective[]; enables?: readonly DeclarableCapability[]; externs?: readonly ExternVarDecl[]; funcs: readonly FuncDecl[]; overrides?: readonly OverrideDecl[]; structs: readonly StructDecl[]; vars?: readonly ModuleVarDecl[] }
 src/core/ir/nodes.ts#ModuleVarDecl  interface  { init?: Expr; name: string; space: "workgroup" | "private"; type: ShaderType }
 src/core/ir/nodes.ts#OverrideDecl  interface  { default: number | boolean; name: string; type: ShaderType }
 src/core/ir/nodes.ts#RawPayload  type  { readonly wgsl: string; readonly glsl?: string; } | { readonly wgsl?: string; readonly glsl: string; }

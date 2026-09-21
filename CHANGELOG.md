@@ -13,6 +13,41 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Derivative uniformity is analysed, or switched off on request, before Tint sees the module**
+  (§54, [#161](https://github.com/typeshade/typeshade/issues/161)). WGSL requires
+  `textureSample`, `textureSampleBias`, `textureSampleCompare` and the screen-space derivatives
+  to be called from uniform control flow, and its `derivative_uniformity` rule has default
+  severity `error`. `textureSample` inside an `if` on a fragment input compiled here with zero
+  diagnostics and died at `createShaderModule`. It is refused at the call now, naming the value
+  the control flow depends on — `"VsOut.uv" (a fragment input at @location(0))` — and the three
+  ways out: hoist the call, use `textureSampleLevel`, or write
+  `@diagnostic("off", "derivative_uniformity")` on the entry, which emits WGSL's module-scope
+  `diagnostic(off, derivative_uniformity);` and takes the module as written.
+  `examples/sample-branch.shade.ts` compiles that whole path on Tint and on ANGLE.
+
+  Measured on Chromium 141 (`chromium_headless_shell-1194`) and 153
+  (`chromium_headless_shell-1243`, the build CI installs), identically on both, with the
+  broken-shader instrument check passing on both compilers first: the bare form is
+  `'textureSample' must only be called from uniform control flow`, the same under a uniform
+  buffer value is accepted, `textureSampleLevel` is accepted anywhere, `dpdx` gets the same
+  message, and both spellings of the diagnostic filter are accepted. All of it is reported by
+  `createShaderModule` rather than only by `createRenderPipeline`, so the compile gate already
+  runs Tint's own check on every example and needs no pipeline leg — the issue's acceptance
+  item rests on a premise the measurement disproves.
+
+  **The barrier rule is the spec's now, not a stricter one.** It refused every `if` and
+  `switch`; `if (k > 0.5)` on a uniform buffer value is accepted by Tint and is accepted here.
+  The analysis is three-valued on purpose, because the two callers want opposite answers from
+  one walk: a derivative is refused only when its control flow is DEFINITELY non-uniform, so
+  anything the walk cannot follow goes through to Tint rather than becoming a false positive;
+  a barrier is accepted only when its control flow is DEFINITELY uniform, so the relaxation can
+  only ever admit what has been proven and a shape the walk cannot read keeps its old refusal.
+  The seeds are the spec's four uniform built-in values, the `uniform` address space, and the
+  module and `override` constants; a local takes the join of its initialiser and every write,
+  so a condition copied into a name is followed. GLSL ES 3.00 needs none of it — an implicit
+  derivative in non-uniform control flow is undefined there rather than refused — and its text
+  does not move.
+
 - **Entry IO attributes, and the interpolation an integer varying has no choice about** (§53,
   [#158](https://github.com/typeshade/typeshade/issues/158)). WGSL requires every integral
   user-defined IO to carry `@interpolate(flat)` — there is no interpolation for a `u32` — and

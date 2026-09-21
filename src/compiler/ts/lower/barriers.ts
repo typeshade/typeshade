@@ -56,17 +56,15 @@ export function lowerBarrierStatement(
     )
     return undefined
   }
-  if (scope.inBranch()) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `${name}() must be reached by every invocation of the workgroup: move it out of the if or ` +
-        `switch. A barrier inside a branch on a value the invocations do not share is how a ` +
-        `workgroup waits forever; a for loop with a constant bound is fine.`,
-      TS_CODES.BARRIER_PLACEMENT,
-    )
-    return undefined
-  }
+  // NOT `scope.inBranch()` any more (§54). That rule refused EVERY `if` and `switch`, which
+  // is stricter than both the spec and Tint: a barrier under `if (k > 0.5)` on a uniform
+  // buffer value is accepted, measured on Chromium 141 and 153 alike, because every
+  // invocation of the workgroup takes the same side of it. What the two refuse is a branch on
+  // a value the invocations do NOT share — measured, `if (id.x > 4u)` on
+  // `local_invocation_id` is `'workgroupBarrier' must only be called from uniform control
+  // flow`. The uniformity walk answers exactly that question, on the assembled module where
+  // it can follow a condition through the locals it came from, and it reports a barrier
+  // whenever the control flow is not PROVABLY uniform — so a shape this compiler cannot read
+  // keeps the refusal it had, and the relaxation only ever admits what has been proven.
   return { op: 'call', type: voidT, fn: name, args: [] }
 }
