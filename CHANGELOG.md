@@ -172,12 +172,26 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   an integer `dot` becomes a `_idot` helper with one overload per vector type the module uses —
   a helper rather than an inline sum, because an inline splices both arguments once per
   component after every optimizer pass has run. The signed `abs` and the float `dot` keep the
-  portable spelling. `examples/integer-math.shade.ts` is the gate witness: its GLSL half links
-  only because of this.
+  portable spelling. The choice is one exported rule, not one per front end: the `fn()` node
+  graph is the other authoring surface, and while it built the portable id it kept emitting the
+  same `abs(uvec3)` and `dot(ivec3, ivec3)`. It now asks the same function, and an integer `dot`
+  there returns the integer kind its operands share instead of an `f32` the value never was.
+  `examples/integer-math.shade.ts` is the gate witness: its GLSL half links only because of
+  this.
 - **The scalar conversions take a scalar, and a literal that fits** (§45, #154). `u32(-1)`
   emitted `u32(-1.0)` — a negated literal is not a literal, so the fold that retypes one never
   saw it — and Tint accepts that while refusing the `u32(-1)` the author wrote; it is now
-  `u32(-1) is out of range: a u32 holds 0 to 4294967295. …`. `f32(vec3(...))` was accepted by
+  `u32(-1) is out of range: a u32 holds 0 to 4294967295. …`, with the rest of the sentence
+  naming the reason the operand's own type gives: an INTEGER that does not fit is a WGSL
+  shader-creation error, while a FLOAT that does not fit is defined on both targets and defined
+  differently (measured, `u32(-1.)` is 0 on WGSL and 4294967295 on GLSL ES 3.00). The rule folds
+  a `const` REFERENCE too, which is the shape that actually reached a driver: const propagation
+  writes `const k: i32 = -1` into the call before either backend sees it, so `u32(k)` emitted
+  the `u32(-1)` Tint refuses, with no diagnostic anywhere. A local const now
+  carries the value a folded literal initializer has, so an unannotated `const k = -1.` — a
+  negated literal, and therefore not a literal — is a compile-time value to every rule that
+  reads one. A RUNTIME conversion is untouched: `let k: i32 = -1; u32(k)` is bit-preserving on
+  both targets, one answer, and stays a call. `f32(vec3(...))` was accepted by
   the surface, refused by Tint ("no matching constructor") and compiled by a WebGL2 driver as
   `float(vec3)`, which silently takes `.x` — the two targets disagreed about whether the
   program existed, and it is now `f32() takes a scalar; got vec3<f32>.` An emulated double is a

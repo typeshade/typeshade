@@ -1070,7 +1070,7 @@ src/core/ir/node.ts#cross  const  (a: ReadonlyNode<"vec3<f32>">, b: ReadonlyNode
 src/core/ir/node.ts#degrees  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#distance  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
 src/core/ir/node.ts#div  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
-src/core/ir/node.ts#dot  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
+src/core/ir/node.ts#dot  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<i32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"i32">; <K extends `vec${number}<u32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"u32">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
 src/core/ir/node.ts#dpdx  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#dpdy  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#enumU32  function  <const M extends Record<string, number>>(values: M) => EnumU32<M>

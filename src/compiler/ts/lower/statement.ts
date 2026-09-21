@@ -377,7 +377,13 @@ function lowerVariableDeclaration(
     return undefined
   }
   const bindingType = annotated ?? init.type
-  const constValue = init.op === 'lit' ? init.value : undefined
+  // Folded, not just `init.op === 'lit'`: a NEGATED literal is a unop, so `const k = -1.` used
+  // to carry no compile-time value at all while the const-propagation pass still substituted
+  // it downstream — which is how `u32(k)` reached the backend as the divergent `u32(-1.0)` with
+  // no diagnostic (#154). `foldNumericLit` is the same fold the scalar cast runs on a literal
+  // argument, so a const binding now knows exactly what a spelled-out literal would.
+  const folded = foldNumericLit(init)
+  const constValue = folded.op === 'lit' ? folded.value : undefined
   // `const a = src` keeps the name it copies, so `a.length` on a storage array is answered the
   // way `src.length` is (#46). Only a bare name; an element or a field is a different value.
   const aliasOf = init.op === 'varref' ? init.name : undefined

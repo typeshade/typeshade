@@ -9,6 +9,7 @@ import { expandMath } from '../math-expand.js'
 import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
 import { lowerScalarCast } from '../numeric.js'
+import { foldConstNumber } from '../loop-bound.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -59,7 +60,7 @@ export function lowerScalarCastCall(
   }
   const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
   if (!arg) return undefined
-  const out = lowerScalarCast(name, arg)
+  const out = lowerScalarCast(name, arg, (e) => foldConstNumber(e, scope))
   if (typeof out === 'string') {
     pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH)
     return undefined

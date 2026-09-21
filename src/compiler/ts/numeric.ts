@@ -164,7 +164,11 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
  *  seeing a widen it would have to undo. `bool(x)` becomes the compare `x != 0`, which is
  *  what WGSL's bool conversion means and what all three backends already evaluate. Every
  *  other name keeps its behaviour exactly. */
-export function lowerScalarCast(name: string, arg: Expr): Expr | string {
+export function lowerScalarCast(
+  name: string,
+  arg: Expr,
+  constOf?: (e: Expr) => number | undefined,
+): Expr | string {
   const type = SCALAR_CAST[name]
   if (!type) return `Unknown scalar cast "${name}".`
   if (name === 'bool') {
@@ -220,27 +224,55 @@ export function lowerScalarCast(name: string, arg: Expr): Expr | string {
   // `u32(-1.0)`. Folded first, which is also what makes the range rule below see the number
   // the author wrote.
   const lit = foldNumericLit(arg)
-  if (lit.op === 'lit' && typeof lit.value === 'number') {
-    const v = lit.value
+  const litValue = lit.op === 'lit' && typeof lit.value === 'number' ? lit.value : undefined
+  // A reference to a `const` is a compile-time value too, and by the time the backend sees it
+  // the const-propagation pass has substituted it: `const k: i32 = -1; u32(k)` EMITS `u32(-1)`,
+  // measured on the dev pipeline. So the range rule has to see through the reference, which is
+  // what `constOf` is — the caller's scope-aware folder, since this module knows nothing about
+  // scopes. Only the CHECK looks through it; the call itself is still emitted as written, so an
+  // in-range `u32(k)` keeps its name and the substitution stays the optimizer's business.
+  const v = litValue ?? constOf?.(arg)
+  if (v !== undefined) {
     if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`
     if (name !== 'f32') {
       const truncated = Math.trunc(v)
-      // Out of the target's range, the conversion has no one answer: WGSL refuses the whole
-      // module ("value -1 cannot be represented as 'u32'", measured on Tint), and GLSL ES 3.00
-      // leaves it undefined — a WebGL2 driver compiles `uint(-1.0)` and answers whatever it
-      // likes. Refused here, in the author's file, with the range named.
+      // Out of range, WGSL's answer depends on what the operand IS, and the two cases differ:
+      //
+      //   u32(-1)     an AbstractInt, and out of `u32`'s range — a shader-creation error.
+      //               Measured on Tint: "value -1 cannot be represented as 'u32'".
+      //   u32(-1.0)   a FLOAT, whose conversion out of range is DEFINED, not an error
+      //               (wgsl.txt:19325-19365). Measured: Tint ACCEPTS it, and so does a WebGL2
+      //               driver, where int↔uint is bit-preserving.
+      //
+      // So the two cases carry different reasons, and both are decided by the folded value's
+      // TYPE rather than by how the call was written: `const t: i32 = -1; u32(t)` is the same
+      // i32 value as `u32(-1)` and used to slip past a check that only read the call's own
+      // syntax, emitting the `u32(-1)` Tint refuses — the very program this rule exists to stop.
       if (!fitsTarget(truncated, type)) {
         const unsigned = typeKey(type) === 'u32'
+        const fromInteger = typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32'
         return (
           `${name}(${String(v)}) is out of range: ${unsigned ? 'a' : 'an'} ${typeKey(type)} ` +
           `holds ${unsigned ? '0 to 4294967295' : '-2147483648 to 2147483647'}. ` +
-          `WGSL rejects the module and GLSL ES 3.00 leaves the result undefined, so the two ` +
-          `targets would disagree.`
+          (fromInteger
+            ? // No `clamp` hint here: the operand is an integer, and `clamp(x, 0., 1.)` would
+              // be a second type error on top of the first. What this case needs is a value
+              // the target holds.
+              `An integer that does not fit is a WGSL shader-creation error. ` +
+              `Write a value ${typeKey(type)} holds.`
+            : // Measured, by running the conversion on both: WGSL clamps and GLSL ES 3.00
+              // leaves it undefined, so `u32(-1.)` is 0 on Tint and 4294967295 on a WebGL2
+              // driver, and `u32(4.3e9)` is 4294967295 there and 5032960 here. Two targets,
+              // two answers, no diagnostic — which is what this refusal is for.
+              `The two targets compute different values for one that does not: measured, ` +
+              `u32(-1.) is 0 on WGSL and 4294967295 on GLSL ES 3.00. ` +
+              `Clamp it first if you want one answer, e.g. ${name}(clamp(x, 0., 1.)).`)
         )
       }
-      return { op: 'lit', type, value: truncated }
+      if (litValue !== undefined) return { op: 'lit', type, value: truncated }
+    } else if (litValue !== undefined) {
+      return { op: 'lit', type: f32T, value: v }
     }
-    return { op: 'lit', type: f32T, value: v }
   }
   return { op: 'call', type, fn: name, args: [arg] }
 }

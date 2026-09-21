@@ -239,18 +239,81 @@ describe('a scalar conversion takes a scalar, and a literal it can hold', () => 
     // WGSL and says so in the author's file, rather than emitting a program the two targets
     // disagree about. A negated literal is a unop, not a lit, which is why it used to slip
     // past the fold here.
+    // A BARE `-1` is an f32 in this surface, so what it would have emitted is `u32(-1.0)`:
+    // the float conversion, which is defined on both targets and defined DIFFERENTLY. The
+    // message says which two numbers were measured rather than calling the result undefined.
     expect(diagnose('u32(-1)', '', 'u32')).toBe(
-      'u32(-1) is out of range: a u32 holds 0 to 4294967295. WGSL rejects the module and ' +
-        'GLSL ES 3.00 leaves the result undefined, so the two targets would disagree.',
+      'u32(-1) is out of range: a u32 holds 0 to 4294967295. The two targets compute ' +
+        'different values for one that does not: measured, u32(-1.) is 0 on WGSL and ' +
+        '4294967295 on GLSL ES 3.00. Clamp it first if you want one answer, e.g. ' +
+        'u32(clamp(x, 0., 1.)).',
     )
     expect(diagnose('i32(4294967295)', '', 'i32')).toBe(
-      'i32(4294967295) is out of range: an i32 holds -2147483648 to 2147483647. WGSL rejects ' +
-        'the module and GLSL ES 3.00 leaves the result undefined, so the two targets would ' +
-        'disagree.',
+      'i32(4294967295) is out of range: an i32 holds -2147483648 to 2147483647. The two ' +
+        'targets compute different values for one that does not: measured, u32(-1.) is 0 on ' +
+        'WGSL and 4294967295 on GLSL ES 3.00. Clamp it first if you want one answer, e.g. ' +
+        'i32(clamp(x, 0., 1.)).',
     )
     // The values that DO fit are unchanged, negative ones included.
     expect(typeKey(lowerReturn('i32(-1)', '', 'i32').type)).toBe('i32')
     expect(typeKey(lowerReturn('u32(4294967295)', '', 'u32').type)).toBe('u32')
+  })
+
+  it('sees through a const REFERENCE, which the backend already substitutes', () => {
+    // The hole the syntax-only check left. `const k: i32 = -1` carries a compile-time value,
+    // and const propagation writes it into the call before either backend sees it, so
+    // `u32(k)` EMITTED `u32(-1)` — the AbstractInt conversion Tint refuses outright — while
+    // GLSL compiled `uint(-1)` and answered 0xFFFFFFFF. Neither the author nor the compile
+    // gate saw a diagnostic. The range rule now folds the reference the same way.
+    const integer = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  const k: i32 = -1
+  return vec4(f32(u32(k)), 0., 0., 1.)
+}
+`)
+    expect(integer.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual(
+      [
+        'u32(-1) is out of range: a u32 holds 0 to 4294967295. An integer that does not fit ' +
+          'is a WGSL shader-creation error. Write a value u32 holds.',
+      ],
+    )
+    // The same hole on the float side: an unannotated `const k = -1.` is a NEGATED literal,
+    // a unop rather than a lit, so the binding used to carry no compile-time value at all
+    // while the substitution happened anyway.
+    const float = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  const k = -1.
+  return vec4(f32(u32(k)), 0., 0., 1.)
+}
+`)
+    expect(float.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([
+      'u32(-1) is out of range: a u32 holds 0 to 4294967295. The two targets compute ' +
+        'different values for one that does not: measured, u32(-1.) is 0 on WGSL and ' +
+        '4294967295 on GLSL ES 3.00. Clamp it first if you want one answer, e.g. ' +
+        'u32(clamp(x, 0., 1.)).',
+    ])
+  })
+
+  it('leaves a RUNTIME conversion alone, where the two targets agree', () => {
+    // The escape hatch, and the reason the rule folds rather than refusing `u32` of anything
+    // signed. A mutable `let` has no compile-time value, so `u32(k)` stays a runtime
+    // conversion: bit-preserving on WGSL and bit-preserving on GLSL ES 3.00, one answer.
+    // An in-range const keeps its call too — the fold decides the CHECK, not the emit.
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  let k: i32 = -1
+  const m: i32 = 5
+  return vec4(f32(u32(k)) * 0., f32(u32(m)) * 0., 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('u32(k)')
+    expect(r.wgsl).toContain('u32(5)')
+    expect(r.glsl?.fragment).toContain('uint(k)')
+    expect(r.glsl?.fragment).toContain('uint(5)')
   })
 
   it('refuses f32(vec3) naming the scalar rule', () => {

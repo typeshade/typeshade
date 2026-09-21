@@ -3113,13 +3113,31 @@ arguments once per component, after every optimizer pass has run. The signed `ab
 `dot` are untouched. `examples/integer-math.shade.ts` is the gate witness: its GLSL half links
 only because of this.
 
+The choice is ONE rule, asked by both authoring surfaces. `"use typeshade"` lowers `abs(x)` from
+source and the `fn()` node graph builds it directly, and a rule that lives in the front end only
+leaves the other surface emitting the GLSL no driver takes. So the `fn()` builtins ask the same
+function, and while they are there an integer `dot` gets the type its operands actually give:
+
+```ts
+import { fn, dot, abs, vec3iT, vec3uT } from 'typeshade'
+
+const sq = fn('sq', { v: vec3iT }, ({ v }) => dot(v, v)) //     -> i32, emits _idot on GLSL
+const mag = fn('mag', { v: vec3uT }, ({ v }) => abs(v)) //      -> the operand itself on GLSL
+```
+
+`dot` used to be typed `f32` for every operand that was not an emulated double, so the integer
+form returned a float the value never was — and it was unreachable through `tsc` in any case,
+since the overloads admitted float vectors alone. Both are fixed together: the integer overloads
+are there, and they return `i32` and `u32`.
+
 ### The scalar conversions
 
 `u32(e)`, `i32(e)` and `f32(e)` take a SCALAR, and a literal the target can hold:
 
 ```
-u32(-1) is out of range: a u32 holds 0 to 4294967295. WGSL rejects the module and GLSL ES 3.00
-leaves the result undefined, so the two targets would disagree.
+u32(-1) is out of range: a u32 holds 0 to 4294967295. The two targets compute different values
+for one that does not: measured, u32(-1.) is 0 on WGSL and 4294967295 on GLSL ES 3.00. Clamp it
+first if you want one answer, e.g. u32(clamp(x, 0., 1.)).
 
 f32() takes a scalar; got vec3<f32>. A vector is converted component-wise by its own
 constructor, e.g. vec3(v).
@@ -3130,6 +3148,40 @@ the fold that retypes one never saw it — and Tint accepts that while refusing 
 author actually wrote. `f32(vec3(...))` is the sharper case: Tint refuses it outright, and a
 WebGL2 driver compiles `float(vec3)` and silently takes `.x`. The two targets did not differ on
 a corner; they disagreed about whether the program existed.
+
+The refusal names the reason the OPERAND'S OWN TYPE gives, because the two are different
+failures. A bare `-1` is an `f32` on this surface, so `u32(-1)` would emit the float conversion,
+which both targets define and define differently — measured, `u32(-1.)` is 0 on WGSL and
+4294967295 on GLSL ES 3.00, and `u32(4.3e9)` is 4294967295 there and 5032960 here. An INTEGER
+that does not fit is not a divergence at all: it is a WGSL shader-creation error, and the
+message says so and does not suggest a `clamp` the type would refuse.
+
+### A const is a value, a `let` is a conversion
+
+The rule folds a reference, not just a spelled-out literal, because that is the shape that
+reached a driver:
+
+```ts
+const k: i32 = -1;
+const bits = u32(k); // refused; this EMITTED u32(-1), which Tint rejects outright
+```
+
+Const propagation writes the value into the call before either backend sees it, so the call the
+author wrote is not the call the driver reads. Nothing in the pipeline had an opinion about it:
+Tint rejected the module and GLSL ES 3.00 compiled `uint(-1)` and answered `0xFFFFFFFF`. A local
+`const` also carries the value a FOLDED literal initializer has now, so `const k = -1.` — a
+negated literal, and therefore not a literal — is a compile-time value to every rule that reads
+one, this one included.
+
+A RUNTIME conversion is untouched, and it is the escape hatch:
+
+```ts
+let k: i32 = -1;
+const bits = u32(k); // fine: bit-preserving on WGSL and on GLSL ES 3.00, one answer
+```
+
+A mutable binding has no compile-time value, so `u32(k)` stays a conversion both targets agree
+on. An in-range const keeps its call too — the fold decides the CHECK, not the emitted text.
 
 An emulated double is a scalar for this rule, so `f32(f64(x))` is the narrowing it has always
 been. And an integer-written literal in a builtin that has no float form is typed `i32`, the way

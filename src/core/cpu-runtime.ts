@@ -635,15 +635,19 @@ export const BUILTINS: Record<string, Builtin> = {
   // `abs` on an unsigned value is the identity, and the integer `dot` is the sum of the
   // component-wise products (#154). Their own ids because GLSL ES 3.00 spells neither.
   absU: (x) => x,
+  // Every multiply and every add wraps at 32 bits, as both targets do. Reducing in doubles and
+  // wrapping once at the end is not the same function: a component product past 2^53 is rounded
+  // before the wrap, and `dot(vec2i(2147483647, 1), vec2i(2147483647, 1))` came out 0 here
+  // against 2 on Tint AND 2 on a WebGL2 driver. `Math.imul` is the 32-bit multiply.
   dotI: (a, b) => {
     const xs = a as number[]
     const ys = b as number[]
-    return xs.reduce((acc, v, i) => acc + v * (ys[i] as number), 0) | 0
+    return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) | 0, 0)
   },
   dotU: (a, b) => {
     const xs = a as number[]
     const ys = b as number[]
-    return xs.reduce((acc, v, i) => acc + v * (ys[i] as number), 0) >>> 0
+    return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) >>> 0, 0) >>> 0
   },
   // f32 bit-pattern reinterpreted as u32 (WGSL bitcast<u32> / GLSL floatBitsToUint).
   bitcastU32: (x) => {

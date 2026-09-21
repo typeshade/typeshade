@@ -508,7 +508,15 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   //
   // `abs` on an unsigned value is the IDENTITY (wgsl.txt:21450: "Returns e" for u32), so the
   // GLSL column is the argument itself rather than a call.
-  absU: { wgsl: (a) => `abs(${join(a)})`, glsl: (a) => `${a[0]}` },
+  absU: {
+    wgsl: (a) => `abs(${join(a)})`,
+    glsl: (a) => `${a[0]}`,
+    // The GLSL column IS the argument, with no call or constructor around it — the most
+    // extreme re-embedding in this table, and the emit walk never wraps a leaf. Without this,
+    // `parens: 'minimal'` turned `abs(u.k - 1) * u.k` into `u.k - 1u * u.k`: different
+    // arithmetic, no diagnostic, measured as different pixels on a real driver.
+    atomArgs: true,
+  },
   // The integer dot goes through the `_idot` helper glsl-bits.ts writes, one overload per
   // vector type the module uses. Not an inline sum: that would splice both arguments once per
   // component, after every optimizer pass has run.
