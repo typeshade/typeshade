@@ -110,11 +110,10 @@ float df64_narrow(vec2 a) {
   return (a.x + a.y);
 }
 in vec2 uv;
-in vec2 originParts;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  vec2 origin = vec2(originParts.x, originParts.y);
+  vec2 origin = df64_mul(u.origin, vec2(2.5, 0.0));
   float offset = (u.span * (uv.x - 0.5));
   vec2 bands = stripeAt(origin, offset);
   float _cse1 = uintBitsToFloat(floatBitsToUint(0.0));

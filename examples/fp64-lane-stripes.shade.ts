@@ -7,25 +7,23 @@
 //   `u.origin` is an `f64` uniform field   — one vec2<f32> slot, the host packs splitF64
 //   `o * 2.5`, `o * u.span`                — a literal and an f32 lift beside a scalar f64
 //   `const stripe: f64 = 0.125`            — a literal in a DECLARED f64 position
-//   `round(o)`, `p[2]`, `vec3(p)`           — the ties-to-even df64 round, a lane of a
+//   `round(o)`, `p[2]`, `vec3(p)`          — the ties-to-even df64 round, a lane of a
 //                                            vec64 (a swizzle of the hi/lo planes), and the
 //                                            per-lane narrow
-//   `vec3(p)`                              — the per-lane narrow, `f32(lane)` three times
-//   `length(p)`, `dot(p, p)`               — cross-lane reductions, typed f64 (they were
-//                                            typed f32 while the pass emitted the pair)
-//   `round(o)`                             — df64_round, ties to even as WGSL defines it
-//   `f64FromParts` / `f64Parts`            — the lane bridge across an entry boundary
+//   `length`/`dot` on a vec64              — typed f64, which the pass already emitted
 //
 // WHY THE STRIPES. A world coordinate near 1e7 has an f32 ulp of 1, so `fract(x)` on the
 // plain-f32 path is a constant and the field goes flat; the same expression on the f64 path
 // keeps every sub-unit digit and stripes cleanly. The fragment stage draws both halves, so
 // the picture itself says whether the emulation ran.
 //
-// WHY NO f64 VARYING. The vertex stage cannot hand the fragment stage a double: a @location
-// varying interpolates the (hi, lo) words one at a time, which is not the interpolation of
-// the double they encode, and the compiler refuses it at the parameter. The two words ride
-// as one ordinary `vec2` varying instead and the fragment stage rebuilds the value with
-// `f64FromParts` — the bridge the refusal names.
+// WHY NOTHING CROSSES THE ENTRY BOUNDARY. A double cannot be a varying: a @location field
+// interpolates its two f32 words one at a time, which is not the interpolation of the double
+// they encode, and the compiler refuses one at the declaration. There is no author-facing
+// way to split a double into words and rebuild it, deliberately — the words are the
+// emulation's business, not the language's. So the fragment stage READS the uniform itself:
+// a uniform carries an f64 and every stage can see one, which is the remedy the refusal
+// names and the shape a real program wants anyway.
 
 class Uniforms {
   // One vec2<f32> slot on both targets; the host writes splitF64(origin) into it.
@@ -39,23 +37,15 @@ declare const u: uniform<Uniforms>
 class VsOut {
   @builtin("position") pos: vec4
   @location(0) uv: vec2
-  // The double, as the two f32 words that carry it. `f64` here is refused, with this
-  // spelling named in the refusal.
-  @location(1) originParts: vec2
+  // No f64 here, and no words standing in for one: `@location(1) origin: f64` is refused at
+  // this declaration, and the fragment stage reads `u.origin` instead.
 }
 
 @vertex
 export function vs(@builtin("vertex_index") idx: u32): VsOut {
   const x = f32(idx & 1) * 4. - 1.
   const y = f32(idx >> 1) * 4. - 1.
-  // A literal beside a scalar f64 is lifted to an f64 literal carrying the full double, so
-  // the pass splits 2.5 rather than widening the f32 rounding of it.
-  const shifted = u.origin * 2.5
-  return {
-    pos: vec4(x, y, 0., 1.),
-    uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5),
-    originParts: f64Parts(shifted),
-  }
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) }
 }
 
 // The whole numeric core, as a plain function so the CPU oracle can call it directly: the
@@ -74,9 +64,10 @@ export function stripeAt(origin: f64, offset: f32): f64 {
 
 @fragment
 export function fs(vo: VsOut): vec4 {
-  // The bridge back: two interpolated f32 words become the double again. They are constant
-  // across the primitive here, so nothing is lost to the blend.
-  const origin: f64 = f64FromParts(vo.originParts.x, vo.originParts.y)
+  // The uniform, read in the stage that needs it. A literal beside a scalar f64 is lifted to
+  // an f64 literal carrying the full double, so the pass splits 2.5 rather than widening the
+  // f32 rounding of it.
+  const origin: f64 = u.origin * 2.5
   const offset = u.span * (vo.uv.x - 0.5)
   const bands = stripeAt(origin, offset)
 

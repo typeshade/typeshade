@@ -3000,31 +3000,33 @@ textureSampleLevel's level must be an f32; got f64. Write f32(x).
 ```
 
 **Across an entry boundary.** A double cannot be a varying. A `@location` field interpolates
-each of its two words on its own, and the interpolation of the words is not the interpolation of
-the double they encode, so the compiler refuses an `f64` on an entry's `@location` parameter, on
-an IO struct field and on an entry's return. Carry the words as one ordinary `vec2` and rebuild:
+each of its two `f32` words on its own, and the interpolation of the words is not the
+interpolation of the double they encode, so the compiler refuses an `f64` on an entry's
+`@location` parameter, on an IO struct field and on an entry's return:
 
-```ts
-class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) originParts: vec2   // @location(0) origin: f64 is refused, naming this
-}
-
-@vertex
-export function vs(): VsOut {
-  return { pos: vec4(0., 0., 0., 1.), originParts: f64Parts(u.origin) }
-}
-
-@fragment
-export function fs(vo: VsOut): vec4 {
-  const origin: f64 = f64FromParts(vo.originParts.x, vo.originParts.y)
-  return vec4(f32(origin), 0., 0., 1.)
-}
 ```
+Parameter "p" carries f64: an emulated double is a pair of f32 words, and a @location
+varying interpolates each word on its own, which is not the interpolation of the double.
+Narrow it with f32(x), or compute the double in the stage that needs it — a uniform or
+storage binding carries an f64 and every stage can read one.
+```
+
+Both remedies are ordinary. There is **no author-facing way to split a double into its words
+and rebuild it**, and that is deliberate: the two `f32` words are the emulation's business, not
+the language's, and a program written against them would be written against an implementation
+detail. A double two stages need is read in each of them — a uniform or a storage binding
+carries an `f64` and every stage can see one — or narrowed to an `f32` at the boundary when
+`f32` is enough for what crosses it.
 
 The one `@location` an `f64` may sit on is a **vertex** input, which is a buffer read rather
 than a varying: the pair fits the single slot the attribute already is. A `vec3f64` attribute
 would need two slots and is refused.
+
+(Carrying the words as two `@interpolate(flat)` varyings and rebuilding them transparently
+would be exact, since flat interpolation does no blending. It is not done, because this
+surface has no `@interpolate` attribute: an author can neither ask for a flat varying nor see
+that one was chosen, so a double silently made flat would change what the program draws with
+nothing to point at. If `@interpolate` lands, this is worth revisiting.)
 
 **The guard.** A module that uses the emulation gets a `_fp64` binding injected at lowering: a
 1×1 `texture_2d<f32>` the host must fill with `1.0`. It is what stops a driver's fast-math from

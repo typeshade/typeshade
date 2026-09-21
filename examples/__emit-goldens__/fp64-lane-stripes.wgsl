@@ -6,7 +6,6 @@ struct Uniforms {
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
-  @location(1) originParts: vec2<f32>,
 }
 
 struct DF64Vec3 {
@@ -21,8 +20,7 @@ struct DF64Vec3 {
 fn vs(@builtin(vertex_index) idx: u32) -> VsOut {
   let x = ((f32((idx & 1u)) * 4.0) - 1.0);
   let y = ((f32((idx >> 1u)) * 4.0) - 1.0);
-  let shifted = df64_mul(u.origin, vec2<f32>(2.5, 0.0));
-  return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)), shifted);
+  return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
 }
 
 fn stripeAt(origin: vec2<f32>, offset: f32) -> vec2<f32> {
@@ -35,7 +33,7 @@ fn stripeAt(origin: vec2<f32>, offset: f32) -> vec2<f32> {
 
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
-  let origin = vec2<f32>(vo.originParts.x, vo.originParts.y);
+  let origin = df64_mul(u.origin, vec2<f32>(2.5, 0.0));
   let offset = (u.span * (vo.uv.x - 0.5));
   let bands = stripeAt(origin, offset);
   let _cse1 = bitcast<f32>(bitcast<u32>(0.0));

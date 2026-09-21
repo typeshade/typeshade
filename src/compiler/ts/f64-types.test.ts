@@ -418,7 +418,7 @@ export function fs(@location(0) uv: vec2): C {
 // ── The entry boundary ──
 
 describe('an f64 across an entry signature', () => {
-  it('refuses an interpolated f64 and names f64FromParts', () => {
+  it('refuses an interpolated f64 and names an ordinary remedy', () => {
     expect(
       errorsOf(`"use typeshade"
 class C { @location(0) color: vec4 }
@@ -428,8 +428,8 @@ export function fs(@location(0) p: f64): C { return { color: vec4(f32(p), 0., 0.
     ).toEqual([
       'Parameter "p" carries f64: an emulated double is a pair of f32 words, and a @location ' +
         'varying interpolates each word on its own, which is not the interpolation of the ' +
-        'double. Carry the two f32 words as ordinary IO and rebuild the value with ' +
-        'f64FromParts(hi, lo); f64Parts(x) splits one.',
+        'double. Narrow it with f32(x), or compute the double in the stage that needs it — ' +
+        'a uniform or storage binding carries an f64 and every stage can read one.',
     ])
   })
 
@@ -445,7 +445,7 @@ export function vs(@builtin("vertex_index") i: u32): VsOut {
   return { pos: vec4(f32(i), 0., 0., 1.), w: f64(1.) }
 }
 `)[0],
-    ).toContain('f64FromParts(hi, lo)')
+    ).toContain('a uniform or storage binding carries an f64')
   })
 
   it('keeps a SCALAR f64 vertex attribute, whose pair fits the one slot it has', () => {
@@ -458,31 +458,6 @@ class V { @builtin("position") pos: vec4 }
 export function vs(@location(0) p: f64): V { return { pos: vec4(f32(p), 0., 0., 1.) } }
 `),
     ).toEqual([])
-  })
-
-  it('bridges the two words back into a double, and the CPU agrees', () => {
-    const { double, emulated } = bothWays(
-      `"use typeshade"
-export function k(a: f64): f64 {
-  const parts = f64Parts(a)
-  return f64FromParts(parts.x, parts.y)
-}
-`,
-      [2 ** 20 + 2 ** -20],
-    )
-    expect(double).toBe(2 ** 20 + 2 ** -20)
-    expect(emulated).toBe(2 ** 20 + 2 ** -20)
-    // The discriminative half: one f32 word cannot hold this value at all.
-    expect(Math.fround(2 ** 20 + 2 ** -20)).toBe(2 ** 20)
-  })
-
-  it('refuses a bridge argument that is not an f32 word', () => {
-    expect(
-      errorsOf(`"use typeshade"\nexport function k(a: f64): f64 { return f64FromParts(a, 0.) }\n`),
-    ).toEqual([
-      'f64FromParts takes the two f32 words of a double, high then low; argument 1 is f64. ' +
-        'Write f32(x).',
-    ])
   })
 })
 

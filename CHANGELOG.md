@@ -41,8 +41,7 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   `binResultType` already applied in the fn() EDSL); `const k: f64 = 0.1`, a literal in any
   declared `f64` position; `p.x`, `p.xy` and `p[1]` on a `vec64`, which the pass has always
   lowered as a swizzle of the hi and lo planes; `vec3(p)`, the per-lane narrow; `round(x)`,
-  through a new `df64_round`; and `f64FromParts(hi, lo)` / `f64Parts(x)`, the lane bridge,
-  which existed in the registry and in the EDSL with no source spelling. `length`, `distance`
+  through a new `df64_round`. `length`, `distance`
   and `dot` on a `vec64` are now typed `f64` — the front end typed them `f32` while the pass
   emitted the f64 pair, so a correct program could not be written (the BLOCKER of the spec
   audit). What the pass cannot lower is refused at the CALL, the operator or the cast, with the
@@ -52,7 +51,13 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   which compiled clean and emitted `w.hi` on an `f32` vector), `%` and `%=`, `i32(x)`/`u32(x)`
   on a double, an `f64` in a texture's level, bias, reference-depth, mip-level or layer slot,
   and an `f64` on an entry's `@location` or return — the last under its own code, `TS8038`,
-  because the remedy is one specific rewrite. A SCALAR `f64` vertex attribute stays accepted:
+  naming two ORDINARY remedies (narrow with `f32(x)`, or read the double in the stage that
+  needs it, since a uniform or storage binding carries one and every stage can see it). There
+  is deliberately no author-facing way to split a double into its two `f32` words and rebuild
+  it: the words are the emulation's business, and a program written against them would be
+  written against an implementation detail. Carrying them as flat varyings transparently
+  would be exact but is not done, because the surface has no `@interpolate` attribute, so an
+  author could neither ask for a flat varying nor see that one had been chosen. A SCALAR `f64` vertex attribute stays accepted:
   that `@location` is a buffer read, not a varying, and one slot holds the pair. A lane is a
   READ: `v.x = …` and `v[0] = …` are refused, since after lowering the vector is two hi/lo
   planes and a lane of it is a swizzle of both — the indexed form had been dropping the write
@@ -65,8 +70,8 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   the pass has a body for them, the ones it has no body for stay refused, and numeric-literal
   lane keys make the editor accept `p[1]` and refuse `p[i]` and `p[2]` on a `vec2f64` exactly
   as the compiler does. `examples/fp64-lane-stripes.shade.ts` runs both halves of the gate,
-  WGSL on Tint and GLSL ES 3.00 on a real WebGL2 context, and its numeric core is evaluated
-  twice — on the oracle as a double and on the lowered module under f32 rounding — with a
+  WGSL on Tint and GLSL ES 3.00 on a real WebGL2 context, with nothing crossing its entry
+  boundary, and its numeric core is evaluated twice — on the oracle as a double and on the lowered module under f32 rounding — with a
   discriminative case plain `f32` provably cannot compute.
 - **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
   operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a

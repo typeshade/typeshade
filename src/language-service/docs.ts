@@ -166,10 +166,6 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Returns the number of layers of a `texture_2d_array` or a `texture_cube_array` as a `u32`. A texture with no layers is refused.',
   arrayLength:
     'Returns the number of elements of a runtime-sized storage array as a `u32`, read from the buffer the host bound; `xs.length` on such an array reads the same thing. The argument must be the storage binding itself or a trailing array field of one. Compiles to `arrayLength(&xs)` on WGSL; GLSL ES 3.00 has no storage buffers, so a module using it emits WGSL alone.',
-  f64FromParts:
-    'Builds an `f64` from the two `f32` words that carry it, high then low (§39). It is the bridge across an entry boundary: a `@location` varying interpolates each word on its own, which is not the interpolation of the double, so a stage that must hand a double to the next one carries the words as ordinary `f32` IO and rebuilds the value here. `f64Parts` splits one.',
-  f64Parts:
-    'Splits an `f64` into the two `f32` words that carry it, as a `vec2` of (high, low) (§39). The inverse of `f64FromParts`, and the half a stage writes when it has to pass a double across an entry boundary as ordinary `f32` IO.',
   atomicLoad:
     'Reads the value of an `atomic<u32>` or `atomic<i32>` location in a read-write storage binding (`atomicLoad(bins[i])`). Compiles to `atomicLoad(&bins[i])` on WGSL; GLSL ES 3.00 has no atomics, so a module using it emits WGSL alone. The CPU oracle runs invocations in order and reads the location.',
   atomicStore:

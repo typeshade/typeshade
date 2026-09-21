@@ -98,8 +98,10 @@ export const TS_CODES = {
    *  double is a pair of `f32` words after lowering, and a varying interpolates each word on
    *  its own, which is not the interpolation of the double they encode; a `vec64` attribute
    *  would need two slots. Its own code rather than the `UNSUPPORTED` bucket because the
-   *  remedy is one specific rewrite an author can look up: carry the words as ordinary `f32`
-   *  IO and rebuild with `f64FromParts(hi, lo)`. */
+   *  remedy is specific and an author can look it up: narrow with `f32(x)`, or read the
+   *  double in the stage that needs it, since a uniform or a storage binding carries an
+   *  `f64` and every stage can see one. There is deliberately NO author-facing way to split
+   *  a double into its two `f32` words — they are the emulation's business (§39). */
   F64_ENTRY_IO: 'TS8038',
   UNSUPPORTED: 'TS8099',
 } as const

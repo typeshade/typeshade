@@ -1042,9 +1042,14 @@ function refuseF64EntryIo(
   if (!containsF64Type(type)) return false
   // The one f64 an entry CAN carry, and the only place it can: see 'attribute' above.
   if (place === 'attribute' && type.kind === 'f64') return false
+  // The remedy is an ORDINARY one, deliberately: there is no author-facing helper for
+  // splitting a double into its words and no plan for one, because the words are the
+  // emulation's business and not the language's (§39). A uniform or storage binding carries
+  // an f64 and is visible from every stage, so a double that two stages need is read where
+  // it is needed rather than handed across.
   const bridge =
-    `Carry the two f32 words as ordinary IO and rebuild the value with ` +
-    `f64FromParts(hi, lo); f64Parts(x) splits one.`
+    `Narrow it with f32(x), or compute the double in the stage that needs it — a uniform or ` +
+    `storage binding carries an f64 and every stage can read one.`
   const reason =
     place === 'varying'
       ? `an emulated double is a pair of f32 words, and a @location varying interpolates ` +

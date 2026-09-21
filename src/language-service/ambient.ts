@@ -1130,10 +1130,6 @@ ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
 ${renderJSDoc(FUNCTION_DOCS.arrayLength)}
 declare function arrayLength<T>(xs: array<T>): u32
-${renderJSDoc(FUNCTION_DOCS.f64FromParts)}
-declare function f64FromParts(hi: f32, lo: f32): f64
-${renderJSDoc(FUNCTION_DOCS.f64Parts)}
-declare function f64Parts(x: f64): vec2
 ${renderJSDoc(FUNCTION_DOCS.atomicLoad)}
 declare function atomicLoad<T extends u32 | i32>(location: atomic<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atomicStore)}

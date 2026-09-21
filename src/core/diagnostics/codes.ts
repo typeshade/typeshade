@@ -157,7 +157,7 @@ export const CODES = {
   SD0044: {
     code: 'SD0044',
     summary: 'f64 in an interpolated @location IO field',
-    hint: 'interpolating hi/lo pairs is numerically wrong — narrow first (f32(x), or toF32(x) in the fn() EDSL), or carry the two words as f32 varyings and rebuild with f64FromParts(hi, lo)',
+    hint: 'interpolating hi/lo pairs is numerically wrong — narrow first (f32(x), or toF32(x) in the fn() EDSL), or read the double where it is needed: a uniform or storage binding carries an f64 and every stage can read one',
   },
 
   // ── Lint-rule diagnostics surfaced through diagnose() ──
