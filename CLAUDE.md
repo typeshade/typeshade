@@ -1,8 +1,8 @@
 # Working in this repository with Claude Code
 
 Read `AGENTS.md` first: it is the architecture guide (one IR, three backends, the pass
-pipeline, the gates) and `src/AGENTS.md` the map of `src/`. This file adds the one rule
-that is specific to Claude Code sessions.
+pipeline, the gates) and `src/AGENTS.md` the map of `src/`. This file adds the rules that
+are specific to Claude Code sessions.
 
 ## Use codebase-memory-mcp for every structural question
 
@@ -41,11 +41,7 @@ Indexing takes about ten seconds. Re-index after each commit.
 `.codebase-memory/` (the artifact the indexer may write at the root) is gitignored; never
 commit it.
 
-## Everything else
-
-The gates, the golden and API-surface bake commands, the compile gate and the emit rules are
-in `AGENTS.md`. The `"use typeshade"` surface is `docs/use-typeshade-surface.md`; the
-priority order is `docs/roadmap.md`.
+## The language design rules are normative
 
 The language design rules are `docs/language-design.md`, and they are normative. Every change
 to what an author can write (a name, a type, a spelling, a refusal) cites the rule it rests
@@ -53,3 +49,9 @@ on, by number, in the issue or the pull request. A change the rules do not cover
 rules first, in the same pull request, and only then moves the surface. A name an author can
 write comes from WGSL, from ECMAScript as TypeScript spells it, or from the enumerated
 extension table in that document's §9; a compiler-internal helper never becomes one.
+
+## Everything else
+
+The gates, the golden and API-surface bake commands, the compile gate and the emit rules are
+in `AGENTS.md`. The `"use typeshade"` surface is `docs/use-typeshade-surface.md`; the
+priority order is `docs/roadmap.md`.

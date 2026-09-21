@@ -1,16 +1,16 @@
 // ═══ Every author-facing name has a source: WGSL, ECMAScript, or a listed TypeShade row ═══
 //
 // WHAT THIS IS FOR. The `"use typeshade"` surface is WGSL builtins, WGSL types and ordinary
-// TypeScript — nothing else. A TypeShade-internal helper must not become a spelling an author
+// TypeScript, nothing else. A TypeShade-internal helper must not become a spelling an author
 // can write: either the compiler does the work silently, or the program is refused with one
 // sentence naming an ordinary remedy. The rule was written after `f64FromParts` and `f64Parts`,
-// the f64 lane's internal bridge between an `f64` and its two `f32` halves, were declared in the
+// the internal bridge between an `f64` and its two `f32` halves, were declared in the
 // ambient library as author-facing functions. Nothing failed: no test in the tree asked where a
 // name came from, so a name from nowhere was indistinguishable from a name from WGSL.
 //
-// This test asks that question of every name. `SHADE_DTS` is the whole authorable vocabulary —
-// the language service loads it as the program's only library file and `scripts/emit-shade-dts.ts`
-// writes the same string to `dist/shade.d.ts` for `tsc` users — so a name an author can write is
+// This test asks that question of every name. `SHADE_DTS` is the whole authorable vocabulary:
+// the language service loads it as the program's only library file, and `scripts/emit-shade-dts.ts`
+// writes the same string to `dist/shade.d.ts` for `tsc` users. So a name an author can write is
 // a name declared in it, and a name declared in it has to come from one of three sources:
 //
 //   1. WGSL, as the specification spells it: a built-in function, a predeclared type or
@@ -20,11 +20,11 @@
 //   2. ECMAScript, as TypeScript spells it: a `Math` member, a `console` method, or one of the
 //      standard-library declarations the ambient file restates because the program is compiled
 //      with `lib: []` (`Array`, `Pick`, `Object`, …) and would otherwise have none.
-//   3. TypeShade itself — `TYPESHADE_EXTENSIONS` below, one row per name with the reason it
+//   3. TypeShade itself: `TYPESHADE_EXTENSIONS` below, one row per name with the reason it
 //      exists. This list is SHRINK-ONLY. A name may leave it (because WGSL grew the builtin, or
 //      because the spelling was withdrawn); a name joins it only with a rationale in
-//      `docs/language-design.md` §9 (what may become an author-facing name) and §13 (the f64
-//      family, the one place TypeShade adds a type WGSL does not have) and a CHANGELOG entry.
+//      `docs/language-design.md` §9 (what may become an author-facing name) and Rule 4.4 (the
+//      f64 family, the one place TypeShade adds a type WGSL does not have) and a CHANGELOG entry.
 //      A row is a decision that was reviewed, not a place to put a name that failed the check.
 //
 // WHY THE COMPILER API AND NOT A REGEX. `SHADE_DTS` is generated: the vector types come out of
@@ -88,8 +88,8 @@ const wgsl = JSON.parse(readFileSync(FIXTURE, 'utf8')) as WgslNames
 
 /** The predeclared aliases (`vec2f`, `vec4i`, `mat4x4f`, …). The specification writes them out in
  *  two tables, one under Vector Types and one under Matrix Types, that the fixture does not carry
- *  as a list of its own; both tables are the same rule — a predeclared vector or matrix
- *  type-generator, suffixed by a letter naming a predeclared scalar type — so the set is expanded
+ *  as a list of its own; both tables are the same rule, a predeclared vector or matrix
+ *  type-generator suffixed by a letter naming a predeclared scalar type, so the set is expanded
  *  from the two lists the fixture DOES carry rather than retyped. `aliases are exactly these`
  *  below pins the expansion against the spec's tables, including what is NOT in them: there is no
  *  `vec2b`, because WGSL has no predeclared alias for a vector of bool. */
@@ -129,7 +129,7 @@ const CONSOLE_MEMBERS = new Set(Object.getOwnPropertyNames(console))
 /** The standard-library declarations the ambient file restates because the service compiles the
  *  program with `lib: []` (design doc §6: no DOM globals in a shader program). Each is spelled
  *  exactly as TypeScript's own lib spells it, which is what makes it an ECMAScript name here and
- *  not a TypeShade invention — `MathObject`, the shape behind the `Math` stand-in, is spelled
+ *  not a TypeShade invention. `MathObject`, the shape behind the `Math` stand-in, is spelled
  *  `Math` by `lib.es5.d.ts` and is therefore a TypeShade row instead. */
 const ECMASCRIPT_LIB_STANDINS = new Set([
   'Array',
@@ -161,12 +161,13 @@ function ecmascriptSource(name: string): string | undefined {
  * SHRINK-ONLY. Every row is a name WGSL does not have and TypeScript does not have, kept because
  * the language needs it and the reason is written down. To ADD a row: state the rationale in
  * `docs/language-design.md` §9 (the rules an author-facing name has to meet) and, for anything in
- * the f64 family, §13, add a CHANGELOG entry, and only then write the row. An internal helper is
- * never a row — that is the case this test exists for.
+ * the f64 family, Rule 4.4, add a CHANGELOG entry, and only then write the row. An internal
+ * helper is never a row: that is the case this test exists for.
  */
 const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
-  // The f64 family (docs/language-design.md §13). WGSL has one floating-point type an author can
-  // rely on; TypeShade carries a second, emitted as a pair of f32 and checked against a CPU oracle.
+  // The f64 family (docs/language-design.md Rule 4.4). WGSL has one floating-point type an
+  // author can rely on; TypeShade carries a second, emitted as a pair of f32 and checked against
+  // a CPU oracle.
   { name: 'f64', reason: 'the double-precision scalar WGSL has no type for' },
   { name: 'f64Tag', reason: 'the brand that keeps an `f64` from assigning to an `f32`' },
   { name: 'vec2f64', reason: 'the two-component vector of `f64`' },
@@ -292,7 +293,7 @@ function declaredNames(dts: string): Declared[] {
   return [...found.values()]
 }
 
-/** The members of one declared interface, by interface name — how `Math.fround` and
+/** The members of one declared interface, by interface name: how `Math.fround` and
  *  `console.warn` are reached, since neither is a top-level name. */
 function interfaceMembers(dts: string, interfaceName: string): string[] {
   const source = ts.createSourceFile(
@@ -312,7 +313,7 @@ function interfaceMembers(dts: string, interfaceName: string): string[] {
   return members
 }
 
-/** Every `declare function` of one name, as the list of its parameters' type texts — the
+/** Every `declare function` of one name, as the list of its parameters' type texts: the
  *  overloads of a constructor, one entry per signature. */
 function functionSignatures(dts: string, name: string): string[][] {
   const source = ts.createSourceFile(
@@ -398,7 +399,8 @@ function strayMessage(declared: Declared): string {
     `${declared.name} (${declared.kind}, shade.d.ts line ${declared.line}) is declared in the ambient ` +
     'library but is not a WGSL name, is not an ECMAScript name, and is not a row of ' +
     'TYPESHADE_EXTENSIONS: remove it from the author-facing surface, or add a row with its reason ' +
-    'once docs/language-design.md §9 (and §13 for the f64 family) and the CHANGELOG say why it exists.'
+    'once docs/language-design.md §9 (and Rule 4.4 for the f64 family) and the CHANGELOG say ' +
+    'why it exists.'
   )
 }
 
@@ -555,7 +557,7 @@ describe('a compiler-internal name is never authorable', () => {
     // `f32`, `atan2` and `mod`, none of them pre-emit: so `f64Parts(x)` in a shader is
     // `TS8004 Unknown function`, and an alias
     // table entry that maps a new spelling to a pre-emit id resolves to nothing. `f64(x)` is not
-    // an exception here — the constructor is lowered as a scalar cast, not as a builtin call.
+    // an exception here: the constructor is lowered as a scalar cast, not as a builtin call.
     // What this does NOT close: a bespoke lowering that builds the pre-emit call by hand under a
     // new spelling. That is a name for an internal representation whatever its id, and review
     // applies docs/language-design.md §2.1 to it (Rule 9.8).
@@ -654,7 +656,7 @@ describe('the WGSL fixture is a real bake', () => {
     // predeclared names once the two alias tables are expanded. The floors are below those and
     // far above anything a truncated parse would produce: the failure this guards against is a
     // bake that writes a fixture holding a handful of names, which would make every check above
-    // vacuous — an empty WGSL list accuses TypeShade of having invented `textureSample`.
+    // vacuous: an empty WGSL list accuses TypeShade of having invented `textureSample`.
     expect(wgsl.builtinFunctions.names.length).toBeGreaterThanOrEqual(150)
     const predeclared = new Set([
       ...wgsl.builtinFunctions.names,
