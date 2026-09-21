@@ -812,16 +812,17 @@ type TextureElem = f32 | i32 | u32
  * \`vec4<T>\` (wgsl.txt:24137-24176), and every overload used to say \`vec4\`, so a fetch from a
  * \`texture_2d<u32>\` read as an f32 vector in the editor. Keyed on \`keyof\` for the reason
  * \`VecElemOf\` is: the scalar brands are optional properties and so are mutually assignable. */
-type VecOfElem<E> = typeof u32Tag extends keyof E
+type Vec4OfElem<E> = typeof u32Tag extends keyof E
   ? vec4u
   : typeof i32Tag extends keyof E
     ? vec4i
     : vec4
 /** A texel coordinate: WGSL takes "i32, or u32" (wgsl.txt:24129) and the ambient overloads took
  * the signed one alone, so \`textureLoad(t, vec2u(...), 0)\` — which Tint accepts, measured —
- * was red in the editor and green in the compiler. */
-type IVec2 = vec2i | vec2u
-type IVec3 = vec3i | vec3u
+ * was red in the editor and green in the compiler. NOT called \`IVecN\`: that reads like GLSL's
+ * \`ivec2\`, which is not a name this surface has, and the union is both signednesses. */
+type TexelCoord2 = vec2i | vec2u
+type TexelCoord3 = vec3i | vec3u
 type texture_2d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, false] }
 type texture_2d_array<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, true] }
 /** A cube texture is six faces looked up by a DIRECTION, and a 3D texture a volume addressed
@@ -996,7 +997,7 @@ declare function textureGather<E extends TextureElem = f32>(
   tex: texture_2d<E>,
   smp: sampler,
   uv: vec2,
-): VecOfElem<E>
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
 declare function textureGather<E extends TextureElem = f32>(
   component: number,
@@ -1011,7 +1012,7 @@ declare function textureGather<E extends TextureElem = f32>(
   tex: texture_cube<E>,
   smp: sampler,
   dir: vec3,
-): VecOfElem<E>
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
 declare function textureGather<E extends TextureElem = f32>(
   component: number,
@@ -1196,57 +1197,57 @@ declare function textureSampleGrad(
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E extends TextureElem = f32>(
   tex: texture_2d<E>,
-  coord: IVec2,
+  coord: TexelCoord2,
   level: number,
-): VecOfElem<E>
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E extends TextureElem = f32>(
   tex: texture_2d_array<E>,
-  coord: IVec2,
+  coord: TexelCoord2,
   layer: number,
   level: number,
-): VecOfElem<E>
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E extends TextureElem = f32>(
   tex: texture_3d<E>,
-  coord: IVec3,
+  coord: TexelCoord3,
   level: number,
-): VecOfElem<E>
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E extends TextureElem = f32>(
   tex: texture_1d<E>,
   coord: number,
   level: number,
-): VecOfElem<E>
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E extends TextureElem = f32>(
   tex: texture_multisampled_2d<E>,
-  coord: IVec2,
+  coord: TexelCoord2,
   sampleIndex: number,
-): VecOfElem<E>
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad(tex: texture_depth_multisampled_2d, coord: IVec2, sampleIndex: number): f32
+declare function textureLoad(tex: texture_depth_multisampled_2d, coord: TexelCoord2, sampleIndex: number): f32
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
   tex: texture_storage_2d<F, A>,
-  coord: IVec2,
+  coord: TexelCoord2,
 ): StorageTexel<F>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
   tex: texture_storage_2d_array<F, A>,
-  coord: IVec2,
+  coord: TexelCoord2,
   layer: number,
 ): StorageTexel<F>
 ${renderJSDoc(FUNCTION_DOCS.textureStore)}
 declare function textureStore<F extends StorageFormat, A extends 'write' | 'read_write'>(
   tex: texture_storage_2d<F, A>,
-  coord: IVec2,
+  coord: TexelCoord2,
   value: StorageTexel<F>,
 ): void
 ${renderJSDoc(FUNCTION_DOCS.textureStore)}
 declare function textureStore<F extends StorageFormat, A extends 'write' | 'read_write'>(
   tex: texture_storage_2d_array<F, A>,
-  coord: IVec2,
+  coord: TexelCoord2,
   layer: number,
   value: StorageTexel<F>,
 ): void
@@ -1325,17 +1326,12 @@ ${renderJSDoc(FUNCTION_DOCS.unpack2x16unorm)}
 declare function unpack2x16unorm(e: u32): vec2
 ${renderJSDoc(FUNCTION_DOCS.unpack2x16snorm)}
 declare function unpack2x16snorm(e: u32): vec2
-/** What \`atomicCompareExchangeWeak\` answers: what the location held BEFORE the call, and
- * whether the store happened. WGSL calls the type \`__atomic_compare_exchange_result<T>\` and
- * gives no way to write that name, so this one is not writable either — bind the result with
- * \`const\` and read its fields. */
-type AtomicCompareExchangeResult<T> = { old_value: T; exchanged: bool }
 ${renderJSDoc(FUNCTION_DOCS.atomicCompareExchangeWeak)}
 declare function atomicCompareExchangeWeak<T extends u32 | i32>(
   location: atomic<T>,
   compare: T,
   value: T,
-): AtomicCompareExchangeResult<T>
+): { old_value: T; exchanged: bool }
 ${renderJSDoc(FUNCTION_DOCS.textureBarrier)}
 declare function textureBarrier(): void
 ${renderJSDoc(FUNCTION_DOCS.workgroupUniformLoad)}
