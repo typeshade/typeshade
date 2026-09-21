@@ -2461,7 +2461,10 @@ one are each refused with the other's name.
 `vec4i`, and every other one — unorm, snorm and float — a `vec4`. The ambient lib says the same
 thing with a conditional type, so the editor refuses a mismatched store before this compiler
 does. **The access mode decides the calls**: `textureLoad` needs `"read"` or `"read_write"`,
-`textureStore` needs `"write"` or `"read_write"`.
+`textureStore` needs `"write"` or `"read_write"`. A `textureStore` is refused in a vertex entry, or in a
+helper a vertex entry reaches, in one sentence: WGSL allows a texture write in a fragment or
+compute stage only. On an array texture the layer is retyped to an integer like every other
+layer, so `textureStore(dst, at, 0, texel)` writes layer `0` and not a `0.0` Tint would refuse.
 
 ### Two refusals Tint does not make
 
@@ -2745,7 +2748,7 @@ the same rule (`textureGather`, `…Array`, `…Depth`, `…DepthArray`, `…Com
 sentence naming the reads it has. A coordinate is checked for width like every other dim: a
 `vec2` on a `texture_1d` is "takes a single f32 coordinate; got vec2<f32>".
 
-**Fragment-only, under the name the author wrote.** `textureSampleBias` and
+**Fragment-only, under the name the author wrote.** `textureSample`, `textureSampleBias` and
 `textureSampleCompare` on a cube array join the fragment-only set as their own ids, and the
 message strips the `CubeArray` suffix: `"textureSampleBias" is only valid in a fragment shader`.
 Gather takes no implicit derivative and is legal in any stage, which Tint confirms.

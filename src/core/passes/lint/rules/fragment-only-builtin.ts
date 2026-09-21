@@ -29,6 +29,10 @@ const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
     'textureSampleArray',
     'use textureSampleLevel(tex, smp, uv, layer, level) — an explicit LOD needs no derivatives',
   ],
+  [
+    'textureSampleCubeArray',
+    'use textureSampleLevel(tex, smp, dir, layer, level) — an explicit LOD needs no derivatives',
+  ],
   ['dpdx', DERIVATIVE_FIX],
   ['dpdy', DERIVATIVE_FIX],
   ['fwidth', DERIVATIVE_FIX],

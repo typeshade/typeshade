@@ -68,6 +68,74 @@ describe('the binding', () => {
     expect(wgsl).toContain('var dst: texture_storage_2d_array<rgba8unorm, write>;')
   })
 
+  it('retypes the array layer to an integer, and refuses a fractional one', () => {
+    // A bare `0` lowers to an f32 on this surface; WGSL's storage forms take an integer layer,
+    // so `0.0` was emitted and Tint refused it ("no matching call"). Found by the spec audit.
+    const store = wgslOf(
+      compute(
+        `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">`,
+        `  textureStore(dst, vec2i(i32(gid.x), 0), 0, vec4(1., 0., 0., 1.))`,
+      ),
+    )
+    expect(store).toContain(
+      'textureStore(dst, vec2<i32>(i32(gid.x), 0), 0, vec4<f32>(1.0, 0.0, 0.0, 1.0));',
+    )
+    const load = wgslOf(
+      compute(
+        `declare const src: texture_storage_2d_array<"r32float", "read">\ndeclare let out: storage<array<vec4>>`,
+        `  out[gid.x] = textureLoad(src, vec2i(0, 0), 1)`,
+      ),
+    )
+    expect(load).toContain('textureLoad(src, vec2<i32>(0, 0), 1)')
+    expect(
+      errorsOf(
+        compute(
+          `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">`,
+          `  textureStore(dst, vec2i(0, 0), 1.5, vec4(1., 0., 0., 1.))`,
+        ),
+      ),
+    ).toEqual([
+      'A texture layer must be a whole number of 0 or more, got 1.5. WGSL rejects a fractional or negative one and GLSL ES 3.00 silently rounds it, so the two targets would disagree.',
+    ])
+  })
+
+  it('refuses textureStore in a vertex entry, and in a helper the entry reaches', () => {
+    // Tint's table gives textureStore @stage("fragment", "compute"); a vertex entry writing a
+    // texture compiled clean here and failed at pipeline creation. Found by the spec audit.
+    const vertex = (fns: string): string => `"use typeshade"
+declare const dst: texture_storage_2d<"rgba8unorm", "write">
+class Clip {
+  @builtin("position") pos: vec4;
+}
+${fns}
+`
+    expect(
+      errorsOf(
+        vertex(`@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+  return { pos: vec4(0., 0., 0., 1.) }
+}`),
+      ),
+    ).toEqual([
+      '"textureStore" is not valid in a vertex shader; "vs" is a vertex entry. WGSL allows a texture write in a fragment or compute stage only.',
+    ])
+    expect(
+      errorsOf(
+        vertex(`function write(): void {
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  write()
+  return { pos: vec4(0., 0., 0., 1.) }
+}`),
+      ),
+    ).toEqual([
+      '"textureStore" is not valid in a vertex shader; "write" is reachable from the vertex entry "vs". WGSL allows a texture write in a fragment or compute stage only.',
+    ])
+  })
+
   it('defaults the access mode to write, as the ambient lib does', () => {
     const wgsl = wgslOf(
       compute(
