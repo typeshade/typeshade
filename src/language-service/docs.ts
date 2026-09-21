@@ -151,7 +151,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   textureSampleGrad:
     'Samples a float texture through the sampler `smp` with the explicit gradients `ddx` and `ddy`, which have the width of the coordinate, in any stage. On a `texture_2d_array` the layer comes before the gradients. Compiles to `textureSampleGrad` on WGSL and `textureGrad` on GLSL.',
   textureLoad:
-    'Reads one texel at the integer `coord` and mip `level` without filtering, by a `vec2i` on a `texture_2d`, a `vec3i` on a `texture_3d` and one integer on a `texture_1d`; a cube texture has no texel fetch on either target. On a `texture_2d_array` the layer comes before the level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL.',
+    'Reads one texel at the integer `coord` and mip `level` without filtering, by a `vec2i` on a `texture_2d`, a `vec3i` on a `texture_3d` and one integer on a `texture_1d`; a cube texture has no texel fetch on either target. On a `texture_2d_array` the layer comes before the level, and on a `texture_multisampled_2d` or `texture_depth_multisampled_2d` the third argument is the sample index instead of a level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL, which has no multisampled form, so a module loading one emits WGSL alone.',
+  textureNumSamples:
+    'Returns the number of samples per texel of a `texture_multisampled_2d` or a `texture_depth_multisampled_2d` as a `u32`. A single-sample texture is refused. Compiles to `textureNumSamples` on WGSL; GLSL ES 3.00 has no multisampled textures, so a module using it emits WGSL alone.',
   textureSampleCompare:
     'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp`, with the implicit level of detail, in the fragment stage only; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference, and on a `texture_depth_cube` the coordinate is a `vec3` direction. Compiles to `textureSampleCompare` on WGSL and `texture(sampler2DShadow, vec3(uv, ref))` on GLSL, where the reference folds into the coordinate.',
   textureSampleCompareLevel:

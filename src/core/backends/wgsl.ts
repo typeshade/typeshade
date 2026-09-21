@@ -116,6 +116,8 @@ export function wgslType(t: ShaderType): string {
           return 'texture_depth_cube'
         case 'cube-array':
           return 'texture_depth_cube_array'
+        case '2d-ms':
+          return 'texture_depth_multisampled_2d'
       }
     case 'sampler':
       return 'sampler'

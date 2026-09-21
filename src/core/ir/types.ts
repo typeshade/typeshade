@@ -156,10 +156,11 @@ export type ShaderType =
   // texture_2d_array<f32>, GLSL ES 3.00 sampler2DArray — so it needs no Capability
   // (pinned by required-caps.test.ts); '2d-ms' still fails closed on GLSL.
   //
-  // Split into TWO arms (X-GIS #1703) so a multisampled INTEGER texture is unrepresentable
-  // by CONSTRUCTION rather than a runtime throw: '2d'/'2d-array' carry any
-  // TextureElem, '2d-ms' is pinned to f32. Narrowing still works off `dim` alone —
-  // every existing `t.dim === '…'` switch reads the same.
+  // '2d-ms' (roadmap 0.4 item 13) carries any TextureElem too: WGSL §6.6.3 parameterises
+  // `texture_multisampled_2d` by f32, i32 or u32, and `textureLoad` yields `vec4<T>`. It used
+  // to be pinned to f32 in an arm of its own (X-GIS #1703), when nothing read it; the spec is
+  // the authority now, and GLSL ES 3.00 fails closed by the `msaaTextureLoad` capability
+  // whatever the element, so the pin bought nothing.
   //
   // 'cube' and '3d' (roadmap 0.4 item 12) are core in both targets too — WGSL `texture_cube`
   // and `texture_3d`, GLSL ES 3.00 `samplerCube` and `sampler3D` — so neither needs a
@@ -168,10 +169,9 @@ export type ShaderType =
   // the coordinate against the dim at each call.
   | {
       readonly kind: 'texture'
-      readonly dim: '2d' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array'
+      readonly dim: '2d' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array' | '2d-ms'
       readonly elem: TextureElem
     }
-  | { readonly kind: 'texture'; readonly dim: '2d-ms'; readonly elem: 'f32' }
   // A storage texture (roadmap 0.4 item 10): an image a shader reads and writes by texel
   // coordinate, with no sampler and no filtering. Its OWN kind rather than another `dim` on
   // `texture`, because the two are different things at every site that touches one: a sampled
@@ -198,7 +198,13 @@ export type ShaderType =
   //
   // 'cube' (roadmap 0.4 item 12) is the shadow map of a point light, looked up by the direction
   // from the light; both targets have it (`texture_depth_cube`, `samplerCubeShadow`).
-  | { readonly kind: 'depth-texture'; readonly dim: '2d' | '2d-array' | 'cube' | 'cube-array' }
+  //
+  // '2d-ms' (roadmap 0.4 item 13) is a multisampled depth attachment read one sample at a time,
+  // `texture_depth_multisampled_2d`; it cannot be sampled or compared (§6.6.3), only loaded.
+  | {
+      readonly kind: 'depth-texture'
+      readonly dim: '2d' | '2d-array' | 'cube' | 'cube-array' | '2d-ms'
+    }
   | { readonly kind: 'sampler' }
   // A comparison sampler (roadmap 0.4 item 11): the one `textureSampleCompare` takes, which
   // compares a reference value against the texel and returns how much of the filter footprint
@@ -598,6 +604,17 @@ export const textureDepthCubeArrayT = {
   kind: 'depth-texture',
   dim: 'cube-array',
 } as const satisfies ShaderType
+/** A multisampled depth texture (WGSL `texture_depth_multisampled_2d`): the depth attachment of
+ *  an MSAA render target, read one sample at a time with `textureLoad(t, coords, sampleIndex)`
+ *  and never sampled or compared (roadmap 0.4 item 13). WebGPU only, under `msaaTextureLoad`:
+ *  GLSL ES 3.00 has no `sampler2DMS` (that is ES 3.10).
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepthMultisampled2dT = {
+  kind: 'depth-texture',
+  dim: '2d-ms',
+} as const satisfies ShaderType
 /** The absent-value type: the return type of an `fn` whose body never returns a value (a
  *  statement-only vertex mutator, a compute entry point). Return-type inference falls back to
  *  it when it finds no `Return` in a body, so you rarely need to write it explicitly.
@@ -693,8 +710,8 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                   : // X-GIS #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
                     // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
                     // to `string`, so a texture/sampler argument swap type-checked.
-                    T extends { kind: 'texture'; dim: '2d-ms' }
-                    ? 'texture_multisampled_2d<f32>'
+                    T extends { kind: 'texture'; dim: '2d-ms'; elem: infer E extends string }
+                    ? `texture_multisampled_2d<${E}>`
                     : // X-GIS #1651 — arm ORDER is immaterial here: the dims are exact literals, so
                       // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
                       // arm comes first. The real hazard is a MISSING arm — it drops an array
@@ -847,6 +864,8 @@ export function typeKey(t: ShaderType): string {
           return 'texture_depth_cube'
         case 'cube-array':
           return 'texture_depth_cube_array'
+        case '2d-ms':
+          return 'texture_depth_multisampled_2d'
       }
     case 'sampler':
       return 'sampler'

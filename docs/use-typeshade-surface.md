@@ -2762,6 +2762,53 @@ is the gate's evidence on the Tint half.
 levels where WGSL takes either: the spec audit lists each with its portability, and they become
 their own items rather than riding this one.
 
+## 37. A multisampled texture, read one sample at a time
+
+Roadmap 0.4 item 13. The type existed — `texture_multisampled_2d` and the `msaaTextureLoad`
+capability — and nothing read it. This is the read: `textureLoad(t, coords, sampleIndex)` yields
+one sample, `textureNumSamples(t)` says how many there are, and `textureDimensions(t)` the size.
+The depth twin, `texture_depth_multisampled_2d`, is the depth attachment of an MSAA target,
+loaded the same way and yielding an `f32`.
+
+```ts
+declare const msaa: texture_multisampled_2d<f32>
+declare const depthMs: texture_depth_multisampled_2d
+
+const c: vec2i = vec2i(p.xy)
+const s0 = textureLoad(msaa, c, 0) // the third argument is a SAMPLE INDEX, not a level
+const n = f32(textureNumSamples(msaa))
+const depth = textureLoad(depthMs, c, 0) // f32
+```
+
+**Nothing else applies.** WGSL §6.6.3: a multisampled texture "cannot be used with a sampler".
+Every sampling, comparison and gather form is refused in one sentence that names the load, and
+so is `textureNumLayers` (samples, not layers). `textureNumSamples` on a single-sample texture
+is refused the same way. The sample index is an integer like a level: a bare `3` is retargeted,
+a fractional one refused.
+
+**WGSL-only, by the capability the binding already derived.** GLSL ES 3.00 has no `sampler2DMS`
+(that is ES 3.10), so `msaaTextureLoad` fails the module closed on that target before any emit,
+for the depth twin too. The reads are their own ids (`textureLoadMs`, `textureLoadDepthMs`,
+`textureDimensionsMs`, `textureNumSamples`) rather than the 2d ones: `texelFetch(t, c, int(s))`
+would be well-formed, wrong text for a sample index, and the 2d size wrapper's `textureSize(t,
+0)` takes a level a multisampled texture has none of.
+
+**The element is no longer pinned to `f32`.** §6.6.3 parameterises the type by `f32`, `i32` or
+`u32`, and `textureLoad` yields `vec4<T>`. The pin (X-GIS #1703) made an integer multisampled
+texture unrepresentable while nothing read the type; with the spec as the authority and GLSL
+failing closed by capability whatever the element, it bought nothing, so `texture_multisampled_2d<u32>`
+is admitted.
+
+**A plain read of a depth texture, at last, where it is safe.** §34 deferred plain reads of the
+other depth textures because GLSL's fused sampler type is decided by the read. A multisampled
+depth texture never reaches GLSL, so the reason does not arise and `textureLoad` on it is
+admitted; the separate-samplers capability the others need stays a later item.
+
+**What the host is told.** Both twins reflect `textureDim: '2d-ms'`, the depth one with
+`textureDepth: true`. The CPU twins: a sample is opaque black, a depth sample the far plane, the
+count 1 and the size 1×1, so a resolve that divides by the count stays finite.
+`examples/msaa-resolve.shade.ts` is the gate's evidence on the Tint half.
+
 ---
 
 Last updated: 2026-09-21

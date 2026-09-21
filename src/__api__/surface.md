@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 443 exports
+## `.` — 444 exports
 
 ```
 abs
@@ -364,6 +364,7 @@ textureDepth2dArrayT
 textureDepth2dT
 textureDepthCubeArrayT
 textureDepthCubeT
+textureDepthMultisampled2dT
 textureDimensions
 TextureElem
 textureLoad
@@ -554,7 +555,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 258 exports
+## `./core/ir` — 259 exports
 
 ```
 abs
@@ -759,6 +760,7 @@ textureDepth2dArrayT
 textureDepth2dT
 textureDepthCubeArrayT
 textureDepthCubeT
+textureDepthMultisampled2dT
 textureDimensions
 TextureElem
 textureLoad
@@ -856,7 +858,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 551 definitions
+## Shapes — 552 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
@@ -1037,7 +1039,7 @@ src/core/ir/node.ts#ReadonlyNode  class  { __k?: K; a: Node<ElemKey<K>>; add: { 
 src/core/ir/node.ts#ScalarCastSource  type  "f64" | "f32" | "i32" | "u32" | "bool"
 src/core/ir/node.ts#SwizzleKey  type  StrLen<S, []> extends 1 ? ElemKey<K> : `vec${StrLen<S, []> & number}<${ElemKey<K>}>`
 src/core/ir/node.ts#TexelKey  type  K extends `${string}<${infer E}>` ? `vec4<${E}>` : never
-src/core/ir/node.ts#TextureLoad2dKey  type  "texture_multisampled_2d<f32>" | "texture_2d<f32>" | "texture_2d<u32>" | "texture_2d<i32>"
+src/core/ir/node.ts#TextureLoad2dKey  type  "texture_2d<f32>" | "texture_2d<u32>" | "texture_2d<i32>" | "texture_multisampled_2d<f32>"
 src/core/ir/node.ts#TextureLoadArrayKey  type  "texture_2d_array<f32>" | "texture_2d_array<u32>" | "texture_2d_array<i32>"
 src/core/ir/node.ts#abs  const  <K extends FloatKey | Float64Key | IntKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#acos  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
@@ -1183,11 +1185,11 @@ src/core/ir/span.ts#sourceSpanOf  function  (node: FuncDecl | Stmt | Expr) => So
 src/core/ir/types.ts#ALL_STORAGE_TEXTURE_FORMATS  const  readonly ["rgba8unorm", "rgba8snorm", "rgba8uint", "rgba8sint", "rgba16uint", "rgba16sint", "rgba16float", "r32uint", "r32sint", "r32float", "rg32uint", "rg32sint", "rg32float", "rgba32uint", "rgba32sint", "rgba32float"]
 src/core/ir/types.ts#ArrayElemKey  type  K extends `array<${infer Inner}>` ? DropArraySize<Inner> : never
 src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
-src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "atomic"; elem: infer E extends string; } ? `atomic<${E}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "texture"; dim: "cube"; elem: infer E extends string; } ? `texture_cube<${E}>` : T extends { kind: "texture"; dim: "3d"; elem: infer E extends string; } ? `texture_3d<${E}>` : T extends { kind: "texture"; dim: "1d"; elem: infer E extends string; } ? `texture_1d<${E}>` : T extends { kind: "texture"; dim: "cube-array"; elem: infer E extends string; } ? `texture_cube_array<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
+src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "atomic"; elem: infer E extends string; } ? `atomic<${E}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; elem: infer E extends string; } ? `texture_multisampled_2d<${E}>` : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "texture"; dim: "cube"; elem: infer E extends string; } ? `texture_cube<${E}>` : T extends { kind: "texture"; dim: "3d"; elem: infer E extends string; } ? `texture_3d<${E}>` : T extends { kind: "texture"; dim: "1d"; elem: infer E extends string; } ? `texture_1d<${E}>` : T extends { kind: "texture"; dim: "cube-array"; elem: infer E extends string; } ? `texture_cube_array<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#READ_WRITE_STORAGE_FORMATS  const  readonly ["r32uint", "r32sint", "r32float"]
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array" | "cube" | "3d" | "1d" | "cube-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d" | "2d-array" | "cube" | "cube-array"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "void"; }
+src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array" | "cube" | "3d" | "1d" | "cube-array" | "2d-ms"; readonly elem: TextureElem; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d" | "2d-array" | "cube" | "cube-array" | "2d-ms"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#StorageTextureAccess  type  "read" | "read_write" | "write"
 src/core/ir/types.ts#StorageTextureFormat  type  "rgba8unorm" | "rgba8snorm" | "rgba8uint" | "rgba8sint" | "rgba16uint" | "rgba16sint" | "rgba16float" | "r32uint" | "r32sint" | "r32float" | "rg32uint" | "rg32sint" | "rg32float" | "rgba32uint" | "rgba32sint" | "rgba32float"
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
@@ -1228,6 +1230,7 @@ src/core/ir/types.ts#textureDepth2dArrayT  const  { readonly kind: "depth-textur
 src/core/ir/types.ts#textureDepth2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d"; }
 src/core/ir/types.ts#textureDepthCubeArrayT  const  { readonly kind: "depth-texture"; readonly dim: "cube-array"; }
 src/core/ir/types.ts#textureDepthCubeT  const  { readonly kind: "depth-texture"; readonly dim: "cube"; }
+src/core/ir/types.ts#textureDepthMultisampled2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d-ms"; }
 src/core/ir/types.ts#typeEq  function  (a: ShaderType, b: ShaderType) => boolean
 src/core/ir/types.ts#typeKey  function  (t: ShaderType) => string
 src/core/ir/types.ts#u32T  const  { readonly kind: "scalar"; readonly scalar: "u32"; }

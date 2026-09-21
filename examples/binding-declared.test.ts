@@ -111,6 +111,9 @@ const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[]
   // GLSL stage for this sweep to examine.
   { id: 'cube-array-gather', stage: 'vertex', match: /texture1d|textureCubeArray|textureGather/ },
   { id: 'cube-array-gather', stage: 'fragment', match: /texture1d|textureCubeArray|textureGather/ },
+  // The multisampled resolve (item 13, §37): both stages refused under msaaTextureLoad.
+  { id: 'msaa-resolve', stage: 'vertex', match: /msaaTextureLoad/ },
+  { id: 'msaa-resolve', stage: 'fragment', match: /msaaTextureLoad/ },
 ]
 
 describe('every binding a stage mentions is a binding that stage declares', () => {

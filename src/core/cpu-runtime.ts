@@ -731,6 +731,13 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
   textureDimensions3d: () => [1, 1, 1], // the 3d twin: 1×1×1, for the same reason
   textureDimensions1d: () => 1, // the 1d twin: one texel wide
+  // The multisampled reads (roadmap 0.4 item 13): a texel is opaque black, a depth sample the
+  // far plane, a size 1×1, and one sample per texel, so a resolve that divides by the count
+  // stays finite and leaves the rest of the shader alone.
+  textureLoadMs: () => [0, 0, 0, 1],
+  textureLoadDepthMs: () => 1,
+  textureDimensionsMs: () => [1, 1],
+  textureNumSamples: () => 1,
   textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
   // A storage texture write (roadmap 0.4 item 10). The oracle has no texture memory, so the
   // write goes nowhere and the call yields nothing — the same contract the reads above keep,

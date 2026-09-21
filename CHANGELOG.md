@@ -13,6 +13,14 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Multisampled loads** (§37, roadmap 0.4 item 13). `textureLoad(t, coords, sampleIndex)` on a
+  `texture_multisampled_2d<T>` yields one sample as a `vec4<T>`, and on the new
+  `texture_depth_multisampled_2d` an `f32`; `textureNumSamples(t)` is the count. The type existed
+  and nothing read it. A multisampled texture cannot be used with a sampler (WGSL §6.6.3), so
+  every sampling, comparison and gather form is refused in one sentence naming the load. WGSL-only
+  under the `msaaTextureLoad` capability the binding already derived, for the depth twin too. The
+  element is no longer pinned to `f32`, as the spec parameterises the type by `f32`, `i32` or
+  `u32`. `examples/msaa-resolve.shade.ts` runs on the Tint half of the gate.
 - **The WGSL-only textures: `texture_1d`, `texture_cube_array`, `textureGather`** (§36, roadmap
   0.4 item 12, the second half). `declare const ramp: texture_1d<f32>` is sampled and fetched by
   one number and its size is a `u32`; `declare const envs: texture_cube_array<f32>` samples like
