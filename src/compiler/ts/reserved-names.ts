@@ -1,4 +1,4 @@
-// === A name a target reserves, refused where it is written (#103) ===
+// === A name a target reserves, reported where it is written (#103) ===
 //
 // A struct field named `half` compiled to WGSL Tint accepts and to GLSL ANGLE answers with
 //
@@ -15,16 +15,17 @@
 //    collection, so a check in the struct collector would test a spelling that never reaches a
 //    backend. The declared-symbol table (`symbols.ts`) carries both halves — the emitted name
 //    and the span of the name the author wrote — which is exactly what a diagnostic needs.
-// 2. The TARGET SET has to be known. A module with no `@vertex` or `@fragment` entry has no
-//    GLSL form at all (`compile()` does not even attempt one), so refusing it for a GLSL word
-//    it never emits would be a refusal of a program that works. WGSL is every module's target
-//    and is always checked.
+// 2. The TARGET SET has to be known. A compute kernel has no GLSL ES 3.00 form — that is the
+//    stage the language does not have, and it is what makes `emitGlslStages` throw — so
+//    holding it to that language's list would report a word it can never emit. WGSL is every
+//    module's target and is always checked. (A module of helpers alone DOES emit GLSL, text
+//    with no entry point in it, so it is held to the list like any other non-compute module.)
 // 3. The NAMES THE GLSL WRITER RENAMES ITSELF are not this check's business. `glsl-sanitize`
 //    rewrites a param, a local and a function name that collides, consistently with every
 //    reference, so `let out = …` has always been legal here and stays legal. What it cannot
 //    rename is the module surface: a struct and its fields (the std140 offsets and the
 //    cross-stage varying contract), a constant, an override's `#define`, a module variable and
-//    a binding (whose name is the host's reflection key). Those are the ones refused here.
+//    a binding (whose name is the host's reflection key). Those are the ones reported here.
 //
 // SEVERITY FOLLOWS THE TARGET'S ROLE. WGSL is the program, so a name it reserves is an error
 // and the module does not compile. GLSL ES 3.00 is a second target of it, and this codebase
