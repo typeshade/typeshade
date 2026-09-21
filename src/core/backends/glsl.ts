@@ -97,8 +97,16 @@ export { UnsupportedFeatureError } from '../backend.js'
  *  refused by the front end, so a depth texture is always the shadow form here. The day a plain
  *  read is admitted, the combined type depends on how the texture is USED and this becomes a
  *  walk over the calls, with a texture used both ways needing WebGPU's separate samplers. */
-const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): string =>
-  t.dim === '2d-array' ? 'sampler2DArrayShadow' : 'sampler2DShadow'
+const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): string => {
+  switch (t.dim) {
+    case '2d':
+      return 'sampler2DShadow'
+    case '2d-array':
+      return 'sampler2DArrayShadow'
+    case 'cube':
+      return 'samplerCubeShadow'
+  }
+}
 
 function glslType(t: ShaderType): string {
   switch (t.kind) {
@@ -160,6 +168,11 @@ function glslType(t: ShaderType): string {
           return `${p}sampler2DArray`
         case '2d':
           return `${p}sampler2D`
+        // Cube and 3d (roadmap 0.4 item 12) are core GLSL ES 3.00 too, integer prefixes and all.
+        case 'cube':
+          return `${p}samplerCube`
+        case '3d':
+          return `${p}sampler3D`
         default:
           // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.
@@ -1872,10 +1885,10 @@ function assembleGlslParts(
   // index math and the bitcast lanes need full int range, so lowering it would turn a
   // bandwidth optimisation into a correctness bug.
   //
-  // Every sampler type EXCEPT `sampler2D` needs its OWN line (X-GIS #1651, X-GIS #1703): GLSL ES
-  // 3.00 §4.5.4 predeclares default precisions for `sampler2D` / `samplerCube` ONLY, so
-  // a `uniform sampler2DArray` / `usampler2D` / `isampler2DArray` without a qualifier is
-  // a compile error — and `precision highp float;` does not cover it.
+  // Every sampler type EXCEPT `sampler2D` and `samplerCube` needs its OWN line (X-GIS #1651,
+  // X-GIS #1703): GLSL ES 3.00 §4.5.4 predeclares default precisions for those two ONLY, so
+  // a `uniform sampler2DArray` / `usampler2D` / `sampler3D` / `samplerCubeShadow` without a
+  // qualifier is a compile error — and `precision highp float;` does not cover it.
   //
   // DERIVED from glslType() rather than a second spelling table: a hand-listed set is
   // exactly the two-authorities drift that lets a new texture shape emit a precision
@@ -1901,7 +1914,7 @@ function assembleGlslParts(
         ),
     ),
   ]
-    .filter((s) => s !== 'sampler2D')
+    .filter((s) => s !== 'sampler2D' && s !== 'samplerCube')
     .sort()
   // X-GIS #1670 — the `#extension … : require` directives this module's declared caps need
   // (computed by the caller from the AUTHORED module), SPLICED between `#version` and the

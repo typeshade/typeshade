@@ -463,9 +463,21 @@ export function lowerSourceFunctions(
  *  comparison with an IMPLICIT level of detail, which needs the same derivatives to pick its
  *  level (roadmap 0.4 item 11; Tint: "built-in cannot be used by compute pipeline stage").
  *  `textureSampleCompareLevel` samples level 0 and is legal in any stage, so it is not here. */
+/** The name the author wrote for a fragment-only call. The set below holds NEUTRAL ids, and the
+ *  array and cube forms of a texture read are ids of their own (`textureSampleCompareArray`,
+ *  `textureSampleBiasArray`, `textureSampleCompareCube`) that no author writes: the surface
+ *  spells every form with the one name and the texture's dim picks the id. So the suffix comes
+ *  off before the message, which otherwise names a function the file does not contain. */
+const writtenName = (op: string): string => op.replace(/^(texture\w+?)(Array|Cube)$/, '$1')
+
 const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
   'textureSampleCompare',
   'textureSampleCompareArray',
+  'textureSampleCompareCube',
+  // A bias shifts the IMPLICIT level of detail, so it needs the derivatives too; Tint and a
+  // WebGL2 driver both refuse it outside a fragment stage (roadmap 0.4 item 12).
+  'textureSampleBias',
+  'textureSampleBiasArray',
   'fwidth',
   'dpdx',
   'dpdy',
@@ -555,7 +567,7 @@ function checkFragmentOnlyOps(
           diagnostics,
           sourceFile,
           node.name,
-          `"${op}" is only valid in a fragment shader; ${where}.`,
+          `"${writtenName(op)}" is only valid in a fragment shader; ${where}.`,
           TS_CODES.UNSUPPORTED,
         )
       }

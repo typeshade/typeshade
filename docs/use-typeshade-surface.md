@@ -2583,6 +2583,99 @@ the placeholder that leaves the rest of the shader alone is the identity for the
 feeds — where a texel read yields opaque black, because a texel has no identity and a factor
 does. `examples/shadow-compare.shade.ts` is the gate's evidence on both targets.
 
+## 35. Cube and 3D textures, bias and gradients
+
+Roadmap 0.4 item 12, the portable half. A **cube texture** is six faces looked up by a
+*direction*; a **3D texture** is a volume addressed by a `vec3` coordinate. Both are core in
+both targets — WGSL `texture_cube<f32>` / `texture_3d<f32>`, GLSL ES 3.00 `samplerCube` /
+`sampler3D` — so a module carrying one emits both halves and needs no capability. Two sampling
+forms join them, `textureSampleBias` and `textureSampleGrad`, and the depth texture of §34
+gains its cube, `texture_depth_cube`, the shadow map of a point light.
+
+```ts
+declare const env: texture_cube<f32>
+declare const lut: texture_3d<f32>
+declare const pointShadow: texture_depth_cube
+
+const sky = textureSample(env, smp, dir) // by direction
+const glossy = textureSampleBias(env, smp, dir, 2.) // the implicit level, shifted coarser
+const graded = textureSampleLevel(lut, smp, sky.rgb, 0.) // the colour IS the coordinate
+const detail = textureSampleGrad(albedo, smp, uv, ddx, ddy) // explicit gradients, any stage
+const lit = textureSampleCompare(pointShadow, shadowSmp, normalize(toLight), length(toLight))
+const size = textureDimensions(lut) // vec3u: a volume's size is three wide
+```
+
+```wgsl
+@group(0) @binding(0) var env: texture_cube<f32>;
+@group(0) @binding(1) var lut: texture_3d<f32>;
+let glossy = textureSampleBias(env, smp, dir, 2.0);
+let detail = textureSampleGrad(albedo, smp, uv, ddx, ddy);
+```
+
+```glsl
+precision highp sampler3D;
+precision highp samplerCubeShadow;
+uniform samplerCube env;
+uniform sampler3D lut;
+vec4 glossy = texture(env, dir, 2.0);
+vec4 detail = textureGrad(albedo, uv, ddx, ddy);
+float lit = texture(pointShadow, vec4(dir, ref));
+uvec3 size = uvec3(textureSize(lut, 0));
+```
+
+**One read id per shape, and the width rides on the type.** `textureSample` on a cube is the
+same neutral id as on a 2D texture — WGSL spells both `textureSample`, GLSL both `texture` —
+because the coordinate's width is a fact about the *texture's* type, not about the call. What
+the front end adds is the check: a `vec2` on a cube, a `vec3` on a 2D texture, a `vec2i` fetch
+on a 3D one, a gradient of the wrong width — each is refused at the argument, in the author's
+own file, where Tint would say `no matching call` and a WebGL2 driver `no matching overloaded
+function` about generated code. The two shapes that *do* restructure their arguments are their
+own ids, per the rule the array layer is written under (§34): a **3D size** is `uvec3` where the
+2D wrapper is `uvec2` (`textureDimensions3d`), and a **cube comparison** folds the reference into
+a `vec4` where the 2D one folds it into a `vec3` (`textureSampleCompareCube`). A cube's own size
+is two wide on both targets — the size of one face — so it keeps the 2D id.
+
+**Measured, on Tint and on a WebGL2 driver.** Every accepted shape above compiles on both.
+Three facts decided the design:
+
+| shape | Tint | WebGL2 driver | so |
+| --- | --- | --- | --- |
+| `textureSampleBias` outside a fragment stage | `built-in cannot be used by compute pipeline stage` | `no matching overloaded function` (vertex) | fragment-only, with `textureSample` and `dpdx` |
+| `textureSampleGrad` in a compute / vertex stage | accepts | accepts | any stage |
+| `textureLod` on `samplerCubeShadow` | — | `no matching overloaded function` | level 0 is `textureGrad` with zero `vec3` gradients, as on the 2D array shadow |
+
+A bias shifts the *implicit* level of detail, which needs the derivatives only a fragment quad
+has; explicit gradients need none. The shadow-cube `textureLod` gap is the one §34 met on the
+2D array, met again one dim over, and answered the same way — a zero gradient is a level of
+detail of −∞, clamped to the base level.
+
+**What a cube cannot do.** Neither target has a texel fetch for a cube: WGSL's `textureLoad`
+and GLSL's `texelFetch` both stop at 2D, 2D array and 3D. `textureLoad(env, …)` is therefore
+refused with the read to use instead. It follows that an **integer cube** has no read on this
+surface: a cube is only sampled and sampling is float-only, so `texture_cube<u32>` is refused
+at the declaration — once, with the reason, rather than at a read that would have to explain
+both facts — and `tsc` refuses it too, since the ambient `texture_cube<E extends f32>` admits
+no other element. `textureGather`, the read an integer cube does have, is the WGSL-only half of
+this item and lifts the refusal when it lands. `textureNumLayers` names what a cube and a 3D
+texture have instead of layers (six faces; depth, `textureDimensions(t).z`).
+
+**Precision.** GLSL ES 3.00 §4.5.4 predeclares a default precision for `sampler2D` and
+`samplerCube` only, so the header declares one for `sampler3D`, `samplerCubeShadow` and every
+integer-prefixed form (`usampler3D`), and none for `samplerCube` — derived from the type
+spelling, as before, so a new sampler type cannot declare itself without its line.
+
+**What the host is told.** `textureDim` is now `'2d' | '2d-ms' | '2d-array' | 'cube' | '3d'`,
+the value `GPUTextureViewDescriptor.dimension` takes; a depth cube reflects with
+`textureDim: 'cube'` and `textureDepth: true`. The CPU twins keep their contracts: a bias or
+gradient sample yields opaque black, a cube comparison yields 1 (the identity for the lighting
+multiply, §34), and a 3D size yields 1×1×1. `examples/cube-env.shade.ts` is the gate's evidence
+on both targets.
+
+**Not in this half.** `texture_cube_array`, `texture_1d` and `textureGather` are WGSL-only —
+GLSL ES 3.00 has no `samplerCubeArray` (the extension is refused by the driver), reserves the
+word `sampler1D`, and gets `textureGather` only in ES 3.10 — so each becomes its own derived
+capability with no GLSL profile row, the way a storage texture fails closed (§33).
+
 ---
 
 Last updated: 2026-09-21

@@ -271,13 +271,14 @@ describe('X-GIS #763 X — type-surface sweep', () => {
     ).toThrow(/SD0015/)
   })
 
-  it('X-GIS #1651: ShaderType texture dims are exactly the three the emitters spell', () => {
+  it('X-GIS #1651: ShaderType texture dims are exactly the five the emitters spell', () => {
     // The emitters' texture switches are runtime-exhaustive (`satisfies never`),
     // but KeyOf (ir/types.ts) is a conditional TYPE with a `string` fallback tsc
     // cannot flag — a new dim would silently drop resource() nodes to `string`.
-    // A new dim must go red HERE first, pointing at KeyOf's arms.
+    // A new dim must go red HERE first, pointing at KeyOf's arms. ('cube' and '3d'
+    // joined with roadmap 0.4 item 12, each with its KeyOf arm.)
     type TexDim = Extract<ShaderType, { kind: 'texture' }>['dim']
-    const covered: TexDim extends '2d' | '2d-ms' | '2d-array' ? true : never = true
+    const covered: TexDim extends '2d' | '2d-ms' | '2d-array' | 'cube' | '3d' ? true : never = true
     expect(covered).toBe(true)
   })
 

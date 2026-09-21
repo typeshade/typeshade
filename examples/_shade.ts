@@ -375,6 +375,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'cube-env',
+    title: 'Cube and 3D textures, bias and gradients',
+    blurb:
+      'An environment map as a `texture_cube<f32>` looked up by direction, a colour-grading table as a `texture_3d<f32>` the shaded colour indexes, `textureSampleBias` and `textureSampleGrad`, and a point light\u2019s shadow as a `texture_depth_cube` compared by the direction from the light (\u00a735). All core in both targets, so both halves of the gate run it; the compiler checks each coordinate\u2019s width against the texture\u2019s dim and says so before either target refuses the generated code. Measured on Tint and on a WebGL2 driver: a bias is fragment-only on both, gradients are legal in any stage, and level 0 on a depth cube is `textureGrad` with zero gradients.',
+    renderable: true,
+  },
+  {
     id: 'storage-texture',
     title: 'A storage texture',
     blurb:
