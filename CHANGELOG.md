@@ -13,6 +13,18 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **The order that makes a shadowed varying correct is now asserted** (#62). Three porting
+  twins emit a fragment `main()` that declares a local with the same name as an `in` varying,
+  and the shader is correct only because the gather prelude is emitted BEFORE the body, so the
+  one read of the global precedes the declaration that shadows it. Nothing said so and nothing
+  checked it, while three plausible changes would reverse it — materialising the input aggregate
+  lazily at first use, hoisting user declarations to the top of `main()`, or extending
+  field-inlining to substitute the reads its collision guard currently rejects. Under any of
+  them the shader still compiles, still links and reads the wrong `uv`, and the only signal
+  would be a re-baked golden, which says "this moved" rather than "this is now wrong".
+  `glsl-stages-parity.test.ts` now re-emits every renderable example, finds each varying a local
+  shadows, and asserts the read is in front and is the only use in front — changing no golden
+  and no emitter.
 - **The roadmap carries the audit's twelve new rows** (#159, from #144 §8). Seven deferrals that
   existed only as a sentence in the surface document, and five gaps with no row at all, are now
   items with a size and an issue: 13a and 13b for the texture argument, stage and query work
