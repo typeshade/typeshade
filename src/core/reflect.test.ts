@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { wgslLayout, reflect } from './reflect.js'
 import {
   mat4x4fT,
+  matT,
   vec4fT,
   vec3fT,
   f32T,
@@ -369,5 +370,75 @@ describe('reflect() reports the bindings a LOWERING injects, not just the declar
     // Write-only is core WGSL, so the list stays empty — which is what keeps this from
     // being a rubber stamp that reports the feature for every storage texture.
     expect(reflect(rw('write')).requiredLanguageFeatures).toEqual([])
+  })
+})
+
+// The matrix layout rows of wgsl.txt:15528-15640, and the one place the two targets part.
+// Measured on real ANGLE and Tint (#149): std140 rounds every matrix column up to 16 bytes,
+// while WGSL's column stride is AlignOf(vecR<f32>) — 8 when the matrix has two ROWS and 16
+// otherwise. So `matCx2` is the divergent family and every other shape agrees byte for byte.
+describe('wgslLayout — matCxR (#149)', () => {
+  const SHAPES = [2, 3, 4] as const
+  /** WGSL: a column is a vecR, so the stride is roundUp(SizeOf(vecR), AlignOf(vecR)). */
+  const COLUMN = {
+    2: { size: 8, align: 8 },
+    3: { size: 16, align: 16 },
+    4: { size: 16, align: 16 },
+  }
+
+  it.each(SHAPES.flatMap((c) => SHAPES.map((r) => [c, r] as const)))(
+    'lays out mat%ix%i as columns of a vecR, per wgsl.txt:15528-15640',
+    (cols, rows) => {
+      const col = COLUMN[rows]
+      const l = wgslLayout({ name: 'M', fields: [{ name: 'm', type: matT(cols, rows) }] }, 'std430')
+      // SizeOf(matCxR) = C * SizeOf(vecR) rounded to the column's alignment; AlignOf is the
+      // column's. A struct of one field is that field plus the struct's own rounding.
+      expect(l.fields[0]!.size, `mat${cols}x${rows} size`).toBe(col.size * cols)
+      expect(l.fields[0]!.align, `mat${cols}x${rows} align`).toBe(col.align)
+    },
+  )
+
+  it('agrees with the measured GLSL std140 stride on every shape it admits', () => {
+    // ANGLE reports UNIFORM_MATRIX_STRIDE 16 for all nine. The shapes std140 admits here are
+    // exactly the ones whose WGSL column stride is also 16, which is what makes the emitted
+    // UBO offsets and reflect() the same contract.
+    for (const cols of SHAPES) {
+      for (const rows of [3, 4] as const) {
+        const l = wgslLayout(
+          { name: 'M', fields: [{ name: 'm', type: matT(cols, rows) }] },
+          'std140',
+        )
+        expect(l.fields[0]!.size, `mat${cols}x${rows}`).toBe(16 * cols)
+      }
+    }
+  })
+
+  it('places a matrix field at the offset its column alignment asks for', () => {
+    // A scalar, then a mat3x3: the matrix's align is 16, so it starts at 16 and not at 4.
+    const l = wgslLayout(
+      {
+        name: 'M',
+        fields: [
+          { name: 'a', type: f32T },
+          { name: 'm', type: matT(3, 3) },
+          { name: 'b', type: f32T },
+        ],
+      },
+      'std140',
+    )
+    expect(l.fields.map((f) => f.offset)).toEqual([0, 16, 64])
+    expect(l.size).toBe(80)
+  })
+
+  it('refuses every two-row matrix in std140 and no other shape', () => {
+    for (const cols of SHAPES) {
+      expect(() =>
+        wgslLayout({ name: 'M', fields: [{ name: 'm', type: matT(cols, 2) }] }, 'std140'),
+      ).toThrow(/two-row matrix a column stride of 8/)
+      // std430 has no such rule — the divergence is the uniform layout's alone.
+      expect(() =>
+        wgslLayout({ name: 'M', fields: [{ name: 'm', type: matT(cols, 2) }] }, 'std430'),
+      ).not.toThrow()
+    }
   })
 })

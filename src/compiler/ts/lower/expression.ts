@@ -2,12 +2,17 @@
 import ts from 'typescript'
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, boolT, i32T, u32T, typeKey } from '../../../core/ir/types.js'
+import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { irNameOf, type LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js'
-import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
+import {
+  broadcastResultType,
+  f64WidenResultType,
+  numericMismatch,
+  retargetLit,
+} from '../numeric.js'
 import {
   foldNumericLit,
   retargetIntLitCtx,
@@ -498,11 +503,45 @@ function lowerBinary(
       // the fn() EDSL; the result is the vector's type and the operand order stays as written.
       const broadcast = broadcastResultType(left.type, right.type, arith)
       if (broadcast) return { op: 'binop', type: broadcast, bop: arith, a: left, b: right }
+      // An f32 beside a scalar f64 widens exactly, as it does in the fn() EDSL and as the
+      // fp64 pass's contract states (#151 F64-02).
+      const widened = f64WidenResultType(left.type, right.type, arith)
+      if (widened) return { op: 'binop', type: widened, bop: arith, a: left, b: right }
       pushDiag(
         diagnostics,
         sourceFile,
         node,
         numericMismatch(node.operatorToken.getText(sourceFile), left.type, right.type),
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    // WGSL gives a matrix `+`, `-` and `*` and no `/` or `%` (and GLSL ES 3.00 agrees). Two
+    // matrices of one shape pass the key check above without ever reaching `binResultType`,
+    // so `m / n` was accepted here and emitted `(a / b)`, which both compilers refuse.
+    if (left.type.kind === 'mat' && (arith === '/' || arith === '%')) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Cannot ${arith} ${typeKey(left.type)}: a matrix has + - and * on both targets and no ` +
+          `${arith}. Divide the columns, or multiply by the inverse you computed.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    // `%` is the one arithmetic operator the emulation has no body for: there is no
+    // df64 remainder, and `binResultType` refuses the pair in the fn() EDSL for the same
+    // reason. Same-typed operands pass the key check above, so without this the program
+    // reached emit and came back as a span-less SD0041 (#151).
+    if (arith === '%' && (isF64(left.type) || isVec64(left.type))) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Cannot % ${typeKey(left.type)}: the emulated double has no remainder — the fp64 ` +
+          `pass has a df64 body for + - * / and the comparisons only. Narrow first, e.g. ` +
+          `${isF64(left.type) ? 'f32(x) % f32(y)' : `vec${(left.type as { n: number }).n}(v) % vec${(left.type as { n: number }).n}(w)`}.`,
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined
@@ -659,6 +698,12 @@ function lowerBinary(
   }
   const cmp = COMPARE[node.operatorToken.kind]
   if (cmp !== undefined) {
+    // An f32 compared against a scalar f64 widens exactly, the same rule the arithmetic
+    // follows and the one `binResultType` applies in the fn() EDSL, whose `f64.lt(f32)`
+    // builds and emits. Without it `s < t` was a mismatch while `s - t < 0.` was not (#151).
+    if (f64WidenResultType(left.type, right.type, '-') !== undefined) {
+      return { op: 'compare', type: boolT, cop: cmp, a: left, b: right }
+    }
     if (typeKey(left.type) !== typeKey(right.type)) {
       pushDiag(
         diagnostics,

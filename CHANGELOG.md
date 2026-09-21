@@ -26,6 +26,67 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **Every `matCxR` is a type** (§40). `mat4x4` was the only float matrix the surface admitted,
+  on the recorded ground that "a 2×2 or 3×3 float matrix lays out differently under the WGSL
+  and GLSL std140 rules". Measured on a real WebGL2 driver and on Tint, that is half right:
+  std140 rounds every matrix column up to 16 bytes while WGSL's column stride is
+  `AlignOf(vecR<f32>)`, so a TWO-ROW matrix diverges (`mat2x2`, `mat3x2`, `mat4x2` — stride 8
+  against 16) and a 3×3 does not. The divergence belongs to the uniform layout rather than to
+  the type, so all nine shapes are types now and `wgslLayout` refuses exactly the three it
+  cannot describe honestly, naming `matCx4` and the `vec2` fields as the spellings that work.
+  An author can write `mat3(a, b, c)` from columns, `mat2x3(...)` from components column by
+  column, `mat2()` for the zero matrix and `mat3(m4)` to truncate (widening is refused: the
+  column it would have to invent is the author's choice); `m * s`, `s * m`, `m * v`, the ROW
+  product `v * m` and `matKxR * matCxK`, each typed per wgsl.txt:9960-9995; `transpose` on
+  every shape, which swaps the dimensions, and `determinant` on the square ones, which is
+  where it exists. The IR matrix carries `cols` and `rows` instead of one `n`, so a shape that
+  is not square can be spelled at all; `matT(cols, rows)` builds one. WGSL emits `matCxR<f32>`
+  and GLSL `matN` or `matCxR`, both measured on Tint and a real WebGL2 context through
+  `examples/normal-matrix.shade.ts`. Three bugs fell out of the shapes being real: `m[j]` read
+  one component instead of column j in all three CPU evaluators, `v * m` threw in two of them,
+  and `transpose` recovered its shape from the array length, which cannot tell a `mat2x3` from
+  a `mat3x2`. The emulated-double matrices stay square, since the fp64 pass has one `df64`
+  body per dimension, and a non-square `matCxR<f64>` is refused where it is written.
+- **The emulated double as an authored type** (§39, roadmap T18). The `f64` surface now admits
+  exactly what the fp64 lowering pass can lower, and refuses the rest where it is written. An
+  author can write `s * 2.5` and `s * t` beside a scalar `f64` (the literal is lifted to an f64
+  literal carrying the whole double, an `f32` widens exactly as `vec2<f32>(x, 0.)`, the rule
+  `binResultType` already applied in the fn() EDSL); `const k: f64 = 0.1`, a literal in any
+  declared `f64` position; `p.x`, `p.xy` and `p[1]` on a `vec64`, which the pass has always
+  lowered as a swizzle of the hi and lo planes; `vec3(p)`, the per-lane narrow; `round(x)`,
+  through a new `df64_round`. `length`, `distance`
+  and `dot` on a `vec64` are now typed `f64` — the front end typed them `f32` while the pass
+  emitted the f64 pair, so a correct program could not be written (the BLOCKER of the spec
+  audit). What the pass cannot lower is refused at the CALL, the operator or the cast, with the
+  twin list and a narrow that actually lowers, instead of reaching emit as an SD0041 with no
+  source span: every builtin with no `df64` body, `determinant` on a matrix of doubles, `mix`
+  with an `f64` interpolant, an operand the pass would mis-walk (a `vec3` beside a `vec3f64`,
+  which compiled clean and emitted `w.hi` on an `f32` vector), `%` and `%=`, `i32(x)`/`u32(x)`
+  on a double, an `f64` in a texture's level, bias, reference-depth, mip-level or layer slot,
+  and an `f64` on an entry's `@location` or return — the last under its own code, `TS8038`,
+  naming two ORDINARY remedies (narrow with `f32(x)`, or read the double in the stage that
+  needs it, since a uniform or storage binding carries one and every stage can see it). There
+  is deliberately no author-facing way to split a double into its two `f32` words and rebuild
+  it: the words are the emulation's business, and a program written against them would be
+  written against an implementation detail. Carrying them as flat varyings transparently
+  would be exact but is not done, because the surface has no `@interpolate` attribute, so an
+  author could neither ask for a flat varying nor see that one had been chosen. A SCALAR `f64` vertex attribute stays accepted:
+  that `@location` is a buffer read, not a varying, and one slot holds the pair. A lane is a
+  READ: `v.x = …` and `v[0] = …` are refused, since after lowering the vector is two hi/lo
+  planes and a lane of it is a swizzle of both — the indexed form had been dropping the write
+  silently and the swizzle form emitted text both compilers reject. `round` is WGSL's
+  ties-to-even and is deliberately NOT `df64_nint`, whose ties go toward +∞ for the mod-2π
+  reduction; the twelve points where the two conventions disagree, including `2³⁰ + 0.5` and
+  `2³⁰ + 1.5` where the low word carries the parity, are pinned against the oracle. WGSL and
+  GLSL ES 3.00 are unchanged in shape (pairs of `f32`); no existing golden moved. The ambient
+  library follows the compiler — the componentwise twins take a `vec64` in the editor because
+  the pass has a body for them, the ones it has no body for stay refused, and numeric-literal
+  lane keys make the editor accept `p[1]` and refuse `p[i]` and `p[2]` on a `vec2f64` exactly
+  as the compiler does. `examples/fp64-lane-stripes.shade.ts` runs both halves of the gate,
+  WGSL on Tint and GLSL ES 3.00 on a real WebGL2 context, with nothing crossing its entry
+  boundary, and its numeric core is evaluated twice — on the oracle as a double and on the lowered module under f32 rounding — with a
+  discriminative case plain `f32` provably cannot compute.
+
 - **A deprecation window before an integer-written literal types as `i32`** (§13,
   [#148](https://github.com/typeshade/typeshade/issues/148)). Where nothing declares a type —
   `let i = 0`, `const K = 5` — a literal still takes `f32`, so `xs[i]` is `Index must be i32 or
@@ -172,8 +233,9 @@ attribute`). A vertex entry's `@location` parameters are vertex attributes, not 
   empty `default:` with a clause after it falls through into that clause in TypeScript and
   runs nothing on both targets, and it emitted `default: { }` with no diagnostic. An empty
   `default:` as the last clause does nothing in either language and stays legal. Calling an entry point is refused, `_ = f()` is
-  WGSL's phony assignment rather than an unknown name, and a decimal literal past the f32
-  range is refused instead of reaching the writer as `1e+40`.
+  WGSL's phony assignment rather than an unknown name — and has no second meaning, since §62's
+  reserved-name rule refuses a local of that name — and a decimal literal past the f32 range is
+  refused instead of reaching the writer as `1e+40`.
 
   **A parameter is a value, and the shadow that would have hidden it is not spellable.**
   `a = 1.` emitted `a = 1.0;`, which Tint refuses (`cannot assign to parameter 'a'`); the
@@ -401,6 +463,63 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A hover at the end of a name answers for that name**
+  ([#56](https://github.com/typeshade/typeshade/issues/56)). The language service resolves a
+  hover through `nodeAtPosition`, whose span test is half-open, so one offset past `k` in
+  `let k = 1.` was the whitespace after it: the service fell through to TypeScript's quick
+  info and answered `let k: number` where the compiler lowered an `f32` — the very answer the
+  symbol-table hover replaced. The end of a name is where an editor leaves the caret after
+  typing it. `getHover` now resolves through `touchingNodeAtPosition`, which mirrors
+  `ts.getTouchingPropertyName`: a position inside a token still belongs to that token, and only
+  one that lands in no identifier answers for the identifier ending exactly there. A local, a
+  parameter and a struct field are each pinned at `name.end`. `nodeAtPosition` keeps its
+  half-open rule for completions, rename and the TS1206 filter, which are written against it.
+- **A name a target reserves is reported where it is written** (§62,
+  [#103](https://github.com/typeshade/typeshade/issues/103), `TS8068 RESERVED_NAME`). A struct
+  field named `half` compiled to WGSL Tint accepts and to GLSL ANGLE answers with
+  `'half' : Illegal use of reserved word` — a line number in generated text, for a word the
+  author wrote on a line of their own; the same held for a module constant, an override, a
+  module variable, a struct's own name and, on the WGSL side, for each of the 146 tokens that
+  spec reserves for future use. (A binding was already refused, but by the GLSL writer, with
+  only the file's directive to point at.) The check runs on the name the emit CARRIES, so a
+  class's static field is judged as `Cls_member` and a namespace's member as `Ns_member`, and
+  the message names both spellings when they differ while underlining what the author typed;
+  all three spellings of a struct are read, since a `class`, an `interface` and a `type` alias
+  are one struct to the emitters. The severity follows the target's role: a WGSL word is an
+  error, because WGSL is the program, and a GLSL ES 3.00 word a warning, this package's
+  existing answer for "the second target cannot take this module" — `wgsl` stays, `glsl` comes
+  back undefined, and the GLSL writer fails the emit closed on the same names, so a module that
+  would not have produced GLSL anyway is never refused outright for a word it never emits. A
+  compute kernel has no GLSL form at all and is not held to that list: `examples/array-length.shade.ts`
+  now carries the `half` field and Tint takes it on every gate run. What the GLSL writer renames
+  for itself — a local, a parameter, a function name — is not reported. Both lists are the
+  target's own: WGSL's 26 keywords and 146 reserved words transcribed from the spec source,
+  GLSL ES 3.00's read off ANGLE's version-gated lexer at shader version 300, which is why
+  `buffer`, `shared` and `packed` are absent — all three are spellings a WebGL2 driver accepts
+  and a later spec does not. Each language's SHAPE rules are read too: `__` at the front and
+  the bare `_` for WGSL, and `gl_` at the front or `__` anywhere for GLSL ES 3.00, both
+  measured on ANGLE rather than read off the spec.
+- **The GLSL writer's rename can no longer land on a name already in scope**
+  ([#103](https://github.com/typeshade/typeshade/issues/103)). `sanitizeReservedIdents` renames
+  a local, a parameter or a function whose name GLSL ES 3.00 reserves, and it chose the new
+  spelling knowing only the function's own names: a local named `float` beside a module
+  constant named `float_` became two `float_`s in one scope, and the GLSL compiled cleanly and
+  answered `4` where WGSL and the CPU oracle answered `12`. The rename now sees every
+  module-scope name, and it numbers the suffix (`float_1`) instead of repeating the underscore,
+  because `float__` is itself illegal: measured on ANGLE, an identifier containing `__` is
+  "reserved as possible future keywords". The pass also renames a helper named `main`, which
+  had been emitting a second `main` beside the stage entry of that name.
+- **A `bool` module const that is neither true nor false is refused on its declaration**
+  (§12, [#64](https://github.com/typeshade/typeshade/issues/64)). `const K: bool = 2` reached
+  the fail-closed bool arm of each writer's `literal` and came back as
+  `TS8015 Backend emit failed: … [SD0017]: bool literal 2`, anchored on the file's
+  `"use typeshade"` directive — the one line that says nothing about the declaration — while
+  its integer siblings have reported `TS8003` on the declaration since #17. The check now sits
+  beside theirs at lowering: `true`, `false`, `1` and `0` still emit, and anything else is
+  `Module const "K" is bool, but 2 is neither true nor false. Write true, false, 1 or 0.` on
+  the `K: bool = 2` it underlines. Like the integer arms, the constant is not defined, so each
+  use adds its own `TS8022`; the writers' `SD0017` arms stay, since the `fn()` EDSL surface can
+  hand them a `ConstDecl` carrying anything.
 - **Three texture programs Tint refused compiled clean.** `textureSample` on a
   `texture_cube_array` in a vertex or compute entry (the cube-array id was in neither
   fragment-only table) is now refused under the written name like the other implicit-LOD
@@ -454,6 +573,13 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
 
 ### Changed
 
+- **`examples/block-scope.shade.ts` carries a float `%=` on a vector to the gate** (§22,
+  [#20](https://github.com/typeshade/typeshade/issues/20)). The compound-assignment emit sites
+  route a float `%` through the backend's `floatMod` spelling at any width, but the corpus
+  carried the scalar only, so the vector form — `cell %= 1.`, which WGSL keeps as the operator
+  and GLSL ES 3.00 takes componentwise as `(cell - 1.0 * trunc(cell / 1.0))` — was pinned by a
+  unit test and by no driver. The example now carries both, and Tint and a real WebGL2 driver
+  compile each of them on every run of `bun run gate:compile`.
 - **A method that changes its object takes it by reference** (§26). It took the struct and
   RETURNED it — `Particle_step(self_in: Particle, dt: f32) -> Particle` opening with
   `var self_ = self_in` and closing with `return self_` — and the call site read the receiver,

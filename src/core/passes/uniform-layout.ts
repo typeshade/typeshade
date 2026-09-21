@@ -53,6 +53,7 @@ import type { BindingDecl, Expr, ModuleDecl, Stmt, StructDecl } from '../ir/node
 import { arrayT, structT, typeKey, type ShaderType } from '../ir/types.js'
 import { eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js'
 import { UnsupportedFeatureError } from '../backend.js'
+import { typeLayout } from '../reflect.js'
 
 /** The boundary WGSL's uniform address space puts an array element — and therefore the array
  *  itself — on. */
@@ -87,20 +88,17 @@ function makeLayout(
     seen: ReadonlySet<string>,
   ): { size: number; align: number } | undefined => {
     switch (t.kind) {
+      // The leaves are `reflect.ts`'s, not a second copy: a matCxR's column stride is
+      // AlignOf(vecR), which is 8 for a two-row matrix and 16 otherwise, and writing that
+      // number here again is what #149's measurement of the nine shapes would have drifted
+      // against. `'std430'` is WGSL's own layout; the uniform address space's extra
+      // element rule is what THIS pass adds on top of it.
       case 'scalar':
-        return { size: 4, align: 4 }
       case 'f64':
-        return { size: 8, align: 8 }
       case 'vec':
-        return t.n === 2
-          ? { size: 8, align: 8 }
-          : t.n === 3
-            ? { size: 12, align: 16 }
-            : { size: 16, align: 16 }
       case 'mat':
-        // Every matCxR this compiler emits is columns of vec4 or wider, so its stride is
-        // already a multiple of 16 whatever the exact column count.
-        return { size: 16 * t.n, align: 16 }
+      case 'atomic':
+        return typeLayout(t, 'std430', new Map())
       case 'struct': {
         if (seen.has(t.name)) return undefined
         if (memo.has(t.name)) return memo.get(t.name)

@@ -22,7 +22,7 @@ import {
   vec4uT,
   vec2iT,
   vec4iT,
-  mat4x4fT,
+  matT,
   structT,
   arrayT,
   samplerT,
@@ -43,6 +43,33 @@ import { genericStructName, isGenericClass } from './generic-structs.js'
 import { TS_CODES, type TsCode } from './codes.js'
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType
+
+/** Matrix name -> its (cols, rows), for the generic `matCxR<T>` arm. Derived from the same
+ *  two loops {@link MAT_TYPE_NAMES} uses, so a name spellable bare is spellable generic. */
+const MAT_SHAPE: Readonly<Record<string, readonly [2 | 3 | 4, 2 | 3 | 4]>> = Object.fromEntries(
+  ([2, 3, 4] as const).flatMap((cols) =>
+    ([2, 3, 4] as const).flatMap((rows) =>
+      cols === rows
+        ? [[`mat${cols}x${rows}`, [cols, rows]] as const, [`mat${cols}`, [cols, rows]] as const]
+        : [[`mat${cols}x${rows}`, [cols, rows]] as const],
+    ),
+  ),
+)
+
+/** Every matrix name the surface spells, as the `matCxR` of wgsl.txt:4621 (C, R each 2, 3 or
+ *  4) plus the `matN` shorthand both targets give a square one. GLSL ES 3.00 has all nine
+ *  (glsl-es-300.txt:955-967), so the set is the same on both. `f32` is the default element;
+ *  `mat3<f64>` and the rest go through the generic arm. */
+const MAT_TYPE_NAMES: Readonly<Record<string, ShaderType>> = Object.fromEntries(
+  ([2, 3, 4] as const).flatMap((cols) =>
+    ([2, 3, 4] as const).flatMap((rows) => {
+      const t = matT(cols, rows)
+      return cols === rows
+        ? [[`mat${cols}x${rows}`, t] as const, [`mat${cols}`, t] as const]
+        : [[`mat${cols}x${rows}`, t] as const]
+    }),
+  ),
+)
 
 const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -65,8 +92,7 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   vec2b: vec2bT,
   vec3b: vec3bT,
   vec4b: vec4bT,
-  mat4: mat4x4fT,
-  mat4x4: mat4x4fT,
+  ...MAT_TYPE_NAMES,
   vec2d: vec2f64T,
   vec3d: vec3f64T,
   vec4d: vec4f64T,
@@ -633,16 +659,6 @@ function mapGeneric(
     pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32, i32, u32, or f64.`)
     return undefined
   }
-  if (name === 'mat2' || name === 'mat3') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `"${name}" is not supported yet (only mat4/mat4x4 maps to a real WGSL type); using it would silently emit mat4x4.`,
-      TS_CODES.MAT_UNSUPPORTED,
-    )
-    return undefined
-  }
   if (name !== undefined && TEXTURE_DIM[name]) {
     // `texture_2d<f32>` / `texture_2d_array<u32>` — the sampled element kind, which decides
     // both the WGSL spelling and which read intrinsics apply. Only the three native scalars;
@@ -668,15 +684,40 @@ function mapGeneric(
       diagnostics,
     )
   }
-  if (name === 'mat4' || name === 'mat4x4') {
+  const matShape = name === undefined ? undefined : MAT_SHAPE[name]
+  if (matShape !== undefined) {
+    const [cols, rows] = matShape
     const elemName = typeNameOfArg(args[0])
     if (elemName === 'u32' || elemName === 'i32' || elemName === 'bool') {
-      pushDiag(diagnostics, sourceFile, typeNode, `mat4 is floating-point only (mat4<f32>).`)
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        typeNode,
+        `${name} is floating-point only (${name}<f32>). WGSL gives matCxR<T> only f32, f16 ` +
+          `and AbstractFloat (wgsl.txt:4621), and GLSL ES 3.00 has no integer matrix either.`,
+      )
       return undefined
     }
-    if (elemName === 'f64') return { kind: 'mat', n: 4, elem: 'f64' }
-    if (elemName === 'f32' || elemName === undefined) return mat4x4fT
-    pushDiag(diagnostics, sourceFile, typeNode, `mat4<T> T must be f32 or f64.`)
+    if (elemName === 'f64') {
+      // The emulation has one df64 body per DIMENSION, not per shape (DF64MatN, matmul,
+      // matvec, transpose), so only a square matrix of doubles can be lowered. A non-square
+      // one is refused HERE rather than accepted and raised as SD0041 from the backend.
+      if (cols !== rows) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          typeNode,
+          `${name}<f64> has no emulated-double form: the fp64 pass carries a square matrix ` +
+            `of doubles only (mat2, mat3, mat4). Declare it ${name} and narrow, or use a ` +
+            `square shape.`,
+          TS_CODES.MAT_UNSUPPORTED,
+        )
+        return undefined
+      }
+      return matT(cols, rows, 'f64')
+    }
+    if (elemName === 'f32' || elemName === undefined) return matT(cols, rows)
+    pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32 or f64.`)
     return undefined
   }
   pushDiag(

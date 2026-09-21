@@ -15,8 +15,9 @@ import {
   matchExpr,
   structT,
   arrayT,
+  matT,
 } from './ir/index.js'
-import type { FuncDecl, ModuleDecl, Stmt } from './ir/index.js'
+import type { FuncDecl, ModuleDecl, ShaderType, Stmt } from './ir/index.js'
 import { ioStruct, structDecl, uniformStruct, builtin, location } from './sot.js'
 import { constFold } from './passes/opt/const-fold.js'
 import { algebraicSimplify } from './passes/opt/algebraic.js'
@@ -177,15 +178,24 @@ describe('X-GIS #763 P — optimizer/emit invariants', () => {
     expect(() => emitGlslModule(bad, 'vertex')).toThrow(/reserved word/)
   })
 
-  it('P7: mat2 in a std140 layout is rejected (WGSL/GLSL rules disagree)', () => {
-    const mat2T = { kind: 'mat', n: 2 } as never
-    expect(() =>
-      wgslLayout({ name: 'M2', fields: [{ name: 'm', type: mat2T }] }, 'std140'),
-    ).toThrow(/mat2/)
-    // std430 (storage) keeps working — the divergence is uniform-only.
-    expect(() =>
-      wgslLayout({ name: 'M2s', fields: [{ name: 'm', type: mat2T }] }, 'std430'),
-    ).not.toThrow()
+  it('P7: a TWO-ROW matrix in a std140 layout is rejected, and only a two-row one', () => {
+    const layoutOf = (t: ShaderType, layout: 'std140' | 'std430') => () =>
+      wgslLayout({ name: 'M', fields: [{ name: 'm', type: t }] }, layout)
+    // Measured on real ANGLE and Tint (#149): std140 rounds every column up to 16 bytes,
+    // while WGSL's column stride is AlignOf(vecR<f32>) — 8 for R = 2, 16 for R = 3 and 4.
+    // So the divergence is the ROW count's, which makes it three shapes and not one.
+    for (const cols of [2, 3, 4] as const) {
+      expect(layoutOf(matT(cols, 2), 'std140'), `mat${cols}x2 std140`).toThrow(
+        /two-row matrix a column stride of 8/,
+      )
+      // std430 (storage) keeps working — the divergence is uniform-only.
+      expect(layoutOf(matT(cols, 2), 'std430'), `mat${cols}x2 std430`).not.toThrow()
+      // Every other shape agrees byte for byte and must NOT be refused; without this half
+      // the assertion above would still pass if the guard rejected every matrix.
+      for (const rows of [3, 4] as const) {
+        expect(layoutOf(matT(cols, rows), 'std140'), `mat${cols}x${rows} std140`).not.toThrow()
+      }
+    }
   })
 
   it('P8: a bare non-struct VERTEX output fails closed on GLSL (name-linked varyings)', () => {

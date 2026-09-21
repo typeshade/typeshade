@@ -264,6 +264,27 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   f32: 'Casts a number to `f32` single-precision floating-point by inlining a literal value rounded to 32-bit precision. This is equivalent to `Math.fround(x)`.',
   i32: "Casts a number to `i32` signed 32-bit integer by truncating toward zero. Literal values outside [-2^31, 2^31-1] are a compile error; at runtime, out-of-range values wrap via two's-complement.",
   u32: "Casts a number to `u32` unsigned 32-bit integer by truncating toward zero. Literal values outside [0, 2^32-1] are a compile error; at runtime, out-of-range values wrap via two's-complement.",
+  mat2x2:
+    'Builds a `mat2x2`, 2 columns of 2 components in column-major order, from 2 `vec2` columns, from 4 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is square, so `determinant` applies and `transpose` maps it to itself.',
+  mat2: 'Builds a `mat2x2`, 2 columns of 2 components in column-major order, from 2 `vec2` columns, from 4 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is square, so `determinant` applies and `transpose` maps it to itself.',
+  mat2x3:
+    'Builds a `mat2x3`, 2 columns of 3 components in column-major order, from 2 `vec3` columns, from 6 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is not square, so it has no `determinant` and `transpose` gives a `mat3x2`.',
+  mat2x4:
+    'Builds a `mat2x4`, 2 columns of 4 components in column-major order, from 2 `vec4` columns, from 8 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is not square, so it has no `determinant` and `transpose` gives a `mat4x2`.',
+  mat3x2:
+    'Builds a `mat3x2`, 3 columns of 2 components in column-major order, from 3 `vec2` columns, from 6 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is not square, so it has no `determinant` and `transpose` gives a `mat2x3`.',
+  mat3x3:
+    'Builds a `mat3x3`, 3 columns of 3 components in column-major order, from 3 `vec3` columns, from 9 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is square, so `determinant` applies and `transpose` maps it to itself.',
+  mat3: 'Builds a `mat3x3`, 3 columns of 3 components in column-major order, from 3 `vec3` columns, from 9 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is square, so `determinant` applies and `transpose` maps it to itself.',
+  mat3x4:
+    'Builds a `mat3x4`, 3 columns of 4 components in column-major order, from 3 `vec4` columns, from 12 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is not square, so it has no `determinant` and `transpose` gives a `mat4x3`.',
+  mat4x2:
+    'Builds a `mat4x2`, 4 columns of 2 components in column-major order, from 4 `vec2` columns, from 8 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is not square, so it has no `determinant` and `transpose` gives a `mat2x4`.',
+  mat4x3:
+    'Builds a `mat4x3`, 4 columns of 3 components in column-major order, from 4 `vec3` columns, from 12 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is not square, so it has no `determinant` and `transpose` gives a `mat3x4`.',
+  mat4x4:
+    'Builds a `mat4x4`, 4 columns of 4 components in column-major order, from 4 `vec4` columns, from 16 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is square, so `determinant` applies and `transpose` maps it to itself.',
+  mat4: 'Builds a `mat4x4`, 4 columns of 4 components in column-major order, from 4 `vec4` columns, from 16 components column by column, from a larger matrix by truncation, or with no arguments for the zero matrix (§40). It is square, so `determinant` applies and `transpose` maps it to itself.',
   vec2: 'Builds a `vec2` from two scalars or broadcasts a single scalar to both components.',
   vec3: 'Builds a `vec3` from three scalars, a `vec2` and a scalar, or broadcasts a single scalar to all three components.',
   vec4: 'Builds a `vec4` from four scalars, a `vec3` and a scalar, a `vec2` and two scalars, or broadcasts a single scalar to all four components.',

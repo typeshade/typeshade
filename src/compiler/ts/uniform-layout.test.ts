@@ -306,3 +306,40 @@ export function fs(): vec4 { const on = S_.k > 0.; return vec4(pick(on) * S_.xs[
     expect(c.wgsl).toContain('xs: array<f32>,')
   })
 })
+
+describe('the padding and the matrix layout rule compose (#149 × §51)', () => {
+  it('pads the array and leaves every matrix whose stride is already 16 alone', () => {
+    // A matCxR is C columns of vecR and its column stride is AlignOf(vecR), so every shape
+    // with three or four rows is already a multiple of 16 an element and needs no wrapper.
+    // The leaf numbers come from `reflect.ts`'s own layout engine rather than a second copy,
+    // which is what keeps this true after #149 rewrote that arm.
+    const c = compiled(`class U {
+  count: f32
+  weights: array<f32, 3>
+  m: mat3x3
+  n: mat2x4
+}
+declare const u: uniform<U>
+@vertex export function vs(): vec4 { return vec4(u.count, 0., 0., 1.) }
+@fragment export function fs(): vec4 {
+  return vec4(u.weights[1] + u.m[0].x + u.n[0].x, 0., 0., 1.)
+}`)
+    expect(c.wgsl).toContain('@size(16) v: f32,')
+    expect(c.wgsl).toContain('@align(16) weights: array<_Pad16_f32, 3>,')
+    expect(c.wgsl).toContain('  m: mat3x3<f32>,')
+    expect(c.wgsl).toContain('  n: mat2x4<f32>,')
+    expect(c.wgsl).not.toContain('_Pad16_mat')
+    // The emit and the reflection describe one layout, which is the whole point of §51.
+    const u = reflect(c.module).bindGroups[0]!.entries[0]!
+    expect(u.structName).toBe('U')
+  })
+
+  it('leaves an ARRAY of matrices alone for the same reason', () => {
+    const c = compiled(`class U { ms: array<mat3x4, 2> }
+declare const u: uniform<U>
+@vertex export function vs(): vec4 { return vec4(u.ms[0][0].x, 0., 0., 1.) }
+@fragment export function fs(): vec4 { return vec4(u.ms[1][0].x, 0., 0., 1.) }`)
+    expect(c.wgsl).toContain('ms: array<mat3x4<f32>, 2>,')
+    expect(c.wgsl).not.toContain('_Pad16_')
+  })
+})

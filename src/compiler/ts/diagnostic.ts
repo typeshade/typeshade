@@ -82,6 +82,24 @@ export function diagnosticAtSpan(
 }
 
 /**
+ * Builds a diagnostic from a raw UTF-16 `start`/`length` span rather than from a node, for a
+ * caller whose offending name is recorded as a span and not as a `ts.Node`: the declared-symbol
+ * table (`symbols.ts`) keeps the span of every name it lowered, and the reserved-name check
+ * (#103) reports on exactly those. Same fields, same conversion; only the source of the span
+ * differs.
+ */
+export function makeSpanDiagnostic(
+  sourceFile: ts.SourceFile,
+  start: number,
+  length: number,
+  message: string,
+  code: TsCode,
+  category: TsCompilerDiagnostic['category'] = 'error',
+): TsCompilerDiagnostic {
+  return diagnosticForSpan(sourceFile, start, start + length, message, code, category)
+}
+
+/**
  * The one shape every emit-time failure takes: a backend (WGSL or GLSL) threw on a module
  * the front end accepted, so the throw becomes a `BACKEND`-coded diagnostic carrying the
  * backend's own message, anchored on the file's first statement (the failure has no single

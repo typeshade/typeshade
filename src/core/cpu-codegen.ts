@@ -48,6 +48,12 @@ import {
   applyBin,
   matVec,
   matMul,
+  matVecShaped,
+  matMulShaped,
+  vecMatShaped,
+  matColumn,
+  matTransposeShaped,
+  setMatColumn,
   BUILTINS,
   GPU_STUBS,
   f32ToU32Sat,
@@ -109,7 +115,8 @@ const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f
  *  A10, which gave the source language the init-less declaration that reaches them. */
 function zeroLit(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): string {
   if (t.kind === 'vec' || t.kind === 'vec64') return `new Array(${t.n}).fill(0)`
-  if (t.kind === 'mat') return `new Array(${t.n * t.n}).fill(0)`
+  // A matrix is a flat column-major component list: cols * rows, not n squared.
+  if (t.kind === 'mat') return `new Array(${t.cols * t.rows}).fill(0)`
   // Field by field, exactly as the interpreter's `zeroOf` builds it: the old `{}` left every
   // field absent, so `let s: S;` then `s.a` read `undefined` here and on the interpreter
   // alike, where WGSL's `var s: S;` reads 0. Recursion covers a nested struct and an array of
@@ -257,6 +264,15 @@ function emitExpr(e: Expr, S: FnCtx): string {
           return `$.${e.fn === 'u32' ? 'u32Sat' : 'i32Sat'}(${args[0]})`
         }
       }
+      // `transpose` needs the matrix's SHAPE, baked in here from the static type: a flat
+      // column-major list cannot tell a mat2x3 from a mat3x2, and `BUILTINS.transpose`
+      // recovers its dimension from the array length, which is only right for a square one.
+      // The interpreter and the stepper have the same arm — all three must agree, which is
+      // the contract at the head of this file (#149).
+      if (e.declRef === undefined && e.fn === 'transpose') {
+        const t = e.args[0]!.type
+        if (t.kind === 'mat') return `$.matTransposeShaped(${args[0]}, ${t.cols}, ${t.rows})`
+      }
       // A bit builtin whose value depends on the argument's kind (§10) takes the static kind,
       // baked at compile time as the interpreter reads it at run time.
       if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
@@ -298,6 +314,9 @@ function emitExpr(e: Expr, S: FnCtx): string {
       }
       return `(${emitExpr(e.cond, S)} ? ${emitExpr(e.ifTrue, S)} : ${emitExpr(e.ifFalse, S)})`
     case 'index':
+      // `m[j]` is COLUMN j of a flat column-major list — see matColumn.
+      if (e.base.type.kind === 'mat')
+        return `$.matColumn(${emitExpr(e.base, S)}, ${emitExpr(e.idx, S)}, ${e.base.type.rows})`
       return `(${emitExpr(e.base, S)})[${emitExpr(e.idx, S)}]`
     case 'matchExpr': {
       // Evaluate the scrutinee once (IIFE arg), then a lazy nested ternary picks
@@ -317,15 +336,19 @@ function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): string {
   const b = emitExpr(e.b, S)
   // mat*vec / mat*mat / vec*mat dispatched by STATIC type, exactly as the
   // interpreter dispatches (values are type-blind number[] at runtime).
+  // The SHAPE is baked in from the static type: a flat list cannot tell a mat2x3 from a
+  // mat3x2, and the two multiply differently (#149).
   if (
     e.bop === '*' &&
     e.a.type.kind === 'mat' &&
     (e.b.type.kind === 'vec' || e.b.type.kind === 'vec64')
   )
-    return `$.matVec(${a}, ${b})`
+    return `$.matVecShaped(${a}, ${b}, ${e.a.type.cols}, ${e.a.type.rows})`
   if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat')
-    return `$.matMul(${a}, ${b})`
-  if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') return `$.vecMatThrow()`
+    return `$.matMulShaped(${a}, ${b}, ${e.a.type.cols}, ${e.a.type.rows}, ${e.b.type.cols})`
+  // vecR * matCxR — the row-vector product, `transpose(m) * v`.
+  if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat')
+    return `$.vecMatShaped(${a}, ${b}, ${e.b.type.cols}, ${e.b.type.rows})`
   const kind = numKindOf(e.type)
   // Either operand a vector ⇒ component-wise (with scalar broadcast) via the
   // shared applyBin — the SAME function the interpreter uses.
@@ -446,6 +469,10 @@ function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
     return `(${base})[${q(target.field)}] = ${valueStr}`
   }
   if (target.op === 'index') {
+    // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
+    if (target.base.type.kind === 'mat') {
+      return `$.setMatColumn(${emitExpr(target.base, S)}, ${emitExpr(target.idx, S)}, ${target.base.type.rows}, ${valueStr})`
+    }
     return `(${emitExpr(target.base, S)})[${emitExpr(target.idx, S)}] = ${valueStr}`
   }
   throw new CodegenUnsupported(`assignment target ${target.op}`)
@@ -560,6 +587,12 @@ interface CodegenRuntime {
   applyBin: typeof applyBin
   matVec: typeof matVec
   matMul: typeof matMul
+  matVecShaped: typeof matVecShaped
+  matColumn: typeof matColumn
+  matTransposeShaped: typeof matTransposeShaped
+  setMatColumn: typeof setMatColumn
+  matMulShaped: typeof matMulShaped
+  vecMatShaped: typeof vecMatShaped
   B: typeof BUILTINS
   bindings: Record<string, CpuValue>
   /** The module variables by name (roadmap 0.2 item 5); see `ModCtx.varNames`. */
@@ -576,7 +609,6 @@ interface CodegenRuntime {
   bit: (fn: string, kind: 'u32' | 'i32', args: CpuValue[]) => CpuValue
   selVec: (cond: readonly CpuValue[], ifTrue: CpuValue, ifFalse: CpuValue) => CpuValue
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue
-  vecMatThrow: () => never
   console: (method: string, args: CpuValue[], span?: unknown) => void
   /** One atomic builtin on `base[key]` (roadmap 0.2 item 4): read, `atomicStep`, write back. */
   atomicAt: (
@@ -747,6 +779,12 @@ export function compileModuleJs(
     applyBin,
     matVec,
     matMul,
+    matVecShaped,
+    matMulShaped,
+    vecMatShaped,
+    matColumn,
+    matTransposeShaped,
+    setMatColumn,
     B: BUILTINS,
     bindings: {},
     vars: {},
@@ -784,9 +822,6 @@ export function compileModuleJs(
           `typeshade/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
         )
       return GPU_STUBS[name]!(...args)
-    },
-    vecMatThrow: () => {
-      throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
     },
     console: (method, args, span) => {
       opts?.consoleSink?.({

@@ -252,9 +252,11 @@ export function g(x: f32): f32 { dst[0] = x; return x }
 @compute([64, 1, 1]) export function cs() { _ = g(1.); }`)
     expect(live.wgsl).toContain('  g(1.0);')
     expect(live.wgsl).not.toContain('_ = g(1.0);')
-    // A program that declares its own `_` still assigns to that one.
-    expect(compiled(`export function f(): f32 { let _ = 0.; _ = 1.; return _ }`).wgsl).toContain(
-      '_ = 1.0;',
+    // A program cannot declare its own `_` any more: #103's reserved-name rule refuses it,
+    // because `_` is WGSL's phony target and not an identifier, so there is no second meaning
+    // for `_ =` to have.
+    expect(diagnose(`export function f(): f32 { let _ = 0.; _ = 1.; return _ }`).message).toContain(
+      '"_" is WGSL\'s phony assignment target',
     )
     expect(diagnose(`export function f(): f32 { _ = 1.; return 0. }`).message).toContain(
       'is not one, so there is nothing to drop',

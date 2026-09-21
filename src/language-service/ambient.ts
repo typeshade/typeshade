@@ -21,6 +21,7 @@
 // see the "Known limitation" note below `VecOf` for what this does not cover.
 
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
+import { F64_VEC_TWIN_KIND } from '../core/fp64/twins.js'
 import { SCALAR_CAST } from '../compiler/ts/numeric.js'
 import { MATH_FN_ARITY, MATH_EXPAND_ALIAS, LANG_CONST } from '../compiler/ts/math-alias.js'
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
@@ -92,6 +93,58 @@ export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES
  */
 export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES
 
+/** The nine \`matCxR\` aliases plus the \`matN\` shorthand for a square one, each taking the
+ * element as an optional type argument — the same names `type-map.ts` maps and
+ * `expression-call.ts` builds, generated from one pair of loops so the three cannot drift.
+ * Only a SQUARE matrix takes `f64`: the fp64 pass has one df64 body per dimension. */
+const MAT_ARITIES = [2, 3, 4] as const
+const matTypeAliases = MAT_ARITIES.flatMap((cols) =>
+  MAT_ARITIES.flatMap((rows) => {
+    const elem = cols === rows ? "T extends f64 ? 'f64' : 'f32'" : "'f32'"
+    const param = cols === rows ? '<T extends f32 | f64 = f32>' : ''
+    const body = `Mat<${elem}, ${cols}, ${rows}>`
+    const lines = [`type mat${cols}x${rows}${param} = ${body}`]
+    if (cols === rows) lines.push(`type mat${cols}${param} = mat${cols}x${rows}<T>`)
+    return lines
+  }),
+).join('\n')
+
+/** Every matrix constructor: from columns, from components, from a larger matrix, and the
+ * zero form — the four `lowerMatrixCtor` accepts, in the same order. */
+const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
+  MAT_ARITIES.flatMap((rows) => {
+    const name = `mat${cols}x${rows}`
+    const t = `mat${cols}x${rows}`
+    const columns = Array.from({ length: cols }, (_, i) => `c${i}: vec${rows}`).join(', ')
+    const comps = Array.from({ length: cols * rows }, (_, i) => `e${i}: number`).join(', ')
+    // Every source at least this size, the EQUAL one included: `lowerMatrixCtor` refuses only
+    // `src.cols < cols || src.rows < rows`, so `mat3(m3)` is a legal identity construction and
+    // the editor has to agree (it reported "No overload matches this call" on a program the
+    // compiler accepts).
+    const bigger = MAT_ARITIES.flatMap((c2) =>
+      MAT_ARITIES.flatMap((r2) =>
+        c2 >= cols && r2 >= rows ? [`declare function NAME(m: mat${c2}x${r2}): ${t}`] : [],
+      ),
+    )
+    const forms = [
+      `declare function NAME(): ${t}`,
+      `declare function NAME(${columns}): ${t}`,
+      `declare function NAME(${comps}): ${t}`,
+      ...bigger,
+    ]
+    const names = cols === rows ? [name, `mat${cols}`] : [name]
+    // Every `declare function` carries JSDoc — `docs.test.ts` requires it, and an editor
+    // with no hover text on a constructor is the gap that rule exists to close.
+    return names.flatMap((n) => {
+      const doc = FUNCTION_DOCS[n]
+      return forms.map((f) => {
+        const line = f.replace(/NAME/g, n)
+        return doc ? `${renderJSDoc(doc)}\n${line}` : line
+      })
+    })
+  }),
+).join('\n')
+
 const vecCtorOverloads = (name: string, elem: VecElem): string => {
   const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4
   const type = vecTypeName(elem, n)
@@ -119,6 +172,13 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
       if (other === elem) continue
       lines.push(`declare function ${name}(v: ${vecTypeName(other, n)}): ${type}`)
     }
+  }
+  // The NARROWING form (§39): `vec3(v)` on a `vec3f64` takes each lane's (hi, lo) pair down
+  // to one f32, which is `f32(lane)` per lane. Only the f32 constructor of the vector's own
+  // width has it — the compiler refuses the integer and bool ones, since the fp64 pass has no
+  // f64 → i32 body at all.
+  if (elem === 'f32') {
+    lines.push(`declare function ${name}(v: ${vecTypeName('f64', n)}): ${type}`)
   }
   return lines.join('\n')
 }
@@ -197,6 +257,26 @@ const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('
  * ("Property '[vec64Tag]' is missing in type 'vec2'") beside its TS2769, on a program
  * `compileTsSource` lowers and the fp64 emitter turns into a `df64_v3_mix` call.
  */
+/** The cross-lane reductions on an emulated-double vector (§39). The fp64 pass composes each
+ * one from the SCALAR df64 error-free transforms and hands back an `f64`, which is what
+ * `mathResultType` types them — so the signature has to answer `f64` and not the `number` the
+ * `Numeric` form returns, or the editor would call a correct `const l: f64 = length(v)` a
+ * mismatch. `Numeric` itself stays f32/i32/u32-only: widening it would let every componentwise
+ * builtin take a `vec64` in the editor, and the pass has a body for ten of them
+ * (fp64/twins.ts), not all of them.
+ *
+ * ONE signature with a widened constraint and a conditional result, not an overload SET: a
+ * second overload turns every genuinely wrong shape from a TS2345 that names the argument into
+ * a TS2769 that says only "no overload matches", and `diagnostics.test.ts` pins the TS2345 on
+ * `dot(vec3, vec2)` as the diagnostic an author can act on. */
+function vec64Reduction(name: string, arity: 1 | 2): string {
+  const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ')
+  return (
+    `declare function ${name}<T extends Numeric | Vec64Any>(${params}): ` +
+    `T extends Vec64Any ? f64 : number`
+  )
+}
+
 function mixSignature(): string {
   const vectorWithScalar = (v: string): string =>
     `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`
@@ -232,15 +312,23 @@ function scalarMathOverload(name: string, arity: number): string {
  * `MATH_FN_ARITY` records arity only, not shape. An entry here replaces the generated pair
  * outright, so a name listed must declare its own all-scalar overload too when it wants one. */
 const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
-  dot: 'declare function dot<T extends Numeric>(a: T, b: T): number',
-  distance: 'declare function distance<T extends Numeric>(a: T, b: T): number',
-  length: 'declare function length<T extends Numeric>(a: T): number',
-  normalize: 'declare function normalize<T extends Numeric>(a: T): T',
+  dot: vec64Reduction('dot', 2),
+  distance: vec64Reduction('distance', 2),
+  length: vec64Reduction('length', 1),
+  normalize: 'declare function normalize<T extends Numeric | Vec64Any>(a: T): T',
   cross: 'declare function cross(a: vec3, b: vec3): vec3',
   mix: mixSignature(),
   // Roadmap 0.2 item 8: the shapes the generated "same type in, same type out" pair misses.
-  transpose: 'declare function transpose(m: mat4): mat4',
-  determinant: 'declare function determinant(m: mat4): number',
+  // transpose(matCxR) -> matRxC on every shape (wgsl.txt:23397); determinant is square-only
+  // (wgsl.txt:21842), so the non-square shapes get no overload and `tsc` says so first.
+  transpose: MAT_ARITIES.flatMap((cols) =>
+    MAT_ARITIES.map(
+      (rows) => `declare function transpose(m: mat${cols}x${rows}): mat${rows}x${cols}`,
+    ),
+  ).join('\n'),
+  determinant: MAT_ARITIES.map((n) => `declare function determinant(m: mat${n}x${n}): number`).join(
+    '\n',
+  ),
   refract: 'declare function refract<T extends Numeric>(i: T, n: T, eta: number): T',
   ldexp: 'declare function ldexp<T extends Numeric>(x: T, e: Numeric): T',
   extractBits:
@@ -254,7 +342,14 @@ function freeMathSignature(name: string): string {
   if (special) return special
   const arity = MATH_FN_ARITY[name]!
   const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ')
-  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends Numeric>(${params}): T`
+  // A componentwise builtin the fp64 pass has a `df64_vN_*` body for takes an emulated-double
+  // vector too, and the editor has to say so or it red-squiggles a program the compiler
+  // accepts — `abs(v)`, `round(v)`, `min(a, b)` on a `vec3f64` were eight such shapes. The set
+  // is read from the pass's own table, so the editor cannot drift from it: a builtin with NO
+  // body keeps the `Numeric` constraint and stays refused here, exactly as
+  // `checkMathArgs` refuses it (§39).
+  const constraint = F64_VEC_TWIN_KIND[name] === undefined ? 'Numeric' : 'Numeric | Vec64Any'
+  return `${scalarMathOverload(name, arity)}\ndeclare function ${name}<T extends ${constraint}>(${params}): T`
 }
 
 const EXPAND_NAMES = Object.keys(MATH_EXPAND_ALIAS)
@@ -452,6 +547,12 @@ type ComponentKeys<N extends 2 | 3 | 4> = N extends 2
   : N extends 3
     ? 'x' | 'y' | 'z' | 'r' | 'g' | 'b' | 'xy' | 'rg' | 'xyz' | 'rgb'
     : 'x' | 'y' | 'z' | 'w' | 'r' | 'g' | 'b' | 'a' | 'xy' | 'rg' | 'xyz' | 'rgb' | 'xyzw' | 'rgba'
+// The lanes an emulated-double vector may be indexed by, as NUMERIC LITERAL keys rather than
+// an index signature. That is the compiler's rule exactly (§39): \`v[1]\` is a swizzle of the
+// hi and lo planes and lowers, \`v[i]\` with a variable \`i\` would have to swizzle by a value
+// and is refused, and \`v[2]\` on a \`vec2f64\` is out of range. An index signature would admit
+// all three; leaving them out would admit none.
+type LaneKeys<N extends 2 | 3 | 4> = N extends 2 ? 0 | 1 : N extends 3 ? 0 | 1 | 2 : 0 | 1 | 2 | 3
 type VecOf<S extends 'f32' | 'i32' | 'u32' | 'bool', N extends 2 | 3 | 4> = {
   readonly [vecTag]: readonly [S, N]
 } & Pick<
@@ -490,12 +591,37 @@ type vec4b = VecOf<'bool', 4>
 type BoolVec = vec2b | vec3b | vec4b
 
 declare const vec64Tag: unique symbol
-/** \`f64\` vectors carry no swizzle members: \`swizzle.ts\`'s \`parseSwizzle\` only accepts
- * \`kind: 'vec'\` (the f32/i32/u32 family above), never \`kind: 'vec64'\`. */
-type Vec64<N extends 2 | 3 | 4> = { readonly [vec64Tag]: N }
+/** An \`f64\` vector swizzles like any other (§39): the fp64 pass rebuilds the picked lanes
+ * out of the hi and lo planes it lowers the vector into, so \`v.x\` is an \`f64\` and \`v.xy\` a
+ * \`vec2f64\`. A one-component pick and a multi-component one are the two shapes WGSL gives,
+ * and the colour aliases name the same lanes. \`v[i]\` is the same pick by a CONSTANT index;
+ * the index signature is not declared, because a dynamic one has no lowering. */
+type Vec64<N extends 2 | 3 | 4> = { readonly [vec64Tag]: N } & Pick<
+  {
+    x: f64
+    y: f64
+    z: f64
+    w: f64
+    r: f64
+    g: f64
+    b: f64
+    a: f64
+    xy: Vec64<2>
+    rg: Vec64<2>
+    xyz: Vec64<3>
+    rgb: Vec64<3>
+    xyzw: Vec64<4>
+    rgba: Vec64<4>
+  },
+  ComponentKeys<N>
+> &
+  Pick<{ 0: f64; 1: f64; 2: f64; 3: f64 }, LaneKeys<N>>
 type vec2f64 = Vec64<2>
 type vec3f64 = Vec64<3>
 type vec4f64 = Vec64<4>
+/** The emulated-double vectors as one union — what the cross-lane reductions widen to (§39).
+ * Kept apart from \`Numeric\`, which is the set every componentwise builtin takes. */
+type Vec64Any = vec2f64 | vec3f64 | vec4f64
 
 ${vecTypeAliases}
 
@@ -518,11 +644,22 @@ interface Console {
 declare const console: Console
 
 declare const matTag: unique symbol
-type Mat<E extends string, N extends 2 | 3 | 4> = { readonly [matTag]: readonly [E, N] }
-type mat4x4<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 4>
-type mat4<T extends f32 | f64 = f32> = mat4x4<T>
-type mat2<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 2>
-type mat3<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 3>
+/** A matrix of \`C\` columns and \`R\` rows (§40), column-major as both targets are: \`m[j]\` is
+ * column j, a \`vecR\`. The tag carries the element and BOTH dimensions, so \`mat2x3\` and
+ * \`mat3x2\` are not interchangeable — they transpose into each other rather than being the
+ * same type. The lane keys are numeric literals for the reason \`Vec64\`'s are: they accept
+ * \`m[1]\` and refuse \`m[7]\`. */
+type Mat<E extends string, C extends 2 | 3 | 4, R extends 2 | 3 | 4> = {
+  readonly [matTag]: readonly [E, C, R]
+} & Pick<
+  { 0: MatColumn<E, R>; 1: MatColumn<E, R>; 2: MatColumn<E, R>; 3: MatColumn<E, R> },
+  LaneKeys<C>
+>
+/** A column of a matrix: a \`vecR\` of its element. An emulated-double matrix has no column
+ * type an author can hold — the compiler refuses indexing one — so it resolves to \`never\`
+ * rather than quietly reading as a vector of f32. */
+type MatColumn<E extends string, R extends 2 | 3 | 4> = E extends 'f32' ? VecOf<'f32', R> : never
+${matTypeAliases}
 
 declare const arrayTag: unique symbol
 // The index signature is WRITABLE. \`out[gid.x] = value\` is the shape of every compute kernel
@@ -1029,6 +1166,7 @@ ${renderJSDoc(FUNCTION_DOCS.storageBarrier)}
 declare function storageBarrier(): void
 
 ${vecCtors}
+${matCtorOverloads}
 
 ${scalarCasts}
 

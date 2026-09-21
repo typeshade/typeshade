@@ -8,9 +8,12 @@
 // (the golden shows them), and the compile gate runs both on Tint and ANGLE.
 //
 // It also carries §22's spellings to the gate: a shift inside 0 to 31, a division by a module
-// const that is not zero, and a float `%=`, which GLSL ES 3.00 receives as `floatMod` (#20).
+// const that is not zero, and a float `%=`, which GLSL ES 3.00 receives as `floatMod` (#20),
+// on a scalar and on a vector — GLSL ES 3.00 has no float `%` at any width, so both are the
+// componentwise `(a - b * trunc(a / b))` a real WebGL2 driver accepts.
 //
-// Renders concentric rings, brighter towards the centre, with a stepped band inside each ring.
+// Renders concentric rings, brighter towards the centre, with a stepped band inside each ring
+// and a faint square lattice from the vector `%=`.
 
 const RINGS: f32 = 6.
 
@@ -37,6 +40,10 @@ export function fs(v: VsOut): FsOut {
   // Where in its ring this pixel is, 0 at the inner edge and 1 at the outer: a float `%=`.
   let band: f32 = r * RINGS
   band %= 1.
+  // The same operator on a vector: where in its cell this pixel is, both components at once.
+  // WGSL keeps `cell %= 1.`; GLSL ES 3.00 takes `floatMod` on the whole `vec2`.
+  let cell: vec2 = v.uv * RINGS
+  cell %= 1.
   // Four steps up across the band, then three dips: the same counter name in two loops, and
   // the same `p` in two bodies.
   let acc = 0.
@@ -58,6 +65,11 @@ export function fs(v: VsOut): FsOut {
   // Sixteen levels of the band, a shift down and back up inside the range a 32-bit integer has.
   const levels: u32 = u32(band * 255.) >> 4
   const stepped = f32(levels << 4) / 255.
-  const shaded: vec3 = tint * acc + stepped * 0.1
+  // A grid over the same rings: a component of the remainder is 0 on every line where that
+  // component of `uv * RINGS` is whole, so the smaller of the two is 0 along each line of the
+  // lattice and rises towards 1 inside a cell. Added, so the lines stay dark and the cell
+  // interiors lift.
+  const grid = min(abs(cell.x), abs(cell.y))
+  const shaded: vec3 = tint * acc + stepped * 0.1 + grid * 0.05
   return { color: vec4(shaded / RINGS * 4., 1.) }
 }

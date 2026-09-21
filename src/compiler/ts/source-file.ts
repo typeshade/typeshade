@@ -21,6 +21,7 @@ import { collectOverrides } from './overrides.js'
 import { collectModuleVars } from './module-vars.js'
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js'
 import type { DeclaredSymbol } from './symbols.js'
+import { reportReservedNames } from './reserved-names.js'
 import { TS_CODES } from './codes.js'
 import {
   backendDiagnostic,
@@ -64,6 +65,14 @@ export interface CompileTsSourceOptions {
    * the whole of the compiler's behaviour: the flag adds warnings and moves no emitted byte,
    * so a build that turns it on and a build that does not produce the same shader. */
   readonly deprecations?: boolean
+  /** Whether the declared names are held to the targets' reserved words (#103). Defaults to
+   *  `true`, which is what an author's file wants — in the editor too, where `emit` is
+   *  `false` and the diagnostic is the whole point. A caller that lowers a SYNTHETIC source
+   *  whose names it generated itself, and never emits it, passes `false`: the debug watch
+   *  builds `__typeshade_watch__` around the author's expression precisely because no name
+   *  the author could write starts with two underscores, and runs the result on the CPU
+   *  oracle, where WGSL's identifier rules do not apply. */
+  readonly checkReservedNames?: boolean
 }
 
 /**
@@ -289,6 +298,12 @@ export function compileTsSource(
         ),
       )
     }
+  }
+  // A name a target reserves, on the name the emit actually carries (#103). After the
+  // functions, because a local, a parameter and a method's flattened name are recorded there,
+  // and because the entry stages are what say whether GLSL ES 3.00 is a target of this module.
+  if (options.checkReservedNames ?? true) {
+    reportReservedNames(sourceFile, diagnostics, symbols, funcs, vars)
   }
   let wgsl: string | undefined
   const shouldEmit = options.emit ?? true

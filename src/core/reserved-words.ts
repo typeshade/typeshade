@@ -1,3 +1,82 @@
+// ═══ The two per-target sets: what an AUTHORED name may not be ═══
+//
+// A name the AUTHOR wrote has to be asked about per target: the two languages reserve
+// different words, a module emitted for one target should not be refused for the other's list
+// (issue #103), and a diagnostic has to name the target that reserves the word. These two sets
+// are that data, each taken from its own authority and each carrying every spelling the
+// language reserves, underscores and digits included. `RESERVED_WORDS` below, the blocklist
+// for identifiers the emit-prod passes INVENT, is built from them, so the two questions can
+// never be answered from two lists that have drifted apart.
+
+/** Every spelling WGSL refuses as an identifier: the 26 keywords of the spec's Keyword
+ *  Summary and the 146 tokens of its Reserved Words section, transcribed from the spec
+ *  source (`wgsl/index.bs`, `wgsl.reserved.bs.include`). The spec's other two identifier
+ *  rules — a bare `_`, and any name beginning with `__` — are shapes rather than spellings
+ *  and are checked where this set is used. A predeclared name (`vec3f`, `f32`, `max`) is NOT
+ *  here: WGSL lets a declaration shadow one. */
+export const WGSL_RESERVED: ReadonlySet<string> = new Set([
+  // Keywords (spec, Keyword Summary).
+  ...`alias break case const const_assert continue continuing default diagnostic discard else
+      enable false fn for if let loop override requires return struct switch true var while`.split(
+    /\s+/,
+  ),
+  // Reserved Words (spec, Reserved Words), reserved for future use: a module containing one
+  // is a shader-creation error, which is why Tint refuses `let as = …`.
+  ...`NULL Self abstract active alignas alignof as asm asm_fragment async attribute auto await
+      become cast catch class co_await co_return co_yield coherent column_major common compile
+      compile_fragment concept const_cast consteval constexpr constinit crate debugger
+      decltype delete demote demote_to_helper do dynamic_cast enum explicit export extends
+      extern external fallthrough filter final finally friend from fxgroup get goto
+      groupshared highp impl implements import inline instanceof interface layout lowp macro
+      macro_rules match mediump meta mod module move mut mutable namespace new nil noexcept
+      noinline nointerpolation non_coherent noncoherent noperspective null nullptr of operator
+      package packoffset partition pass patch pixelfragment precise precision premerge priv
+      protected pub public readonly ref regardless register reinterpret_cast require resource
+      restrict self set shared sizeof smooth snorm static static_assert static_cast std
+      subroutine super target template this thread_local throw trait try type typedef typeid
+      typename typeof union unless unorm unsafe unsized use using varying virtual volatile
+      wgsl where with writeonly yield`.split(/\s+/),
+])
+
+/** Every spelling GLSL ES 3.00 refuses as an identifier, for the WebGL2 target: its keywords
+ *  (§3.6) and type names (§3.7), plus the words it reserves for future use. Measured against
+ *  the translator that receives this text — ANGLE's lexer (`src/compiler/translator/glslang.l`)
+ *  decides each word BY SHADER VERSION, and this is the set it reports as a keyword or as
+ *  `reserved_word` at version 300 with no extension enabled, which is what a WebGL2 context
+ *  gives us. Two consequences of reading it from the version-gated source rather than from a
+ *  later spec: `packed` is reserved in ES 1.00 and free in ES 3.00, and `buffer` and `shared`
+ *  become keywords only in ES 3.10, so none of the three is here. */
+export const GLSL_ES300_RESERVED: ReadonlySet<string> = new Set([
+  // Keywords and the built-in type names, §3.6 and §3.7.
+  ...`const uniform layout centroid flat smooth invariant precision highp mediump lowp
+      break continue do for while switch case default if else in out inout
+      float int uint void bool true false discard return struct
+      mat2 mat3 mat4 mat2x2 mat2x3 mat2x4 mat3x2 mat3x3 mat3x4 mat4x2 mat4x3 mat4x4
+      vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 uvec2 uvec3 uvec4
+      sampler2D sampler3D samplerCube sampler2DShadow samplerCubeShadow sampler2DArray
+      sampler2DArrayShadow isampler2D isampler3D isamplerCube isampler2DArray usampler2D
+      usampler3D usamplerCube usampler2DArray sampler2DRect sampler3DRect
+      samplerExternalOES`.split(/\s+/),
+  // Reserved for future use at version 300: ANGLE answers `reserved_word` for each of these,
+  // so a shader carrying one is "Illegal use of reserved word" — the error issue #103 opened
+  // with, for a struct field named `half`.
+  ...`attribute varying resource subroutine common partition active filter
+      asm class union enum typedef template this goto inline noinline public static extern
+      external interface long short double half fixed unsigned superp input output
+      hvec2 hvec3 hvec4 dvec2 dvec3 dvec4 fvec2 fvec3 fvec4 sizeof cast namespace using
+      coherent restrict readonly writeonly volatile atomic_uint noperspective patch sample
+      precise
+      image1D image2D image3D imageCube image1DArray image2DArray imageBuffer imageCubeArray
+      iimage1D iimage2D iimage3D iimageCube iimage1DArray iimage2DArray iimageBuffer
+      iimageCubeArray uimage1D uimage2D uimage3D uimageCube uimage1DArray uimage2DArray
+      uimageBuffer uimageCubeArray image1DShadow image2DShadow image1DArrayShadow
+      image2DArrayShadow sampler1D sampler1DShadow sampler1DArray sampler1DArrayShadow
+      sampler2DRectShadow isampler1D isampler1DArray isampler2DRect usampler1D
+      usampler1DArray usampler2DRect sampler2DMS isampler2DMS usampler2DMS sampler2DMSArray
+      isampler2DMSArray usampler2DMSArray samplerBuffer isamplerBuffer usamplerBuffer
+      samplerCubeArray samplerCubeArrayShadow isamplerCubeArray usamplerCubeArray`.split(/\s+/),
+])
+
 // ═══ Shader DSL — reserved-word vocabulary for GENERATED identifiers ═══
 //
 // Every emit-prod pass that INVENTS a short identifier — `mangle`'s local/helper
@@ -19,6 +98,12 @@
 
 /** Spellings a GENERATED identifier must never take. See the module header. */
 export const RESERVED_WORDS: ReadonlySet<string> = new Set([
+  // Both targets' own vocabularies, so a generated name can never take a spelling an AUTHORED
+  // one is refused for. The two lists drifted before this: `with` is a WGSL reserved word that
+  // this list did not have, and the generator reaches a 4-letter name easily — `mangle` handed
+  // out `as` at the ~70th name, which is what X-GIS #1861 was.
+  ...WGSL_RESERVED,
+  ...GLSL_ES300_RESERVED,
   // WGSL
   'alias',
   'break',

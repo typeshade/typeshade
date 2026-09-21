@@ -319,6 +319,12 @@ export function checkLocationType(
     )
     return
   }
+  // An emulated double at a `@location` is NOT this rule's to answer. §39 measured what the
+  // two targets do with one — a scalar `f64` vertex attribute is kept, because its `vec2<f32>`
+  // pair fits the one slot it has, and every other position is refused with a message naming
+  // the remedy — and `refuseF64EntryIo` in `lower/function.ts` carries that decision. Answering
+  // here too would refuse the shape §39 keeps, and word the rest wrong.
+  if (type.kind === 'f64' || type.kind === 'vec64') return
   const ok =
     (type.kind === 'scalar' && type.scalar !== 'bool') ||
     (type.kind === 'vec' && type.elem !== 'bool')
