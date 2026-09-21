@@ -127,9 +127,9 @@ const MATH_MEMBERS = new Set(Object.getOwnPropertyNames(Math))
 const CONSOLE_MEMBERS = new Set(Object.getOwnPropertyNames(console))
 
 /** The standard-library declarations the ambient file restates because the service compiles the
- *  program with `lib: []` (design doc §6: no DOM globals in a shader program). Each is spelled
- *  exactly as TypeScript's own lib spells it, which is what makes it an ECMAScript name here and
- *  not a TypeShade invention. `MathObject`, the shape behind the `Math` stand-in, is spelled
+ *  program with `lib: []` (docs/language-design.md Rule 2.1(b)). Each is spelled exactly as
+ *  TypeScript's own lib spells it, which is what makes it an ECMAScript name here and not a
+ *  TypeShade invention. `MathObject`, the shape behind the `Math` stand-in, is spelled
  *  `Math` by `lib.es5.d.ts` and is therefore a TypeShade row instead. */
 const ECMASCRIPT_LIB_STANDINS = new Set([
   'Array',
@@ -446,13 +446,13 @@ function internalLeaks(dts: string, rows: ReadonlyMap<string, unknown>): string[
     })
 }
 
-/** The rows of the extension table in docs/language-design.md §9.6, in document order. The
+/** The rows of the extension table in docs/language-design.md §9.3, in document order. The
  *  table sits between Rule 9.6 and the sentence that opens the family list, and every row of it
  *  is `| family | \`name\` | reason |`; no other table in the document is read. */
 function documentedExtensions(markdown: string): { name: string; reason: string }[] {
   const start = markdown.indexOf('**Rule 9.6.**')
   const stop = markdown.indexOf('Seven families', start)
-  if (start < 0 || stop < 0) throw new Error('docs/language-design.md has no §9.6 extension table')
+  if (start < 0 || stop < 0) throw new Error('docs/language-design.md has no §9.3 extension table')
   const rows: { name: string; reason: string }[] = []
   for (const line of markdown.slice(start, stop).split('\n')) {
     const m = /^\| [^|]+ \| `([^`]+)`\s+\| (.*?)\s+\|$/.exec(line)

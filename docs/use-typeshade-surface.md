@@ -187,6 +187,8 @@ export function fs(
 - The builtin name must match the target backend's supported builtin set.
 - Workgroup size is the only payload on `@compute`, an array of one to three whole numbers; a bare
   `@compute` takes the default of 64, emitted as `@workgroup_size(64)`.
+- The `y` and `z` sizes must be 1; `@compute([8, 8])` is refused (`TS8026`):
+  `@compute workgroup shape [8, 8] must have y and z equal to 1: the backend only carries the x workgroup size today, and would silently drop the rest.`
 - `@compute({ workgroup: [64, 1, 1] })` is refused (`TS8037`):
   `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
 

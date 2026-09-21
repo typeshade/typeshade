@@ -77,11 +77,11 @@ Such a name is one of:
 - a contract between two passes, or between a pass and a backend;
 - a name a backend generates (`df64_add`, `DF64Vec2`, `_cse0`, a mangled or aliased name).
 
-The criterion is what the name denotes, not whether an author's text spells it: declaring such a name in the ambient library, giving it a new id, or giving it a row of §9.6 does not make it an extension, and a name that denotes the same thing under another spelling (`splitF64` lowering to `f64Parts`) is the same internal name.
+The criterion is what the name denotes, not whether an author's text spells it: declaring such a name in the ambient library, giving it a new id, or giving it a row of §9.3 does not make it an extension, and a name that denotes the same thing under another spelling (`splitF64` lowering to `f64Parts`) is the same internal name.
 A spelling is not only an id: a second signature of an allowed name (`f64(hi: f32, lo: f32)` beside `f64(x)`), an overload, or a member of an allowed type that denotes the operation is the same internal name under the allowed id, and the declared signatures of a name are part of what the name denotes.
 The question to ask of a name is what it denotes.
 A name is internal when it denotes a representation the compiler chose, an operation over such a representation, an intermediate of a pass, a contract between passes, or a generated name.
-A row of §9.6 names an operation or a type over WGSL values whose meaning that section writes down with a reason.
+A row of §9.3 names an operation or a type over WGSL values whose meaning that section writes down with a reason.
 The enumeration in the definition above is the test, and a meaning written down elsewhere (in Rule 4.4, in a row's reason) does not take a name out of it.
 Part of the set has a mechanical criterion: membership of `PRE_EMIT_INTRINSICS` (`src/core/intrinsics.ts`), the intrinsic ids a pass rewrites away before any backend runs; such an id is internal unless it is also the name of a type of Appendix A.
 `f64` is the one id that is both, because `f64(x)` is the value constructor of the `f64` type as WGSL spells `f32(x)`; `f64FromParts` and `f64Parts` are internal, and so is any other spelling of the same two operations.
@@ -93,14 +93,14 @@ The rest of the set (a generated backend name, a lowering intermediate, a spelli
 
 - (a) WGSL, as the specification spells it: a [built-in function](https://gpuweb.github.io/gpuweb/wgsl/#builtin-functions), a [predeclared type or type-generator](https://gpuweb.github.io/gpuweb/wgsl/#predeclared-types) including the predeclared `vecNf`/`vecNi`/`vecNu` aliases, an [attribute](https://gpuweb.github.io/gpuweb/wgsl/#attributes) reached as a decorator, a [built-in value](https://gpuweb.github.io/gpuweb/wgsl/#builtin-inputs-outputs) passed as a string, or an [extension](https://gpuweb.github.io/gpuweb/wgsl/#extensions) name;
 - (b) ECMAScript, as TypeScript spells it: a member of `Math`, a method of `console`, a literal, an operator, the declaration forms `class`, `interface`, `enum`, and `namespace`, the standard-library declarations the ambient file restates for a `lib: []` program, and the shapes surface §14 and §28 admit;
-- (c) the TypeShade extensions enumerated in §9.6 of this document, one row per name with its reason.
+- (c) the TypeShade extensions enumerated in §9.3 of this document, one row per name with its reason.
 - Rationale: a name with a source has a meaning an author can look up; a name with no source has only the compiler's word for what it does.
 - Derives from: PR #166's body, section "A design rule this lane settled" ("No TypeShade-internal helper becomes an author-facing spelling"), and [Declaration and Scope](https://gpuweb.github.io/gpuweb/wgsl/#declaration-and-scope).
 - Enforced by: `src/core/spec-conformance/surface-names.test.ts`, which classifies every declared name against `fixtures/wgsl-names.json`, the running engine's `Math` and `console`, and `TYPESHADE_EXTENSIONS`.
 
 **Rule 2.2.** A compiler-internal name (§2.1) must not be authorable.
 It must not be declared in the ambient library, as a name, as a signature or an overload of an allowed name, or as a member of an allowed type.
-It must not be given a row of §9.6, under its own id or under any other spelling of the same thing.
+It must not be given a row of §9.3, under its own id or under any other spelling of the same thing.
 
 - Rationale: an internal helper is a contract between two passes, and an author who can write it can also write it wrong, with no specification to say what wrong means.
 - Derives from: the same section of PR #166, written on the `f64FromParts` case (§2.4).
@@ -271,7 +271,7 @@ The compiler must emit an `f64` value as a pair of `f32` on every GPU target, an
 - Enforced by: `src/core/passes/fp64-lower.test.ts` and the `emulated` rows of the determinism report (surface §38).
 
 A matrix of `f64` is `matN<f64>` (surface §40), a type argument on a WGSL name and not a name of the family.
-A new _type_ of the family that needs a name of its own is a row of §9.6 and follows Rule 13.6.
+A new _type_ of the family that needs a name of its own is a row of §9.3 and follows Rule 13.6.
 A function over the family's representation (a split of an `f64` into its halves, a rebuild from them, under whatever name) is not a spelling of the family but a compiler-internal name (§2.1), and never has a row.
 The family's surface rules (which builtins take an `f64`, what a mixed `f64 ∘ f32` operand does, whether an `f64` may cross a stage boundary) are surface §39 (#151; Rule 2.3, Rule 5.2), pinned by `src/compiler/ts/f64-types.test.ts`.
 
@@ -287,7 +287,7 @@ The family's surface rules (which builtins take an `f64`, what a mixed `f64 ∘ 
 - Derives from: [Integer Types](https://gpuweb.github.io/gpuweb/wgsl/#integer-types), [Floating Point Types](https://gpuweb.github.io/gpuweb/wgsl/#floating-point-types), [Boolean Type](https://gpuweb.github.io/gpuweb/wgsl/#bool-type).
 - Enforced by: `TS8002 UNKNOWN_TYPE` (`A number on the GPU has a width. Write f32 for a float, i32 or u32 for an integer.`; `TypeShade spells the boolean "bool".`), beside the last row of the surface §28 table.
 
-**Rule 4.7.** `f16` and the `h` spellings are not authorable until the roadmap's After 1.0 row is picked up; the `f16` capability may be declared through the EDSL and nothing an author writes uses it.
+**Rule 4.7.** `f16` and the `h` spellings must not be authorable until the roadmap's After 1.0 row is picked up; the `f16` capability may be declared through the EDSL and nothing an author writes uses it.
 
 - Rationale: a new scalar touches every table in the compiler, and the surface has to freeze first.
 - Derives from: `docs/roadmap.md` After 1.0 ("`f16` and the `h` vectors"); #153.
@@ -384,7 +384,7 @@ It must have no initializer, and its binding slot is the source order of `declar
 
 **Rule 6.4.** A pipeline-overridable constant must be written `const x: override<T> = default` or `declare const x: override<T>`.
 
-- Rationale: WGSL's `override` has no TypeScript form, so the wrapper is the one place the word appears (§9.6, family 2).
+- Rationale: WGSL's `override` has no TypeScript form, so the wrapper is the one place the word appears (§9.3, family 2).
 - Derives from: [`override` Declarations](https://gpuweb.github.io/gpuweb/wgsl/#override-decls); surface §15.
 - Enforced by: `examples/override-constants.test.ts`.
 
@@ -473,7 +473,7 @@ A _counted loop_ is a loop whose trip count the compiler can compute from a cons
 
 **Rule 7.4.** A shift amount the compiler can fold must be in 0 to 31; a divisor the compiler can prove to be zero must be refused where the division is lowered.
 
-- Rationale: WGSL takes a shift amount modulo the bit width and makes a const-expression amount at or past it a shader-creation error, and defines integer `x / 0` as `x`; GLSL ES 3.00 leaves both undefined, and a program that is certainly undefined on one target should not compile.
+- Rationale: WGSL takes a shift amount modulo the bit width and makes a const-expression amount at or past it a shader-creation error, and makes a const-expression divisor of zero a shader-creation error, giving `x` only where the divisor is not known before shader execution; GLSL ES 3.00 leaves both undefined, and a program that is certainly undefined on one target should not compile.
 - Derives from: [Bit Expressions](https://gpuweb.github.io/gpuweb/wgsl/#bit-expr) (the concrete shift rows); [Arithmetic Expressions](https://gpuweb.github.io/gpuweb/wgsl/#arithmetic-expr); surface §22 (#71, #68).
 - Enforced by: `TS8003 TYPE_MISMATCH` from `src/compiler/ts/lower/expression.ts`, where `lowerBinary` folds a shift amount through `foldConstNumber` (`src/compiler/ts/loop-bound.ts`) and a divisor through `divisorIsZero`; `src/compiler/ts/lower/statement.ts` (`lowerBitwiseAssignOp`) for a compound shift assignment; and `foldsToZero` in `src/compiler/ts/module-const.ts`, which refuses a module const whose initializer divides by a proven zero; pinned by `src/compiler/ts/shift-amount.test.ts` and `src/compiler/ts/zero-divisor.test.ts`.
 
@@ -494,7 +494,7 @@ The ceiling of 256 trips (`MAX_LOOP_TRIPS` in `loop-bound.ts`) is _open_; #144 �
 **Rule 7.7.** `discard` must be written as a bare statement, the identifier alone (`discard`), and may stand in a fragment entry and in a helper no vertex or compute entry can reach.
 The check closes over the call graph, and `discard()` is not a call the surface has.
 
-- Rationale: WGSL's `discard` is a statement of the fragment stage; TypeScript has no statement to borrow, so the ambient library declares `discard` as a constant of type `void` (§9.6, family 5) and the compiler lowers an expression statement that is exactly that identifier to the statement, with the stage rule kept.
+- Rationale: WGSL's `discard` is a statement of the fragment stage; TypeScript has no statement to borrow, so the ambient library declares `discard` as a constant of type `void` (§9.3, family 5) and the compiler lowers an expression statement that is exactly that identifier to the statement, with the stage rule kept.
 - Derives from: [Discard Statement](https://gpuweb.github.io/gpuweb/wgsl/#discard-statement) ("must only be used in a fragment shader stage"); surface §10; `declare const discard: void` in `src/language-service/ambient.ts`.
 - Enforced by: `src/compiler/ts/builtins.test.ts` (`discard`: lowers to the discard statement, emits it on both targets); `TS8099` names the entry, or the helper and the entry, on the wrong stage; `discard()` is `TS8004 Unknown function "discard()"`.
 
@@ -535,7 +535,7 @@ The atomic builtins may be used in the compute and fragment stages, and must not
   - [Derivative Built-in Functions](https://gpuweb.github.io/gpuweb/wgsl/#derivative-builtin-functions) ("must only be used in a fragment shader stage");
   - [Discard Statement](https://gpuweb.github.io/gpuweb/wgsl/#discard-statement);
   - [Synchronization Built-in Functions](https://gpuweb.github.io/gpuweb/wgsl/#sync-builtin-functions) ("all synchronization functions must only be used in the compute shader stage");
-  - [`var` Declarations](https://gpuweb.github.io/gpuweb/wgsl/#var-decls) ("variables in the workgroup address space can only be statically accessed in a compute shader stage");
+  - [Address Spaces](https://gpuweb.github.io/gpuweb/wgsl/#address-space) ("variables in the workgroup address space must only be statically accessed in a compute shader stage");
   - [Atomic Built-in Functions](https://gpuweb.github.io/gpuweb/wgsl/#atomic-builtin-functions) ("atomic built-in functions must not be used in a vertex shader stage", with no other stage restriction);
   - surface §10, §24, and §25.
 - Enforced by:
@@ -571,7 +571,7 @@ The atomic builtins may be used in the compute and fragment stages, and must not
 - Enforced by:
   - `TS8037 WORKGROUP_ARG`, where a bare `@compute` emits `@workgroup_size(64)` and the object form is refused (`@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`);
   - `TS8026 WORKGROUP_SHAPE`;
-  - surface §3's two bullets on the payload of `@compute`, under the entry example, which state the default of 64 and the refused object form.
+  - surface §3's three bullets on the payload of `@compute`, under the entry example, which state the default of 64, the `y` and `z` restriction, and the refused object form.
 
 **Rule 8.8.** A parameter must be passed by value; there must be no pointers and no reference parameters.
 
@@ -627,7 +627,7 @@ The builtins that predate the rule (those not in `USER_FIRST_BUILTINS`: `clamp`,
 - Derives from: [Declaration and Scope](https://gpuweb.github.io/gpuweb/wgsl/#declaration-and-scope) (the example "Shadowing predeclared objects") for the first clause; surface §10 and `USER_FIRST_BUILTINS` in `math-alias.ts` for the second, which WGSL does not have.
 - Enforced by: `src/compiler/ts/builtins.test.ts`.
 
-A declared function named after a GLSL ES 3.00 keyword or type name (`bool`) is renamed by the GLSL writer (`bool_`) since #103, so it compiles on both targets.
+A declared function named after a GLSL ES 3.00 keyword or type name (`bool`) is renamed by the GLSL writer (`bool_`), whose rename #103 widened to every module-scope name, so it compiles on both targets.
 One named after a GLSL ES 3.00 builtin function (`exp2`), which no reserved-word list carries, is emitted as written, refused by ANGLE, and accepted by Tint.
 So the precedence rule can hand the author a WGSL-only module, and the compiler does not warn about it yet (surface §10, Appendix B).
 
@@ -801,7 +801,7 @@ An _emit golden_ is a recorded emitted module under `examples/__emit-goldens__/`
 - Derives from: `AGENTS.md` ("emit changes come in two kinds").
 - Enforced by: `examples/emit-goldens.test.ts` and `examples/shade-examples.test.ts`; the review is a person's.
 
-**Rule 11.5.** Where WGSL fixes a result and GLSL ES 3.00 does not, the oracle follows WGSL; where a GLSL spelling may answer differently on an input WGSL settles, the determinism report lists the operation as `target`.
+**Rule 11.5.** Where WGSL fixes a result and GLSL ES 3.00 does not, the oracle must follow WGSL; where a GLSL spelling answers differently on an input WGSL settles, the determinism report must list the operation as `target`.
 
 - Rationale: see Rule 1.3.
 - Derives from: surface §38 ("the two targets").
@@ -821,7 +821,7 @@ A _diagnostic_ is one message the compiler reports for the author's benefit, wit
 
 ### 12.2. Rules
 
-**Rule 12.1.** A diagnostic must name the offending thing and the remedy in at most two sentences: the first states the mistake, and the second, when there is one, states the remedy.
+**Rule 12.1.** A diagnostic must name the offending thing and the remedy in at most two sentences: the first states the mistake, and the second, when there is one, states the remedy or the reason.
 
 - Rationale: an author reads it against the line they wrote, and a third sentence is where the remedy gets lost.
 - Derives from: [Diagnostics](https://gpuweb.github.io/gpuweb/wgsl/#diagnostics); surface §7 and §28 ("one mistake reads as one sentence"); the pinned sentences of the refusal tests under `src/compiler/ts/` (`TS8031 Recursive call: "a" -> "b" -> "a". WGSL has no call stack, so a function must not take part in a call cycle.`), which have that shape.
@@ -952,7 +952,7 @@ Every row is a spelling the compiler accepts on this tree (`SUPPORTED_TYPE_NAMES
 | `vec2f`, `vec3f`, `vec4f`                                                                                                                          | `vec2f`, `vec3f`, `vec4f`                                         | WGSL predeclared aliases                                                                                                  |
 | `vec2i`, `vec3i`, `vec4i`                                                                                                                          | `vec2i`, `vec3i`, `vec4i`                                         | WGSL predeclared aliases                                                                                                  |
 | `vec2u`, `vec3u`, `vec4u`                                                                                                                          | `vec2u`, `vec3u`, `vec4u`                                         | WGSL predeclared aliases                                                                                                  |
-| `vec2b`, `vec3b`, `vec4b`                                                                                                                          | `vec2<bool>`, `vec3<bool>`, `vec4<bool>`                          | TypeShade (§9.6, family 3)                                                                                                |
+| `vec2b`, `vec3b`, `vec4b`                                                                                                                          | `vec2<bool>`, `vec3<bool>`, `vec4<bool>`                          | TypeShade (§9.3, family 3)                                                                                                |
 | `mat2x2`, `mat2x3`, `mat2x4`, `mat3x2`, `mat3x3`, `mat3x4`, `mat4x2`, `mat4x3`, `mat4x4`                                                           | `matCxR<f32>`; a two-row shape is refused in a uniform block      | WGSL [Matrix Types](https://gpuweb.github.io/gpuweb/wgsl/#matrix-types) (Rule 4.8)                                        |
 | `mat2`, `mat3`, `mat4`                                                                                                                             | `mat2x2<f32>`, `mat3x3<f32>`, `mat4x4<f32>`                       | TypeShade (family 4)                                                                                                      |
 | `mat2<f64>`, `mat3<f64>`, `mat4<f64>`                                                                                                              | none; a pair of `f32` per component; `*` and `transpose` only     | TypeShade (family 1, Rule 4.4); the non-square `matCxR<f64>` is refused (`TS8027`)                                        |
@@ -987,12 +987,12 @@ Not spelled on this tree: `f16` and the `h` aliases (Rule 4.7), the predeclared 
 | Rule 7.1, Rule 12.6 | `a * b` on two matrices of one non-square shape (`mat2x3 * mat2x3`, `mat3x2 * mat3x2`) passes the equal-type check of `lowerBinary` without the shared-dimension check the EDSL's `binResultType` makes, compiles with zero diagnostics and reaches Tint as `(a * b)`, which has no overload; surface §40 says the pair is refused | #169                                                                                                 |
 | Rule 7.2, Rule 7.4  | the binary `<<` and `>>` amount is not retyped to `u32`; the compound forms are                                                                                                                                                                                                                                                    | #160 (BLOCKER L38)                                                                                   |
 | Rule 7.3            | a non-empty `case` that ends without `break` is lowered without fall-through, silently diverging from TypeScript                                                                                                                                                                                                                   | #160 is the nearest issue (`case 0, 1` selectors); no issue names this shape yet                     |
-| Rule 7.5            | a `while` body is not checked to move toward its bound                                                                                                                                                                                                                                                                             | surface §17; §14                                                                                     |
+| Rule 7.5            | a `while` body is not checked to move toward its bound                                                                                                                                                                                                                                                                             | surface §17; §14 (no issue)                                                                          |
 | Rule 7.6            | a read of a local before its first assignment gets no diagnostic; it is zero on WGSL and on the CPU and undefined on GLSL ES 3.00                                                                                                                                                                                                  | surface §14 (no issue)                                                                               |
 | Rule 8.3            | an atomic builtin in a `@vertex` entry, or in a helper it reaches, gets no front-end diagnostic; `compile()` reports the `TS8015` warning of the `read_write` storage refusal, and Tint refuses the `wgsl`                                                                                                                         | no issue names this shape yet                                                                        |
 | Rule 8.5            | no uniformity analysis: a derivative or an implicit-LOD sample under non-uniform control flow compiles and Tint refuses it                                                                                                                                                                                                         | #161 (BLOCKER L79)                                                                                   |
 | Rule 8.6            | a call to an entry point from another function compiles                                                                                                                                                                                                                                                                            | #160                                                                                                 |
-| Rule 9.5            | a declared function named after a GLSL ES 3.00 builtin function (`exp2`) is not warned about, and hands the author a WGSL-only module; a keyword or type name (`bool`) is renamed by the GLSL writer since #103                                                                                                                    | surface §10 (no issue)                                                                               |
+| Rule 9.5            | a declared function named after a GLSL ES 3.00 builtin function (`exp2`) is not warned about, and hands the author a WGSL-only module; a keyword or type name (`bool`) is renamed by the GLSL writer, whose rename #103 widened to every module-scope name                                                                         | surface §10 (no issue)                                                                               |
 | Rule 12.4           | a refused declaration (`declare const x: f32`, `let a: u32 = 4294967296`, a `const` whose initializer is refused) leaves its name unbound, and every later use adds `TS8022 Unknown identifier` to the one refusal                                                                                                                 | #171                                                                                                 |
 | Rule 12.7           | the ambient library is narrower than the compiler in places (`textureLoad` declares `vec2i` coordinates where WGSL and the compiler also take `vec2u`)                                                                                                                                                                             | #157, #147                                                                                           |
 
