@@ -90,10 +90,14 @@ declare const u: uniform<array<f32>>
 @fragment
 export function fs(): vec4 { return vec4(f32(arrayLength(u)), 0., 0., 1.) }
 `)
-    expect(uniform).toHaveLength(1)
-    expect(uniform[0]).toContain(TS_CODES.UNSIZED_ARRAY_LENGTH)
-    expect(uniform[0]).toContain('not in storage')
-    expect(uniform[0]).toContain('array<f32, 3>')
+    // Two independent problems, so both are reported: the `arrayLength` call below, and the
+    // declaration itself — a runtime-sized array cannot live in the uniform address space at
+    // all (`TS8051`, §51), which is the more fundamental of the two.
+    expect(uniform.filter((m) => m.startsWith(TS_CODES.LAYOUT))).toHaveLength(1)
+    const lengthError = uniform.filter((m) => m.startsWith(TS_CODES.UNSIZED_ARRAY_LENGTH))
+    expect(lengthError).toHaveLength(1)
+    expect(lengthError[0]).toContain('not in storage')
+    expect(lengthError[0]).toContain('array<f32, 3>')
     const param = errorsOf(`"use typeshade"
 export function n(xs: array<f32>): u32 { return arrayLength(xs) }
 `)

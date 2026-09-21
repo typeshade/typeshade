@@ -418,6 +418,25 @@ export interface StructField {
   readonly builtin?: string
   /** Structured `@interpolate(mode)` (set alongside `location`). */
   readonly interpolate?: string
+  /** The byte size WGSL's `@size(n)` gives this field, when the field's own type is smaller.
+   *  Set by the uniform-layout pass (§51) and by nothing else: it is how the wrapper struct
+   *  that gives a uniform array its 16-byte element stride is spelled,
+   *  `struct _Pad16_f32 { @size(16) v: f32, }`. It is NOT an author attribute — `@size` on a
+   *  field is still refused at the front end, because `reflect`'s layout engine does not read
+   *  this, and an attribute the emit honoured while reflection ignored it is the very
+   *  emit-versus-reflection disagreement §51 exists to close. The WGSL writer emits it; GLSL
+   *  ES 3.00 has no equivalent, and no module reaches that writer carrying one (the pass runs
+   *  on the WGSL side alone). */
+  readonly size?: number
+  /** The byte alignment WGSL's `@align(n)` gives this field. Set by the uniform-layout pass
+   *  (§51) and by nothing else, for the same reason `size` is, and it is the other half of the
+   *  same fix: `@size(16)` on a wrapper's field gives the ARRAY ELEMENT its 16-byte stride,
+   *  and `@align(16)` on the MEMBER holding that array gives the array its 16-byte offset.
+   *  Measured — with the stride fixed but the member unaligned, Tint answers `the offset of a
+   *  struct member of type 'array<_Pad16_f32, 3>' in address space 'uniform' must be a
+   *  multiple of 16 bytes, but 'xs' is currently at offset 4`, which is also the offset
+   *  `reflect()` does NOT report. */
+  readonly align?: number
 }
 /** A `ModuleDecl.structs` entry: a WGSL `struct` declaration. On GLSL it becomes a
  *  plain struct, or a flattened set of `in`/`out` globals when its fields carry

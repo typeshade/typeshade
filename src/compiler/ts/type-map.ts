@@ -572,10 +572,32 @@ function mapGeneric(
   if (name === 'array') {
     const elem = mapType(args[0], sourceFile, diagnostics, resolving)
     const nNode = args[1]
+    // A negative length is a `PrefixUnaryExpression` inside the literal type, not a
+    // `NumericLiteral` — read through the minus so `array<f32, -1>` is a length of -1 and
+    // meets the rule below, rather than reading as a runtime-sized array.
+    const nLiteral = nNode && ts.isLiteralTypeNode(nNode) ? nNode.literal : undefined
     const n =
-      nNode && ts.isLiteralTypeNode(nNode) && ts.isNumericLiteral(nNode.literal)
-        ? Number(nNode.literal.text)
-        : undefined
+      nLiteral && ts.isNumericLiteral(nLiteral)
+        ? Number(nLiteral.text)
+        : nLiteral &&
+            ts.isPrefixUnaryExpression(nLiteral) &&
+            nLiteral.operator === ts.SyntaxKind.MinusToken &&
+            ts.isNumericLiteral(nLiteral.operand)
+          ? -Number(nLiteral.operand.text)
+          : undefined
+    // `array<T, 0>` has no element and no use: WGSL requires N to be positive, and every
+    // index into it is out of range. Refused at the type, so the author hears it once rather
+    // than once per read (§51).
+    if (n !== undefined && (!Number.isInteger(n) || n < 1)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        nNode ?? typeNode,
+        `array<T, ${String(n)}> has no elements. A list's length is a whole number of 1 or ` +
+          `more; a list whose length the shader does not know is array<T> in storage.`,
+      )
+      return undefined
+    }
     if (elem) return arrayT(elem, n)
     return undefined
   }

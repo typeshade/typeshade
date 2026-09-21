@@ -30,6 +30,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { examples } from './index.js'
+import { shadeExamples } from './_shade.js'
 import { reflect } from '../src/index.js'
 import { emitModule } from '../src/core/backends/wgsl.js'
 import { emitGlslModule } from '../src/core/backends/glsl.js'
@@ -144,6 +145,118 @@ describe('emit ↔ reflection conformance (X-GIS #1714)', () => {
     }
     expect(checked).toBeGreaterThan(5)
     expect(offenders.join('\n')).toBe('')
+  })
+})
+
+// ═══ The uniform LAYOUT half (§51) ═══
+//
+// The arms above compare which bindings each text declares. This one compares the BYTES: a
+// `var<uniform>` struct's array members must reach WGSL with an element stride that is a
+// multiple of 16 — Tint refuses anything else outright — and `reflect()` has always reported
+// those arrays at stride 16, so a bare `array<f32, N>` in the emitted text was the emit and
+// the reflection describing different memory. Swept over BOTH corpora, so a `.shade.ts`
+// example counts too.
+describe('an emitted uniform struct lays out the bytes reflect() reports', () => {
+  /** A struct body split into MEMBERS. Not `body.split(',')`: a comma also separates a type's
+   *  own arguments, so that turns `xs: array<Pad, 4>` into two fragments matching nothing —
+   *  which is exactly how the sweep below would go quietly vacuous. Depth over `<…>` is what
+   *  tells the two commas apart. Pinned by the reader arm. */
+  function splitMembers(body: string): string[] {
+    const out: string[] = []
+    let depth = 0
+    let cur = ''
+    for (const ch of body) {
+      if (ch === '<') depth++
+      else if (ch === '>') depth--
+      if (ch === ',' && depth === 0) {
+        out.push(cur.trim())
+        cur = ''
+        continue
+      }
+      cur += ch
+    }
+    out.push(cur.trim())
+    return out.filter((m) => m !== '')
+  }
+
+  /** Every struct name a `var<uniform>` declaration in `src` binds, and the member lines of
+   *  each struct reachable from one. Text-level on purpose: the point is what the BACKEND
+   *  wrote, not what the IR held. */
+  function uniformStructMembers(src: string): string[] {
+    const bodies = new Map<string, string>()
+    const structRe = /struct\s+(\w+)\s*\{([^}]*)\}/g
+    for (let m = structRe.exec(src); m !== null; m = structRe.exec(src)) {
+      bodies.set(m[1]!, m[2]!)
+    }
+    const out: string[] = []
+    const seen = new Set<string>()
+    const visit = (name: string): void => {
+      if (seen.has(name)) return
+      seen.add(name)
+      const body = bodies.get(name)
+      if (body === undefined) return
+      for (const line of splitMembers(body)) {
+        const t = line
+        if (t === '') continue
+        out.push(t)
+        for (const nested of bodies.keys()) {
+          if (new RegExp(`\\b${nested}\\b`).test(t)) visit(nested)
+        }
+      }
+    }
+    const varRe = /var<uniform>\s+\w+\s*:\s*(\w+)\s*;/g
+    for (let m = varRe.exec(src); m !== null; m = varRe.exec(src)) visit(m[1]!)
+    return out
+  }
+
+  /** The element types whose natural stride is under 16, so a uniform array of one needs the
+   *  wrapper. Spelled as the WGSL writer spells them.
+   *
+   *  WHAT THIS DOES NOT SEE, stated so the green is not read as more than it is: a STRUCT
+   *  element whose own stride is under 16 (`array<P, 3>` with `struct P { a: f32, b: f32 }`)
+   *  needs a wrapper too, and telling that from a legitimate `array<Item, 2>` whose members
+   *  already reach 16 would take a WGSL layout engine in this file. That case is covered
+   *  directly, against real Tint's own layout note, in `src/compiler/ts/uniform-layout.test.ts`;
+   *  this sweep is the corpus-wide net for the common spellings. */
+  const UNDER_16 = /array<\s*(f32|i32|u32|vec2<(?:f32|i32|u32)>)\s*,/
+
+  it('no uniform-reachable array reaches WGSL with an element stride under 16', () => {
+    let checked = 0
+    const offenders: string[] = []
+    for (const ex of [...examples, ...shadeExamples]) {
+      let src: string
+      try {
+        src = emitModule(ex.module)
+      } catch {
+        continue
+      }
+      for (const member of uniformStructMembers(src)) {
+        checked++
+        if (UNDER_16.test(member)) {
+          offenders.push(`${ex.id}: '${member}' — Tint refuses an element stride under 16`)
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(5)
+    expect(offenders.join('\n')).toBe('')
+  })
+
+  it('the member reader sees through a uniform binding and not past one', () => {
+    // Without this the arm above passes on a reader that returns nothing for everything.
+    const padded = `struct Pad { @size(16) v: f32, }
+struct U { xs: array<Pad, 4>, k: f32, }
+struct NotBound { ys: array<f32, 4>, }
+@group(0) @binding(0) var<uniform> u: U;`
+    expect(uniformStructMembers(padded)).toEqual([
+      'xs: array<Pad, 4>',
+      '@size(16) v: f32',
+      'k: f32',
+    ])
+    // A struct no `var<uniform>` binds is under no such rule and must not be swept in.
+    expect(uniformStructMembers(padded).some((m) => UNDER_16.test(m))).toBe(false)
+    // …and the pattern really does catch the shape it exists for.
+    expect(UNDER_16.test('ys: array<f32, 4>')).toBe(true)
+    expect(UNDER_16.test('vs: array<vec4<f32>, 2>')).toBe(false)
   })
 })
 

@@ -284,7 +284,16 @@ export function compileTsSources(
   for (const [name, sf] of parsed) {
     const sink = name === entryName ? symbols : undefined
     const structs = collectStructs(sf, diagnostics, sink)
-    const bindings = collectBindings(sf, diagnostics, sink, nextBinding)
+    // Per FILE, not merged: a binding's struct is declared in the file that declares the
+    // binding, or the program would not have typechecked. The host-shareable rules (§51) read
+    // through it.
+    const bindings = collectBindings(
+      sf,
+      diagnostics,
+      sink,
+      nextBinding,
+      emittedStructDecls(structs),
+    )
     for (const b of bindings) if (b.group === 0) nextBinding = Math.max(nextBinding, b.binding + 1)
     const glslNames = new Set<string>([
       ...structs.flatMap((s) => s.decl.fields.map((f) => f.name)),

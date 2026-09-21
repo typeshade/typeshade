@@ -172,7 +172,9 @@ export function compileTsSource(
   // The file's `"enable <extension>";` directives (§50), before anything that could emit.
   const enables = collectEnables(sourceFile, diagnostics)
   const structs = collectStructs(sourceFile, diagnostics, symbols)
-  const bindings = collectBindings(sourceFile, diagnostics, symbols)
+  // The structs, so a buffer binding's host-shareable rules can be read through its struct
+  // type (§51) — collected first, which this order already guaranteed.
+  const bindings = collectBindings(sourceFile, diagnostics, symbols, 0, emittedStructDecls(structs))
   const consts = collectModuleConsts(sourceFile, diagnostics, symbols, emittedStructDecls(structs))
   // The names the GLSL writer spells from this module, so an override cannot shadow one with
   // its `#define`. Structs and bindings are collected above, which is why this order holds.

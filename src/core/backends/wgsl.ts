@@ -35,6 +35,7 @@ import { fp64Lower } from '../passes/fp64-lower.js'
 import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js'
 import { selectComposite } from '../passes/select-composite.js'
 import { requiredCaps, requiredLanguageFeatures } from '../passes/required-caps.js'
+import { padUniformArrays } from '../passes/uniform-layout.js'
 import { dslError } from '../diagnostics/error.js'
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
@@ -323,8 +324,18 @@ export const wgslBackend: Backend = {
   // by the DRIVER once specialized.
   emitOverride: (o) => `override ${o.name}: ${wgslType(o.type)} = ${lit(o.default, o.type)};`,
   emitStruct: (s) => {
+    // `@align(n)` then `@size(n)` then the emit spelling. Only the uniform-layout pass (§51)
+    // sets either: `size` gives a wrapper struct's one field the 16-byte footprint a uniform
+    // array ELEMENT needs, and `align` gives the MEMBER holding that array the 16-byte offset
+    // the same address space needs. A struct nothing padded emits exactly the bytes it always
+    // did.
     const fields = s.fields
-      .map((f) => `  ${f.attr ? `${f.attr} ` : ''}${f.name}: ${wgslType(f.type)},`)
+      .map(
+        (f) =>
+          `  ${f.align !== undefined ? `@align(${String(f.align)}) ` : ''}` +
+          `${f.size !== undefined ? `@size(${String(f.size)}) ` : ''}` +
+          `${f.attr ? `${f.attr} ` : ''}${f.name}: ${wgslType(f.type)},`,
+      )
       .join('\n')
     return `struct ${s.name} {\n${fields}\n}`
   },
@@ -375,7 +386,14 @@ export const wgslBackend: Backend = {
   // gate (_optimizer-gpu-parity). Every pass skips a fn containing a raw Stmt (the
   // polygon composer's _mcSS fill/stroke), so those precision-critical paths are
   // emitted verbatim, untouched.
-  optimize: (m) => fixpoint(m),
+  // The uniform 16-byte array padding (§51) runs BEFORE the optimizer, not in `postLower`
+  // after it. It is a LOWERING — it changes a struct's member types and the reads that reach
+  // through them — and an optimizer that has not seen it hoists the unlowered form: LICM
+  // lifted `U.weights` out of a loop as `let _licm0 = U.weights;`, and the padding then had
+  // no `member` node left to rewrite, so `_licm0[i]` came out typed as the WRAPPER and was
+  // multiplied as an f32. Padding first, LICM hoists the padded array and the index keeps
+  // its `.v`.
+  optimize: (m) => fixpoint(padUniformArrays(m)),
   // One copy of a pointer-taking function per address space its calls use — see wgsl-ptr.ts.
   // After the optimizer, since a pass that folds a call away removes a space with it.
   postLower: (m) => pointerSpaces(m),

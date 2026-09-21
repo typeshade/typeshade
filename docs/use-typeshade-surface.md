@@ -3024,6 +3024,132 @@ adapter's features at all (measured: it offers `clip-distances` and `subgroups`,
 Its emit is pinned by `src/compiler/ts/builtin-values.test.ts` instead, and its `hostFeature`
 string is the one value in §50 that no measurement here could confirm.
 
+## 51. What a uniform lays out: the 16-byte array rule, and the shapes a struct hides
+
+A `uniform` buffer is the one place WGSL changes the bytes under you, and it used to change
+them behind the compiler's back.
+
+**Every array element in a uniform starts on a 16-byte boundary.** So `array<f32, 4>` is not
+sixteen bytes, it is sixty-four. Tint refuses a module that says otherwise:
+
+```
+'uniform' storage requires that array elements are aligned to 16 bytes, but array element of
+type 'f32' has a stride of 4 bytes. Consider using a vector or struct as the element type
+instead.
+```
+
+The compiler emits the padding itself. A wrapper struct carries `@size(16)` and the reads are
+rewritten one field deeper:
+
+```ts
+class Palette {
+  weights: array<f32, 4>   // four floats in the source
+  stops: array<vec4, 2>    // already 16 bytes an element — untouched
+  count: f32
+}
+declare const U: uniform<Palette>
+```
+
+```wgsl
+struct _Pad16_f32 {
+  @size(16) v: f32,
+}
+
+struct Palette {
+  @align(16) weights: array<_Pad16_f32, 4>,
+  stops: array<vec4<f32>, 2>,
+  count: f32,
+}
+
+…  U.weights[i].v
+```
+
+**Two attributes, fixing two different things.** `@size(16)` inside the wrapper is the element
+STRIDE. `@align(16)` on the member is the array's OFFSET, and the wrapper cannot supply it: a
+struct's alignment comes from its members, and `@size` does not raise it. With the stride
+alone, a scalar before the array puts it at the wrong place, and Tint says so:
+
+```
+the offset of a struct member of type 'array<_Pad16_f32, 3>' in address space 'uniform' must
+be a multiple of 16 bytes, but 'xs' is currently at offset 4. Consider setting '@align(16)' on
+this member
+```
+
+— and 4 is also the offset `reflect()` does not report, which is the whole bug in one line.
+
+Measured against that same Tint: `@align(16) @size(64)` on the member of a BARE `array<f32, 4>`
+is refused with the stride text, because the stride rule is on the element and no member
+attribute reaches it; the wrapper supplies the stride and the member attribute the offset, and
+together they are accepted. `array<vec2, N>` is padded too (a `vec2` is eight bytes);
+`array<vec4, N>` and `array<mat4, N>` are not, because their stride is already a multiple of
+16.
+
+**The emit and `reflect()` now describe the same memory.** `reflect()` has always reported a
+uniform array under std140's 16-byte stride; it was the emit that disagreed, which is exactly
+the class of bug a host discovers as garbled uniforms. For the struct above,
+`reflect().uniforms[0]` for `interface U { k: f32; xs: array<f32, 3> }` reads `k` at 0 and
+`xs` at 16, total 64 — and Tint's own layout note for the emitted struct now reads
+`offset(0) k : f32` and `offset(16) xs : array<_Pad16_f32, 3>`, total 64. Four shapes were
+checked that way against the real compiler, and five more for the nested shapes: an array of
+structs that hold arrays, a struct element whose own stride is 8, a `vec2` array between a
+scalar and a `vec3`, a `u32` array before a `mat4`, and a nested struct holding a padded
+array. Every offset, and every struct size, agrees.
+
+The one number that is NOT the WGSL `SizeOf` is `reflect().uniforms[].size`: it is the std140
+size, which rounds the struct up to 16, while WGSL's own `SizeOf` may be smaller. A host that
+allocates `size` bytes is always correct — it over-allocates at worst — and every OFFSET, which
+is what a packer actually writes against, agrees exactly. `examples/emit-reflection-conformance.test.ts`
+sweeps both corpora for a uniform-reachable array that reaches WGSL with a stride under 16.
+
+**GLSL ES 3.00 needs none of it.** A std140 block gives `float[4]` a 16-byte stride natively,
+which is precisely why the unpadded program links on WebGL2 and dies on WebGPU. The padding is
+a WGSL-only lowering; the GLSL text is unchanged, and one host packing feeds both.
+`examples/uniform-array.shade.ts` runs on both halves of the gate.
+
+**A padded array used as a VALUE is rebuilt, not leaked.** The member's element type changed,
+so `const w = U.weights` would hand a local the wrapper type and `w[1] * k` would multiply a
+struct by an f32 — Tint: `no matching overload for 'operator * (_Pad16_f32, f32)'`. Wherever
+the array is read whole rather than indexed — a local, a call argument, a return, a struct
+built by value — the authored array is rebuilt from its elements,
+`array<f32, 4>(U.weights[0].v, …)`, which costs the loads the copy was going to do anyway.
+Writing such an array whole is refused: a constructor is not something to assign to, and a
+uniform is read-only, so the only way to reach that shape is a local of a uniform struct's
+type.
+
+**Three shapes are refused rather than emitted**, each because nothing here could emit the
+bytes `reflect()` reports for it:
+
+| Written | Why |
+| --- | --- |
+| `array<array<f32, 2>, 3>` in a uniform | Two levels need the 16-byte element rule and there is one member to carry `@align`. Use a list of a struct, or of a `vec4`. |
+| `uniform<array<f32, 4>>` — a bare list as the whole binding | No member to carry `@align(16)`, and `reflect().uniforms` describes nothing for it. Wrap it in a struct. |
+| one struct bound as `uniform<S>` AND `storage<S>` | The two address spaces lay the same array out differently (std430 keeps the natural stride), so padding it for one corrupts the other. Declare one struct per address space. |
+
+A list of `vec4` is exempt from all three — its stride is already 16 — which is what keeps them
+from reading as a blanket ban on lists.
+
+**`@size` and `@align` are still not author attributes.** `@align` on a field is `TS8010` and
+`@size` is an unknown attribute, as before. Applying them would mean teaching the layout engine
+`reflect()` shares with the GLSL writer to read them, and an attribute the emit honoured while
+reflection ignored it is the very disagreement this section closes. They stay refused until
+both halves move together.
+
+**Four shapes a struct used to hide.** The type map sees a field's type; it does not see which
+address space the field ends up in, so these reached the backend as text a driver refuses:
+
+| Written | Refused with |
+| --- | --- |
+| `interface U { flag: bool }` in a `uniform` or `storage` | `TS8051` — `"U.flag" is a bool; a uniform struct holds numeric scalars only (WGSL's host-shareable rule). Use u32.` |
+| `array<f32, 0>` | `TS8002` — a list's length is a whole number of 1 or more |
+| `interface S { xs: array<f32>; k: f32 }` | `TS8051` — a runtime-sized list that is not the last field, so nothing after it has an offset |
+| `uniform<array<f32>>` | `TS8051` — a uniform buffer has one size; give the list a length or declare it `storage<T>` |
+
+`bool` is the one worth dwelling on: Tint says `type 'bool' cannot be used in address space
+'uniform' as it is non-host-shareable`, while the GLSL writer emitted it into the std140 block
+without complaint. That is a silent divergence between the two targets, not a shared failure,
+and silent divergence is what this compiler exists to remove. A `bool` local, parameter or
+return is untouched — the rule is about host-shared bytes.
+
 ---
 
 Last updated: 2026-09-21

@@ -13,6 +13,54 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **A uniform lays out the bytes `reflect()` reports** (§51,
+  [#156](https://github.com/typeshade/typeshade/issues/156)). WGSL's uniform address space
+  aligns every array element to 16 bytes, so `array<f32, 4>` in a `uniform` is sixty-four
+  bytes and not sixteen. The compiler emitted it as written, with zero diagnostics, and Tint
+  refused the module: `'uniform' storage requires that array elements are aligned to 16 bytes,
+  but array element of type 'f32' has a stride of 4 bytes`. `reflect()` had always reported
+  that array at stride 16 — so the emit and the reflection described different memory, and the
+  GLSL ES 3.00 std140 block linked on WebGL2 with the layout reflection described. The WGSL
+  writer now emits the padding itself: a wrapper struct carrying `@size(16)` for the element
+  stride, `@align(16)` on the member for the array's offset, and every read rewritten one
+  field deeper (`U.xs[i].v`). Both attributes are load-bearing — a struct's alignment comes
+  from its members and `@size` does not raise it, so with the stride alone Tint puts a member
+  that follows a scalar at offset 4 and says `the offset of a struct member … must be a
+  multiple of 16 bytes`, which is the same disagreement one level down. Measured against the
+  Tint the gate runs: `@align(16) @size(64)` on the member of a BARE array is refused with the
+  stride text, because that rule is on the element and no member attribute reaches it; the two
+  together are accepted, and Tint's own layout note then reports the offsets `reflect()` does,
+  checked on four struct shapes. `array<vec2, N>` is padded
+  too; `array<vec4, N>` and the matrices are not, their stride already being a multiple of 16.
+  A storage array is untouched — std430 has no such rule — and the GLSL text does not move,
+  because std140 gives `float[4]` the 16-byte stride natively. `examples/uniform-array.shade.ts`
+  runs on both halves of the gate, and `examples/emit-reflection-conformance.test.ts` sweeps
+  both corpora for a uniform-reachable array reaching WGSL with a scalar or `vec2` element
+  stride under 16. The struct-element case, and the byte parity itself, are checked against
+  real Tint's own layout note in `src/compiler/ts/uniform-layout.test.ts`.
+
+  **What the padding cannot reach is refused, not emitted.** A list of lists in a uniform needs
+  the rule at both levels and has one member to carry the attribute; a bare list as the whole
+  binding has no member at all, and `reflect().uniforms` describes nothing for it; and one
+  struct bound as both a uniform and a storage buffer would have its storage half's bytes moved
+  by padding the uniform half, while reflection keeps reporting the unpadded offsets. Each is
+  refused naming the shape and the fix. A list of `vec4` is exempt from all three, its stride
+  already being 16. Where a padded array is read WHOLE rather than indexed — a local, a call
+  argument, a return, a struct built by value — the authored array is rebuilt from its
+  elements rather than letting the wrapper type leak into a local or an argument.
+
+  **Four shapes a struct used to hide.** A field's type does not say which address space it
+  lands in, so each of these reached a backend as text a driver refuses. `bool` in a `uniform`
+  or `storage` struct is now `TS8051` (`type 'bool' cannot be used in address space 'uniform'
+  as it is non-host-shareable` on Tint, silently emitted into the std140 block by the GLSL
+  writer — a divergence between the targets, not a shared failure); so are a runtime-sized
+  `array<T>` that is not its struct's last field, and a runtime-sized array in a uniform, whose
+  type must be constructible. `array<T, 0>` is refused at the type. A `bool` local, parameter
+  or return is untouched: the rule is about host-shared bytes. `@size` and `@align` stay
+  refused as author attributes, because applying them would mean teaching the layout engine
+  `reflect()` shares with the GLSL writer to read them, and a half-applied attribute is the
+  disagreement this change closes.
+
 - **`enable`, `requires`, and the built-in values behind an extension** (§50,
   [#146](https://github.com/typeshade/typeshade/issues/146)). WGSL puts
   some built-in values behind an `enable` extension, and writing the id is now the whole

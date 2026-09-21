@@ -101,6 +101,13 @@ export const TS_CODES = {
    *  `subgroups`, `clip_distances`, `primitive_index`). A misspelled name would otherwise be
    *  an ordinary string expression statement and silently enable nothing. */
   ENABLE_NAME: 'TS8050',
+  /** A buffer binding's store type breaks one of WGSL's host-shareable rules (§51), which a
+   *  struct hides from the type map and the backend only meets as emitted text: a `bool`
+   *  field in a `uniform` or `storage` struct (`type 'bool' cannot be used in address space
+   *  'uniform' as it is non-host-shareable`), a runtime-sized `array<T>` that is not its
+   *  struct's last member, or a runtime-sized array in a uniform, whose type must be
+   *  constructible. */
+  LAYOUT: 'TS8051',
   UNSUPPORTED: 'TS8099',
 } as const
 
