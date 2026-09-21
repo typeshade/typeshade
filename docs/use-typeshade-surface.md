@@ -2757,10 +2757,10 @@ opaque black, a depth gather the far plane (four 1s — nothing occludes), a gat
 is the gate's evidence on the Tint half.
 
 **Not here, by the audit's word.** The offset variants of every sampling builtin,
-`textureNumLevels`, `textureNumSamples`, `textureSampleBaseClampToEdge`, `texture_external`,
-`texture_depth_multisampled_2d`, the storage 1d and 3d textures, and `u32` array indices and
-levels where WGSL takes either: the spec audit lists each with its portability, and they become
-their own items rather than riding this one.
+`textureNumLevels`, `textureSampleBaseClampToEdge`, `texture_external`, the storage 1d and 3d
+textures, and `u32` array indices and levels where WGSL takes either: the spec audit lists each
+with its portability, and they become their own items rather than riding this one.
+`textureNumSamples` and `texture_depth_multisampled_2d` were on this list until §37 took them.
 
 ## 37. A multisampled texture, read one sample at a time
 
