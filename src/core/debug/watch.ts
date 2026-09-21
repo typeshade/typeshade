@@ -251,7 +251,15 @@ export function compileWatch(
     '}',
   ].join('\n')
 
-  const r = compileTsSource(source, { fileName: `watch:${trimmed}`, emit: false })
+  // `checkReservedNames: false` because the two names this file wraps the expression in,
+  // `__typeshade_watch__` and its value local, deliberately begin with two underscores — the
+  // one shape no author name can take, and one WGSL reserves for that reason (#103). Nothing
+  // here is emitted: the watch runs on the CPU oracle.
+  const r = compileTsSource(source, {
+    fileName: `watch:${trimmed}`,
+    emit: false,
+    checkReservedNames: false,
+  })
   const errors = r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)
   if (errors.length > 0) throw new DebugWatchError(expression, errors)
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'
-import { nodeAtPosition } from './positions.js'
+import { nodeAtPosition, touchingNodeAtPosition } from './positions.js'
 
 const SOURCE = '"use typeshade";\n// a comment\nexport function f(x: f32): f32 {\n  return x\n}\n'
 
@@ -40,5 +40,30 @@ describe('nodeAtPosition (the one shared stand-in for ts.getTokenAtPosition)', (
     const after = nodeAtPosition(sourceFile, end)
     expect(ts.isIdentifier(inside)).toBe(true)
     expect(ts.isIdentifier(after)).toBe(false)
+  })
+})
+
+describe('touchingNodeAtPosition (the editor rule, #56)', () => {
+  it('answers for the identifier that ends exactly at the position', () => {
+    const sourceFile = parse(SOURCE)
+    const end = SOURCE.indexOf('return x') + 'return x'.length
+    const node = touchingNodeAtPosition(sourceFile, end)
+    expect(ts.isIdentifier(node)).toBe(true)
+    expect((node as ts.Identifier).text).toBe('x')
+  })
+
+  it('prefers the token the position is inside to the one before it', () => {
+    const sourceFile = parse(SOURCE)
+    const inside = SOURCE.indexOf('return x') + 'return '.length
+    expect((touchingNodeAtPosition(sourceFile, inside) as ts.Identifier).text).toBe('x')
+  })
+
+  it('changes nothing where no identifier ends at the position', () => {
+    const sourceFile = parse(SOURCE)
+    const afterBrace = SOURCE.indexOf('f32 {') + 'f32 {'.length
+    expect(touchingNodeAtPosition(sourceFile, afterBrace)).toBe(
+      nodeAtPosition(sourceFile, afterBrace),
+    )
+    expect(touchingNodeAtPosition(sourceFile, 0)).toBe(nodeAtPosition(sourceFile, 0))
   })
 })

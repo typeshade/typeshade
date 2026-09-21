@@ -180,6 +180,63 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **A hover at the end of a name answers for that name**
+  ([#56](https://github.com/typeshade/typeshade/issues/56)). The language service resolves a
+  hover through `nodeAtPosition`, whose span test is half-open, so one offset past `k` in
+  `let k = 1.` was the whitespace after it: the service fell through to TypeScript's quick
+  info and answered `let k: number` where the compiler lowered an `f32` — the very answer the
+  symbol-table hover replaced. The end of a name is where an editor leaves the caret after
+  typing it. `getHover` now resolves through `touchingNodeAtPosition`, which mirrors
+  `ts.getTouchingPropertyName`: a position inside a token still belongs to that token, and only
+  one that lands in no identifier answers for the identifier ending exactly there. A local, a
+  parameter and a struct field are each pinned at `name.end`. `nodeAtPosition` keeps its
+  half-open rule for completions, rename and the TS1206 filter, which are written against it.
+- **A name a target reserves is reported where it is written** (§62,
+  [#103](https://github.com/typeshade/typeshade/issues/103), `TS8068 RESERVED_NAME`). A struct
+  field named `half` compiled to WGSL Tint accepts and to GLSL ANGLE answers with
+  `'half' : Illegal use of reserved word` — a line number in generated text, for a word the
+  author wrote on a line of their own; the same held for a module constant, an override, a
+  module variable, a struct's own name and, on the WGSL side, for each of the 146 tokens that
+  spec reserves for future use. (A binding was already refused, but by the GLSL writer, with
+  only the file's directive to point at.) The check runs on the name the emit CARRIES, so a
+  class's static field is judged as `Cls_member` and a namespace's member as `Ns_member`, and
+  the message names both spellings when they differ while underlining what the author typed;
+  all three spellings of a struct are read, since a `class`, an `interface` and a `type` alias
+  are one struct to the emitters. The severity follows the target's role: a WGSL word is an
+  error, because WGSL is the program, and a GLSL ES 3.00 word a warning, this package's
+  existing answer for "the second target cannot take this module" — `wgsl` stays, `glsl` comes
+  back undefined, and the GLSL writer fails the emit closed on the same names, so a module that
+  would not have produced GLSL anyway is never refused outright for a word it never emits. A
+  compute kernel has no GLSL form at all and is not held to that list: `examples/array-length.shade.ts`
+  now carries the `half` field and Tint takes it on every gate run. What the GLSL writer renames
+  for itself — a local, a parameter, a function name — is not reported. Both lists are the
+  target's own: WGSL's 26 keywords and 146 reserved words transcribed from the spec source,
+  GLSL ES 3.00's read off ANGLE's version-gated lexer at shader version 300, which is why
+  `buffer`, `shared` and `packed` are absent — all three are spellings a WebGL2 driver accepts
+  and a later spec does not. Each language's SHAPE rules are read too: `__` at the front and
+  the bare `_` for WGSL, and `gl_` at the front or `__` anywhere for GLSL ES 3.00, both
+  measured on ANGLE rather than read off the spec.
+- **The GLSL writer's rename can no longer land on a name already in scope**
+  ([#103](https://github.com/typeshade/typeshade/issues/103)). `sanitizeReservedIdents` renames
+  a local, a parameter or a function whose name GLSL ES 3.00 reserves, and it chose the new
+  spelling knowing only the function's own names: a local named `float` beside a module
+  constant named `float_` became two `float_`s in one scope, and the GLSL compiled cleanly and
+  answered `4` where WGSL and the CPU oracle answered `12`. The rename now sees every
+  module-scope name, and it numbers the suffix (`float_1`) instead of repeating the underscore,
+  because `float__` is itself illegal: measured on ANGLE, an identifier containing `__` is
+  "reserved as possible future keywords". The pass also renames a helper named `main`, which
+  had been emitting a second `main` beside the stage entry of that name.
+- **A `bool` module const that is neither true nor false is refused on its declaration**
+  (§12, [#64](https://github.com/typeshade/typeshade/issues/64)). `const K: bool = 2` reached
+  the fail-closed bool arm of each writer's `literal` and came back as
+  `TS8015 Backend emit failed: … [SD0017]: bool literal 2`, anchored on the file's
+  `"use typeshade"` directive — the one line that says nothing about the declaration — while
+  its integer siblings have reported `TS8003` on the declaration since #17. The check now sits
+  beside theirs at lowering: `true`, `false`, `1` and `0` still emit, and anything else is
+  `Module const "K" is bool, but 2 is neither true nor false. Write true, false, 1 or 0.` on
+  the `K: bool = 2` it underlines. Like the integer arms, the constant is not defined, so each
+  use adds its own `TS8022`; the writers' `SD0017` arms stay, since the `fn()` EDSL surface can
+  hand them a `ConstDecl` carrying anything.
 - **Three texture programs Tint refused compiled clean.** `textureSample` on a
   `texture_cube_array` in a vertex or compute entry (the cube-array id was in neither
   fragment-only table) is now refused under the written name like the other implicit-LOD
@@ -233,6 +290,13 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
 
 ### Changed
 
+- **`examples/block-scope.shade.ts` carries a float `%=` on a vector to the gate** (§22,
+  [#20](https://github.com/typeshade/typeshade/issues/20)). The compound-assignment emit sites
+  route a float `%` through the backend's `floatMod` spelling at any width, but the corpus
+  carried the scalar only, so the vector form — `cell %= 1.`, which WGSL keeps as the operator
+  and GLSL ES 3.00 takes componentwise as `(cell - 1.0 * trunc(cell / 1.0))` — was pinned by a
+  unit test and by no driver. The example now carries both, and Tint and a real WebGL2 driver
+  compile each of them on every run of `bun run gate:compile`.
 - **A method that changes its object takes it by reference** (§26). It took the struct and
   RETURNED it — `Particle_step(self_in: Particle, dt: f32) -> Particle` opening with
   `var self_ = self_in` and closing with `return self_` — and the call site read the receiver,

@@ -4,6 +4,11 @@
 // A gap (8011 is retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
+//
+// One more kind of gap exists from TS8038 on. While several sessions worked the issue list of
+// #162 in parallel, each was given a BLOCK of codes to draw from, so two branches in flight at
+// once could not claim one number twice; `RESERVED_NAME` (TS8068) is the first code assigned
+// that way. A block's unused codes stay unused, exactly as 8011 does — a gap is never reused.
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
@@ -103,6 +108,13 @@ export const TS_CODES = {
    *  `f64` and every stage can see one. There is deliberately NO author-facing way to split
    *  a double into its two `f32` words — they are the emulation's business (§39). */
   F64_ENTRY_IO: 'TS8038',
+  /** A declared name that a target reserves, checked on the name the emit actually carries
+   *  (#103): `half` as a struct field, which ANGLE answers with "Illegal use of reserved
+   *  word" in generated text the author never wrote, or `as` as a local, which Tint refuses.
+   *  The message names the target that reserves the word, and the emitted name when the
+   *  flattening (`Cls_member`, `Ns_member`) made it differ from the written one. A module
+   *  with no GLSL form is not held to GLSL ES 3.00's list. */
+  RESERVED_NAME: 'TS8068',
   UNSUPPORTED: 'TS8099',
 } as const
 
