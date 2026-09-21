@@ -75,6 +75,19 @@ const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = 
  *  double the fp64 pass assembles, and bool (§27). */
 type VecCtorElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
 
+/** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621 plus the `matN`
+ *  shorthand for a square one, matching the type names `type-map.ts` accepts, so a type an
+ *  author can declare is a value an author can build. */
+const MAT_CTOR: Readonly<Record<string, { cols: 2 | 3 | 4; rows: 2 | 3 | 4 }>> = Object.fromEntries(
+  ([2, 3, 4] as const).flatMap((cols) =>
+    ([2, 3, 4] as const).flatMap((rows) =>
+      cols === rows
+        ? [[`mat${cols}x${rows}`, { cols, rows }] as const, [`mat${cols}`, { cols, rows }] as const]
+        : [[`mat${cols}x${rows}`, { cols, rows }] as const],
+    ),
+  ),
+)
+
 export function lowerCall(
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -215,6 +228,13 @@ export function lowerCall(
     if (name === 'f64FromParts' || name === 'f64Parts')
       return lowerF64BridgeCall(name, node, sourceFile, scope, diagnostics)
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
+    // A matrix constructor is its own function, deliberately NOT an arm of the vector one:
+    // the two share only a name shape. A vector composes a flat component list; a matrix
+    // composes COLUMNS, truncates another matrix, and has a zero form.
+    const matCtor = MAT_CTOR[name]
+    if (matCtor !== undefined) {
+      return lowerMatrixCtor(matCtor, node, sourceFile, scope, diagnostics)
+    }
     ctor = VEC_CTOR[name]
     if (!ctor) {
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
@@ -412,6 +432,146 @@ export function lowerCall(
 
 /** The scalar type a vector constructor's components must have, or undefined for the
  *  emulated-double constructor, whose components the fp64 pass assembles. */
+/** `mat3(a, b, c)`, `mat4x3(...)`, `mat2()`, `mat3(m4)` — the matrix constructors of
+ *  wgsl.txt:20248ff, which GLSL ES 3.00 spells the same way.
+ *
+ *  Four forms, and the order they are tried in is the order WGSL gives them:
+ *
+ *    `matCxR()`            the zero matrix
+ *    `matCxR(m)`           from another matrix: the overlapping block, the rest from the
+ *                          identity — WGSL gives only the exact-shape conversion, so this
+ *                          surface offers the TRUNCATION a renderer actually asks for
+ *                          (`mat3(m4)`, the normal matrix) and refuses a widening one
+ *    `matCxR(c0, …, cC-1)` from C columns, each a `vecR`
+ *    `matCxR(e0, …, e*)`   from C*R scalars, column-major
+ *
+ *  Its own function rather than an arm of the vector constructor: a vector composes one flat
+ *  component list and a matrix composes columns, so sharing the code would mean a flattening
+ *  rule that is wrong for one of them. */
+function lowerMatrixCtor(
+  shape: { cols: 2 | 3 | 4; rows: 2 | 3 | 4 },
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const { cols, rows } = shape
+  const type: ShaderType = { kind: 'mat', cols, rows, elem: 'f32' }
+  const shown = typeKey(type)
+  const colT: ShaderType = { kind: 'vec', n: rows, elem: 'f32' }
+  const args: Expr[] = []
+  for (const arg of node.arguments) {
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!lowered) return undefined
+    args.push(lowered)
+  }
+
+  // `matCxR()` — the zero matrix (wgsl.txt:20015-20030, "T ()"). Written out as C zero
+  // columns so every backend and the oracle see an ordinary constructor.
+  if (args.length === 0) {
+    const zero: Expr = { op: 'lit', type: f32T, value: 0 }
+    return {
+      op: 'construct',
+      type,
+      args: Array.from({ length: cols }, () => ({
+        op: 'construct' as const,
+        type: colT,
+        args: Array.from({ length: rows }, () => zero),
+      })),
+    }
+  }
+
+  // `matCxR(m)` — from another matrix.
+  if (args.length === 1 && args[0]!.type.kind === 'mat') {
+    const from = args[0]!
+    const src = from.type as Extract<ShaderType, { kind: 'mat' }>
+    if (src.elem !== 'f32') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${shown} cannot be built from ${typeKey(src)}: the emulated-double matrices are ` +
+          `their own square shapes and do not convert.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    if (src.cols < cols || src.rows < rows) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `${shown} cannot be built from the smaller ${typeKey(src)}: this surface truncates a ` +
+          `matrix and does not grow one, since the components it would have to invent are a ` +
+          `choice the author should make. Write the columns out.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    // The upper-left block, column by column: `mat3(m4)` is the rotation a normal matrix
+    // wants out of a model matrix, which is why the truncation is worth having at all.
+    return {
+      op: 'construct',
+      type,
+      args: Array.from({ length: cols }, (_, c): Expr => {
+        const column: Expr = {
+          op: 'index',
+          type: { kind: 'vec', n: src.rows, elem: 'f32' },
+          base: from,
+          idx: { op: 'lit', type: i32T, value: c },
+        }
+        return src.rows === rows
+          ? column
+          : { op: 'member', type: colT, base: column, field: 'xyzw'.slice(0, rows) }
+      }),
+    }
+  }
+
+  // `matCxR(c0, …)` — one `vecR` per column.
+  if (
+    args.length === cols &&
+    args.every((a) => a.type.kind === 'vec' && a.type.n === rows && a.type.elem === 'f32')
+  ) {
+    return { op: 'construct', type, args }
+  }
+
+  // `matCxR(e0, …)` — C*R scalars, column-major, gathered into columns here so the IR always
+  // carries a matrix as a list of columns whichever way it was written.
+  if (args.length === cols * rows) {
+    const bad = args.findIndex((a) => typeKey(a.type) !== 'f32')
+    if (bad >= 0) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.arguments[bad] ?? node,
+        `${shown} takes f32 components; argument ${bad + 1} is ${typeKey(args[bad]!.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return {
+      op: 'construct',
+      type,
+      args: Array.from({ length: cols }, (_, c) => ({
+        op: 'construct' as const,
+        type: colT,
+        args: args.slice(c * rows, c * rows + rows),
+      })),
+    }
+  }
+
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${shown} takes ${cols} vec${rows} columns, ${cols * rows} f32 components, a larger ` +
+      `matrix to truncate, or nothing for the zero matrix; got ${args.length} argument(s)` +
+      `${args.length > 0 ? ` (${args.map((a) => typeKey(a.type)).join(', ')})` : ''}.`,
+    TS_CODES.ARITY_MISMATCH,
+  )
+  return undefined
+}
+
 /** `f64FromParts(hi, lo)` and `f64Parts(x)`: the lane bridge between an emulated double and
  *  the two `f32` words that carry it.
  *

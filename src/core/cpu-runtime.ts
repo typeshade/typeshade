@@ -913,7 +913,8 @@ export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDec
   // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
   if (type.kind === 'vec') return new Array(type.n).fill(type.elem === 'bool' ? false : 0)
   if (type.kind === 'vec64') return new Array(type.n).fill(0)
-  if (type.kind === 'mat') return new Array(type.n * type.n).fill(0)
+  // Column-major, cols * rows components — square only when the shape is.
+  if (type.kind === 'mat') return new Array(type.cols * type.rows).fill(0)
   // A STRUCT zero-initialises field by field, the way WGSL's `var s: S;` does. The bare `{}`
   // this used to return left every field absent, so an init-less `var s: S` read `s.a` as
   // `undefined` on both CPU backends while the GPU read 0 — the same family as the array arm
@@ -943,33 +944,84 @@ export function zeroOf(type: ShaderType, structs?: ReadonlyMap<string, StructDec
   return 0
 }
 
-// matNxN (column-major) × vecN → vecN. result[row] = Σ_col m[col*N+row]*v[col].
-// Dimension-generic (X-GIS #763 O2) — the old hardcoded mat4 form read m[4+i]/m[8+i]/
-// m[12+i] out of range on a mat2/mat3 and returned silent NaNs.
-export function matVec(m: number[], v: number[]): number[] {
-  const n = v.length
-  const out = new Array<number>(n).fill(0)
-  for (let c = 0; c < n; c++) for (let r = 0; r < n; r++) out[r]! += m[c * n + r]! * v[c]!
+/** matCxR (column-major) × vecC → vecR: the COLUMN-vector product. out[r] = Σ_c m[c*R+r]·v[c].
+ *  The shape is passed rather than derived, because a flat list cannot tell a mat2x3 from a
+ *  mat3x2 and the two multiply differently (#149). */
+export function matVecShaped(m: number[], v: number[], cols: number, rows: number): number[] {
+  const out = new Array<number>(rows).fill(0)
+  for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out[r]! += m[c * rows + r]! * v[c]!
   return out
 }
 
-// matNxN × matNxN (both column-major, flat n²). C[col*n+row] = Σ_k A[k*n+row]·B[col*n+k].
-export function matMul(a: number[], b: number[]): number[] {
-  const n = Math.round(Math.sqrt(a.length))
-  const out = new Array<number>(n * n).fill(0)
-  for (let col = 0; col < n; col++)
-    for (let row = 0; row < n; row++) {
+/** vecR × matCxR → vecC: the ROW-vector product, which is `transpose(m) * v`. out[c] is the
+ *  dot of v with column c (wgsl.txt:9960-9995). */
+export function vecMatShaped(v: number[], m: number[], cols: number, rows: number): number[] {
+  const out = new Array<number>(cols).fill(0)
+  for (let c = 0; c < cols; c++) {
+    let s = 0
+    for (let r = 0; r < rows; r++) s += m[c * rows + r]! * v[r]!
+    out[c] = s
+  }
+  return out
+}
+
+/** matKxR × matCxK → matCxR, both column-major. The shared dimension K is A's columns and B's
+ *  rows; the result has B's columns and A's rows. */
+export function matMulShaped(
+  a: number[],
+  b: number[],
+  aCols: number,
+  aRows: number,
+  bCols: number,
+): number[] {
+  const out = new Array<number>(bCols * aRows).fill(0)
+  for (let col = 0; col < bCols; col++)
+    for (let row = 0; row < aRows; row++) {
       let s = 0
-      for (let k = 0; k < n; k++) s += a[k * n + row]! * b[col * n + k]!
-      out[col * n + row] = s
+      for (let k = 0; k < aCols; k++) s += a[k * aRows + row]! * b[col * aCols + k]!
+      out[col * aRows + row] = s
     }
   return out
 }
 
-// Transpose of a column-major n² matrix: out[i*n+j] = in[j*n+i].
+// matNxN (column-major) × vecN → vecN — the square entry point, kept for the callers that
+// have only the value (the mat64 authoring path). Dimension-generic (X-GIS #763 O2): the old
+// hardcoded mat4 form read m[4+i]/m[8+i]/m[12+i] out of range on a mat2/mat3 and returned
+// silent NaNs.
+export function matVec(m: number[], v: number[]): number[] {
+  const n = v.length
+  return matVecShaped(m, v, n, n)
+}
+
+// matNxN × matNxN (both column-major, flat n²), the square entry point.
+export function matMul(a: number[], b: number[]): number[] {
+  const n = Math.round(Math.sqrt(a.length))
+  return matMulShaped(a, b, n, n, n)
+}
+
+/** Column `j` of a column-major matrix of `rows` rows: the `vecR` WGSL's and GLSL's `m[j]`
+ *  yields. A matrix is one FLAT component list at run time, so a plain `base[j]` reads a
+ *  single component instead of a column — which is what every evaluator did before #149,
+ *  silently, because `mat4x4` was the only float matrix and nothing indexed one. */
+export function matColumn(m: number[], j: number, rows: number): number[] {
+  return m.slice(j * rows, j * rows + rows)
+}
+
+/** Transpose of a column-major matrix of `cols` columns and `rows` rows: the result has
+ *  `rows` columns of `cols` components, and element (r, c) of the input becomes (c, r) of the
+ *  output. `matTranspose` below keeps the square-only entry point the BUILTINS table uses. */
+export function matTransposeShaped(m: number[], cols: number, rows: number): number[] {
+  const out = new Array<number>(cols * rows).fill(0)
+  // Input column c, row r lives at c * rows + r; it belongs at column r, row c of the
+  // result, which has `cols` rows per column — so at r * cols + c.
+  for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out[r * cols + c] = m[c * rows + r]!
+  return out
+}
+
+// Transpose of a column-major n² matrix: out[i*n+j] = in[j*n+i]. A flat list cannot say
+// whether six numbers are a mat2x3 or a mat3x2, so only the SQUARE case can be recovered from
+// the length; the oracle reads the static type and calls matTransposeShaped for the rest.
 function matTranspose(m: number[]): number[] {
   const n = Math.round(Math.sqrt(m.length))
-  const out = new Array<number>(n * n).fill(0)
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) out[i * n + j] = m[j * n + i]!
-  return out
+  return matTransposeShaped(m, n, n)
 }

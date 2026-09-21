@@ -126,32 +126,58 @@ export function lowerSelect(
   return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse }
 }
 
+/** The products one of whose operands is a matrix, typed per wgsl.txt:9960-9995 — the same
+ *  table `binResultType` applies in the fn() EDSL, which is why the shapes are spelled once
+ *  here and the result types agree with it by inspection:
+ *
+ *    matKxR * matCxK -> matCxR     the shared dimension cancels
+ *    matCxR * vecC   -> vecR       the vector is a column
+ *    vecR   * matCxR -> vecC       the vector is a row
+ *    m * s, s * m    -> m          component-wise scaling, either side
+ *
+ *  A pair whose dimensions do not meet returns undefined and falls through to the ordinary
+ *  numeric mismatch, which names both types. */
 export function matVecMul(left: Expr, right: Expr): Expr | undefined {
   const lt = left.type
   const rt = right.type
-  if (lt.kind === 'mat' && rt.kind === 'vec' && lt.n === rt.n && lt.elem === rt.elem) {
-    return { op: 'binop', type: right.type, bop: '*', a: left, b: right }
+  const mul = (type: ShaderType): Expr => ({ op: 'binop', type, bop: '*', a: left, b: right })
+  if (lt.kind === 'mat' && rt.kind === 'mat' && lt.elem === rt.elem && lt.cols === rt.rows) {
+    return mul({ kind: 'mat', cols: rt.cols, rows: lt.rows, elem: lt.elem })
   }
-  if (lt.kind === 'mat' && rt.kind === 'vec64' && lt.n === rt.n && lt.elem === 'f64') {
-    return { op: 'binop', type: right.type, bop: '*', a: left, b: right }
+  if (lt.kind === 'mat' && rt.kind === 'vec' && lt.elem === rt.elem && lt.cols === rt.n) {
+    return mul({ kind: 'vec', n: lt.rows, elem: rt.elem })
   }
-  if (lt.kind === 'mat' && rt.kind === 'mat' && lt.n === rt.n && lt.elem === rt.elem) {
-    return { op: 'binop', type: left.type, bop: '*', a: left, b: right }
+  if (lt.kind === 'vec' && rt.kind === 'mat' && lt.elem === rt.elem && rt.rows === lt.n) {
+    return mul({ kind: 'vec', n: rt.cols, elem: lt.elem })
   }
+  // The emulated-double forms the fp64 pass has a body for: square against square, and
+  // square against a vec64 of the same width.
+  if (lt.kind === 'mat' && lt.elem === 'f64' && rt.kind === 'vec64' && lt.cols === rt.n) {
+    return mul(rt)
+  }
+  // Component-wise scaling by a scalar of the matrix's own element kind, either side.
+  if (lt.kind === 'mat' && rt.kind === 'scalar' && rt.scalar === lt.elem) return mul(lt)
+  if (lt.kind === 'scalar' && rt.kind === 'mat' && lt.scalar === rt.elem) return mul(rt)
+  if (lt.kind === 'mat' && lt.elem === 'f64' && rt.kind === 'f64') return mul(lt)
+  if (lt.kind === 'f64' && rt.kind === 'mat' && rt.elem === 'f64') return mul(rt)
   return undefined
 }
 
 function indexElem(t: ShaderType): ShaderType | undefined {
   if (t.kind === 'array') return t.elem
   if (t.kind === 'vec') return { kind: 'scalar', scalar: t.elem }
-  if (t.kind === 'mat' && t.elem === 'f32') return { kind: 'vec', n: t.n, elem: 'f32' }
+  // Both targets are column-major, so `m[j]` is COLUMN j, which has `rows` components —
+  // not `cols`. The two agree only on a square matrix, which is why this was invisible
+  // while mat4x4 was the only float matrix.
+  if (t.kind === 'mat' && t.elem === 'f32') return { kind: 'vec', n: t.rows, elem: 'f32' }
   return undefined
 }
 
 function indexBound(t: ShaderType): number | undefined {
   if (t.kind === 'array') return t.size
   if (t.kind === 'vec') return t.n
-  if (t.kind === 'mat') return t.n
+  // The number of COLUMNS is how many indices a matrix has.
+  if (t.kind === 'mat') return t.cols
   return undefined
 }
 

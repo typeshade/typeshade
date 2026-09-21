@@ -39,7 +39,7 @@ export function zeroValueOf(type: ShaderType, structs: ReadonlyMap<string, Struc
     case 'vec64':
       return new Array<number>(type.n).fill(0)
     case 'mat':
-      return new Array<number>(type.n * type.n).fill(0)
+      return new Array<number>(type.cols * type.rows).fill(0)
     case 'struct': {
       const decl = structs.get(type.name)
       if (!decl) return {}
@@ -88,8 +88,8 @@ export function shapeError(
     case 'mat':
       return numericArray(
         value,
-        type.n * type.n,
-        `${key} (${type.n * type.n} numbers, column-major)`,
+        type.cols * type.rows,
+        `${key} (${type.cols * type.rows} numbers, column-major)`,
         got,
       )
     case 'struct': {
@@ -255,8 +255,10 @@ export function formatCpuValue(
     case 'mat': {
       const m = value as number[]
       const cols: string[] = []
-      for (let c = 0; c < type.n; c++) {
-        const col = m.slice(c * type.n, c * type.n + type.n)
+      // A column is `rows` long and there are `cols` of them, so the slice stride is the
+      // ROW count — the two coincide only on a square matrix.
+      for (let c = 0; c < type.cols; c++) {
+        const col = m.slice(c * type.rows, c * type.rows + type.rows)
         cols.push(`col${c}(${col.map((v) => elem(v, type.elem)).join(', ')})`)
       }
       // `col0(...)col1(...)`, because the bare `(...)(...)` this used to print gave a reader
@@ -264,7 +266,7 @@ export function formatCpuValue(
       // transpose. The `<f64>` says which element type, since an f64 matrix is stored the same
       // way and rendered identically otherwise.
       const of = type.elem === 'f64' ? '<f64>' : ''
-      return `mat${type.n}x${type.n}${of}${cols.join('')}`
+      return `mat${type.cols}x${type.rows}${of}${cols.join('')}`
     }
     case 'struct': {
       const o = value as CpuStruct

@@ -92,6 +92,56 @@ export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES
  */
 export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES
 
+/** The nine \`matCxR\` aliases plus the \`matN\` shorthand for a square one, each taking the
+ * element as an optional type argument — the same names `type-map.ts` maps and
+ * `expression-call.ts` builds, generated from one pair of loops so the three cannot drift.
+ * Only a SQUARE matrix takes `f64`: the fp64 pass has one df64 body per dimension. */
+const MAT_ARITIES = [2, 3, 4] as const
+const matTypeAliases = MAT_ARITIES.flatMap((cols) =>
+  MAT_ARITIES.flatMap((rows) => {
+    const elem = cols === rows ? "T extends f64 ? 'f64' : 'f32'" : "'f32'"
+    const param = cols === rows ? '<T extends f32 | f64 = f32>' : ''
+    const body = `Mat<${elem}, ${cols}, ${rows}>`
+    const lines = [`type mat${cols}x${rows}${param} = ${body}`]
+    if (cols === rows) lines.push(`type mat${cols}${param} = mat${cols}x${rows}<T>`)
+    return lines
+  }),
+).join('\n')
+
+/** Every matrix constructor: from columns, from components, from a larger matrix, and the
+ * zero form — the four `lowerMatrixCtor` accepts, in the same order. */
+const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
+  MAT_ARITIES.flatMap((rows) => {
+    const name = `mat${cols}x${rows}`
+    const t = `mat${cols}x${rows}`
+    const columns = Array.from({ length: cols }, (_, i) => `c${i}: vec${rows}`).join(', ')
+    const comps = Array.from({ length: cols * rows }, (_, i) => `e${i}: number`).join(', ')
+    const bigger = MAT_ARITIES.flatMap((c2) =>
+      MAT_ARITIES.flatMap((r2) =>
+        (c2 > cols && r2 >= rows) || (c2 >= cols && r2 > rows)
+          ? [`declare function NAME(m: mat${c2}x${r2}): ${t}`]
+          : [],
+      ),
+    )
+    const forms = [
+      `declare function NAME(): ${t}`,
+      `declare function NAME(${columns}): ${t}`,
+      `declare function NAME(${comps}): ${t}`,
+      ...bigger,
+    ]
+    const names = cols === rows ? [name, `mat${cols}`] : [name]
+    // Every `declare function` carries JSDoc — `docs.test.ts` requires it, and an editor
+    // with no hover text on a constructor is the gap that rule exists to close.
+    return names.flatMap((n) => {
+      const doc = FUNCTION_DOCS[n]
+      return forms.map((f) => {
+        const line = f.replace(/NAME/g, n)
+        return doc ? `${renderJSDoc(doc)}\n${line}` : line
+      })
+    })
+  }),
+).join('\n')
+
 const vecCtorOverloads = (name: string, elem: VecElem): string => {
   const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4
   const type = vecTypeName(elem, n)
@@ -266,8 +316,16 @@ const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   cross: 'declare function cross(a: vec3, b: vec3): vec3',
   mix: mixSignature(),
   // Roadmap 0.2 item 8: the shapes the generated "same type in, same type out" pair misses.
-  transpose: 'declare function transpose(m: mat4): mat4',
-  determinant: 'declare function determinant(m: mat4): number',
+  // transpose(matCxR) -> matRxC on every shape (wgsl.txt:23397); determinant is square-only
+  // (wgsl.txt:21842), so the non-square shapes get no overload and `tsc` says so first.
+  transpose: MAT_ARITIES.flatMap((cols) =>
+    MAT_ARITIES.map(
+      (rows) => `declare function transpose(m: mat${cols}x${rows}): mat${rows}x${cols}`,
+    ),
+  ).join('\n'),
+  determinant: MAT_ARITIES.map((n) => `declare function determinant(m: mat${n}x${n}): number`).join(
+    '\n',
+  ),
   refract: 'declare function refract<T extends Numeric>(i: T, n: T, eta: number): T',
   ldexp: 'declare function ldexp<T extends Numeric>(x: T, e: Numeric): T',
   extractBits:
@@ -583,11 +641,15 @@ interface Console {
 declare const console: Console
 
 declare const matTag: unique symbol
-type Mat<E extends string, N extends 2 | 3 | 4> = { readonly [matTag]: readonly [E, N] }
-type mat4x4<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 4>
-type mat4<T extends f32 | f64 = f32> = mat4x4<T>
-type mat2<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 2>
-type mat3<T extends f32 | f64 = f32> = Mat<T extends f64 ? 'f64' : 'f32', 3>
+/** A matrix of \`C\` columns and \`R\` rows (§40), column-major as both targets are: \`m[j]\` is
+ * column j, a \`vecR\`. The tag carries the element and BOTH dimensions, so \`mat2x3\` and
+ * \`mat3x2\` are not interchangeable — they transpose into each other rather than being the
+ * same type. The lane keys are numeric literals for the reason \`Vec64\`'s are: they accept
+ * \`m[1]\` and refuse \`m[7]\`. */
+type Mat<E extends string, C extends 2 | 3 | 4, R extends 2 | 3 | 4> = {
+  readonly [matTag]: readonly [E, C, R]
+} & Pick<{ 0: VecOf<'f32', R>; 1: VecOf<'f32', R>; 2: VecOf<'f32', R>; 3: VecOf<'f32', R> }, LaneKeys<C>>
+${matTypeAliases}
 
 declare const arrayTag: unique symbol
 // The index signature is WRITABLE. \`out[gid.x] = value\` is the shape of every compute kernel
@@ -1098,6 +1160,7 @@ ${renderJSDoc(FUNCTION_DOCS.storageBarrier)}
 declare function storageBarrier(): void
 
 ${vecCtors}
+${matCtorOverloads}
 
 ${scalarCasts}
 

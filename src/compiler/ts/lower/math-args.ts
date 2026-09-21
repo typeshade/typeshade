@@ -332,12 +332,21 @@ export function checkMathArgs(
     // `transpose` on an emulated-double matrix is a reshuffle of the lanes the fp64 pass
     // lowers (df64_mN_transpose); a DETERMINANT has no df64 body at all, so it would compile
     // here and raise SD0041 from the backend after the call span is gone (#151).
+    // `determinant` is defined for a SQUARE matrix only (wgsl.txt:21842, `mat<N, N, T>`), and
+    // GLSL ES 3.00 likewise; a non-square one has no determinant to take.
+    if (fn === 'determinant' && first.type.cols !== first.type.rows) {
+      return refuse(
+        0,
+        `${display} takes a square matrix; got ${typeKey(first.type)}. Only matN has a ` +
+          `determinant — on a non-square matrix there is none to take.`,
+      )
+    }
     if (first.type.elem === 'f64' && fn === 'determinant') {
       return refuse(
         0,
         `${display} has no emulated-double form; got ${typeKey(first.type)}: the fp64 pass ` +
           `lowers only * and transpose on a matrix of doubles, so declare the matrix ` +
-          `mat${first.type.n} where you need its determinant.`,
+          `mat${first.type.cols} where you need its determinant.`,
       )
     }
     return true

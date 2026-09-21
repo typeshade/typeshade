@@ -95,7 +95,7 @@ export function spellShaderType(t: ShaderType): string {
     case 'vec64':
       return `vec${t.n}<f64>`
     case 'mat':
-      return t.elem === 'f64' ? `mat${t.n}x${t.n}<f64>` : wgslType(t)
+      return t.elem === 'f64' ? `mat${t.cols}x${t.rows}<f64>` : wgslType(t)
     case 'array':
       return t.size !== undefined
         ? `array<${spellShaderType(t.elem)}, ${t.size}>`

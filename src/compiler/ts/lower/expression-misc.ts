@@ -253,6 +253,11 @@ export function mathResultType(fn: string, args: readonly Expr[]): ShaderType {
   // length(v64)` could not be returned from a function declared `f64` (#151 F64-01).
   if ((fn === 'length' || fn === 'distance' || fn === 'dot') && first.kind === 'vec64') return f64T
   if (fn === 'length' || fn === 'distance' || fn === 'dot' || fn === 'determinant') return f32T
+  // transpose(matCxR) -> matRxC (wgsl.txt:23397, "transpose any shape"). Identity on a square
+  // matrix, which is why it read as `first` while mat4x4 was the only float matrix.
+  if (fn === 'transpose' && first.kind === 'mat') {
+    return { kind: 'mat', cols: first.rows, rows: first.cols, elem: first.elem }
+  }
   return first
 }
 

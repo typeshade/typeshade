@@ -132,7 +132,7 @@ const vecFT = (n: 2 | 3 | 4): ShaderType => ({ kind: 'vec', n, elem: 'f32' })
 function mapType(t: ShaderType): ShaderType {
   if (isF64(t)) return vec2fT
   if (isVec64(t)) return structT(vec64StructName(t.n))
-  if (isMat64(t)) return structT(mat64StructName(t.n))
+  if (isMat64(t)) return structT(mat64StructName(mat64Dim(t)))
   if (t.kind === 'array' && containsF64(t.elem))
     return {
       kind: 'array',
@@ -161,6 +161,19 @@ const CMP_FN: Record<CmpOp, string> = {
  *  reads them to refuse at the call span exactly what this pass cannot lower (#151). */
 const CALL_FN = F64_SCALAR_TWIN_FN
 const VEC_CALL_KIND = F64_VEC_TWIN_KIND
+
+/** The dimension of an emulated-double matrix.
+ *
+ *  The df64 matrix library has one body per DIMENSION — `DF64MatN`, `df64_mN_matmul`,
+ *  `df64_mN_matvec`, `df64_mN_transpose` — not one per shape, so only a SQUARE matrix of
+ *  doubles can be lowered. The front end refuses a non-square one where it is written
+ *  (`matCxR<f64>` in type-map.ts) and `binResultType` refuses one built any other way, so
+ *  reaching here with cols !== rows means a module was hand-built past both: fail loud rather
+ *  than emit a `DF64Mat3` for a `mat3x2<f64>` and let the backend spell nonsense (#149). */
+const mat64Dim = (t: Extract<ShaderType, { kind: 'mat' }>): 2 | 3 | 4 => {
+  if (t.cols !== t.rows) throw dslError('SD0041', `${typeKey(t)} — the df64 matrices are square`)
+  return t.cols
+}
 
 const litF32 = (v: number): Expr => ({ op: 'lit', type: f32T, value: v })
 /** vec2<f32>(hi, lo) — the lowered spelling of an f64 literal. */
@@ -290,8 +303,9 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
   if (isVec64(e.type)) ctx.vecWidths.add(e.type.n)
   // A DF64MatN nests DF64VecN columns, so a mat width forces its vec width too.
   if (isMat64(e.type)) {
-    ctx.matWidths.add(e.type.n)
-    ctx.vecWidths.add(e.type.n)
+    const n = mat64Dim(e.type)
+    ctx.matWidths.add(n)
+    ctx.vecWidths.add(n)
   }
   /** Lower an expr that must land as an f64 PAIR: an f64 operand lowers to its
    *  vec2 form; a (legal) f32 operand widens exactly. Anything else is a gate
@@ -325,7 +339,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // would misroute into the componentwise vec64 branch below.
       if (isMat64(e.a.type)) {
         if (e.bop !== '*') throw dslError('SD0041', `binary op '${e.bop}' on ${typeKey(e.a.type)}`)
-        const n = e.a.type.n
+        const n = mat64Dim(e.a.type)
         if (isMat64(e.b.type))
           return callHelper(ctx, `df64_m${n}_matmul`, structT(mat64StructName(n)), [
             walk(e.a),
@@ -411,7 +425,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // transpose(M) on a mat64 → df64_mN_transpose (gathers lane i of every
       // old column into new column i — no new numerics, only a reshuffle).
       if (e.fn === 'transpose' && isMat64(e.args[0]!.type)) {
-        const n = e.args[0]!.type.n
+        const n = mat64Dim(e.args[0]!.type)
         return callHelper(ctx, `df64_m${n}_transpose`, structT(mat64StructName(n)), [
           walk(e.args[0]!),
         ])
@@ -583,7 +597,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
       // DF64MatN. Each column arg lowers via vecOperand (vec64 direct, scalar
       // broadcast), so the column-major struct is assembled directly.
       if (e.type.kind === 'mat' && e.type.elem === 'f64') {
-        const n = e.type.n
+        const n = mat64Dim(e.type)
         return {
           op: 'construct',
           type: structT(mat64StructName(n)),
@@ -992,8 +1006,9 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
     if (isVec64(t)) ctx.vecWidths.add(t.n)
     // A mat width forces its vec width — DF64MatN nests DF64VecN columns.
     else if (isMat64(t)) {
-      ctx.matWidths.add(t.n)
-      ctx.vecWidths.add(t.n)
+      const n = mat64Dim(t)
+      ctx.matWidths.add(n)
+      ctx.vecWidths.add(n)
     } else if (t.kind === 'array') recordWidths(t.elem)
   }
 

@@ -92,7 +92,7 @@ function sourceTypeName(t: ShaderType): string | undefined {
     case 'vec64':
       return `vec${t.n}f64`
     case 'mat':
-      return t.elem === 'f32' && t.n === 4 ? 'mat4x4' : undefined
+      return t.elem === 'f32' && t.cols === 4 && t.rows === 4 ? 'mat4x4' : undefined
     case 'struct':
       return t.name
     case 'array': {

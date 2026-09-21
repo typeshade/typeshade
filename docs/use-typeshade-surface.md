@@ -496,8 +496,8 @@ derivatives (`fwidth`, `dpdx`, `dpdy`) are fragment-only by the same rule.
 `**` is float-only, as `pow` is on both targets: `i32 ** i32` is rejected rather than emitted
 as `pow(i32, i32)`, which neither compiler accepts.
 
-`transpose` has no `f32` form on either surface: the IR carries only `transpose64`, over an
-emulated-double matrix, so there is nothing to expose yet.
+`transpose` applies to every matrix shape and `determinant` to the square ones; §40 has the
+table.
 
 **One caveat on declaring a function with a builtin's name**, and it is about GLSL ES 3.00
 rather than about this table: a declared function is emitted with the name the author wrote,
@@ -3033,6 +3033,78 @@ not allowed to "simplify" `(a + b) - a`, and a value read from a texture is one 
 through. `reflect()` reports it like any other binding, group and slot included, so bind what
 reflection lists and the guard is covered; a host that skipped it got a WebGPU validation error
 or, on WebGL2, a silently wrong picture.
+
+## 40. Matrices: every `matCxR`
+
+A matrix is `cols` columns of `rows` components, column-major, which is what both targets are.
+All nine shapes of `C, R ∈ {2, 3, 4}` are types, spelled `matCxR`, and a square one also
+answers to `matN`:
+
+```ts
+"use typeshade"
+
+export function shapes(a: mat3, b: mat2x3, c: mat4x3): vec3 {
+  //  mat3   = mat3x3   3 columns of 3
+  //  mat2x3           2 columns of 3
+  //  mat4x3           4 columns of 3
+  return a[0] + b[1] + c[3]
+}
+```
+
+`m[j]` is **column j**, a `vecR` — not row j, and not one component. The two readings coincide
+only on a square matrix, which is why it was worth saying once here.
+
+**Constructors.** Four forms, and a matrix takes whichever one fits:
+
+```ts
+const fromColumns = mat3(vec3(1., 0., 0.), vec3(0., 1., 0.), vec3(0., 0., 1.))
+const fromParts   = mat2x3(1., 2., 3., 4., 5., 6.)   // column by column
+const zero        = mat2()
+const truncated   = mat3(model)                       // the upper-left 3×3 of a mat4
+```
+
+Truncation is offered and widening is not: `mat3(m4)` is the normal matrix a renderer wants,
+while `mat4(m3)` would have to invent a fourth column, and which one it should be is the
+author's choice rather than the compiler's.
+
+**Products.** The table is wgsl.txt:9960-9995, and GLSL ES 3.00 spells each one the same way:
+
+| written | means | result |
+| --- | --- | --- |
+| `m * s`, `s * m` | component-wise scaling | the matrix's own type |
+| `m * v` | the column-vector product, `matCxR * vecC` | `vecR` |
+| `v * m` | the **row**-vector product, `vecR * matCxR`, which is `transpose(m) * v` | `vecC` |
+| `a * b` | `matKxR * matCxK`, the shared dimension cancelling | `matCxR` |
+
+`v * m` and `m * v` are different products, so the one you want is the one you write. A pair
+whose dimensions do not meet is refused, naming both shapes.
+
+**Builtins.** `transpose(m)` on a `matCxR` gives a `matRxC` — a different type unless the
+matrix is square. `determinant(m)` takes a square matrix only, since a non-square one has
+none; asking for it names that.
+
+**`matCx2` in a uniform block is refused**, and it is the only shape that is. Measured on a
+real WebGL2 driver and on Tint: std140 rounds every matrix column up to 16 bytes, while WGSL's
+column stride is `AlignOf(vecR<f32>)` — 8 when the matrix has two rows and 16 otherwise. So a
+`mat2x2`, `mat3x2` or `mat4x2` field would sit at different byte offsets on the two targets,
+and so would every field after it:
+
+```
+wgslLayout: mat2x2 in std140 is not supported — WGSL gives a two-row matrix a column
+stride of 8 and GLSL std140 rounds every column to 16, so the two targets would disagree
+on this field and every field after it; carry it as mat2x4 (measured: both targets stride
+16) or as 2 vec2 fields
+```
+
+It is refused rather than silently padded because padding would make the WGSL a module emits
+disagree with the offsets `reflect()` reports for it, and keeping those two the same is the
+whole job of the layout layer. Every other shape agrees byte for byte and needs no ceremony —
+a `mat3` rides a uniform block as it is. Outside a uniform block, in a storage buffer, there is
+no such rule: std430 does not round columns, so all nine shapes are laid out identically.
+
+**Emulated doubles stay square.** `mat2<f64>`, `mat3<f64>` and `mat4<f64>` carry `*` and
+`transpose`; a non-square one is refused, because the fp64 pass has one `df64` body per
+dimension rather than per shape. §39 has the rest of the `f64` surface.
 
 ---
 

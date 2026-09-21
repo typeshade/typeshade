@@ -216,22 +216,41 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
   // rejected here at author time (no df64 mat add/sub helpers exist).
   if (isMat64(a)) {
     if (ctx !== '*') throw dslError('SD0041', `${ctx}: '${ctx}' on ${typeKey(a)}`)
+    // The df64 matrix helpers are square, one body per dimension, so a mat64 product is
+    // square against square and square against a vec of the same width.
     if (isMat64(b)) {
-      if (a.n !== b.n) throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`)
+      if (a.cols !== b.cols || a.rows !== b.rows)
+        throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`)
       return a
     }
     if (isVec64(b)) {
-      if (a.n !== b.n) throw dslError('SD0001', `${ctx}: mat${a.n} * vec${b.n}`)
+      if (a.cols !== b.n) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`)
       return b
     }
     throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`)
   }
-  // mat * vec → vec (matN x vecN); mat * mat → mat.
-  if (isMat(a) && isVec(b)) {
-    if (a.n !== b.n) throw dslError('SD0001', `${ctx}: mat${a.n} * vec${b.n}`)
-    return b
+  // The matrix products of wgsl.txt:9960-9995, which GLSL ES 3.00 spells identically:
+  //
+  //   m * s, s * m  componentwise scaling, result the matrix's own type
+  //   m * v         matCxR * vecC -> vecR        (the vector is a column)
+  //   v * m         vecR * matCxR -> vecC        (the vector is a row)
+  //   m * n         matKxR * matCxK -> matCxR    (the shared dimension cancels)
+  if (isMat(a) && isMat(b)) {
+    if (a.cols !== b.rows) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`)
+    return { kind: 'mat', cols: b.cols, rows: a.rows, elem: a.elem }
   }
-  if (isMat(a) && isMat(b)) return a
+  if (isMat(a) && isVec(b)) {
+    if (a.cols !== b.n) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`)
+    return { kind: 'vec', n: a.rows, elem: b.elem }
+  }
+  if (isVec(a) && isMat(b)) {
+    if (b.rows !== a.n) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`)
+    return { kind: 'vec', n: b.cols, elem: a.elem }
+  }
+  // A matrix scaled by a scalar of its element kind, either side (wgsl.txt:9960-9995
+  // "Component-wise scaling"). Only `*`: WGSL gives a matrix no scalar +, - or /.
+  if (isMat(a) && isScalar(b) && b.scalar === a.elem && ctx === '*') return a
+  if (isScalar(a) && isMat(b) && a.scalar === b.elem && ctx === '*') return b
   if (isVec(a) && isVec(b)) {
     if (!typeEq(a, b)) throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`)
     return a

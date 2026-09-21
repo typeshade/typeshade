@@ -13,6 +13,27 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Every `matCxR` is a type** (§40). `mat4x4` was the only float matrix the surface admitted,
+  on the recorded ground that "a 2×2 or 3×3 float matrix lays out differently under the WGSL
+  and GLSL std140 rules". Measured on a real WebGL2 driver and on Tint, that is half right:
+  std140 rounds every matrix column up to 16 bytes while WGSL's column stride is
+  `AlignOf(vecR<f32>)`, so a TWO-ROW matrix diverges (`mat2x2`, `mat3x2`, `mat4x2` — stride 8
+  against 16) and a 3×3 does not. The divergence belongs to the uniform layout rather than to
+  the type, so all nine shapes are types now and `wgslLayout` refuses exactly the three it
+  cannot describe honestly, naming `matCx4` and the `vec2` fields as the spellings that work.
+  An author can write `mat3(a, b, c)` from columns, `mat2x3(...)` from components column by
+  column, `mat2()` for the zero matrix and `mat3(m4)` to truncate (widening is refused: the
+  column it would have to invent is the author's choice); `m * s`, `s * m`, `m * v`, the ROW
+  product `v * m` and `matKxR * matCxK`, each typed per wgsl.txt:9960-9995; `transpose` on
+  every shape, which swaps the dimensions, and `determinant` on the square ones, which is
+  where it exists. The IR matrix carries `cols` and `rows` instead of one `n`, so a shape that
+  is not square can be spelled at all; `matT(cols, rows)` builds one. WGSL emits `matCxR<f32>`
+  and GLSL `matN` or `matCxR`, both measured on Tint and a real WebGL2 context through
+  `examples/normal-matrix.shade.ts`. Three bugs fell out of the shapes being real: `m[j]` read
+  one component instead of column j in all three CPU evaluators, `v * m` threw in two of them,
+  and `transpose` recovered its shape from the array length, which cannot tell a `mat2x3` from
+  a `mat3x2`. The emulated-double matrices stay square, since the fp64 pass has one `df64`
+  body per dimension, and a non-square `matCxR<f64>` is refused where it is written.
 - **The emulated double as an authored type** (§39, roadmap T18). The `f64` surface now admits
   exactly what the fp64 lowering pass can lower, and refuses the rest where it is written. An
   author can write `s * 2.5` and `s * t` beside a scalar `f64` (the literal is lifted to an f64

@@ -431,6 +431,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'normal-matrix',
+    title: 'Matrices beyond mat4',
+    blurb:
+      'Every `matCxR` is a type (§40): the normal matrix is the model matrix truncated with `mat3(m)` rather than padded to a `mat4`, `determinant` on the 3×3 gives the handedness, a `mat2x3` transposes into a `mat3x2`, and `v * m` and `transpose(m) * v` are checked against each other. A `mat3` rides the std140 block unchanged — a TWO-ROW matrix is the one shape whose column stride the two targets disagree on, measured, and that one is refused.',
+    renderable: true,
+  },
+  {
     id: 'fp64-lane-stripes',
     title: 'Emulated doubles',
     blurb:
