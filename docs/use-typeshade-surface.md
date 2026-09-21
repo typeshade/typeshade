@@ -2818,9 +2818,9 @@ formula the driver may reassociate or fuse (§15.7.5), and a derivative or `dete
 bound at all. Only the first group is the same everywhere. The rest is the room two conforming
 drivers have to disagree in, and the room a GPU result has to differ from the CPU oracle.
 
-`compile()` returns that room as a list. `determinism` names every operation in the module the
-spec lets differ, with the spec's bound in words, how many times it occurs and in which
-functions, in order of first appearance:
+`compile()` returns that room as a list. `determinism` names every operation in the module
+that may differ, with the spec's bound in words, how many times it occurs and where, in order
+of first appearance:
 
 ```ts
 "use typeshade";
@@ -2841,50 +2841,66 @@ import { compile } from 'typeshade'
 
 const { determinism } = compile(source)
 // [{ op: 'sin', elem: 'f32', kind: 'absolute',
-//    accuracy: '2^-11 absolute error for x in [-π, π]', count: 1, functions: ['fs'] }]
+//    accuracy: '2^-11 absolute error for x in [-π, π]', count: 1, where: ['fs'] }]
 ```
 
 The multiply, the scale and the offset are correctly rounded and do not appear; `sin` does, with
-the bound the spec gives it. An empty list means every operation in the module has exactly one
-answer, so a GPU result and the oracle can differ only by the oracle's own rounding, never by
-the driver's choice.
+the bound the spec gives it. An empty list means every operation in the module has one answer,
+so a GPU result and the oracle can differ only by the oracle's own rounding, never by the
+driver's choice.
+
+"One answer" is the report's assumption, stated once. WGSL fixes no rounding mode, so a
+correctly rounded result may be either neighbour of the exact value, and any operation may
+flush a subnormal to zero. Every shipping driver rounds to nearest even, so the report counts a
+correctly rounded result as one value and leaves the subnormal corners alone.
 
 **The kinds.** `kind` says why an entry is there, and `accuracy` says how far it may go:
 
-| `kind`        | What it covers                                                                                                                 | Examples                                                          |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `ulp`         | a bound in units in the last place                                                                                             | `/` (2.5 ULP), `exp`, `exp2`, `atan`, `atan2`, `inverseSqrt`, `unpack4x8unorm` |
-| `absolute`    | an absolute error bound over an interval                                                                                       | `sin`, `cos`, `log`, `log2`, `asin`, `acos`, `tanh`                |
-| `inherited`   | defined by a formula the driver may evaluate any way at least as accurate, reassociated or fused                              | `pow`, `sqrt`, `tan`, `mix`, `smoothstep`, `length`, `normalize`, `dot`, `cross`, `fma`, `mod`, `%`, `degrees`, `radians` |
-| `unbounded`   | the spec asks only for a pragmatically useful result                                                                           | `dpdx`, `dpdy`, `fwidth` and their coarse and fine forms, `determinant` |
-| `filtered`    | a texture read whose filtering and level of detail selection are implementation-defined                                       | every `textureSample*`, the comparison forms included              |
-| `emulated`    | an `f64` operation: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them                     | every arithmetic operator and bounded builtin on `f64` and `vecNf64` |
+| `kind`      | What it covers                                                                                                                             | Examples                                                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `ulp`       | a bound in units in the last place                                                                                                         | `/` (2.5 ULP), `exp`, `exp2`, `atan`, `atan2`, `inverseSqrt`, `unpack4x8unorm`                                                            |
+| `absolute`  | an absolute error bound over an interval, or the worse of one and an inherited formula                                                     | `sin`, `cos`, `log`, `log2`, `asin`, `acos`, `tanh`                                                                                       |
+| `inherited` | defined by a formula the driver may evaluate any way at least as accurate, reassociated or fused                                           | `pow`, `sqrt`, `tan`, `mix`, `smoothstep`, `fract`, `length`, `normalize`, `dot`, `cross`, `fma`, `mod`, `%`, `degrees`, `radians`, `mat * vec`, `mat * mat` |
+| `unbounded` | the spec asks only for a pragmatically useful result                                                                                       | `dpdx`, `dpdy`, `fwidth` and their coarse and fine forms, `determinant`                                                                   |
+| `filtered`  | a texture read whose footprint, filtering and level of detail selection are implementation-defined                                         | every `textureSample*`, the comparison forms included, and `textureGather`, whose four texels the footprint selects                       |
+| `target`    | one answer on WGSL, but the GLSL ES 3.00 spelling may answer differently on some input                                                     | `ldexp` at `e = 128`; `pack4x8unorm`, `pack2x16unorm`, `pack2x16snorm` at an exact half                                                   |
+| `emulated`  | an `f64` operation: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them                                  | every arithmetic operator, `floor`, and every bounded builtin on `f64`, `vecNf64` and `matNf64`                                            |
 
 **What is not listed.** Integer arithmetic, comparisons and the bit builtins, which have a correct
-result. `+`, `-` and `*` on `f32`, which are correctly rounded. `abs`, `floor`, `ceil`, `trunc`,
-`round`, `sign`, `min`, `max`, `clamp`, `saturate` and `step`, the builtins the optimizer folds at
-compile time because they have one answer (issue #73), and `fract` with them: `floor(x)` is exact and the difference
-is representable, so every evaluation at least that accurate is the same value. The casts. Texel
-fetches (`textureLoad`), gathers (four unfiltered texels), sizes, stores and atomics. A call to
-one of the module's own helpers is not listed itself; its body is, under the helper's name. A `raw`
-statement is opaque WGSL and is not read.
+result. `+`, `-` and the component-wise `*` on `f32`, which are correctly rounded; a matrix
+product is a sum of products and is listed. `abs`, `floor`, `ceil`, `trunc`, `round`, `sign`,
+`min`, `max`, `clamp`, `saturate` and `step`, the builtins the optimizer folds at compile time
+because they have one answer (issue #73). `fract` is not among them: the spec words it as
+inherited from `x - floor(x)` and says `fract` of a tiny negative may be 1.0, so it is listed. The
+casts, `pack2x16float` and `unpack2x16float`, which are correctly rounded on both targets. Texel
+fetches (`textureLoad`), sizes, stores and atomics. A call to one of the module's own helpers is
+not listed itself; its body is, under the helper's name. A `raw` statement is opaque WGSL and is
+not read.
 
 **One row per operation and float.** `sin` on `f32` and `sin` on `f64` are two rows, since the
-second is an emulation with its own reason to differ. `functions` lists the module's functions in
-declaration order, each once; `count` is the number of occurrences over all of them.
+second is an emulation with its own reason to differ. `where` names the module constants, module
+variables and functions whose initializer or body holds the operation, in declaration order, each
+once; `count` is the number of occurrences over all of them.
 
-**The two targets.** GLSL ES 3.00 (§4.5.1) bounds only `+ - * /`, `a * b + c`, `pow`, `exp`,
-`exp2`, `log`, `log2`, `sqrt` and `inversesqrt`, with the numbers WGSL gives them, and says
-nothing about the rest, so on that target every listed operation is bounded by the driver alone
-and the words in `accuracy` are WGSL's. Where the GLSL spelling changes the rounding the row says
-so in `note`: `fma` has no fused form on GLSL ES 3.00 and is emitted as `a * b + c`, two roundings
-where WGSL may use one. `mod` carries a note too, since it is spelled `x - y * floor(x / y)` on
-WGSL and `mod(x, y)` on GLSL; both inherit from that formula.
+**The two targets.** GLSL ES 3.00 (§4.5.1) bounds the arithmetic operators, `a * b + c`, `pow`,
+`exp`, `exp2`, `log`, `log2`, `sqrt`, `inversesqrt` and the explicit conversions with the numbers
+WGSL gives them, lets every builtin it defines by an equation (the geometric and common
+functions) inherit those bounds, and leaves the trigonometric functions, `determinant` and the
+derivatives with undefined precision. So an `inherited` row means the same on both targets, and
+an `absolute`, `ulp` or `unbounded` row is bounded by the driver alone on GLSL; the words in
+`accuracy` are WGSL's. Where the GLSL spelling matters the row says so in `note`: `fma` has no
+fused form on GLSL ES 3.00 and is emitted as `a * b + c`, which that spec lets be one fused or two
+correctly rounded operations, the same room WGSL leaves `fma`; `mod` is spelled
+`x - y * floor(x / y)` on WGSL and `mod(x, y)` on GLSL, both inheriting from that formula. A
+`target` row is the case where the two can part on an input WGSL settles: the GLSL `ldexp`
+spelling overflows at `e = 128`, and the GLSL `pack` forms round an exact half in an
+implementation-chosen direction where WGSL takes `floor(0.5 + x)`.
 
-**One operation at a time.** `accuracyOf(op)` answers for a single builtin id or operator:
-`{ kind: 'exact' }` when there is one answer, otherwise the kind and bound the report would list.
-It answers for every id the compiler can emit; the test suite walks the intrinsic tables and
-fails on a new builtin that has not been placed in one column or the other.
+**One operation at a time.** `accuracyOf(op)` answers for a single builtin id, operator or matrix
+product: `{ kind: 'exact' }` when there is one answer on both targets, otherwise the kind and
+bound the report would list. It answers for every id the compiler can emit; the test suite walks
+the intrinsic tables and fails on a new builtin that has not been placed in one column or the
+other.
 
 The list is the input to the divergence report of roadmap item 19: when a GPU result and the
 oracle disagree, the operations here are where the spec allows it, and everything else is a bug

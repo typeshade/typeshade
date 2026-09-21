@@ -49,14 +49,16 @@ export interface CompileResult {
    */
   readonly glsl?: { readonly vertex: string; readonly fragment: string }
   /**
-   * The operations in `module` whose result WGSL lets differ by driver (§15.7.4): a
-   * transcendental with a ULP or absolute bound, `/`, a builtin inherited from a formula the
-   * driver may reassociate or fuse (`pow`, `mix`, `fma`), a derivative, a filtered texture read,
-   * and every emulated `f64` operation, each with the spec's bound in words, its count and the
-   * functions it occurs in. Empty when every operation has exactly one answer, so a GPU result
-   * and the CPU oracle can differ only by the oracle's own rounding. Computed on the front
-   * end's IR even when `diagnostics` has an error, since a partial module still says what it
-   * uses. See {@link determinismReport}.
+   * The operations in `module` whose result may differ by driver: a builtin WGSL §15.7.4 gives
+   * a ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the
+   * driver may reassociate or fuse (`pow`, `mix`, `fma`, `fract`, the matrix products), a
+   * derivative, a filtered texture read or gather, an operation the GLSL ES 3.00 spelling may
+   * answer differently (`ldexp`, the `pack` builtins), and every emulated `f64` arithmetic
+   * operator and bounded builtin, each with the spec's bound in words, its count and where it
+   * occurs. Empty when every operation has one answer, so a GPU result and the CPU oracle can
+   * differ only by the oracle's own rounding. Computed on the front end's IR even when
+   * `diagnostics` has an error, since a partial module still says what it uses. See
+   * {@link determinismReport}.
    */
   readonly determinism: readonly DeterminismEntry[]
   /**
