@@ -19,6 +19,12 @@
 //    GLSL form at all (`compile()` does not even attempt one), so refusing it for a GLSL word
 //    it never emits would be a refusal of a program that works. WGSL is every module's target
 //    and is always checked.
+// NOT COVERED, and deliberately: the multi-file path (`compileTsSources`, roadmap 0.5 item 14)
+// records a declared-symbol table for its ENTRY file only, and without the module constants
+// even there, because a span alone cannot say which file it indexes. Running this check over
+// that half-table would refuse some kinds and miss others with no rule the reader could state,
+// so `compileTsSources` is left alone until every file has a table of its own.
+//
 // 3. The NAMES THE GLSL WRITER RENAMES ITSELF are not this check's business. `glsl-sanitize`
 //    rewrites a param, a local and a function name that collides, consistently with every
 //    reference, so `let out = …` has always been legal here and stays legal. What it cannot

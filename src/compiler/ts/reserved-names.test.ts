@@ -78,15 +78,17 @@ export function fs(v: V): vec4 { return vec4(v.half, 0., 1.) }
   })
 
   it('refuses a struct whose own name is reserved', () => {
+    // `Self` is on WGSL's list, and WGSL is every module's target, so WGSL is what answers.
+    // A capitalized word keeps this to ONE diagnostic: a lowercase class name does not resolve
+    // as a type here at all, which is a separate, pre-existing TS8002.
     const src = `"use typeshade"
-class filter {
+class Self {
   @builtin("position") pos: vec4
 }
 @vertex
-export function vs(): filter { return { pos: vec4(0., 0., 0., 1.) } }
+export function vs(): Self { return { pos: vec4(0., 0., 0., 1.) } }
 `
-    // `filter` is on BOTH lists, and WGSL is every module's target, so WGSL is what answers.
-    expect(errorsOf(src)).toContain(WGSL('"filter"', 'a struct'))
+    expect(errorsOf(src)).toEqual([WGSL('"Self"', 'a struct')])
   })
 })
 
