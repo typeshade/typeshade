@@ -412,11 +412,37 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   extractBits: { wgsl: (a) => `extractBits(${join(a)})`, glsl: (a) => `_xbits(${join(a)})` },
   insertBits: { wgsl: (a) => `insertBits(${join(a)})`, glsl: (a) => `_ibits(${join(a)})` },
   // ldexp(x, e) = x * 2^e. GLSL ES 3.00 has no ldexp (ES 3.10 added it); the power of two is
-  // built from its bits, which is exact for every exponent from -126 to 127, where exp2 need
-  // not be. `e` is an i32 or a vector of them, so the shift broadcasts.
+  // built from its bits, which is exact where exp2 need not be. `e` is an i32 or a vector of
+  // them, so the shift broadcasts.
+  //
+  // The scale is built in TWO HALVES (#141), because one biased exponent cannot hold the range
+  // WGSL admits. `(e + 127) << 23` is the bit pattern of 2^e only while `e + 127` lands in
+  // [1, 254]; outside that it is a pattern of something else entirely. Measured on a WebGL2
+  // driver against WGSL over every legal exponent, -149 to 128, with x = 1.0 and x = 0.75:
+  //
+  //   the single-scale form   disagreed on 22 of 278 exponents (23 for 0.75)
+  //   the two-half form       disagreed on 0 of 278, for both
+  //
+  // and the disagreements were not near misses. At `e = 128` the pattern is `0x7F800000`, so
+  // `ldexp(0.5, 128)` was +Inf where WGSL gives the finite 2^127. Worse, at the bottom of the
+  // range the sum goes NEGATIVE and the pattern becomes a large negative float:
+  // `ldexp(1.0, -149)` was -1.6225928e32 where WGSL gives 0. Splitting `e` into `e >> 1` and
+  // `e - (e >> 1)` keeps each half inside the representable band for every `e` in range, and
+  // the two multiplies are each correctly rounded on both targets.
+  //
+  // The exponent string is spliced THREE times, which is safe here for the reason it is safe
+  // in `pack4x8unorm` above (which splices its argument eight): a shader expression is pure,
+  // so repeating it repeats work and nothing else, and a driver's CSE collapses it. `atomArgs`
+  // parenthesises each occurrence, so an argument like `a + b` still binds as one operand.
+  //
+  // The halving is a signed `>>`, and the alternative `e / 2` was swept too: both agreed with
+  // WGSL on all 278 exponents for both mantissas, so the driver's right shift of a negative
+  // value is the arithmetic one. The shift is kept because it is the form measured first; if a
+  // driver is ever found whose signed `>>` is logical, `e / 2` is the drop-in, already checked.
   ldexp: {
     wgsl: (a) => `ldexp(${join(a)})`,
-    glsl: (a) => `(${a[0]} * intBitsToFloat((${a[1]} + 127) << 23))`,
+    glsl: (a) =>
+      `(${a[0]} * intBitsToFloat(((${a[1]} >> 1) + 127) << 23) * intBitsToFloat(((${a[1]} - (${a[1]} >> 1)) + 127) << 23))`,
     // Both operands land inside operators — see `atomArgs` above.
     atomArgs: true,
   },
@@ -436,13 +462,21 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     atomArgs: true,
   },
   inverseSqrt: { wgsl: (a) => `inverseSqrt(${join(a)})`, glsl: (a) => `inversesqrt(${join(a)})` },
-  // fma(a,b,c) = a·b+c. WGSL has a fused hardware fma — a SINGLE rounding, atomic:
-  // a driver's fast-math cannot distribute or reassociate it (unlike a·b then +c).
-  // GLSL ES 3.00 (WebGL2) has NO fma (it is ES 3.10 / GLSL 4.00), so emit the
-  // NON-fused `(a*b+c)` fallback there. DIVERGENT (not portable): only the WGSL
-  // target gets the unfoldable single-rounding, which is the entire point — it is
-  // the one form Apple/Metal cannot fold back into a plain f32 product when
-  // building df64 twoProd error terms (aHi·bLo etc.). Diagnostic use for now.
+  // fma(a,b,c) = a·b+c. GLSL ES 3.00 (WebGL2) has NO fma (it is ES 3.10 / GLSL 4.00), so the
+  // GLSL column emits the plain `(a*b+c)`.
+  //
+  // This comment used to say WGSL's `fma` is "a SINGLE rounding, atomic" that a driver's
+  // fast-math cannot distribute, in CONTRAST to GLSL. That contrast is not in either spec
+  // (#141). WGSL §15.7.4.1 makes `fma` INHERITED from `x * y + z`, and the builtin's own note
+  // says an implementation may perform an ordinary multiply followed by an ordinary add; GLSL
+  // ES 3.00 §4.5.1 likewise allows `a * b + c` to be "one correctly rounded operation or a
+  // sequence of two". Both targets leave exactly the same room, so neither the id nor the
+  // fallback buys a rounding guarantee, and a future change must not assume one.
+  //
+  // What IS true, and is a separate point about fast-math rather than about the specs: spelling
+  // the operation as `fma` is the one form Apple/Metal has not been observed to fold back into
+  // a plain f32 product when building df64 twoProd error terms (aHi·bLo etc.). That is why the
+  // id exists; it is an observation about a compiler, not a promise the language makes.
   fma: { wgsl: (a) => `fma(${join(a)})`, glsl: (a) => `((${a[0]}) * (${a[1]}) + (${a[2]}))` },
   // ── 2×16 pack/unpack — NATIVE on both targets, divergent NAME only ──
   // WGSL pack2x16float/unorm/snorm ↔ GLSL ES 3.00 packHalf2x16 / packUnorm2x16 /
@@ -476,10 +510,17 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // GLSL ES 3.00 (WebGL2) has NO packUnorm4x8/unpackUnorm4x8 — those are GLSL 4.00 /
   // ES 3.10 only. Inline the WGSL semantics by hand (round(clamp(v,0,1)*255), byte 0 in
   // the low bits). Verified against the CPU oracle on a real WebGL2 GPU.
+  // `floor(0.5 + v)`, not `round(v)` (#141). GLSL ES 3.00 §8.3 says of `round`: "The fraction
+  // 0.5 will round in a direction chosen by the implementation", while WGSL §17.12 DEFINES the
+  // pack as `⌊ 0.5 + 255 × min(1, max(0, e)) ⌋`. For `e = 0.5` the product 127.5 is exact, so a
+  // driver was free to answer 127 where WGSL and the oracle answer 128. Spelling WGSL's own
+  // formula removes the freedom rather than relying on a driver to resolve it the same way.
+  // Measured: the two spellings agree on this driver (`0x80808080` for `vec4(0.5)` from both),
+  // so nothing that worked moves — what changes is what another driver is allowed to do.
   pack4x8unorm: {
     wgsl: (a) => `pack4x8unorm(${join(a)})`,
     glsl: (a) =>
-      `(uint(round(clamp(${a[0]}.x, 0.0, 1.0) * 255.0)) | (uint(round(clamp(${a[0]}.y, 0.0, 1.0) * 255.0)) << 8) | (uint(round(clamp(${a[0]}.z, 0.0, 1.0) * 255.0)) << 16) | (uint(round(clamp(${a[0]}.w, 0.0, 1.0) * 255.0)) << 24))`,
+      `(uint(floor(0.5 + clamp(${a[0]}.x, 0.0, 1.0) * 255.0)) | (uint(floor(0.5 + clamp(${a[0]}.y, 0.0, 1.0) * 255.0)) << 8) | (uint(floor(0.5 + clamp(${a[0]}.z, 0.0, 1.0) * 255.0)) << 16) | (uint(floor(0.5 + clamp(${a[0]}.w, 0.0, 1.0) * 255.0)) << 24))`,
     // The argument is a `.x`/`.y`/`.z`/`.w` postfix BASE — see `atomArgs` above.
     atomArgs: true,
   },

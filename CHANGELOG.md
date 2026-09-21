@@ -163,6 +163,34 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **Two GLSL spellings that parted from WGSL, and two comments that misread the specs**
+  (#141). `ldexp` built 2^e from ONE biased exponent, and `(e + 127) << 23` is the bit pattern
+  of 2^e only while `e + 127` lands in [1, 254]. Swept against WGSL over every legal exponent,
+  -149 to 128, on a WebGL2 driver with x = 1.0 and x = 0.75: the old spelling disagreed on 22 of
+  278 (23 for 0.75) and the disagreements were not near misses — `ldexp(0.5, 128)` was +Inf
+  where WGSL gives the finite 2^127, and below e = -127 the biased sum goes NEGATIVE, so
+  `ldexp(1.0, -149)` was -1.6225928e32 where WGSL gives 0. That second, worse half was not in
+  the issue. The scale is now built in two halves, which the same sweep found agrees on all 278
+  for both mantissas; the alternative `e / 2` split was swept too and also agreed, and the
+  comment says so in case a driver is ever found whose signed `>>` is logical.
+  `pack4x8unorm`'s GLSL inline used `round()`, whose exact half GLSL ES 3.00 §8.3 lets an
+  implementation resolve either way, where WGSL §17.12 DEFINES the pack as
+  `⌊ 0.5 + 255 × min(1, max(0, e)) ⌋`. It now spells WGSL's own formula. Measured on eight
+  inputs whose f32 product with 255 is exactly an ODD half — the ties that tell round-half-up
+  from round-half-to-even, which 127.5 cannot since both rules give 128 — a WGSL driver's native
+  builtin, the new inline and the CPU oracle all answered half-up (126.5 to 127). Both
+  operations leave the determinism report's `target` column as a result. The `pack2x16*` rows
+  stay: those are native GLSL builtins defined with `round()`, and no spelling of ours reaches
+  them.
+  The `fma` comment claimed WGSL's is "a SINGLE rounding, atomic" in contrast to GLSL's
+  `a * b + c`. Neither spec says that: WGSL §15.7.4.1 makes `fma` inherited from `x * y + z` and
+  its note allows an ordinary multiply then an ordinary add, and GLSL ES 3.00 §4.5.1 allows the
+  same two-step. The comment now states what both specs allow, and keeps the real point — that
+  the `fma` spelling is the form Apple/Metal has not been observed to fold back into a plain f32
+  product — as the observation about a compiler that it is. `const-fold`'s `EXACT_BUILTINS`
+  comment now names `fract` as the entry whose exactness was checked rather than assumed:
+  `fract` of a tiny negative may be 1.0 or the f32 below it, and measured,
+  `fract(-1e-30)` is exactly 1.0 on WGSL AND on a WebGL2 driver, with the fold agreeing.
 - **The ambient library declares what the compiler lowers** (§49, #157). Four rules the editor
   stated more NARROWLY than the compiler, which is the worse of the two drifts: red squiggles on
   a program that compiles. `select` takes any scalar or vector WGSL gives it, bools and bool

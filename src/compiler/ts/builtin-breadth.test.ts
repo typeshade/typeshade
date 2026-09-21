@@ -91,9 +91,15 @@ describe('builtin breadth: geometry, matrices and exponents', () => {
       [12, 2, 1, 1],
     )
     expect(r.wgsl).toContain('let e = ldexp(1.5, 3);')
-    // GLSL ES 3.00 has no ldexp: the power of two is built from its bits.
+    // GLSL ES 3.00 has no ldexp: the power of two is built from its bits, in TWO HALVES (#141).
+    // One biased exponent cannot hold the range WGSL admits — `(e + 127) << 23` is the pattern
+    // of 2^e only while `e + 127` lands in [1, 254], and outside it the pattern means something
+    // else entirely (+Inf at e = 128, a large NEGATIVE float below e = -127). Measured over
+    // every legal exponent, -149 to 128: the single-scale form disagreed with WGSL on 22 of
+    // 278, the two-half form on none.
     expect(r.glsl?.fragment).toContain(
-      'vec2 v = (vec2(1.0, 2.0) * intBitsToFloat((ivec2(1, -1) + 127) << 23));',
+      'vec2 v = (vec2(1.0, 2.0) * intBitsToFloat(((ivec2(1, -1) >> 1) + 127) << 23) * ' +
+        'intBitsToFloat(((ivec2(1, -1) - (ivec2(1, -1) >> 1)) + 127) << 23));',
     )
   })
 })

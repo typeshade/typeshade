@@ -180,10 +180,13 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   fwidthCoarse: UNBOUNDED,
   fwidthFine: UNBOUNDED,
   inverseSqrt: ulp('2 ULP'),
-  ldexp: target(
-    'correctly rounded',
-    'GLSL ES 3.00 has no ldexp and the backend builds 2^e from bits, which overflows at e = 128, where WGSL gives the finite x * 2^128',
-  ),
+  // Was a `target` row, on a GLSL spelling that built 2^e from ONE biased exponent (#141). That
+  // spelling disagreed with WGSL on 22 of the 278 legal exponents, measured by sweeping -149 to
+  // 128 on a WebGL2 driver against Tint with x = 1.0 and x = 0.75: +Inf at e = 128 where WGSL
+  // gives the finite 2^127, and a large NEGATIVE float below e = -127, where the biased sum
+  // goes negative (`ldexp(1.0, -149)` was -1.6225928e32 against WGSL's 0). The scale is now
+  // built in two halves, which the same sweep found agrees on all 278 for both mantissas.
+  ldexp: EXACT,
   length: inherited('sqrt(dot(x, x)) for a vector, sqrt(x * x) for a scalar'),
   log: absolute('2^-21 absolute error for x in [0.5, 2], 3 ULP outside it'),
   log2: absolute('2^-21 absolute error for x in [0.5, 2], 3 ULP outside it'),
@@ -195,7 +198,15 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   normalize: inherited('x / length(x)'),
   pack2x16snorm: target('correct result', HALF_NOTE),
   pack2x16unorm: target('correct result', HALF_NOTE),
-  pack4x8unorm: target('correct result', HALF_NOTE),
+  // Was a `target` row on the GLSL `round()` spelling, whose exact half GLSL ES 3.00 §8.3 lets
+  // an implementation resolve either way (#141). The spelling is now WGSL's own
+  // `floor(0.5 + 255 * clamp(e, 0, 1))`, so there is no freedom left to resolve. Measured on
+  // eight inputs whose f32 product with 255 is exactly an ODD half — the ties that tell
+  // round-half-up from round-half-to-even, where 127.5 cannot: a WGSL driver's NATIVE builtin,
+  // the new GLSL inline and the CPU oracle answered the same integer on all eight (126.5 -> 127,
+  // not the 126 nearest-even would give). The 2x16 rows below stay `target`: those ARE native
+  // GLSL builtins, defined with round(), and no spelling of ours can reach them.
+  pack4x8unorm: EXACT,
   // The signed twin (#150). It was first recorded EXACT, on the reasoning that its GLSL inline
   // spells WGSL's own `floor(0.5 + x)` where the unorm one spells `round()`. Measured on a
   // real driver, that is not enough: WGSL's `pack4x8snorm` is a native builtin there too, and

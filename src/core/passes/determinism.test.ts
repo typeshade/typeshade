@@ -161,7 +161,13 @@ export function f(a: f32): f32 {
     expect(r.determinism[0]!.accuracy).toMatch(/1 - 2\^-24 for a tiny negative x/)
   })
 
-  it('lists a gather as filtered and ldexp as a target difference, with the GLSL note', () => {
+  it('lists a gather as filtered, and no longer lists ldexp at all', () => {
+    // `ldexp` WAS a `target` row here, on a GLSL spelling that built 2^e from one biased
+    // exponent and gave +Inf at e = 128 (#141). The spelling now builds it in two halves, and
+    // a sweep of every legal exponent, -149 to 128, found the GLSL and WGSL answers identical
+    // for x = 1.0 and x = 0.75 — 278 of 278, where the old one missed 22. An operation with one
+    // answer on both targets does not belong in this report, so the row is gone and the gather
+    // is the only one left.
     const r = moduleOf(`"use typeshade";
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
@@ -169,12 +175,8 @@ export function f(uv: vec2, c: vec4): vec4 {
   const scaled: f32 = ldexp(c.x, 3);
   return textureGather(0, tex, smp, uv) * scaled;
 }`)
-    expect(rows(r).map((row) => row.slice(0, 3))).toEqual([
-      ['ldexp', 'f32', 'target'],
-      ['textureGather', 'f32', 'filtered'],
-    ])
-    expect(r.determinism[0]!.note).toMatch(/e = 128/)
-    expect(r.determinism[1]!.accuracy).toMatch(/which four/)
+    expect(rows(r).map((row) => row.slice(0, 3))).toEqual([['textureGather', 'f32', 'filtered']])
+    expect(r.determinism[0]!.accuracy).toMatch(/which four/)
   })
 
   it("never lists integer arithmetic, comparisons or a call to the module's own helper", () => {
@@ -258,7 +260,9 @@ describe('accuracyOf', () => {
     expect(accuracyOf('determinant')?.kind).toBe('unbounded')
     expect(accuracyOf('textureSampleCompareLevelArray')?.kind).toBe('filtered')
     expect(accuracyOf('textureGather')?.kind).toBe('filtered')
-    expect(accuracyOf('ldexp')?.kind).toBe('target')
+    // `ldexp` left the `target` column with #141: the GLSL scale is built in two halves now,
+    // and a sweep of every legal exponent found the two targets identical on all 278.
+    expect(accuracyOf('ldexp')?.kind).toBe('exact')
     expect(accuracyOf('pack2x16snorm')?.kind).toBe('target')
     expect(accuracyOf('pack2x16float')?.kind).toBe('exact')
     expect(accuracyOf('textureLoad')?.kind).toBe('exact')
@@ -289,14 +293,34 @@ describe('the pack and quantize rows say what the emitted code actually does', (
     }
   })
 
-  it('both 4x8 packs are target rows: the exact half parts the two targets', () => {
-    // Measured on a real driver: the snorm inline spells WGSL's own `floor(0.5 + x)` and the
-    // WGSL driver rounded the same tie to EVEN, so writing the rule out does not make the two
-    // agree. Recorded as a divergence on both, with each note naming its own mechanism.
-    for (const id of ['pack4x8unorm', 'pack4x8snorm']) {
+  it('the unorm pack is exact once its GLSL spells WGSLrule; the snorm row stays', () => {
+    // `pack4x8unorm` WAS a `target` row on the GLSL `round()` spelling, whose exact half
+    // GLSL ES 3.00 §8.3 lets an implementation resolve either way (#141). The spelling is now
+    // WGSL's own `floor(0.5 + 255 * clamp(e, 0, 1))`, and the freedom is gone with it.
+    //
+    // Measured on eight inputs whose f32 product with 255 is exactly an ODD half — the ties
+    // that tell round-half-up from round-half-to-even, which 127.5 cannot, since 128 is what
+    // both rules give. A WGSL driver's NATIVE builtin, the new GLSL inline and the CPU oracle
+    // all answered half-UP on all eight (126.5 -> 127, not the 126 nearest-even would give).
+    expect(accuracyOf('pack4x8unorm')!.kind).toBe('exact')
+
+    // The snorm twin KEEPS its `target` row, and the reason is worth stating because the same
+    // probe did not reproduce its note. That note says a WGSL driver may round the tie to EVEN
+    // where the inline rounds up; on the driver measured here both rounded half-UP on eight
+    // odd ties, exactly as the unorm pair did. Eight points are not the whole input space, and
+    // a `target` row that turns out to be conservative costs a host some caution, while
+    // dropping a real divergence costs it a wrong picture. So the row stands until someone
+    // measures the space rather than a sample of it.
+    const snorm = accuracyOf('pack4x8snorm')!
+    expect(snorm.kind).toBe('target')
+    expect('note' in snorm && snorm.note).toMatch(/half|even/)
+
+    // The 2x16 packs are NATIVE GLSL builtins, defined with round(), so no spelling of ours
+    // can reach them and they stay `target` on the mechanism the unorm row just left behind.
+    for (const id of ['pack2x16unorm', 'pack2x16snorm']) {
       const a = accuracyOf(id)!
       expect(a.kind, id).toBe('target')
-      expect('note' in a && a.note, id).toMatch(/half|even/)
+      expect('note' in a && a.note, id).toMatch(/round\(\)/)
     }
   })
 })

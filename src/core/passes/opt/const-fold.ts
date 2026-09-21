@@ -27,7 +27,20 @@ import { BUILTINS } from '../../cpu-runtime.js'
  *  and the oracle computes it through the same `BUILTINS` entry, so P2 equality holds by
  *  construction. The transcendental ones (`sin`, `pow`, `sqrt`, ...) are NOT here: WGSL gives
  *  them an accuracy bound, not a correctly rounded result, so a folded literal could differ
- *  from the driver's own value by ulps. They stay calls, and the driver folds them itself. */
+ *  from the driver's own value by ulps. They stay calls, and the driver folds them itself.
+ *
+ *  `fract` is the one entry whose "exact" needed checking rather than asserting (#141). It is
+ *  INHERITED from `x - floor(x)`, and WGSL's note says `fract` of a tiny negative may be 1.0:
+ *  for `x = -1e-30` the exact fraction 1 - 2^-30 lies between two f32 neighbours and WGSL fixes
+ *  no rounding mode, so both 1.0 and the neighbour below are allowed. Folding in f64 and
+ *  rounding to f32 picks 1.0 — one of the two.
+ *
+ *  Measured before leaving it in the set: `fract(-1e-30)` is exactly 1.0 on WGSL (Tint) AND on
+ *  a WebGL2 driver, and `fract(-1e-7)` is 0.9999998807907104 on both. The two targets and the
+ *  fold agree on this hardware, so the fold is not inventing a third answer. The spec freedom
+ *  is real and another driver could take the other branch; that is a `target`-kind divergence
+ *  for the determinism report to carry, not a reason for the optimizer to leave the call
+ *  standing when both measured targets agree with it. */
 const EXACT_BUILTINS: ReadonlySet<string> = new Set([
   'abs',
   'floor',
