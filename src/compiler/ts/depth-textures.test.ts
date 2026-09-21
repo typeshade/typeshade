@@ -282,6 +282,7 @@ describe('the CPU twin', () => {
     const cm = compileModule(r.module, { gpuStubs: true })
     cm.setBinding('shadowMap', 0)
     cm.setBinding('shadowSmp', 0)
-    expect(cm.fns['fs']!([[10, 20, 0, 1]])).toEqual([0.5, 0.25, 0, 1])
+    // `fns[name]` takes one value per parameter (variadic); `eval` takes an args array.
+    expect(cm.fns['fs']!([10, 20, 0, 1])).toEqual([0.5, 0.25, 0, 1])
   })
 })
