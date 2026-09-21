@@ -10,10 +10,11 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 444 exports
+## `.` — 449 exports
 
 ```
 abs
+accuracyOf
 acos
 acosh
 add
@@ -100,6 +101,10 @@ cross
 cse
 DeclarableCapability
 degrees
+DeterminismAccuracy
+DeterminismEntry
+DeterminismKind
+determinismReport
 Diagnostic
 Discard
 DispatchReport
@@ -858,11 +863,11 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 552 definitions
+## Shapes — 557 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
-src/compiler/ts/compile.ts#CompileResult  interface  { diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
+src/compiler/ts/compile.ts#CompileResult  interface  { determinism: readonly DeterminismEntry[]; diagnostics: readonly TsCompilerDiagnostic[]; eval: (name: string, args?: readonly unknown[]) => unknown; glsl?: { readonly vertex: string; readonly fragment: string; }; module: ModuleDecl; wgsl?: string }
 src/compiler/ts/compile.ts#compile  function  (source: string, options?: CompileOptions) => CompileResult
 src/compiler/ts/directive.ts#USE_TYPESHADE  const  "use typeshade"
 src/compiler/ts/directive.ts#findUseTypeshadeDirective  function  (sourceFile: SourceFile) => ExpressionStatement
@@ -1036,7 +1041,7 @@ src/core/ir/node.ts#Node  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 exte
 src/core/ir/node.ts#NodeLike  type  number | ReadonlyNode<any>
 src/core/ir/node.ts#NonComposite  type  K extends `vec${string}` | `mat${string}` ? never : K
 src/core/ir/node.ts#ReadonlyNode  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; and: (o: ReadonlyNode<"bool">) => Node<"bool">; at: { <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T): Node<KeyOf<T>>; (this: ReadonlyNode<`array<${string}>`>, idx: number | ReadonlyNode<ScalarKey>): Node<ArrayElemKey<K>>; }; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; f32: (this: ReadonlyNode<NonComposite<K>>) => Node<"f32">; f64: (this: ReadonlyNode<"f32">) => Node<"f64">; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; i32: (this: ReadonlyNode<NonComposite<K>>) => Node<"i32">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; not: (this: ReadonlyNode<"bool">) => Node<"bool">; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; swizzle: <S extends string>(comps: S) => Node<SwizzleKey<K, S>>; type: ShaderType; u32: (this: ReadonlyNode<NonComposite<K>>) => Node<"u32">; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
-src/core/ir/node.ts#ScalarCastSource  type  "f64" | "f32" | "i32" | "u32" | "bool"
+src/core/ir/node.ts#ScalarCastSource  type  "f32" | "f64" | "i32" | "u32" | "bool"
 src/core/ir/node.ts#SwizzleKey  type  StrLen<S, []> extends 1 ? ElemKey<K> : `vec${StrLen<S, []> & number}<${ElemKey<K>}>`
 src/core/ir/node.ts#TexelKey  type  K extends `${string}<${infer E}>` ? `vec4<${E}>` : never
 src/core/ir/node.ts#TextureLoad2dKey  type  "texture_2d<f32>" | "texture_2d<u32>" | "texture_2d<i32>" | "texture_multisampled_2d<f32>"
@@ -1189,7 +1194,7 @@ src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S ex
 src/core/ir/types.ts#READ_WRITE_STORAGE_FORMATS  const  readonly ["r32uint", "r32sint", "r32float"]
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array" | "cube" | "3d" | "1d" | "cube-array" | "2d-ms"; readonly elem: TextureElem; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d" | "2d-array" | "cube" | "cube-array" | "2d-ms"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "void"; }
+src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array" | "cube" | "3d" | "1d" | "cube-array" | "2d-ms"; readonly elem: TextureElem; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d" | "2d-array" | "cube" | "cube-array" | "2d-ms"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#StorageTextureAccess  type  "read" | "read_write" | "write"
 src/core/ir/types.ts#StorageTextureFormat  type  "rgba8unorm" | "rgba8snorm" | "rgba8uint" | "rgba8sint" | "rgba16uint" | "rgba16sint" | "rgba16float" | "r32uint" | "r32sint" | "r32float" | "rg32uint" | "rg32sint" | "rg32float" | "rgba32uint" | "rgba32sint" | "rgba32float"
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
@@ -1201,8 +1206,8 @@ src/core/ir/types.ts#f32T  const  { readonly kind: "scalar"; readonly scalar: "f
 src/core/ir/types.ts#f64T  const  { readonly kind: "f64"; }
 src/core/ir/types.ts#i32T  const  { readonly kind: "scalar"; readonly scalar: "i32"; }
 src/core/ir/types.ts#isF64  const  (t: ShaderType) => t is { readonly kind: "f64"; }
-src/core/ir/types.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; }
-src/core/ir/types.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } & { elem: "f64"; }
+src/core/ir/types.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; }
+src/core/ir/types.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; } & { elem: "f64"; }
 src/core/ir/types.ts#isScalar  const  (t: ShaderType) => t is { readonly kind: "scalar"; readonly scalar: Scalar; }
 src/core/ir/types.ts#isVec  const  (t: ShaderType) => t is { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; }
 src/core/ir/types.ts#isVec64  const  (t: ShaderType) => t is { readonly kind: "vec64"; readonly n: 2 | 3 | 4; }
@@ -1261,11 +1266,16 @@ src/core/measure.ts#emitSize  function  (code: string) => EmitSize
 src/core/measure.ts#optimizerReport  function  (m: ModuleDecl) => OptimizerReport
 src/core/measure.ts#profileEmit  function  (m: ModuleDecl, target?: "wgsl" | "glsl-es300") => EmitProfile
 src/core/oracle.ts#CpuModule  interface  { dispatch: (entry: string, workgroups: WorkgroupCount) => DispatchReport; fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
-src/core/oracle.ts#CpuPrecision  type  "f64" | "f32"
+src/core/oracle.ts#CpuPrecision  type  "f32" | "f64"
 src/core/oracle.ts#DispatchReport  interface  { barrierPhases: number; invocations: number; workgroups: number }
 src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink; }) => CpuModule
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
+src/core/passes/determinism.ts#DeterminismAccuracy  type  { readonly kind: "exact"; } | { readonly kind: "ulp" | "absolute" | "inherited" | "unbounded" | "filtered" | "target"; readonly bound: string; readonly note?: string; }
+src/core/passes/determinism.ts#DeterminismEntry  interface  { accuracy: string; count: number; elem: "f32" | "f64"; kind: DeterminismKind; note?: string; op: string; where: readonly string[] }
+src/core/passes/determinism.ts#DeterminismKind  type  "ulp" | "absolute" | "inherited" | "unbounded" | "filtered" | "target" | "emulated"
+src/core/passes/determinism.ts#accuracyOf  function  (op: string) => DeterminismAccuracy
+src/core/passes/determinism.ts#determinismReport  function  (m: ModuleDecl) => readonly DeterminismEntry[]
 src/core/passes/force-inline.ts#InlineDecision  interface  { callSites: number; fn: string; growth: number; inlined: boolean; ops: number; reason: "inlined" | "over-budget" | "not-inlinable" }
 src/core/passes/force-inline.ts#InlineOpaque  type  "all" | "keep" | "single-call"
 src/core/passes/fp64-lower.ts#Fp64Flavor  type  "float" | "integer"

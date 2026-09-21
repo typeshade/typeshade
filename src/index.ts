@@ -8,6 +8,13 @@
 export { compile, type CompileOptions, type CompileResult } from './compiler/ts/compile.js'
 export { type TsCompilerDiagnostic } from './compiler/ts/source-file.js'
 export {
+  determinismReport,
+  accuracyOf,
+  type DeterminismAccuracy,
+  type DeterminismEntry,
+  type DeterminismKind,
+} from './core/passes/determinism.js'
+export {
   compileTsSource,
   isTypeshadeSource,
   type CompileTsSourceOptions,
@@ -46,7 +53,13 @@ export * from './core/backend.js'
 export * from './core/backends/wgsl.js'
 export * from './core/backends/glsl.js'
 export * from './core/intrinsics.js'
-export { CONSOLE_METHODS, isConsoleMethod, type ConsoleEvent, type ConsoleMethod, type ConsoleSink } from './core/console.js'
+export {
+  CONSOLE_METHODS,
+  isConsoleMethod,
+  type ConsoleEvent,
+  type ConsoleMethod,
+  type ConsoleSink,
+} from './core/console.js'
 export { type EmitPlugin, type EmitOptions } from './core/emit.js'
 export * from './core/oracle.js'
 export { compileModuleJs } from './core/cpu-codegen.js'

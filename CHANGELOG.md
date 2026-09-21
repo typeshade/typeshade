@@ -13,6 +13,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
+  operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a
+  ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the driver
+  may reassociate or fuse (`pow`, `mix`, `fma`, `fract`, the matrix products), a derivative or
+  `determinant`, a filtered texture read or gather, an operation the GLSL ES 3.00 spelling may
+  answer differently on an input WGSL settles (`ldexp` at `e = 128`, the `pack` builtins at an
+  exact half), and every emulated `f64` arithmetic operator and bounded builtin, each with the
+  spec's bound in words, its count and the constants, variables and functions it occurs in, in
+  first-appearance order. An empty list means every operation has one answer. `accuracyOf(op)`
+  answers for one operation, and a structural test requires every intrinsic the compiler can
+  emit to be placed in the exact column or the table.
 - **Multisampled loads** (§37, roadmap 0.4 item 13). `textureLoad(t, coords, sampleIndex)` on a
   `texture_multisampled_2d<T>` yields one sample as a `vec4<T>`, and on the new
   `texture_depth_multisampled_2d` an `f32`; `textureNumSamples(t)` is the count. The type existed
