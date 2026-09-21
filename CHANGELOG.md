@@ -13,6 +13,20 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **The WGSL-only textures: `texture_1d`, `texture_cube_array`, `textureGather`** (§36, roadmap
+  0.4 item 12, the second half). `declare const ramp: texture_1d<f32>` is sampled and fetched by
+  one number and its size is a `u32`; `declare const envs: texture_cube_array<f32>` samples like
+  a cube with the layer after the direction, on every sampling form, and
+  `texture_depth_cube_array` compares the same way; `textureGather(component, tex, smp, coords)`
+  reads one channel of the four texels a linear filter would blend, as a `vec4` of the
+  texture's element, in any stage, with the component first on a colour texture and absent on a
+  depth one, and `textureGatherCompare(tex, smpCmp, coords, ref)` returns four pass results.
+  GLSL ES 3.00 has none of the three (measured on a WebGL2 driver), so each derives its own
+  capability (`texture1d`, `textureCubeArray`, `textureGather`) with a WGSL row and no GLSL row;
+  `reflect().requiredFeatures` reports them. An integer cube (`texture_cube<u32>`) is admitted
+  now that gather reads it. Each refusal is one sentence: a component outside 0..3 or not written
+  in the call, a component on a depth texture, a bias or gradient on a 1d texture, the wrong
+  sampler kind. `examples/cube-array-gather.shade.ts` runs on the Tint half of the gate.
 - **Cube and 3D textures, bias and gradient sampling** (§35, roadmap 0.4 item 12, the portable
   half). `declare const env: texture_cube<f32>` is looked up by a `vec3` direction and
   `declare const lut: texture_3d<f32>` by a `vec3` coordinate, with the read ids a 2D texture

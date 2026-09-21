@@ -105,6 +105,10 @@ const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): st
       return 'sampler2DArrayShadow'
     case 'cube':
       return 'samplerCubeShadow'
+    case 'cube-array':
+      throw new UnsupportedFeatureError(
+        'glsl-es300: texture_depth_cube_array has no GLSL ES 3.00 spelling (no cube-array samplers)',
+      )
   }
 }
 
@@ -173,6 +177,14 @@ function glslType(t: ShaderType): string {
           return `${p}samplerCube`
         case '3d':
           return `${p}sampler3D`
+        // GLSL ES 3.00 has neither: `sampler1D` is a reserved word and `samplerCubeArray` needs
+        // an extension a WebGL2 driver refuses (measured). The `texture1d` / `textureCubeArray`
+        // capabilities fail the module closed before emit; this arm is for a hand-built module.
+        case '1d':
+        case 'cube-array':
+          throw new UnsupportedFeatureError(
+            `glsl-es300: ${typeKey(t)} has no GLSL ES 3.00 spelling (no 1d or cube-array samplers)`,
+          )
         default:
           // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.

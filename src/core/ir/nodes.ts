@@ -651,6 +651,9 @@ export type Capability =
   | 'compute'
   | 'msaaTextureLoad'
   | 'storageTexture'
+  | 'texture1d'
+  | 'textureCubeArray'
+  | 'textureGather'
   | 'f16'
   | 'subgroups'
   | 'floatRenderTarget'
@@ -666,6 +669,9 @@ export const ALL_CAPABILITIES = [
   'compute',
   'msaaTextureLoad',
   'storageTexture',
+  'texture1d',
+  'textureCubeArray',
+  'textureGather',
   'f16',
   'subgroups',
   'floatRenderTarget',
@@ -686,7 +692,13 @@ export const ALL_CAPABILITIES = [
  *  exactly what they must express. */
 export type DeclarableCapability = Exclude<
   Capability,
-  'storageBuffer' | 'compute' | 'msaaTextureLoad' | 'storageTexture'
+  | 'storageBuffer'
+  | 'compute'
+  | 'msaaTextureLoad'
+  | 'storageTexture'
+  | 'texture1d'
+  | 'textureCubeArray'
+  | 'textureGather'
 >
 
 /** The whole-shader unit: everything a backend needs to emit a complete WGSL or GLSL ES 3.00

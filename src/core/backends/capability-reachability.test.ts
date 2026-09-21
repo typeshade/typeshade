@@ -260,6 +260,90 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
     }),
   },
 
+  // Roadmap 0.4 item 12: a 1d or cube-array texture binding, and a textureGather call. Each is
+  // derived from the module's shape, so each resolves through the real requiredCaps.
+  texture1d: {
+    kind: 'moduleShape',
+    what: "a texture binding with dim '1d'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'ramp',
+          space: 'uniform',
+          type: { kind: 'texture', dim: '1d', elem: 'f32' },
+        },
+      ],
+      funcs: [],
+    }),
+  },
+  textureCubeArray: {
+    kind: 'moduleShape',
+    what: "a texture binding with dim 'cube-array'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'envs',
+          space: 'uniform',
+          type: { kind: 'texture', dim: 'cube-array', elem: 'f32' },
+        },
+      ],
+      funcs: [],
+    }),
+  },
+  textureGather: {
+    kind: 'moduleShape',
+    what: 'a call to textureGather in a function body',
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'atlas',
+          space: 'uniform',
+          type: { kind: 'texture', dim: '2d', elem: 'f32' },
+        },
+        { group: 0, binding: 1, name: 'smp', space: 'uniform', type: { kind: 'sampler' } },
+      ],
+      funcs: [
+        {
+          name: 'gather_probe',
+          params: [],
+          ret: { kind: 'vec', n: 4, elem: 'f32' },
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'call',
+                type: { kind: 'vec', n: 4, elem: 'f32' },
+                fn: 'textureGather',
+                args: [
+                  { op: 'lit', type: { kind: 'scalar', scalar: 'i32' }, value: 0 },
+                  {
+                    op: 'varref',
+                    type: { kind: 'texture', dim: '2d', elem: 'f32' },
+                    name: 'atlas',
+                  },
+                  { op: 'varref', type: { kind: 'sampler' }, name: 'smp' },
+                  { op: 'lit', type: { kind: 'vec', n: 2, elem: 'f32' }, value: 0 },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  },
+
   // ── OPT-IN caps whose whole surface is host activation. ──
   floatRenderTarget: hostOnly('floatRenderTarget'),
   float32Blend: hostOnly('float32Blend'),

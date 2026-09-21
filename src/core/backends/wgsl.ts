@@ -88,6 +88,10 @@ export function wgslType(t: ShaderType): string {
           return `texture_cube<${t.elem}>`
         case '3d':
           return `texture_3d<${t.elem}>`
+        case '1d':
+          return `texture_1d<${t.elem}>`
+        case 'cube-array':
+          return `texture_cube_array<${t.elem}>`
         default:
           // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.
@@ -110,6 +114,8 @@ export function wgslType(t: ShaderType): string {
           return 'texture_depth_2d_array'
         case 'cube':
           return 'texture_depth_cube'
+        case 'cube-array':
+          return 'texture_depth_cube_array'
       }
     case 'sampler':
       return 'sampler'
@@ -203,6 +209,11 @@ const WGSL_CAP_PROFILE = {
   // 10) — measured against a real adapter, which built a bind group layout for each of them
   // with nothing requested. The formats that DO need one are not in `StorageTextureFormat`.
   storageTexture: {},
+  // A 1d texture, a cube-array texture and textureGather are core WGSL (roadmap 0.4 item 12):
+  // the rows are empty, and GLSL ES 3.00 has none of the three, so its profile has no row.
+  texture1d: {},
+  textureCubeArray: {},
+  textureGather: {},
   // Opt-in LANGUAGE features — a WGSL `enable` directive AND a device feature.
   f16: { directive: 'f16', hostFeature: 'shader-f16' },
   subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },

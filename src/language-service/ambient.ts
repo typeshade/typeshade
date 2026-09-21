@@ -584,8 +584,13 @@ type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
  * by a \`vec3\` coordinate; both are core in both targets (roadmap 0.4 item 12). A cube is
  * only ever sampled, since neither target has a texel fetch for one, so its element is
  * \`f32\` alone: the editor refuses \`texture_cube<u32>\` here and the compiler says why. */
-type texture_cube<E extends f32 = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
+type texture_cube<E = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
 type texture_3d<E = f32> = { readonly [textureTag]: readonly [E, '3d'] }
+/** WebGPU-only (roadmap 0.4 item 12): a 1D texture is a row of texels addressed by ONE number,
+ * and a cube array is N cube maps addressed by a direction and a layer. GLSL ES 3.00 has
+ * neither, so a module using one emits WGSL alone. */
+type texture_1d<E = f32> = { readonly [textureTag]: readonly [E, '1d'] }
+type texture_cube_array<E = f32> = { readonly [textureTag]: readonly [E, 'cube-array'] }
 type sampler = { readonly [samplerTag]: true }
 
 declare const storageTextureTag: unique symbol
@@ -655,6 +660,8 @@ type texture_depth_2d = { readonly [depthTextureTag]: false }
 type texture_depth_2d_array = { readonly [depthTextureTag]: true }
 /** The shadow map of a point light, compared by the direction from the light. */
 type texture_depth_cube = { readonly [depthTextureTag]: 'cube' }
+/** The shadow maps of N point lights in one binding; WebGPU-only, like \`texture_cube_array\`. */
+type texture_depth_cube_array = { readonly [depthTextureTag]: 'cube-array' }
 /** The sampler a depth comparison takes. Not interchangeable with \`sampler\` in either
  * direction, which the overloads below make the editor say before the compiler does. */
 type sampler_comparison = { readonly [samplerComparisonTag]: true }
@@ -703,6 +710,80 @@ declare function textureSampleCompareLevel(
   dir: vec3,
   ref: number,
 ): f32
+${renderJSDoc(FUNCTION_DOCS.textureSampleCompare)}
+declare function textureSampleCompare(
+  tex: texture_depth_cube_array,
+  smp: sampler_comparison,
+  dir: vec3,
+  layer: number,
+  ref: number,
+): f32
+${renderJSDoc(FUNCTION_DOCS.textureSampleCompareLevel)}
+declare function textureSampleCompareLevel(
+  tex: texture_depth_cube_array,
+  smp: sampler_comparison,
+  dir: vec3,
+  layer: number,
+  ref: number,
+): f32
+${renderJSDoc(FUNCTION_DOCS.textureGather)}
+declare function textureGather<E>(component: number, tex: texture_2d<E>, smp: sampler, uv: vec2): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGather)}
+declare function textureGather<E>(
+  component: number,
+  tex: texture_2d_array<E>,
+  smp: sampler,
+  uv: vec2,
+  layer: number,
+): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGather)}
+declare function textureGather<E>(component: number, tex: texture_cube<E>, smp: sampler, dir: vec3): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGather)}
+declare function textureGather<E>(
+  component: number,
+  tex: texture_cube_array<E>,
+  smp: sampler,
+  dir: vec3,
+  layer: number,
+): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGather)}
+declare function textureGather(tex: texture_depth_2d, smp: sampler, uv: vec2): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGather)}
+declare function textureGather(tex: texture_depth_2d_array, smp: sampler, uv: vec2, layer: number): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGather)}
+declare function textureGather(tex: texture_depth_cube, smp: sampler, dir: vec3): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGather)}
+declare function textureGather(tex: texture_depth_cube_array, smp: sampler, dir: vec3, layer: number): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGatherCompare)}
+declare function textureGatherCompare(
+  tex: texture_depth_2d,
+  smp: sampler_comparison,
+  uv: vec2,
+  ref: number,
+): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGatherCompare)}
+declare function textureGatherCompare(
+  tex: texture_depth_2d_array,
+  smp: sampler_comparison,
+  uv: vec2,
+  layer: number,
+  ref: number,
+): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGatherCompare)}
+declare function textureGatherCompare(
+  tex: texture_depth_cube,
+  smp: sampler_comparison,
+  dir: vec3,
+  ref: number,
+): vec4
+${renderJSDoc(FUNCTION_DOCS.textureGatherCompare)}
+declare function textureGatherCompare(
+  tex: texture_depth_cube_array,
+  smp: sampler_comparison,
+  dir: vec3,
+  layer: number,
+  ref: number,
+): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(tex: texture_2d<f32>, smp: sampler, uv: vec2): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureSample)}
@@ -716,6 +797,15 @@ ${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(tex: texture_cube<f32>, smp: sampler, dir: vec3): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureSample)}
 declare function textureSample(tex: texture_3d<f32>, smp: sampler, coord: vec3): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSample)}
+declare function textureSample(tex: texture_1d<f32>, smp: sampler, coord: number): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSample)}
+declare function textureSample(
+  tex: texture_cube_array<f32>,
+  smp: sampler,
+  dir: vec3,
+  layer: number,
+): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureSampleLevel)}
 declare function textureSampleLevel(
   tex: texture_2d<f32>,
@@ -743,6 +833,16 @@ declare function textureSampleLevel(
   tex: texture_3d<f32>,
   smp: sampler,
   coord: vec3,
+  level: number,
+): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSampleLevel)}
+declare function textureSampleLevel(tex: texture_1d<f32>, smp: sampler, coord: number, level: number): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSampleLevel)}
+declare function textureSampleLevel(
+  tex: texture_cube_array<f32>,
+  smp: sampler,
+  dir: vec3,
+  layer: number,
   level: number,
 ): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureSampleBias)}
@@ -769,6 +869,14 @@ declare function textureSampleBias(
   coord: vec3,
   bias: number,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSampleBias)}
+declare function textureSampleBias(
+  tex: texture_cube_array<f32>,
+  smp: sampler,
+  dir: vec3,
+  layer: number,
+  bias: number,
+): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureSampleGrad)}
 declare function textureSampleGrad(
   tex: texture_2d<f32>,
@@ -802,6 +910,15 @@ declare function textureSampleGrad(
   ddx: vec3,
   ddy: vec3,
 ): vec4
+${renderJSDoc(FUNCTION_DOCS.textureSampleGrad)}
+declare function textureSampleGrad(
+  tex: texture_cube_array<f32>,
+  smp: sampler,
+  dir: vec3,
+  layer: number,
+  ddx: vec3,
+  ddy: vec3,
+): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E>(tex: texture_2d<E>, coord: vec2i, level: number): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
@@ -813,6 +930,8 @@ declare function textureLoad<E>(
 ): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<E>(tex: texture_3d<E>, coord: vec3i, level: number): vec4
+${renderJSDoc(FUNCTION_DOCS.textureLoad)}
+declare function textureLoad<E>(tex: texture_1d<E>, coord: number, level: number): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
   tex: texture_storage_2d<F, A>,
@@ -840,13 +959,19 @@ declare function textureStore<F extends StorageFormat, A extends 'write' | 'read
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions(tex: texture_cube): vec2u
+declare function textureDimensions<E>(tex: texture_cube<E> | texture_cube_array<E>): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions<E>(tex: texture_3d<E>): vec3u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
+declare function textureDimensions<E>(tex: texture_1d<E>): u32
+${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
 declare function textureDimensions(
-  tex: texture_depth_2d | texture_depth_2d_array | texture_depth_cube,
+  tex: texture_depth_2d | texture_depth_2d_array | texture_depth_cube | texture_depth_cube_array,
 ): vec2u
+${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
+declare function textureNumLayers<E>(tex: texture_cube_array<E>): u32
+${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
+declare function textureNumLayers(tex: texture_depth_cube_array): u32
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers(tex: texture_depth_2d_array): u32
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}

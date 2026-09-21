@@ -139,7 +139,11 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
   f64: 'Widens an `f32` to the emulated double `f64`. A value that is already `f64` is returned as it is; cast an integer to `f32` first.',
   textureSample:
-    'Samples a float texture through the sampler `smp` with the implicit level of detail, in the fragment stage only: at `uv` on a `texture_2d`, by a `vec3` direction on a `texture_cube`, by a `vec3` coordinate on a `texture_3d`, and on a `texture_2d_array` the fourth argument picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate.',
+    'Samples a float texture through the sampler `smp` with the implicit level of detail, in the fragment stage only: at `uv` on a `texture_2d`, by a `vec3` direction on a `texture_cube`, by a `vec3` coordinate on a `texture_3d`, by one `f32` on a `texture_1d`, and on an array texture the argument after the coordinate picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate; a `texture_1d` or a `texture_cube_array` has no GLSL ES 3.00 form, so a module using one emits WGSL alone.',
+  textureGather:
+    'Reads one channel from the four texels a linear filter would blend at the coordinate on mip level 0, through the sampler `smp`, and returns them as a `vec4` in the order (umin,vmax), (umax,vmax), (umax,vmin), (umin,vmin), in any stage. On a colour texture the first argument is the channel, a whole number from 0 to 3 written in the call; a depth texture has one channel and takes none; an array texture takes the layer after the coordinate. Compiles to `textureGather` on WGSL; GLSL ES 3.00 has no gather, so a module using it emits WGSL alone.',
+  textureGatherCompare:
+    'Compares the reference depth `ref` against the four texels a linear filter would blend at the coordinate on mip level 0, through the comparison sampler `smp`, and returns the four results (0 or 1 each) as a `vec4` in the order (umin,vmax), (umax,vmax), (umax,vmin), (umin,vmin), in any stage. On a `texture_depth_2d_array` or a `texture_depth_cube_array` the layer comes before the reference. Compiles to `textureGatherCompare` on WGSL; GLSL ES 3.00 has no gather, so a module using it emits WGSL alone.',
   textureSampleLevel:
     'Samples a float texture through the sampler `smp` at an explicit mip `level`, in any stage; the coordinate is a `vec2` on a `texture_2d` and a `vec3` on a `texture_cube` or a `texture_3d`. On a `texture_2d_array` the layer comes before the level. Compiles to `textureSampleLevel` on WGSL and `textureLod` on GLSL.',
   textureSampleBias:
@@ -147,7 +151,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   textureSampleGrad:
     'Samples a float texture through the sampler `smp` with the explicit gradients `ddx` and `ddy`, which have the width of the coordinate, in any stage. On a `texture_2d_array` the layer comes before the gradients. Compiles to `textureSampleGrad` on WGSL and `textureGrad` on GLSL.',
   textureLoad:
-    'Reads one texel at the integer `coord` and mip `level` without filtering, by a `vec2i` on a `texture_2d` and a `vec3i` on a `texture_3d`; a cube texture has no texel fetch on either target. On a `texture_2d_array` the layer comes before the level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL.',
+    'Reads one texel at the integer `coord` and mip `level` without filtering, by a `vec2i` on a `texture_2d`, a `vec3i` on a `texture_3d` and one integer on a `texture_1d`; a cube texture has no texel fetch on either target. On a `texture_2d_array` the layer comes before the level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL.',
   textureSampleCompare:
     'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp`, with the implicit level of detail, in the fragment stage only; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference, and on a `texture_depth_cube` the coordinate is a `vec3` direction. Compiles to `textureSampleCompare` on WGSL and `texture(sampler2DShadow, vec3(uv, ref))` on GLSL, where the reference folds into the coordinate.',
   textureSampleCompareLevel:
@@ -155,9 +159,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   textureStore:
     'Writes one texel to a storage texture at the integer `coord`, on a binding declared `"write"` or `"read_write"`; returns nothing. The value is the texel the format decides: a `"…uint"` format stores a `vec4u`, a `"…sint"` one a `vec4i`, and every other one a `vec4`. Compiles to `textureStore` on WGSL; GLSL ES 3.00 has no image load/store, so a module using it emits WGSL alone and the CPU oracle, which has no texture memory, drops the write.',
   textureDimensions:
-    "Returns the size of the texture's base mip level: width and height as a `vec2u`, or width, height and depth as a `vec3u` on a `texture_3d`. On a cube texture it is the size of one face.",
+    "Returns the size of the texture's base mip level: width and height as a `vec2u`, width, height and depth as a `vec3u` on a `texture_3d`, or the width alone as a `u32` on a `texture_1d`. On a cube texture it is the size of one face.",
   textureNumLayers:
-    'Returns the number of layers of a `texture_2d_array` as a `u32`. A plain 2D texture has no layers and is refused.',
+    'Returns the number of layers of a `texture_2d_array` or a `texture_cube_array` as a `u32`. A texture with no layers is refused.',
   arrayLength:
     'Returns the number of elements of a runtime-sized storage array as a `u32`, read from the buffer the host bound; `xs.length` on such an array reads the same thing. The argument must be the storage binding itself or a trailing array field of one. Compiles to `arrayLength(&xs)` on WGSL; GLSL ES 3.00 has no storage buffers, so a module using it emits WGSL alone.',
   atomicLoad:

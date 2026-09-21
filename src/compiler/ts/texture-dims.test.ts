@@ -142,7 +142,7 @@ describe('the reads, by direction and by vec3 coordinate', () => {
 
   it('refuses textureNumLayers on a cube and on a 3d texture, naming what each has instead', () => {
     expect(errorsOf(fragment(`  return vec4(f32(textureNumLayers(env)))`))).toEqual([
-      'textureNumLayers needs a texture_2d_array; a texture_cube has six faces, not layers.',
+      'textureNumLayers needs a texture_2d_array or a texture_cube_array; a texture_cube has six faces, not layers.',
     ])
     expect(errorsOf(fragment(`  return vec4(f32(textureNumLayers(lut)))`))).toEqual([
       'textureNumLayers needs a texture_2d_array; a texture_3d has depth, not layers: ' +
@@ -238,11 +238,20 @@ describe('the coordinate has the width the dim decides, and this says so first',
   })
 })
 
-describe('an integer cube is refused at the declaration, with the reason', () => {
-  it('names the later read that would admit it', () => {
-    const errors = errorsOf(fragment(`  return vec4(0.)`, `declare const ids: texture_cube<u32>`))
-    expect(errors[0]).toContain('texture_cube<u32> cannot be read')
-    expect(errors[0]).toContain('textureGather, which reads an integer cube, is a later item')
+describe('an integer cube is declared, and only textureGather reads it', () => {
+  it('refuses textureSample on it, naming the read that applies', () => {
+    // A cube has no texel fetch on either target and sampling is float-only, so the one read an
+    // integer cube has is a gather (roadmap 0.4 item 12, the WGSL-only half).
+    const errors = errorsOf(
+      fragment(
+        `  return vec4(textureSample(ids, smp, dir))`,
+        `declare const ids: texture_cube<u32>
+declare const smp: sampler`,
+      ),
+    )
+    expect(errors).toEqual([
+      'textureSample needs a float texture; texture_cube<u32> is read with textureGather.',
+    ])
   })
 })
 
@@ -281,7 +290,7 @@ declare const shadowSmp: sampler_comparison`
       'textureSampleCompare on a texture_depth_cube takes a vec3 direction; got vec2<f32>.',
     ])
     expect(errorsOf(fragment(`  return vec4(f32(textureNumLayers(pointShadow)))`, D))).toEqual([
-      'textureNumLayers needs a texture_depth_2d_array; a texture_depth_cube has six faces, not layers.',
+      'textureNumLayers needs a texture_depth_2d_array or a texture_depth_cube_array; a texture_depth_cube has six faces, not layers.',
     ])
   })
 

@@ -468,7 +468,8 @@ export function lowerSourceFunctions(
  *  `textureSampleBiasArray`, `textureSampleCompareCube`) that no author writes: the surface
  *  spells every form with the one name and the texture's dim picks the id. So the suffix comes
  *  off before the message, which otherwise names a function the file does not contain. */
-const writtenName = (op: string): string => op.replace(/^(texture\w+?)(Array|Cube)$/, '$1')
+const writtenName = (op: string): string =>
+  op.replace(/^(texture\w+?)(CubeArray|Array|Cube)$/, '$1')
 
 const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
   'textureSampleCompare',
@@ -478,6 +479,8 @@ const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
   // WebGL2 driver both refuse it outside a fragment stage (roadmap 0.4 item 12).
   'textureSampleBias',
   'textureSampleBiasArray',
+  'textureSampleBiasCubeArray',
+  'textureSampleCompareCubeArray',
   'fwidth',
   'dpdx',
   'dpdy',

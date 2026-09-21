@@ -382,6 +382,13 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'cube-array-gather',
+    title: 'The WGSL-only textures',
+    blurb:
+      'A colour ramp as a `texture_1d<f32>`, two environment maps as a `texture_cube_array<f32>` picked by layer, a hand-written percentage-closer filter from `textureGatherCompare`, a `textureGather` of one channel from four texels, and a point light\u2019s shadow as a `texture_depth_cube_array` (\u00a736). GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives a capability (`texture1d`, `textureCubeArray`, `textureGather`) with a WGSL row and no GLSL row: this example runs on the Tint half of the gate alone. The argument order is the spec\u2019s: the component first on a colour texture, none on a depth one, the layer after the coordinate, the reference after the layer.',
+    renderable: false,
+  },
+  {
     id: 'storage-texture',
     title: 'A storage texture',
     blurb:

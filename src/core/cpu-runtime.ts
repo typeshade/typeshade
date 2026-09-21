@@ -700,6 +700,17 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureSampleBiasArray: () => [0, 0, 0, 1],
   textureSampleGrad: () => [0, 0, 0, 1],
   textureSampleGradArray: () => [0, 0, 0, 1],
+  // The cube-array forms and the gathers (roadmap 0.4 item 12): a texel, so opaque black; a
+  // gather of a DEPTH texture yields four depths, and the placeholder is 1, the far plane, for
+  // the reason a comparison yields 1: nothing occludes, so the rest of the shader is left alone.
+  textureSampleCubeArray: () => [0, 0, 0, 1],
+  textureSampleLevelCubeArray: () => [0, 0, 0, 1],
+  textureSampleBiasCubeArray: () => [0, 0, 0, 1],
+  textureSampleGradCubeArray: () => [0, 0, 0, 1],
+  textureGather: () => [0, 0, 0, 1],
+  textureGatherArray: () => [0, 0, 0, 1],
+  textureGatherDepth: () => [1, 1, 1, 1],
+  textureGatherDepthArray: () => [1, 1, 1, 1],
   // The depth comparisons (roadmap 0.4 item 11) yield how much of the filter footprint passed,
   // which a shader multiplies its lighting by. 1, not 0: the oracle has no texture memory, so
   // the honest placeholder is the one that leaves the rest of the shader alone — a factor of 1
@@ -712,8 +723,14 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureSampleCompareLevelArray: () => 1,
   textureSampleCompareCube: () => 1,
   textureSampleCompareLevelCube: () => 1,
+  textureSampleCompareCubeArray: () => 1,
+  textureSampleCompareLevelCubeArray: () => 1,
+  // Four pass factors, each the identity for the multiply it feeds.
+  textureGatherCompare: () => [1, 1, 1, 1],
+  textureGatherCompareArray: () => [1, 1, 1, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
   textureDimensions3d: () => [1, 1, 1], // the 3d twin: 1×1×1, for the same reason
+  textureDimensions1d: () => 1, // the 1d twin: one texel wide
   textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
   // A storage texture write (roadmap 0.4 item 10). The oracle has no texture memory, so the
   // write goes nowhere and the call yields nothing — the same contract the reads above keep,
