@@ -23,10 +23,14 @@ import { GLSL_ES300_RESERVED } from '../reserved-words.js'
 // own history is a list that drifted from the spec: it had `half` and `fixed` but not `float`
 // or `void`, and none of the image or 1D sampler names §3.6 reserves.
 //
-// Five spellings are renamed here that the language does NOT reserve at 300, because renaming
+// Six spellings are renamed here that the language does NOT reserve at 300, because renaming
 // costs nothing and emitting them does: `buffer` and `shared` are ES 3.10 keywords, `packed`
-// is reserved in ES 1.00, and `texture` and `sampler` are a built-in function and a type name
-// a local of that name would shadow for the rest of the scope.
+// is reserved in ES 1.00, `texture` and `sampler` are a built-in function and a type name a
+// local of that name would shadow for the rest of the scope, and `main` is the name this
+// writer gives every stage's entry point.
+//
+// The gate in glsl.test.ts ties this set to what `glslType()` can actually declare, so a new
+// texture shape cannot reopen the gap it was written for (X-GIS #1703).
 const GLSL_RESERVED: ReadonlySet<string> = new Set([
   ...GLSL_ES300_RESERVED,
   'buffer',
@@ -34,7 +38,26 @@ const GLSL_RESERVED: ReadonlySet<string> = new Set([
   'packed',
   'texture',
   'sampler',
+  // Not reserved either, but the name of the entry point this writer emits in every stage: a
+  // helper called `main` produced two `main` definitions in one translation unit.
+  'main',
 ])
+
+/** `float` → `float_`, and `float_1`, `float_2`, … if something already holds that name.
+ *
+ *  The suffix NUMBERS rather than repeating the underscore, which is what it used to do:
+ *  measured on ANGLE, `float__` is "identifiers containing two consecutive underscores (__)
+ *  are reserved as possible future keywords", so the escape from one reserved word walked
+ *  straight into another rule of the same section. A reserved word never ends in `_`, so the
+ *  first candidate cannot produce a double underscore either. */
+function freeName(base: string, taken: (candidate: string) => boolean): string {
+  const free = (c: string): boolean => !GLSL_RESERVED.has(c) && !taken(c)
+  if (free(`${base}_`)) return `${base}_`
+  for (let i = 1; ; i++) {
+    const candidate = `${base}_${String(i)}`
+    if (free(candidate)) return candidate
+  }
+}
 
 /** Rename any param/local-var identifier that collides with a GLSL reserved word
  *  (and every reference to it), per-function, returning a new module. Identity for
@@ -57,16 +80,31 @@ export function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
       }
     }
   }
+  // Every name that is already in scope at MODULE level, so a rename can never land on one.
+  // The `safe` loop below only knew about the function's own names and the reserved list, so
+  // a local named `float` beside a module const named `float_` became two `float_`s in one
+  // scope: the GLSL compiled and answered with the wrong value, while WGSL and the CPU oracle
+  // answered with the right one. Silent divergence is the worst failure this package has, and
+  // it is what the enlarged word list would otherwise have made reachable for `float`, `int`
+  // and the other type names (issue #103).
+  const moduleScope = new Set<string>([
+    ...m.consts.map((c) => c.name),
+    ...m.bindings.map((b) => b.name),
+    ...(m.overrides ?? []).map((o) => o.name),
+    ...(m.vars ?? []).map((v) => v.name),
+    ...m.structs.map((st) => st.name),
+    ...m.funcs.map((f) => f.name),
+  ])
   const rewriteFunc = (f: FuncDecl): FuncDecl => {
-    const names = new Set<string>(f.params.map((p) => p.name))
+    const names = new Set<string>([...moduleScope, ...f.params.map((p) => p.name)])
     collectDeclNames(f.body, names)
     const map = new Map<string, string>()
     for (const n of names) {
       if (!GLSL_RESERVED.has(n)) continue
-      let safe = n + '_'
-      while (GLSL_RESERVED.has(safe) || names.has(safe) || [...map.values()].includes(safe))
-        safe += '_'
-      map.set(n, safe)
+      map.set(
+        n,
+        freeName(n, (c) => names.has(c) || [...map.values()].includes(c)),
+      )
     }
     if (map.size === 0) return f
     const rn = (n: string) => map.get(n) ?? n
@@ -98,9 +136,19 @@ export function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
   }
   const locallyClean = { ...m, funcs: m.funcs.map(rewriteFunc) }
 
-  // X-GIS #763 P6 — module-level surfaces the per-fn pass could not cover:
-  // (a) BINDING names reach GLSL verbatim as UBO/texture identifiers; renaming
-  //     one would desync the host's reflection-driven bind points → fail loud.
+  // X-GIS #763 P6 — module-level surfaces the per-fn pass could not cover. None of them can
+  // be renamed the way a local can: a binding name is the host's reflection key, a struct and
+  // its fields are the std140 offsets and the cross-stage varying contract, and a constant or
+  // an override is named in text the host may set. So they fail the module loud rather than
+  // reaching a driver as "Illegal use of reserved word" in generated text (issue #103). The
+  // front end reports each of these on the declaration first, as a warning naming this target;
+  // this arm is what keeps a module built another way — the `fn()` EDSL — from emitting them.
+  const failClosed = (what: string, name: string): void => {
+    if (!GLSL_RESERVED.has(name)) return
+    throw new UnsupportedFeatureError(
+      `glsl-es300: ${what} is a GLSL ES 3.00 reserved word and cannot be renamed here; pick another name`,
+    )
+  }
   for (const b of m.bindings) {
     if (GLSL_RESERVED.has(b.name)) {
       throw new UnsupportedFeatureError(
@@ -108,14 +156,20 @@ export function sanitizeReservedIdents(m: ModuleDecl): ModuleDecl {
       )
     }
   }
+  for (const st of m.structs) {
+    failClosed(`struct '${st.name}'`, st.name)
+    for (const f of st.fields) failClosed(`field '${st.name}.${f.name}'`, f.name)
+  }
+  for (const c of m.consts) failClosed(`constant '${c.name}'`, c.name)
+  for (const o of m.overrides ?? []) failClosed(`override '${o.name}'`, o.name)
+  for (const v of m.vars ?? []) failClosed(`module variable '${v.name}'`, v.name)
   // (b) FN names: a helper named `texture`/`filter` emitted a reserved-word
   //     function declaration. Rename the declaration AND every call site.
   const fnRename = new Map<string, string>()
-  const taken = new Set(locallyClean.funcs.map((f) => f.name))
+  const taken = new Set([...moduleScope, ...locallyClean.funcs.map((f) => f.name)])
   for (const f of locallyClean.funcs) {
     if (!GLSL_RESERVED.has(f.name)) continue
-    let safe = f.name + '_'
-    while (GLSL_RESERVED.has(safe) || taken.has(safe)) safe += '_'
+    const safe = freeName(f.name, (c) => taken.has(c))
     taken.add(safe)
     fnRename.set(f.name, safe)
   }

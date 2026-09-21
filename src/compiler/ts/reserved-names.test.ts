@@ -20,23 +20,35 @@
 //                     float buffer           accepted — an ES 3.10 keyword, free at 300
 //                     float shared           accepted — the same
 //                     float packed           accepted — reserved in ES 1.00, free at 300
+//                     float gl_Scale         REFUSED  'gl_' : reserved built-in name
+//                     float a__b             REFUSED  identifiers containing two consecutive
+//                                                     underscores (__) are reserved …
 //
-// The last three are why `GLSL_ES300_RESERVED` is read off ANGLE's version-gated lexer rather
-// than off a later spec: refusing them would refuse programs that compile.
+// `buffer`, `shared` and `packed` are why `GLSL_ES300_RESERVED` is read off ANGLE's
+// version-gated lexer rather than off a later spec: refusing them would refuse programs that
+// compile. The last two rows are that section's SHAPE rules, which have no word list.
+//
+// SEVERITY. A WGSL word is an error — WGSL is the program. A GLSL ES 3.00 one is a warning,
+// which is this package's existing answer for "the second target cannot take this module"
+// (`compile.ts`): `wgsl` stays, `glsl` comes back undefined, and `sanitizeReservedIdents`
+// fails the GLSL emit closed on the same names so nothing illegal is ever handed to a driver.
 
 import { describe, expect, it } from 'vitest'
 import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { TS_CODES } from './codes.js'
 
-const errorsOf = (src: string) =>
+const ofCategory = (src: string, category: 'error' | 'warning') =>
   compileTsSource(src)
-    .diagnostics.filter((d) => d.category === 'error')
+    .diagnostics.filter((d) => d.category === category)
     .map((d) => `${d.code} ${d.message}`)
 
-/** The source text the one diagnostic underlines. */
+const errorsOf = (src: string) => ofCategory(src, 'error')
+const warningsOf = (src: string) => ofCategory(src, 'warning')
+
+/** The source text the first diagnostic underlines. */
 const underlines = (src: string): string => {
-  const d = compileTsSource(src).diagnostics.filter((e) => e.category === 'error')[0]
+  const d = compileTsSource(src).diagnostics[0]
   if (!d) throw new Error('expected a diagnostic')
   return src.slice(d.start, d.start + d.length)
 }
@@ -64,8 +76,38 @@ export function vs(): V { return { pos: vec4(0., 0., 0., 1.), half: vec2(0., 0.)
 @fragment
 export function fs(v: V): vec4 { return vec4(v.half, 0., 1.) }
 `
-    expect(errorsOf(src)).toEqual([GLSL('"half"', 'a field')])
+    expect(warningsOf(src)).toContain(GLSL('"half"', 'a field'))
+    expect(errorsOf(src)).toEqual([])
     expect(underlines(src)).toBe('half')
+    // The module still compiles for WebGPU, and the GLSL emit refuses it rather than handing
+    // ANGLE a reserved word: the same shape as every other second-target shortfall.
+    const r = compile(src)
+    expect(r.wgsl).toContain('half')
+    expect(r.glsl).toBeUndefined()
+  })
+
+  it.each([
+    ['interface S { half: f32, rest: f32 }', '"half"'],
+    ['type S = { half: f32, rest: f32 }', '"half"'],
+  ])('reads a struct spelled %s too', (decl, quoted) => {
+    // A class, an interface and a type alias are three spellings of one struct and the writers
+    // spell all three the same way, so all three have to reach the declared-symbol table.
+    const src = `"use typeshade"
+${decl}
+declare const cam: uniform<S>
+@fragment
+export function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) }
+`
+    expect(warningsOf(src)).toContain(GLSL(quoted, 'a field'))
+  })
+
+  it('reads the two shape rules §3.6 has beside its word list', () => {
+    expect(warningsOf(render('const gl_Scale: f32 = 2.'))).toContain(
+      `${TS_CODES.RESERVED_NAME} "gl_Scale" begins with "gl_", which GLSL ES 3.00 keeps for built-ins, so a module constant of that name cannot be emitted for the WebGL2 target. Rename it.`,
+    )
+    expect(warningsOf(render('const a__b: f32 = 2.'))).toContain(
+      `${TS_CODES.RESERVED_NAME} "a__b" has two consecutive underscores, which GLSL ES 3.00 reserves for future keywords, so a module constant of that name cannot be emitted for the WebGL2 target. Rename it.`,
+    )
   })
 
   it.each([
@@ -73,8 +115,9 @@ export function fs(v: V): vec4 { return vec4(v.half, 0., 1.) }
     ['declare const half: uniform<f32>', '"half"', 'a binding'],
     ['declare const half: override<f32>', '"half"', 'an override'],
     ['let input: perInvocation<f32> = 0.', '"input"', 'a module variable'],
-  ])('refuses %s', (decl, quoted, noun) => {
-    expect(errorsOf(render(decl))).toEqual([GLSL(quoted, noun)])
+  ])('reports %s', (decl, quoted, noun) => {
+    expect(warningsOf(render(decl))).toContain(GLSL(quoted, noun))
+    expect(errorsOf(render(decl))).toEqual([])
   })
 
   it('refuses a struct whose own name is reserved', () => {
@@ -127,9 +170,9 @@ class atomic { static uint: u32 = 1 }
 @fragment
 export function fs(): vec4 { return vec4(f32(atomic.uint), 0., 0., 1.) }
 `
-    expect(errorsOf(src)).toEqual([
+    expect(warningsOf(src)).toContain(
       `${TS_CODES.RESERVED_NAME} "uint" is emitted as "atomic_uint", which is reserved in GLSL ES 3.00, so this module constant cannot be emitted for the WebGL2 target. Rename it.`,
-    ])
+    )
     // On the member the author wrote, not on the spelling only the emit has.
     expect(underlines(src)).toBe('uint')
   })
@@ -156,6 +199,60 @@ export function fs(): vec4 { return vec4(S.half, 0., 0., 1.) }
 `)
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
     expect(r.wgsl).toContain('S_half')
+  })
+})
+
+describe('the GLSL rename never lands on a name already in scope (#103)', () => {
+  it('numbers the suffix instead of colliding with a module const', () => {
+    // `float` is renamed for GLSL; the old suffix loop knew only the function's own names, so
+    // it produced a second `float_` beside the module const of that name and the GLSL answered
+    // 4 where WGSL and the CPU oracle answered 12 — compiling cleanly, with no diagnostic. The
+    // enlarged word list is what made this reachable for the type names.
+    const r = compile(`"use typeshade"
+const float_: f32 = 10.
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let float = uv.x * 2.
+  float = float + 1.
+  return vec4(float + float_, 0., 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.glsl?.fragment).toContain('float float_1 = (uv.x * 2.0);')
+    expect(r.glsl?.fragment).toContain('(float_1 + float_)')
+    // 0.5 * 2 + 1 + 10, the answer all three backends now agree on.
+    expect(r.eval('fs', [[0.5, 0]])).toEqual([12, 0, 0, 1])
+  })
+
+  it('never spells a rename with two underscores, which ANGLE reserves', () => {
+    // Measured: `float__` is "identifiers containing two consecutive underscores (__) are
+    // reserved as possible future keywords", so repeating the underscore walked out of one
+    // rule of §3.6 into another.
+    const r = compile(`"use typeshade"
+const float_: f32 = 1.
+const float_1: f32 = 2.
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let float = uv.x
+  return vec4(float + float_ + float_1, 0., 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.glsl?.fragment).not.toMatch(/__/)
+    expect(r.glsl?.fragment).toContain('float_2')
+  })
+
+  it('renames a helper named main, which is the entry point GLSL emits', () => {
+    const r = compile(`"use typeshade"
+export function main(x: f32): f32 { return x * 2. }
+@fragment
+export function fs(@location(0) uv: vec2): vec4 { return vec4(main(uv.x), 0., 0., 1.) }
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.glsl?.fragment).toContain('float main_(float x)')
+    expect(r.glsl?.fragment).toContain('main_(uv.x)')
+    // One `void main()`, the stage entry, and nothing else called that.
+    expect(r.glsl?.fragment?.match(/\bmain\s*\(/g)).toEqual(['main('])
   })
 })
 

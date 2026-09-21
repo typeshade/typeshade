@@ -2950,10 +2950,19 @@ what a backend sees, so that is what the check reads. A class `S` with a static 
 3.00 reserves, and the message names both spellings — `"uint" is emitted as "atomic_uint",
 which is reserved in GLSL ES 3.00, …` — while underlining the member the author wrote.
 
-**A target the module never reaches does not get a vote.** A module with no `@vertex` or
-`@fragment` entry has no GLSL ES 3.00 form at all, so a compute kernel may name a field `half`;
-WGSL is every module's target and is always checked. `examples/array-length.shade.ts` carries
-exactly that field, so Tint accepts the name on every gate run.
+**A target the module never reaches does not get a vote.** A compute kernel has no GLSL ES 3.00
+form — that is the one stage the language does not have — so it may name a field `half`; WGSL is
+every module's target and is always checked. `examples/array-length.shade.ts` carries exactly
+that field, so Tint accepts the name on every gate run.
+
+**The severity follows the target's role.** A WGSL word is an **error**: WGSL is the program,
+and the module does not compile. A GLSL ES 3.00 word is a **warning**, which is what this
+package already answers for "the second target cannot take this module" — `wgsl` is still
+there, `glsl` comes back `undefined`, exactly as for a compute entry beside the render pair or
+a storage binding the emulation cannot spell. The GLSL writer fails the emit closed on the same
+names, so the warning is never the only thing between a reserved word and a driver, and a
+render module that would not have produced GLSL anyway is never refused outright for a word it
+would never have emitted.
 
 **What the GLSL writer renames for itself is not refused.** A local, a parameter and a function
 name that collides with a GLSL word is rewritten with every reference to it (`let out` becomes
@@ -2961,10 +2970,15 @@ name that collides with a GLSL word is rewritten with every reference to it (`le
 covers: a struct and its fields (the std140 offsets and the cross-stage varying contract), a
 module constant, an override's `#define`, a module variable and a binding, whose name is the
 host's reflection key. WGSL renames nothing, so every kind is checked for it, including the two
-rules that are shapes rather than words: a name beginning with `__`, and the bare `_`.
+rules that are shapes rather than words: a name beginning with `__`, and the bare `_`. GLSL ES
+3.00 §3.6 has two shape rules of its own, and both are read here too: a name beginning with
+`gl_`, which it keeps for built-ins, and one containing `__` anywhere, not only at the front.
+
+All three spellings of a struct are read — a `class`, an `interface` and a `type` alias are one
+struct to the emitters, so they are one struct here.
 
 **Both lists are the target's own, measured on the compiler that receives the text.** WGSL's are
-the 27 keywords and 146 reserved words of the spec, transcribed from its source; GLSL ES 3.00's
+the 26 keywords and 146 reserved words of the spec, transcribed from its source; GLSL ES 3.00's
 are read off ANGLE's version-gated lexer at shader version 300, which is what a WebGL2 context
 gives. Measured in Chromium, through the compile gate's instrument:
 
@@ -2976,11 +2990,16 @@ gives. Measured in Chromium, through the compile gate's instrument:
 | a name named `filter` | `'filter' is a reserved keyword` | `'filter' : Illegal use of reserved word` |
 | a local named `__x` | `identifiers must not start with two or more underscores` | — |
 | a name named `input`, `sample`, `image2D` | accepted | `Illegal use of reserved word` |
-| a name named `buffer`, `shared`, `packed` | accepted | accepted |
+| a name named `gl_Scale` | accepted | `'gl_' : reserved built-in name` |
+| a name named `a__b` | accepted | `identifiers containing two consecutive underscores (__) are reserved` |
+| a name named `buffer`, `packed` | accepted | accepted |
+| a name named `shared`, `with` | `is a reserved keyword` | accepted |
 
-The last row is why the list is read from the version-gated lexer rather than from a later
-spec: `buffer` and `shared` become keywords in ES 3.10 and `packed` is reserved in ES 1.00, so
-refusing any of the three at 300 would refuse a program that compiles.
+The last two rows are why each list is read from its own target's authority rather than from
+one merged vocabulary. `buffer` and `shared` become GLSL keywords in ES 3.10 and `packed` is
+reserved in ES 1.00, so refusing any of them at 300 would refuse a program a WebGL2 driver
+compiles — while `shared` and `with` are WGSL reserved words, which is what the WGSL column
+says and what Tint enforces.
 
 ---
 

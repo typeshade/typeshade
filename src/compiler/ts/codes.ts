@@ -4,6 +4,11 @@
 // A gap (8011 is retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
+//
+// One more kind of gap exists from TS8038 on. While several sessions worked the issue list of
+// #162 in parallel, each was given a BLOCK of codes to draw from, so two branches in flight at
+// once could not claim one number twice; `RESERVED_NAME` (TS8068) is the first code assigned
+// that way. A block's unused codes stay unused, exactly as 8011 does — a gap is never reused.
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',

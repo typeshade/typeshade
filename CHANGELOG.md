@@ -131,24 +131,41 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   one that lands in no identifier answers for the identifier ending exactly there. A local, a
   parameter and a struct field are each pinned at `name.end`. `nodeAtPosition` keeps its
   half-open rule for completions, rename and the TS1206 filter, which are written against it.
-- **A name a target reserves is refused where it is written** (§62,
+- **A name a target reserves is reported where it is written** (§62,
   [#103](https://github.com/typeshade/typeshade/issues/103), `TS8068 RESERVED_NAME`). A struct
   field named `half` compiled to WGSL Tint accepts and to GLSL ANGLE answers with
   `'half' : Illegal use of reserved word` — a line number in generated text, for a word the
   author wrote on a line of their own; the same held for a module constant, an override, a
-  module variable, a binding, a struct's own name and, on the WGSL side, for each of the 146
-  tokens that spec reserves for future use. The check runs on the name the emit CARRIES, so a
+  module variable, a struct's own name and, on the WGSL side, for each of the 146 tokens that
+  spec reserves for future use. (A binding was already refused, but by the GLSL writer, with
+  only the file's directive to point at.) The check runs on the name the emit CARRIES, so a
   class's static field is judged as `Cls_member` and a namespace's member as `Ns_member`, and
-  the message names both spellings when they differ while underlining what the author typed. A
-  module with no `@vertex` or `@fragment` entry has no GLSL ES 3.00 form, so it is not held to
-  that language's list: `examples/array-length.shade.ts` now carries the `half` field and Tint
-  takes it on every gate run. What the GLSL writer renames for itself — a local, a parameter, a
-  function name — is not refused, and `glsl-sanitize` now renames from the same list, which
-  covers the words its own had drifted from (`float`, `void`, every image and 1D sampler name
-  §3.6 reserves). Both lists are the target's own: WGSL's 27 keywords and 146 reserved words
-  transcribed from the spec source, GLSL ES 3.00's read off ANGLE's version-gated lexer at
-  shader version 300 — which is why `buffer`, `shared` and `packed` are absent, all three being
-  spellings a WebGL2 driver accepts and a later spec does not.
+  the message names both spellings when they differ while underlining what the author typed;
+  all three spellings of a struct are read, since a `class`, an `interface` and a `type` alias
+  are one struct to the emitters. The severity follows the target's role: a WGSL word is an
+  error, because WGSL is the program, and a GLSL ES 3.00 word a warning, this package's
+  existing answer for "the second target cannot take this module" — `wgsl` stays, `glsl` comes
+  back undefined, and the GLSL writer fails the emit closed on the same names, so a module that
+  would not have produced GLSL anyway is never refused outright for a word it never emits. A
+  compute kernel has no GLSL form at all and is not held to that list: `examples/array-length.shade.ts`
+  now carries the `half` field and Tint takes it on every gate run. What the GLSL writer renames
+  for itself — a local, a parameter, a function name — is not reported. Both lists are the
+  target's own: WGSL's 26 keywords and 146 reserved words transcribed from the spec source,
+  GLSL ES 3.00's read off ANGLE's version-gated lexer at shader version 300, which is why
+  `buffer`, `shared` and `packed` are absent — all three are spellings a WebGL2 driver accepts
+  and a later spec does not. Each language's SHAPE rules are read too: `__` at the front and
+  the bare `_` for WGSL, and `gl_` at the front or `__` anywhere for GLSL ES 3.00, both
+  measured on ANGLE rather than read off the spec.
+- **The GLSL writer's rename can no longer land on a name already in scope**
+  ([#103](https://github.com/typeshade/typeshade/issues/103)). `sanitizeReservedIdents` renames
+  a local, a parameter or a function whose name GLSL ES 3.00 reserves, and it chose the new
+  spelling knowing only the function's own names: a local named `float` beside a module
+  constant named `float_` became two `float_`s in one scope, and the GLSL compiled cleanly and
+  answered `4` where WGSL and the CPU oracle answered `12`. The rename now sees every
+  module-scope name, and it numbers the suffix (`float_1`) instead of repeating the underscore,
+  because `float__` is itself illegal: measured on ANGLE, an identifier containing `__` is
+  "reserved as possible future keywords". The pass also renames a helper named `main`, which
+  had been emitting a second `main` beside the stage entry of that name.
 - **A `bool` module const that is neither true nor false is refused on its declaration**
   (§12, [#64](https://github.com/typeshade/typeshade/issues/64)). `const K: bool = 2` reached
   the fail-closed bool arm of each writer's `literal` and came back as
