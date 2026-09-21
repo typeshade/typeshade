@@ -142,6 +142,7 @@ The documentation is at [typeshade.dev](https://typeshade.dev/), in English and 
 - [Verification](https://typeshade.dev/guide/checks/), compiler and output checks
 - [Compiler internals](https://typeshade.dev/guide/internals/), implementation-facing compiler documentation
 - [Roadmap to 1.0.0](docs/roadmap.md), the order of work and the two rules that decide what is in it
+- [Runtime architecture](docs/runtime-architecture.md), the proposed boundary between the compiler, host runtime and GPU backends
 
 The site is [typeshade/typeshade.github.io](https://github.com/typeshade/typeshade.github.io). It is the primary place to learn the language; this repository is the source of the compiler and authoring surface.
 
