@@ -1,10 +1,19 @@
 // Multi-file "use typeshade" program: relative import { name } from "./file"
 
 import ts from 'typescript'
-import type { ConstDecl, FuncDecl } from '../../core/ir/nodes.js'
+import type {
+  BindingDecl,
+  ConstDecl,
+  FuncDecl,
+  OverrideDecl,
+  StructDecl,
+} from '../../core/ir/nodes.js'
 import { emitFuncs, emitModule } from '../../core/backends/wgsl.js'
 import { hasUseTypeshadeDirective } from './directive.js'
-import type { TsCompilerDiagnostic } from './source-file.js'
+import { reportCrossDeclarationCollisions, type TsCompilerDiagnostic } from './source-file.js'
+import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js'
+import { collectBindings } from './bindings.js'
+import { collectOverrides } from './overrides.js'
 import { fillFunctionBody, parseSignature } from './lower/function.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
@@ -26,6 +35,14 @@ export interface CompileTsSourcesResult {
    *  a `const` is module scope and the entry is the module: two files declaring `PI` are two
    *  modules that each have one, not one module with a duplicate. */
   readonly consts: readonly ConstDecl[]
+  /** The structs, resource bindings and overrides of EVERY file, merged (roadmap 0.5 item 14,
+   *  #74): a multi-file program is one module, and a struct or a binding is module scope in
+   *  WGSL whichever file declares it. A name two files both declare is a diagnostic, and the
+   *  `declare` bindings are numbered in file order so two files' first bindings do not share
+   *  a slot. Module constants keep the entry-only rule above. */
+  readonly structs: readonly StructDecl[]
+  readonly bindings: readonly BindingDecl[]
+  readonly overrides: readonly OverrideDecl[]
   /** What the front end declared while lowering the ENTRY file (`entry`, or the first file
    *  given), as `CompileTsSourceResult.symbols` records it. One file only: a `DeclaredSymbol`
    *  span is a UTF-16 offset, which means nothing without the file it indexes, and this result
@@ -92,7 +109,7 @@ export function compileTsSources(
   const syntax = [...parsed.values()].flatMap((sf) => syntaxDiagnostics(sf))
   if (syntax.length > 0) {
     diagnostics.push(...syntax)
-    return { funcs: [], diagnostics, consts: [], symbols }
+    return { funcs: [], diagnostics, consts: [], structs: [], bindings: [], overrides: [], symbols }
   }
 
   for (const [name, sf] of parsed) {
@@ -235,14 +252,52 @@ export function compileTsSources(
     )
   }
 
+  // The structs, resource bindings and overrides of EVERY file (roadmap 0.5 item 14, #74). The
+  // single-file path has always collected them before lowering; this path lowered functions
+  // and module constants and nothing else, so a one-file program with a struct or a `declare`
+  // binding compiled through `compile()` and was refused through here with "Unknown
+  // identifier", and a two-file program with either could not be compiled at all. A
+  // multi-file program is one module, so the lists are merged: a name two files declare is
+  // reported once, naming both, and each file's `declare` bindings are numbered after the
+  // earlier files' so two files' first bindings do not share @group(0) @binding(0).
+  const perFile: FileDeclarations[] = []
+  let nextBinding = 0
+  for (const [name, sf] of parsed) {
+    const sink = name === entryName ? symbols : undefined
+    const structs = collectStructs(sf, diagnostics, sink)
+    const bindings = collectBindings(sf, diagnostics, sink, nextBinding)
+    for (const b of bindings) if (b.group === 0) nextBinding = Math.max(nextBinding, b.binding + 1)
+    const glslNames = new Set<string>([
+      ...structs.flatMap((s) => s.decl.fields.map((f) => f.name)),
+      ...bindings.map((b) => b.name),
+    ])
+    const overrides = collectOverrides(sf, diagnostics, sink, glslNames)
+    perFile.push({ name, sf, structs, bindings, overrides })
+  }
+  const merged = mergeDeclarations(perFile, diagnostics)
+
   // BEFORE the bodies are filled, not after. `fillFunctionBody` takes the module constants as
   // a parameter and defines each one in the lowering scope; collect them afterwards and every
   // reference to one inside a function is TS8022 "Unknown identifier". Both pre-merge
   // implementations had this order wrong — `sources.ts` collected them last too — so a
   // multi-file program simply could not use a module constant. The single-file path in
   // `source-file.ts` has always collected first, which is why it works there.
-  const consts = entrySf ? collectModuleConsts(entrySf, diagnostics) : []
-  const vars = entrySf ? collectModuleVars(entrySf, diagnostics, undefined, consts) : []
+  const consts = entrySf
+    ? collectModuleConsts(entrySf, diagnostics, undefined, emittedStructDecls(merged.structs))
+    : []
+  const vars = entrySf
+    ? collectModuleVars(entrySf, diagnostics, undefined, consts, emittedStructDecls(merged.structs))
+    : []
+  // A name two different collectors claim in the entry file, as the single-file path reports it.
+  if (entrySf)
+    reportCrossDeclarationCollisions(
+      entrySf,
+      diagnostics,
+      consts,
+      merged.bindings,
+      merged.overrides,
+      vars,
+    )
   // A module variable (§24) is collected from the entry file, as a const is. A top-level `let`
   // in another file would otherwise vanish without a word, and a read of it in that file would
   // be an "Unknown identifier" that names no cause; roadmap item 14 carries the other files'
@@ -273,8 +328,9 @@ export function compileTsSources(
   for (const [name, table] of exports) {
     const callees = fileCallees.get(name)!
     for (const rec of table.values()) {
-      // Positional: `bindings` and `structs` keep their defaults; `consts` is the entry
-      // file's, collected above, and the symbol sink is passed only for the entry file.
+      // Every file's functions see the MERGED structs, bindings and overrides (one module);
+      // `consts` is the entry file's, collected above, and the symbol sink is passed only for
+      // the entry file.
       const sink = name === entryName ? symbols : undefined
       fillFunctionBody(
         rec.node,
@@ -283,10 +339,10 @@ export function compileTsSources(
         diagnostics,
         callees,
         consts,
-        undefined,
-        undefined,
+        merged.bindings,
+        merged.structs,
         sink,
-        undefined,
+        merged.overrides,
         vars,
       )
       funcs.push(rec.stub)
@@ -313,9 +369,21 @@ export function compileTsSources(
       // top-level `let` test found the variable missing from the text). `emitFuncs` is the
       // bare-functions form the single-file path uses too, and switching unconditionally would
       // change the emitted text of every multi-file program that has neither.
+      const structs = emittedStructDecls(merged.structs)
       wgsl =
-        consts.length > 0 || vars.length > 0
-          ? emitModule({ consts, structs: [], bindings: [], funcs, vars })
+        consts.length > 0 ||
+        vars.length > 0 ||
+        structs.length > 0 ||
+        merged.bindings.length > 0 ||
+        merged.overrides.length > 0
+          ? emitModule({
+              consts,
+              structs,
+              bindings: merged.bindings,
+              funcs,
+              overrides: merged.overrides,
+              vars,
+            })
           : emitFuncs(funcs)
     } catch (e) {
       // `backendDiagnostic` (X-GIS #37's honest-failure work) rather than the message built
@@ -326,7 +394,82 @@ export function compileTsSources(
       )
     }
   }
-  return { funcs, diagnostics, consts, symbols, wgsl }
+  return {
+    funcs,
+    diagnostics,
+    consts,
+    structs: emittedStructDecls(merged.structs),
+    bindings: merged.bindings,
+    overrides: merged.overrides,
+    symbols,
+    wgsl,
+  }
+}
+
+/** One file's module-scope declarations, before the merge. */
+interface FileDeclarations {
+  readonly name: string
+  readonly sf: ts.SourceFile
+  readonly structs: readonly CollectedStruct[]
+  readonly bindings: readonly BindingDecl[]
+  readonly overrides: readonly OverrideDecl[]
+}
+
+/** Merges every file's structs, bindings and overrides into one module's (roadmap 0.5 item 14).
+ *  A name declared in two files is reported once, naming both, and the second declaration is
+ *  dropped so the emit that follows the diagnostic is still one module; a bind slot two files
+ *  both claim (an explicit `resource(...)` slot colliding with another file's) is reported the
+ *  same way. Order is file order, which is what the caller gave. */
+function mergeDeclarations(
+  files: readonly FileDeclarations[],
+  diagnostics: TsCompilerDiagnostic[],
+): { structs: CollectedStruct[]; bindings: BindingDecl[]; overrides: OverrideDecl[] } {
+  const owner = new Map<string, string>()
+  const slots = new Map<string, string>()
+  const structs: CollectedStruct[] = []
+  const bindings: BindingDecl[] = []
+  const overrides: OverrideDecl[] = []
+  const claim = (kind: string, name: string, file: FileDeclarations): boolean => {
+    const prev = owner.get(name)
+    if (prev !== undefined && prev !== file.name) {
+      diagnostics.push(
+        makeDiagnostic(
+          file.sf,
+          undefined,
+          `${kind} "${name}" is declared in both "${prev}" and "${file.name}". A multi-file ` +
+            `program is one module, so a name is declared once; rename one or move it.`,
+          TS_CODES.DUPLICATE_SYMBOL,
+        ),
+      )
+      return false
+    }
+    owner.set(name, file.name)
+    return true
+  }
+  for (const f of files) {
+    for (const s of f.structs) if (claim('Struct', s.decl.name, f)) structs.push(s)
+    for (const o of f.overrides) if (claim('Override', o.name, f)) overrides.push(o)
+    for (const b of f.bindings) {
+      if (!claim('Binding', b.name, f)) continue
+      const slot = `@group(${b.group}) @binding(${b.binding})`
+      const prev = slots.get(slot)
+      if (prev !== undefined) {
+        diagnostics.push(
+          makeDiagnostic(
+            f.sf,
+            undefined,
+            `Binding "${b.name}" in "${f.name}" and ${prev} both occupy ${slot}. Give one an ` +
+              `explicit slot, uniform<T>({ group, binding }) or storage<T>({ group, binding }).`,
+            TS_CODES.DUPLICATE_SYMBOL,
+          ),
+        )
+        continue
+      }
+      slots.set(slot, `"${b.name}" in "${f.name}"`)
+      bindings.push(b)
+    }
+  }
+  return { structs, bindings, overrides }
 }
 
 /** A diagnostic needs a source file to carry a position. With no parsable file left to point

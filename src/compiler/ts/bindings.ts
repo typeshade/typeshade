@@ -28,9 +28,14 @@ export function collectBindings(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   symbols?: DeclaredSymbolSink,
+  /** The first slot a `declare` binding without an explicit one takes. A single file starts at
+   *  0; a multi-file program (roadmap 0.5 item 14, #74) hands each later file the slot after
+   *  the earlier files' last, so the bindings of one module are numbered in file order rather
+   *  than every file starting at 0 and colliding. */
+  firstBinding = 0,
 ): BindingDecl[] {
   const out: BindingDecl[] = []
-  let next = 0
+  let next = firstBinding
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue
     const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0
