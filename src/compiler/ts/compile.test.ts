@@ -27,11 +27,18 @@ describe('compile()', () => {
   it('returns module + wgsl + eval for Clip/Color', () => {
     const s = compile(SRC)
     expect(s.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(s.module.funcs.filter((f) => f.stage).map((f) => f.stage).sort()).toEqual(['fragment', 'vertex'])
+    expect(
+      s.module.funcs
+        .filter((f) => f.stage)
+        .map((f) => f.stage)
+        .sort(),
+    ).toEqual(['fragment', 'vertex'])
     expect(s.wgsl).toMatch(/@builtin\(position\)/)
     expect(s.wgsl).toMatch(/@vertex/)
     expect(s.glsl?.vertex).toMatch(/#version 300 es/)
     const red = s.eval('fs') as { color: number[] }
     expect(red.color).toEqual([1, 0, 0, 1])
+    // Two constant vectors: nothing in the module may differ by driver.
+    expect(s.determinism).toEqual([])
   })
 })

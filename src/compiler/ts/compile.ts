@@ -1,6 +1,7 @@
 import type { ModuleDecl } from '../../core/ir/nodes.js'
 import { emitModule } from '../../core/backends/wgsl.js'
 import { emitGlslStages } from '../../core/backends/glsl.js'
+import { determinismReport, type DeterminismEntry } from '../../core/passes/determinism.js'
 import { compileTsSource, type TsCompilerDiagnostic } from './source-file.js'
 import { backendDiagnostic } from './diagnostic.js'
 import { evalEntry } from './eval-entry.js'
@@ -47,6 +48,17 @@ export interface CompileResult {
    * `BACKEND` warning for a module with a `@vertex` or `@fragment` entry.
    */
   readonly glsl?: { readonly vertex: string; readonly fragment: string }
+  /**
+   * The operations in `module` whose result WGSL lets differ by driver (§15.7.4): a
+   * transcendental with a ULP or absolute bound, `/`, a builtin inherited from a formula the
+   * driver may reassociate or fuse (`pow`, `mix`, `fma`), a derivative, a filtered texture read,
+   * and every emulated `f64` operation, each with the spec's bound in words, its count and the
+   * functions it occurs in. Empty when every operation has exactly one answer, so a GPU result
+   * and the CPU oracle can differ only by the oracle's own rounding. Computed on the front
+   * end's IR even when `diagnostics` has an error, since a partial module still says what it
+   * uses. See {@link determinismReport}.
+   */
+  readonly determinism: readonly DeterminismEntry[]
   /**
    * Run one function of the module on the CPU oracle: `eval('fs')` calls the fragment entry
    * with no arguments, `eval('add', [1, 2])` a helper with two. When `diagnostics` has an
@@ -147,6 +159,7 @@ export function compile(source: string, options: CompileOptions = {}): CompileRe
     module,
     wgsl,
     glsl,
+    determinism: determinismReport(module),
     eval: (name, args = []) => {
       const err = firstError()
       if (err) {
