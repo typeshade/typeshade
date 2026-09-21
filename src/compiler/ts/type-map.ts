@@ -29,6 +29,7 @@ import {
   samplerComparisonT,
   textureDepth2dT,
   textureDepth2dArrayT,
+  textureDepthCubeT,
   ALL_STORAGE_TEXTURE_FORMATS,
   READ_WRITE_STORAGE_FORMATS,
   type StorageTextureFormat,
@@ -83,14 +84,18 @@ const HANDLE_MAP: Readonly<Record<string, ShaderType>> = {
   sampler_comparison: samplerComparisonT,
   texture_depth_2d: textureDepth2dT,
   texture_depth_2d_array: textureDepth2dArrayT,
+  texture_depth_cube: textureDepthCubeT,
 }
 
 /** The generic texture names and the `dim` each one carries. A `2d-ms` texture is left out:
  *  the multisampled load never reaches emit on either backend this compiler targets, and a
- *  name that maps to a type no shader can use is worse than no name. */
-const TEXTURE_DIM: Readonly<Record<string, '2d' | '2d-array'>> = {
+ *  name that maps to a type no shader can use is worse than no name. A cube and a 3d texture
+ *  (roadmap 0.4 item 12) are core in both targets and need nothing declared. */
+const TEXTURE_DIM: Readonly<Record<string, '2d' | '2d-array' | 'cube' | '3d'>> = {
   texture_2d: '2d',
   texture_2d_array: '2d-array',
+  texture_cube: 'cube',
+  texture_3d: '3d',
 }
 
 /** The storage texture names and the `dim` each one carries (roadmap 0.4 item 10). Separate
@@ -618,6 +623,23 @@ function mapGeneric(
     const elemName = args[0] === undefined ? 'f32' : typeNameOfArg(args[0])
     if (elemName !== 'f32' && elemName !== 'i32' && elemName !== 'u32') {
       pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32, i32, or u32.`)
+      return undefined
+    }
+    // An integer cube has no read on this surface yet: neither target has a texel fetch for a
+    // cube (WGSL's `textureLoad` and GLSL's `texelFetch` both stop at 2d, 2d-array and 3d), so a
+    // cube is only sampled, and sampling is float-only. Refused here, at the declaration, rather
+    // than at a read that would have to explain both facts; `textureGather`, the read an integer
+    // cube does have, is a later item and lifts this.
+    if (dim === 'cube' && elemName !== 'f32') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        typeNode,
+        `texture_cube<${elemName}> cannot be read: a cube texture has no textureLoad on either ` +
+          `target, so it is only sampled, and sampling is float-only. Declare it ` +
+          `texture_cube<f32>; textureGather, which reads an integer cube, is a later item.`,
+        TS_CODES.UNSUPPORTED,
+      )
       return undefined
     }
     return { kind: 'texture', dim, elem: elemName }

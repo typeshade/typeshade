@@ -160,7 +160,17 @@ export type ShaderType =
   // by CONSTRUCTION rather than a runtime throw: '2d'/'2d-array' carry any
   // TextureElem, '2d-ms' is pinned to f32. Narrowing still works off `dim` alone —
   // every existing `t.dim === '…'` switch reads the same.
-  | { readonly kind: 'texture'; readonly dim: '2d' | '2d-array'; readonly elem: TextureElem }
+  //
+  // 'cube' and '3d' (roadmap 0.4 item 12) are core in both targets too — WGSL `texture_cube`
+  // and `texture_3d`, GLSL ES 3.00 `samplerCube` and `sampler3D` — so neither needs a
+  // Capability. A cube is addressed by a DIRECTION and a 3d texture by a `vec3` coordinate; that
+  // width rides on this type, so one neutral read id covers every dim and the front end checks
+  // the coordinate against the dim at each call.
+  | {
+      readonly kind: 'texture'
+      readonly dim: '2d' | '2d-array' | 'cube' | '3d'
+      readonly elem: TextureElem
+    }
   | { readonly kind: 'texture'; readonly dim: '2d-ms'; readonly elem: 'f32' }
   // A storage texture (roadmap 0.4 item 10): an image a shader reads and writes by texel
   // coordinate, with no sampler and no filtering. Its OWN kind rather than another `dim` on
@@ -185,7 +195,10 @@ export type ShaderType =
   // 3.00 fuses it with its sampler, and WHICH combined sampler depends on how it is used —
   // `sampler2DShadow` when compared, `sampler2D` when plainly sampled — which is what the GLSL
   // backend derives from the calls rather than from this type.
-  | { readonly kind: 'depth-texture'; readonly dim: '2d' | '2d-array' }
+  //
+  // 'cube' (roadmap 0.4 item 12) is the shadow map of a point light, looked up by the direction
+  // from the light; both targets have it (`texture_depth_cube`, `samplerCubeShadow`).
+  | { readonly kind: 'depth-texture'; readonly dim: '2d' | '2d-array' | 'cube' }
   | { readonly kind: 'sampler' }
   // A comparison sampler (roadmap 0.4 item 11): the one `textureSampleCompare` takes, which
   // compares a reference value against the texel and returns how much of the filter footprint
@@ -520,6 +533,38 @@ export const textureDepth2dArrayT = {
   kind: 'depth-texture',
   dim: '2d-array',
 } as const satisfies ShaderType
+/** A cube depth texture (WGSL `texture_depth_cube`, GLSL ES 3.00 `samplerCubeShadow`): the
+ *  shadow map of a point light, compared by the direction from the light (roadmap 0.4 item 12).
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureDepthCubeT = {
+  kind: 'depth-texture',
+  dim: 'cube',
+} as const satisfies ShaderType
+/** A sampled float cube texture (WGSL `texture_cube<f32>`, GLSL ES 3.00 `samplerCube`): six
+ *  faces looked up by a `vec3` DIRECTION rather than a coordinate, the shape an environment map
+ *  or a skybox takes (roadmap 0.4 item 12). Core in both targets, so it needs no
+ *  {@link Capability}. A cube is only ever sampled: neither target has a texel fetch for one.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const textureCubefT = {
+  kind: 'texture',
+  dim: 'cube',
+  elem: 'f32',
+} as const satisfies ShaderType
+/** A sampled float 3D texture (WGSL `texture_3d<f32>`, GLSL ES 3.00 `sampler3D`): a volume
+ *  addressed by a `vec3` coordinate, the shape a colour-grading lookup table or a density field
+ *  takes (roadmap 0.4 item 12). Core in both targets, so it needs no {@link Capability}.
+ *
+ *  Exported from `typeshade`, `typeshade/core/ir`.
+ */
+export const texture3dfT = {
+  kind: 'texture',
+  dim: '3d',
+  elem: 'f32',
+} as const satisfies ShaderType
 /** The absent-value type: the return type of an `fn` whose body never returns a value (a
  *  statement-only vertex mutator, a compute entry point). Return-type inference falls back to
  *  it when it finds no `Return` in a body, so you rarely need to write it explicitly.
@@ -631,9 +676,15 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                       ? `texture_2d_array<${E}>`
                       : T extends { kind: 'texture'; dim: '2d'; elem: infer E extends string }
                         ? `texture_2d<${E}>`
-                        : T extends { kind: 'sampler' }
-                          ? 'sampler'
-                          : string
+                        : // Roadmap 0.4 item 12 — the cube and 3d arms, so a resource() of one lands
+                          // on its own key rather than the `string` fallback.
+                          T extends { kind: 'texture'; dim: 'cube'; elem: infer E extends string }
+                          ? `texture_cube<${E}>`
+                          : T extends { kind: 'texture'; dim: '3d'; elem: infer E extends string }
+                            ? `texture_3d<${E}>`
+                            : T extends { kind: 'sampler' }
+                              ? 'sampler'
+                              : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
 
@@ -720,6 +771,10 @@ export function typeKey(t: ShaderType): string {
           return `texture_2d_array<${t.elem}>`
         case '2d':
           return `texture_2d<${t.elem}>`
+        case 'cube':
+          return `texture_cube<${t.elem}>`
+        case '3d':
+          return `texture_3d<${t.elem}>`
         default:
           // Exhaustiveness on the whole ARM, not on `t.dim` (X-GIS #1703): the texture type
           // is now a two-arm union, so once every dim is handled `t` itself is `never`
@@ -738,7 +793,14 @@ export function typeKey(t: ShaderType): string {
     case 'depth-texture':
       // Spelled as WGSL spells it, so the key a host or a golden reads is the declaration's
       // own text; `dim` is written out for the reason the sampled texture writes it out.
-      return t.dim === '2d-array' ? 'texture_depth_2d_array' : 'texture_depth_2d'
+      switch (t.dim) {
+        case '2d':
+          return 'texture_depth_2d'
+        case '2d-array':
+          return 'texture_depth_2d_array'
+        case 'cube':
+          return 'texture_depth_cube'
+      }
     case 'sampler':
       return 'sampler'
     case 'sampler-comparison':

@@ -139,18 +139,23 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
   f64: 'Widens an `f32` to the emulated double `f64`. A value that is already `f64` is returned as it is; cast an integer to `f32` first.',
   textureSample:
-    'Samples a float texture at `uv` through the sampler `smp` with the implicit level of detail, in the fragment stage only. On a `texture_2d_array` the fourth argument picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate.',
+    'Samples a float texture through the sampler `smp` with the implicit level of detail, in the fragment stage only: at `uv` on a `texture_2d`, by a `vec3` direction on a `texture_cube`, by a `vec3` coordinate on a `texture_3d`, and on a `texture_2d_array` the fourth argument picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate.',
   textureSampleLevel:
-    'Samples a float texture at `uv` through the sampler `smp` at an explicit mip `level`. On a `texture_2d_array` the layer comes before the level. Compiles to `textureSampleLevel` on WGSL and `textureLod` on GLSL.',
+    'Samples a float texture through the sampler `smp` at an explicit mip `level`, in any stage; the coordinate is a `vec2` on a `texture_2d` and a `vec3` on a `texture_cube` or a `texture_3d`. On a `texture_2d_array` the layer comes before the level. Compiles to `textureSampleLevel` on WGSL and `textureLod` on GLSL.',
+  textureSampleBias:
+    'Samples a float texture through the sampler `smp` with the implicit level of detail shifted by `bias`, in the fragment stage only; the coordinate is a `vec2` on a `texture_2d` and a `vec3` on a `texture_cube` or a `texture_3d`. On a `texture_2d_array` the layer comes before the bias. Compiles to `textureSampleBias` on WGSL and to `texture` with a bias argument on GLSL.',
+  textureSampleGrad:
+    'Samples a float texture through the sampler `smp` with the explicit gradients `ddx` and `ddy`, which have the width of the coordinate, in any stage. On a `texture_2d_array` the layer comes before the gradients. Compiles to `textureSampleGrad` on WGSL and `textureGrad` on GLSL.',
   textureLoad:
-    'Reads one texel at the integer `coord` and mip `level` without filtering. On a `texture_2d_array` the layer comes before the level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL.',
+    'Reads one texel at the integer `coord` and mip `level` without filtering, by a `vec2i` on a `texture_2d` and a `vec3i` on a `texture_3d`; a cube texture has no texel fetch on either target. On a `texture_2d_array` the layer comes before the level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL.',
   textureSampleCompare:
-    'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp`, with the implicit level of detail, in the fragment stage only; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference. Compiles to `textureSampleCompare` on WGSL and `texture(sampler2DShadow, vec3(uv, ref))` on GLSL, where the reference folds into the coordinate.',
+    'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp`, with the implicit level of detail, in the fragment stage only; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference, and on a `texture_depth_cube` the coordinate is a `vec3` direction. Compiles to `textureSampleCompare` on WGSL and `texture(sampler2DShadow, vec3(uv, ref))` on GLSL, where the reference folds into the coordinate.',
   textureSampleCompareLevel:
-    'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp` at mip level 0, in any stage; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference. Compiles to `textureSampleCompareLevel` on WGSL and to `textureLod` at level zero on a `sampler2DShadow` on GLSL, where the reference folds into the coordinate.',
+    'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp` at mip level 0, in any stage; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference, and on a `texture_depth_cube` the coordinate is a `vec3` direction. Compiles to `textureSampleCompareLevel` on WGSL and to `textureLod` at level zero on a `sampler2DShadow` on GLSL, where the reference folds into the coordinate.',
   textureStore:
     'Writes one texel to a storage texture at the integer `coord`, on a binding declared `"write"` or `"read_write"`; returns nothing. The value is the texel the format decides: a `"…uint"` format stores a `vec4u`, a `"…sint"` one a `vec4i`, and every other one a `vec4`. Compiles to `textureStore` on WGSL; GLSL ES 3.00 has no image load/store, so a module using it emits WGSL alone and the CPU oracle, which has no texture memory, drops the write.',
-  textureDimensions: "Returns the width and height of the texture's base mip level as a `vec2u`.",
+  textureDimensions:
+    "Returns the size of the texture's base mip level: width and height as a `vec2u`, or width, height and depth as a `vec3u` on a `texture_3d`. On a cube texture it is the size of one face.",
   textureNumLayers:
     'Returns the number of layers of a `texture_2d_array` as a `u32`. A plain 2D texture has no layers and is refused.',
   arrayLength:

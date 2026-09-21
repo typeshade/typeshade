@@ -13,6 +13,20 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Cube and 3D textures, bias and gradient sampling** (§35, roadmap 0.4 item 12, the portable
+  half). `declare const env: texture_cube<f32>` is looked up by a `vec3` direction and
+  `declare const lut: texture_3d<f32>` by a `vec3` coordinate, with the read ids a 2D texture
+  already has; `textureSampleBias(t, s, coord, bias)` shifts the implicit level of detail and is
+  fragment-only on both targets, `textureSampleGrad(t, s, coord, ddx, ddy)` takes the gradients
+  explicitly and is legal in any stage; `texture_depth_cube` is the shadow map of a point light,
+  compared by direction. All core in both targets, so no capability. The front end checks each
+  coordinate's and gradient's width against the texture's dim and refuses a cube `textureLoad`
+  (neither target has one) and an integer cube (only sampled, and sampling is float-only), each
+  in one sentence with the read to use instead. `textureDimensions` on a 3D texture is a `vec3u`.
+  Measured on Tint and a WebGL2 driver: GLSL ES 3.00 has no `textureLod` for a
+  `samplerCubeShadow`, so level 0 there is `textureGrad` with zero gradients, as on the 2D array
+  shadow. Reflection's `textureDim` gains `'cube'` and `'3d'`. `examples/cube-env.shade.ts`
+  runs on both halves of the gate.
 - **Depth textures and comparison samplers** (§34, roadmap 0.4 item 11). The texture a
   shadow map is, read by comparison: `declare const shadowMap: texture_depth_2d`,
   `declare const shadowSmp: sampler_comparison`, then

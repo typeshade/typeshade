@@ -208,6 +208,34 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `textureLoad(${join(a)})`,
     glsl: (a) => `texelFetch(${a[0]}, ivec3(${a[1]}, int(${a[2]})), int(${a[3]}))`,
   },
+  // ── bias and gradient sampling (roadmap 0.4 item 12) — DISTINCT ids, never an arity branch ──
+  //
+  // textureSampleBias(tex, samp, coord, bias): the implicit level of detail shifted by a bias.
+  // It needs the derivatives only a fragment quad has, so it is fragment-only on BOTH targets —
+  // Tint: "built-in cannot be used by compute pipeline stage"; a WebGL2 driver refuses
+  // `texture(s, uv, bias)` in a vertex stage with "no matching overloaded function" (measured).
+  // The coordinate's width rides on the IR type (a vec2 on a 2d, a vec3 on a cube or 3d), so
+  // ONE id covers every dim, as it does for textureSample; the array form is its own id because
+  // it restructures the arguments — the layer folds into the coordinate on GLSL.
+  textureSampleBias: {
+    wgsl: (a) => `textureSampleBias(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, ${a[2]}, ${a[3]})`,
+  },
+  textureSampleBiasArray: {
+    wgsl: (a) => `textureSampleBias(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, vec3(${a[2]}, float(${a[3]})), ${a[4]})`,
+  },
+  // textureSampleGrad(tex, samp, coord, ddx, ddy): explicit gradients, so no derivative is
+  // taken and the read is legal in ANY stage on both targets (measured in a compute stage on
+  // Tint and in a vertex stage on a WebGL2 driver). The gradients have the coordinate's width.
+  textureSampleGrad: {
+    wgsl: (a) => `textureSampleGrad(${join(a)})`,
+    glsl: (a) => `textureGrad(${a[0]}, ${a[2]}, ${a[3]}, ${a[4]})`,
+  },
+  textureSampleGradArray: {
+    wgsl: (a) => `textureSampleGrad(${join(a)})`,
+    glsl: (a) => `textureGrad(${a[0]}, vec3(${a[2]}, float(${a[3]})), ${a[4]}, ${a[5]})`,
+  },
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
   // round(x) — ties-to-EVEN on both targets. WGSL's round IS roundEven; GLSL ES
   // 3.00's own round() leaves the 0.5 case IMPLEMENTATION-CHOSEN (§8.3 "the
@@ -418,6 +446,19 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) =>
       `textureGrad(${a[0]}, vec4(${a[2]}, float(${a[3]}), ${a[4]}), vec2(0.0), vec2(0.0))`,
   },
+  // The cube forms (roadmap 0.4 item 12): the coordinate is a vec3 DIRECTION, so the reference
+  // folds into a vec4 — their own ids, since `vec3(dir, ref)` would be a constructor with a
+  // component too many. `textureLod` has no `samplerCubeShadow` overload either (measured, the
+  // same gap as the 2d array's), so level 0 is again `textureGrad` with zero gradients, three
+  // wide this time because the gradients have the coordinate's width.
+  textureSampleCompareCube: {
+    wgsl: (a) => `textureSampleCompare(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, vec4(${a[2]}, ${a[3]}))`,
+  },
+  textureSampleCompareLevelCube: {
+    wgsl: (a) => `textureSampleCompareLevel(${join(a)})`,
+    glsl: (a) => `textureGrad(${a[0]}, vec4(${a[2]}, ${a[3]}), vec3(0.0), vec3(0.0))`,
+  },
   // textureStore(tex, coord, value) and its array form (roadmap 0.4 item 10). WGSL spells
   // both `textureStore`, with the layer between the coordinate and the value on the array one,
   // which is exactly the argument order the front end builds. GLSL ES 3.00 has no image
@@ -453,6 +494,17 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
       a.length >= 2
         ? `uvec2(textureSize(${a[0]}, int(${a[1]})))`
         : `uvec2(textureSize(${a[0]}, 0))`,
+  },
+  // textureDimensions3d(t) — a 3d texture's size is THREE wide (roadmap 0.4 item 12), so the
+  // uvec2() wrapper above would drop its depth: its own id, for the reason textureNumLayers
+  // is one. A cube's size is two wide on both targets (the size of one face), so a cube keeps
+  // the entry above.
+  textureDimensions3d: {
+    wgsl: (a) => `textureDimensions(${join(a)})`,
+    glsl: (a) =>
+      a.length >= 2
+        ? `uvec3(textureSize(${a[0]}, int(${a[1]})))`
+        : `uvec3(textureSize(${a[0]}, 0))`,
   },
   // textureNumLayers(t) — the layer COUNT of a 2d-array texture (X-GIS #1658), i.e. the
   // ivec3 component the entry above deliberately DROPS. Its own id, not an overload

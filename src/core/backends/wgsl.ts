@@ -84,6 +84,10 @@ export function wgslType(t: ShaderType): string {
           return `texture_2d_array<${t.elem}>`
         case '2d':
           return `texture_2d<${t.elem}>`
+        case 'cube':
+          return `texture_cube<${t.elem}>`
+        case '3d':
+          return `texture_3d<${t.elem}>`
         default:
           // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
           // type a two-arm union, `t` is `never` here and has no `.dim` to check.
@@ -99,7 +103,14 @@ export function wgslType(t: ShaderType): string {
     case 'depth-texture':
       // A depth texture has no element type: every one is single-channel float, and a read of
       // one yields `f32` rather than `vec4`.
-      return t.dim === '2d-array' ? 'texture_depth_2d_array' : 'texture_depth_2d'
+      switch (t.dim) {
+        case '2d':
+          return 'texture_depth_2d'
+        case '2d-array':
+          return 'texture_depth_2d_array'
+        case 'cube':
+          return 'texture_depth_cube'
+      }
     case 'sampler':
       return 'sampler'
     case 'sampler-comparison':
