@@ -68,8 +68,22 @@ const spelled = (space: ModuleVarDecl['space']): string =>
  *  (`atomic` types are allowed in `workgroup` and `storage` only). Returns the reason, or
  *  `undefined` when the type is fine. */
 function typeRefusal(t: ShaderType, space: ModuleVarDecl['space']): string | undefined {
-  if (t.kind === 'texture' || t.kind === 'sampler' || t.kind === 'storage-texture') {
-    return `a ${t.kind === 'storage-texture' ? 'storage texture' : t.kind} is a resource, declared bare with "declare const"`
+  if (
+    t.kind === 'texture' ||
+    t.kind === 'sampler' ||
+    t.kind === 'storage-texture' ||
+    t.kind === 'depth-texture' ||
+    t.kind === 'sampler-comparison'
+  ) {
+    const shown =
+      t.kind === 'storage-texture'
+        ? 'storage texture'
+        : t.kind === 'depth-texture'
+          ? 'depth texture'
+          : t.kind === 'sampler-comparison'
+            ? 'comparison sampler'
+            : t.kind
+    return `a ${shown} is a resource, declared bare with "declare const"`
   }
   if (t.kind === 'array' && t.size === undefined) {
     return 'a runtime-sized array lives in a storage binding only; give this one a size, array<f32, 64>'

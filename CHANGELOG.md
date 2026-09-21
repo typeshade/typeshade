@@ -13,6 +13,24 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Depth textures and comparison samplers** (§34, roadmap 0.4 item 11). The texture a
+  shadow map is, read by comparison: `declare const shadowMap: texture_depth_2d`,
+  `declare const shadowSmp: sampler_comparison`, then
+  `textureSampleCompare(shadowMap, shadowSmp, uv, ref)` yields how much of the filter footprint
+  passed, as an `f32`; `textureSampleCompareLevel` is the any-stage form at level 0, and both
+  take a `texture_depth_2d_array` with the layer before the reference. Portable, unlike a
+  storage texture: WGSL keeps two bindings and puts the comparison on the sampler, GLSL ES 3.00
+  fuses them into one `sampler2DShadow` and folds the reference into the coordinate, and the
+  header declares the precision a shadow sampler has no default for. A depth texture and a
+  comparison sampler are each their own IR kind, so the two sampler kinds cannot be read as one
+  another by accident; the front end refuses both pairings, and a comparison in a compute entry,
+  in the words Tint would use a step later, and `tsc` refuses them independently through the
+  ambient lib. Reflection carries `textureDepth` and `samplerComparison` for the host's
+  `sampleType: 'depth'` and `type: 'comparison'`. A plain read of a depth texture is refused for
+  now with the reason: on GLSL the fused sampler's type is decided by the read, so a texture
+  read both ways needs separate samplers, a capability for a later item. Measured on Tint and on
+  a WebGL2 driver, both of which take every accepted shape and refuse every refused one.
+
 - **Storage textures and `textureStore`** (§33, roadmap 0.4 item 10). An image a shader reads and
   writes by texel coordinate, with no sampler and no filtering:
   `declare const dst: texture_storage_2d<"rgba8unorm", "write">`, then

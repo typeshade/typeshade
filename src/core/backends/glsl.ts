@@ -91,6 +91,15 @@ import { fixpoint } from '../passes/opt/index.js'
 // existing importers (`from './glsl'`) keep working.
 export { UnsupportedFeatureError } from '../backend.js'
 
+/** The combined sampler GLSL ES 3.00 fuses a depth texture and its comparison sampler into
+ *  (roadmap 0.4 item 11). One spelling per dim and no pairing walk, because every read of a
+ *  depth texture this surface admits is a comparison: a plain sample or a texel fetch of one is
+ *  refused by the front end, so a depth texture is always the shadow form here. The day a plain
+ *  read is admitted, the combined type depends on how the texture is USED and this becomes a
+ *  walk over the calls, with a texture used both ways needing WebGPU's separate samplers. */
+const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): string =>
+  t.dim === '2d-array' ? 'sampler2DArrayShadow' : 'sampler2DShadow'
+
 function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
@@ -160,6 +169,20 @@ function glslType(t: ShaderType): string {
     case 'sampler':
       throw new UnsupportedFeatureError(
         'glsl-es300: standalone sampler — fused into the combined sampler2D',
+      )
+    case 'sampler-comparison':
+      throw new UnsupportedFeatureError(
+        'glsl-es300: standalone comparison sampler — fused into the combined sampler2DShadow',
+      )
+    // A depth texture has no ONE combined type here (roadmap 0.4 item 11): GLSL fuses the
+    // texture with its sampler, and which object that is depends on how the module USES it —
+    // `sampler2DShadow` where it is compared, `sampler2D` where it is plainly sampled. That is
+    // a fact about the calls, not about the type, so it is resolved where the binding lines are
+    // written and this arm fails closed for anything that reaches it another way.
+    case 'depth-texture':
+      throw new UnsupportedFeatureError(
+        `glsl-es300: ${typeKey(t)}'s combined sampler depends on how the module uses it; ` +
+          `the binding emit resolves it`,
       )
     case 'void':
       return 'void'
@@ -1862,16 +1885,20 @@ function assembleGlslParts(
   //
   // Emitted only for the shapes THIS stage declares, so every module without one keeps
   // its byte-identical header; sorted so the header is deterministic.
+  // A shadow sampler has NO default precision in GLSL ES 3.00 (§4.5.4 gives one to sampler2D
+  // and samplerCube only), so the depth textures join this list under their combined type
+  // (roadmap 0.4 item 11); without the line the shader fails to compile on a real driver.
   const samplerPrecisions = [
     ...new Set(
       lowered.bindings
-        .filter(
-          (b) =>
-            b.type.kind === 'texture' &&
-            b.type.dim !== '2d-ms' &&
-            (scope === null || scope.bindings.has(b.name)),
-        )
-        .map((b) => glslType(b.type)),
+        .filter((b) => scope === null || scope.bindings.has(b.name))
+        .flatMap((b) =>
+          b.type.kind === 'texture' && b.type.dim !== '2d-ms'
+            ? [glslType(b.type)]
+            : b.type.kind === 'depth-texture'
+              ? [glslDepthSampler(b.type)]
+              : [],
+        ),
     ),
   ]
     .filter((s) => s !== 'sampler2D')
@@ -1952,12 +1979,16 @@ function assembleGlslParts(
     // across the program, so hosts bind unchanged).
     if (scope !== null && !scope.bindings.has(b.name)) continue
     if (b.type.kind === 'texture') bindingLines.push(`uniform ${glslType(b.type)} ${b.name};`)
+    // A depth texture is the shadow sampler its comparison sampler fuses into (item 11).
+    else if (b.type.kind === 'depth-texture')
+      bindingLines.push(`uniform ${glslDepthSampler(b.type)} ${b.name};`)
     // A standalone WGSL sampler binding is FUSED into the texture's combined
     // sampler2D (textureSample(tex,samp,uv) → texture(tex,uv)), so it emits no
     // separate GLSL uniform. The host reflection maps the texture binding to a
-    // texture unit and drops the sampler binding to match.
-    else if (b.type.kind === 'sampler') {
-      /* fused into the texture's sampler2D — skip */
+    // texture unit and drops the sampler binding to match. A comparison sampler
+    // fuses the same way, into the shadow form.
+    else if (b.type.kind === 'sampler' || b.type.kind === 'sampler-comparison') {
+      /* fused into the texture's sampler2D / sampler2DShadow — skip */
     } else if (b.space === 'storage')
       throw new UnsupportedFeatureError(
         'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',

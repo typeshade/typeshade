@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 433 exports
+## `.` — 436 exports
 
 ```
 abs
@@ -303,6 +303,7 @@ Return
 ReturnIf
 rewriteExprsInFunc
 round
+samplerComparisonT
 samplerT
 saturate
 Scalar
@@ -354,6 +355,8 @@ texture2dfT
 texture2diT
 texture2dMsfT
 texture2duT
+textureDepth2dArrayT
+textureDepth2dT
 textureDimensions
 TextureElem
 textureLoad
@@ -544,7 +547,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 249 exports
+## `./core/ir` — 252 exports
 
 ```
 abs
@@ -702,6 +705,7 @@ reduce
 Return
 ReturnIf
 round
+samplerComparisonT
 samplerT
 saturate
 Scalar
@@ -740,6 +744,8 @@ texture2dfT
 texture2diT
 texture2dMsfT
 texture2duT
+textureDepth2dArrayT
+textureDepth2dT
 textureDimensions
 TextureElem
 textureLoad
@@ -837,7 +843,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 541 definitions
+## Shapes — 544 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
@@ -1167,7 +1173,7 @@ src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S ex
 src/core/ir/types.ts#READ_WRITE_STORAGE_FORMATS  const  readonly ["r32uint", "r32sint", "r32float"]
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
+src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d" | "2d-array"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#StorageTextureAccess  type  "read" | "read_write" | "write"
 src/core/ir/types.ts#StorageTextureFormat  type  "rgba8unorm" | "rgba8snorm" | "rgba8uint" | "rgba8sint" | "rgba16uint" | "rgba16sint" | "rgba16float" | "r32uint" | "r32sint" | "r32float" | "rg32uint" | "rg32sint" | "rg32float" | "rgba32uint" | "rgba32sint" | "rgba32float"
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
@@ -1188,6 +1194,7 @@ src/core/ir/types.ts#mat2f64T  const  { readonly kind: "mat"; readonly n: 2; rea
 src/core/ir/types.ts#mat3f64T  const  { readonly kind: "mat"; readonly n: 3; readonly elem: "f64"; }
 src/core/ir/types.ts#mat4f64T  const  { readonly kind: "mat"; readonly n: 4; readonly elem: "f64"; }
 src/core/ir/types.ts#mat4x4fT  const  { readonly kind: "mat"; readonly n: 4; readonly elem: "f32"; }
+src/core/ir/types.ts#samplerComparisonT  const  { readonly kind: "sampler-comparison"; }
 src/core/ir/types.ts#samplerT  const  { readonly kind: "sampler"; }
 src/core/ir/types.ts#storageTexel  const  (format: StorageTextureFormat) => TextureElem
 src/core/ir/types.ts#storageTextureLayoutAccess  const  (access: StorageTextureAccess) => "write-only" | "read-only" | "read-write"
@@ -1199,6 +1206,8 @@ src/core/ir/types.ts#texture2dMsfT  const  { readonly kind: "texture"; readonly 
 src/core/ir/types.ts#texture2dfT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "f32"; }
 src/core/ir/types.ts#texture2diT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "i32"; }
 src/core/ir/types.ts#texture2duT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "u32"; }
+src/core/ir/types.ts#textureDepth2dArrayT  const  { readonly kind: "depth-texture"; readonly dim: "2d-array"; }
+src/core/ir/types.ts#textureDepth2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d"; }
 src/core/ir/types.ts#typeEq  function  (a: ShaderType, b: ShaderType) => boolean
 src/core/ir/types.ts#typeKey  function  (t: ShaderType) => string
 src/core/ir/types.ts#u32T  const  { readonly kind: "scalar"; readonly scalar: "u32"; }
@@ -1265,7 +1274,7 @@ src/core/passes/stage-bindings.ts#reachFrom  function  (m: ModuleDecl, entries: 
 src/core/passes/validate.ts#ValidationError  class  { cause?: unknown; code: string; diagnostics: readonly Diagnostic[]; hint?: string; loc?: SourceLoc; message: string; name: string; stack?: string }
 src/core/passes/validate.ts#lintModule  function  (m: ModuleDecl, config?: LintConfig) => Diagnostic[]
 src/core/passes/validate.ts#validate  function  (m: ModuleDecl) => void
-src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; glslSpelling?: "std140-block" | "loose"; group: number; name: string; owner: "module" | "host"; resourceKind: ResourceKind; space: AddressSpace; stages: readonly ("vertex" | "fragment" | "compute")[]; storageAccess?: "write-only" | "read-only" | "read-write"; storageFormat?: StorageTextureFormat; structName?: string; textureDim?: "2d" | "2d-array" | "2d-ms"; textureElem?: TextureElem }
+src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; glslSpelling?: "std140-block" | "loose"; group: number; name: string; owner: "module" | "host"; resourceKind: ResourceKind; samplerComparison?: true; space: AddressSpace; stages: readonly ("vertex" | "fragment" | "compute")[]; storageAccess?: "write-only" | "read-only" | "read-write"; storageFormat?: StorageTextureFormat; structName?: string; textureDepth?: true; textureDim?: "2d" | "2d-array" | "2d-ms"; textureElem?: TextureElem }
 src/core/reflect.ts#BindGroup  interface  { entries: readonly BindEntry[]; group: number }
 src/core/reflect.ts#EntryInfo  interface  { inputs: readonly string[]; io: EntryIo; name: string; output: string; portable?: true; stage: "vertex" | "fragment" | "compute"; workgroupSize?: number }
 src/core/reflect.ts#EntryIo  interface  { inputs: readonly EntryIoField[]; outputs: readonly EntryIoField[] }

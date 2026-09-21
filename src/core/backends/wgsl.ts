@@ -96,8 +96,14 @@ export function wgslType(t: ShaderType): string {
       return t.dim === '2d-array'
         ? `texture_storage_2d_array<${t.format}, ${t.access}>`
         : `texture_storage_2d<${t.format}, ${t.access}>`
+    case 'depth-texture':
+      // A depth texture has no element type: every one is single-channel float, and a read of
+      // one yields `f32` rather than `vec4`.
+      return t.dim === '2d-array' ? 'texture_depth_2d_array' : 'texture_depth_2d'
     case 'sampler':
       return 'sampler'
+    case 'sampler-comparison':
+      return 'sampler_comparison'
     case 'void':
       return 'void'
   }
@@ -288,7 +294,9 @@ export const wgslBackend: Backend = {
     if (
       b.type.kind === 'texture' ||
       b.type.kind === 'storage-texture' ||
-      b.type.kind === 'sampler'
+      b.type.kind === 'depth-texture' ||
+      b.type.kind === 'sampler' ||
+      b.type.kind === 'sampler-comparison'
     ) {
       return `@group(${b.group}) @binding(${b.binding}) var ${b.name}: ${wgslType(b.type)};`
     }

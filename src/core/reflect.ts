@@ -348,6 +348,14 @@ export interface BindEntry {
    *  A host passing WGSL's own `write` / `read` / `read_write` through gets a validation error,
    *  so the translation happens here rather than in every host. */
   readonly storageAccess?: 'write-only' | 'read-only' | 'read-write'
+  /** Set on a depth texture (roadmap 0.4 item 11): the host's `GPUTextureBindingLayout` takes
+   *  `sampleType: 'depth'` for it, and pairs it with a comparison sampler. Always `true` on such
+   *  an entry, absent on every other kind, so a host never has to read absence as "not depth"
+   *  on an entry that is not a texture at all. A depth texture has no `textureElem`. */
+  readonly textureDepth?: true
+  /** Set on a comparison sampler (roadmap 0.4 item 11): the host's `GPUSamplerBindingLayout`
+   *  takes `type: 'comparison'` for it. Always `true` on such an entry, absent otherwise. */
+  readonly samplerComparison?: true
   /** The stages that reference this binding, in the order vertex, fragment, compute. It
    *  comes from the same reachability walk the per-stage GLSL emit uses to decide which
    *  shader declares which uniform, so a host's stage mask can never describe a narrower
@@ -579,7 +587,12 @@ const ioField = (f: IoField): EntryIoField => ({
 })
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
-  t.kind === 'texture'
+  // A depth texture is a `texture` here (roadmap 0.4 item 11): the host builds it with the
+  // same `GPUBindGroupLayoutEntry.texture` member a sampled one takes, and only `sampleType`
+  // differs — which `textureDepth` carries. Likewise a comparison sampler is a `sampler` whose
+  // `type` is 'comparison', carried by `samplerComparison`. A storage texture is different: it
+  // needs another layout member altogether, so it IS its own kind below.
+  t.kind === 'texture' || t.kind === 'depth-texture'
     ? 'texture'
     : // Its OWN kind, not `texture` (roadmap 0.4 item 10): the two need different
       // `GPUBindGroupLayoutEntry` members — `texture: { sampleType, viewDimension }` against
@@ -587,7 +600,7 @@ const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
       // them apart would build the wrong layout for one of them.
       t.kind === 'storage-texture'
       ? 'storage-texture'
-      : t.kind === 'sampler'
+      : t.kind === 'sampler' || t.kind === 'sampler-comparison'
         ? 'sampler'
         : space === 'storage'
           ? 'storage-buffer'
@@ -736,6 +749,11 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         : {}),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
       ...(b.type.kind === 'texture' ? { textureDim: b.type.dim, textureElem: b.type.elem } : {}),
+      // A depth texture has a view dimension and no element: WebGPU's `sampleType` for it is
+      // 'depth', which `textureDepth` says; a comparison sampler's `type` is 'comparison'
+      // (roadmap 0.4 item 11). Both always set on their kind, absent on every other.
+      ...(b.type.kind === 'depth-texture' ? { textureDim: b.type.dim, textureDepth: true } : {}),
+      ...(b.type.kind === 'sampler-comparison' ? { samplerComparison: true } : {}),
       // A storage texture carries `textureDim` too, since a host needs the view dimension for
       // it exactly as it does for a sampled one; what it has instead of `textureElem` is the
       // format, which decides the texel type on its own (roadmap 0.4 item 10).

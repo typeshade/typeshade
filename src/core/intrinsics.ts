@@ -384,6 +384,40 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // the front end restricts it to what the builtins accept (an atomic in storage). GLSL ES
   // 3.00 has no atomic memory functions; the column fails closed like arrayLength's.
   ...atomicSpellings(),
+  // The depth comparisons (roadmap 0.4 item 11). Each shape takes its OWN neutral id, never an
+  // arity branch on one entry — the rule `textureSampleArray` is written under, and for the
+  // same reason: the ids restructure their arguments differently rather than merely adding one.
+  //
+  // On WGSL the sampler is an argument and the reference follows the coordinate. On GLSL the
+  // sampler FUSES into the combined `sampler2DShadow` and the reference folds INTO the
+  // coordinate — `vec3(uv, ref)`, and `vec4(uv, layer, ref)` on the array form, where the layer
+  // folds in too. Measured on a WebGL2 driver, which takes all four.
+  //
+  // `textureSampleCompare` needs implicit derivatives, so Tint allows it in a fragment stage
+  // only ("built-in cannot be used by compute pipeline stage"); `textureSampleCompareLevel`
+  // samples at level 0 and is legal anywhere, which is what `textureLod(..., 0.0)` is — on the
+  // 2D form. GLSL ES 3.00 has NO `textureLod` overload for `sampler2DArrayShadow` ("no matching
+  // overloaded function found", measured on a WebGL2 driver after the compile gate caught it),
+  // so the array form spells level 0 as `textureGrad` with zero gradients, which the same
+  // driver takes in a fragment AND a vertex stage. A zero gradient is a level of detail of
+  // -infinity, clamped to the base level: level 0, said the one way the target has to say it.
+  textureSampleCompare: {
+    wgsl: (a) => `textureSampleCompare(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, vec3(${a[2]}, ${a[3]}))`,
+  },
+  textureSampleCompareArray: {
+    wgsl: (a) => `textureSampleCompare(${join(a)})`,
+    glsl: (a) => `texture(${a[0]}, vec4(${a[2]}, float(${a[3]}), ${a[4]}))`,
+  },
+  textureSampleCompareLevel: {
+    wgsl: (a) => `textureSampleCompareLevel(${join(a)})`,
+    glsl: (a) => `textureLod(${a[0]}, vec3(${a[2]}, ${a[3]}), 0.0)`,
+  },
+  textureSampleCompareLevelArray: {
+    wgsl: (a) => `textureSampleCompareLevel(${join(a)})`,
+    glsl: (a) =>
+      `textureGrad(${a[0]}, vec4(${a[2]}, float(${a[3]}), ${a[4]}), vec2(0.0), vec2(0.0))`,
+  },
   // textureStore(tex, coord, value) and its array form (roadmap 0.4 item 10). WGSL spells
   // both `textureStore`, with the layer between the coordinate and the value on the array one,
   // which is exactly the argument order the front end builds. GLSL ES 3.00 has no image
