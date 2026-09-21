@@ -2909,6 +2909,118 @@ The list is the input to the divergence report of roadmap item 19: when a GPU re
 oracle disagree, the operations here are where the spec allows it, and everything else is a bug
 in one of the two.
 
+## 39. `f64`: the emulated double
+
+Neither target has a 64-bit float. `f64` is an *emulated* double: a pair of `f32` words whose
+sum is the value, and a library of error-free transforms over that pair. The type is yours to
+write; a pass rewrites every `f64` into `vec2<f32>` plus `df64_*` calls before any backend sees
+one, so WGSL and GLSL ES 3.00 both receive ordinary `f32` code and the CPU oracle evaluates the
+same program as a JavaScript double, which *is* an IEEE binary64.
+
+What that buys is significand, not range: about 48 bits against `f32`'s 24. A world coordinate
+near 10⁷ has an `f32` ulp of 1, so `fract(x)` there is a constant and the detail is gone;
+the same expression on an `f64` keeps it. `examples/fp64-lane-stripes.shade.ts` draws both
+halves side by side.
+
+```ts
+"use typeshade"
+
+class Uniforms {
+  origin: f64   // one vec2<f32> slot; the host writes the two words
+  span: f32
+}
+declare const u: uniform<Uniforms>
+
+export function stripes(t: f32): f64 {
+  const stripe: f64 = 0.125       // a literal in a DECLARED f64 position keeps the double
+  const world = u.origin * 2.5    // a literal beside an f64 is lifted to an f64 literal
+  const swept = world + u.span * t // an f32 beside an f64 widens exactly, as vec2<f32>(x, 0.)
+  return fract(swept / stripe)
+}
+```
+
+A literal is retyped only where the surrounding type *says* `f64` — a declaration, a parameter,
+a field, a return, or the other side of an operator. `f64(0.1)` is not that: it is a call, and
+it widens the `f32` rounding of `0.1`, which is a different number from `0.1`. Write the bare
+literal and let the context carry it.
+
+**Vectors.** `vec2f64`, `vec3f64` and `vec4f64` are vectors of doubles. They swizzle and index
+like any other vector — a lane is a swizzle of the hi and lo planes the pass lowers the vector
+into — and `vecN(v)` narrows one per lane, which is `f32(lane)` N times.
+
+```ts
+export function lanes(p: vec3f64): vec3 {
+  const x = p.x        // f64
+  const first = p[1]   // f64 — a CONSTANT lane; p[i] with a variable i has no lowering
+  const pair = p.xy    // vec2f64
+  return vec3(p)       // the per-lane narrow
+}
+```
+
+`length`, `distance` and `dot` on a `vec3f64` are `f64`, not `f32`: the pass composes each from
+the scalar transforms and hands back the pair. `determinant` is the exception — a matrix of
+doubles carries only `*` and `transpose`, so `determinant` on one is refused at the call, and
+the remedy is to declare that matrix `mat4`.
+
+**What is emulated, and what is refused.** There is a `df64_*` body for ten builtins on a scalar
+and thirteen on a vector, and for nothing else:
+
+| shape | lowered |
+| --- | --- |
+| `f64` | `abs`, `cos`, `floor`, `fract`, `max`, `min`, `mix`, `round`, `sin`, `sqrt`, and `+ - * /` with the six comparisons |
+| `vecN<f64>` | the same, minus `sqrt`, plus `normalize`, and the reductions `dot`, `length`, `distance` |
+| `matNxN<f64>` | `*` and `transpose` |
+
+Everything else is refused **at the call**, naming the list and the narrow:
+
+```
+ceil has no emulated-double form; got f64. On an f64 the pass lowers abs, cos, floor,
+fract, max, min, mix, round, sin and sqrt — narrow first, e.g. ceil(f32(x)).
+```
+
+`round` is WGSL's: the nearest integer with ties going to the **even** one, which is what the
+CPU oracle answers. (The library also carries `nint`, whose ties go toward +∞ because the
+mod-2π reduction needs that convention; the two disagree at every half-integer, and `round` is
+not it.) `%` has no emulation and stays refused, as does an `f64` in any slot a target takes as
+a plain `f32` — a mip level, a sampling bias, a comparison's reference depth:
+
+```
+textureSampleLevel's level must be an f32; got f64. Write f32(x).
+```
+
+**Across an entry boundary.** A double cannot be a varying. A `@location` field interpolates
+each of its two words on its own, and the interpolation of the words is not the interpolation of
+the double they encode, so the compiler refuses an `f64` on an entry's `@location` parameter, on
+an IO struct field and on an entry's return. Carry the words as one ordinary `vec2` and rebuild:
+
+```ts
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) originParts: vec2   // @location(0) origin: f64 is refused, naming this
+}
+
+@vertex
+export function vs(): VsOut {
+  return { pos: vec4(0., 0., 0., 1.), originParts: f64Parts(u.origin) }
+}
+
+@fragment
+export function fs(vo: VsOut): vec4 {
+  const origin: f64 = f64FromParts(vo.originParts.x, vo.originParts.y)
+  return vec4(f32(origin), 0., 0., 1.)
+}
+```
+
+The one `@location` an `f64` may sit on is a **vertex** input, which is a buffer read rather
+than a varying: the pair fits the single slot the attribute already is. A `vec3f64` attribute
+would need two slots and is refused.
+
+**The guard.** A module that uses the emulation gets a `_fp64` uniform injected at lowering, and
+the host must write `1.0` into it. It is what stops a driver's fast-math from algebraically
+cancelling the error-free transforms — the pair only works because the compiler is not allowed
+to "simplify" `(a + b) - a`. The binding is absent from `reflect()`, which reports the module as
+authored; probe the emitted program for it.
+
 ---
 
 Last updated: 2026-09-21

@@ -13,6 +13,30 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **The emulated double as an authored type** (§39, roadmap T18). The `f64` surface now admits
+  exactly what the fp64 lowering pass can lower, and refuses the rest where it is written. An
+  author can write `s * 2.5` and `s * t` beside a scalar `f64` (the literal is lifted to an f64
+  literal carrying the whole double, an `f32` widens exactly as `vec2<f32>(x, 0.)`, the rule
+  `binResultType` already applied in the fn() EDSL); `const k: f64 = 0.1`, a literal in any
+  declared `f64` position; `p.x`, `p.xy` and `p[1]` on a `vec64`, which the pass has always
+  lowered as a swizzle of the hi and lo planes; `vec3(p)`, the per-lane narrow; `round(x)`,
+  through a new `df64_round`; and `f64FromParts(hi, lo)` / `f64Parts(x)`, the lane bridge,
+  which existed in the registry and in the EDSL with no source spelling. `length`, `distance`
+  and `dot` on a `vec64` are now typed `f64` — the front end typed them `f32` while the pass
+  emitted the f64 pair, so a correct program could not be written (the BLOCKER of the spec
+  audit). What the pass cannot lower is refused at the CALL with the twin list and the narrow,
+  instead of reaching emit as an SD0041 with no source span: every builtin with no `df64`
+  body, `determinant` on a matrix of doubles, `mix` with an `f64` interpolant, an `f64` in a
+  texture's level, bias or reference-depth slot, and an `f64` on an entry's `@location` or
+  return, whose refusal names the bridge. A SCALAR `f64` vertex attribute stays accepted: that
+  `@location` is a buffer read, not a varying, and one slot holds the pair. `round` is WGSL's
+  ties-to-even and is deliberately NOT `df64_nint`, whose ties go toward +∞ for the mod-2π
+  reduction — measured against the oracle's `roundTiesToEven` at the half-integers and at
+  `2³⁰ + 0.5`, where the low word carries the parity. WGSL and GLSL ES 3.00 are unchanged in
+  shape (pairs of `f32`); no existing golden moved. The ambient library follows the compiler,
+  including numeric-literal lane keys so the editor accepts `p[1]` and refuses `p[i]` and
+  `p[2]` on a `vec2f64` exactly as the compiler does. `examples/fp64-lane-stripes.shade.ts`
+  runs both halves of the gate, WGSL on Tint and GLSL ES 3.00 on a real WebGL2 context.
 - **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
   operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a
   ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the driver

@@ -142,7 +142,7 @@ export const CODES = {
   SD0041: {
     code: 'SD0041',
     summary: 'unsupported operation on f64 operands',
-    hint: 'only + - * / compare, abs, min, max, sqrt, mix, floor, fract (and on vectors dot, length, distance, normalize) are emulated — narrow explicitly with toF32(x) first',
+    hint: 'only + - * / compare, abs, min, max, sqrt, mix, floor, fract, round, sin, cos (and on vectors dot, length, distance, normalize) are emulated — narrow explicitly first, with f32(x) in a "use typeshade" program or toF32(x) in the fn() EDSL',
   },
   SD0042: {
     code: 'SD0042',
@@ -157,7 +157,7 @@ export const CODES = {
   SD0044: {
     code: 'SD0044',
     summary: 'f64 in an interpolated @location IO field',
-    hint: 'interpolating hi/lo pairs is numerically wrong — narrow with toF32, or carry two f32 varyings explicitly',
+    hint: 'interpolating hi/lo pairs is numerically wrong — narrow first (f32(x), or toF32(x) in the fn() EDSL), or carry the two words as f32 varyings and rebuild with f64FromParts(hi, lo)',
   },
 
   // ── Lint-rule diagnostics surfaced through diagnose() ──

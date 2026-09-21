@@ -119,6 +119,13 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
       lines.push(`declare function ${name}(v: ${vecTypeName(other, n)}): ${type}`)
     }
   }
+  // The NARROWING form (§39): `vec3(v)` on a `vec3f64` takes each lane's (hi, lo) pair down
+  // to one f32, which is `f32(lane)` per lane. Only the f32 constructor of the vector's own
+  // width has it — the compiler refuses the integer and bool ones, since the fp64 pass has no
+  // f64 → i32 body at all.
+  if (elem === 'f32') {
+    lines.push(`declare function ${name}(v: ${vecTypeName('f64', n)}): ${type}`)
+  }
   return lines.join('\n')
 }
 
@@ -196,6 +203,26 @@ const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('
  * ("Property '[vec64Tag]' is missing in type 'vec2'") beside its TS2769, on a program
  * `compileTsSource` lowers and the fp64 emitter turns into a `df64_v3_mix` call.
  */
+/** The cross-lane reductions on an emulated-double vector (§39). The fp64 pass composes each
+ * one from the SCALAR df64 error-free transforms and hands back an `f64`, which is what
+ * `mathResultType` types them — so the signature has to answer `f64` and not the `number` the
+ * `Numeric` form returns, or the editor would call a correct `const l: f64 = length(v)` a
+ * mismatch. `Numeric` itself stays f32/i32/u32-only: widening it would let every componentwise
+ * builtin take a `vec64` in the editor, and the pass has a body for nine of them
+ * (fp64/twins.ts), not all of them.
+ *
+ * ONE signature with a widened constraint and a conditional result, not an overload SET: a
+ * second overload turns every genuinely wrong shape from a TS2345 that names the argument into
+ * a TS2769 that says only "no overload matches", and `diagnostics.test.ts` pins the TS2345 on
+ * `dot(vec3, vec2)` as the diagnostic an author can act on. */
+function vec64Reduction(name: string, arity: 1 | 2): string {
+  const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ')
+  return (
+    `declare function ${name}<T extends Numeric | Vec64Any>(${params}): ` +
+    `T extends Vec64Any ? f64 : number`
+  )
+}
+
 function mixSignature(): string {
   const vectorWithScalar = (v: string): string =>
     `declare function mix(a: ${v}, b: ${v}, t: number): ${v}`
@@ -231,10 +258,10 @@ function scalarMathOverload(name: string, arity: number): string {
  * `MATH_FN_ARITY` records arity only, not shape. An entry here replaces the generated pair
  * outright, so a name listed must declare its own all-scalar overload too when it wants one. */
 const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
-  dot: 'declare function dot<T extends Numeric>(a: T, b: T): number',
-  distance: 'declare function distance<T extends Numeric>(a: T, b: T): number',
-  length: 'declare function length<T extends Numeric>(a: T): number',
-  normalize: 'declare function normalize<T extends Numeric>(a: T): T',
+  dot: vec64Reduction('dot', 2),
+  distance: vec64Reduction('distance', 2),
+  length: vec64Reduction('length', 1),
+  normalize: 'declare function normalize<T extends Numeric | Vec64Any>(a: T): T',
   cross: 'declare function cross(a: vec3, b: vec3): vec3',
   mix: mixSignature(),
   // Roadmap 0.2 item 8: the shapes the generated "same type in, same type out" pair misses.
@@ -451,6 +478,12 @@ type ComponentKeys<N extends 2 | 3 | 4> = N extends 2
   : N extends 3
     ? 'x' | 'y' | 'z' | 'r' | 'g' | 'b' | 'xy' | 'rg' | 'xyz' | 'rgb'
     : 'x' | 'y' | 'z' | 'w' | 'r' | 'g' | 'b' | 'a' | 'xy' | 'rg' | 'xyz' | 'rgb' | 'xyzw' | 'rgba'
+// The lanes an emulated-double vector may be indexed by, as NUMERIC LITERAL keys rather than
+// an index signature. That is the compiler's rule exactly (§39): \`v[1]\` is a swizzle of the
+// hi and lo planes and lowers, \`v[i]\` with a variable \`i\` would have to swizzle by a value
+// and is refused, and \`v[2]\` on a \`vec2f64\` is out of range. An index signature would admit
+// all three; leaving them out would admit none.
+type LaneKeys<N extends 2 | 3 | 4> = N extends 2 ? 0 | 1 : N extends 3 ? 0 | 1 | 2 : 0 | 1 | 2 | 3
 type VecOf<S extends 'f32' | 'i32' | 'u32' | 'bool', N extends 2 | 3 | 4> = {
   readonly [vecTag]: readonly [S, N]
 } & Pick<
@@ -489,12 +522,37 @@ type vec4b = VecOf<'bool', 4>
 type BoolVec = vec2b | vec3b | vec4b
 
 declare const vec64Tag: unique symbol
-/** \`f64\` vectors carry no swizzle members: \`swizzle.ts\`'s \`parseSwizzle\` only accepts
- * \`kind: 'vec'\` (the f32/i32/u32 family above), never \`kind: 'vec64'\`. */
-type Vec64<N extends 2 | 3 | 4> = { readonly [vec64Tag]: N }
+/** An \`f64\` vector swizzles like any other (§39): the fp64 pass rebuilds the picked lanes
+ * out of the hi and lo planes it lowers the vector into, so \`v.x\` is an \`f64\` and \`v.xy\` a
+ * \`vec2f64\`. A one-component pick and a multi-component one are the two shapes WGSL gives,
+ * and the colour aliases name the same lanes. \`v[i]\` is the same pick by a CONSTANT index;
+ * the index signature is not declared, because a dynamic one has no lowering. */
+type Vec64<N extends 2 | 3 | 4> = { readonly [vec64Tag]: N } & Pick<
+  {
+    x: f64
+    y: f64
+    z: f64
+    w: f64
+    r: f64
+    g: f64
+    b: f64
+    a: f64
+    xy: Vec64<2>
+    rg: Vec64<2>
+    xyz: Vec64<3>
+    rgb: Vec64<3>
+    xyzw: Vec64<4>
+    rgba: Vec64<4>
+  },
+  ComponentKeys<N>
+> &
+  Pick<{ 0: f64; 1: f64; 2: f64; 3: f64 }, LaneKeys<N>>
 type vec2f64 = Vec64<2>
 type vec3f64 = Vec64<3>
 type vec4f64 = Vec64<4>
+/** The emulated-double vectors as one union — what the cross-lane reductions widen to (§39).
+ * Kept apart from \`Numeric\`, which is the set every componentwise builtin takes. */
+type Vec64Any = vec2f64 | vec3f64 | vec4f64
 
 ${vecTypeAliases}
 
@@ -1002,6 +1060,10 @@ ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
 ${renderJSDoc(FUNCTION_DOCS.arrayLength)}
 declare function arrayLength<T>(xs: array<T>): u32
+${renderJSDoc(FUNCTION_DOCS.f64FromParts)}
+declare function f64FromParts(hi: f32, lo: f32): f64
+${renderJSDoc(FUNCTION_DOCS.f64Parts)}
+declare function f64Parts(x: f64): vec2
 ${renderJSDoc(FUNCTION_DOCS.atomicLoad)}
 declare function atomicLoad<T extends u32 | i32>(location: atomic<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atomicStore)}

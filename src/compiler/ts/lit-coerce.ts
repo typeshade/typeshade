@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { Expr } from '../../core/ir/nodes.js'
 import type { ShaderType } from '../../core/ir/types.js'
-import { typeKey } from '../../core/ir/types.js'
+import { f64T, isF64, typeKey } from '../../core/ir/types.js'
 
 export function isIntegerLiteralNode(node: ts.Expression): boolean {
   if (ts.isParenthesizedExpression(node)) return isIntegerLiteralNode(node.expression)
@@ -99,6 +99,18 @@ function stripParens(node: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(node) ? stripParens(node.expression) : node
 }
 
+/** The f64 arm of {@link retargetIntLitCtx}: a literal WRITTEN as a number, in a position
+ *  declared `f64`, becomes an f64 literal carrying the full double. An expression that is not
+ *  a literal (a call, a parameter, arithmetic that does not fold) is returned untouched and
+ *  keeps whatever mismatch it had. */
+function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
+  if (ts.isCallExpression(stripParens(node))) return expr
+  const folded = foldNumericLit(expr)
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return expr
+  if (typeKey(folded.type) !== 'f32') return expr
+  return { op: 'lit', type: f64T, value: folded.value }
+}
+
 /** A bare integer literal takes the type the context around it declares (#8 A3).
  *
  *  `return 0` in a function declared `u32`, `g(1)` where `g` takes an i32, `{ id: 0 }` for a
@@ -122,6 +134,14 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  A conditional is retargeted through its arms, so `c ? 1 : 2` in a u32 position is a
  *  `select` of two u32 literals rather than a select of two f32 ones. */
 export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
+  // A DECLARED f64 is the one non-integer context that retypes a literal, and for the same
+  // reason the integer contexts do: the type is stated, so the written number means a value
+  // of it. `const k: f64 = 0.1` lowered `0.1` to an f32 and then reported "cannot let/const k
+  // f64 and f32", which left an f64 constant with no spelling at all — `f64(0.1)` widens the
+  // f32 ROUNDING of 0.1, not 0.1 (#151 F64-03). Here the full double reaches the fp64 pass,
+  // which splits it into its (hi, lo) halves. Only a literal is retyped; `f32(0.1)` says
+  // which precision it means and is left alone, as it is beside an f64 operand.
+  if (isF64(target)) return retargetF64DeclaredLit(expr, node)
   if (!isIntScalar(target)) return expr
   const inner = stripParens(node)
   if (!ts.isConditionalExpression(inner) && !isIntegerLiteralTree(inner)) return expr

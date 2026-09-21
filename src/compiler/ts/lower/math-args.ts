@@ -21,6 +21,7 @@ import { typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES } from '../codes.js'
+import { F64_SCALAR_TWINS, F64_VEC_TWINS } from '../../../core/fp64/twins.js'
 
 type Elem = 'f32' | 'i32' | 'u32' | 'bool' | 'f64'
 
@@ -203,6 +204,70 @@ function sameFix(first: Shape, other: Shape): string {
   return ''
 }
 
+/** The emulated-double arm of {@link checkMathArgs}.
+ *
+ *  An `f64` is not a native scalar: the fp64 lowering pass rewrites it into a pair of `f32`
+ *  words and a `df64_*` call, and it has a body for the ten builtins in
+ *  {@link F64_SCALAR_TWINS} and no others. Everything else used to be accepted here and
+ *  refused by the backend as SD0041 — a diagnostic with no source span on a call the author
+ *  had already written and forgotten. This says it at the call, with the list, and names the
+ *  narrow that makes the program legal (#151 F64-08).
+ *
+ *  What the pass DOES accept is admitted as it is: an `f32` beside a scalar `f64` (the pass
+ *  widens it exactly as `vec2<f32>(x, 0.0)`, the rule `binResultType` already applies in the
+ *  fn() EDSL), a scalar operand broadcast across a `vec64`, and `mix`'s interpolant, which
+ *  stays an `f32` on both shapes because the df64 body blends by a plain float. */
+function checkF64Args(
+  fn: string,
+  display: string,
+  args: readonly Expr[],
+  shapes: readonly (Shape | undefined)[],
+  refuse: (index: number, message: string) => false,
+): boolean {
+  const head = shapes[0]
+  if (head === undefined) return true
+  const vec = head.n > 1
+  const twins = vec ? F64_VEC_TWINS : F64_SCALAR_TWINS
+  if (!twins.includes(fn)) {
+    return refuse(
+      0,
+      `${display} has no emulated-double form; got ${typeKey(args[0]!.type)}. ` +
+        `On ${vec ? 'a vector of doubles' : 'an f64'} the pass lowers ${listOf(twins)} — ` +
+        `narrow first, e.g. ${display}(f32(x)).`,
+    )
+  }
+  // A reduction (dot, length, distance) takes vectors; a componentwise twin takes the head's
+  // own shape. Either way an f32 operand beside the f64 one is the pass's exact widen.
+  for (let i = 1; i < args.length; i++) {
+    const shape = shapes[i]
+    const got = typeKey(args[i]!.type)
+    // mix(a, b, t): the interpolant is a plain f32 on both the scalar and the vector body
+    // (fp64-lower.ts raises SD0041 for an f64 t), so it is checked here and not as an operand.
+    if (fn === 'mix' && i === 2) {
+      if (shape !== undefined && shape.elem === 'f32' && shape.n === 1) continue
+      return refuse(
+        i,
+        `${display} blends emulated doubles by a plain f32 interpolant; got ${got}. ` +
+          `Write f32(t).`,
+      )
+    }
+    if (shape === undefined || shape.n !== head.n || (shape.elem !== 'f64' && shape.elem !== 'f32'))
+      return refuse(
+        i,
+        `${display} takes arguments of one type; the first is ${typeKey(args[0]!.type)}, ` +
+          `this one ${got}.`,
+      )
+  }
+  return true
+}
+
+/** "abs, cos, floor and sin" — the twin list of a refusal, in the house's prose form. */
+function listOf(names: readonly string[]): string {
+  return names.length < 2
+    ? (names[0] ?? '')
+    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]!}`
+}
+
 /** Checks the arguments of the math builtin `fn` (already at its arity) against its
  *  signature, pushing one diagnostic on the first argument that does not fit.
  *
@@ -229,13 +294,29 @@ export function checkMathArgs(
     if (first.type.kind !== 'mat') {
       return refuse(0, `${display} takes a matrix; got ${typeKey(first.type)}.`)
     }
+    // `transpose` on an emulated-double matrix is a reshuffle of the lanes the fp64 pass
+    // lowers (df64_mN_transpose); a DETERMINANT has no df64 body at all, so it would compile
+    // here and raise SD0041 from the backend after the call span is gone (#151).
+    if (first.type.elem === 'f64' && fn === 'determinant') {
+      return refuse(
+        0,
+        `${display} has no emulated-double form; got ${typeKey(first.type)}: the fp64 pass ` +
+          `lowers only * and transpose on a matrix of doubles, so declare the matrix ` +
+          `mat${first.type.n} where you need its determinant.`,
+      )
+    }
     return true
   }
   const spec = MATH_ARG_SPECS[fn]
   if (spec === undefined) return true
   const shapes = args.map((a) => shapeOf(a.type))
-  // An emulated double is the fp64 pass's business: it lifts an f32 beside an f64 itself.
-  if (shapes.some((s) => s?.elem === 'f64')) return true
+  // An emulated double as the FIRST argument decides the call: the fp64 pass, not the WGSL
+  // signature table, says what it can be. An f64 anywhere else — `mix(vec3, vec3, t64)` — is
+  // an ordinary operand mismatch against a native first argument and keeps the message the
+  // integer and wrong-width factors get, since the fix is the same one (#151 F64-08).
+  if (shapes[0]?.elem === 'f64') {
+    return checkF64Args(fn, display, args, shapes, refuse)
+  }
   const head = shapes[0]
   if (head === undefined || !spec.elems.includes(head.elem)) {
     return refuse(0, `${display} takes ${classWord(spec.elems)}; got ${typeKey(first.type)}.`)

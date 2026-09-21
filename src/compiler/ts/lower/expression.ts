@@ -7,7 +7,12 @@ import type { TsCompilerDiagnostic } from '../source-file.js'
 import { irNameOf, type LoweringScope } from '../context.js'
 import { resolveLangConst } from '../math-alias.js'
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js'
-import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
+import {
+  broadcastResultType,
+  f64WidenResultType,
+  numericMismatch,
+  retargetLit,
+} from '../numeric.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js'
 import { lowerArrayLiteral } from './expression-array.js'
@@ -407,6 +412,10 @@ function lowerBinary(
       // the fn() EDSL; the result is the vector's type and the operand order stays as written.
       const broadcast = broadcastResultType(left.type, right.type, arith)
       if (broadcast) return { op: 'binop', type: broadcast, bop: arith, a: left, b: right }
+      // An f32 beside a scalar f64 widens exactly, as it does in the fn() EDSL and as the
+      // fp64 pass's contract states (#151 F64-02).
+      const widened = f64WidenResultType(left.type, right.type, arith)
+      if (widened) return { op: 'binop', type: widened, bop: arith, a: left, b: right }
       pushDiag(
         diagnostics,
         sourceFile,

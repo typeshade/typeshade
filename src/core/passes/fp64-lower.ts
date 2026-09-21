@@ -47,6 +47,7 @@ import type {
 } from '../ir/nodes.js'
 import { stageOf } from '../ir/nodes.js'
 import { eachExpr, eachStmtExpr } from '../ir/visit.js'
+import { F64_SCALAR_TWIN_FN, F64_VEC_TWIN_KIND } from '../fp64/twins.js'
 import {
   type ShaderType,
   f32T,
@@ -155,30 +156,11 @@ const CMP_FN: Record<CmpOp, string> = {
   '==': 'df64_eq',
   '!=': 'df64_ne',
 }
-/** Whitelisted builtin ids on f64 operands → their df64 twin. */
-const CALL_FN: Record<string, string> = {
-  sqrt: 'df64_sqrt',
-  abs: 'df64_abs',
-  floor: 'df64_floor',
-  fract: 'df64_fract',
-  min: 'df64_min',
-  max: 'df64_max',
-  mix: 'df64_mix',
-  sin: 'df64_sin',
-  cos: 'df64_cos',
-}
-/** Whitelisted componentwise builtins on vec64 → their df64_vN_* twin shape. */
-const VEC_CALL_KIND: Record<string, 'unary' | 'binary' | 'mix'> = {
-  abs: 'unary',
-  floor: 'unary',
-  fract: 'unary',
-  normalize: 'unary',
-  sin: 'unary',
-  cos: 'unary',
-  min: 'binary',
-  max: 'binary',
-  mix: 'mix',
-}
+/** Whitelisted builtin ids on f64 operands → their df64 twin, and the shape of the
+ *  componentwise `vec64` twins. Both tables live in fp64/twins.ts, because the front end
+ *  reads them to refuse at the call span exactly what this pass cannot lower (#151). */
+const CALL_FN = F64_SCALAR_TWIN_FN
+const VEC_CALL_KIND = F64_VEC_TWIN_KIND
 
 const litF32 = (v: number): Expr => ({ op: 'lit', type: f32T, value: v })
 /** vec2<f32>(hi, lo) — the lowered spelling of an f64 literal. */
@@ -495,12 +477,16 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         const sTy = structT(vec64StructName(n))
         const kind = VEC_CALL_KIND[e.fn]!
         if (kind === 'unary') {
-          // fract (per-lane sub), normalize (per-lane div), and sin/cos (their
-          // reduction's per-lane df64_div/df64_sub) cancel internally, so a loaded
-          // operand needs the renorm; abs/floor do not cancel.
+          // fract and round (per-lane sub), normalize (per-lane div), and sin/cos
+          // (their reduction's per-lane df64_div/df64_sub) cancel internally, so a
+          // loaded operand needs the renorm; abs/floor do not cancel.
           const arg = vecOperand(e.args[0]!, n)
           const cancels =
-            e.fn === 'fract' || e.fn === 'normalize' || e.fn === 'sin' || e.fn === 'cos'
+            e.fn === 'fract' ||
+            e.fn === 'round' ||
+            e.fn === 'normalize' ||
+            e.fn === 'sin' ||
+            e.fn === 'cos'
           const a = cancels ? renormForCancelVec(ctx, arg, n) : arg
           return callHelper(ctx, `df64_v${n}_${e.fn}`, sTy, [a])
         }
@@ -552,7 +538,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
           // operand too (the reduction's df64_div(a, 2π) / df64_sub(a, …) are the
           // FIRST ops on a, so a loaded lo must be recomputed first). The other
           // whitelisted scalar builtins (sqrt/abs/floor/min/max) don't cancel.
-          if (e.fn === 'fract' || e.fn === 'sin' || e.fn === 'cos') {
+          if (e.fn === 'fract' || e.fn === 'round' || e.fn === 'sin' || e.fn === 'cos') {
             return callHelper(ctx, mapped, vec2fT, [renormForCancel(ctx, pairOperand(e.args[0]!))])
           }
           const ret = isF64(e.type) ? vec2fT : mapType(e.type)

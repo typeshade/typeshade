@@ -748,6 +748,23 @@ export function parseParams(
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input')
     }
     const location = numberDecorator(p, sourceFile, 'location')
+    // An emulated double on the entry's IO boundary (#151 F64-09). A FRAGMENT @location input
+    // is interpolated; a VERTEX one is a buffer read, which carries a scalar f64's pair in one
+    // slot but cannot carry a vec64's two.
+    if (
+      stage !== undefined &&
+      location !== undefined &&
+      refuseF64EntryIo(
+        pType,
+        `Parameter "${p.name.text}"`,
+        stage === 'fragment',
+        p,
+        sourceFile,
+        diagnostics,
+      )
+    ) {
+      return undefined
+    }
     params.push({
       name: p.name.text,
       type: pType,
@@ -936,6 +953,20 @@ export function parseSignature(
     stageInfo.stage,
   )
   if (!ret) return undefined
+  // A stage output of an emulated double is a varying or a render-target write (#151 F64-09).
+  if (
+    stageInfo.stage !== undefined &&
+    refuseF64EntryIo(
+      ret,
+      `Entry "${name}" returns`,
+      true,
+      node.type ?? node,
+      sourceFile,
+      diagnostics,
+    )
+  ) {
+    return undefined
+  }
   const decl: FuncDecl = { name, params, ret, body: [] }
   recordParamDefaults(decl, node.parameters)
   // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
@@ -975,6 +1006,59 @@ export function parseSignature(
     refuseVertexWithoutPosition(ret, node, name, sourceFile, diagnostics, structs)
   }
   return decl
+}
+
+/** True, having reported it, when an emulated double sits on an entry's IO boundary.
+ *
+ *  A `@location` varying is INTERPOLATED, and interpolating a (hi, lo) pair word by word is
+ *  not the interpolation of the double it encodes: the low word is the part f32 could not
+ *  hold, and a hardware blend of it carries no meaning. The fp64 pass refuses it as SD0044,
+ *  and a `vec64` vertex ATTRIBUTE as SD0041 (it would need two slots), both at emit, with no
+ *  source span. Said here instead, at the parameter, the field or the return type that has
+ *  it, naming the bridge an author can write (#151 F64-09).
+ *
+ *  A SCALAR `f64` vertex attribute is not refused: a vertex `@location` input is a buffer
+ *  read, not a varying, and one `vec2<f32>` slot carries the pair exactly — which is what the
+ *  pass accepts and what `examples/fp64-deep-zoom.shade.ts` is built on. */
+function refuseF64EntryIo(
+  type: ShaderType,
+  what: string,
+  interpolated: boolean,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (!containsF64Type(type)) return false
+  // The one f64 an entry CAN carry: a scalar double read from a vertex buffer, whose pair
+  // fits the single `vec2<f32>` slot the attribute already is.
+  if (!interpolated && type.kind === 'f64') return false
+  const bridge =
+    `Carry the two f32 words as ordinary IO and rebuild the value with ` +
+    `f64FromParts(hi, lo); f64Parts(x) splits one.`
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    interpolated
+      ? `${what} is ${typeKey(type)}: an emulated double is a pair of f32 words, and a ` +
+          `@location varying interpolates each word on its own, which is not the ` +
+          `interpolation of the double. ${bridge}`
+      : `${what} is ${typeKey(type)}: a vertex attribute carries one f32 slot per @location, ` +
+          `so a vector of emulated doubles would need two of them. ${bridge}`,
+    TS_CODES.UNSUPPORTED,
+  )
+  return true
+}
+
+/** Whether `t` carries an emulated double anywhere — the scalar, a vector of them, a matrix of
+ *  them, or an array or struct field of any of those. The fp64 pass's own `containsF64`, in
+ *  the front end's terms; a struct is taken by NAME there and its fields are checked where the
+ *  struct is validated, so the recursion here stops at one. */
+function containsF64Type(t: ShaderType): boolean {
+  if (t.kind === 'f64' || t.kind === 'vec64') return true
+  if (t.kind === 'mat') return t.elem === 'f64'
+  if (t.kind === 'array') return containsF64Type(t.elem)
+  return false
 }
 
 /** True, having reported it, when a `@vertex` entry's return carries no `@builtin(position)`:
@@ -1470,6 +1554,19 @@ function checkStructBuiltinFields(
           `has neither @builtin(...) nor @location(...): ${remedy}`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       )
+      continue
+    }
+    if (
+      field.location !== undefined &&
+      refuseF64EntryIo(
+        field.type,
+        `Struct "${structName}" field "${field.name}", a ${stage} ${direction},`,
+        true,
+        node,
+        sourceFile,
+        diagnostics,
+      )
+    ) {
       continue
     }
     if (!field.builtin) continue

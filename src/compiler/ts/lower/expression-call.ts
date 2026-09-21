@@ -4,10 +4,13 @@ import type { ShaderType } from '../../../core/ir/types.js'
 import {
   boolT,
   f32T,
+  f64T,
   i32T,
+  isF64,
   storageTexel,
   typeKey,
   u32T,
+  vec2fT,
   vec2uT,
   vec3uT,
   vec4fT,
@@ -209,6 +212,8 @@ export function lowerCall(
       )
       return undefined
     }
+    if (name === 'f64FromParts' || name === 'f64Parts')
+      return lowerF64BridgeCall(name, node, sourceFile, scope, diagnostics)
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     ctor = VEC_CTOR[name]
     if (!ctor) {
@@ -271,6 +276,42 @@ export function lowerCall(
     // parts and would reject it as an element-type mismatch.
     if (args.length === 1 && isConvertibleVector(args[0]!.type, ctor)) {
       return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args }
+    }
+    // vecN(v: vecN<f64>) — the per-lane NARROW, the one conversion an emulated-double vector
+    // has. There is nothing to reinterpret componentwise: each lane is a (hi, lo) pair, and
+    // `f32(lane)` is the df64_narrow the fp64 pass emits for it. Written out as the explicit
+    // component list, so all three backends and the CPU oracle see one ordinary vector
+    // constructor and the pass has no new shape to learn (#151 F64-05). The integer and bool
+    // constructors are not offered: the pass has no f64 → i32 body (SD0041) and saturating a
+    // double through f32 first is not a conversion an author should get by accident.
+    const from = args[0]
+    if (args.length === 1 && from !== undefined && from.type.kind === 'vec64') {
+      if (ctor.elem === 'f32' && from.type.n === ctor.n) {
+        return {
+          op: 'construct',
+          type: vectorCtorType(ctor.n, 'f32'),
+          args: Array.from({ length: ctor.n }, (_, i): Expr => ({
+            op: 'call',
+            type: f32T,
+            fn: 'f32',
+            args: [{ op: 'member', type: f64T, base: from, field: 'xyzw'[i]! }],
+          })),
+        }
+      }
+      if (ctor.elem !== 'f64') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `${name}(${typeKey(from.type)}) — an emulated-double vector narrows to f32 lane by ` +
+            `lane and to nothing else; write vec${from.type.n}(v)` +
+            (ctor.elem === 'f32'
+              ? ' of its own width.'
+              : ` and cast that, e.g. ${name}(vec${from.type.n}(v)).`),
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
     }
     // fp64 lowering represents vecN<f64> as DF64VecN, while the constructor
     // contract is component-based. Flatten vec64 arguments here so the fp64 pass
@@ -366,6 +407,67 @@ export function lowerCall(
 
 /** The scalar type a vector constructor's components must have, or undefined for the
  *  emulated-double constructor, whose components the fp64 pass assembles. */
+/** `f64FromParts(hi, lo)` and `f64Parts(x)`: the lane bridge between an emulated double and
+ *  the two `f32` words that carry it.
+ *
+ *  An `f64` cannot cross an entry boundary — a (hi, lo) pair interpolated as a varying is
+ *  numerically meaningless, and the fp64 pass refuses one — so a stage that must hand a double
+ *  to the next one carries the two words as ordinary `f32` IO and rebuilds the value on the
+ *  other side. Both halves were in the intrinsic registry and in the fn() EDSL from the start
+ *  and had no source spelling at all, which left the refusal naming a bridge no
+ *  `"use typeshade"` program could write (#151 F64-09, F64-13). */
+function lowerF64BridgeCall(
+  name: 'f64FromParts' | 'f64Parts',
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const want = name === 'f64FromParts' ? 2 : 1
+  if (node.arguments.length !== want) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${name} expects ${want} argument(s), got ${node.arguments.length}.`,
+      TS_CODES.ARITY_MISMATCH,
+    )
+    return undefined
+  }
+  const args: Expr[] = []
+  for (const arg of node.arguments) {
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!lowered) return undefined
+    args.push(lowered)
+  }
+  if (name === 'f64Parts') {
+    if (!isF64(args[0]!.type)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.arguments[0]!,
+        `f64Parts splits an f64 into its high and low f32 words; got ${typeKey(args[0]!.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: vec2fT, fn: 'f64Parts', args }
+  }
+  for (let i = 0; i < args.length; i++) {
+    if (typeKey(args[i]!.type) === 'f32') continue
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.arguments[i]!,
+      `f64FromParts takes the two f32 words of a double, high then low; argument ${i + 1} is ` +
+        `${typeKey(args[i]!.type)}. Write f32(x).`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return { op: 'call', type: f64T, fn: 'f64FromParts', args }
+}
+
 /** `arrayLength(src)`: the explicit spelling of what `src.length` reads on a runtime-sized
  *  storage array (#46). One argument, and `arrayLengthOf` decides whether it is what the
  *  builtin takes, so the call and the property agree. */
@@ -473,6 +575,15 @@ function retargetIntrinsicLiterals(
     // change to every intrinsic rather than to this rule, and is not additive.
     const argNode = node.arguments[i]
     if (!argNode) continue
+    // `mix`'s interpolant stays a plain f32 beside a SCALAR emulated double: the df64 body
+    // blends by a float, and the pass refuses an f64 `t` outright. Without this the literal
+    // in `mix(a64, b64, 0.25)` would take the f64 peer like any other later argument and then
+    // be refused at the argument check — a written 0.25 with no way to spell it (#151). A
+    // `vec64` peer needs no arm: `literalPeerType` leaves a literal beside one f32 already.
+    if (intrinsicId === 'mix' && i === 2 && isF64(target)) {
+      args[i] = retargetIntLitCtx(args[i]!, argNode, f32T)
+      continue
+    }
     args[i] = retargetIntLitCtx(args[i]!, argNode, target)
   }
 }
@@ -772,11 +883,16 @@ function lowerDepthTextureCall(
     const out = [...args]
     if (isArray) {
       // The layer is an integer, as on a sampled array texture; the reference depth that
-      // follows it is an f32 and is left as written.
+      // follows it is an f32.
       const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
       if (!layer) return undefined
       out[3] = layer
     }
+    const ref = isArray ? 4 : 3
+    if (
+      !floatArg(`${id}'s reference depth`, out[ref]!, node.arguments[ref]!, sourceFile, diagnostics)
+    )
+      return undefined
     // The cube form is its own id (roadmap 0.4 item 12): on GLSL the reference folds into a
     // vec4 after the vec3 direction, where the 2d form folds it into a vec3.
     const fn = isArray ? `${id}${suffix}` : tex.dim === 'cube' ? `${id}Cube` : id
@@ -983,14 +1099,19 @@ function lowerTextureCall(
       )
         return undefined
       const fn = `${id}${suffix}`
-      // The LAYER is an integer; the mip LEVEL of a sampled read is an f32 and is left as
-      // written. (`textureSampleLevel`'s level argument sits where the layer does on the
-      // non-array form, which is why the index is computed rather than fixed.)
+      // The LAYER is an integer; the mip LEVEL or BIAS of a sampled read is an f32.
+      // (`textureSampleLevel`'s level argument sits where the layer does on the non-array
+      // form, which is why the index is computed rather than fixed.)
       const out = [...args]
       if (isArray) {
         const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
         if (!layer) return undefined
         out[3] = layer
+      }
+      if (id === 'textureSampleLevel' || id === 'textureSampleBias') {
+        const k = isArray ? 4 : 3
+        const what = id === 'textureSampleLevel' ? `${id}'s level` : `${id}'s bias`
+        if (!floatArg(what, out[k]!, node.arguments[k]!, sourceFile, diagnostics)) return undefined
       }
       // The gradients have the coordinate's width, on both targets.
       if (id === 'textureSampleGrad') {
@@ -1345,6 +1466,33 @@ function vecArg(
     sourceFile,
     node,
     `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
+    TS_CODES.TYPE_MISMATCH,
+  )
+  return false
+}
+
+/** A texture argument both targets take as a plain `f32` — a mip level, a sampling bias, the
+ *  reference depth of a comparison — checked for the one type that reaches it looking like a
+ *  float and is not one: an emulated double.
+ *
+ *  An `f64` is a PAIR of f32 words after the fp64 pass, so there is no `textureSampleLevel`
+ *  overload for it on either target. It used to be accepted here and refused by that pass as
+ *  SD0041 at emit — a diagnostic with no source span, after the call the author wrote was
+ *  gone. Said here, at the argument, with the narrow that makes it legal (#151 F64-06). The
+ *  native scalars are `tsc`'s to check through the ambient lib, as everywhere else. */
+function floatArg(
+  what: string,
+  arg: Expr,
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (arg.type.kind !== 'f64' && arg.type.kind !== 'vec64') return true
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${what} must be an f32; got ${typeKey(arg.type)}. Write f32(x).`,
     TS_CODES.TYPE_MISMATCH,
   )
   return false

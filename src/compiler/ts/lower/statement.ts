@@ -3,7 +3,7 @@
 import ts from 'typescript'
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
+import { isF64, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import { LoweringScope, irNameOf, readOnlyPhrase, type Binding } from '../context.js'
 import { mapTsTypeToShaderType } from '../type-map.js'
@@ -14,7 +14,12 @@ import { lowerMutatingCall } from './class-methods.js'
 import { lowerUserCall } from './expression-misc.js'
 import { localFunctionOf } from './local-functions.js'
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
-import { broadcastResultType, numericMismatch, retargetLit } from '../numeric.js'
+import {
+  broadcastResultType,
+  f64WidenResultType,
+  numericMismatch,
+  retargetLit,
+} from '../numeric.js'
 import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerCall } from './expression-call.js'
@@ -971,16 +976,20 @@ function lowerAssignOp(
   }
   if (value.op === 'lit' && typeof value.value === 'number' && isNumericScalar(target.type)) {
     value = { op: 'lit', type: target.type, value: value.value }
-  } else if (isVec(target.type) || isVec64(target.type)) {
+  } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {
     // `v *= 2` with an integer vector target types the literal as the element kind; a
     // non-integer literal stays f32 and is diagnosed below instead of being truncated. A
-    // vec64 target makes the literal an f64 so the full double reaches the fp64 pass.
+    // vec64 or f64 target makes the literal an f64 so the full double reaches the fp64 pass.
     value = retargetLit(value, right, target.type)
   }
   if (typeKey(target.type) !== typeKey(value.type)) {
     // `v += s` with a vector target and a scalar of its element kind follows the same
     // broadcast rule as `v + s`; the result must still be the target's own type.
-    const broadcast = broadcastResultType(target.type, value.type, bop)
+    // `x *= t` with an f64 target and an f32 value widens exactly, the same rule `x * t`
+    // follows (#151 F64-02); the result is the f64 target's own type, so it fits.
+    const broadcast =
+      broadcastResultType(target.type, value.type, bop) ??
+      f64WidenResultType(target.type, value.type, bop)
     if (!broadcast || typeKey(broadcast) !== typeKey(target.type)) {
       const message =
         broadcast !== undefined

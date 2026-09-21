@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { i32T, typeKey } from '../../../core/ir/types.js'
+import { f64T, i32T, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -25,6 +25,37 @@ export function lowerIndex(
   if (ik !== 'i32' && ik !== 'u32') {
     pushDiag(diagnostics, sourceFile, node, 'Index must be i32 or u32.', TS_CODES.TYPE_MISMATCH)
     return undefined
+  }
+  // An emulated-double vector has no runtime component addressing: it is a pair of hi/lo
+  // PLANES after the fp64 pass, so lane i is a swizzle of both planes (`laneSwizzle`) and a
+  // dynamic index would have to swizzle by a value, which neither target spells. A constant
+  // index is exactly a swizzle, so it lowers to the `member` the pass already handles; a
+  // dynamic one is refused with the spelling that works (#151 F64-04).
+  if (base.type.kind === 'vec64') {
+    if (idx.op !== 'lit' || typeof idx.value !== 'number' || !Number.isInteger(idx.value)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `A ${typeKey(base.type)} is indexed by a constant lane, since an emulated double is a ` +
+          `pair of hi/lo planes and a lane of it is a swizzle of both; write v.x, v.y or a ` +
+          `whole-number index.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    const i = idx.value
+    if (i < 0 || i >= base.type.n) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Index ${i} is out of range for length ${base.type.n}.`,
+        TS_CODES.INDEX_OOB,
+      )
+      return undefined
+    }
+    return { op: 'member', type: f64T, base, field: 'xyzw'[i]! }
   }
   const elem = indexElem(base.type)
   if (!elem) {
