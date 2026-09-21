@@ -5,10 +5,12 @@
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
 //
-// One more kind of gap exists from TS8038 on. While several sessions worked the issue list of
-// #162 in parallel, each was given a BLOCK of codes to draw from, so two branches in flight at
-// once could not claim one number twice; `RESERVED_NAME` (TS8068) is the first code assigned
-// that way. A block's unused codes stay unused, exactly as 8011 does — a gap is never reused.
+// One more kind of gap exists from TS8039 to TS8067. While several sessions worked the issue
+// list of #162 in parallel, each was given a BLOCK of codes to draw from, so two branches in
+// flight at once could not claim one number twice. `F64_ENTRY_IO` (TS8038) is the last code in
+// the sequential range and `RESERVED_NAME` (TS8068) the first assigned from a block; the
+// numbers between belong to blocks whose lanes did not spend them. A block's unused codes stay
+// unused, exactly as 8011 does — a gap is never reused.
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
@@ -46,7 +48,7 @@ export const TS_CODES = {
   BUILTIN_STAGE: 'TS8025',
   /** `@compute([x, y, z])` with `y` or `z` other than `1`: the backend only carries the first workgroup axis today, so a shape it would silently drop is rejected instead. */
   WORKGROUP_SHAPE: 'TS8026',
-  /** `mat2`/`mat3`: not implemented (only `mat4`/`mat4x4` maps to a real WGSL type), so authoring one is rejected instead of silently widening to `mat4x4`. */
+  /** A non-square `matCxR<f64>`: the fp64 pass carries one df64 body per DIMENSION (`DF64MatN`, matmul, matvec, transpose), so only a square matrix of doubles lowers. Every `matCxR<f32>` is a type (#149), so this no longer marks `mat2`/`mat3`. */
   MAT_UNSUPPORTED: 'TS8027',
   /** A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`), e.g. a misspelled `@vertx`: without this, the decorated function or field just silently stops being an entry point or an I/O field. */
   ATTRIBUTE_NAME: 'TS8028',

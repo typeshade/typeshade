@@ -157,6 +157,51 @@ export function mul(a: mat3x2, b: mat2x3): mat2x2 { return a * b }
     const out = compileModule(r.module).fns.mul!([1, 2, 3, 4, 5, 6], [1, 0, 0, 0, 1, 0]) as number[]
     expect(out).toEqual([1, 2, 3, 4])
   })
+
+  it('refuses two matrices of ONE non-square shape, which have one type key', () => {
+    // The pair the mismatch check cannot see: `typeKey(a) === typeKey(b)`, so nothing asked
+    // whether the dimensions meet and the product was typed as the left operand. Measured on
+    // Tint: `no matching overload for 'operator * (mat2x3<f32>, mat2x3<f32>)'` (#169).
+    for (const [c, r] of ALL.filter(([c, r]) => c !== r)) {
+      const name = nameOf(c, r)
+      const errors = errorsOf(
+        `"use typeshade"\nexport function f(a: ${name}, b: ${name}): ${name} { return a * b }\n`,
+      )
+      expect(errors, name).toHaveLength(1)
+      expect(errors[0], name).toContain(`${name}<f32> and ${name}<f32>`)
+      expect(errors[0], name).toContain('matKxR * matCxK -> matCxR')
+    }
+    // Two matrices of one SQUARE shape still multiply, which is what the pair above cannot.
+    for (const n of SHAPES) {
+      const name = nameOf(n, n)
+      expect(
+        errorsOf(
+          `"use typeshade"\nexport function f(a: ${name}, b: ${name}): ${name} { return a * b }\n`,
+        ),
+        name,
+      ).toEqual([])
+    }
+  })
+
+  it('types every pair of the nine shapes by the WGSL rule, and refuses the rest', () => {
+    // All 81 ordered pairs against `matKxR * matCxK -> matCxR`: the left operand's COLUMNS
+    // against the right operand's ROWS, the result carrying the right's columns and the
+    // left's rows. The declared return type is the assertion — a product typed wrongly is
+    // refused by the return check, so this pins the result shape and not merely acceptance.
+    for (const [lc, lr] of ALL) {
+      for (const [rc, rr] of ALL) {
+        const src = (result: string): string =>
+          `"use typeshade"\nexport function f(a: ${nameOf(lc, lr)}, b: ${nameOf(rc, rr)}): ${result} { return a * b }\n`
+        const label = `${nameOf(lc, lr)} * ${nameOf(rc, rr)}`
+        if (lc === rr) {
+          expect(errorsOf(src(nameOf(rc, lr))), label).toEqual([])
+        } else {
+          // Nothing it could be typed as: the shape the left operand has is refused too.
+          expect(errorsOf(src(nameOf(lc, lr))), label).not.toEqual([])
+        }
+      }
+    }
+  })
 })
 
 describe('the operators a matrix does and does not have', () => {
@@ -184,6 +229,30 @@ export function b(x: mat3, y: mat3): mat3 { return x - y }
         ),
         op,
       ).not.toEqual([])
+    }
+  })
+
+  it('holds the compound spellings to the same rules as the operators', () => {
+    // `m *= n` is `m = m * n` and `m /= n` is `m = m / n`, but the compound path had neither
+    // check: the product's dimensions were never asked about and the `/` refusal lived only
+    // in `lowerBinary`. Both reached Tint, which answers "no matching overload for
+    // 'operator *= (mat2x3<f32>, mat2x3<f32>)'" and the same for `/=` and `%=` (#169).
+    const stmt = (decl: string, body: string): string =>
+      `"use typeshade"\nexport function f(${decl}): f32 {\n  ${body}\n  return 1.;\n}\n`
+    for (const op of ['*', '/', '%']) {
+      expect(
+        errorsOf(stmt('a: mat2x3, b: mat2x3', `let c = a;\n  c ${op}= b;`)),
+        `mat2x3 ${op}= mat2x3`,
+      ).toHaveLength(1)
+    }
+    // A square shape keeps `*=` — the product is the target's own type — and still has no
+    // `/=` or `%=`, because WGSL gives a matrix neither whatever its shape.
+    expect(errorsOf(stmt('a: mat3, b: mat3', 'let c = a;\n  c *= b;'))).toEqual([])
+    for (const op of ['/', '%']) {
+      expect(
+        errorsOf(stmt('a: mat3, b: mat3', `let c = a;\n  c ${op}= b;`)),
+        `mat3 ${op}= mat3`,
+      ).toHaveLength(1)
     }
   })
 

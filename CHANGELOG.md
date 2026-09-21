@@ -180,6 +180,21 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **A product of two matrices of one non-square shape is refused at the operator**
+  ([#169](https://github.com/typeshade/typeshade/issues/169)). WGSL's matrix product cancels
+  the shared dimension, `matKxR * matCxK -> matCxR`, so the left operand's columns must equal
+  the right operand's rows. `lowerBinary` compared the two operands' type keys and, when they
+  agreed, typed the expression as the left operand — and two matrices of one non-square shape
+  have one key, so nothing ever looked at their dimensions. `mat2x3 * mat2x3` compiled with
+  zero diagnostics and reached Tint as `(a * b)`, which answers `no matching overload for
+'operator * (mat2x3<f32>, mat2x3<f32>)'`; `binResultType` had refused the same pair in the
+  `fn()` EDSL all along (`SD0001`), so the two surfaces disagreed. The check now runs on both
+  spellings: `a * b` and `a *= b`, the latter also requiring the product to land back in the
+  target's own shape. The compound path had a second hole of the same family — the refusal of
+  `/` and `%` on a matrix lived only in `lowerBinary`, so `m /= n` and `m %= n` emitted on a
+  shape WGSL gives neither operator; both are refused now. §40 said "A pair whose dimensions
+  do not meet is refused, naming both shapes", which was true only of `m * v` and of two
+  square shapes of different size; it is true as written now.
 - **A hover at the end of a name answers for that name**
   ([#56](https://github.com/typeshade/typeshade/issues/56)). The language service resolves a
   hover through `nodeAtPosition`, whose span test is half-open, so one offset past `k` in
