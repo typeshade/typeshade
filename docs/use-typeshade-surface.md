@@ -185,8 +185,10 @@ export function fs(
 - Builtins are ordinary entry parameters with `@builtin(...)` metadata.
 - A builtin is not a hidden global; its dependency is visible in the function signature.
 - The builtin name must match the target backend's supported builtin set.
-- Workgroup size is the only payload on `@compute`. Default `[1, 1, 1]` if omitted as `@compute`.
-- `@compute({ workgroup: [64, 1, 1] })` is accepted as an alias.
+- Workgroup size is the only payload on `@compute`, an array of one to three whole numbers; a bare
+  `@compute` takes the default of 64, emitted as `@workgroup_size(64)`.
+- `@compute({ workgroup: [64, 1, 1] })` is refused (`TS8037`):
+  `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
 
 ### What an entry may return
 

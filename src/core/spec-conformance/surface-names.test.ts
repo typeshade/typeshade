@@ -199,7 +199,10 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'mat4', reason: 'the short spelling of a 4x4 matrix' },
 
   // Operations with no WGSL builtin of the same name.
-  { name: 'mod', reason: 'floor-modulo; WGSL has only the truncating `%` and no name for it' },
+  {
+    name: 'mod',
+    reason: 'floor-modulo over the truncating `%`; WGSL reserves the token and gives it no meaning',
+  },
   { name: 'fill', reason: 'builds an `array<T, N>` from one value; WGSL takes N arguments' },
   { name: 'discard', reason: 'WGSL `discard` is a statement, and TypeScript has none to borrow' },
 
@@ -512,6 +515,19 @@ describe('the TypeShade allowlist shrinks', () => {
     expect(redundant).toEqual([])
   })
 
+  it('the rows that are WGSL keywords or reserved words are exactly the three §9.3 records', () => {
+    // `override` and `discard` are WGSL keywords given the same meaning here, and `mod` is a WGSL
+    // reserved word, a token the specification reserves and gives no meaning. The document's §9.3
+    // records the three; a new row that collides with either list is recorded there first, which
+    // is what turning this case red asks for.
+    const keywords = new Set(wgsl.keywords.names)
+    const reserved = new Set(wgsl.reservedWords.names)
+    const colliding = TYPESHADE_EXTENSIONS.filter(
+      (row) => keywords.has(row.name) || reserved.has(row.name),
+    ).map((row) => `${row.name} (${keywords.has(row.name) ? 'keyword' : 'reserved word'})`)
+    expect(colliding).toEqual(['override (keyword)', 'mod (reserved word)', 'discard (keyword)'])
+  })
+
   it('every row is named once and carries a reason', () => {
     expect(extensionRows.size).toBe(TYPESHADE_EXTENSIONS.length)
     const silent = TYPESHADE_EXTENSIONS.filter((row) => row.reason.trim().length === 0).map(
@@ -535,8 +551,9 @@ describe('a compiler-internal name is never authorable', () => {
 
   it('the front end resolves no pre-emit id as a builtin', () => {
     // The call route, beside the declaration and row routes above. `resolveMathFn` is how a
-    // spelled name becomes an intrinsic id, and it requires `isKnownIntrinsic`, which excludes
-    // every pre-emit id: so `f64Parts(x)` in a shader is `TS8004 Unknown function`, and an alias
+    // spelled name becomes an intrinsic id, and it requires `isKnownIntrinsic` of every id but
+    // `f32`, `atan2` and `mod`, none of them pre-emit: so `f64Parts(x)` in a shader is
+    // `TS8004 Unknown function`, and an alias
     // table entry that maps a new spelling to a pre-emit id resolves to nothing. `f64(x)` is not
     // an exception here — the constructor is lowered as a scalar cast, not as a builtin call.
     // What this does NOT close: a bespoke lowering that builds the pre-emit call by hand under a
