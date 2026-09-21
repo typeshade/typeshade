@@ -93,6 +93,15 @@ export const TS_CODES = {
    *  used to fall through to the default of 64 with no diagnostic, so the author dispatched
    *  against a size they never asked for. The y/z rule stays `WORKGROUP_SHAPE`. */
   WORKGROUP_ARG: 'TS8037',
+  /** A texture argument whose TYPE the target has no overload for (#145): a coordinate or
+   *  gradient whose element kind the read does not take (a sampled read is by normalised
+   *  `f32`, a texel fetch by whole `i32`/`u32` texel), a layer, mip level or sample index that
+   *  is not an integer, or a `level`, `bias` or `depth_ref` that is not an `f32`. Only a bare
+   *  numeric LITERAL is retargeted instead; a variable of the wrong type used to reach the
+   *  backend unchanged, where Tint answers "no matching call" about generated code and GLSL ES
+   *  3.00 silently rounds. The WIDTH of a coordinate stays `TYPE_MISMATCH`: it is the texture's
+   *  shape, not the argument's type. */
+  TEXTURE_ARGUMENT: 'TS8041',
   UNSUPPORTED: 'TS8099',
 } as const
 

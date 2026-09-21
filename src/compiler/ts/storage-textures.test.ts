@@ -87,6 +87,9 @@ describe('the binding', () => {
       ),
     )
     expect(load).toContain('textureLoad(src, vec2<i32>(0, 0), 1)')
+    // Not a float layer, which is the shape Tint refused: the assertion above would pass on
+    // `textureStore(dst, …, 0.0, vec4<f32>(…))` if the layer ever stopped being retyped.
+    expect(store).not.toMatch(/0\.0,\s*vec4/)
     expect(
       errorsOf(
         compute(
@@ -97,6 +100,84 @@ describe('the binding', () => {
     ).toEqual([
       'A texture layer must be a whole number of 0 or more, got 1.5. WGSL rejects a fractional or negative one and GLSL ES 3.00 silently rounds it, so the two targets would disagree.',
     ])
+  })
+
+  it('refuses a coordinate of the wrong width or element kind on a storage texture', () => {
+    // The storage path checked ARITY only, on the claim that the coordinate was "left to the
+    // ordinary argument check" — there is none. Tint answers "no matching overload" for both
+    // (`C` is a `vec2` of `i32` or `u32`, wgsl.txt:24255, 25342).
+    expect(
+      errorsOf(
+        compute(
+          `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<vec4>>`,
+          `  out[gid.x] = textureLoad(src, vec3i(0, 0, 0))`,
+        ),
+      ),
+    ).toEqual([
+      'textureLoad on a texture_storage_2d<r32float, read> takes a vec2 coordinate; got vec3<i32>.',
+    ])
+    expect(
+      errorsOf(
+        compute(
+          `declare const dst: texture_storage_2d<"rgba8unorm", "write">`,
+          `  textureStore(dst, vec3i(0, 0, 0), vec4(1., 0., 0., 1.))`,
+        ),
+      ),
+    ).toEqual([
+      'textureStore on a texture_storage_2d<rgba8unorm, write> takes a vec2 coordinate; got vec3<i32>.',
+    ])
+    expect(
+      errorsOf(
+        compute(
+          `declare const dst: texture_storage_2d<"rgba8unorm", "write">`,
+          `  textureStore(dst, vec2(0., 0.), vec4(1., 0., 0., 1.))`,
+        ),
+      ),
+    ).toEqual([
+      'textureStore on a texture_storage_2d<rgba8unorm, write> takes an integer coordinate, an i32 or a u32; got vec2<f32>.',
+    ])
+    // A vec2u is the other integer coordinate WGSL takes, and is written as it is.
+    expect(
+      wgslOf(
+        compute(
+          `declare const dst: texture_storage_2d<"rgba8unorm", "write">`,
+          `  textureStore(dst, vec2u(gid.x, gid.y), vec4(1., 0., 0., 1.))`,
+        ),
+      ),
+    ).toContain('textureStore(dst, vec2<u32>(gid.x, gid.y), vec4<f32>(1.0, 0.0, 0.0, 1.0));')
+  })
+
+  it('refuses a read of a writable storage texture from a vertex entry', () => {
+    // A resource with write or read_write access must not be reached from a vertex stage at
+    // all (wgsl.txt:7741-7743, 15343-15347), so the READ of one is refused with the write. The
+    // neutral id is the sampled fetch's, so the texture's own type decides, not the name: a
+    // "read" storage texture and every sampled fetch stay legal in a vertex entry.
+    const vs = (decl: string, body: string): string => `"use typeshade"
+class Clip { @builtin("position") pos: vec4 }
+${decl}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+${body}
+}
+`
+    expect(
+      errorsOf(
+        vs(
+          `declare const acc: texture_storage_2d<"r32float", "read_write">`,
+          `  const v = textureLoad(acc, vec2i(0, 0))\n  return { pos: vec4(v.x, 0., 0., 1.) }`,
+        ),
+      ),
+    ).toEqual([
+      '"textureLoad" is only valid in a fragment or compute shader; "vs" is a vertex entry. A storage texture declared "write" or "read_write" must not be reached from a vertex stage at all, so reading one there is refused with writing it.',
+    ])
+    expect(
+      errorsOf(
+        vs(
+          `declare const acc: texture_storage_2d<"r32float", "read">`,
+          `  const v = textureLoad(acc, vec2i(0, 0))\n  return { pos: vec4(v.x, 0., 0., 1.) }`,
+        ),
+      ),
+    ).toEqual([])
   })
 
   it('refuses textureStore in a vertex entry, and in a helper the entry reaches', () => {
@@ -118,7 +199,7 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
 }`),
       ),
     ).toEqual([
-      '"textureStore" is not valid in a vertex shader; "vs" is a vertex entry. WGSL allows a texture write in a fragment or compute stage only.',
+      '"textureStore" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows a texture write in a fragment or compute stage only.',
     ])
     expect(
       errorsOf(
@@ -132,7 +213,7 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
 }`),
       ),
     ).toEqual([
-      '"textureStore" is not valid in a vertex shader; "write" is reachable from the vertex entry "vs". WGSL allows a texture write in a fragment or compute stage only.',
+      '"textureStore" is only valid in a fragment or compute shader; "write" is reachable from the vertex entry "vs". WGSL allows a texture write in a fragment or compute stage only.',
     ])
   })
 

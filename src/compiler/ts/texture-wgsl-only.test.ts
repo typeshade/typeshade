@@ -19,6 +19,9 @@ import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { reflect } from '../../core/reflect.js'
 import { compileModule } from '../../core/oracle.js'
+import { FRAGMENT_ONLY_CALLS } from './lower/function.js'
+import { FRAGMENT_ONLY_IDS } from '../../core/passes/lint/rules/fragment-only-builtin.js'
+import { INTRINSICS } from '../../core/intrinsics.js'
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -230,6 +233,61 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     ).toEqual([
       '"textureSampleCompare" is only valid in a fragment shader; "cs" is a compute entry.',
     ])
+  })
+
+  it('textureSample on a cube array is fragment-only in every stage', () => {
+    // The compute arm above is one half. A VERTEX entry is the other, and used to be answered
+    // by the backend lint instead of the front end for the plain `texture_2d` id
+    // (tests-critique T1b, control T1c): both stages, both dims, one sentence, one span.
+    const vertex = (call: string): string => `"use typeshade"
+${DECLS}
+class Clip { @builtin("position") pos: vec4 }
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  const dir: vec3 = vec3(0., 0., 1.)
+  return { pos: ${call} }
+}
+`
+    expect(errorsOf(vertex('textureSample(envs, smp, dir, 0)'))).toEqual([
+      '"textureSample" is only valid in a fragment shader; "vs" is a vertex entry.',
+    ])
+    expect(errorsOf(vertex('textureSample(atlas, smp, vec2(0., 0.))'))).toEqual([
+      '"textureSample" is only valid in a fragment shader; "vs" is a vertex entry.',
+    ])
+    expect(errorsOf(vertex('textureSample(pages, smp, vec2(0., 0.), 0)'))).toEqual([
+      '"textureSample" is only valid in a fragment shader; "vs" is a vertex entry.',
+    ])
+    // The explicit-LOD twin is what the message points at, and it is legal here.
+    expect(errorsOf(vertex('textureSampleLevel(atlas, smp, vec2(0., 0.), 0.)'))).toEqual([])
+  })
+})
+
+// Two hand lists in two layers stay equal only if something compares them (tests-critique
+// P1-27). The front end's `FRAGMENT_ONLY_CALLS` reports at the entry, in the author's file,
+// with the call chain; the core lint's `FRAGMENT_ONLY_IDS` is the EDSL's only gate and reports
+// at emit. An id in one and not the other is exactly how `textureSample` on a
+// `texture_cube_array` reached Tint (T1b), so neither is allowed to drift from the other.
+describe('the two fragment-only tables hold the same ids', () => {
+  it('the front end and the lint agree, id for id', () => {
+    expect([...FRAGMENT_ONLY_CALLS].sort()).toEqual([...FRAGMENT_ONLY_IDS.keys()].sort())
+  })
+
+  it('and they hold exactly the reads whose level of detail is implicit', () => {
+    // Derived from the intrinsic catalogue by shape rather than copied: every sampling id
+    // whose LOD is implicit (the plain sample, the bias that shifts it, the depth comparison
+    // that needs it), plus the derivatives themselves. `…Level`, `…Grad` and every gather take
+    // no derivative and are legal in any stage — `fwidth` has no catalogue row of its own
+    // (it expands), so it is named beside the two it expands into.
+    const implicit = Object.keys(INTRINSICS)
+      .filter(
+        (id) =>
+          /^textureSample(Array|Cube|CubeArray)?$/.test(id) ||
+          /^textureSampleBias/.test(id) ||
+          /^textureSampleCompare(?!Level)/.test(id) ||
+          /^(dpdx|dpdy|fwidth)/.test(id),
+      )
+      .concat('fwidth')
+    expect([...FRAGMENT_ONLY_CALLS].sort()).toEqual([...new Set(implicit)].sort())
   })
 })
 

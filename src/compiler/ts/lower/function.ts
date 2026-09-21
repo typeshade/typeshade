@@ -36,6 +36,7 @@ import { lowerStatements } from './statement.js'
 import { lowerExpression } from './expression.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
+import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf, withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -471,11 +472,15 @@ export function lowerSourceFunctions(
 const writtenName = (op: string): string =>
   op.replace(/^(texture\w+?)(CubeArray|Array|Cube)$/, '$1')
 
-const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
-  // The implicit level of detail of a plain sample needs the derivatives. The 2d, array and
-  // cube ids are caught by the core lint (fragment-only-builtin); the cube-array id of roadmap
-  // 0.4 item 12 was in neither table, so a vertex entry sampling one compiled clean and Tint
-  // refused the WGSL.
+/** The stage-restricted calls, EXPORTED so a later pass can seed its own walk from the same
+ *  rows rather than keep a second copy (#145). */
+export const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
+  // The implicit level of detail of a plain sample needs the derivatives. The plain, array and
+  // cube-array ids are here AND in the core lint (fragment-only-builtin), which is the EDSL's
+  // only gate; the front end says it first, at the entry, with the call chain in the sentence.
+  // A cube samples under the plain id, since `arraySuffix` gives a cube no suffix.
+  'textureSample',
+  'textureSampleArray',
   'textureSampleCubeArray',
   'textureSampleCompare',
   'textureSampleCompareArray',
@@ -497,13 +502,47 @@ const FRAGMENT_ONLY_CALLS: ReadonlySet<string> = new Set([
   'dpdyFine',
 ])
 
-/** The calls WGSL admits in a fragment or a compute stage but not in a vertex one: a texture
- *  write (`textureStore` is `@stage("fragment", "compute")` in Tint's table). Reported the way
- *  the fragment-only set is, over the call graph, but only for a vertex entry. */
-const NOT_IN_VERTEX_CALLS: ReadonlySet<string> = new Set(['textureStore'])
+/** The calls WGSL admits in a fragment or a compute stage but not in a vertex one, EXPORTED
+ *  beside the set above (#145): a texture write (`textureStore` is `@stage("fragment",
+ *  "compute")` in Tint's table, core.def:1484-1522) and every atomic built-in
+ *  ("Atomic built-in functions must not be used in a vertex shader stage", wgsl.txt:25422).
+ *  The atomics are read off the intrinsic catalogue rather than listed again, so one added
+ *  there is refused in a vertex entry by existing.
+ *
+ *  A READ of a writable storage texture belongs to this group too, but it shares the neutral
+ *  id `textureLoad` with every sampled fetch, so it is recognised by the texture's own type in
+ *  {@link stageRestrictedOpsOf} rather than by name. Reported the way the fragment-only set is,
+ *  over the call graph, but only for a vertex entry. */
+export const FRAGMENT_OR_COMPUTE_CALLS: ReadonlySet<string> = new Set([
+  'textureStore',
+  ...Object.keys(ATOMIC_INTRINSICS),
+])
+
+/** Why a call of {@link FRAGMENT_OR_COMPUTE_CALLS} is not in a vertex shader, by family. The
+ *  rule is one of two in the spec: a resource with write access is not reachable from a vertex
+ *  stage (wgsl.txt:7741-7743, 15343-15347), or the built-in itself is stage-restricted. */
+const whyNotVertex = (op: string): string =>
+  op === 'textureStore'
+    ? `WGSL allows a texture write in a fragment or compute stage only.`
+    : op === 'textureLoad'
+      ? `A storage texture declared "write" or "read_write" must not be reached from a vertex ` +
+        `stage at all, so reading one there is refused with writing it.`
+      : `WGSL allows an atomic built-in in a fragment or compute stage only.`
+
+/** Whether a `textureLoad` reads a WRITABLE storage texture, the one member of the
+ *  fragment-or-compute group that no name distinguishes. */
+const isWritableStorageLoad = (e: Extract<Expr, { op: 'call' }>): boolean => {
+  const tex = e.args[0]
+  return (
+    e.fn === 'textureLoad' &&
+    tex !== undefined &&
+    tex.type.kind === 'storage-texture' &&
+    tex.type.access !== 'read'
+  )
+}
 
 /** Whether a function's OWN body uses a stage-restricted op, by the name to report it under. */
-function fragmentOnlyOpsOf(body: readonly Stmt[]): Set<string> {
+function stageRestrictedOpsOf(body: readonly Stmt[]): Set<string> {
   const found = new Set<string>()
   const walkStmt = (s: Stmt): void => {
     if (s.s === 'discard') found.add('discard')
@@ -511,7 +550,12 @@ function fragmentOnlyOpsOf(body: readonly Stmt[]): Set<string> {
       s,
       (e) => {
         eachExpr(e, (x) => {
-          if (x.op === 'call' && (FRAGMENT_ONLY_CALLS.has(x.fn) || NOT_IN_VERTEX_CALLS.has(x.fn)))
+          if (x.op !== 'call') return
+          if (
+            FRAGMENT_ONLY_CALLS.has(x.fn) ||
+            FRAGMENT_OR_COMPUTE_CALLS.has(x.fn) ||
+            isWritableStorageLoad(x)
+          )
             found.add(x.fn)
         })
       },
@@ -556,7 +600,7 @@ function checkFragmentOnlyOps(
   const own = new Map<string, Set<string>>()
   const calls = new Map<string, Set<string>>()
   for (const f of funcs) {
-    own.set(f.name, fragmentOnlyOpsOf(f.body))
+    own.set(f.name, stageRestrictedOpsOf(f.body))
     calls.set(f.name, calleeNamesOf(f.body))
   }
   for (const entry of funcs) {
@@ -572,8 +616,11 @@ function checkFragmentOnlyOps(
       const name = queue.shift()!
       for (const op of own.get(name) ?? []) {
         if (reported.has(op)) continue
-        const vertexOnlyRule = NOT_IN_VERTEX_CALLS.has(op)
-        // A texture write is legal in a compute entry; only a vertex entry is refused it.
+        // `textureLoad` reaches `found` only through `isWritableStorageLoad`, so the name is
+        // exact here; `discard` and the fragment-only set take the other arm.
+        const vertexOnlyRule = FRAGMENT_OR_COMPUTE_CALLS.has(op) || op === 'textureLoad'
+        // A texture write, a writable-storage read and an atomic are legal in a compute entry;
+        // only a vertex entry is refused them.
         if (vertexOnlyRule && entry.stage !== 'vertex') continue
         reported.add(op)
         const where =
@@ -585,8 +632,7 @@ function checkFragmentOnlyOps(
           sourceFile,
           node.name,
           vertexOnlyRule
-            ? `"${op}" is not valid in a vertex shader; ${where}. WGSL allows a texture write ` +
-                `in a fragment or compute stage only.`
+            ? `"${op}" is only valid in a fragment or compute shader; ${where}. ` + whyNotVertex(op)
             : `"${writtenName(op)}" is only valid in a fragment shader; ${where}.`,
           TS_CODES.UNSUPPORTED,
         )

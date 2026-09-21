@@ -236,6 +236,113 @@ describe('the coordinate has the width the dim decides, and this says so first',
       errorsOf(fragment(`  return textureSampleGrad(env, smp, dir, vec2(0.), vec2(0.))`)),
     ).toEqual(['textureSampleGrad on a texture_cube<f32> takes a vec3 gradient; got vec2<f32>.'])
   })
+
+  it('refuses a coordinate of the right width and the wrong element kind', () => {
+    // The width was all that was checked, so `textureSample(atlas, smp, vec2i(0, 0))` emitted
+    // `textureSample(atlas, smp, vec2<i32>(0, 0))` and `textureLoad(atlas, vec2(0., 0.), 0)` a
+    // float fetch coordinate — both "no matching call" on Tint. A sampled read is by
+    // normalised f32 coordinate, a texel fetch by whole texel (wgsl.txt:24435, 24129).
+    expect(errorsOf(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
+      'textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<i32>.',
+    ])
+    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2(0., 0.), 0)`))).toEqual([
+      'textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2<f32>.',
+    ])
+    expect(errorsOf(fragment(`  return textureSample(env, smp, vec3i(0, 0, 1))`))).toEqual([
+      'textureSample on a texture_cube<f32> takes an f32 coordinate; got vec3<i32>.',
+    ])
+    // A u32 fetch coordinate is the other integer WGSL takes, and stays as written.
+    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2u(u32(0), u32(0)), 0)`))).toEqual([])
+  })
+})
+
+// The scalar arguments of a texture read (#145). `intArg` retargeted a whole-number LITERAL and
+// returned everything else unchanged, so a variable of the wrong type reached the backend: an
+// `i32` level emitted `textureSampleLevel(t, s, p.xy, 2)` and an `f32` layer emitted
+// `textureSampleLevel(t, s, p.xy, 1.0, 0.0)`, each of which Tint refuses with "no matching call"
+// while GLSL ES 3.00 silently rounds. WGSL types `level`, `bias` and `depth_ref` `f32`
+// (wgsl.txt:25081, 24615, 24734) and a layer, mip level and sample index an integer (24155).
+describe('the scalar arguments are checked, not just the literals', () => {
+  it('refuses an integer variable as level, bias and depth_ref, naming f32', () => {
+    expect(
+      errorsOf(
+        fragment(`  const l: i32 = 2
+  return textureSampleLevel(atlas, smp, p.xy, l)`),
+      ),
+    ).toEqual(['textureSampleLevel level must be an f32; got i32. Write f32(l).'])
+    expect(
+      errorsOf(
+        fragment(`  const b: i32 = 1
+  return textureSampleBias(atlas, smp, p.xy, b)`),
+      ),
+    ).toEqual(['textureSampleBias bias must be an f32; got i32. Write f32(b).'])
+    expect(
+      errorsOf(
+        fragment(
+          `  const r: i32 = 1
+  return vec4(textureSampleCompare(shadow, shadowSmp, p.xy, r))`,
+          `${DECLS}
+declare const shadow: texture_depth_2d
+declare const shadowSmp: sampler_comparison`,
+        ),
+      ),
+    ).toEqual(['textureSampleCompare depth_ref must be an f32; got i32. Write f32(r).'])
+    // A u32 is no better than an i32: WGSL has exactly the f32 overload.
+    expect(
+      errorsOf(
+        fragment(`  const l: u32 = u32(2)
+  return textureSampleLevel(atlas, smp, p.xy, l)`),
+      ),
+    ).toEqual(['textureSampleLevel level must be an f32; got u32. Write f32(l).'])
+    // The f32 the call takes stays as written, and a whole-number literal is still retargeted.
+    expect(
+      errorsOf(
+        fragment(`  const l: f32 = 2.
+  return textureSampleLevel(atlas, smp, p.xy, l)`),
+      ),
+    ).toEqual([])
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, 0)`))).toEqual([])
+  })
+
+  it('refuses a float variable as layer, mip level and sample index, naming the integers', () => {
+    expect(
+      errorsOf(
+        fragment(`  const k: f32 = 1.
+  return textureSampleLevel(pages, smp, p.xy, k, 0.)`),
+      ),
+    ).toEqual(['textureSampleLevel layer must be an i32 or a u32; got f32. Write i32(k).'])
+    expect(
+      errorsOf(
+        fragment(`  const l: f32 = 2.
+  return textureLoad(atlas, vec2i(0, 0), l)`),
+      ),
+    ).toEqual(['textureLoad mip level must be an i32 or a u32; got f32. Write i32(l).'])
+    expect(
+      errorsOf(
+        fragment(
+          `  const si: f32 = 1.
+  return textureLoad(ms, vec2i(0, 0), si)`,
+          `${DECLS}
+declare const ms: texture_multisampled_2d<f32>`,
+        ),
+      ),
+    ).toEqual(['textureLoad sample index must be an i32 or a u32; got f32. Write i32(si).'])
+  })
+
+  it('cuts a long argument short rather than smearing the message', () => {
+    // The span already points at the argument; the "Write f32(...)" half is a reminder of the
+    // shape, not a transcript.
+    expect(
+      errorsOf(
+        fragment(
+          `  const l: i32 = 2
+  return textureSampleLevel(atlas, smp, p.xy, l + l + l + l + l + l + l + l)`,
+        ),
+      ),
+    ).toEqual([
+      'textureSampleLevel level must be an f32; got i32. Write f32(l + l + l + l + l + l +…).',
+    ])
+  })
 })
 
 describe('an integer cube is declared, and only textureGather reads it', () => {

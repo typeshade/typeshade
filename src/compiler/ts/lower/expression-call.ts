@@ -640,11 +640,13 @@ function lowerStorageTextureCall(
       return undefined
     }
     if (!arity(id, args, isArray ? 3 : 2, node, sourceFile, diagnostics)) return undefined
+    if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
+      return undefined
     const out = [...args]
     // The layer of an array texture is an integer: a bare `0` would lower to `0.0`, which
     // Tint refuses ("no matching call"), so it is retyped like every other layer.
     if (isArray) {
-      const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
       if (!layer) return undefined
       out[2] = layer
     }
@@ -664,9 +666,11 @@ function lowerStorageTextureCall(
       return undefined
     }
     if (!arity(id, args, isArray ? 4 : 3, node, sourceFile, diagnostics)) return undefined
+    if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
+      return undefined
     const out = [...args]
     if (isArray) {
-      const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
       if (!layer) return undefined
       out[2] = layer
     }
@@ -771,12 +775,23 @@ function lowerDepthTextureCall(
       return undefined
     const out = [...args]
     if (isArray) {
-      // The layer is an integer, as on a sampled array texture; the reference depth that
-      // follows it is an f32 and is left as written.
-      const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
+      // The layer is an integer, as on a sampled array texture.
+      const layer = intArg(id, out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
       if (!layer) return undefined
       out[3] = layer
     }
+    // …and the reference depth that follows it is an `f32` (wgsl.txt:24734).
+    const refIndex = isArray ? 4 : 3
+    const ref = floatArg(
+      id,
+      out[refIndex]!,
+      node.arguments[refIndex]!,
+      'depth_ref',
+      sourceFile,
+      diagnostics,
+    )
+    if (!ref) return undefined
+    out[refIndex] = ref
     // The cube form is its own id (roadmap 0.4 item 12): on GLSL the reference folds into a
     // vec4 after the vec3 direction, where the 2d form folds it into a vec3.
     const fn = isArray ? `${id}${suffix}` : tex.dim === 'cube' ? `${id}Cube` : id
@@ -983,14 +998,35 @@ function lowerTextureCall(
       )
         return undefined
       const fn = `${id}${suffix}`
-      // The LAYER is an integer; the mip LEVEL of a sampled read is an f32 and is left as
-      // written. (`textureSampleLevel`'s level argument sits where the layer does on the
-      // non-array form, which is why the index is computed rather than fixed.)
+      // The LAYER is an integer; the mip LEVEL of a sampled read, and a bias on it, are `f32`
+      // (wgsl.txt:25081, 24615). (`textureSampleLevel`'s level argument sits where the layer
+      // does on the non-array form, which is why the index is computed rather than fixed.)
       const out = [...args]
       if (isArray) {
-        const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
+        const layer = intArg(
+          id,
+          out[3]!,
+          node.arguments[3]!,
+          i32T,
+          'layer',
+          sourceFile,
+          diagnostics,
+        )
         if (!layer) return undefined
         out[3] = layer
+      }
+      if (id === 'textureSampleLevel' || id === 'textureSampleBias') {
+        const k = isArray ? 4 : 3
+        const lod = floatArg(
+          id,
+          out[k]!,
+          node.arguments[k]!,
+          id === 'textureSampleBias' ? 'bias' : 'level',
+          sourceFile,
+          diagnostics,
+        )
+        if (!lod) return undefined
+        out[k] = lod
       }
       // The gradients have the coordinate's width, on both targets.
       if (id === 'textureSampleGrad') {
@@ -1025,22 +1061,20 @@ function lowerTextureCall(
       )
         return undefined
       // A 1d texture's coordinate is ONE integer (roadmap 0.4 item 12): a bare `3` lowers to an
-      // f32 on this surface, so it is retargeted like a layer, and an f32 expression is refused,
-      // where Tint would refuse the generated `textureLoad(t, 3.0, 0u)`.
+      // f32 on this surface, so it is retargeted like a layer. An f32 EXPRESSION is refused by
+      // `vecArg` above, in the same sentence this arm used to say it in, where Tint would
+      // refuse the generated `textureLoad(t, 3.0, 0u)`.
       if (tex.type.dim === '1d') {
-        const c = intArg(args[1]!, node.arguments[1]!, i32T, 'coordinate', sourceFile, diagnostics)
+        const c = intArg(
+          id,
+          args[1]!,
+          node.arguments[1]!,
+          i32T,
+          'coordinate',
+          sourceFile,
+          diagnostics,
+        )
         if (!c) return undefined
-        if (typeKey(c.type) !== 'i32' && typeKey(c.type) !== 'u32') {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            node.arguments[1]!,
-            `textureLoad on a ${shown} takes an integer coordinate, an i32 or a u32; got ` +
-              `${typeKey(c.type)}.`,
-            TS_CODES.TYPE_MISMATCH,
-          )
-          return undefined
-        }
         args = [args[0]!, c, ...args.slice(2)]
       }
       // Both the layer and the mip level are integers here. A bare number lowers to f32, and
@@ -1048,12 +1082,21 @@ function lowerTextureCall(
       // layerArg/levelArg (#1703), fixed the same way and with the same types.
       const out = [...args]
       if (isArray) {
-        const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+        const layer = intArg(
+          id,
+          out[2]!,
+          node.arguments[2]!,
+          i32T,
+          'layer',
+          sourceFile,
+          diagnostics,
+        )
         if (!layer) return undefined
         out[2] = layer
       }
       const levelIndex = isArray ? 3 : 2
       const level = intArg(
+        id,
         out[levelIndex]!,
         node.arguments[levelIndex]!,
         u32T,
@@ -1101,6 +1144,7 @@ function lowerMultisampledCall(
         return undefined
       // The third argument is a SAMPLE INDEX, an integer like a level, retyped the same way.
       const sample = intArg(
+        id,
         args[2]!,
         node.arguments[2]!,
         u32T,
@@ -1288,9 +1332,16 @@ function lowerGatherCall(
     return undefined
   if (isArray) {
     const k = at + 3
-    const layer = intArg(out[k]!, node.arguments[k]!, i32T, 'layer', sourceFile, diagnostics)
+    const layer = intArg(id, out[k]!, node.arguments[k]!, i32T, 'layer', sourceFile, diagnostics)
     if (!layer) return undefined
     out[k] = layer
+  }
+  // The reference depth of a gather-compare is an `f32`, like `textureSampleCompare`'s.
+  if (compare) {
+    const k = want - 1
+    const ref = floatArg(id, out[k]!, node.arguments[k]!, 'depth_ref', sourceFile, diagnostics)
+    if (!ref) return undefined
+    out[k] = ref
   }
   // One id per WGSL argument structure; a cube gathers by direction with the 2d id, since the
   // coordinate's width rides on the type, and the depth forms differ only in taking no component.
@@ -1311,17 +1362,36 @@ function lowerGatherCall(
   return { op: 'call', type, fn, args: out }
 }
 
+/** The element a texture argument carries, by the one name the messages use: the scalar of a
+ *  scalar, the element of a vector, and `f64` for both emulated-double kinds, which no texture
+ *  builtin has an overload for on either target. */
+function elemNameOf(t: ShaderType): string {
+  return t.kind === 'scalar'
+    ? t.scalar
+    : t.kind === 'vec'
+      ? t.elem
+      : t.kind === 'f64' || t.kind === 'vec64'
+        ? 'f64'
+        : typeKey(t)
+}
+
 /** The coordinate a texture is addressed by has the width its `dim` decides — a `vec2` on a 2d
  *  texture (and on the array, whose layer is a separate argument), a `vec3` DIRECTION on a cube
  *  and a `vec3` on a 3d texture — and the gradients of `textureSampleGrad` have the same width
  *  (roadmap 0.4 item 12). Both targets refuse the wrong width ("no matching call" on Tint, "no
  *  matching overloaded function" on a WebGL2 driver), so this says it first, at the argument.
  *
- *  Only the WIDTH is checked here. The element is `tsc`'s to check through the ambient lib, and
- *  an integer literal in a float coordinate is retargeted by the ordinary numeric path. */
+ *  The ELEMENT is checked here too (#145). It used to be left to `tsc` through the ambient lib,
+ *  and the compiler is not always reached through an editor: `textureSample(t, s, vec2i(0, 0))`
+ *  emitted `textureSample(t, s, vec2<i32>(0, 0))` and `textureLoad(t, vec2(0., 0.), 0)` emitted
+ *  a float coordinate, both of which Tint refuses ("no matching call"). A sampled read takes a
+ *  normalised `f32` coordinate (wgsl.txt:24435 and the `textureSample*` overloads); a texel
+ *  fetch — `textureLoad` and `textureStore`, sampled or storage — takes a whole texel, "C is
+ *  i32, or u32" (wgsl.txt:24129, 25342). A bare numeric LITERAL is exempt: it lowers to an f32
+ *  on this surface and the retarget below (`intArg`) gives it the type the call needs. */
 function vecArg(
   id: string,
-  tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' }>,
+  tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' | 'storage-texture' }>,
   arg: Expr,
   node: ts.Expression,
   what: 'coordinate' | 'gradient',
@@ -1331,23 +1401,81 @@ function vecArg(
   const want =
     tex.dim === '1d' ? 1 : tex.dim === '2d' || tex.dim === '2d-array' || tex.dim === '2d-ms' ? 2 : 3
   // A 1d texture (roadmap 0.4 item 12) is addressed by ONE number: an f32 to sample, an integer
-  // to fetch. Only the width is checked, as for the vectors.
-  if (want === 1 ? arg.type.kind === 'scalar' : arg.type.kind === 'vec' && arg.type.n === want)
-    return true
-  const shape =
-    want === 1
-      ? `single ${id === 'textureLoad' ? 'integer' : 'f32'} ${what}`
-      : (tex.dim === 'cube' || tex.dim === 'cube-array') && what === 'coordinate'
-        ? 'vec3 direction'
-        : `vec${want} ${what}`
+  // to fetch.
+  if (want === 1 ? arg.type.kind !== 'scalar' : arg.type.kind !== 'vec' || arg.type.n !== want) {
+    const shape =
+      want === 1
+        ? `single ${id === 'textureLoad' ? 'integer' : 'f32'} ${what}`
+        : (tex.dim === 'cube' || tex.dim === 'cube-array') && what === 'coordinate'
+          ? 'vec3 direction'
+          : `vec${want} ${what}`
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return false
+  }
+  // A texel fetch is by whole texel, every other read by normalised coordinate; a gradient is
+  // a rate of change of the latter, so it is float whatever the call.
+  const wantInt = what === 'coordinate' && (id === 'textureLoad' || id === 'textureStore')
+  const elem = elemNameOf(arg.type)
+  const ok = wantInt ? elem === 'i32' || elem === 'u32' : elem === 'f32'
+  // A literal is retargeted, not refused: `textureLoad(t, 3, 0)` on a 1d texture is the form
+  // the surface spells, and `intArg` below turns the f32 lit into the i32 the call takes.
+  if (ok || foldNumericLit(arg).op === 'lit') return true
   pushDiag(
     diagnostics,
     sourceFile,
     node,
-    `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
-    TS_CODES.TYPE_MISMATCH,
+    wantInt
+      ? `${id} on a ${typeKey(tex)} takes an integer ${what}, an i32 or a u32; got ` +
+          `${typeKey(arg.type)}.`
+      : `${id} on a ${typeKey(tex)} takes an f32 ${what}; got ${typeKey(arg.type)}.`,
+    TS_CODES.TEXTURE_ARGUMENT,
   )
   return false
+}
+
+/** The source the author wrote for an argument, for the "Write f32(l)." half of a refusal.
+ *  Normalised to one line and cut short, so a long expression cannot smear the message across
+ *  the terminal; the span already points at the argument itself. */
+function argText(node: ts.Expression, sourceFile: ts.SourceFile): string {
+  const text = node.getText(sourceFile).replace(/\s+/g, ' ').trim()
+  return text.length > 24 ? `${text.slice(0, 24).trimEnd()}…` : text
+}
+
+/** A `level`, `bias` or `depth_ref`: the texture arguments WGSL types `f32` (wgsl.txt:25081,
+ *  24615, 24734), where a layer and a mip level of a fetch are integers.
+ *
+ *  `intArg` below has always retargeted a whole-number literal, so `textureSampleLevel(t, s, uv,
+ *  0)` was never the bug. The bug was a VARIABLE: `const l: i32 = 2` reached the backend
+ *  untouched and emitted `textureSampleLevel(t, s, p.xy, 2)`, which Tint refuses. An integer
+ *  literal is still retargeted here; anything else has to be an f32 already. */
+function floatArg(
+  id: string,
+  arg: Expr,
+  node: ts.Expression,
+  what: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const lit = foldNumericLit(arg)
+  // A literal already typed f32 is returned AS WRITTEN, not as the folded lit: folding a
+  // negated literal would rewrite `-1.0` and move the emit for no reason.
+  if (lit.op === 'lit' && typeof lit.value === 'number')
+    return typeKey(lit.type) === 'f32' ? arg : { op: 'lit', type: f32T, value: lit.value }
+  if (typeKey(arg.type) === 'f32') return arg
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${id} ${what} must be an f32; got ${typeKey(arg.type)}. Write f32(${argText(node, sourceFile)}).`,
+    TS_CODES.TEXTURE_ARGUMENT,
+  )
+  return undefined
 }
 
 /** A layer or mip-level argument, retyped when it is a bare whole number and REPORTED when it
@@ -1363,8 +1491,14 @@ function vecArg(
  *  `textureLoad(t, c, -1)` and `textureSample(atlas, smp, uv, 1.5)` emitted with zero
  *  diagnostics, Tint refused the WGSL, and GLSL silently rounded — the exact divergence the
  *  EDSL's own layerArg/levelArg raise SD0015 for. Reported here, at the argument, with the
- *  divergence named. */
+ *  divergence named.
+ *
+ *  A non-literal is no longer waved through either (#145): `const l: f32 = 1.` as a layer
+ *  emitted `textureSampleLevel(t, s, p.xy, 1.0, 0.0)` and `textureLoad(t, c, si)` with an f32
+ *  `si` emitted a float sample index, both refused by Tint ("no matching call") and both
+ *  silently rounded by GLSL ES 3.00. */
 function intArg(
+  id: string,
   arg: Expr,
   node: ts.Expression,
   want: ShaderType,
@@ -1375,7 +1509,18 @@ function intArg(
   // A NEGATED literal is a unop, not a lit, and reached the backend as `-(1.0)`. Folded first
   // so the range check below sees the number the author wrote.
   const lit = foldNumericLit(arg)
-  if (lit.op !== 'lit' || typeof lit.value !== 'number') return arg
+  if (lit.op !== 'lit' || typeof lit.value !== 'number') {
+    const key = typeKey(arg.type)
+    if (key === 'i32' || key === 'u32') return arg
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} ${what} must be an i32 or a u32; got ${key}. Write i32(${argText(node, sourceFile)}).`,
+      TS_CODES.TEXTURE_ARGUMENT,
+    )
+    return undefined
+  }
   const v = lit.value
   // Negative is refused whatever the target type. A layer is typed i32 because that is the
   // overload WGSL's array sampling takes, not because -1 means anything: both it and a mip

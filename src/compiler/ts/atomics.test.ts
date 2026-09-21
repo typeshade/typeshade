@@ -334,6 +334,58 @@ export function fs(): vec4 { return vec4(1.) }
     expect(errors[0]).toContain('atomic<T> T must be u32 or i32.')
   })
 
+  it('refuses atomicAdd in a vertex entry', () => {
+    // "Atomic built-in functions must not be used in a vertex shader stage" (wgsl.txt:25422;
+    // core.def:1611-1616 spells every one `@stage("fragment", "compute")`), and the read_write
+    // storage the location lives in is not reachable from a vertex stage either
+    // (wgsl.txt:15342). Nothing checked the stage, so the module emitted clean and Tint refused
+    // it. A fragment entry is legal and stays so.
+    const vs = (body: string): string => `"use typeshade"
+class Clip { @builtin("position") pos: vec4 }
+declare let total: storage<atomic<u32>>
+${body}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  const n = ${body === '' ? 'atomicAdd(total, 1)' : 'bump()'}
+  return { pos: vec4(f32(n), 0., 0., 1.) }
+}
+`
+    expect(errorsOf(vs(''))).toEqual([
+      `${TS_CODES.UNSUPPORTED} "atomicAdd" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows an atomic built-in in a fragment or compute stage only.`,
+    ])
+    // Through a helper the entry reaches, with the chain named, as `discard` and the
+    // derivatives already were.
+    expect(errorsOf(vs('function bump(): u32 { return atomicAdd(total, 1) }'))).toEqual([
+      `${TS_CODES.UNSUPPORTED} "atomicAdd" is only valid in a fragment or compute shader; "bump" is reachable from the vertex entry "vs". WGSL allows an atomic built-in in a fragment or compute stage only.`,
+    ])
+    // Every atomic builtin, not just the one: the set is read off the intrinsic catalogue.
+    expect(
+      errorsOf(`"use typeshade"
+class Clip { @builtin("position") pos: vec4 }
+declare let total: storage<atomic<u32>>
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  const n = atomicLoad(total)
+  return { pos: vec4(f32(n), 0., 0., 1.) }
+}
+`),
+    ).toEqual([
+      `${TS_CODES.UNSUPPORTED} "atomicLoad" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows an atomic built-in in a fragment or compute stage only.`,
+    ])
+    // A fragment entry is where an atomic is legal outside a compute one.
+    expect(
+      errorsOf(`"use typeshade"
+class Color { @location(0) color: vec4 }
+declare let total: storage<atomic<u32>>
+@fragment
+export function fs(): Color {
+  atomicAdd(total, 1)
+  return { color: vec4(1., 0., 0., 1.) }
+}
+`),
+    ).toEqual([])
+  })
+
   it('a function the file declares under an atomic name keeps winning the call', () => {
     const r = compileTsSource(`"use typeshade"
 function atomicAdd(a: u32, b: u32): u32 { return a + b }

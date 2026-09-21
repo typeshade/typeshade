@@ -393,6 +393,87 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
   })
 })
 
+// The texture half of the same claim (#145, tests-critique P0-7). These six programs were the
+// classes the front end passed and Tint refused, measured on SwiftShader through the compile
+// gate's own instruments. They are asserted against the EDITOR SWEEP — every diagnostic the
+// service returns — and not against `reports` above, which counts TypeScript's TS2345/TS2769
+// alone: a STAGE rule is not a type, so no ambient declaration can ever express "textureStore
+// is not reachable from a vertex entry", and demanding a `typescript` code for it would pin a
+// thing that cannot exist. Which layer speaks is recorded per row, so a row moving from the
+// compiler to `tsc` (the ambient parity item) is a deliberate edit here.
+describe('every texture shape a GPU compiler rejects is reported in the editor', () => {
+  const diagnosticsOf = (body: string): string[] => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
+  }
+  const VS_HEAD = 'class Clip { @builtin("position") pos: vec4 }\n@vertex\n'
+
+  const rejectedByTint: Readonly<Record<string, string>> = {
+    // T1b: a cube-array sample in a vertex entry — `@stage("fragment")` on every
+    // `textureSample` overload (core.def:1143-1210).
+    'textureSample(texture_cube_array) in a vertex entry': `declare const envs: texture_cube_array<f32>
+declare const smp: sampler
+${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+  return { pos: textureSample(envs, smp, vec3(0., 0., 1.), 0) }
+}`,
+    // T2: a texture write in a vertex entry — core.def:1484-1522, wgsl.txt:7741-7742.
+    'textureStore in a vertex entry': `declare const dst: texture_storage_2d<"rgba8unorm", "write">
+${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+  return { pos: vec4(0., 0., 0., 1.) }
+}`,
+    // T4: an i32 variable where WGSL types the level f32 (wgsl.txt:25081).
+    'textureSampleLevel with an i32 level': `declare const t: texture_2d<f32>
+declare const s: sampler
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  const l: i32 = 2
+  return textureSampleLevel(t, s, p.xy, l)
+}`,
+    // T6: a vec3 coordinate on a 2d storage texture (core.def:1573-1592, `C` is a vec2).
+    'textureLoad with a vec3 coordinate on a 2d storage texture': `declare const src: texture_storage_2d<"r32float", "read">
+declare let out: storage<array<vec4>>
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[gid.x] = textureLoad(src, vec3i(0, 0, 0))
+}`,
+    // T10: an i32 variable where WGSL types the reference depth f32 (wgsl.txt:24734).
+    'textureSampleCompare with an i32 depth_ref': `declare const sh: texture_depth_2d
+declare const cs2: sampler_comparison
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  const r: i32 = 1
+  return vec4(textureSampleCompare(sh, cs2, p.xy, r))
+}`,
+    // G34: an atomic in a vertex entry (wgsl.txt:25422).
+    'atomicAdd in a vertex entry': `declare let total: storage<atomic<u32>>
+${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+  const n = atomicAdd(total, 1)
+  return { pos: vec4(f32(n), 0., 0., 1.) }
+}`,
+  }
+  for (const [name, body] of Object.entries(rejectedByTint)) {
+    it(`${name}: reported, because Tint reports it too`, () => {
+      expect(diagnosticsOf(body), body).not.toEqual([])
+    })
+  }
+
+  // The seventh program of that measurement is the one #143 closed by RETARGETING rather than
+  // refusing: a bare `0` layer on a storage array is the form this surface spells, and it now
+  // emits the integer WGSL takes. Clean in the editor is the correct answer for it, and
+  // asserting so keeps the row from quietly turning into a refusal.
+  it('a literal layer on a storage array texture stays clean, in both layers', () => {
+    expect(
+      diagnosticsOf(`declare const dstArr: texture_storage_2d_array<"rgba8unorm", "write">
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  textureStore(dstArr, vec2i(0, 0), 0, vec4(1., 0., 0., 1.))
+}`),
+    ).toEqual([])
+  })
+})
+
 // WHERE THE DIAGNOSTIC LANDS, which is the other half of the TS2769 rule. TypeScript puts an
 // overload failure on the ARGUMENT span only when the first argument is the one that failed; as
 // soon as the mismatch is in a later argument it reports on the CALLEE instead. A filter that can

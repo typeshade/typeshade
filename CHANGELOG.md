@@ -13,6 +13,40 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Added
 
+- **Every texture argument is checked before emit** (§42, §43, #145). WGSL types each plain
+  argument of a texture read exactly, and only the WIDTH of a coordinate and a whole-number
+  LITERAL were checked, so a variable of the wrong type reached the backend untouched:
+  `const l: i32 = 2` as a level emitted `textureSampleLevel(t, s, p.xy, 2)`, an `f32` layer
+  emitted `textureSampleLevel(t, s, p.xy, 1.0, 0.0)`, `textureSample(t, s, vec2i(0, 0))` emitted
+  an integer sampling coordinate, `textureLoad(t, vec2(0., 0.), 0)` a float fetch coordinate, and
+  a storage texture's coordinate was checked by nobody at all — Tint answers "no matching call"
+  to each about generated code, and GLSL ES 3.00 silently rounds. An author now reads one
+  sentence naming the cast in their own file: `textureSampleLevel level must be an f32; got i32.
+  Write f32(l).`, `textureStore on a texture_storage_2d<rgba8unorm, write> takes a vec2
+  coordinate; got vec3<i32>.` A sampled read takes a normalised `f32` coordinate, a texel fetch a
+  whole `i32` or `u32` one, a layer, mip level and sample index an integer, and a `level`, `bias`
+  and `depth_ref` an `f32`; a bare number is still RETARGETED, not refused, so
+  `textureSampleLevel(t, s, uv, 0)` still emits `0.0` and `textureStore(dstArr, at, 0, v)` still
+  spells its layer `0`. The new code is `TS8041`; the width of a coordinate stays `TS8003`,
+  because it is the texture's shape and not the argument's type.
+- **The stage a texture read and an atomic belong to** (§43, #145). Three WGSL rules are now
+  checked at the entry, over the call graph, with the chain named. `textureSample` and
+  `textureSampleBias` join the front end's fragment-only table beside the cube-array id, so a
+  vertex entry sampling a `texture_2d` reads the front end's sentence and a span in its own file
+  rather than the backend lint's. `textureStore` was the only member of the fragment-or-compute
+  table; it now holds every `atomic*` builtin ("Atomic built-in functions must not be used in a
+  vertex shader stage", wgsl.txt:25422), read off the intrinsic catalogue so one added there is
+  covered by existing, and a READ of a storage texture declared `"write"` or `"read_write"`,
+  recognised by the texture's own type because it shares the neutral id of every sampled fetch. A
+  `"read"` storage texture and every sampled fetch stay legal in a vertex entry. The refusal is
+  `"atomicAdd" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows
+  an atomic built-in in a fragment or compute stage only.` (`textureStore`'s wording moved from
+  "is not valid in a vertex shader" to the same shape). `FRAGMENT_ONLY_CALLS` and the new
+  `FRAGMENT_OR_COMPUTE_CALLS` are exported, and the front end's table and the
+  `fragment-only-builtin` lint's are pinned EQUAL by a test that derives what they should hold
+  from the intrinsic catalogue — an id in one and not the other is how `textureSample` on a
+  `texture_cube_array` once reached Tint. No emit changed: the compile gate's 85 examples are
+  byte-identical.
 - **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
   operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a
   ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the driver

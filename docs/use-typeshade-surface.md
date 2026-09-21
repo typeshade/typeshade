@@ -2909,6 +2909,99 @@ The list is the input to the divergence report of roadmap item 19: when a GPU re
 oracle disagree, the operations here are where the spec allows it, and everything else is a bug
 in one of the two.
 
+## 42. Every texture argument is checked before emit
+
+A texture read has one texture argument and several plain ones, and WGSL types each of the plain
+ones exactly. The coordinate of a sampled read is a normalised `f32`; the coordinate of a texel
+fetch — `textureLoad` and `textureStore`, sampled or storage — is a whole texel, "`C` is `i32`,
+or `u32`". A layer, a mip level and a sample index are integers. A `level`, a `bias` and a
+`depth_ref` are `f32`. Both targets refuse the wrong one: Tint with "no matching call" about
+generated code the author never wrote, a WebGL2 driver with "no matching overloaded function".
+
+Only the WIDTH of a coordinate and a whole-number LITERAL used to be checked, so a VARIABLE of
+the wrong type went through untouched:
+
+<!-- doc-snippets: skip — the refusal this section is about; it is meant not to compile -->
+
+```ts
+"use typeshade";
+declare const t: texture_2d<f32>;
+declare const s: sampler;
+
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  const l: i32 = 2;
+  return textureSampleLevel(t, s, p.xy, l);
+}
+```
+
+That emitted `textureSampleLevel(t, s, p.xy, 2)` with zero diagnostics. It is now one sentence
+naming the cast to write:
+
+```
+textureSampleLevel level must be an f32; got i32. Write f32(l).
+```
+
+The same check covers the element kind of a coordinate, which nothing looked at:
+`textureSample(t, s, vec2i(0, 0))` is `textureSample on a texture_2d<f32> takes an f32
+coordinate; got vec2<i32>.`, and `textureLoad(t, vec2(0., 0.), 0)` is `textureLoad on a
+texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2<f32>.` A storage texture
+is checked like every other one, where its coordinate was previously left to nobody:
+`textureStore(dst, vec3i(0, 0, 0), …)` on a `texture_storage_2d` is `takes a vec2 coordinate;
+got vec3<i32>.`
+
+A bare number is still retargeted rather than refused, because a literal has no type of its own
+on this surface: `textureSampleLevel(t, s, uv, 0)` emits `0.0`, `textureLoad(t, c, 0)` emits the
+integer, and `textureStore(dstArr, at, 0, v)` spells its layer `0`. What changed is only the
+case a cast fixes.
+
+## 43. Which stage a texture read and an atomic belong to
+
+Three rules of WGSL say where a call may stand, and all three are now checked at the entry, in
+the author's file, with the call chain named:
+
+| Rule | What it covers |
+| --- | --- |
+| fragment only | `textureSample` and `textureSampleBias` (the implicit level of detail needs the screen-space derivatives), `textureSampleCompare` (same, through a comparison sampler), and `dpdx` / `dpdy` / `fwidth` with their coarse and fine forms |
+| fragment or compute | `textureStore`, a read of a storage texture declared `"write"` or `"read_write"`, and every `atomic*` builtin |
+| any stage | `textureSampleLevel`, `textureSampleGrad`, `textureSampleCompareLevel`, `textureLoad`, `textureGather` and every query |
+
+The second row is not about the builtin but about the RESOURCE: a storage texture with write
+access must not be reached from a vertex stage at all, so reading one there is refused with
+writing it, while a `"read"` storage texture and every sampled fetch stay legal.
+
+<!-- doc-snippets: skip — the refusal this section is about; it is meant not to compile -->
+
+```ts
+"use typeshade";
+declare let total: storage<atomic<u32>>;
+
+class Clip {
+  @builtin("position") pos: vec4;
+}
+
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  const n = atomicAdd(total, 1);
+  return { pos: vec4(f32(n), 0., 0., 1.) };
+}
+```
+
+```
+"atomicAdd" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows
+an atomic built-in in a fragment or compute stage only.
+```
+
+A helper is never refused on its own — it is legal until something calls it from the wrong stage
+— so the walk closes over the call graph and names the chain: `"bump" is reachable from the
+vertex entry "vs"`.
+
+There are two tables behind the first row, because there are two ways into the emitter: the
+`"use typeshade"` front end reports at the entry, and the `fragment-only-builtin` lint reports at
+emit for a module composed through the EDSL. An id in one table and not the other is how
+`textureSample` on a `texture_cube_array` once reached Tint, so a test holds the two equal and
+derives what they should contain from the intrinsic catalogue.
+
 ---
 
 Last updated: 2026-09-21
