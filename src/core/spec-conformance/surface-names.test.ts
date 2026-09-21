@@ -46,7 +46,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { SHADE_DTS } from '../../language-service/ambient.js'
-import { PRE_EMIT_INTRINSICS } from '../intrinsics.js'
+import { isCanonicalMathFn, resolveMathFn } from '../../compiler/ts/math-alias.js'
+import { PRE_EMIT_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js'
 
 // ── The WGSL vocabulary, as baked ──
 
@@ -440,6 +441,24 @@ describe('a compiler-internal name is never authorable', () => {
     for (const id of PRE_EMIT_TYPE_NAMES) {
       expect(PRE_EMIT_INTRINSICS.has(id)).toBe(true)
       expect(extensionRows.has(id)).toBe(true)
+    }
+  })
+
+  it('the front end resolves no pre-emit id as a builtin', () => {
+    // The call route, beside the declaration and row routes above. `resolveMathFn` is how a
+    // spelled name becomes an intrinsic id, and it requires `isKnownIntrinsic`, which excludes
+    // every pre-emit id: so `f64Parts(x)` in a shader is `TS8004 Unknown function`, and an alias
+    // table entry that maps a new spelling to a pre-emit id resolves to nothing. `f64(x)` is not
+    // an exception here — the constructor is lowered as a scalar cast, not as a builtin call.
+    // What this does NOT close: a bespoke lowering that builds the pre-emit call by hand under a
+    // new spelling. That is a name for an internal representation whatever its id, and review
+    // applies docs/language-design.md §2.1 to it (Rule 9.8).
+    for (const id of PRE_EMIT_INTRINSICS) {
+      expect(isKnownIntrinsic(id), `${id} must not be a spellable intrinsic`).toBe(false)
+      expect(isCanonicalMathFn(id), `${id} must not be a canonical builtin name`).toBe(false)
+      expect(resolveMathFn(id), `${id} must not resolve through the Math alias table`).toBe(
+        undefined,
+      )
     }
   })
 
