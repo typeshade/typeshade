@@ -163,6 +163,32 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Fixed
 
+- **Compare-exchange, the uniform load and the texture barrier** (§48, #152).
+  `atomicCompareExchangeWeak(x, cmp, val)` stores `val` only when the location holds `cmp` and
+  answers a STRUCT — what the location held before, and whether the store happened. WGSL gives
+  that struct no writable name: measured on Tint, a variable declared with
+  `__atomic_compare_exchange_result<u32>` is "invalid type for variable declaration", and
+  `r.oldValue` is "struct member oldValue not found". So the result is bound by inference, its
+  fields are spelled `old_value` and `exchanged` the way the target spells them, and NO struct
+  declaration is emitted — WGSL's is built in, and declaring one would shadow it. The type
+  exists in the IR and in the editor and in neither backend's output. `workgroupUniformLoad(w)`
+  reads one value out of workgroup memory with a barrier on each side, so it carries a
+  barrier's placement rules (Tint: "'workgroupUniformLoad' must only be called from uniform
+  control flow") and takes a place in `workgroup<T>` memory rather than storage ("no matching
+  call to 'workgroupUniformLoad(ptr<storage, u32, read_write>)'"); a render entry needs no rule
+  of its own, because a workgroup variable read from one is already refused where it is read.
+  `textureBarrier()` joins `workgroupBarrier` and `storageBarrier` with the same two rules, and
+  belongs to the `readonly_and_readwrite_storage_textures` language feature, which
+  `reflect().requiredLanguageFeatures` reports — it compiles with no storage texture in sight,
+  so nothing else in the module says so. All three are WebGPU-only and fail closed on GLSL ES
+  3.00, which has no compute stage. `examples/compute-sync.shade.ts` is the gate witness,
+  registered `renderable: false`. The oracle does not exercise the "weak" in the name: it runs
+  one invocation at a time, so a comparison that holds cannot be beaten to the location, and
+  the retry loop WGSL documents is correct on a device and here.
+  While adding that example the compile gate caught `'shared' is a reserved keyword` from Tint
+  with no diagnostic from the compiler first: the identifier sanitiser guards GENERATED names
+  only, so an author's local named after a WGSL reserved word reaches the driver unchanged. The
+  example renames its own local and says why; closing the gap is its own change.
 - **The packed 4x8 integer builtins** (§47, #152). Eight builtins that read a `u32` as four bytes
   or write four back — `dot4U8Packed`, `dot4I8Packed`, `pack4xU8`, `pack4xI8`, their two `Clamp`
   twins, `unpack4xU8` and `unpack4xI8` — were each an unknown name. They are authorable now,

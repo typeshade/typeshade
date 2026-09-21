@@ -406,20 +406,23 @@ function emitAtomic(e: Extract<Expr, { op: 'call' }>, S: FnCtx): string {
   const fn = q(e.fn)
   const kind = q(numKindOf(loc.type))
   const arg = e.args[1] === undefined ? '0' : emitExpr(e.args[1], S)
+  // `atomicCompareExchangeWeak`'s third argument is the value to store (#152); the other ten
+  // builtins have none, and the runtime helpers take `undefined` for them.
+  const store = e.args[2] === undefined ? 'undefined' : emitExpr(e.args[2], S)
   if (loc.op === 'index') {
-    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${emitExpr(loc.idx, S)}, ${arg}, ${kind})`
+    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${emitExpr(loc.idx, S)}, ${arg}, ${kind}, ${store})`
   }
   if (loc.op === 'member') {
     const key = isArrayValued(loc.base.type) ? String(FIELD_IDX[loc.field] ?? -1) : q(loc.field)
-    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${key}, ${arg}, ${kind})`
+    return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${key}, ${arg}, ${kind}, ${store})`
   }
   if (loc.op === 'varref' || loc.op === 'param') {
     const id = S.varId.get(loc.name)
     if (id === undefined) {
       const table = S.mod.varNames.has(loc.name) ? '$.vars' : '$.bindings'
-      return `$.atomicAt(${fn}, ${table}, ${q(loc.name)}, ${arg}, ${kind})`
+      return `$.atomicAt(${fn}, ${table}, ${q(loc.name)}, ${arg}, ${kind}, ${store})`
     }
-    return `$.atomicRef(${fn}, () => ${id}, ($v) => (${id} = $v), ${arg}, ${kind})`
+    return `$.atomicRef(${fn}, () => ${id}, ($v) => (${id} = $v), ${arg}, ${kind}, ${store})`
   }
   throw new CodegenUnsupported(`atomic location ${loc.op}`)
 }
@@ -582,6 +585,7 @@ interface CodegenRuntime {
     key: string | number,
     arg: number,
     kind: NumKind,
+    store?: number,
   ) => CpuValue
   /** A barrier reached by a directly called invocation: throws, naming `dispatch`. */
   barrier: (fn: string) => never
@@ -592,6 +596,7 @@ interface CodegenRuntime {
     set: (v: CpuValue) => void,
     arg: number,
     kind: NumKind,
+    store?: number,
   ) => CpuValue
   /** WGSL saturating f32→u32/i32 (float sources only — see cpu-runtime). */
   u32Sat: typeof f32ToU32Sat
@@ -756,14 +761,14 @@ export function compileModuleJs(
     selVec: selectComponents,
     u32Sat: f32ToU32Sat,
     i32Sat: f32ToI32Sat,
-    atomicAt: (fn, base, key, arg, kind) => {
+    atomicAt: (fn, base, key, arg, kind, store) => {
       const obj = base as unknown as Record<string | number, CpuValue>
-      const step = atomicStep(fn, obj[key] as number, arg, kind)
+      const step = atomicStep(fn, obj[key] as number, arg, kind, store)
       if (fn !== 'atomicLoad') obj[key] = step.next
       return step.result
     },
-    atomicRef: (fn, get, set, arg, kind) => {
-      const step = atomicStep(fn, get() as number, arg, kind)
+    atomicRef: (fn, get, set, arg, kind, store) => {
+      const step = atomicStep(fn, get() as number, arg, kind, store)
       if (fn !== 'atomicLoad') set(step.next)
       return step.result
     },
@@ -786,7 +791,11 @@ export function compileModuleJs(
       throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
     },
     console: (method, args, span) => {
-      opts?.consoleSink?.({ method: method as any, args, span: typeof span === 'string' ? JSON.parse(span) : (span as any) })
+      opts?.consoleSink?.({
+        method: method as any,
+        args,
+        span: typeof span === 'string' ? JSON.parse(span) : (span as any),
+      })
     },
   }
 

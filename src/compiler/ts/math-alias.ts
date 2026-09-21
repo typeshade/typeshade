@@ -230,6 +230,8 @@ export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   'atomicExchange',
   'workgroupBarrier',
   'storageBarrier',
+  'textureBarrier',
+  'workgroupUniformLoad',
   'exp2',
   'saturate',
   'fwidth',

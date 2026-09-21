@@ -1158,6 +1158,21 @@ ${renderJSDoc(FUNCTION_DOCS.unpack2x16unorm)}
 declare function unpack2x16unorm(e: u32): vec2
 ${renderJSDoc(FUNCTION_DOCS.unpack2x16snorm)}
 declare function unpack2x16snorm(e: u32): vec2
+/** What \`atomicCompareExchangeWeak\` answers: what the location held BEFORE the call, and
+ * whether the store happened. WGSL calls the type \`__atomic_compare_exchange_result<T>\` and
+ * gives no way to write that name, so this one is not writable either — bind the result with
+ * \`const\` and read its fields. */
+type AtomicCompareExchangeResult<T> = { old_value: T; exchanged: bool }
+${renderJSDoc(FUNCTION_DOCS.atomicCompareExchangeWeak)}
+declare function atomicCompareExchangeWeak<T extends u32 | i32>(
+  location: atomic<T>,
+  compare: T,
+  value: T,
+): AtomicCompareExchangeResult<T>
+${renderJSDoc(FUNCTION_DOCS.textureBarrier)}
+declare function textureBarrier(): void
+${renderJSDoc(FUNCTION_DOCS.workgroupUniformLoad)}
+declare function workgroupUniformLoad<T>(w: T): T
 ${renderJSDoc(FUNCTION_DOCS.dot4U8Packed)}
 declare function dot4U8Packed(a: u32, b: u32): u32
 ${renderJSDoc(FUNCTION_DOCS.dot4I8Packed)}

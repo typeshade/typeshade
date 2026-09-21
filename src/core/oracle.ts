@@ -397,7 +397,10 @@ function evalAtomic(
   if (loc === undefined) throw new Error(`typeshade/cpu: ${e.fn} needs a location`)
   const ref = refOf(loc, env, ctx)
   const arg = e.args[1] === undefined ? 0 : (evalExpr(e.args[1], env, ctx) as number)
-  const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type))
+  // The third argument is `atomicCompareExchangeWeak`'s value to store (#152); every other
+  // atomic has two at most, so this is undefined for them.
+  const store = e.args[2] === undefined ? undefined : (evalExpr(e.args[2], env, ctx) as number)
+  const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type), store)
   if (e.fn !== 'atomicLoad') ref.set(step.next)
   return step.result
 }

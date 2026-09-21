@@ -319,6 +319,9 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'arrayLength',
   'workgroupBarrier',
   'storageBarrier',
+  'textureBarrier',
+  'atomicCompareExchangeWeak',
+  'workgroupUniformLoad',
 ])
 
 /** What WGSL §15.7.4 allows the result of one operation to be, for a builtin id, a binary

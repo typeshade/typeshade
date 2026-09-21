@@ -81,8 +81,27 @@ export function atomicStep(
   old: number,
   arg: number,
   kind: NumKind,
-): { readonly next: number; readonly result: number } {
+  /** The value to STORE, for `atomicCompareExchangeWeak` alone (#152), where `arg` is the value
+   *  to compare against. Every other builtin takes one operand and ignores this. */
+  store?: number,
+): { readonly next: number; readonly result: CpuValue } {
   switch (fn) {
+    // `atomicCompareExchangeWeak(&x, cmp, val)` stores `val` only when the location holds
+    // `cmp`, and answers the contents it held BEFORE the call plus whether the store happened
+    // (wgsl.txt:25584). The field names are WGSL's own, in snake_case: measured on Tint,
+    // `r.oldValue` is "struct member oldValue not found".
+    //
+    // "Weak" names a hardware licence to fail spuriously, which this oracle does not exercise:
+    // one invocation at a time, so a comparison that holds cannot be beaten to the location.
+    // A device may answer `exchanged: false` where this answers true, and a shader that loops
+    // until it succeeds — which is the shape WGSL documents — is correct on both.
+    case 'atomicCompareExchangeWeak': {
+      const exchanged = old === arg
+      return {
+        next: exchanged ? wrapInt(store ?? 0, kind) : old,
+        result: { old_value: old, exchanged },
+      }
+    }
     case 'atomicLoad':
       return { next: old, result: old }
     case 'atomicStore':
@@ -635,6 +654,13 @@ export const BUILTINS: Record<string, Builtin> = {
     const n = (u as number) >>> 0
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255)
   },
+  // `workgroupUniformLoad(w)` (#152): the VALUE workgroup memory holds. The builtin is a read
+  // between two barriers, and the oracle models the read and not the barriers: it is an
+  // EXPRESSION, and `dispatch` synchronises barrier STATEMENTS. That is a real limitation and
+  // not a fiction — an invocation that reads a value another was mid-way through writing gets
+  // a different answer here than on a device. The oracle is an algebra oracle; a race is not
+  // algebra, and the same caveat already covers every other unsynchronised read it performs.
+  workgroupUniformLoad: (x) => x,
   // ── The packed 4x8 integer family (#152) ──
   //
   // A `u32` read as four bytes, component 0 in the LOW byte (wgsl.txt:21906/21920). The signed

@@ -397,3 +397,106 @@ export function fs(): vec4 { return vec4(f32(atomicAdd(1, 2)), 0., 0., 1.) }
     expect(r.wgsl).not.toContain('&')
   })
 })
+
+// `atomicCompareExchangeWeak` (#152, wgsl.txt:25584): the eleventh atomic, and the only one
+// that answers a STRUCT. Every rule below is one Tint states in its own words, measured with a
+// broken shader fed to the same instrument first.
+describe('atomicCompareExchangeWeak answers a struct WGSL will not let you name', () => {
+  const CAS = `"use typeshade"
+declare let lock: storage<atomic<u32>>
+declare let o: storage<array<u32>>
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  const r = atomicCompareExchangeWeak(lock, 0, 7)
+  o[0] = r.old_value
+  o[1] = r.exchanged ? 1 : 0
+}
+`
+
+  it('emits the pointer form and binds the result by inference', () => {
+    const r = compile(CAS)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // The result type is `__atomic_compare_exchange_result<T>`, which WGSL gives no way to
+    // write: measured on Tint, a variable declared with it is "invalid type for variable
+    // declaration". So the `let` names no type and NO struct is declared for it — the emitted
+    // module must not carry one, because WGSL's is built in.
+    expect(r.wgsl).toContain('let r = atomicCompareExchangeWeak(&lock, 0u, 7u);')
+    expect(r.wgsl).not.toContain('struct __atomic_compare_exchange_result')
+    expect(r.wgsl).toContain('o[0] = r.old_value;')
+    // The field names are WGSL's own, in snake_case: `r.oldValue` is "struct member oldValue
+    // not found" on Tint, so the surface spells them the way the target does.
+    expect(r.wgsl).not.toContain('oldValue')
+    // This exact text was compiled on Tint, which accepted it.
+  })
+
+  it('answers the same values on both CPU backends, exchanging only on a match', () => {
+    const r = compile(CAS)
+    for (const make of [compileModule, compileModuleJs]) {
+      for (const [start, expected] of [
+        [0, [0, 1]],
+        [5, [5, 0]],
+      ] as const) {
+        const out = [0, 0]
+        const cm = make(r.module)
+        cm.setBinding('lock', start as unknown as CpuValue)
+        cm.setBinding('o', out as unknown as CpuValue)
+        cm.fns['cs']!([0, 0, 0])
+        expect(out, `${make.name} from ${String(start)}`).toEqual([...expected])
+      }
+    }
+  })
+
+  it("takes three arguments, both of the atomic's own kind", () => {
+    const bad = (call: string): string[] =>
+      compileTsSource(`"use typeshade"
+declare let lock: storage<atomic<u32>>
+declare let o: storage<array<u32>>
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  const r = ${call}
+  o[0] = r.old_value
+}
+`)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => d.message)
+    expect(bad('atomicCompareExchangeWeak(lock, 0)')[0]).toBe(
+      'atomicCompareExchangeWeak expects 3 arguments, got 2.',
+    )
+    // A bare integer literal is retargeted to the atomic's kind, as everywhere else, so only a
+    // value with a type of its own can mismatch.
+    expect(bad('atomicCompareExchangeWeak(lock, i32(0), 7)')[0]).toBe(
+      'atomicCompareExchangeWeak compare must be u32 to match the atomic<u32>, got i32.',
+    )
+    expect(bad('atomicCompareExchangeWeak(lock, 0, i32(7))')[0]).toBe(
+      'atomicCompareExchangeWeak value must be u32 to match the atomic<u32>, got i32.',
+    )
+  })
+
+  it('works on an i32 atomic too, and keeps the atomic rules it shares', () => {
+    const r = compile(`"use typeshade"
+declare let lock: storage<atomic<i32>>
+declare let o: storage<array<i32>>
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  const r = atomicCompareExchangeWeak(lock, -1, 7)
+  o[0] = r.old_value
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('atomicCompareExchangeWeak(&lock, -1, 7)')
+    // A `declare const` binding is read-only, and every atomic builtin needs read_write.
+    expect(
+      compileTsSource(`"use typeshade"
+declare const lock: storage<atomic<u32>>
+declare let o: storage<array<u32>>
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  const r = atomicCompareExchangeWeak(lock, 0, 7)
+  o[0] = r.old_value
+}
+`)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => d.message)[0],
+    ).toContain('needs read_write access to "lock"')
+  })
+})

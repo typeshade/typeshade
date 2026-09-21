@@ -32,6 +32,7 @@ import {
 import { entryIo, type IoField } from './ir/entry-io.js'
 import { requiredCaps, usesPacked4x8 } from './passes/required-caps.js'
 import { PACKED_4X8_LANGUAGE_FEATURE } from './intrinsics.js'
+import { collectFnRefs } from './ir/collect-refs.js'
 import { bindingStages } from './passes/stage-bindings.js'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 
@@ -867,7 +868,13 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // `"read"` or `"read_write"` one is the language feature below, so the binding's access mode
   // is the whole derivation.
   const languageFeatures: string[] = []
-  if (m.bindings.some((b) => b.type.kind === 'storage-texture' && b.type.access !== 'write'))
+  // `textureBarrier` belongs to the same language feature as the readable storage textures
+  // (#152, wgsl.txt:26030-26042 and 3229-3232), so either reaches for it. Tint has the feature
+  // and compiles the call bare, which is exactly why nothing else in the pipeline says so.
+  if (
+    m.bindings.some((b) => b.type.kind === 'storage-texture' && b.type.access !== 'write') ||
+    m.funcs.some((f) => collectFnRefs(f).calls.has('textureBarrier'))
+  )
     languageFeatures.push('readonly_and_readwrite_storage_textures')
   // The packed 4x8 family is a feature of the CALLS (#152), the same derivation requiredCaps
   // performs for `packed4x8Dot`.

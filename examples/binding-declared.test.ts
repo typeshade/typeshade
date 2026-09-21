@@ -122,6 +122,9 @@ const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[]
   { id: 'packed-bytes', stage: 'fragment', match: /packed4x8Dot/ },
 ]
 
+// `compute-sync` (§48, #152) is compute-only and so has no GLSL stage for this sweep to
+// examine at all, which is why it names no row above.
+
 describe('every binding a stage mentions is a binding that stage declares', () => {
   it('the sweep examined both halves of the invariant, on both targets', () => {
     expect(corpus.length).toBeGreaterThanOrEqual(10)

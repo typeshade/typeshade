@@ -83,7 +83,7 @@ const storageFetchGlsl =
  *  Exported from `typeshade`.
  */
 export const ATOMIC_INTRINSICS: Readonly<
-  Record<string, { readonly arity: 1 | 2; readonly returns: 'value' | 'void' }>
+  Record<string, { readonly arity: 1 | 2 | 3; readonly returns: 'value' | 'void' | 'casResult' }>
 > = {
   atomicLoad: { arity: 1, returns: 'value' },
   atomicStore: { arity: 2, returns: 'void' },
@@ -95,6 +95,14 @@ export const ATOMIC_INTRINSICS: Readonly<
   atomicOr: { arity: 2, returns: 'value' },
   atomicXor: { arity: 2, returns: 'value' },
   atomicExchange: { arity: 2, returns: 'value' },
+  // The eleventh (#152, wgsl.txt:25584): `atomicCompareExchangeWeak(&x, cmp, val)` stores
+  // `val` only when the location holds `cmp`, and answers a STRUCT rather than a value — the
+  // old contents and whether the exchange happened. WGSL names that struct
+  // `__atomic_compare_exchange_result<T>` and gives the author no way to write the name:
+  // measured on Tint, a variable declared with it is "invalid type for variable declaration",
+  // so the result is bound by inference and its fields read. The fields are `old_value` and
+  // `exchanged`, in snake_case — `r.oldValue` is "struct member oldValue not found".
+  atomicCompareExchangeWeak: { arity: 3, returns: 'casResult' },
 }
 
 /** The barriers (roadmap 0.2 item 5, #82): `workgroupBarrier()` and `storageBarrier()`,
@@ -108,6 +116,12 @@ export const ATOMIC_INTRINSICS: Readonly<
 export const BARRIER_INTRINSICS: ReadonlySet<string> = new Set([
   'workgroupBarrier',
   'storageBarrier',
+  // `textureBarrier` (#152, wgsl.txt:26030-26042) joins them: the same statement shape and the
+  // same two rules, over the TEXTURE address space rather than workgroup or storage memory.
+  // Measured on Tint: it compiles in a compute entry with no storage texture in sight, is
+  // "'textureBarrier' must only be called from uniform control flow" inside an `if`, and is
+  // "built-in cannot be used by vertex pipeline stage" outside a compute entry.
+  'textureBarrier',
 ])
 
 /** Whether `name` is one of the {@link BARRIER_INTRINSICS}.
@@ -140,7 +154,12 @@ const atomicSpellings = (): Record<string, Spelling> =>
     Object.entries(ATOMIC_INTRINSICS).map(([name, sig]): [string, Spelling] => [
       name,
       {
-        wgsl: (a) => (sig.arity === 1 ? `${name}(&${a[0]})` : `${name}(&${a[0]}, ${a[1]})`),
+        wgsl: (a) =>
+          sig.arity === 1
+            ? `${name}(&${a[0]})`
+            : sig.arity === 2
+              ? `${name}(&${a[0]}, ${a[1]})`
+              : `${name}(&${a[0]}, ${a[1]}, ${a[2]})`,
         glsl: () => {
           throw new Error(
             `glsl-es300: ${name} has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
@@ -709,6 +728,24 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: () => 'storageBarrier()',
     glsl: () => {
       throw new Error('glsl-es300: storageBarrier has no GLSL ES 3.00 spelling (no compute stage)')
+    },
+  },
+  textureBarrier: {
+    wgsl: () => 'textureBarrier()',
+    glsl: () => {
+      throw new Error('glsl-es300: textureBarrier has no GLSL ES 3.00 spelling (no compute stage)')
+    },
+  },
+  // `workgroupUniformLoad(&w)` (#152, wgsl.txt:26057): one value read from workgroup memory,
+  // with a barrier on each side, so every invocation of the workgroup gets the same one. The
+  // argument is a POINTER on WGSL, spelled here the way the atomics' is. GLSL ES 3.00 has no
+  // compute stage and so no workgroup memory to read uniformly.
+  workgroupUniformLoad: {
+    wgsl: (a) => `workgroupUniformLoad(&${a[0]})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: workgroupUniformLoad has no GLSL ES 3.00 spelling (no compute stage)',
+      )
     },
   },
   textureDimensions: {

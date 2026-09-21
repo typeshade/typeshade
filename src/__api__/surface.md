@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 453 exports
+## `.` — 455 exports
 
 ```
 abs
@@ -63,6 +63,8 @@ CapabilityRow
 CapProfile
 CapSupport
 CapSupportKind
+CAS_RESULT_STRUCTS
+casResultT
 ceil
 clamp
 ClassifiedSemanticDiff
@@ -564,7 +566,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 261 exports
+## `./core/ir` — 263 exports
 
 ```
 abs
@@ -597,6 +599,8 @@ Break
 Builder
 Call
 Capability
+CAS_RESULT_STRUCTS
+casResultT
 ceil
 clamp
 CmpArg
@@ -869,7 +873,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 561 definitions
+## Shapes — 563 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; fileName?: string }
@@ -987,7 +991,7 @@ src/core/fp64/flavor-select.ts#isAppleGpu  function  (s: Fp64FlavorSignals) => b
 src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSignals) => Fp64Flavor
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
-src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 1; readonly returns: "value" | "void"; }>>
+src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 3 | 1; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#INTRINSICS  const  Readonly<Record<string, Spelling>>
 src/core/intrinsics.ts#INTRINSIC_BINDING_REFS  const  Readonly<Record<string, readonly string[]>>
@@ -1197,6 +1201,7 @@ src/core/ir/span.ts#SourceSpan  interface  { character: number; endCharacter: nu
 src/core/ir/span.ts#sourceSpanOf  function  (node: FuncDecl | Stmt | Expr) => SourceSpan
 src/core/ir/types.ts#ALL_STORAGE_TEXTURE_FORMATS  const  readonly ["rgba8unorm", "rgba8snorm", "rgba8uint", "rgba8sint", "rgba16uint", "rgba16sint", "rgba16float", "r32uint", "r32sint", "r32float", "rg32uint", "rg32sint", "rg32float", "rgba32uint", "rgba32sint", "rgba32float", "bgra8unorm"]
 src/core/ir/types.ts#ArrayElemKey  type  K extends `array<${infer Inner}>` ? DropArraySize<Inner> : never
+src/core/ir/types.ts#CAS_RESULT_STRUCTS  const  readonly { readonly name: string; readonly fields: readonly { readonly name: string; readonly type: ShaderType; }[]; }[]
 src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
 src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "atomic"; elem: infer E extends string; } ? `atomic<${E}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; elem: infer E extends string; } ? `texture_multisampled_2d<${E}>` : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "texture"; dim: "cube"; elem: infer E extends string; } ? `texture_cube<${E}>` : T extends { kind: "texture"; dim: "3d"; elem: infer E extends string; } ? `texture_3d<${E}>` : T extends { kind: "texture"; dim: "1d"; elem: infer E extends string; } ? `texture_1d<${E}>` : T extends { kind: "texture"; dim: "cube-array"; elem: infer E extends string; } ? `texture_cube_array<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#READ_WRITE_STORAGE_FORMATS  const  readonly ["r32uint", "r32sint", "r32float"]
@@ -1211,6 +1216,7 @@ src/core/ir/types.ts#arrayT  const  <E extends ShaderType, S extends number | un
 src/core/ir/types.ts#atomicI32T  const  { readonly kind: "atomic"; readonly elem: "i32"; }
 src/core/ir/types.ts#atomicU32T  const  { readonly kind: "atomic"; readonly elem: "u32"; }
 src/core/ir/types.ts#boolT  const  { readonly kind: "scalar"; readonly scalar: "bool"; }
+src/core/ir/types.ts#casResultT  const  (elem: "i32" | "u32") => ShaderType
 src/core/ir/types.ts#f32T  const  { readonly kind: "scalar"; readonly scalar: "f32"; }
 src/core/ir/types.ts#f64T  const  { readonly kind: "f64"; }
 src/core/ir/types.ts#i32T  const  { readonly kind: "scalar"; readonly scalar: "i32"; }

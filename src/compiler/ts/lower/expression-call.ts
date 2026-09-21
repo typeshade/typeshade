@@ -37,6 +37,7 @@ import { spanOf } from '../span.js'
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
 import { lowerAtomicCall } from './atomics.js'
+import { lowerWorkgroupUniformLoad } from './barriers.js'
 import { lowerClassCall } from './class-methods.js'
 import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js'
 import { divergentIntegerId } from '../../../core/ir/divergent-int.js'
@@ -246,6 +247,17 @@ export function lowerCall(
         TS_CODES.BARRIER_PLACEMENT,
       )
       return undefined
+    }
+    // `workgroupUniformLoad` is a VALUE, unlike the barriers above, so it is lowered here
+    // rather than by the statement path — but it carries a barrier's placement rules (#152).
+    if (name === 'workgroupUniformLoad') {
+      const loaded: Expr[] = []
+      for (const a of node.arguments) {
+        const lowered = lowerExpression(a, sourceFile, scope, diagnostics)
+        if (!lowered) return undefined
+        loaded.push(lowered)
+      }
+      return lowerWorkgroupUniformLoad(loaded, node, sourceFile, scope, diagnostics)
     }
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     ctor = VEC_CTOR[name]

@@ -105,6 +105,12 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Rounds `e` to what an IEEE-754 binary16 can hold and returns it as an `f32`, so a shader can see the precision an f16 pipeline would give it without the `shader-f16` extension. Takes an `f32` or a float vector. GLSL ES 3.00 has no such builtin, so it is spelled as a `packHalf2x16`/`unpackHalf2x16` round trip, whose rounding of an exact half that spec does not pin.',
   pack4x8unorm:
     'Packs a `vec4` of values in [0, 1] into the four bytes of a `u32`, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packUnorm4x8` (that is ES 3.10).',
+  atomicCompareExchangeWeak:
+    'Stores the third argument into the atomic location only when it holds the second, as one indivisible step. Answers a struct: `old_value` is what the location held before the call and `exchanged` says whether the store happened. WGSL gives that struct no writable name, so bind the result with `const` and read its fields.',
+  textureBarrier:
+    'Holds every invocation of the workgroup until all have arrived, ordering their writes to the TEXTURE address space. A statement, in a compute entry or a function it calls, in uniform control flow. WebGPU-only, and part of the `readonly_and_readwrite_storage_textures` WGSL language feature that `reflect().requiredLanguageFeatures` reports.',
+  workgroupUniformLoad:
+    "Reads one value out of workgroup memory with a barrier on each side, so every invocation of the workgroup gets the same one. Takes a place in `workgroup<T>` memory, not storage, and returns its type. WebGPU-only, and it carries a barrier's placement rules: a compute entry or a function it calls, in uniform control flow.",
   dot4U8Packed:
     'Reads both `u32` arguments as four UNSIGNED bytes and sums the four products into a `u32`. WebGPU-only: GLSL ES 3.00 has no form of it, so a module using it emits WGSL alone. The host should check `navigator.gpu.wgslLanguageFeatures` for `packed_4x8_integer_dot_product`, which `reflect().requiredLanguageFeatures` reports.',
   dot4I8Packed:

@@ -509,7 +509,9 @@ function* evalAtomic(
   if (loc === undefined) throw new Error(`typeshade/debug: ${e.fn} needs a location`)
   const ref = yield* refOf(loc, env, ctx)
   const arg = e.args[1] === undefined ? 0 : ((yield* evalExpr(e.args[1], env, ctx)) as number)
-  const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type))
+  const store =
+    e.args[2] === undefined ? undefined : ((yield* evalExpr(e.args[2], env, ctx)) as number)
+  const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type), store)
   if (e.fn !== 'atomicLoad') ref.set(step.next)
   return step.result
 }

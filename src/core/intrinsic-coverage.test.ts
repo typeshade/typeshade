@@ -138,6 +138,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "atanh",
         "atomicAdd",
         "atomicAnd",
+        "atomicCompareExchangeWeak",
         "atomicExchange",
         "atomicLoad",
         "atomicMax",
@@ -232,6 +233,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "storageFetchU32",
         "tan",
         "tanh",
+        "textureBarrier",
         "textureDimensions",
         "textureDimensions1d",
         "textureDimensions3d",
@@ -284,6 +286,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "unpack4xI8",
         "unpack4xU8",
         "workgroupBarrier",
+        "workgroupUniformLoad",
       ]
     `)
   })

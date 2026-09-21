@@ -3414,6 +3414,86 @@ A module that declares its own function under one of the eight names keeps the c
 function, by the additivity rule every builtin this surface adds follows — and it then needs
 neither the capability nor the language feature, because it never reaches the builtin.
 
+## 48. Compare-exchange, the uniform load and the texture barrier
+
+Three WGSL builtins, each an unknown name before, and all three WebGPU-only: GLSL ES 3.00 has no
+compute stage, so it has no workgroup memory, no atomic compare-exchange and no barrier of any
+kind. A module using one fails closed on that target.
+
+### `atomicCompareExchangeWeak`
+
+Stores a value only when the location holds the one you name, as one indivisible step, and
+answers what the location held BEFORE the call plus whether the store happened:
+
+```ts
+const claim = atomicCompareExchangeWeak(claimed, 0, gid.x + 1);
+if (claim.exchanged) {
+  leader = lid.x; // this invocation won it
+}
+```
+
+The result is a STRUCT, and WGSL gives it no writable name. Measured on Tint:
+
+| spelling | Tint |
+| --- | --- |
+| `let r = atomicCompareExchangeWeak(&a, 1u, 2u);` | accepts |
+| `r.old_value`, `r.exchanged` | accepts |
+| `r.oldValue` | **"struct member oldValue not found"** |
+| `var r: __atomic_compare_exchange_result<u32> = …;` | **"invalid type for variable declaration"** |
+| the call with its result ignored | accepts — it is not `@must_use` |
+
+So the fields are spelled the way the target spells them, in snake_case, the result is bound with
+`const` and never annotated, and **no struct declaration is emitted**: WGSL's is built in, and
+declaring one would shadow it. The type exists in the IR and in the editor and in neither
+backend's output.
+
+"Weak" names a hardware licence to fail spuriously. The CPU oracle does not exercise it — one
+invocation at a time, so a comparison that holds cannot be beaten to the location — and a shader
+that loops until it succeeds, which is the shape WGSL documents, is correct on a device and here.
+
+### `workgroupUniformLoad`
+
+One value read out of workgroup memory with a barrier on each side, so every invocation of the
+workgroup gets the same one:
+
+```ts
+const agreed: u32 = workgroupUniformLoad(leader);
+```
+
+It carries a barrier's placement rules, because it *is* two barriers around a read:
+
+| spelling | Tint |
+| --- | --- |
+| in a compute entry, outside any branch | accepts |
+| inside an `if` | **"'workgroupUniformLoad' must only be called from uniform control flow"** |
+| of a storage pointer | **"no matching call"**, both candidates workgroup pointers |
+| of a `vec4`, of an array element | accepts — any shape that memory holds |
+
+A render entry needs no rule of its own here: a workgroup variable read from one is already
+refused where it is read, which is the sentence that names what the author has to move.
+
+### `textureBarrier`
+
+Holds every invocation of the workgroup until all have arrived, ordering their writes to the
+TEXTURE address space. A statement, in a compute entry, in uniform control flow — the same two
+rules `workgroupBarrier` has, and Tint states them the same way ("must only be called from
+uniform control flow", "built-in cannot be used by vertex pipeline stage").
+
+It compiles with no storage texture in sight, so nothing in the module's shape announces what it
+needs. It belongs to the `readonly_and_readwrite_storage_textures` WGSL language feature, and
+`reflect().requiredLanguageFeatures` is what says so — the same field a readable storage texture
+reaches for.
+
+`examples/compute-sync.shade.ts` runs all three, registered `renderable: false`.
+
+### A reserved word is still the author's problem
+
+The example above names its uniform load `agreed`, not `shared`, and the comment in it says why:
+`shared` is a WGSL reserved keyword, and this surface does not rename an author's local to avoid
+one. The compile gate caught `'shared' is a reserved keyword` from Tint with no diagnostic from
+the compiler first — the identifier sanitiser guards GENERATED names only. That is a real gap,
+and it is not this section's to close.
+
 ---
 
 Last updated: 2026-09-21
