@@ -1,0 +1,44 @@
+{
+  "twin": "fp64-cancellation-twin",
+  "of": "fp64-cancellation",
+  "equal": false,
+  "diff": {
+    "interface": [],
+    "resources": [],
+    "constants": [
+      "-lit f32=1",
+      "-lit f32=1",
+      "-lit f32=4",
+      "-lit f32=4",
+      "-lit u32=1",
+      "-lit u32=1"
+    ],
+    "controlFlow": [
+      "+fs_cancel#35 let v#35 = (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32))",
+      "+fs_cancel#36 let v#36 = (call mix:vec3<f32> (varref v#35:vec3<f32>) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (call min:f32 (varref v#34:f32) (lit:f32)) (lit:f32)))",
+      "+fs_cancel#37 let v#37 = (call step:f32 (varref v#26:f32) (varref v#23:f32))",
+      "+fs_cancel#38 let v#38 = (call mix:vec3<f32> (varref v#36:vec3<f32>) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (varref v#37:f32) (lit:f32)))",
+      "+fs_cancel#39 let v#39 = (-:f32 (lit:f32) (call smoothstep:f32 (*:f32 (varref v#27:f32) (lit:f32)) (*:f32 (varref v#27:f32) (lit:f32)) (call abs:f32 (-:f32 (varref v#23:f32) (varref v#26:f32)))))",
+      "+fs_cancel#40 let v#40 = (call mix:vec3<f32> (varref v#38:vec3<f32>) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (varref v#39:f32) (lit:f32)))",
+      "+fs_cancel#41 let v#41 = (-:f32 (lit:f32) (call smoothstep:f32 (*:f32 (varref v#27:f32) (lit:f32)) (*:f32 (varref v#27:f32) (lit:f32)) (call abs:f32 (-:f32 (varref v#25:f32) (varref v#26:f32)))))",
+      "+fs_cancel#42 let v#42 = (call mix:vec3<f32> (varref v#40:vec3<f32>) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (varref v#41:f32) (lit:f32)))",
+      "+fs_cancel#43 let v#43 = (call min:f32 (call smoothstep:f32 (lit:f32) (*:f32 (varref v#27:f32) (lit:f32)) (call abs:f32 (varref v#26:f32))) (call smoothstep:f32 (lit:f32) (*:f32 (varref v#27:f32) (lit:f32)) (*:f32 (call abs:f32 (-:f32 (varref v#2:f32) (lit:f32))) (lit:f32))))",
+      "+fs_cancel#44 let v#44 = (call mix:vec3<f32> (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (varref v#42:vec3<f32>) (varref v#43:f32))",
+      "+fs_cancel#45 return (construct:vec4<f32> (varref v#44:vec3<f32>) (lit:f32))",
+      "+vs#0 let v#0 = (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32))",
+      "+vs#1 let v#1 = (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32))",
+      "+vs#2 return (construct:struct:st#0 (construct:vec4<f32> (varref v#0:f32) (varref v#1:f32) (lit:f32) (lit:f32)) (construct:vec2<f32> (+:f32 (*:f32 (varref v#0:f32) (lit:f32)) (lit:f32)) (+:f32 (*:f32 (varref v#1:f32) (lit:f32)) (lit:f32))))",
+      "-fs_cancel#35 let v#35 = (call mix:vec3<f32> (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (call min:f32 (varref v#34:f32) (lit:f32)) (lit:f32)))",
+      "-fs_cancel#36 let v#36 = (call step:f32 (varref v#26:f32) (varref v#23:f32))",
+      "-fs_cancel#37 let v#37 = (call mix:vec3<f32> (varref v#35:vec3<f32>) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (varref v#36:f32) (lit:f32)))",
+      "-fs_cancel#38 let v#38 = (-:f32 (lit:f32) (call smoothstep:f32 (*:f32 (varref v#27:f32) (lit:f32)) (*:f32 (varref v#27:f32) (lit:f32)) (call abs:f32 (-:f32 (varref v#23:f32) (varref v#26:f32)))))",
+      "-fs_cancel#39 let v#39 = (call mix:vec3<f32> (varref v#37:vec3<f32>) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (varref v#38:f32) (lit:f32)))",
+      "-fs_cancel#40 let v#40 = (-:f32 (lit:f32) (call smoothstep:f32 (*:f32 (varref v#27:f32) (lit:f32)) (*:f32 (varref v#27:f32) (lit:f32)) (call abs:f32 (-:f32 (varref v#25:f32) (varref v#26:f32)))))",
+      "-fs_cancel#41 let v#41 = (call mix:vec3<f32> (varref v#39:vec3<f32>) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (*:f32 (varref v#40:f32) (lit:f32)))",
+      "-fs_cancel#42 let v#42 = (call min:f32 (call smoothstep:f32 (lit:f32) (*:f32 (varref v#27:f32) (lit:f32)) (call abs:f32 (varref v#26:f32))) (call smoothstep:f32 (lit:f32) (*:f32 (varref v#27:f32) (lit:f32)) (*:f32 (call abs:f32 (-:f32 (varref v#2:f32) (lit:f32))) (lit:f32))))",
+      "-fs_cancel#43 let v#43 = (call mix:vec3<f32> (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (varref v#41:vec3<f32>) (varref v#42:f32))",
+      "-fs_cancel#44 return (construct:vec4<f32> (varref v#43:vec3<f32>) (lit:f32))",
+      "-vs#0 return (construct:struct:st#0 (construct:vec4<f32> (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32) (lit:f32)) (construct:vec2<f32> (+:f32 (*:f32 (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32)) (lit:f32)) (+:f32 (*:f32 (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32)) (lit:f32))))"
+    ]
+  }
+}
