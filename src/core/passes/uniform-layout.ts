@@ -430,9 +430,51 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
 
   return {
     ...m,
-    structs: [...wrappers.values(), ...nextStructs],
+    structs: orderWrappers(wrappers, nextStructs),
     funcs: m.funcs.map((f) => ({ ...f, body: f.body.map((s) => mapStmtExpr(s, rewrite)) })),
   }
+}
+
+/** The declaration order the wrappers go out in: a wrapper over a STRUCT element sits
+ *  immediately after that struct, and one over a scalar, vector or matrix leads.
+ *
+ *  A type declared before the type it holds is a program that reads backwards. Tint accepts it
+ *  and `reflect()` agrees either way, so this is legibility rather than validity — but
+ *  `struct _Pad16_struct_Q { @size(16) v: Q, }` printed above `struct Q` is the emit describing
+ *  a type it has not introduced. The non-struct wrappers keep the lead they had, because they
+ *  depend on nothing and moving them would rewrite every committed golden that has one. */
+function orderWrappers(
+  wrappers: ReadonlyMap<string, StructDecl>,
+  structs: readonly StructDecl[],
+): StructDecl[] {
+  const leading: StructDecl[] = []
+  const after = new Map<string, StructDecl[]>()
+  for (const w of wrappers.values()) {
+    const elem = w.fields[0]?.type
+    if (elem?.kind !== 'struct') {
+      leading.push(w)
+      continue
+    }
+    const list = after.get(elem.name) ?? []
+    list.push(w)
+    after.set(elem.name, list)
+  }
+  const out: StructDecl[] = [...leading]
+  const placed = new Set<StructDecl>()
+  for (const s of structs) {
+    out.push(s)
+    for (const w of after.get(s.name) ?? []) {
+      out.push(w)
+      placed.add(w)
+    }
+  }
+  // A wrapper whose element struct is not in the list cannot arise — the element came from
+  // a field of one of these structs — but dropping a declaration would emit a module that
+  // names a type nothing declares, so an unplaced one leads rather than vanishing.
+  for (const list of after.values()) {
+    for (const w of list) if (!placed.has(w)) out.unshift(w)
+  }
+  return out
 }
 
 /** Throws on `x.padded = …`, the one shape the read rewrite has no assignable form for. */

@@ -137,6 +137,28 @@ export function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) }`)
     expect(u.size).toBe(48)
   })
 
+  it('declares a wrapper AFTER the struct it wraps, not before it', () => {
+    // A `vec2` field makes `Q` 8 bytes with an 8-byte alignment, so `array<Q, 2>` has a
+    // natural stride of 8 and needs a wrapper. That wrapper holds `Q`, and it used to be
+    // emitted at the head of the module — `struct _Pad16_struct_Q { @size(16) v: Q, }` above
+    // `struct Q` — which is the emit naming a type it has not introduced. Tint accepts it and
+    // `reflect()` agrees either way, so this is legibility, not validity.
+    const c = compiled(`interface Q { a: vec2 }
+interface U { qs: array<Q, 2>; k: f32 }
+declare const U_: uniform<U>
+@fragment
+export function fs(): vec4 { return vec4(U_.qs[1].a.x * U_.k) }`)
+    const wgsl = c.wgsl!
+    expect(wgsl).toContain('@size(16) v: Q,')
+    expect(wgsl.indexOf('struct Q {')).toBeLessThan(wgsl.indexOf('struct _Pad16_struct_Q {'))
+    // …and the struct that HOLDS the wrapper still comes after it.
+    expect(wgsl.indexOf('struct _Pad16_struct_Q {')).toBeLessThan(wgsl.indexOf('struct U {'))
+    // A wrapper over a scalar depends on nothing and keeps the lead it had, which is what
+    // holds every committed golden that carries one byte-identical.
+    const scalar = compiled(SCALAR_ARRAY).wgsl!
+    expect(scalar.indexOf('struct _Pad16_f32 {')).toBeLessThan(scalar.indexOf('struct U {'))
+  })
+
   it('is idempotent: a module already padded is returned unchanged, by identity', () => {
     // The pass reads a field's authored `size`/`align` before falling back to the layout it
     // computes, so a second run finds nothing left to do. Not a nicety — `lowerForBackend`

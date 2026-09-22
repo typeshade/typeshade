@@ -52,9 +52,18 @@
 // is seen.
 //
 // INTERPROCEDURAL, for the same reason. A barrier at a helper's top level is uniform only if
-// every call of that helper is. The walk therefore runs to a fixpoint over the call graph:
-// entries start at `uniform`, a helper starts at the join of the control flow at its call
-// sites, and a helper nothing calls starts at `unknown`, which keeps its barrier refused.
+// every call of that helper is. The walk therefore runs to a fixpoint over the call graph, and
+// each call site hands its callee TWO things: the control flow the call is reached under, and
+// the class of each ARGUMENT, joined per parameter position. Entries start at `uniform`; a
+// helper nothing calls starts there too, on its own terms, since there is no caller to claim
+// anything wrong about.
+//
+// Both halves of that are a hole when missing, and each was measured. Dropping the arguments
+// at the CALL made `if (edge(v.uv.x)) { textureSample(…) }` compile, where `edge` is
+// `x > 0.5`; seeding a helper's PARAMETERS `unknown` regardless made `shade(v.uv.x, v.uv)`
+// compile, where `shade` samples under `if (x > 0.5)`. Tint refuses both, and refuses the
+// inline form of each — which the walk already caught, so the same program passed or failed on
+// whether it went through a one-line helper. A helper is not a policy boundary.
 //
 // WHAT IT DOES NOT REACH, stated rather than implied. It runs in the `"use typeshade"` front
 // end only, so an EDSL-assembled `ModuleDecl` is not checked here — the front end is where a
@@ -139,6 +148,14 @@ function sameEnv(a: Env, b: Env): boolean {
   return true
 }
 
+/** `true` when two per-position argument lists agree — the other half of the call-graph
+ *  fixpoint's settling test, beside the control-flow classes. */
+function sameArgs(a: readonly Known[] | undefined, b: readonly Known[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b
+  if (a.length !== b.length) return false
+  return a.every((x, i) => x.at === b[i]?.at)
+}
+
 /** Merge two environments at a control-flow join: a name either side does not hold is one
  *  whose value before the branch is still live, so the caller passes the entry environment in
  *  as one of the two. */
@@ -206,8 +223,25 @@ function fieldUniformity(
   return undefined
 }
 
+/** What a walk of one function reads that does not change as it steps: the module, the
+ *  function, and the class each PARAMETER was called with.
+ *
+ *  `paramAt` is the caller's half of the interprocedural answer, and it is the half the walk
+ *  used to throw away. A helper's parameters were seeded `unknown` unconditionally, so
+ *  `function shade(x: f32, uv: vec2) { if (x > 0.5) { textureSample(…) } }` called as
+ *  `shade(v.uv.x, v.uv)` compiled silently while Tint answers `'textureSample' must only be
+ *  called from uniform control flow` — the same program the walk refuses when the condition is
+ *  written inline. A one-line helper is not a policy boundary, so the classes at the call
+ *  sites are joined per position and seeded here. A parameter no call site reached stays
+ *  absent, which reads back as `unknown` and keeps a helper nothing calls exactly as it was. */
+interface Cx {
+  readonly m: ModuleDecl
+  readonly f: FuncDecl
+  readonly paramAt: ReadonlyMap<string, Known>
+}
+
 /** How one expression varies, read against the environment at this point. */
-function classify(m: ModuleDecl, f: FuncDecl, env: Env, e: Expr): Known {
+function classify(cx: Cx, env: Env, e: Expr): Known {
   switch (e.op) {
     case 'lit':
     case 'constref':
@@ -216,13 +250,18 @@ function classify(m: ModuleDecl, f: FuncDecl, env: Env, e: Expr): Known {
     case 'overrideref':
       return { at: 'uniform', why: `override "${e.name}"` }
     case 'param': {
-      const p = f.params.find((x) => x.name === e.name)
-      return (p && paramUniformity(m, f, p)) ?? { at: 'unknown', why: `"${e.name}"` }
+      const p = cx.f.params.find((x) => x.name === e.name)
+      // An ENTRY's parameter is answered by its own attribute — a `@builtin` or a `@location`
+      // is a fact about the declaration, and no caller can change it (§52 refuses calling an
+      // entry). A HELPER's parameter is answered by its call sites, which `paramAt` carries.
+      const own = p && paramUniformity(cx.m, cx.f, p)
+      if (own) return own
+      return cx.paramAt.get(e.name) ?? { at: 'unknown', why: `"${e.name}"` }
     }
     case 'varref': {
       const local = env.get(e.name)
       if (local) return local
-      const b = m.bindings.find((x) => x.name === e.name)
+      const b = cx.m.bindings.find((x) => x.name === e.name)
       // A `uniform` buffer holds one value for every invocation. A `storage` buffer does too,
       // but a READ of one is only as uniform as the index, which this walk does not follow —
       // so it stays `unknown` rather than claiming either answer. A module-scope `var` is
@@ -237,46 +276,65 @@ function classify(m: ModuleDecl, f: FuncDecl, env: Env, e: Expr): Known {
     case 'member': {
       const base = e.base
       if (base.op === 'param') {
-        const p = f.params.find((x) => x.name === base.name)
-        const stage = stageOf(f)
+        const p = cx.f.params.find((x) => x.name === base.name)
+        const stage = stageOf(cx.f)
         if (p?.type.kind === 'struct' && stage !== undefined) {
-          const known = fieldUniformity(m, p.type.name, e.field, stage)
+          const known = fieldUniformity(cx.m, p.type.name, e.field, stage)
           if (known) return known
         }
       }
-      return classify(m, f, env, base)
+      return classify(cx, env, base)
     }
     case 'call': {
       // A derivative's own result varies by invocation by construction.
       if (DERIVATIVE_INTRINSICS.has(e.fn)) {
         return { at: 'non-uniform', why: `${e.fn}(…), which differences neighbouring invocations` }
       }
-      // An INTRINSIC is a pure function of its arguments, so it is as uniform as they are — and
-      // a nullary one (there are none that return a value, but the arm has to be right) has
-      // nothing to read, so it claims nothing. A call into a USER function is `unknown`: its
-      // body can read a module `var`, a storage buffer or a builtin this walk never sees, so
-      // reading the arguments alone would PROVE uniform a call that is not one, and that proof
-      // is what the barrier rule rests on.
-      if (!isKnownIntrinsic(e.fn) || e.args.length === 0)
-        return { at: 'unknown', why: `${e.fn}(…)` }
-      return joinAll(m, f, env, e.args, `${e.fn}(…)`)
+      const fromArgs = joinAll(cx, env, e.args, `${e.fn}(…)`)
+      // An INTRINSIC is a pure function of its arguments, so it is exactly as uniform as they
+      // are — and a nullary one (there are none that return a value, but the arm has to be
+      // right) has nothing to read, so it claims nothing.
+      if (isKnownIntrinsic(e.fn)) {
+        return e.args.length === 0 ? { at: 'unknown', why: `${e.fn}(…)` } : fromArgs
+      }
+      // A call into a USER function is AT LEAST `unknown` and AT MOST as uniform as its
+      // arguments. Both halves are load-bearing and each was wrong on its own:
+      //
+      //   • Never `uniform`, whatever the arguments say, because the body can read a module
+      //     `var`, a storage buffer or a built-in value this walk never sees — so reading the
+      //     arguments alone would PROVE uniform a call that is not one, and that proof is what
+      //     the barrier rule rests on.
+      //   • Never MORE uniform than its arguments either. Returning a bare `unknown` laundered
+      //     a definitely non-uniform value: a one-line `function edge(x: f32): bool { return x
+      //     > 0.5 }` put `if (edge(v.uv.x)) { textureSample(…) }` straight past this walk,
+      //     while the same condition written inline was refused — the same program passing or
+      //     failing on whether its condition went through a helper. Measured on Chromium 141,
+      //     with the broken-shader instrument reporting first: Tint refuses all four shapes
+      //     (the sample inside the branch and after it, an identity helper, and `dpdx`), and
+      //     accepts `edge(k)` on a uniform.
+      //
+      // Joining `unknown` with the arguments is exactly those two rules: `edge(k)` stays
+      // `unknown` (allowed through, as Tint allows it), and `edge(v.uv.x)` is `non-uniform`.
+      return {
+        at: join('unknown', fromArgs.at),
+        why: fromArgs.at === 'non-uniform' ? fromArgs.why : `${e.fn}(…)`,
+      }
     }
     case 'binop':
     case 'compare':
     case 'logical':
-      return joinAll(m, f, env, [e.a, e.b], 'the expression')
+      return joinAll(cx, env, [e.a, e.b], 'the expression')
     case 'unop':
-      return classify(m, f, env, e.a)
+      return classify(cx, env, e.a)
     case 'construct':
-      return e.args.length === 0 ? UNKNOWN : joinAll(m, f, env, e.args, 'the expression')
+      return e.args.length === 0 ? UNKNOWN : joinAll(cx, env, e.args, 'the expression')
     case 'index':
-      return joinAll(m, f, env, [e.base, e.idx], 'the expression')
+      return joinAll(cx, env, [e.base, e.idx], 'the expression')
     case 'select':
-      return joinAll(m, f, env, [e.cond, e.ifTrue, e.ifFalse], 'the expression')
+      return joinAll(cx, env, [e.cond, e.ifTrue, e.ifFalse], 'the expression')
     case 'matchExpr':
       return joinAll(
-        m,
-        f,
+        cx,
         env,
         [e.scrutinee, ...e.cases.map(([, v]) => v), e.default],
         'the expression',
@@ -287,15 +345,9 @@ function classify(m: ModuleDecl, f: FuncDecl, env: Env, e: Expr): Known {
   }
 }
 
-function joinAll(
-  m: ModuleDecl,
-  f: FuncDecl,
-  env: Env,
-  es: readonly Expr[],
-  fallback: string,
-): Known {
+function joinAll(cx: Cx, env: Env, es: readonly Expr[], fallback: string): Known {
   let out: Known = { at: 'uniform', why: fallback }
-  for (const e of es) out = joinKnown(out, classify(m, f, env, e))
+  for (const e of es) out = joinKnown(out, classify(cx, env, e))
   return out
 }
 
@@ -349,26 +401,76 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
   // its own callees from a start class nothing had set yet, and `joinKnown` can only degrade,
   // so a function two calls below an entry stayed at that first guess forever — the same
   // program with the entry declared first compiled, and with the helpers first it did not.
+  /** The ARGUMENT classes a callee was called with, joined per parameter position, keyed by
+   *  parameter name. Carried alongside the control-flow class because the two answer different
+   *  halves of the same question: `startAt` says what flow the body runs under, `startArgs`
+   *  says what its parameters hold. Both are the caller's to supply and both were needed. */
+  const seedArgs = (name: string, positions: readonly Known[]): Map<string, Known> => {
+    const f = byName.get(name)
+    const out = new Map<string, Known>()
+    if (f === undefined) return out
+    f.params.forEach((p, i) => {
+      const at = positions[i]
+      if (at !== undefined) out.set(p.name, at)
+    })
+    return out
+  }
+
   let startAt = new Map<string, Known>(m.funcs.map((f) => [f.name, entrySeed(f.name)]))
+  let startArgs = new Map<string, readonly Known[]>()
   for (let round = 0; round <= m.funcs.length + 1; round++) {
     const next = new Map<string, Known>()
-    const record = (callee: string, at: Known): void => {
+    const nextArgs = new Map<string, readonly Known[]>()
+    const record = (callee: string, at: Known, args: readonly Known[]): void => {
       // An entry cannot be called (§52 refuses it), so nothing degrades one.
       if (!byName.has(callee) || isEntry(callee)) return
       const prior = next.get(callee)
       next.set(callee, prior === undefined ? at : joinKnown(prior, at))
+      // Per POSITION, so two call sites of one helper give each parameter the join of what
+      // each was handed — `shade(v.uv.x, …)` and `shade(k, …)` leave `x` non-uniform, which
+      // is the answer WGSL gives a function it analyses once for every call of it.
+      const priorArgs = nextArgs.get(callee)
+      nextArgs.set(
+        callee,
+        priorArgs === undefined
+          ? args
+          : args.map((a, i) => {
+              const p = priorArgs[i]
+              return p === undefined ? a : joinKnown(p, a)
+            }),
+      )
     }
     // The findings of a fixpoint round are thrown away: only the LAST pass, over the settled
     // start classes, reports.
-    for (const f of m.funcs) walkFunction(m, f, startAt.get(f.name), [], record)
+    for (const f of m.funcs) {
+      walkFunction(
+        m,
+        f,
+        startAt.get(f.name),
+        seedArgs(f.name, startArgs.get(f.name) ?? []),
+        [],
+        record,
+      )
+    }
     for (const f of m.funcs) if (!next.has(f.name)) next.set(f.name, entrySeed(f.name))
-    if (m.funcs.every((f) => next.get(f.name)?.at === startAt.get(f.name)?.at)) break
+    const settled =
+      m.funcs.every((f) => next.get(f.name)?.at === startAt.get(f.name)?.at) &&
+      m.funcs.every((f) => sameArgs(nextArgs.get(f.name), startArgs.get(f.name)))
     startAt = next
+    startArgs = nextArgs
+    if (settled) break
   }
 
   const found: UniformityViolation[] = []
   for (const f of m.funcs) {
-    walkFunction(m, f, startAt.get(f.name), found, () => undefined)
+    walkFunction(
+      m,
+      f,
+      startAt.get(f.name),
+      seedArgs(f.name, startArgs.get(f.name) ?? []),
+      found,
+      () => undefined,
+    )
   }
   // One call, one violation. A loop body is walked more than once — the fixpoint that follows
   // a value carried round the loop — so a barrier inside one was reported once per iteration,
@@ -386,9 +488,11 @@ function walkFunction(
   m: ModuleDecl,
   f: FuncDecl,
   start: Known | undefined,
+  paramAt: ReadonlyMap<string, Known>,
   found: UniformityViolation[],
-  record: (callee: string, at: Known) => void,
+  record: (callee: string, at: Known, args: readonly Known[]) => void,
 ): void {
+  const cx: Cx = { m, f, paramAt }
   const entry: Flow = {
     env: new Map(),
     at: start?.at ?? 'unknown',
@@ -407,7 +511,14 @@ function walkFunction(
       // not `uniform`.
       const at = flow.diverged ? join(flow.at, flow.diverged.at) : flow.at
       const why = flow.diverged ? flow.diverged.why : flow.why
-      record(x.fn, { at, why })
+      // The flow the call is under, AND the class of each argument: a helper's body needs
+      // both, and seeding its parameters `unknown` regardless of what it was handed is what
+      // let a derivative under `if (x > 0.5)` inside it pass while Tint refused it.
+      record(
+        x.fn,
+        { at, why },
+        x.args.map((a) => classify(cx, flow.env, a)),
+      )
       if (DERIVATIVE_INTRINSICS.has(x.fn)) {
         if (at === 'non-uniform') {
           found.push({
@@ -444,12 +555,12 @@ function walkFunction(
       )
       switch (s.s) {
         case 'let':
-          cur = { ...cur, env: bind(cur, s.name, classify(m, f, cur.env, s.expr)) }
+          cur = { ...cur, env: bind(cur, s.name, classify(cx, cur.env, s.expr)) }
           break
         case 'var':
           cur = {
             ...cur,
-            env: bind(cur, s.name, s.init ? classify(m, f, cur.env, s.init) : UNKNOWN),
+            env: bind(cur, s.name, s.init ? classify(cx, cur.env, s.init) : UNKNOWN),
           }
           break
         case 'assign':
@@ -466,7 +577,7 @@ function walkFunction(
           // replaces: the other lanes of `v` keep what they had.
           const root = rootVarref(s.target)
           if (root !== undefined) {
-            const v = classify(m, f, cur.env, s.expr)
+            const v = classify(cx, cur.env, s.expr)
             const under: Known = { at: cur.at, why: cur.why }
             const whole = joinKnown(v, under)
             const prior = s.target.op === 'varref' ? undefined : cur.env.get(root)
@@ -482,7 +593,7 @@ function walkFunction(
           let after = cur
           let armsCond: Known = { at: 'uniform', why: cur.why }
           for (const arm of s.arms) {
-            const c = classify(m, f, cur.env, arm.cond)
+            const c = classify(cx, cur.env, arm.cond)
             armsCond = joinKnown(armsCond, c)
             const inner = walk(arm.body, {
               env: new Map(cur.env),
@@ -518,7 +629,7 @@ function walkFunction(
           // makes `a = b; b = c; c = <non-uniform>` reach `a` however long the chain is.
           let outer = walk([s.init], cur)
           for (let i = 0; i <= s.body.length + 2; i++) {
-            const c = classify(m, f, outer.env, s.cond)
+            const c = classify(cx, outer.env, s.cond)
             const body = walk(s.body, {
               env: new Map(outer.env),
               at: join(outer.at, c.at),
@@ -540,7 +651,7 @@ function walkFunction(
           break
         }
         case 'switch': {
-          const c = classify(m, f, cur.env, s.scrut)
+          const c = classify(cx, cur.env, s.scrut)
           const inner = join(cur.at, c.at)
           const w = c.at === 'uniform' ? cur.why : c.why
           let merged: Env | undefined

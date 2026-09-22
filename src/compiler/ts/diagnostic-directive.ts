@@ -36,8 +36,15 @@ export function collectDiagnosticDirectives(
   diagnostics: TsCompilerDiagnostic[],
 ): DiagnosticDirective[] {
   const out: DiagnosticDirective[] = []
+  /** The first directive seen for a rule: its severity, the function carrying it, and the
+   *  node, so a later conflicting one can be reported AT it as well as at itself. */
+  const firstOf = new Map<string, { severity: string; fn: string; node: ts.Node }>()
+  /** Rules whose first directive has already been underlined, so three directives on one rule
+   *  do not underline the first one twice. */
+  const reported = new Set<string>()
   for (const stmt of sourceFile.statements) {
     if (!ts.isFunctionDeclaration(stmt)) continue
+    const fnName = stmt.name?.text ?? '(anonymous)'
     // A decorator on a top-level `function` parses as a MODIFIER, not through
     // `getDecorators`, which is why `function.ts` has `decoratorsOf`; the same shape here.
     const mods: readonly ts.ModifierLike[] = stmt.modifiers ?? []
@@ -89,23 +96,27 @@ export function collectDiagnosticDirectives(
       // `conflicting diagnostic directive` on Tint — and the pair test let both through, so
       // the module carried both lines and no driver accepted it, silently. The same severity
       // written twice is not a conflict: it says the same thing.
-      const prior = out.find((x) => x.rule === rule)
+      const prior = firstOf.get(rule)
       if (prior !== undefined) {
         if (prior.severity !== severity) {
-          diagnostics.push(
-            makeDiagnostic(
-              sourceFile,
-              d,
-              `"${rule}" is already set to "${prior.severity}" by another @diagnostic in this ` +
-                `file, and this one sets it to "${severity}". WGSL takes one severity per rule ` +
-                `per scope, and both would be emitted: "conflicting diagnostic directive" on ` +
-                `Tint. Keep one of the two.`,
-              TS_CODES.ATTRIBUTE_NAME,
-            ),
-          )
+          // Reported at BOTH directives, each naming the other's function. Written once, at
+          // the second one only, the message said "another @diagnostic in this file" and left
+          // an author to find it: two entries in a long file are two places to look, and an
+          // editor squiggle on one of them says nothing about where the other is.
+          const here =
+            `"${rule}" is set to "${prior.severity}" by the @diagnostic on ` +
+            `"${prior.fn}" and to "${severity}" by the one on "${fnName}". WGSL takes one ` +
+            `severity per rule per scope, and both would be emitted: "conflicting diagnostic ` +
+            `directive" on Tint. Keep one of the two.`
+          diagnostics.push(makeDiagnostic(sourceFile, d, here, TS_CODES.ATTRIBUTE_NAME))
+          if (!reported.has(rule)) {
+            reported.add(rule)
+            diagnostics.push(makeDiagnostic(sourceFile, prior.node, here, TS_CODES.ATTRIBUTE_NAME))
+          }
         }
         continue
       }
+      firstOf.set(rule, { severity, fn: fnName, node: d })
       out.push({ severity: severity as DiagnosticDirective['severity'], rule })
     }
   }

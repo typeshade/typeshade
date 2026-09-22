@@ -263,8 +263,15 @@ let tile: workgroup<array<f32, 64>>
         '@diagnostic("off", "derivative_uniformity")\n@diagnostic("error", "derivative_uniformity")\n',
       ),
     )
-    expect(conflict.join('\n')).toContain('is already set to "off"')
     expect(conflict.join('\n')).toContain('conflicting diagnostic directive')
+    // Reported at BOTH directives, each naming the function the other sits on: two entries in
+    // a long file are two places to look, and "another @diagnostic in this file" named
+    // neither. The same sentence twice, once per line an author has to choose between.
+    expect(conflict).toHaveLength(2)
+    for (const c of conflict) {
+      expect(c).toContain('set to "off" by the @diagnostic on "fs"')
+      expect(c).toContain('to "error" by the one on "fs"')
+    }
     // The SAME severity written twice says one thing twice, which is not a conflict — and one
     // directive is emitted, not two.
     const twice = compiled(
@@ -274,6 +281,20 @@ let tile: workgroup<array<f32, 64>>
       ),
     )
     expect(twice.wgsl!.match(/diagnostic\(off, derivative_uniformity\);/g)).toHaveLength(1)
+  })
+
+  it('names the two FUNCTIONS when the conflicting directives sit on different ones', () => {
+    // The shape the message exists for: a directive on a helper and another on the entry.
+    // Naming "another @diagnostic in this file" left an author to search for the other one.
+    const errors = errorsOf(`${HEAD}@diagnostic("off", "derivative_uniformity")
+export function helper(uv: vec2): vec4 { return textureSample(t, s, uv) }
+@diagnostic("error", "derivative_uniformity")
+@fragment export function fs(v: VsOut): vec4 { return helper(v.uv) }`)
+    expect(errors).toHaveLength(2)
+    for (const e of errors) {
+      expect(e).toContain('set to "off" by the @diagnostic on "helper"')
+      expect(e).toContain('to "error" by the one on "fs"')
+    }
   })
 
   it('refuses a severity and a rule it does not know, and a wrong argument shape', () => {
@@ -473,6 +494,125 @@ export function opaque(): f32 { return 0.5 }
   out[lid.x] = a
 }`)
     expect(errors.filter((e) => e.includes('workgroupBarrier() is reached under'))).toHaveLength(1)
+  })
+})
+
+// ═══ A one-line helper is not a policy boundary (§54) ═══
+//
+// Both directions of the interprocedural answer, measured on Chromium 141 with the
+// broken-shader instrument reporting first. Tint refuses every row marked refused here and
+// ACCEPTS both uniform rows — so each is a real verdict, not a reading of the spec:
+//
+//   if (edge(v.uv.x)) { … } with the sample after the branch
+//     'textureSample' must only be called from uniform control flow
+//   the same with the sample inside the branch, and with an identity helper, and with dpdx
+//     the same refusal, at the call
+//   if (edge(k)) on a uniform                                                   ACCEPTED
+//   textureSample under `if (x > 0.5)` inside a helper called with v.uv.x
+//     'textureSample' must only be called from uniform control flow
+//   the same helper called with k                                               ACCEPTED
+//
+// The INLINE form of each refusal was already caught. What made these a hole rather than a
+// policy is that the same program passed or refused on whether its condition — or its
+// derivative — went through a helper, and §54's whole claim is that this compiler answers
+// before Tint does.
+describe('a value that goes through a helper keeps its class', () => {
+  const EDGE = 'export function edge(x: f32): bool { return x > 0.5 }\n'
+
+  it.each([
+    [
+      'the sample after the branch',
+      `${HEAD}${EDGE}@fragment export function fs(v: VsOut): vec4 {
+  if (edge(v.uv.x)) { return vec4(1., 0., 0., 1.) }
+  return textureSample(t, s, v.uv)
+}`,
+      'textureSample() is reached under "VsOut.uv"',
+    ],
+    [
+      'the sample inside the branch',
+      `${HEAD}${EDGE}@fragment export function fs(v: VsOut): vec4 {
+  if (edge(v.uv.x)) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+      'textureSample() is reached under "VsOut.uv"',
+    ],
+    [
+      'an identity helper, which carries no comparison at all',
+      `${HEAD}export function id1(x: f32): f32 { return x }
+@fragment export function fs(v: VsOut): vec4 {
+  if (id1(v.uv.x) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+      'textureSample() is reached under "VsOut.uv"',
+    ],
+    [
+      'a derivative builtin under the same condition',
+      `${HEAD}${EDGE}@fragment export function fs(v: VsOut): vec4 {
+  if (edge(v.uv.x)) { return vec4(dpdx(v.uv.x), 0., 0., 1.) }
+  return vec4(0., 0., 0., 1.)
+}`,
+      'dpdx() is reached under "VsOut.uv"',
+    ],
+  ])('refuses a derivative under a helper CONDITION on an input: %s', (_what, source, want) => {
+    // A call into a user function returns at most the join of its arguments, never more
+    // uniform: returning a bare `unknown` laundered the input, and `unknown` is below the
+    // derivative threshold. The message still names the ROOT — the input, not the helper.
+    const errors = errorsOf(source)
+    expect(errors[0], _what).toContain(want)
+    expect(errors[0]).toContain('a fragment input at @location(0)')
+  })
+
+  it('refuses a derivative INSIDE a helper, under a branch on its own parameter', () => {
+    // The other direction: the argument classes are seeded onto the callee's parameters, so a
+    // helper handed a fragment input is analysed as the caller handed it. Seeding every
+    // helper parameter `unknown` regardless let this through while Tint refused it — the same
+    // hole as the row above, read from the other end.
+    const errors = errorsOf(`${HEAD}export function shade(x: f32, uv: vec2): vec4 {
+  if (x > 0.5) { return textureSample(t, s, uv) }
+  return vec4(0., 0., 0., 1.)
+}
+@fragment export function fs(v: VsOut): vec4 { return shade(v.uv.x, v.uv) }`)
+    expect(errors[0]).toContain('textureSample() is reached under "VsOut.uv"')
+  })
+
+  it.each([
+    [
+      'a helper CONDITION on a uniform',
+      `${HEAD}${EDGE}@fragment export function fs(v: VsOut): vec4 {
+  if (edge(k)) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'the same helper BODY, called with a uniform',
+      `${HEAD}export function shade(x: f32, uv: vec2): vec4 {
+  if (x > 0.5) { return textureSample(t, s, uv) }
+  return vec4(0., 0., 0., 1.)
+}
+@fragment export function fs(v: VsOut): vec4 { return shade(k, v.uv) }`,
+    ],
+  ])('still accepts %s, which Tint accepts', (_what, source) => {
+    // The floor is `unknown`, never `uniform`: a helper's body can read a module `var` or a
+    // storage buffer this walk never sees. `unknown` is below the derivative threshold, so
+    // these compile — and both were measured ACCEPTED on Tint, so refusing them would be a
+    // false positive on a program both targets run.
+    expect(compiled(source).wgsl).toContain('textureSample(t, s,')
+  })
+
+  it('keeps the BARRIER threshold where it was: unknown is still not uniform', () => {
+    // A barrier is accepted only when the flow is PROVABLY uniform, so a helper call in the
+    // condition keeps the refusal whatever the arguments are — the relaxation may only ever
+    // admit what is proven, and a user call is never proven.
+    for (const cond of ['edge(f32(lid.x))', 'edge(k)']) {
+      const errors = errorsOf(`declare let out: storage<array<f32>>
+declare const k: uniform<f32>
+export function edge(x: f32): bool { return x > 0.5 }
+@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
+  if (${cond}) { workgroupBarrier() }
+  out[lid.x] = 1.
+}`)
+      expect(errors.join('\n'), cond).toContain('workgroupBarrier() is reached under')
+    }
   })
 })
 

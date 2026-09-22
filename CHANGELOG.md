@@ -140,12 +140,18 @@ flow` with the directive in the module).
   only ever admit what has been proven and a shape the walk cannot read keeps its old refusal.
   It is FLOW-SENSITIVE — the environment threaded in statement order, branches merged at their
   join, loop bodies iterated to a fixpoint — and INTERPROCEDURAL, with entries starting uniform
-  and a helper starting at the join of the control flow at its call sites. Both are what make
-  those thresholds true rather than merely stated: order decides, so `let g = v.uv.x; g = 0.25;
+  and each call site handing its callee both the control flow it is reached under and the class
+  of each argument, joined per parameter position. Both are what make those thresholds true
+  rather than merely stated: order decides, so `let g = v.uv.x; g = 0.25;
 if (g > 0.5)` is accepted as Tint accepts it, and a copy chain of any length is followed, so
-  a barrier under one is refused as Tint refuses it. A call into a user function is `unknown`
-  and never the join of its arguments, since its body can read a module `var` or a built-in
-  value the walk never sees. A `return` under a non-uniform condition makes everything after it
+  a barrier under one is refused as Tint refuses it. A call into a user function is AT LEAST
+  `unknown` and AT MOST as uniform as its arguments — never `uniform`, since its body can read
+  a module `var` or a built-in value the walk never sees, and never more uniform than what it
+  was handed, since otherwise a one-line helper launders the value. Measured on Chromium 141,
+  instrument first: Tint refuses `if (edge(v.uv.x)) { textureSample(…) }` for an `edge` that is
+  just `x > 0.5`, refuses a sample under `if (x > 0.5)` inside a helper called as
+  `shade(v.uv.x, …)`, and ACCEPTS both with a uniform in place of the input — so a helper is
+  not a policy boundary in either direction, and the two uniform forms stay legal. A `return` under a non-uniform condition makes everything after it
   non-uniform; a `discard` does not, both measured — an invocation that discards is demoted to
   a helper and goes on contributing the neighbour a derivative differences against, which is
   why `discard` beside `fwidth` is the ordinary antialiased-cutout idiom. GLSL ES 3.00 needs

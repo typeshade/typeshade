@@ -3712,10 +3712,15 @@ the call above the branch, use textureSampleLevel or textureSampleGrad, or write
 The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups`,
 `subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
 `override` constant is uniform, and every other built-in value and user input varies by
-invocation. A call into a USER function is `unknown`, never the join of its arguments: its body
-can read a module `var`, a storage buffer or a built-in value the walk never sees, so reading
-the arguments alone would PROVE uniform a call that is not one — and that proof is what the
-barrier rule rests on.
+invocation. A call into a USER function is **at least `unknown` and at most as uniform as its
+arguments**, which is two rules and both are load-bearing. It is never `uniform`, whatever the
+arguments say, because the body can read a module `var`, a storage buffer or a built-in value
+the walk never sees — so reading the arguments alone would PROVE uniform a call that is not
+one, and that proof is what the barrier rule rests on. But it is never *more* uniform than its
+arguments either: a bare `unknown` laundered a definitely non-uniform value, so a one-line
+`function edge(x: f32): bool { return x > 0.5 }` put `if (edge(v.uv.x)) { textureSample(…) }`
+straight past the walk while the same condition written inline was refused. A helper is not a
+policy boundary.
 
 It is **flow-sensitive**, which is what makes both thresholds true rather than merely stated.
 The environment is threaded in statement order and merged at each branch's join:
@@ -3738,9 +3743,30 @@ under it was admitted though Tint refuses it. A loop body is iterated to a fixpo
 carried round the loop is seen however long the chain is.
 
 It is **interprocedural**, for the same reason: a barrier at a helper's top level is uniform
-only if every call of that helper is. The walk runs to a fixpoint over the call graph — entries
-start uniform, a helper starts at the join of the control flow at its call sites, and a helper
-nothing calls starts `unknown`, which keeps its barrier refused.
+only if every call of that helper is. The walk runs to a fixpoint over the call graph, and each
+call site contributes two things to its callee — the control flow it is reached under, and the
+class of each ARGUMENT, joined per parameter position. Entries start uniform. A helper nothing
+calls starts uniform too, on its own terms, because there is no caller to claim anything wrong
+about: WGSL analyses such a function by itself, and a pessimistic seed refused a barrier at the
+top level of a helper-only module under no branch at all, with no spelling that got it through.
+
+The argument half is what makes the walk read a helper as its callers use it:
+
+<!-- doc-snippets: skip — the first half is REFUSED on purpose, so it cannot be a unit that compiles; both halves are pinned by src/core/passes/uniformity.test.ts. -->
+
+```ts
+export function shade(x: f32, uv: vec2): vec4 {
+  if (x > 0.5) { return textureSample(t, s, uv) }   // refused when x was handed v.uv.x
+  return vec4(0., 0., 0., 1.)
+}
+// shade(v.uv.x, v.uv)  → refused, naming VsOut.uv
+// shade(k, v.uv)       → accepted, and Tint accepts it too
+```
+
+Seeding every helper parameter `unknown` regardless of what it was handed let the first of
+those through while Tint refused it — the same hole as the helper CONDITION above, read from
+the other end. A parameter no call site reached stays `unknown`, which is what leaves a
+helper-only module exactly as it was.
 
 What it does not reach is stated rather than implied: it runs in the `"use typeshade"` front
 end only, where a diagnostic can point at the authoring line, so an EDSL-assembled module
