@@ -19,7 +19,11 @@
 //      from `fixtures/wgsl-names.json`, baked from gpuweb/gpuweb by `scripts/bake-wgsl-names.ts`.
 //   2. ECMAScript, as TypeScript spells it: a `Math` member, a `console` method, or one of the
 //      standard-library declarations the ambient file restates because the program is compiled
-//      with `lib: []` (`Array`, `Pick`, `Object`, …) and would otherwise have none.
+//      with `lib: []` (`Array`, `Pick`, `Object`, …) and would otherwise have none. A member
+//      counts AT ITS SITE: `Math.fround` is ECMAScript's because the `Math` stand-in declares
+//      it, and a FREE `declare function fround(…)` beside it is a different name under Rule
+//      2.1(b), which is source 3's business. Classifying by the bare name instead is what let
+//      `random` onto this surface with no row and no documentation (#181).
 //   3. TypeShade itself: `TYPESHADE_EXTENSIONS` below, one row per name with the reason it
 //      exists. This list is SHRINK-ONLY. A name may leave it (because WGSL grew the builtin, or
 //      because the spelling was withdrawn); a name joins it only with a rationale in
@@ -148,11 +152,50 @@ const ECMASCRIPT_LIB_STANDINS = new Set([
   'console',
 ])
 
-function ecmascriptSource(name: string): string | undefined {
-  if (ECMASCRIPT_LIB_STANDINS.has(name)) return 'a TypeScript standard-library declaration'
-  if (MATH_MEMBERS.has(name)) return 'a member of ECMAScript `Math`'
-  if (CONSOLE_MEMBERS.has(name)) return 'a method of ECMAScript `console`'
-  return undefined
+/** The two sites that are not a top-level declaration: a member read out of one of the two
+ *  stand-in interfaces. `interfaceMembers` names the site, since a member has no declaration
+ *  kind of its own to record. */
+const MATH_MEMBER = 'member of `Math`'
+const CONSOLE_METHOD = 'method of `console`'
+
+/** The declaration kinds `declaredNames()` records. Every one of them is a TOP-LEVEL
+ *  declaration — a FREE name — which is the whole of the rule below: `Math` and `console`
+ *  account for their MEMBERS, and a free declaration is not a member (Rule 2.1(b)). */
+const FREE_KINDS: ReadonlySet<string> = new Set([
+  'function',
+  'value',
+  'type',
+  'interface',
+  'class',
+  'enum',
+  'namespace',
+])
+
+/**
+ * Which ECMAScript vocabulary a name belongs to AT THE SITE IT IS DECLARED, or undefined.
+ *
+ * The site is the point. `declaredNames()` has always recorded a `kind` for every declaration
+ * and this classifier used to throw it away, comparing the bare name against the members of the
+ * running engine's `Math` and `console` — so the free top-level `declare function random(seed)`
+ * was credited to the ECMAScript MEMBER `Math.random`, and a name with no §9.3 row and no
+ * documentation anywhere passed the suite (#181). A free function and a member of `Math` are
+ * different names under Rule 2.1(b): `Math.random()` is ECMAScript's, and a free `random` beside
+ * it is TypeShade's own name whatever it computes, so it must be a WGSL name or carry a row.
+ *
+ * An unknown kind throws rather than defaulting, so a kind a future `declaredNames()` records
+ * has to be classified here deliberately instead of falling into the free case by accident.
+ */
+function ecmascriptSource(name: string, kind: string): string | undefined {
+  if (FREE_KINDS.has(kind)) {
+    return ECMASCRIPT_LIB_STANDINS.has(name)
+      ? 'a TypeScript standard-library declaration'
+      : undefined
+  }
+  if (kind === MATH_MEMBER)
+    return MATH_MEMBERS.has(name) ? 'a member of ECMAScript `Math`' : undefined
+  if (kind === CONSOLE_METHOD)
+    return CONSOLE_MEMBERS.has(name) ? 'a method of ECMAScript `console`' : undefined
+  throw new Error(`surface-names: no site is defined for the declaration kind "${kind}"`)
 }
 
 // ── The third source: what TypeShade adds, and why ──
@@ -206,6 +249,19 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   },
   { name: 'fill', reason: 'builds an `array<T, N>` from one value; WGSL takes N arguments' },
   { name: 'discard', reason: 'WGSL `discard` is a statement, and TypeScript has none to borrow' },
+
+  // The free spelling of a `Math` member WGSL has no builtin for (Rule 9.4). The MEMBER is an
+  // ECMAScript name and needs no row; the free name beside it is TypeShade's own (Rule 2.1(b)),
+  // and each is expanded into WGSL arithmetic at the call.
+  { name: 'log10', reason: 'the base-10 logarithm, `log(x) * LOG10E`; WGSL has `log` and `log2`' },
+  { name: 'log1p', reason: 'the natural logarithm of 1 plus x, `log(x + 1)`' },
+  { name: 'expm1', reason: 'e to the x, less one, `exp(x) - 1`' },
+  { name: 'cbrt', reason: 'the cube root, `pow(x, 1 / 3)`' },
+  { name: 'hypot', reason: 'the length of the vector its 2 or 3 arguments make, `length(v)`' },
+  {
+    name: 'random',
+    reason: 'a hash of its seed, an `f32` in [0, 1); ECMAScript spells a draw `Math.random()`',
+  },
 
   // Storage-texture vocabulary. WGSL writes these as predeclared enumerants inside
   // `texture_storage_2d<...>`; TypeShade passes the same strings, so the TYPE names are its own.
@@ -267,8 +323,16 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'samplerTag', reason: 'the brand symbol of `sampler`' },
   { name: 'samplerComparisonTag', reason: 'the brand symbol of `sampler_comparison`' },
 
-  // Constants.
+  // Constants, in the order `LANG_CONST` declares them. Six are the free spelling of a `Math`
+  // constant, which is a member and not a free name (Rule 2.1(b)); WGSL predeclares no constant
+  // at all, and each of these reaches the text as an inlined `f32` literal.
+  { name: 'PI', reason: 'π as a free name; ECMAScript spells it `Math.PI`' },
   { name: 'TAU', reason: '2π, which neither WGSL nor ECMAScript `Math` predeclares' },
+  { name: 'E', reason: 'e as a free name; ECMAScript spells it `Math.E`' },
+  { name: 'LN2', reason: 'the natural logarithm of 2; ECMAScript spells it `Math.LN2`' },
+  { name: 'LN10', reason: 'the natural logarithm of 10; ECMAScript spells it `Math.LN10`' },
+  { name: 'LOG2E', reason: 'the base-2 logarithm of e; ECMAScript spells it `Math.LOG2E`' },
+  { name: 'LOG10E', reason: 'the base-10 logarithm of e; ECMAScript spells it `Math.LOG10E`' },
 ]
 
 const extensionRows = new Map(TYPESHADE_EXTENSIONS.map((row) => [row.name, row]))
@@ -431,7 +495,7 @@ function strayMessage(declared: Declared): string {
 
 function unaccounted(dts: string, rows: ReadonlyMap<string, unknown> = extensionRows): string[] {
   return declaredNames(dts)
-    .filter((d) => !wgslSource(d.name) && !ecmascriptSource(d.name) && !rows.has(d.name))
+    .filter((d) => !wgslSource(d.name) && !ecmascriptSource(d.name, d.kind) && !rows.has(d.name))
     .map(strayMessage)
 }
 
@@ -476,7 +540,7 @@ function internalLeaks(dts: string, rows: ReadonlyMap<string, unknown>): string[
  *  is `| family | \`name\` | reason |`; no other table in the document is read. */
 function documentedExtensions(markdown: string): { name: string; reason: string }[] {
   const start = markdown.indexOf('**Rule 9.6.**')
-  const stop = markdown.indexOf('Seven families', start)
+  const stop = markdown.indexOf('Nine families', start)
   if (start < 0 || stop < 0) throw new Error('docs/language-design.md has no §9.3 extension table')
   const rows: { name: string; reason: string }[] = []
   for (const line of markdown.slice(start, stop).split('\n')) {
@@ -504,21 +568,40 @@ describe('the author-facing surface has three sources and no fourth', () => {
   })
 
   it('the Math and console stand-ins declare only members the real ones have', () => {
+    // The member site of the classifier above, and the only site at which `Math` and `console`
+    // account for a name: a free declaration of the same name is judged by `unaccounted`.
     const strays = [
       ...interfaceMembers(SHADE_DTS, 'MathObject')
-        .filter((name) => !MATH_MEMBERS.has(name))
+        .filter((name) => !ecmascriptSource(name, MATH_MEMBER))
         .map(
           (name) =>
             `Math.${name} is declared in the ambient library but is not a member of ECMAScript Math`,
         ),
       ...interfaceMembers(SHADE_DTS, 'Console')
-        .filter((name) => !CONSOLE_MEMBERS.has(name))
+        .filter((name) => !ecmascriptSource(name, CONSOLE_METHOD))
         .map(
           (name) =>
             `console.${name} is declared in the ambient library but is not a method of ECMAScript console`,
         ),
     ]
     expect(strays).toEqual([])
+  })
+
+  it('a free declaration is never credited to the member of the same name', () => {
+    // The `random` case, which is what tightened the classifier (#181): a free top-level
+    // declaration named after a `Math` member used to be sourced to that member, so a name with
+    // no §9.3 row passed. `clz32` stands in for it here, against a copy of the library rather
+    // than the library — it is a `Math` member, it is not a WGSL name, and nothing declares it.
+    expect(MATH_MEMBERS.has('clz32')).toBe(true)
+    expect(wgslSource('clz32')).toBeUndefined()
+    const withFree = `${SHADE_DTS}\ndeclare function clz32(x: u32): u32\n`
+    const reported = unaccounted(withFree)
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toContain('clz32 (function')
+    expect(reported[0]).toContain('is not an ECMAScript name')
+    // The same name AS A MEMBER is ECMAScript's, which is the distinction the kind carries.
+    expect(ecmascriptSource('clz32', MATH_MEMBER)).toBe('a member of ECMAScript `Math`')
+    expect(ecmascriptSource('clz32', 'function')).toBeUndefined()
   })
 })
 
@@ -533,8 +616,13 @@ describe('the TypeShade allowlist shrinks', () => {
   })
 
   it('no row keeps a name WGSL or ECMAScript now covers', () => {
+    // At the site the row's name is declared, which is what decides whether ECMAScript covers
+    // it: a row IS a free declaration (the case above pins that each one is still declared), and
+    // a free name is not covered by the `Math` or `console` member of the same spelling.
+    const declared = new Map(declaredNames(SHADE_DTS).map((d) => [d.name, d.kind]))
     const redundant = TYPESHADE_EXTENSIONS.flatMap((row) => {
-      const source = wgslSource(row.name) ?? ecmascriptSource(row.name)
+      const source =
+        wgslSource(row.name) ?? ecmascriptSource(row.name, declared.get(row.name) ?? 'function')
       return source
         ? [`${row.name} is ${source}, so its TYPESHADE_EXTENSIONS row is stale: delete the row.`]
         : []

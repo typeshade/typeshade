@@ -489,8 +489,8 @@ const expandFns = EXPAND_NAMES.map((name) => {
 
 // Add the random function declaration with JSDoc
 const randomDeclaration = FUNCTION_DOCS.random
-  ? `${renderJSDoc(FUNCTION_DOCS.random)}\ndeclare function random(seed: number | vec2 | vec3): f32`
-  : 'declare function random(seed: number | vec2 | vec3): f32'
+  ? `${renderJSDoc(FUNCTION_DOCS.random)}\ndeclare function random(seed: f32 | vec2 | vec3): f32`
+  : 'declare function random(seed: f32 | vec2 | vec3): f32'
 
 const langConsts = LANG_CONST_NAMES.map((name) => {
   const line = `declare const ${name}: number`

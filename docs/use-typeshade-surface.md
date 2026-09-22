@@ -4558,6 +4558,103 @@ GLSL ES 3.00 needs none of this: an implicit derivative in non-uniform control f
 undefined there rather than refused (glsl-es-300.txt:3751-3752), so the GLSL text does not move
 for any of it.
 
+## 55. `random(seed)`: a hash of its seed, and what a driver does to it
+
+**`random(seed)` is a pure function of its seed, and is the one name here that neither language
+gives.** WGSL has no random built-in at all, and ECMAScript's `random` is a MEMBER of `Math`
+that takes no seed — a free `random` beside it is a different name under the language design
+rules' 2.1(b), and it carries its own §9.3 row in the extension table with `mod` and `fill`. It
+takes an `f32`, a `vec2` or a `vec3` and answers an `f32` in the range [0, 1).
+
+```ts
+"use typeshade"
+
+export function noise(t: f32, uv: vec2, p: vec3): vec4 {
+  const a = random(t)    // an f32 seed
+  const b = random(uv)   // a vec2 seed
+  const c = random(p)    // a vec3 seed
+  return vec4(a, b, c, 1.)
+}
+```
+
+Nothing is drawn from a stream: there is no state, so one seed is one value everywhere in the
+module and on every invocation of every frame. That is the property the name is for — a value
+that stays put while the camera moves — and it is also, today, the property it does not have on
+a GPU. The two paragraphs below say why.
+
+```ts
+"use typeshade"
+
+export function cell(uv: vec2): f32 {
+  return random(floor(uv * 8.))   // one value per 8x8 cell
+}
+```
+
+**What is emitted**, measured on this tree, is the sine hash the shader-toy idiom made common:
+
+| Written | WGSL (the GLSL ES 3.00 text is the same with `vec2`/`vec3` spelled GLSL's way) |
+| --- | --- |
+| `random(x)` on an `f32` | `fract((sin(x) * 43758.5453123))` |
+| `random(uv)` on a `vec2` | `fract((sin(dot(uv, vec2<f32>(12.9898, 78.233))) * 43758.5453123))` |
+| `random(p)` on a `vec3` | `fract((sin(dot(p, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453123))` |
+
+A `vec2` and a `vec3` seed are dotted into one `f32` first, so all three are the same one-argument
+hash. There is no `random` call in the IR: the front end expands it where it stands, so
+`isKnownIntrinsic('random')` is false and there is no `INTRINSICS` row to read an accuracy
+off. The nodes it leaves behind carry the author's span, so the debugger and every
+diagnostic still point at the `random(x)` that was written, not at the `sin` inside it.
+
+**The seed is an `f32`, a `vec2` or a `vec3`, and the editor cannot hold you to that.** The
+declaration reads `random(seed: f32 | vec2 | vec3): f32`, which is what the compiler enforces:
+
+| Written | Verdict |
+| --- | --- |
+| `random(s)` on a `u32`, an `i32` or an `f64` | `TS8003 random(seed) seed must be f32, vec2, or vec3; got u32.` (and `i32`, `f64`) |
+| `random(v)` on a `vec4` | the same sentence with `vec4<f32>`, and TypeScript's own `Argument of type 'vec4' is not assignable to parameter of type 'f32 \| vec2 \| vec3'` |
+| `random(3)` | accepted: an integer literal in a float position is an `f32` (§5), so this is `random(3.)` |
+| `random()` | `TS8019`, one sentence naming the three shapes; `Math.random()` with no seed does not compile either |
+
+The `vec4` row is the only one TypeScript itself reports. **Measured** through the language
+service: the scalar brands are OPTIONAL properties — `type f32 = number & { readonly [f32Tag]?: true }`,
+and the same shape for `i32`, `u32` and `f64` — so every branded scalar is structurally
+assignable to every other and a `u32` argument satisfies an `f32` parameter. `vecTag` is
+REQUIRED and carries the arity, which is why the vector arm is checked while you type and the
+scalar arm waits for the compile. Naming the parameter `f32` rather than `number` did not change
+that; it changed what the declaration and the hover SAY, so they now say what the refusal says.
+
+**The result is driver-dependent, which is a defect and not a caveat.** WGSL bounds `sin` to
+2⁻¹¹ absolute error on [-π, π] and does not bound it at all outside that range — and outside is
+where this hash lives: a `vec2` seed over an 8×8 cell grid reaches `sin` with an argument of up
+to about 640, and the determinism report (§38) already lists `sin` in the absolute-error column for that
+reason. Multiplying by 43758.5453123 and taking `fract` turns that error into a different
+answer, not a nearby one. Measured:
+
+| Seed | `sin` exact | `sin` moved by 2⁻¹¹ |
+| --- | --- | --- |
+| `random(0.5)` | 0.9642 | 0.3306 |
+| `random(12.)` | 0.3497 | 0.7161 |
+
+[#181](https://github.com/typeshade/typeshade/issues/181) measures the emitted expression against
+the f64 CPU oracle at up to **0.8078** apart on a [0, 1) range, with Tint and ANGLE agreeing with
+each other and both parting from the oracle. So "the same seed always gives the same value" is
+true of the IR and false of a GPU. What was measured is that the two targets agree with each
+other and neither agrees with the reference; what is NOT measured, and is what the missing bound
+permits, is that a third driver's `sin` answers differently again — the specification gives no
+promise to hold it to. Nothing in the front end says any of this, which is the Appendix B row
+this section is named in, against the language design rules' 12.6.
+
+The range has a second edge, from the same tree's determinism report: WGSL's `fract` is
+`x - floor(x)`, which gives 1 or 1 - 2⁻²⁴ for a tiny negative `x`, so [0, 1) is the intent and
+1.0 is reachable. Compare against a threshold, do not divide by `1. - random(s)`.
+
+**#181 replaces the implementation with an exact integer hash**, murmur3's `fmix32` over a
+counter, chosen in a bake-off of eight candidates run on Chromium for real: every 32-bit integer
+candidate is bit-exact across WGSL, GLSL ES 3.00, the oracle and the CPU codegen, and
+`fract(sin())` is the only one that fails even under a hashed seeding. The same change gives
+`Math.random()` a meaning — a host-seeded per-invocation draw, ECMAScript's own contract for the
+name — so that the two names become two operations rather than one hash and one dead spelling.
+Until it lands, `random(seed)` is what this section says it is.
+
 ## 62. A name a target reserves
 
 Each of the two shading languages reserves a vocabulary of its own, and a name that lands on
@@ -4642,4 +4739,4 @@ says and what Tint enforces.
 
 ---
 
-Last updated: 2026-09-21
+Last updated: 2026-09-22

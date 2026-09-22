@@ -367,7 +367,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   storage:
     'Declares a storage binding of type T; use `declare const name: storage<T>` for read-only or `declare let name: storage<T>` for read-write access.',
   random:
-    'Returns a deterministic pseudo-random `f32` in the range [0, 1) from an `f32`, `vec2` or `vec3` seed, computed as a hash of the seed on the GPU (`fract(sin(dot(seed, k)) * s)`), so the same seed always gives the same value. There is no unseeded form: `Math.random()` without a seed does not compile.',
+    'Returns an `f32` in the range [0, 1) hashed from an `f32`, `vec2` or `vec3` seed, emitted as `fract(sin(dot(seed, k)) * 43758.5453123)`. One seed is one value in the IR and NOT on a GPU: WGSL bounds `sin` to 2^-11 absolute error on [-PI, PI] and not at all outside it, which is where this hash lives, so the driver decides the answer (surface section 55 has the measurements; #181 replaces the hash with an exact integer one). There is no unseeded form: `Math.random()` without a seed does not compile.',
 }
 
 /** One Markdown sentence per language constant: the mathematical constants PI, TAU, E, LN2, LN10,
