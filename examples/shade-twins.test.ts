@@ -5,13 +5,20 @@
 // something checks that they agree; until there was a twin, the sentence was aspirational.
 // `examples/PORTING.md` (landed in #12) classifies which of the 36 examples the compiler
 // accepts as source today, and why the rest are blocked. This suite is what a twin written
-// from that classification is FOR. Eleven are registered: `compute-reduction-twin`,
-// `gradient-twin`, which #14 held back until a binding read lowered to a `varref` rather than
-// a `constref` (the defect that had `reflect()` blanking every binding's `stages`), and the
-// nine fullscreen twins A1 unlocked.
+// from that classification is FOR. Twenty-two are registered:
 //
-// Three of PORTING.md's fourteen portable examples have NO twin, each stopped by a compiler
-// bug the twin itself uncovered:
+//   - `compute-reduction-twin`;
+//   - `gradient-twin`, which #14 held back until a binding read lowered to a `varref` rather
+//     than a `constref` (the defect that had `reflect()` blanking every binding's `stages`);
+//   - the nine fullscreen twins A1 unlocked: `hillshade`, `plasma`, `julia`, `mandelbrot`,
+//     `domain-warp`, `tunnel`, `ocean`, `starfield`, `kaleidoscope`;
+//   - eleven fp64 twins, once §39 of the surface document landed the `f64` type with a lane
+//     read on a `vec2<f64>` and an f64 literal: `fp64-deep-zoom`, `fp64-checker-plane`,
+//     `fp64-loran`, `fp64-rtc`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`,
+//     `fp64-mandelbrot-de`, `fp64-clock`, `fp64-cancellation`, `fp64-sine-sweep`.
+//
+// Five examples were written out in full and have NO twin here. Three were stopped by a
+// compiler bug the twin itself uncovered:
 //
 //   - `raymarch-sphere` and `raymarch-boxes` both bind a local named `p` twice in one
 //     function (the march position, then the hit position). Valid TypeScript; #38.
@@ -19,10 +26,26 @@
 //     integer literal in a for-init emits `var j: i32 = -1.0`; #40. Nothing here caught it:
 //     it compiled, it reflected identically, its goldens baked. Tint and WebGL2 caught it.
 //
-// They are absent rather than renamed or rewritten, because a twin that spells the shader
-// differently from its original to dodge a compiler bug is not the oracle this suite claims
-// to run, and `voronoi` is the case that shows why the compile gate is part of the oracle
-// and this suite alone is not.
+// Two were stopped by a refusal rather than a bug, which is a different thing and is recorded
+// as such: `fp64-mercator-tiles` and `fp64-mandelbrot` each read a loop bound from a uniform
+// the user turns, a zoom level and an iteration budget, and §17 requires a counted `for` over
+// a constant bound (`TS8006`). Freezing the bound compiles, and both freezes were measured on
+// the CPU oracle, each wrong in its own way. `fp64-mercator-tiles` frozen to 21 agrees at
+// zoom 21 and nowhere else: it parts from the original at the other eleven zoom levels the
+// slider offers, by up to 1.566e-1 on the double row. `fp64-mandelbrot` frozen to 256 agrees
+// at every iteration budget at or BELOW 256, because the shader's own
+// `step(max_iter - 0.5, it)` interior mask blacks out both sides while the budget is under
+// the frozen bound, and parts above it, by 3.700e-1 at 512 and 1.952e-1 at 1024. Either way
+// the picture is wrong at the slider the user turns.
+//
+// All five are absent rather than renamed or rewritten, because a twin that spells the shader
+// differently from its original to dodge a compiler bug or a refusal is not the oracle this
+// suite claims to run, and `voronoi` is the case that shows why the compile gate is part of
+// the oracle and this suite alone is not.
+//
+// Nor is the compile gate the last word for the fp64 twins: Tint says a shader is legal, not
+// that it computes the double it claims to. `examples/fp64-twins.test.ts` is that leg, the
+// CPU oracle run over each fp64 twin and its original, as authored and fp64-lowered.
 //
 // Three jobs, in increasing strength:
 //

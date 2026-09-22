@@ -171,6 +171,54 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   (#43) to read a shape off it, so composing from a shorter vector or converting a whole one
   keeps the short name and the compiler refuses the long one, naming it.
   `examples/packing-bitcast.shade.ts` runs all of it on both halves of the gate.
+- **Eleven fp64 twins: the `f64` surface read back as source** (§39). The thirteen `fp64-*`
+  examples existed only as `fn()` EDSL modules, so the surface section that defines the `f64`
+  type had no example an author could read in the language it describes. Eleven of them are
+  now `.shade.ts` twins registered beside their originals: `fp64-deep-zoom`,
+  `fp64-checker-plane`, `fp64-loran`, `fp64-rtc`, `fp64-julia`, `fp64-burning-ship`,
+  `fp64-newton`, `fp64-mandelbrot-de`, `fp64-clock`, `fp64-cancellation` and
+  `fp64-sine-sweep`. Each is the same shader rather than a second program that computes
+  something similar: the same uniform struct field for field and in declaration order, the
+  same binding at the same group and slot, the same entry names and stages, the same constants
+  and the same arithmetic in the same order, so `reflect()` of the twin deep-equals
+  `reflect()` of its original and `shade-twins.test.ts` pins what is left as goldens. Between
+  them they spell most of §39: a lane read on a `vec2<f64>` (`u.center.x`), a literal lifted
+  to a full double beside an `f64` (`* 0.5`, `let zx: f64 = 0.`), `f64(x)` to widen and
+  `f32(x)` to narrow, `/` through `df64_div`, and `abs`, `floor`, `fract`, `sin` and
+  `distance` through their `df64` bodies, with `pow`, `exp`, `log`, `step` and `smoothstep`
+  reached only after a narrow the original already wrote. What the family does not reach is
+  `min`, `max`, `mix`, `normalize` and a `sqrt` written directly on an `f64`: §39 gives all
+  five an emulated-double body, but every `min`, `max` and `mix` these eleven shaders write
+  sits on a narrowed f32 colour or coordinate, `normalize` is in none of the thirteen
+  originals, and `df64_sqrt` is emitted only where `distance` on a `vec2<f64>` reduces to it.
+  Nothing an author writes crosses an entry boundary as a double: each fragment stage reads
+  the uniform itself, which is the remedy the `TS8038` varying refusal names.
+
+  What each target emits is unchanged. The 55 new goldens are new files and not one existing
+  golden moved, and the difference the structural goldens record is the one the earlier twins
+  already showed: an EDSL `const` without `Let()` is a build-time JavaScript binding that
+  inlines, a source-language `const` is a shader `let`, so each twin carries a few more lets
+  and the literals that moved into them. The `interface` and `resources` buckets, the two a
+  twin may never differ in, are empty in all eleven. The compile gate runs 98 examples with 0
+  failures including the new twins, WGSL through Tint and GLSL ES 3.00 compiled and linked on
+  a real WebGL2 context.
+
+  Tint says a shader is legal, not that it computes the double it claims to, so
+  `examples/fp64-twins.test.ts` is a third leg for this family: every twin and its original
+  evaluated on the CPU oracle at the 101 inputs the port was measured on, as authored, where
+  an `f64` is a JavaScript double, and fp64-lowered under `precision: 'f32'`, where every
+  `f64` is the `splitF64` pair the host packs. The twin agrees with its original at |Δ| of
+  exactly 0 on both rows on all 101, and on the 53 samples where the emulation is asked to
+  track its own double it lands within 1e-6, the bound `fp64-lane-stripes.test.ts` holds the
+  pair to. The other 48 are the f32 half, the `fp64: 0` toggle and the f64-half points where
+  the emulation parts from its own double, which is the contrast these split screens are drawn
+  to show, and the suite refuses a sample set that is all of one kind so neither arm can go
+  quiet. `fp64-mercator-tiles` and `fp64-mandelbrot` have no twin and are recorded
+  rather than rewritten: both read a loop bound from a uniform their sliders drive, a zoom
+  level and an iteration budget, and §17 requires a counted `for` over a constant bound
+  (`TS8006`). `examples/PORTING.md` moves the eleven rows from blocked to portable, strikes N1
+  (a lane read on a `vec2<f64>`) and N2 (an f64 literal) as landed the way A6-f64 already was,
+  leaves L-loop holding the two, and recomputes "Portable today" from 13 of 36 to 24 of 36.
 
 - **Every `matCxR` is a type** (§40). `mat4x4` was the only float matrix the surface admitted,
   on the recorded ground that "a 2×2 or 3×3 float matrix lays out differently under the WGSL

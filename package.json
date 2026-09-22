@@ -66,6 +66,7 @@
     "gate:compile": "bun scripts/compile-gate.ts",
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
     "bake:coredef": "bun scripts/bake-coredef-textures.ts",
+    "bake:wgsl-names": "bun scripts/bake-wgsl-names.ts",
     "manifest:publish": "bun scripts/publish-manifest.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
