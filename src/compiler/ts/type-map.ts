@@ -34,6 +34,8 @@ import {
   textureDepthMultisampled2dT,
   ALL_STORAGE_TEXTURE_FORMATS,
   READ_WRITE_STORAGE_FORMATS,
+  WRITE_ONLY_STORAGE_FORMATS,
+  storageFormatFeature,
   type StorageTextureFormat,
 } from '../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
@@ -740,8 +742,9 @@ function mapStorageTexture(
       typeNode,
       `${name}<Format, Access> needs a texel format written as a string, one of ` +
         `${ALL_STORAGE_TEXTURE_FORMATS.map((f) => `"${f}"`).join(', ')}. ` +
-        `Those are the formats every WebGPU device stores to with no feature requested; a ` +
-        `format outside them compiles and then fails when the host builds the bind group.`,
+        `All but the last are the formats every WebGPU device stores to with no feature ` +
+        `requested, and "bgra8unorm" is the one that needs "bgra8unorm-storage"; a format ` +
+        `outside them compiles and then fails when the host builds the bind group.`,
       TS_CODES.UNKNOWN_TYPE,
     )
     return undefined
@@ -757,7 +760,24 @@ function mapStorageTexture(
     )
     return undefined
   }
-  if (
+  // A format that stores and nothing more (#147). Measured on two Chromium builds with every
+  // adapter feature requested: `bgra8unorm` at `read-only` and at `read-write` is "Texture
+  // format TextureFormat::BGRA8Unorm does not support storage texture access", while
+  // `write-only` builds. Checked BEFORE the read_write list, so `<bgra8unorm, read_write>`
+  // reads the reason that is about this format rather than the one about read_write in general.
+  if (access !== 'write' && (WRITE_ONLY_STORAGE_FORMATS as readonly string[]).includes(format)) {
+    const feature = storageFormatFeature(format as StorageTextureFormat)
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${format}" is "write" only. A device that requested ` +
+        `"${feature ?? "the format's feature"}" stores to it and does not load from it, so ` +
+        `"${access}" is refused at the bind group whatever Tint says about the module. ` +
+        `Write to it and read the same texture through a sampled binding.`,
+      TS_CODES.UNKNOWN_TYPE,
+    )
+  } else if (
     access === 'read_write' &&
     !(READ_WRITE_STORAGE_FORMATS as readonly string[]).includes(format)
   ) {

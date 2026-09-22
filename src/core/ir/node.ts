@@ -42,6 +42,7 @@ import {
   arrayT,
 } from './types.js'
 import type { Expr, BinOp, CmpOp } from './nodes.js'
+import { divergentIntegerId } from './divergent-int.js'
 import { dslError } from '../diagnostics/error.js'
 
 // Re-export ScalarKey so consumers importing the matchExpr signature can refer
@@ -1451,6 +1452,11 @@ export const floor = genType1<FloatKey | Float64Key>('floor')
 export const ceil = genType1('ceil')
 /** `abs(x)`: absolute value, component-wise.
  *
+ *  An UNSIGNED operand takes the `absU` id rather than the portable `abs` one, because GLSL ES
+ *  3.00 has no `abs(uint)` overload and a WebGL2 driver refuses the call (#154). The choice is
+ *  {@link divergentIntegerId}, shared with the `"use typeshade"` front end so both authoring
+ *  surfaces emit the same thing; every other operand keeps the portable spelling.
+ *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *  @example
@@ -1460,7 +1466,8 @@ export const ceil = genType1('ceil')
  *  const magnitude = fn('magnitude', { x: f32T }, ({ x }) => abs(x))
  *  ```
  */
-export const abs = genType1<FloatKey | Float64Key | IntKey>('abs')
+export const abs = <K extends FloatKey | Float64Key | IntKey>(x: ReadonlyNode<K>): Node<K> =>
+  call(divergentIntegerId('abs', x.type, x.type), x.type, x) as Node<K>
 /** `sqrt(x)`: square root, component-wise. `x < 0` is undefined per spec. When only 1/√x is
  *  needed, {@link inverseSqrt} is one call in place of a square root and a divide.
  *
@@ -1793,6 +1800,11 @@ export function length(v: ReadonlyNode<string>): Node<string> {
  *  the operand key: f32 vectors return f32, emulated-double `vec${N}<f64>` vectors return f64.
  *  Both operands share one key, so `dot(v2, v3)` is a `tsc` error.
  *
+ *  An INTEGER dot returns that integer kind and takes the `dotI` / `dotU` id, because GLSL ES
+ *  3.00 has no integer `dot` at all and a WebGL2 driver refuses the call (#154); the ids carry
+ *  a GLSL column that expands to the multiply-add the spelling is missing. The choice is
+ *  {@link divergentIntegerId}, shared with the `"use typeshade"` front end.
+ *
  *  Exported from `typeshade`, `typeshade/core/ir`.
  *
  *
@@ -1807,12 +1819,28 @@ export function dot<K extends `vec${number}<f64>`>(
   a: ReadonlyNode<K>,
   b: NoInfer<ReadonlyNode<K>>,
 ): Node<'f64'>
+export function dot<K extends `vec${number}<i32>`>(
+  a: ReadonlyNode<K>,
+  b: NoInfer<ReadonlyNode<K>>,
+): Node<'i32'>
+export function dot<K extends `vec${number}<u32>`>(
+  a: ReadonlyNode<K>,
+  b: NoInfer<ReadonlyNode<K>>,
+): Node<'u32'>
 export function dot<K extends `vec${number}<f32>`>(
   a: ReadonlyNode<K>,
   b: NoInfer<ReadonlyNode<K>>,
 ): Node<'f32'>
 export function dot(a: ReadonlyNode<string>, b: ReadonlyNode<string>): Node<string> {
-  return call('dot', isVec64(a.type) ? f64T : f32T, a, b)
+  // The result is the element the two operands share, which is also what decides the id.
+  const result = isVec64(a.type)
+    ? f64T
+    : a.type.kind === 'vec' && a.type.elem === 'i32'
+      ? i32T
+      : a.type.kind === 'vec' && a.type.elem === 'u32'
+        ? u32T
+        : f32T
+  return call(divergentIntegerId('dot', a.type, result), result, a, b)
 }
 /** `normalize(v)`: `v/|v|`, keeping the vector key (vec2, vec3 or vec4). WGSL and GLSL define
  *  it over vectors only, so a scalar operand is a `tsc` error. */

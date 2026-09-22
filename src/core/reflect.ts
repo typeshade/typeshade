@@ -30,7 +30,9 @@ import {
   workgroupSizeOf,
 } from './ir/index.js'
 import { entryIo, type IoField } from './ir/entry-io.js'
-import { requiredCaps } from './passes/required-caps.js'
+import { requiredCaps, usesPacked4x8 } from './passes/required-caps.js'
+import { PACKED_4X8_LANGUAGE_FEATURE } from './intrinsics.js'
+import { collectFnRefs } from './ir/collect-refs.js'
 import { bindingStages } from './passes/stage-bindings.js'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 
@@ -575,6 +577,28 @@ export interface Reflection {
    *  `hostFeaturesFor` skips every capability the backend has no host feature for, so the
    *  loop above is correct either way. */
   readonly requiredFeatures: readonly Capability[]
+  /** The WGSL LANGUAGE features this module's source uses, as
+   *  `navigator.gpu.wgslLanguageFeatures` names them. A language feature is a property of the
+   *  shading language rather than of the device: it is not requested at `requestDevice`, it is
+   *  either present in the browser's WGSL implementation or not, and a host checks for one
+   *  before it creates the shader module.
+   *
+   *  Today the list holds `readonly_and_readwrite_storage_textures` and nothing else, reported
+   *  when the module binds a storage texture at `"read"` or `"read_write"` access (a `"write"`
+   *  one is core WGSL and needs no feature). Measured: Chromium reports the feature, compiles
+   *  such a module with and without a `requires` directive, and rejects a `requires` naming a
+   *  feature it does not have — so the check belongs at the host, before the module is built,
+   *  and the emitted source carries no directive.
+   *
+   *  Always present, and empty for a module that uses none.
+   *
+   *  ```ts
+   *  for (const f of reflect(m).requiredLanguageFeatures) {
+   *    if (!navigator.gpu.wgslLanguageFeatures.has(f)) throw new Error(`WGSL lacks ${f}`)
+   *  }
+   *  ```
+   */
+  readonly requiredLanguageFeatures: readonly string[]
   /** The host-provided globals this module references but does not declare: one entry per
    *  {@link externVar} declarator, reported so a composer can check them against what the
    *  host's prelude actually supplies. Always present; empty for a module that expects
@@ -860,6 +884,23 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // `overrides` model, so a consumer never distinguishes "needs nothing" from "old
   // reflection shape".
   const requiredFeatures = requiredCaps(m).sort()
+  // The WGSL language features the SOURCE uses, which are not device features and are not
+  // requested anywhere (#147, wgsl.txt:3229-3233). A `"write"` storage texture is core; a
+  // `"read"` or `"read_write"` one is the language feature below, so the binding's access mode
+  // is the whole derivation.
+  const languageFeatures: string[] = []
+  // `textureBarrier` belongs to the same language feature as the readable storage textures
+  // (#152, wgsl.txt:26030-26042 and 3229-3232), so either reaches for it. Tint has the feature
+  // and compiles the call bare, which is exactly why nothing else in the pipeline says so.
+  if (
+    m.bindings.some((b) => b.type.kind === 'storage-texture' && b.type.access !== 'write') ||
+    m.funcs.some((f) => collectFnRefs(f).calls.has('textureBarrier'))
+  )
+    languageFeatures.push('readonly_and_readwrite_storage_textures')
+  // The packed 4x8 family is a feature of the CALLS (#152), the same derivation requiredCaps
+  // performs for `packed4x8Dot`.
+  if (usesPacked4x8(m)) languageFeatures.push(PACKED_4X8_LANGUAGE_FEATURE)
+  const requiredLanguageFeatures = languageFeatures.sort()
 
   return {
     bindGroups,
@@ -869,6 +910,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     entries,
     overrides,
     requiredFeatures,
+    requiredLanguageFeatures,
     requires: (m.externs ?? []).map((e) => ({
       name: e.name,
       type: typeKey(e.type),

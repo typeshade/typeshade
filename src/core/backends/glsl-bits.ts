@@ -17,7 +17,16 @@
 
 import type { ShaderType } from '../ir/types.js'
 
-/** The GLSL helper each WGSL bit builtin calls. */
+/** The GLSL helper each WGSL builtin calls, keyed by the NEUTRAL id.
+ *
+ *  The bit builtins are the original eight. The integer `dot` (#154) joins them for the same
+ *  reason and through the same machinery: WGSL gives `dot` an overload on every vector of
+ *  every numeric element (wgsl.txt:21885), GLSL ES 3.00 has `float dot(genType, genType)` and
+ *  nothing else (glsl-es-300.txt:3581), and a WebGL2 driver answers `dot(ivec3, ivec3)` with
+ *  "no matching overloaded function found" (measured). It is a HELPER rather than an inline
+ *  sum because an inline would splice both arguments once per component — four copies of each
+ *  for a `vec4`, after every optimizer pass has run, which is the cost the storage fetch was
+ *  moved out of an inline to avoid. */
 export const BIT_HELPER_OF: Readonly<Record<string, string>> = {
   countOneBits: '_popcnt',
   reverseBits: '_brev',
@@ -27,11 +36,24 @@ export const BIT_HELPER_OF: Readonly<Record<string, string>> = {
   countTrailingZeros: '_ctz',
   extractBits: '_xbits',
   insertBits: '_ibits',
+  dotI: '_idot',
+  dotU: '_idot',
 }
 
 /** Define-before-use order: a signed overload casts to the unsigned one of the same width,
- *  `_lsb` and `_clz` call `_msb`, `_ctz` calls `_popcnt`. */
-const HELPER_ORDER = ['_popcnt', '_brev', '_msb', '_lsb', '_clz', '_ctz', '_xbits', '_ibits']
+ *  `_lsb` and `_clz` call `_msb`, `_ctz` calls `_popcnt`. `_idot` is a leaf over the
+ *  operators and depends on nothing. */
+const HELPER_ORDER = [
+  '_popcnt',
+  '_brev',
+  '_msb',
+  '_lsb',
+  '_clz',
+  '_ctz',
+  '_xbits',
+  '_ibits',
+  '_idot',
+]
 const TYPE_ORDER = ['uint', 'uvec2', 'uvec3', 'uvec4', 'int', 'ivec2', 'ivec3', 'ivec4']
 
 /** The GLSL type of a `u32`/`i32` scalar or vector, or `undefined` for anything else. */
@@ -140,7 +162,25 @@ function bitfieldDef(fn: string, T: string): string {
 }`
 }
 
+/** The integer `dot` (#154): the sum of the component-wise products, which is what WGSL's
+ *  definition is. One overload per vector type the module uses; the element type is the
+ *  result's, as WGSL's `dot(vecN<T>, vecN<T>) -> T` says, so an unsigned dot wraps in the
+ *  unsigned domain and a signed one in the signed, which is what both targets do to `*` and
+ *  `+` anyway. A SCALAR never reaches here — `dot` takes vectors, and the front end says so. */
+function idotDef(T: string): string {
+  const elem = isSigned(T) ? 'int' : 'uint'
+  const n = Number(T.slice(-1))
+  const sum = ['x', 'y', 'z', 'w']
+    .slice(0, n)
+    .map((c) => `a.${c} * b.${c}`)
+    .join(' + ')
+  return `${elem} _idot(${T} a, ${T} b) {
+  return ${sum};
+}`
+}
+
 function helperDef(fn: string, T: string): string {
+  if (fn === '_idot') return idotDef(T)
   if (fn === '_xbits' || fn === '_ibits') return bitfieldDef(fn, T)
   return isSigned(T) ? signedDef(fn, T) : unsignedDef(fn, T)
 }
@@ -149,7 +189,8 @@ function helperDef(fn: string, T: string): string {
 function closure(fn: string, T: string, out: Set<string>): void {
   const key = `${fn} ${T}`
   if (out.has(key)) return
-  if (fn !== '_xbits' && fn !== '_ibits' && isSigned(T)) closure(fn, unsignedOf(T), out)
+  if (fn !== '_xbits' && fn !== '_ibits' && fn !== '_idot' && isSigned(T))
+    closure(fn, unsignedOf(T), out)
   if (fn === '_lsb' || fn === '_clz') closure('_msb', T, out)
   if (fn === '_ctz') closure('_popcnt', T, out)
   out.add(key)
@@ -171,6 +212,9 @@ export function bitHelperDefs(
     const helper = BIT_HELPER_OF[c.fn]
     const T = integerGlslType(c.argType)
     if (helper === undefined || T === undefined) continue
+    // `dot` takes vectors; a scalar would generate `int _idot(int a, int b)`, which nothing
+    // calls and which the front end never lowers.
+    if (helper === '_idot' && !isVector(T)) continue
     closure(helper, T, needed)
   }
   const defs: string[] = []
