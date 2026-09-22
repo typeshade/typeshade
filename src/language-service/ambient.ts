@@ -1005,7 +1005,7 @@ declare function textureGather<E extends TextureElem = f32>(
   smp: sampler,
   uv: vec2,
   layer: number,
-): vec4
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
 declare function textureGather<E extends TextureElem = f32>(
   component: number,
@@ -1020,7 +1020,7 @@ declare function textureGather<E extends TextureElem = f32>(
   smp: sampler,
   dir: vec3,
   layer: number,
-): vec4
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
 declare function textureGather(tex: texture_depth_2d, smp: sampler, uv: vec2): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
@@ -1345,9 +1345,9 @@ declare function pack4xU8(e: vec4u): u32
 ${renderJSDoc(FUNCTION_DOCS.pack4xU8Clamp)}
 declare function pack4xU8Clamp(e: vec4u): u32
 ${renderJSDoc(FUNCTION_DOCS.pack4xI8)}
-declare function pack4xI8(e: vec4i): i32
+declare function pack4xI8(e: vec4i): u32
 ${renderJSDoc(FUNCTION_DOCS.pack4xI8Clamp)}
-declare function pack4xI8Clamp(e: vec4i): i32
+declare function pack4xI8Clamp(e: vec4i): u32
 ${renderJSDoc(FUNCTION_DOCS.unpack4xU8)}
 declare function unpack4xU8(e: u32): vec4u
 ${renderJSDoc(FUNCTION_DOCS.unpack4xI8)}

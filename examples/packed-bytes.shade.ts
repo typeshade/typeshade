@@ -57,12 +57,15 @@ export function fs(v: VsOut): vec4 {
   // plain form and clamped by the `Clamp` one, which is why both are here.
   const truncated: u32 = pack4xU8(vec4u(bytes.x + u32(300), bytes.y, bytes.z, bytes.w))
   const clamped: u32 = pack4xU8Clamp(vec4u(bytes.x + u32(300), bytes.y, bytes.z, bytes.w))
-  const signedPacked: i32 = pack4xI8(signedBytes)
-  const signedClamped: i32 = pack4xI8Clamp(vec4i(signedBytes.x * 400, signedBytes.y, 3, 4))
+  // BOTH packs return a `u32`, the signed ones included: the result is four bytes in a word,
+  // not a number with a sign (WGSL index.bs:20307, :20341). Typing these `i32` emitted WGSL
+  // Tint refuses, "cannot assign 'u32' to 'i32'".
+  const signedPacked: u32 = pack4xI8(signedBytes)
+  const signedClamped: u32 = pack4xI8Clamp(vec4i(signedBytes.x * 400, signedBytes.y, 3, 4))
 
   const a: f32 = f32(lit % u32(211)) / 211.
   const b: f32 = f32(u32(signedLit & 255)) / 255.
   const c: f32 = f32((truncated ^ clamped) % u32(97)) / 97.
-  const d: f32 = f32(u32((signedPacked ^ signedClamped) & 63)) / 63.
+  const d: f32 = f32((signedPacked ^ signedClamped) % u32(63)) / 63.
   return vec4(a * v.uv.x, b * v.uv.y, c * 0.5 + d * 0.5, 1.)
 }

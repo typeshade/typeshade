@@ -56,36 +56,68 @@ describe('the packed 4x8 integer builtins are authorable, and WGSL-only', () => 
     for (const [call, want] of measured) expect(call()).toEqual(want)
   })
 
-  it('lowers each one to its own WGSL spelling, with the types WGSL gives it', () => {
-    const r = compile(
-      FS(
-        `  const a = dot4U8Packed(u32(uv.x), u32(uv.y))
-  const b = dot4I8Packed(u32(uv.x), u32(uv.y))
-  const p = pack4xU8(vec4u(1, 2, 3, 4))
-  const q = pack4xI8Clamp(vec4i(400, -400, 3, 4))
-  const c = pack4xU8Clamp(vec4u(400, 2, 3, 4))
-  const d = pack4xI8(vec4i(-1, 2, -3, 4))
-  const e = unpack4xU8(u32(uv.x))
-  const f = unpack4xI8(u32(uv.x))
-  return vec4(f32(a + p + c + e.x) * 0., f32(b + q + d + f.y) * 0., 0., 1.)`,
-      ),
-    )
-    expect(r.diagnostics.filter((x) => x.category === 'error')).toEqual([])
-    for (const name of [
-      'dot4U8Packed',
-      'dot4I8Packed',
-      'pack4xU8',
-      'pack4xI8Clamp',
-      'pack4xU8Clamp',
-      'pack4xI8',
-      'unpack4xU8',
-      'unpack4xI8',
-    ])
-      expect(r.wgsl, name).toContain(`${name}(`)
-    // `dot4U8Packed` is a u32 and `dot4I8Packed` an i32, which is why the two sides of the
-    // return above add into different halves; a wrong result type would be a type mismatch.
-    expect(r.wgsl).toContain('vec4<u32>(1u, 2u, 3u, 4u)')
-    expect(r.wgsl).toContain('vec4<i32>(400, -400, 3, 4)')
+  it('gives every pack a u32 result and both unpacks the vector its name says', () => {
+    // The SIGNED packs return a `u32` too (WGSL index.bs:20307, :20341): the result is four
+    // bytes in a word, not a number with a sign. Only the unpacks and `dot4I8Packed` are
+    // signed. This was `i32` once, and the test that stood here could not see it, because it
+    // asserted the SPELLING of each id and all four signed names were wrong the same way —
+    // a clean program then emitted WGSL Tint refuses ("cannot assign 'u32' to 'i32'").
+    //
+    // So the assertion is the one that fails when the type is wrong: the result goes into a
+    // `u32` storage array, which only type-checks if the result IS a u32, and the same
+    // program written against an `i32` array must be refused.
+    const intoU32 = compile(`"use typeshade"
+declare let out: storage<array<u32>>
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = pack4xU8(vec4u(1, 2, 3, 4))
+  out[1] = pack4xU8Clamp(vec4u(400, 2, 3, 4))
+  out[2] = pack4xI8(vec4i(-1, 2, -3, 4))
+  out[3] = pack4xI8Clamp(vec4i(400, -400, 3, 4))
+  out[4] = dot4U8Packed(out[5], out[6])
+}
+`)
+    expect(intoU32.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // Compiled on Tint exactly as emitted, which is what makes the assertion mean anything.
+    for (const name of ['pack4xU8', 'pack4xU8Clamp', 'pack4xI8', 'pack4xI8Clamp', 'dot4U8Packed'])
+      expect(intoU32.wgsl, name).toContain(`${name}(`)
+
+    // The other half: an `i32` destination must be REFUSED for a pack and accepted for the
+    // signed dot, which is the one signed result of the family. Without this arm the test
+    // above would still pass if every result were widened to something assignable to both.
+    const signedSlots = compile(`"use typeshade"
+declare let out: storage<array<i32>>
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = pack4xI8(vec4i(1, 2, 3, 4))
+}
+`)
+    expect(
+      signedSlots.diagnostics.filter((d) => d.category === 'error').map((d) => d.message),
+    ).not.toEqual([])
+
+    // `dot4I8Packed` IS an i32, and the unpacks carry their own signedness.
+    const signed = compile(`"use typeshade"
+declare let out: storage<array<i32>>
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = dot4I8Packed(u32(out[1]), u32(out[2]))
+  out[3] = unpack4xI8(u32(out[4])).y
+}
+`)
+    expect(signed.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(signed.wgsl).toContain('dot4I8Packed(')
+    expect(signed.wgsl).toContain('unpack4xI8(')
+
+    const unsignedUnpack = compile(`"use typeshade"
+declare let out: storage<array<u32>>
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = unpack4xU8(out[1]).z
+}
+`)
+    expect(unsignedUnpack.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(unsignedUnpack.wgsl).toContain('unpack4xU8(')
   })
 
   it('emits NO directive, and reports the language feature instead', () => {

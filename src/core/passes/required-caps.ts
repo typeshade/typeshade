@@ -75,13 +75,16 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
   for (const f of m.funcs) {
     const refs = collectFnRefs(f)
     for (const id of TEXTURE_GATHER_IDS) if (refs.calls.has(id)) caps.add('textureGather')
-    // The packed 4x8 integer family is a capability of the CALLS too (#152): the values it
-    // reads are ordinary u32s and vectors, so nothing in the module's declarations says it.
-    // A call to a function the MODULE declares under one of those names is not one of them —
-    // the surface's additivity rule keeps such a call pointing at the author's function, so
-    // deriving the capability from the name alone would assert a feature the module never uses.
-    if (usesPacked4x8(m)) caps.add('packed4x8Dot')
   }
+  // The packed 4x8 integer family is a capability of the CALLS too (#152): the values it reads
+  // are ordinary u32s and vectors, so nothing in the module's declarations says it. A call to a
+  // function the MODULE declares under one of those names is not one of them — the surface's
+  // additivity rule keeps such a call pointing at the author's function, so deriving the
+  // capability from the name alone would assert a feature the module never uses.
+  //
+  // Asked ONCE, outside the loop above: `usesPacked4x8` walks the whole module itself, so a
+  // call per function walked it N times over for one module-wide answer.
+  if (usesPacked4x8(m)) caps.add('packed4x8Dot')
   for (const f of m.funcs) {
     // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built
     // `{ stage: 'compute' }` decl without attrs must NOT slip past the gate.

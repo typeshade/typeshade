@@ -34,6 +34,6 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let a = (f32((lit % 211u)) / 211.0);
   let b = (f32(u32((signedLit & 255))) / 255.0);
   let c = (f32(((truncated ^ clamped) % 97u)) / 97.0);
-  let d = (f32(u32(((signedPacked ^ signedClamped) & 63))) / 63.0);
+  let d = (f32(((signedPacked ^ signedClamped) % 63u)) / 63.0);
   return vec4<f32>((a * v.uv.x), (b * v.uv.y), ((c * 0.5) + (d * 0.5)), 1.0);
 }

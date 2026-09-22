@@ -118,11 +118,11 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   pack4xU8:
     'Packs the low byte of each component of a `vec4u` into a `u32`, component 0 in the low byte. A component that does not fit is TRUNCATED, not clamped; `pack4xU8Clamp` saturates instead. WebGPU-only.',
   pack4xI8:
-    'Packs the low byte of each component of a `vec4i` into an `i32`, component 0 in the low byte. A component that does not fit is TRUNCATED; `pack4xI8Clamp` saturates instead. WebGPU-only.',
+    'Packs the low byte of each component of a `vec4i` into a `u32`, four bytes in a word. The result is unsigned even though the components are not; a component that does not fit is TRUNCATED, where `pack4xI8Clamp` saturates. WebGPU-only.',
   pack4xU8Clamp:
     'Packs a `vec4u` into a `u32` as four bytes, clamping each component into [0, 255] first. WebGPU-only.',
   pack4xI8Clamp:
-    'Packs a `vec4i` into an `i32` as four bytes, clamping each component into [-128, 127] first. WebGPU-only.',
+    'Packs a `vec4i` into a `u32` as four bytes, clamping each component into [-128, 127] first. The result is unsigned because it is a word of bytes, not a number with a sign. WebGPU-only.',
   unpack4xU8:
     'Unpacks the four bytes of a `u32` into a `vec4u`, the low byte into component 0. The inverse of `pack4xU8`. WebGPU-only.',
   unpack4xI8:

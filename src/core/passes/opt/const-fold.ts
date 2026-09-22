@@ -67,8 +67,11 @@ const EXACT_BUILTINS: ReadonlySet<string> = new Set([
  *  into a `u32()` call, the module Tint sees is the one it refuses, and the compile gate cannot
  *  reach it because nothing in the source said `-1`.
  *
- *  Folding removes the question: `u32(-1)` becomes the literal `4294967295u`, which is the
- *  value BOTH targets compute for the conversion and which needs no suffix to say what it is.
+ *  Folding removes the question: the `u32(-1)` the writer would have emitted becomes the literal
+ *  `4294967295u` instead, which is the value BOTH targets compute for the conversion and which
+ *  needs no suffix to say what it is. The refused spelling is one this pass prevents rather than
+ *  one an author can write: a bare `-1` on the authoring surface is an `f32`, so the source
+ *  `u32(-1)` is the FLOAT conversion the front end refuses for being out of range.
  *  The wrap is {@link wrapInt}, the same reinterpretation the hardware performs and the one
  *  {@link foldIntLit} already uses for arithmetic. A FLOAT operand is not folded here: an
  *  out-of-range float conversion is where the two targets genuinely differ, and the front end

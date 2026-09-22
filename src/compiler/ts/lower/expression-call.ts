@@ -388,11 +388,15 @@ export function lowerCall(
     if (node.arguments.length === 0) {
       const zero = ctorZero(vc.elem)
       if (!zero) {
+        // Name the spelling the AUTHOR wrote. `vec4<f64>()` reaches here as much as `vec4f64()`
+        // does, and a refusal that answers about `vec4f64()` is about a call that is not on the
+        // line. The fix stays the short name, which is the one form that takes the f64 zero.
+        const spelled = written === undefined ? ctorName : `${ctorName}<${written}>`
         pushDiag(
           diagnostics,
           sourceFile,
           node,
-          `vec${vc.n}f64() has no zero-value form; write vec${vc.n}f64(f64(0.)).`,
+          `${spelled}() has no zero-value form; write vec${vc.n}f64(f64(0.)).`,
           TS_CODES.ARITY_MISMATCH,
         )
         return undefined
@@ -978,8 +982,15 @@ const BIT_BUILTINS: Readonly<
   // The two `dot4*Packed` forms take TWO arguments and live in their own table below.
   pack4xU8: { arg: vec4uT, result: u32T },
   pack4xU8Clamp: { arg: vec4uT, result: u32T },
-  pack4xI8: { arg: vec4iT, result: i32T },
-  pack4xI8Clamp: { arg: vec4iT, result: i32T },
+  // Both SIGNED packs return a `u32`, not an `i32`: WGSL declares them `-> u32`
+  // (index.bs:20307, :20341), and the value is four bytes in a word rather than a number with
+  // a sign. Typed `i32` here, a clean program emitted WGSL Tint refuses — measured,
+  // `out[gid.x] = pack4xI8(vec4i(1, 2, 3, 4))` into an i32 buffer is "cannot assign 'u32' to
+  // 'i32'", and adding the result to `dot4I8Packed`'s (which IS an i32) is "no matching
+  // overload for 'operator + (u32, i32)'". The CPU oracle always returned the unsigned value,
+  // so the IR type disagreed with its own oracle as well as with the target.
+  pack4xI8: { arg: vec4iT, result: u32T },
+  pack4xI8Clamp: { arg: vec4iT, result: u32T },
   unpack4xU8: { arg: u32T, result: vec4uT },
   unpack4xI8: { arg: u32T, result: vec4iT },
 }

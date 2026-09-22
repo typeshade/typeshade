@@ -235,13 +235,24 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   comment says so in case a driver is ever found whose signed `>>` is logical.
   `pack4x8unorm`'s GLSL inline used `round()`, whose exact half GLSL ES 3.00 §8.3 lets an
   implementation resolve either way, where WGSL §17.12 DEFINES the pack as
-  `⌊ 0.5 + 255 × min(1, max(0, e)) ⌋`. It now spells WGSL's own formula. Measured on eight
-  inputs whose f32 product with 255 is exactly an ODD half — the ties that tell round-half-up
-  from round-half-to-even, which 127.5 cannot since both rules give 128 — a WGSL driver's native
-  builtin, the new inline and the CPU oracle all answered half-up (126.5 to 127). Both
-  operations leave the determinism report's `target` column as a result. The `pack2x16*` rows
-  stay: those are native GLSL builtins defined with `round()`, and no spelling of ours reaches
-  them.
+  `⌊ 0.5 + 255 × min(1, max(0, e)) ⌋`. It now spells WGSL's own formula, which is the right
+  spelling either way — but it does NOT make the pack deterministic across the two targets, and
+  the first measurement that said it did was taken wrong. Eight inputs whose f32 product with
+  255 is exactly an odd half were passed to a WGSL driver's native builtin as CONSTANTS, and the
+  driver, the new inline and the CPU oracle all answered half-up. Tint const-evaluates a literal
+  argument and answers its own way, so that says nothing about the instruction a driver issues:
+  swept at RUNTIME over 511 inputs e = i/510, the driver and the inline part on 34 of them (i =
+  1 packs 0 on WGSL and 1 on GLSL, i = 5 packs 2 and 3), and a WGSL-only shader comparing the
+  builtin against `floor(0.5 + 255 * e)` in one dispatch disagrees with ITSELF on the same 34.
+  So `pack4x8unorm` stays a `target` row, beside `pack4x8snorm`, with the runtime sweep in its
+  note; only `ldexp` leaves the column. The same const/runtime split is what made
+  `ldexp(1.0, -149)` look like a subnormal. The `pack2x16*` rows stay too: those are native GLSL
+  builtins defined with `round()`, and no spelling of ours reaches them.
+  And the four `pack` rows are REACHABLE now. The determinism walk takes a node's float kind
+  from its RESULT type, and a pack answers a `u32` of bytes, so every one of them was dropped
+  before its accuracy row was consulted — a module calling all four listed none. A pack's float
+  kind is the one it READS, and the two `pack2x16*` rows had been dead the same way since the
+  report was written.
   The `fma` comment claimed WGSL's is "a SINGLE rounding, atomic" in contrast to GLSL's
   `a * b + c`. Neither spec says that: WGSL §15.7.4.1 makes `fma` inherited from `x * y + z` and
   its note allows an ordinary multiply then an ordinary add, and GLSL ES 3.00 §4.5.1 allows the
@@ -302,8 +313,11 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 - **The packed 4x8 integer builtins** (§47, #152). Eight builtins that read a `u32` as four bytes
   or write four back — `dot4U8Packed`, `dot4I8Packed`, `pack4xU8`, `pack4xI8`, their two `Clamp`
   twins, `unpack4xU8` and `unpack4xI8` — were each an unknown name. They are authorable now,
-  with the types WGSL gives them (the unsigned dot is a `u32`, the signed one an `i32`; a plain
-  pack TRUNCATES each component to its low byte while the `Clamp` form saturates first). The
+  with the types WGSL gives them: the unsigned dot is a `u32` and the signed one an `i32`, but
+  BOTH packs answer a `u32` — the signed pair included (index.bs:20307, :20341), because the
+  result is four bytes in a word and not a number with a sign — and a plain pack TRUNCATES each
+  component to its low byte while the `Clamp` form saturates first. Typing the signed packs
+  `i32` emitted WGSL Tint refuses ("cannot assign 'u32' to 'i32'"). The
   values are not read off a specification: each call was DISPATCHED on a real device and the
   buffer read back, and the CPU oracle was written to those numbers — `dot4U8Packed(0x01010101,
 0x01010101)` is 4, `dot4I8Packed(0x80808080, 0x01010101)` is -512,
@@ -366,8 +380,9 @@ packed_4x8_integer_dot_product;` as not an extension ("Possible values: 'clip_di
 - **The ambient texture declarations describe what the compiler lowers** (§46, #147). `E` is
   constrained to `f32`, `i32` and `u32` ("T must be f32, i32, or u32"), so `texture_2d<bool>` is
   red in the editor as it always was in the compiler; `textureLoad` and `textureGather` are
-  typed by the texture's element, so a fetch from a `texture_2d<u32>` is a `vec4u` in both
-  layers rather than a `vec4` in one; every texel coordinate takes either integer vector; and
+  typed by the texture's element — the ARRAY gathers included, which declared the element
+  parameter and then returned a plain `vec4` anyway — so a fetch or gather from a
+  `texture_2d<u32>` is a `vec4u` in both layers rather than a `vec4` in one; every texel coordinate takes either integer vector; and
   the level query and the storage layer count are declared. Each of these was a program one
   layer accepted and the other refused.
 
@@ -466,7 +481,7 @@ fragment or compute stage only.`; `textureStore`'s wording moved from "is not va
   `FRAGMENT_OR_COMPUTE_CALLS` are exported for the derivative-uniformity walk to seed from, and
   the front end's table and the lint's are pinned EQUAL by a test that derives what they should
   hold from the intrinsic catalogue, with every fix string pinned beside it. No emit changed:
-  the compile gate's 85 examples are byte-identical.
+  the compile gate's whole corpus (91 examples at this commit) is byte-identical.
 
 - **A hover at the end of a name answers for that name**
   ([#56](https://github.com/typeshade/typeshade/issues/56)). The language service resolves a

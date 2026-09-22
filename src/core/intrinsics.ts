@@ -103,6 +103,12 @@ export const ATOMIC_INTRINSICS: Readonly<
   // so the result is bound by inference and its fields read. The fields are `old_value` and
   // `exchanged`, in snake_case — `r.oldValue` is "struct member oldValue not found".
   atomicCompareExchangeWeak: { arity: 3, returns: 'casResult' },
+  // There is no twelfth. #152's row L08 also names `atomicStoreMin` and `atomicStoreMax` on an
+  // `atomic<vec2<u32>>`, and that row is DEFERRED here on purpose: the WGSL spec marks the pair
+  // "proposed, After 1.0" (wgsl.txt:25629), no shipping Tint has them, and `atomic.elem` is
+  // `'u32' | 'i32'` (`src/core/ir/types.ts`), so a vector atomic would widen the IR's atomic
+  // type for a builtin nothing can compile yet. `src/compiler/ts/atomics.test.ts` carries the
+  // matching `it.todo`.
 }
 
 /** The barriers (roadmap 0.2 item 5, #82): `workgroupBarrier()` and `storageBarrier()`,

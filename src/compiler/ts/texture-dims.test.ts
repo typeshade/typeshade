@@ -388,6 +388,53 @@ declare const ms: texture_multisampled_2d<f32>`,
       'textureSampleLevel level must be an f32; got i32. Write f32(l + l + l + l + l + l +…).',
     ])
   })
+
+  it('reports every shape under TS8041, code and sentence pinned together', () => {
+    // The tests above read `.message` alone, so the CODE was only ever asserted through the
+    // language service's `from:` labels — nothing here would have caught a site that pushed the
+    // right sentence under the wrong code, or a renumber. The code is part of the contract: it
+    // is what an editor filters on and what `codes.ts` promises never to reuse.
+    //
+    // One case per `TS_CODES.TEXTURE_ARGUMENT` site in `lowerTextureCall`, so a site that drifts
+    // off the code fails here rather than in a consumer's rule file.
+    const coded = (src: string) =>
+      compileTsSource(src)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message}`)
+
+    // 1. The coordinate's WIDTH against the texture's dim.
+    expect(coded(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
+      'TS8041 textureSample on a texture_cube<f32> takes a vec3 direction; got vec2<f32>.',
+    ])
+    // 2. The coordinate's ELEMENT kind: normalised reads are f32, a texel fetch is an integer.
+    expect(coded(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
+      'TS8041 textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<i32>.',
+    ])
+    expect(coded(fragment(`  return textureLoad(atlas, p.xy, 0)`))).toEqual([
+      'TS8041 textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; ' +
+        'got vec2<f32>.',
+    ])
+    // 3. An f32 scalar slot — level, bias, depth_ref.
+    expect(
+      coded(
+        fragment(`  const l: i32 = 2
+  return textureSampleLevel(atlas, smp, p.xy, l)`),
+      ),
+    ).toEqual(['TS8041 textureSampleLevel level must be an f32; got i32. Write f32(l).'])
+    // 4. An INTEGER scalar slot given a value with a float type of its own.
+    expect(
+      coded(
+        fragment(`  const a: f32 = 1.
+  return textureSampleLevel(pages, smp, p.xy, a, 0.)`),
+      ),
+    ).toEqual(['TS8041 textureSampleLevel layer must be an i32 or a u32; got f32. Write i32(a).'])
+    // 5. A literal in an integer slot that cannot be an index.
+    expect(coded(fragment(`  return textureSampleLevel(pages, smp, p.xy, -1, 0.)`))).toEqual([
+      'TS8041 A texture layer must be a whole number of 0 or more, got -1. WGSL rejects ' +
+        'a fractional or negative one and GLSL ES 3.00 silently rounds it, so the two targets ' +
+        'would disagree.',
+    ])
+  })
 })
 
 describe('an integer cube is declared, and only textureGather reads it', () => {

@@ -2876,7 +2876,7 @@ correctly rounded result as one value and leaves the subnormal corners alone.
 | `inherited` | defined by a formula the driver may evaluate any way at least as accurate, reassociated or fused                                           | `pow`, `sqrt`, `tan`, `mix`, `smoothstep`, `fract`, `length`, `normalize`, `dot`, `cross`, `fma`, `mod`, `%`, `degrees`, `radians`, `mat * vec`, `mat * mat` |
 | `unbounded` | the spec asks only for a pragmatically useful result                                                                                       | `dpdx`, `dpdy`, `fwidth` and their coarse and fine forms, `determinant`                                                                   |
 | `filtered`  | a texture read whose footprint, filtering and level of detail selection are implementation-defined                                         | every `textureSample*`, the comparison forms included, and `textureGather`, whose four texels the footprint selects                       |
-| `target`    | one answer on WGSL, but the GLSL ES 3.00 spelling may answer differently on some input                                                     | `ldexp` at `e = 128`; `pack4x8unorm`, `pack2x16unorm`, `pack2x16snorm` at an exact half                                                   |
+| `target`    | one answer on WGSL, but the GLSL ES 3.00 spelling may answer differently on some input                                                     | the four packs — `pack4x8unorm`, `pack4x8snorm`, `pack2x16unorm`, `pack2x16snorm` — at an exact half; the four `quantizeToF16` widths     |
 | `emulated`  | an `f64` operation: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them                                  | every arithmetic operator, `floor`, and every bounded builtin on `f64`, `vecNf64` and `matNf64`                                            |
 
 **What is not listed.** Integer arithmetic, comparisons and the bit builtins, which have a correct
@@ -2905,9 +2905,15 @@ an `absolute`, `ulp` or `unbounded` row is bounded by the driver alone on GLSL; 
 fused form on GLSL ES 3.00 and is emitted as `a * b + c`, which that spec lets be one fused or two
 correctly rounded operations, the same room WGSL leaves `fma`; `mod` is spelled
 `x - y * floor(x / y)` on WGSL and `mod(x, y)` on GLSL, both inheriting from that formula. A
-`target` row is the case where the two can part on an input WGSL settles: the GLSL `ldexp`
-spelling overflows at `e = 128`, and the GLSL `pack` forms round an exact half in an
-implementation-chosen direction where WGSL takes `floor(0.5 + x)`.
+`target` row is the case where the two can part on an input WGSL settles. The four packs are
+there for the same tie, reached two ways: `pack2x16unorm` and `pack2x16snorm` are native GLSL
+builtins defined with `round()`, whose exact half goes in an implementation-chosen direction,
+while `pack4x8unorm` and `pack4x8snorm` have no GLSL form at all and are hand-inlined as
+`floor(0.5 + x)` — the rule WGSL itself states — against a driver measured to round that same
+half to even. `quantizeToF16` is a `packHalf2x16` round trip on GLSL and parts on a binary16
+half, on a magnitude past the largest finite binary16 and on one below the smallest normal.
+`ldexp` was a `target` row and is not one any more: its GLSL scale is now built in two halves,
+and a sweep of all 278 legal exponents against a WGSL driver found no disagreement.
 
 **One operation at a time.** `accuracyOf(op)` answers for a single builtin id, operator or matrix
 product: `{ kind: 'exact' }` when there is one answer on both targets, otherwise the kind and
@@ -3121,6 +3127,12 @@ so the two targets agree on every shape. (A three-row column is still padded fro
 dimension rather than per shape. §39 has the rest of the `f64` surface.
 
 ## 42. Every texture argument is checked before emit
+
+> **On the section numbers.** They are handed out in BLOCKS, one block per branch in flight,
+> the same way `src/compiler/ts/codes.ts` hands out diagnostic codes, so two sessions adding
+> sections at once cannot claim one number twice. That leaves gaps — §41 and §50 to §61 are
+> other blocks. A gap is never reused: a number a block did not spend stays unspent, so a
+> cross-reference keeps pointing where it pointed.
 
 A texture read has one texture argument and several plain ones, and WGSL types each of the plain
 ones exactly. The coordinate of a sampled read is a normalised `f32`; the coordinate of a texel
@@ -3382,8 +3394,11 @@ suffix at all, so once const propagation had substituted a negative `i32` consta
 `u32()` call, the module Tint saw was the one it refuses — and nothing said so, because nothing
 in the author's file said `-1`.
 
-So the conversion is FOLDED rather than refused. `u32(-1)` becomes the literal `4294967295u`,
-which is the value both targets compute and which needs no suffix to say what it is:
+So the conversion is FOLDED rather than refused. The `u32(-1)` in question is the EMITTED one of
+the table's last row — a spelling the backend produced, never one an author wrote, since a bare
+`-1` in the source is an `f32` and `u32(-1)` there is the float refusal above. It becomes the
+literal `4294967295u` instead, which is the value both targets compute and which needs no suffix
+to say what it is:
 
 ```ts
 const k: i32 = -1;
@@ -3576,8 +3591,8 @@ const bytes = unpack4xU8(texels); // vec4u, the low byte into component 0
 const signedBytes = unpack4xI8(texels); // vec4i, each byte SIGN-EXTENDED
 const packed = pack4xU8(bytes); // u32, each component TRUNCATED to its low byte
 const saturated = pack4xU8Clamp(bytes); // u32, each component clamped into [0, 255] first
-const packedI = pack4xI8(signedBytes); // i32, truncated
-const saturatedI = pack4xI8Clamp(signedBytes); // i32, clamped into [-128, 127] first
+const packedI = pack4xI8(signedBytes); // u32 too, truncated
+const saturatedI = pack4xI8Clamp(signedBytes); // u32 too, clamped into [-128, 127] first
 ```
 
 The values are not read off the specification. Each call was DISPATCHED on a real device through
@@ -3594,6 +3609,12 @@ those numbers:
 | `pack4xU8Clamp(vec4u(400, 2, 3, 4))` | `0x040302FF` — 400 saturates to 255 |
 | `pack4xI8Clamp(vec4i(400, -400, 3, 4))` | `0x0403807F` — 127 and −128 |
 | `unpack4xI8(0x04FD02FF)` | `(-1, 2, -3, 4)` |
+
+Every pack returns a `u32`, the SIGNED ones included: the result is four bytes in a word, not a
+number with a sign (WGSL index.bs:20307, :20341). Only the unpacks and `dot4I8Packed` are
+signed. Typing `pack4xI8` as an `i32` emitted WGSL Tint refuses — measured, assigning it to an
+`i32` is "cannot assign 'u32' to 'i32'", and adding it to `dot4I8Packed`'s result is "no
+matching overload for 'operator + (u32, i32)'".
 
 ### WGSL-only, and not an extension
 
@@ -3755,6 +3776,7 @@ Both layers refuse the literal, so nothing disagrees — but the refusal is a ga
 rule. Accepting it means synthesising an anonymous struct: a name, a place in the module's
 structs, a layout. That is a compiler feature and not an editor-parity fix, and it is pinned
 here as it stands so both layers move together the day it lands.
+
 ## 62. A name a target reserves
 
 Each of the two shading languages reserves a vocabulary of its own, and a name that lands on

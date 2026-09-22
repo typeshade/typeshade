@@ -227,6 +227,12 @@ export function fs(): vec4 {
     expect(diagnose('vec3f64()', '', 'vec3f64')).toBe(
       'vec3f64() has no zero-value form; write vec3f64(f64(0.)).',
     )
+    // The type-argument spelling reaches the same refusal, and the refusal says what is on the
+    // line: it used to answer about `vec4f64()`, a call the author did not write. The FIX stays
+    // the short name, which is the one form that takes the f64 zero.
+    expect(diagnose('vec4<f64>()', '', 'vec4')).toBe(
+      'vec4<f64>() has no zero-value form; write vec4f64(f64(0.)).',
+    )
   })
 })
 

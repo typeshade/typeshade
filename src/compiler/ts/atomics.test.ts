@@ -499,4 +499,11 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
         .map((d) => d.message)[0],
     ).toContain('needs read_write access to "lock"')
   })
+
+  // #152's row L08, deferred with its reason rather than silently dropped: WGSL marks
+  // `atomicStoreMin`/`atomicStoreMax` on an `atomic<vec2<u32>>` "proposed, After 1.0"
+  // (wgsl.txt:25629) and no shipping driver has them, so there is nothing to measure a
+  // lowering against and `atomic.elem` would have to grow a vector arm for a call that cannot
+  // reach a device. The note beside `ATOMIC_INTRINSICS` says the same.
+  it.todo('#152 row L08: atomicStoreMin/atomicStoreMax on an atomic<vec2<u32>>, after WGSL 1.0')
 })

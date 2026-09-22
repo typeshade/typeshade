@@ -293,27 +293,50 @@ describe('the pack and quantize rows say what the emitted code actually does', (
     }
   })
 
-  it('the unorm pack is exact once its GLSL spells WGSLrule; the snorm row stays', () => {
-    // `pack4x8unorm` WAS a `target` row on the GLSL `round()` spelling, whose exact half
-    // GLSL ES 3.00 §8.3 lets an implementation resolve either way (#141). The spelling is now
-    // WGSL's own `floor(0.5 + 255 * clamp(e, 0, 1))`, and the freedom is gone with it.
-    //
-    // Measured on eight inputs whose f32 product with 255 is exactly an ODD half — the ties
-    // that tell round-half-up from round-half-to-even, which 127.5 cannot, since 128 is what
-    // both rules give. A WGSL driver's NATIVE builtin, the new GLSL inline and the CPU oracle
-    // all answered half-UP on all eight (126.5 -> 127, not the 126 nearest-even would give).
-    expect(accuracyOf('pack4x8unorm')!.kind).toBe('exact')
+  it('lists a pack, whose float kind is the one it READS', () => {
+    // Every `pack` row was unreachable. The walk takes a node's float kind from its RESULT
+    // type, and a pack answers a `u32` of bytes, so `floatElemOf` returned `undefined` and the
+    // node was dropped before `accuracyOf` was asked — four `target` rows, two of them older
+    // than the 4x8 pair, describing a divergence the report could not report. Measured before
+    // the fix, this module listed `quantizeToF16` alone.
+    const r = moduleOf(`"use typeshade";
+declare let out: storage<array<u32>>;
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = pack4x8unorm(vec4(0.5, 0.5, 0.5, 0.5));
+  out[1] = pack4x8snorm(vec4(0.5, 0.5, 0.5, 0.5));
+  out[2] = pack2x16unorm(vec2(0.5, 0.5));
+  out[3] = pack2x16snorm(vec2(0.5, 0.5));
+}`)
+    expect(r.determinism.map((e) => [e.op, e.elem, e.kind])).toEqual([
+      ['pack4x8unorm', 'f32', 'target'],
+      ['pack4x8snorm', 'f32', 'target'],
+      ['pack2x16unorm', 'f32', 'target'],
+      ['pack2x16snorm', 'f32', 'target'],
+    ])
+    // The argument's kind is read, not assumed: the float vector is the only float in sight,
+    // and an integer operation beside it is still not listed.
+    expect(r.determinism.every((e) => e.where.includes('cs'))).toBe(true)
+  })
 
-    // The snorm twin KEEPS its `target` row, and the reason is worth stating because the same
-    // probe did not reproduce its note. That note says a WGSL driver may round the tie to EVEN
-    // where the inline rounds up; on the driver measured here both rounded half-UP on eight
-    // odd ties, exactly as the unorm pair did. Eight points are not the whole input space, and
-    // a `target` row that turns out to be conservative costs a host some caution, while
-    // dropping a real divergence costs it a wrong picture. So the row stands until someone
-    // measures the space rather than a sample of it.
-    const snorm = accuracyOf('pack4x8snorm')!
-    expect(snorm.kind).toBe('target')
-    expect('note' in snorm && snorm.note).toMatch(/half|even/)
+  it('both 4x8 packs are target rows: a driver rounds the exact half to even', () => {
+    // `pack4x8unorm` was promoted to `exact` on a measurement that only holds when Tint
+    // CONST-EVALUATES the call. Swept at RUNTIME over 511 inputs e = i/510, a WGSL driver and
+    // the GLSL inline parted on 34 of them — i = 1 packs 0 on WGSL and 1 on GLSL, i = 5 packs
+    // 2 and 3 — and a WGSL-only self-check, one shader computing both the builtin and
+    // `floor(0.5 + 255 * e)`, disagrees with ITSELF on the same 34. So the driver rounds the
+    // tie to even while the inline, and WGSL's own written rule, round it up. The CPU oracle
+    // sides with GLSL, which is the oracle/GPU equality `exact` is supposed to promise.
+    //
+    // The lesson is the const/runtime split: a constant argument is folded by the shader
+    // compiler and answers its own way, so a measurement taken on literals says nothing about
+    // the instruction a driver issues. The same split was already visible in this lane on
+    // `ldexp(1.0, -149)`, const-evaluated to a subnormal and flushed to zero at runtime.
+    for (const id of ['pack4x8unorm', 'pack4x8snorm']) {
+      const a = accuracyOf(id)!
+      expect(a.kind, id).toBe('target')
+      expect('note' in a && a.note, id).toMatch(/half|even/)
+    }
 
     // The 2x16 packs are NATIVE GLSL builtins, defined with round(), so no spelling of ours
     // can reach them and they stay `target` on the mechanism the unorm row just left behind.
