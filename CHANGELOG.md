@@ -281,20 +281,20 @@ if (g > 0.5)` is accepted as Tint accepts it, and a copy chain of any length is 
   table, because this arm was answered wrong twice before, each time in the direction opposite
   the last.
 
-  Two more channels a value leaves by, both of which were FALSE PROOFS rather than gaps. A
-  write's TARGET is a computation: `a[u32(x)] = y` makes every element of `a` depend on `x`,
-  and reading only the assigned value and the enclosing branch accepted a sample under
-  `if (idx(v.uv.x, k) > 0.5)`, which Tint refuses — so the target's index expressions now join
-  the written variable's class, in the walk and in the summary alike. And SHARED memory — a
-  module `var`, `workgroup` memory, a writable storage binding — is classified module-wide as
-  the join of every write, each joined with the flow it sits under, rather than through the
-  per-invocation environment: a helper stowing a fragment input and returning something else
-  had a summary correct about its result and silent about the write, and the environment let a
-  caller keep believing its own `stash = 1.` across a call that overwrote it and reach a
-  barrier at `uniform`. Both are measured on Chromium 141 with the instrument reporting first,
-  with the inline form of each already refused, and both are pinned. The module-wide reading
-  costs a refusal where a uniform write follows a non-uniform one, which Tint would accept; it
-  only ever refuses and no example spells it. A `return` under a non-uniform condition makes everything after it
+  Two more rules, both found as FALSE PROOFS rather than gaps. A write's TARGET is a
+  computation: `a[u32(x)] = y` makes every element of `a` depend on `x`, and reading only the
+  assigned value and the enclosing branch accepted a sample under `if (idx(v.uv.x, k) > 0.5)`,
+  which Tint refuses — so the target's index expressions now join the written variable's class,
+  in the walk and in the summary alike. And a read of `private`, `workgroup` or `read_write`
+  storage is NON-UNIFORM BY ADDRESS SPACE, with no regard for what was written into it: that is
+  Tint's own rule, measured down to its refusing a read of a variable nothing in the module
+  writes, and `workgroupUniformLoad` is the carve-out — uniform by construction, and with a
+  workgroup read non-uniform on sight it is the only spelling left that can carry a barrier.
+  A `uniform` binding, a read-only storage binding, a module `const` and an `override` stay
+  uniform. One bit on the return summary carries the answer out of a nullary helper, since a
+  call's class floors at `unknown` and never looks inside a body. Every row was measured on
+  Chromium 141 with the instrument reporting first, and no example in the corpus refuses under
+  the new rule. A `return` under a non-uniform condition makes everything after it
   non-uniform; a `discard` does not, both measured — an invocation that discards is demoted to
   a helper and goes on contributing the neighbour a derivative differences against, which is
   why `discard` beside `fwidth` is the ordinary antialiased-cutout idiom. GLSL ES 3.00 needs

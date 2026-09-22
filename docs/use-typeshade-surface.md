@@ -4466,17 +4466,29 @@ those through while Tint refused it — the same hole as the helper CONDITION ab
 the other end. A parameter no call site reached stays `unknown`, which is what leaves a
 helper-only module exactly as it was.
 
-**Shared memory is a channel too, and a return value is not the only thing that leaves a
-function.** A module `var`, `workgroup` memory and a writable storage binding are classified
-MODULE-WIDE — the join of every write anywhere in the module, each joined with the control flow
-it sits under — rather than through the per-invocation statement order. A helper that stows a
-fragment input into a module variable and returns something else entirely has a summary that is
-correct about its result and silent about the write, so reading the summary alone accepted
-programs whose inline forms were already refused. Worse, the flow-sensitive environment let a
-caller keep believing its own `stash = 1.` across a call that overwrote it and reach a barrier
-at `uniform` — a false proof, which is the one thing the barrier threshold cannot tolerate.
-Module-wide is also the honest reading: workgroup and storage memory is written by the *other*
-invocations, so there is no one statement order to be sensitive to.
+**Where a value is read from decides, not what was written into it.** WGSL's rule is per
+ADDRESS SPACE, and Tint does not look at the write side at all — it refuses a read of a
+`private` variable that nothing in the module writes. The table, every row measured:
+
+| A read of | Class |
+| --- | --- |
+| a module `let` (`var<private>`) | **non-uniform** |
+| `workgroup` memory | **non-uniform** |
+| a `read_write` storage binding (`declare let`) | **non-uniform** |
+| a `uniform` binding | uniform |
+| a read-only storage binding (`declare const`) | uniform |
+| a module `const`, an `override` | uniform |
+| `workgroupUniformLoad(x)` | uniform, by construction |
+
+`workgroupUniformLoad` is the carve-out and it is load-bearing: with a workgroup read
+non-uniform on sight, it is the only spelling left that can carry a barrier — which is exactly
+what the builtin is for, since it *is* one value for the whole workgroup with a barrier on each
+side. It is the value the CALL produces that is uniform, not the argument.
+
+An earlier round classified those three spaces by the join of every write in the module
+instead, on the theory that a location written only constants stays uniform. That refinement is
+false against Tint, and it cost four acceptances of programs Tint refuses. The write side does
+not enter the answer, so none of that machinery survives.
 
 **A write's target is a computation, not just a place.** `a[u32(x)] = y` makes every element of
 `a` depend on `x`, because which element took `y` is what `x` decided — so the index expressions

@@ -857,13 +857,19 @@ describe('the call graph, walked to a fixpoint that does not read declaration or
   })
 })
 
-// ═══ The two channels a value can leave a function by, besides its return ═══
+// ═══ A write's target, and WGSL's address-space table ═══
 //
-// Both of these were FALSE PROOFS rather than conservative gaps — the pass accepted a program
-// Tint refuses, and in one case asserted `uniform` about memory it does not model. Measured on
-// Chromium 141 (`chromium_headless_shell-1194`, `google / swiftshader`) through the compile
-// gate's own mechanics, with the broken-shader instrument reporting `fn broken( {` first.
-describe("a write's target and the module's shared memory are both channels", () => {
+// Two rules that have nothing to do with each other and were found together. A write's TARGET
+// is a computation, so its index expressions taint the written variable. And a read of
+// `private`, `workgroup` or `read_write` storage is NON-UNIFORM ON SIGHT: Tint classifies by
+// address space and does not look at what was written, so it refuses a read of a variable
+// nothing in the module writes. An earlier round classified those spaces by the join of every
+// write instead, which was four false acceptances against the table below.
+//
+// Measured on Chromium 141 (`chromium_headless_shell-1194`, `google / swiftshader`) through
+// the compile gate's own mechanics, with the broken-shader instrument reporting `fn broken( {`
+// first, front end and Tint on the same emitted module.
+describe("a write's target, and the address space a read comes from", () => {
   const CS = (decls: string, body: string) => `declare let out: storage<array<f32>>
 ${decls}@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
 ${body}
@@ -987,20 +993,91 @@ export function stow2(x: f32): void { scratch[0] = x }
       ),
     )
     expect(errors[0]).toContain('workgroupBarrier() is reached under')
-    expect(errors[0]).toContain('local_invocation_id')
+    // Named by its ADDRESS SPACE now, not by the argument that was stowed into it: a read of
+    // a module variable is non-uniform on sight, so the write side never enters the answer.
+    expect(errors[0]).toContain('a module variable')
   })
 
-  it('still accepts shared memory every write of which is uniform', () => {
-    // The cost of classifying shared memory module-wide is a refusal where a uniform write
-    // follows a non-uniform one, which Tint's flow-sensitive analysis would accept. What must
-    // NOT cost anything is the ordinary case: a location written a constant, or a uniform
-    // buffer's value, is uniform and a barrier under it stands. Both measured ACCEPTED on Tint.
-    for (const write of ['  flag = 1.', '  flag = k2']) {
+  it('refuses a read of shared memory whatever was written into it', () => {
+    // An earlier round claimed a location written only constants, or only a uniform buffer's
+    // value, stayed uniform. That was FALSE against Tint, which classifies by ADDRESS SPACE
+    // and does not look at the write side at all: measured, `reading from module-scope private
+    // variable 'flag' may result in a non-uniform value` for both of these, and for a variable
+    // NOTHING in the module writes.
+    for (const write of ['  flag = 1.', '  flag = k2', '']) {
       const src = CS(
-        `declare const k2: uniform<f32>\nlet flag: f32 = 0.\n`,
+        `declare const k2: uniform<f32>\nlet flag: f32 = 1.\n`,
         `${write}\n  if (flag > 0.5) { workgroupBarrier() }`,
       )
-      expect(errorsOf(src), write).toEqual([])
+      expect(errorsOf(src)[0], write).toContain('workgroupBarrier() is reached under')
     }
+  })
+
+  it.each([
+    ['a module const', 'const MODE: f32 = 1.\n', 'MODE'],
+    ['an override', 'declare const lod: override<f32>\n', 'lod'],
+    ['a uniform buffer', 'declare const k3: uniform<f32>\n', 'k3'],
+    ['a READ-ONLY storage element', 'declare const ro: storage<array<f32>>\n', 'ro[0]'],
+  ])('leaves the uniform side of the address-space table alone: %s', (_what, decl, read) => {
+    // The other half of the table, and the half that keeps it from being a blanket ban. Each
+    // measured ACCEPTED on Tint.
+    expect(errorsOf(CS(decl, `  if (${read} > 0.5) { workgroupBarrier() }`))).toEqual([])
+  })
+
+  it('accepts workgroupUniformLoad, the one way left to branch on workgroup memory', () => {
+    // With a workgroup read non-uniform on sight, this builtin is the only spelling that can
+    // carry a barrier — it IS one value for the workgroup, with a barrier on each side, which
+    // is what it exists for. Refusing it left an author no way to write the program at all.
+    // Measured ACCEPTED on Tint, with the same module refused when the load is dropped.
+    const src = CS(
+      `let tile4: workgroup<array<f32, 4>>\n`,
+      `  tile4[lid.x] = f32(lid.x)\n  if (workgroupUniformLoad(tile4[0]) > 0.5) { workgroupBarrier() }`,
+    )
+    expect(errorsOf(src)).toEqual([])
+    expect(
+      errorsOf(
+        CS(
+          `let tile5: workgroup<array<f32, 4>>\n`,
+          `  tile5[lid.x] = f32(lid.x)\n  if (tile5[0] > 0.5) { workgroupBarrier() }`,
+        ),
+      )[0],
+    ).toContain('workgroupBarrier() is reached under')
+  })
+
+  it.each([
+    [
+      'a private variable',
+      `${HEAD}let stash: f32 = 0.
+export function peek(): f32 { return stash }
+@fragment export function fs(v: VsOut): vec4 {
+  if (peek() > 0.25) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'a read_write storage element',
+      `${HEAD}declare let scratch: storage<array<f32>>
+export function peek2(): f32 { return scratch[0] }
+@fragment export function fs(v: VsOut): vec4 {
+  if (peek2() > 0.25) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+  ])('carries the address space out of a NULLARY helper: %s', (_what, src) => {
+    // A call's class floors at `unknown` and never looks inside a body, so a helper with no
+    // parameters had an empty summary and went through. One bit on the summary carries it.
+    // Both measured REFUSED on Tint; the same helper returning a `uniform` is ACCEPTED by both
+    // and is the row below.
+    expect(errorsOf(src)[0]).toContain('is reached under')
+  })
+
+  it('and leaves a nullary helper that returns a UNIFORM alone', () => {
+    expect(
+      compiled(`${HEAD}export function peek3(): f32 { return k }
+@fragment export function fs(v: VsOut): vec4 {
+  if (peek3() > 0.25) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`).wgsl,
+    ).toContain('textureSample(t, s,')
   })
 })

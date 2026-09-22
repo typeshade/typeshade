@@ -75,13 +75,10 @@
 //     and an EDSL module reaches Tint, which owns the complete rule, unchanged.
 //   • A `raw` statement's text is opaque to it.
 //   • The seeds are the spec's: anything outside them is `unknown`, never `uniform`.
-//   • SHARED MEMORY — a module `var`, `workgroup` memory, a writable storage binding — is
-//     classified MODULE-WIDE and flow-insensitively: the join of every write in the module,
-//     and not what the statement order of one invocation suggests. That is the honest reading
-//     for workgroup and storage memory, which the other invocations write concurrently, and it
-//     is deliberately conservative for a `private` variable: a uniform write that FOLLOWS a
-//     non-uniform one reads non-uniform here, where Tint's own flow-sensitive analysis would
-//     accept it. It only ever refuses, and no example in the corpus spells the shape.
+//   • A read of `private`, `workgroup` or `read_write` storage is NON-UNIFORM, by address
+//     space and with no regard for what was written — which is Tint's own rule, measured, down
+//     to refusing a read of a variable nothing in the module writes. `workgroupUniformLoad`
+//     is the carve-out and the only way left to branch on workgroup memory.
 //   • The locals' half of the return-dependency summary is flow-insensitive too, so
 //     `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps `x` in its summary and is
 //     refused where the same statements inline are accepted. Filed as #180 rather than fixed
@@ -282,41 +279,44 @@ function fieldUniformity(
 interface Summary {
   /** Parameter positions the return value depends on. */
   readonly params: ReadonlySet<number>
-  /** SHARED locations the return value depends on — a module `var` or a storage binding read
-   *  on the way to the result, transitively through this function's own callees. A parameter
-   *  list alone left `function peek(): f32 { return stash }` with an empty summary, so
-   *  `if (peek() > 0.25) { textureSample(…) }` read `unknown` and went through, while the same
-   *  read written inline was refused. A nullary helper is still a helper. */
-  readonly shared: ReadonlySet<string>
+  /** Whether the return value is read out of an address space that is non-uniform on sight —
+   *  `private`, `workgroup`, or a `read_write` storage buffer.
+   *
+   *  ONE BIT, and it has to be here: a call's class floors at `unknown` and never looks inside
+   *  a body, so `function peek(): f32 { return stash }` with no parameters had an empty
+   *  summary and `if (peek() > 0.25) { textureSample(…) }` went through. Tint refuses it, and
+   *  refuses the same helper returning a `read_write` storage element, and ACCEPTS one
+   *  returning a `uniform` — measured. A read of those spaces classifies non-uniform with no
+   *  regard for what was written, so nothing more than this bit is needed to carry it out of
+   *  a function: no set of names, and no join over the module's writes. */
+  readonly nonUniform: boolean
 }
 
 type ReturnDeps = ReadonlyMap<string, Summary>
 
 const sameSummary = (a: Summary, b: Summary | undefined): boolean =>
   b !== undefined &&
+  a.nonUniform === b.nonUniform &&
   a.params.size === b.params.size &&
-  a.shared.size === b.shared.size &&
-  [...a.params].every((x) => b.params.has(x)) &&
-  [...a.shared].every((x) => b.shared.has(x))
+  [...a.params].every((x) => b.params.has(x))
 
 /** Every parameter position `f`'s return value depends on, given the summaries known so far. */
 function returnDepsOf(
   f: FuncDecl,
   byName: ReadonlyMap<string, FuncDecl>,
   known: ReturnDeps,
-  isShared: (name: string) => boolean,
+  readsNonUniformSpace: (name: string) => boolean,
 ): Summary {
   const positionOf = new Map(f.params.map((p, i) => [p.name, i]))
   /** local name → the parameter positions its value depends on. Grows only. */
   const localDeps = new Map<string, Set<number>>()
   const result = new Set<number>()
-  /** local name → the shared locations its value depends on, and the same for the result. */
-  const localShared = new Map<string, Set<string>>()
-  const resultShared = new Set<string>()
-
-  /** The shared locations the last `depsOf` walk passed through. Collected beside the
-   *  parameter positions because both travel the same edges. */
-  let sharedSeen = new Set<string>()
+  /** Set once anything the result depends on is read out of a non-uniform address space. */
+  let resultNonUniform = false
+  /** local name → whether its value came out of one. */
+  const localNonUniform = new Set<string>()
+  /** Whether the `depsOf` walk in progress has passed through one. */
+  let sawNonUniform = false
 
   const depsOf = (e: Expr): Set<number> => {
     const acc = new Set<number>()
@@ -327,16 +327,15 @@ function returnDepsOf(
         return
       }
       if (x.op === 'varref') {
-        if (isShared(x.name)) sharedSeen.add(x.name)
+        if (readsNonUniformSpace(x.name) || localNonUniform.has(x.name)) sawNonUniform = true
         for (const d of localDeps.get(x.name) ?? []) acc.add(d)
-        for (const n of localShared.get(x.name) ?? []) sharedSeen.add(n)
         return
       }
       if (x.op === 'call' && byName.has(x.fn)) {
         const summary = known.get(x.fn)
         if (summary !== undefined) {
-          // A callee's own shared reads reach this result too.
-          for (const n of summary.shared) sharedSeen.add(n)
+          // A callee's own bit reaches this result the same way its parameters do.
+          if (summary.nonUniform) sawNonUniform = true
           // Only the arguments the CALLEE's result depends on — which is what makes the
           // summary transitive: `outer(p, q) { return inner(q, p) }` depends on `q` alone
           // when `inner`'s result depends on its first parameter alone.
@@ -357,34 +356,33 @@ function returnDepsOf(
     return acc
   }
 
-  /** `depsOf`, with the shared locations it walked through returned beside the positions. */
-  const bothOf = (e: Expr): { params: Set<number>; shared: Set<string> } => {
-    sharedSeen = new Set()
-    const params = depsOf(e)
-    return { params, shared: sharedSeen }
+  /** `depsOf`, with the non-uniform-space bit the walk passed through. */
+  const readOf = (e: Expr): { deps: Set<number>; nonUniform: boolean } => {
+    sawNonUniform = false
+    const deps = depsOf(e)
+    return { deps, nonUniform: sawNonUniform }
   }
 
-  const grow = (name: string, deps: Iterable<number>, shared: Iterable<string> = []): void => {
+  const grow = (name: string, deps: Iterable<number>): void => {
     const prior = localDeps.get(name) ?? new Set<number>()
     for (const d of deps) prior.add(d)
     localDeps.set(name, prior)
-    const priorShared = localShared.get(name) ?? new Set<string>()
-    for (const n of shared) priorShared.add(n)
-    localShared.set(name, priorShared)
   }
 
   const walk = (stmts: readonly Stmt[], control: ReadonlySet<number>): void => {
     for (const s of stmts) {
       switch (s.s) {
         case 'let': {
-          const b = bothOf(s.expr)
-          grow(s.name, b.params, b.shared)
+          const r = readOf(s.expr)
+          grow(s.name, r.deps)
+          if (r.nonUniform) localNonUniform.add(s.name)
           break
         }
         case 'var': {
           if (s.init) {
-            const b = bothOf(s.init)
-            grow(s.name, b.params, b.shared)
+            const r = readOf(s.init)
+            grow(s.name, r.deps)
+            if (r.nonUniform) localNonUniform.add(s.name)
           }
           break
         }
@@ -396,21 +394,18 @@ function returnDepsOf(
           // two gave `idx(x, y) { a[u32(x)] = y; return a[0] }` the summary `{y}`, so a call
           // site joined the uniform argument and not the one the index came from.
           if (root !== undefined) {
-            const value = bothOf(s.expr)
-            const indices = targetIndices(s.target).map(bothOf)
-            grow(
-              root,
-              [...value.params, ...control, ...indices.flatMap((i) => [...i.params])],
-              [...value.shared, ...indices.flatMap((i) => [...i.shared])],
-            )
+            const value = readOf(s.expr)
+            const indices = targetIndices(s.target).map(readOf)
+            grow(root, [...value.deps, ...control, ...indices.flatMap((i) => [...i.deps])])
+            if (value.nonUniform || indices.some((i) => i.nonUniform)) localNonUniform.add(root)
           }
           break
         }
         case 'return': {
           if (s.expr) {
-            const b = bothOf(s.expr)
-            for (const d of b.params) result.add(d)
-            for (const n of b.shared) resultShared.add(n)
+            const r = readOf(s.expr)
+            for (const d of r.deps) result.add(d)
+            if (r.nonUniform) resultNonUniform = true
           }
           for (const d of control) result.add(d)
           break
@@ -418,12 +413,10 @@ function returnDepsOf(
         case 'if': {
           let all = new Set<number>(control)
           for (const arm of s.arms) {
-            const b = bothOf(arm.cond)
-            // A `return` under this arm differs by whatever the CONDITION read, shared
-            // locations included, so they join the result the same way parameters do.
-            for (const n of b.shared) resultShared.add(n)
-            for (const d of b.params) all.add(d)
-            walk(arm.body, new Set([...control, ...b.params]))
+            const c = readOf(arm.cond)
+            if (c.nonUniform) resultNonUniform = true
+            for (const d of c.deps) all.add(d)
+            walk(arm.body, new Set([...control, ...c.deps]))
           }
           // The `else` runs under the negation of every arm, so it carries all of them.
           if (s.elseBody) walk(s.elseBody, all)
@@ -431,17 +424,17 @@ function returnDepsOf(
         }
         case 'for': {
           walk([s.init], control)
-          const c = bothOf(s.cond)
-          for (const n of c.shared) resultShared.add(n)
-          const inner = new Set([...control, ...c.params])
+          const loopCond = readOf(s.cond)
+          if (loopCond.nonUniform) resultNonUniform = true
+          const inner = new Set([...control, ...loopCond.deps])
           walk(s.body, inner)
           walk([s.update], inner)
           break
         }
         case 'switch': {
-          const c = bothOf(s.scrut)
-          for (const n of c.shared) resultShared.add(n)
-          const inner = new Set([...control, ...c.params])
+          const scrut = readOf(s.scrut)
+          if (scrut.nonUniform) resultNonUniform = true
+          const inner = new Set([...control, ...scrut.deps])
           for (const cs of s.cases) walk(cs.body, inner)
           if (s.defaultBody) walk(s.defaultBody, inner)
           break
@@ -456,15 +449,15 @@ function returnDepsOf(
   // the line that widens it, is seen on the next pass. Bounded by the body's own size.
   const size = (): number =>
     [...localDeps.values()].reduce((n, v) => n + v.size, 0) +
-    [...localShared.values()].reduce((n, v) => n + v.size, 0) +
     result.size +
-    resultShared.size
+    localNonUniform.size +
+    (resultNonUniform ? 1 : 0)
   for (let i = 0; i <= f.body.length + 2; i++) {
     const before = size()
     walk(f.body, new Set())
     if (size() === before) break
   }
-  return { params: result, shared: resultShared }
+  return { params: result, nonUniform: resultNonUniform }
 }
 
 /** Every function's return-dependency summary, to a fixpoint over the call graph: a callee's
@@ -473,14 +466,14 @@ function returnDepsOf(
 function returnDependencies(
   m: ModuleDecl,
   byName: ReadonlyMap<string, FuncDecl>,
-  isShared: (name: string) => boolean,
+  readsNonUniformSpace: (name: string) => boolean,
 ): ReturnDeps {
   const out = new Map<string, Summary>()
-  for (const f of m.funcs) out.set(f.name, { params: new Set(), shared: new Set() })
+  for (const f of m.funcs) out.set(f.name, { params: new Set(), nonUniform: false })
   for (let round = 0; round <= m.funcs.length + 1; round++) {
     let changed = false
     for (const f of m.funcs) {
-      const next = returnDepsOf(f, byName, out, isShared)
+      const next = returnDepsOf(f, byName, out, readsNonUniformSpace)
       if (!sameSummary(next, out.get(f.name))) {
         out.set(f.name, next)
         changed = true
@@ -509,27 +502,6 @@ interface Cx {
   /** Which parameters each function's RETURN VALUE depends on — see the summary pass above.
    *  A call site joins the arguments at those positions and no others. */
   readonly retDeps: ReturnDeps
-  /** The module's SHARED locations — a module `var` (`private` or `workgroup`) and a storage
-   *  binding — and the class each holds, joined over every write anywhere in the module.
-   *
-   *  A return value is not the only thing that leaves a function. `function launder(n: f32,
-   *  mode: f32) { stash = n; return mode > 0.5 }` has a summary of `{mode}` that is CORRECT
-   *  about its result and says nothing about `stash`, so `if (launder(v.uv.x, k)) { if (stash
-   *  > 0.25) { textureSample(…) } }` was accepted where Tint refuses it — the same program
-   *  passing or failing on whether its write went through a helper, which is the invariant
-   *  this pass is built on. Worse, the flow-sensitive environment let a caller keep believing
-   *  its own `stash = 1.` across a call that overwrote it, and reach a barrier at `uniform`:
-   *  a false PROOF, which the barrier threshold cannot tolerate.
-   *
-   *  So a shared location is classified MODULE-WIDE and not through the environment: every
-   *  write joins its value with the control flow it sits under, and a read is that join. It is
-   *  deliberately flow-insensitive — workgroup and storage memory is written by the OTHER
-   *  invocations too, so there is no per-invocation statement order to be sensitive to, and a
-   *  private variable written under a branch diverges just the same. That costs a refusal
-   *  where a uniform write follows a non-uniform one, which Tint's own flow-sensitive analysis
-   *  would accept; it only ever refuses, and no example in the corpus spells it. */
-  readonly sharedAt: ReadonlyMap<string, Known>
-  readonly isShared: (name: string) => boolean
 }
 
 /** How one expression varies, read against the environment at this point. */
@@ -551,23 +523,55 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       return cx.paramAt.get(e.name) ?? { at: 'unknown', why: `"${e.name}"` }
     }
     case 'varref': {
-      // A SHARED location before the environment: see `Cx.sharedAt`. The environment is about
-      // this invocation's own locals, and shared memory is not one.
-      if (cx.isShared(e.name)) {
-        return cx.sharedAt.get(e.name) ?? { at: 'unknown', why: `"${e.name}"` }
+      // ═══ The ADDRESS SPACE decides, and nothing else ═══
+      //
+      // Measured on Chromium 141, each as a complete program with the instrument reporting
+      // first. Tint's rule does not look at what was written into a location, only at where
+      // the location lives — it refuses a read of a `private` variable NOTHING writes:
+      //
+      //   var<private>, read in a branch condition
+      //     `reading from module-scope private variable 'mode' may result in a non-uniform
+      //     value` — whether it was written a constant, written a uniform by a helper, or
+      //     never written at all
+      //   var<workgroup>              `reading from workgroup storage variable 'flag' …`
+      //   read_write storage          `reading from read_write storage buffer 'scratch' …`
+      //   uniform, READ-ONLY storage, a module const, an override      ACCEPTED
+      //
+      // An earlier version of this pass classified those three spaces by the join of every
+      // write in the module. That was four false acceptances against this table, and the
+      // machinery is gone with it: a write's value cannot make a read of shared memory
+      // uniform, so there is nothing to join.
+      //
+      // The ENVIRONMENT is not consulted for any of them. It holds what this invocation did to
+      // its own locals, and none of these is one.
+      const v = (cx.m.vars ?? []).find((x) => x.name === e.name)
+      if (v !== undefined) {
+        return v.space === 'workgroup'
+          ? {
+              at: 'non-uniform',
+              why: `"${e.name}" (workgroup memory, which the whole workgroup writes; read it with workgroupUniformLoad to branch on it)`,
+            }
+          : {
+              at: 'non-uniform',
+              why: `"${e.name}" (a module variable, which each invocation owns)`,
+            }
+      }
+      const b = cx.m.bindings.find((x) => x.name === e.name)
+      if (b !== undefined) {
+        // A `uniform` buffer holds one value for every invocation, and so does a storage
+        // buffer nothing in the module may write. `read_write` is the one that varies: another
+        // invocation can write it between this one's two reads. WGSL's own default for a
+        // storage binding is `read`, which is what an absent `access` means here.
+        if (b.space === 'uniform') return { at: 'uniform', why: `uniform "${e.name}"` }
+        if (b.space === 'storage') {
+          return b.access === 'read_write'
+            ? { at: 'non-uniform', why: `"${e.name}" (a read_write storage buffer)` }
+            : { at: 'uniform', why: `read-only storage "${e.name}"` }
+        }
+        return { at: 'unknown', why: `"${e.name}"` }
       }
       const local = env.get(e.name)
       if (local) return local
-      const b = cx.m.bindings.find((x) => x.name === e.name)
-      // A `uniform` buffer holds one value for every invocation. A `storage` buffer does too,
-      // but a READ of one is only as uniform as the index, which this walk does not follow —
-      // so it stays `unknown` rather than claiming either answer. A module-scope `var` is
-      // `unknown` for the same reason: `var<private>` is per-invocation.
-      if (b) {
-        return b.space === 'uniform'
-          ? { at: 'uniform', why: `uniform "${e.name}"` }
-          : { at: 'unknown', why: `"${e.name}"` }
-      }
       return { at: 'unknown', why: `"${e.name}"` }
     }
     case 'member': {
@@ -583,6 +587,16 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       return classify(cx, env, base)
     }
     case 'call': {
+      // `workgroupUniformLoad(x)` is UNIFORM by construction — one value read out of workgroup
+      // memory with a barrier on each side, so every invocation of the workgroup sees the same
+      // one. That is the whole purpose of the builtin, and Tint accepts a barrier under it
+      // (measured). It is the value the CALL produces that is uniform, not the argument: the
+      // argument is workgroup memory and stays non-uniform everywhere else. With workgroup
+      // reads non-uniform on sight, this is the only way left to branch on workgroup memory,
+      // so without the carve-out an author has no way to write the program at all.
+      if (e.fn === 'workgroupUniformLoad') {
+        return { at: 'uniform', why: 'workgroupUniformLoad(…), one value for the workgroup' }
+      }
       // A derivative's own result varies by invocation by construction.
       if (DERIVATIVE_INTRINSICS.has(e.fn)) {
         return { at: 'non-uniform', why: `${e.fn}(…), which differences neighbouring invocations` }
@@ -603,12 +617,11 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       const summary = cx.retDeps.get(e.fn)
       const reaching =
         summary === undefined ? e.args : e.args.filter((_a, i) => summary.params.has(i))
-      let fromArgs = joinAll(cx, env, reaching, `${e.fn}(…)`)
-      // …and the SHARED locations the result was read out of. A return value is not only a
-      // function of its arguments: `function peek(): f32 { return stash }` takes none and is
-      // exactly as uniform as `stash` is.
-      for (const name of summary?.shared ?? []) {
-        fromArgs = joinKnown(fromArgs, cx.sharedAt.get(name) ?? { at: 'unknown', why: name })
+      const fromArgs = joinAll(cx, env, reaching, `${e.fn}(…)`)
+      // A result read out of `private`, `workgroup` or `read_write` storage is non-uniform
+      // however few arguments the call has — see `Summary.nonUniform`.
+      if (summary?.nonUniform === true) {
+        return { at: 'non-uniform', why: `${e.fn}(…), which reads memory the invocations share` }
       }
       // A call into a USER function is AT LEAST `unknown` and AT MOST as uniform as its
       // arguments. Both halves are load-bearing and each was wrong on its own:
@@ -692,34 +705,18 @@ interface Flow {
  *  the two thresholds differ. */
 export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
   const byName = new Map(m.funcs.map((f) => [f.name, f]))
-  // The SHARED locations — every module `var`, and every binding that is not a read-only
-  // uniform. A uniform buffer is left out because nothing can write one, so its class is
-  // settled by its address space alone.
-  const sharedNames = new Set<string>([
-    ...(m.vars ?? []).map((v) => v.name),
-    ...m.bindings.filter((b) => b.space !== 'uniform').map((b) => b.name),
-  ])
-  const isShared = (name: string): boolean => sharedNames.has(name)
-  /** What a shared location holds before any write in this module is counted: a `private`
-   *  variable's own initializer, which the IR constrains to a constant expression, and
-   *  `unknown` for everything else — `workgroup` memory carries whatever the last dispatch
-   *  left in it, and a storage buffer whatever the host wrote. */
-  const sharedBase = new Map<string, Known>()
-  for (const v of m.vars ?? []) {
-    sharedBase.set(
-      v.name,
-      v.init !== undefined
-        ? { at: 'uniform', why: `"${v.name}" (its initializer is a constant)` }
-        : { at: 'unknown', why: `"${v.name}" (${v.space} memory, with no initializer)` },
-    )
-  }
-  for (const b of m.bindings) {
-    if (b.space !== 'uniform') sharedBase.set(b.name, { at: 'unknown', why: `"${b.name}"` })
+  /** Whether a NAME lives in an address space a read of which is non-uniform on sight. The
+   *  same table `classify`'s varref arm applies, asked by name so the summary pass can carry
+   *  the answer out of a function body. */
+  const readsNonUniformSpace = (name: string): boolean => {
+    if ((m.vars ?? []).some((v) => v.name === name)) return true
+    const b = m.bindings.find((x) => x.name === name)
+    return b !== undefined && b.space === 'storage' && b.access === 'read_write'
   }
 
   // Computed once, before the control-flow fixpoint: a summary is a fact about a function's
   // own body and does not depend on the flow its callers reach it under.
-  const retDeps = returnDependencies(m, byName, isShared)
+  const retDeps = returnDependencies(m, byName, readsNonUniformSpace)
   const isEntry = (name: string): boolean => {
     const f = byName.get(name)
     return f !== undefined && stageOf(f) !== undefined
@@ -759,15 +756,9 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
 
   let startAt = new Map<string, Known>(m.funcs.map((f) => [f.name, entrySeed(f.name)]))
   let startArgs = new Map<string, readonly Known[]>()
-  let startShared = new Map<string, Known>(sharedBase)
   for (let round = 0; round <= m.funcs.length + 1; round++) {
     const next = new Map<string, Known>()
     const nextArgs = new Map<string, readonly Known[]>()
-    const nextShared = new Map<string, Known>(sharedBase)
-    const recordShared = (name: string, value: Known): void => {
-      const prior = nextShared.get(name)
-      nextShared.set(name, prior === undefined ? value : joinKnown(prior, value))
-    }
     const record = (callee: string, at: Known, args: readonly Known[]): void => {
       // An entry cannot be called (§52 refuses it), so nothing degrades one.
       if (!byName.has(callee) || isEntry(callee)) return
@@ -796,7 +787,6 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
         startAt.get(f.name),
         seedArgs(f.name, startArgs.get(f.name) ?? []),
         retDeps,
-        { at: startShared, isShared, record: recordShared },
         [],
         record,
       )
@@ -804,11 +794,9 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
     for (const f of m.funcs) if (!next.has(f.name)) next.set(f.name, entrySeed(f.name))
     const settled =
       m.funcs.every((f) => next.get(f.name)?.at === startAt.get(f.name)?.at) &&
-      m.funcs.every((f) => sameArgs(nextArgs.get(f.name), startArgs.get(f.name))) &&
-      [...sharedNames].every((n) => nextShared.get(n)?.at === startShared.get(n)?.at)
+      m.funcs.every((f) => sameArgs(nextArgs.get(f.name), startArgs.get(f.name)))
     startAt = next
     startArgs = nextArgs
-    startShared = nextShared
     if (settled) break
   }
 
@@ -820,7 +808,6 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
       startAt.get(f.name),
       seedArgs(f.name, startArgs.get(f.name) ?? []),
       retDeps,
-      { at: startShared, isShared, record: () => undefined },
       found,
       () => undefined,
     )
@@ -843,16 +830,10 @@ function walkFunction(
   start: Known | undefined,
   paramAt: ReadonlyMap<string, Known>,
   retDeps: ReturnDeps,
-  shared: {
-    readonly at: ReadonlyMap<string, Known>
-    readonly isShared: (name: string) => boolean
-    readonly record: (name: string, value: Known) => void
-  },
   found: UniformityViolation[],
   record: (callee: string, at: Known, args: readonly Known[]) => void,
 ): void {
-  const cx: Cx = { m, f, paramAt, retDeps, sharedAt: shared.at, isShared: shared.isShared }
-  const recordShared = shared.record
+  const cx: Cx = { m, f, paramAt, retDeps }
   const entry: Flow = {
     env: new Map(),
     at: start?.at ?? 'unknown',
@@ -948,16 +929,14 @@ function walkFunction(
               (acc, i) => joinKnown(acc, classify(cx, cur.env, i)),
               joinKnown(v, under),
             )
-            if (cx.isShared(root)) {
-              // Reported, not bound: a shared location has no per-invocation statement order
-              // to bind it into. `recordShared` joins it with every other write in the module.
-              recordShared(root, whole)
-            } else {
-              const prior = s.target.op === 'varref' ? undefined : cur.env.get(root)
-              cur = {
-                ...cur,
-                env: bind(cur, root, prior === undefined ? whole : joinKnown(prior, whole)),
-              }
+            // Bound unconditionally. A write to module, workgroup or storage memory lands
+            // here too and the binding is simply never read: `classify`'s varref arm answers
+            // those by ADDRESS SPACE before it looks at the environment, which is what makes
+            // the write side irrelevant to them.
+            const prior = s.target.op === 'varref' ? undefined : cur.env.get(root)
+            cur = {
+              ...cur,
+              env: bind(cur, root, prior === undefined ? whole : joinKnown(prior, whole)),
             }
           }
           break
