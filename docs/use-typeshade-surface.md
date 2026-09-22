@@ -3158,8 +3158,9 @@ dimension rather than per shape. §39 has the rest of the `f64` surface.
 
 > **On the section numbers.** They are handed out in BLOCKS, one block per branch in flight,
 > the same way `src/compiler/ts/codes.ts` hands out diagnostic codes, so two sessions adding
-> sections at once cannot claim one number twice. That leaves gaps — §41 and §50 to §61 are
-> other blocks. A gap is never reused: a number a block did not spend stays unspent, so a
+> sections at once cannot claim one number twice. That leaves gaps: §41 and §55 to §61 are
+> blocks no landed branch has spent, while §50 to §54 are lane D's and are in this document
+> below. A gap is never reused: a number a block did not spend stays unspent, so a
 > cross-reference keeps pointing where it pointed.
 
 A texture read has one texture argument and several plain ones, and WGSL types each of the plain
@@ -4369,15 +4370,32 @@ the call above the branch, use textureSampleLevel or textureSampleGrad, or write
 The seeds are the spec's (wgsl.txt:17870-17883): `workgroup_id`, `num_workgroups`,
 `subgroup_size` and `num_subgroups` are uniform, a `uniform` buffer is uniform, a module or
 `override` constant is uniform, and every other built-in value and user input varies by
-invocation. A call into a USER function is **at least `unknown` and at most as uniform as its
-arguments**, which is two rules and both are load-bearing. It is never `uniform`, whatever the
-arguments say, because the body can read a module `var`, a storage buffer or a built-in value
-the walk never sees — so reading the arguments alone would PROVE uniform a call that is not
-one, and that proof is what the barrier rule rests on. But it is never *more* uniform than its
-arguments either: a bare `unknown` laundered a definitely non-uniform value, so a one-line
-`function edge(x: f32): bool { return x > 0.5 }` put `if (edge(v.uv.x)) { textureSample(…) }`
-straight past the walk while the same condition written inline was refused. A helper is not a
-policy boundary.
+invocation. A call into a USER function is **at least `unknown`, and at most as uniform as the
+arguments its RESULT DEPENDS ON**. Both halves are load-bearing, and each was the wrong answer
+on its own:
+
+- Never `uniform`, whatever the arguments say, because the body can read a module `var`, a
+  storage buffer or a built-in value the walk never sees — so reading the arguments alone would
+  PROVE uniform a call that is not one, and that proof is what the barrier rule rests on.
+- Never *more* uniform than the arguments that reach the result. A bare `unknown` laundered a
+  definitely non-uniform value, so a one-line
+  `function edge(x: f32): bool { return x > 0.5 }` put `if (edge(v.uv.x)) { textureSample(…) }`
+  straight past the walk while the same condition written inline was refused. A helper is not a
+  policy boundary.
+- But no *less* uniform than those either, which is why it is the arguments the result depends
+  on and not all of them. `function lightingMode(uv: vec2, mode: f32): bool { return mode > 0.5 }`
+  answers from `mode`; `uv` is handed over and never reaches the value. Joining every argument
+  refused `if (lightingMode(v.uv, k)) { textureSample(…) }` on a uniform `k`, which Tint
+  accepts.
+
+So the call-graph fixpoint computes a **summary** per function — the parameter positions its
+return value depends on — and a call site joins the arguments at those positions and no others.
+Data *and* control dependence count: `function pick(x: f32, y: f32) { if (x > 0.5) { return 1. }
+return y }` returns a value that differs by `x` though no `return` mentions it, so a `return`
+carries the parameters of every condition it sits under. The summary is transitive, so
+`outer(p, q) { return inner(q, p) }` depends on `q` alone when `inner`'s result depends on its
+first parameter alone. A callee with no summary — an extern, a name the walk cannot resolve —
+contributes every argument, which is the conservative floor.
 
 It is **flow-sensitive**, which is what makes both thresholds true rather than merely stated.
 The environment is threaded in statement order and merged at each branch's join:

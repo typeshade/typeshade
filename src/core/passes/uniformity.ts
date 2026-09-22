@@ -65,6 +65,9 @@
 // inline form of each — which the walk already caught, so the same program passed or failed on
 // whether it went through a one-line helper. A helper is not a policy boundary.
 //
+// And joining EVERY argument at a call is the mirror-image mistake: see the return-dependency
+// summary below, which is what makes a call read only the arguments its result depends on.
+//
 // WHAT IT DOES NOT REACH, stated rather than implied. It runs in the `"use typeshade"` front
 // end only, so an EDSL-assembled `ModuleDecl` is not checked here — the front end is where a
 // diagnostic can point at the authoring line, and an EDSL module reaches Tint, which owns the
@@ -73,7 +76,7 @@
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js'
 import { stageOf } from '../ir/nodes.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
+import { eachExpr, eachStmtExpr, mapChildren } from '../ir/visit.js'
 import { DERIVATIVE_INTRINSICS, isBarrierIntrinsic, isKnownIntrinsic } from '../intrinsics.js'
 import type { SourceSpan } from '../ir/span.js'
 
@@ -223,6 +226,178 @@ function fieldUniformity(
   return undefined
 }
 
+// ═══ The return-dependency summary: which parameters a function's RESULT depends on ═══
+//
+// A call site needs to know how uniform a call's VALUE is, and that is not "as uniform as the
+// least uniform thing handed to it". Joining every argument was the second wrong answer in a
+// row on the same arm, in the opposite direction from the first:
+//
+//   function lightingMode(uv: vec2, mode: f32): bool { return mode > 0.5 }
+//   if (lightingMode(v.uv, k)) { textureSample(…) }        // k is a uniform
+//
+// The answer comes from `mode`. `uv` is handed over and never reaches the result. Tint ACCEPTS
+// that program — measured on Chromium 141 with the broken-shader instrument reporting first,
+// along with four more of the same shape: a helper that ignores both arguments, one that
+// returns the uniform of two, one that spends the non-uniform argument on an unread local, and
+// one that spends it on a branch the return does not sit under. Joining every argument refused
+// all five.
+//
+// So the fixpoint computes a SUMMARY per function — the parameter POSITIONS its return value
+// depends on — and a call site joins only the arguments at those positions. Both directions
+// come out right from the one rule: the laundering helpers of the round before
+// (`edge(x) { return x > 0.5 }`) have their parameter IN the summary, so they still refuse;
+// the five above do not, so they compile.
+//
+// DATA and CONTROL dependence both count. `function pick(x: f32, y: f32) { if (x > 0.5)
+// { return 1. } return y }` returns a value that differs by `x` even though no `return`
+// mentions it, so a `return` carries the parameters of every condition it sits under.
+//
+// Flow-INSENSITIVE over the locals, deliberately: a name's dependency set only ever grows, so
+// a parameter written to a local and then overwritten stays in the set. That can only make a
+// summary larger, which can only refuse more — the safe direction for a threshold whose other
+// side is a false proof — and it costs one lattice instead of two.
+
+/** The parameter positions a function's return value depends on, keyed by function name. A
+ *  function absent from the map is one this walk has no summary for (an extern, a name it
+ *  cannot resolve), and a call of it joins EVERY argument, which is where this arm began. */
+type ReturnDeps = ReadonlyMap<string, ReadonlySet<number>>
+
+const sameNumbers = (a: ReadonlySet<number>, b: ReadonlySet<number> | undefined): boolean =>
+  b !== undefined && a.size === b.size && [...a].every((x) => b.has(x))
+
+/** Every parameter position `f`'s return value depends on, given the summaries known so far. */
+function returnDepsOf(
+  f: FuncDecl,
+  byName: ReadonlyMap<string, FuncDecl>,
+  known: ReturnDeps,
+): ReadonlySet<number> {
+  const positionOf = new Map(f.params.map((p, i) => [p.name, i]))
+  /** local name → the parameter positions its value depends on. Grows only. */
+  const localDeps = new Map<string, Set<number>>()
+  const result = new Set<number>()
+
+  const depsOf = (e: Expr): Set<number> => {
+    const acc = new Set<number>()
+    const visit = (x: Expr): void => {
+      if (x.op === 'param') {
+        const i = positionOf.get(x.name)
+        if (i !== undefined) acc.add(i)
+        return
+      }
+      if (x.op === 'varref') {
+        for (const d of localDeps.get(x.name) ?? []) acc.add(d)
+        return
+      }
+      if (x.op === 'call' && byName.has(x.fn)) {
+        const summary = known.get(x.fn)
+        if (summary !== undefined) {
+          // Only the arguments the CALLEE's result depends on — which is what makes the
+          // summary transitive: `outer(p, q) { return inner(q, p) }` depends on `q` alone
+          // when `inner`'s result depends on its first parameter alone.
+          x.args.forEach((a, i) => {
+            if (summary.has(i)) visit(a)
+          })
+          return
+        }
+      }
+      // An intrinsic, or a callee with no summary yet: every argument contributes. Reusing
+      // `mapChildren` rather than re-listing the Expr shapes — one walker per operation.
+      mapChildren(x, (c) => {
+        visit(c)
+        return c
+      })
+    }
+    visit(e)
+    return acc
+  }
+
+  const grow = (name: string, deps: Iterable<number>): void => {
+    const prior = localDeps.get(name) ?? new Set<number>()
+    for (const d of deps) prior.add(d)
+    localDeps.set(name, prior)
+  }
+
+  const walk = (stmts: readonly Stmt[], control: ReadonlySet<number>): void => {
+    for (const s of stmts) {
+      switch (s.s) {
+        case 'let':
+          grow(s.name, depsOf(s.expr))
+          break
+        case 'var':
+          if (s.init) grow(s.name, depsOf(s.init))
+          break
+        case 'assign':
+        case 'assignOp': {
+          const root = rootVarref(s.target)
+          // Under a branch the written value carries the branch's own parameters too.
+          if (root !== undefined) grow(root, [...depsOf(s.expr), ...control])
+          break
+        }
+        case 'return':
+          if (s.expr) for (const d of depsOf(s.expr)) result.add(d)
+          for (const d of control) result.add(d)
+          break
+        case 'if': {
+          let all = new Set<number>(control)
+          for (const arm of s.arms) {
+            const c = depsOf(arm.cond)
+            for (const d of c) all.add(d)
+            walk(arm.body, new Set([...control, ...c]))
+          }
+          // The `else` runs under the negation of every arm, so it carries all of them.
+          if (s.elseBody) walk(s.elseBody, all)
+          break
+        }
+        case 'for': {
+          walk([s.init], control)
+          const inner = new Set([...control, ...depsOf(s.cond)])
+          walk(s.body, inner)
+          walk([s.update], inner)
+          break
+        }
+        case 'switch': {
+          const inner = new Set([...control, ...depsOf(s.scrut)])
+          for (const c of s.cases) walk(c.body, inner)
+          if (s.defaultBody) walk(s.defaultBody, inner)
+          break
+        }
+        default:
+          break
+      }
+    }
+  }
+
+  // Iterated because `localDeps` grows: a value carried round a loop, or a local read above
+  // the line that widens it, is seen on the next pass. Bounded by the body's own size.
+  for (let i = 0; i <= f.body.length + 2; i++) {
+    const before = [...localDeps.values()].reduce((n, v) => n + v.size, 0) + result.size
+    walk(f.body, new Set())
+    const after = [...localDeps.values()].reduce((n, v) => n + v.size, 0) + result.size
+    if (after === before) break
+  }
+  return result
+}
+
+/** Every function's return-dependency summary, to a fixpoint over the call graph: a callee's
+ *  summary can widen its caller's, and WGSL forbids recursion, so this settles in as many
+ *  rounds as the graph is deep. */
+function returnDependencies(m: ModuleDecl, byName: ReadonlyMap<string, FuncDecl>): ReturnDeps {
+  const out = new Map<string, ReadonlySet<number>>()
+  for (const f of m.funcs) out.set(f.name, new Set())
+  for (let round = 0; round <= m.funcs.length + 1; round++) {
+    let changed = false
+    for (const f of m.funcs) {
+      const next = returnDepsOf(f, byName, out)
+      if (!sameNumbers(next, out.get(f.name))) {
+        out.set(f.name, next)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  return out
+}
+
 /** What a walk of one function reads that does not change as it steps: the module, the
  *  function, and the class each PARAMETER was called with.
  *
@@ -238,6 +413,9 @@ interface Cx {
   readonly m: ModuleDecl
   readonly f: FuncDecl
   readonly paramAt: ReadonlyMap<string, Known>
+  /** Which parameters each function's RETURN VALUE depends on — see the summary pass above.
+   *  A call site joins the arguments at those positions and no others. */
+  readonly retDeps: ReturnDeps
 }
 
 /** How one expression varies, read against the environment at this point. */
@@ -290,13 +468,22 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       if (DERIVATIVE_INTRINSICS.has(e.fn)) {
         return { at: 'non-uniform', why: `${e.fn}(…), which differences neighbouring invocations` }
       }
-      const fromArgs = joinAll(cx, env, e.args, `${e.fn}(…)`)
       // An INTRINSIC is a pure function of its arguments, so it is exactly as uniform as they
       // are — and a nullary one (there are none that return a value, but the arm has to be
       // right) has nothing to read, so it claims nothing.
       if (isKnownIntrinsic(e.fn)) {
-        return e.args.length === 0 ? { at: 'unknown', why: `${e.fn}(…)` } : fromArgs
+        return e.args.length === 0
+          ? { at: 'unknown', why: `${e.fn}(…)` }
+          : joinAll(cx, env, e.args, `${e.fn}(…)`)
       }
+      // A USER call reads only the arguments its RESULT depends on, per the summary above. An
+      // argument spent on a local, a side effect or a branch the return does not sit under
+      // never reaches the value, so it cannot make the value vary — joining it refused five
+      // programs Tint accepts. With no summary (an extern, an unresolved name) every argument
+      // counts, which is the conservative floor this arm started from.
+      const summary = cx.retDeps.get(e.fn)
+      const reaching = summary === undefined ? e.args : e.args.filter((_a, i) => summary.has(i))
+      const fromArgs = joinAll(cx, env, reaching, `${e.fn}(…)`)
       // A call into a USER function is AT LEAST `unknown` and AT MOST as uniform as its
       // arguments. Both halves are load-bearing and each was wrong on its own:
       //
@@ -379,6 +566,9 @@ interface Flow {
  *  the two thresholds differ. */
 export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
   const byName = new Map(m.funcs.map((f) => [f.name, f]))
+  // Computed once, before the control-flow fixpoint: a summary is a fact about a function's
+  // own body and does not depend on the flow its callers reach it under.
+  const retDeps = returnDependencies(m, byName)
   const isEntry = (name: string): boolean => {
     const f = byName.get(name)
     return f !== undefined && stageOf(f) !== undefined
@@ -448,6 +638,7 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
         f,
         startAt.get(f.name),
         seedArgs(f.name, startArgs.get(f.name) ?? []),
+        retDeps,
         [],
         record,
       )
@@ -468,6 +659,7 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
       f,
       startAt.get(f.name),
       seedArgs(f.name, startArgs.get(f.name) ?? []),
+      retDeps,
       found,
       () => undefined,
     )
@@ -489,10 +681,11 @@ function walkFunction(
   f: FuncDecl,
   start: Known | undefined,
   paramAt: ReadonlyMap<string, Known>,
+  retDeps: ReturnDeps,
   found: UniformityViolation[],
   record: (callee: string, at: Known, args: readonly Known[]) => void,
 ): void {
-  const cx: Cx = { m, f, paramAt }
+  const cx: Cx = { m, f, paramAt, retDeps }
   const entry: Flow = {
     env: new Map(),
     at: start?.at ?? 'unknown',

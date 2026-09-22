@@ -264,14 +264,11 @@ let tile: workgroup<array<f32, 64>>
       ),
     )
     expect(conflict.join('\n')).toContain('conflicting diagnostic directive')
-    // Reported at BOTH directives, each naming the function the other sits on: two entries in
-    // a long file are two places to look, and "another @diagnostic in this file" named
-    // neither. The same sentence twice, once per line an author has to choose between.
-    expect(conflict).toHaveLength(2)
-    for (const c of conflict) {
-      expect(c).toContain('set to "off" by the @diagnostic on "fs"')
-      expect(c).toContain('to "error" by the one on "fs"')
-    }
+    // ONE conflict, ONE diagnostic. Reporting it at both decorators with byte-identical text
+    // made a reader check whether two conflicts had been found.
+    expect(conflict).toHaveLength(1)
+    expect(conflict[0]).toContain('set to "off" by the @diagnostic on "fs"')
+    expect(conflict[0]).toContain('to "error" by the one on "fs"')
     // The SAME severity written twice says one thing twice, which is not a conflict — and one
     // directive is emitted, not two.
     const twice = compiled(
@@ -290,11 +287,11 @@ let tile: workgroup<array<f32, 64>>
 export function helper(uv: vec2): vec4 { return textureSample(t, s, uv) }
 @diagnostic("error", "derivative_uniformity")
 @fragment export function fs(v: VsOut): vec4 { return helper(v.uv) }`)
-    expect(errors).toHaveLength(2)
-    for (const e of errors) {
-      expect(e).toContain('set to "off" by the @diagnostic on "helper"')
-      expect(e).toContain('to "error" by the one on "fs"')
-    }
+    // One diagnostic, on the SECOND directive — the one that introduced the disagreement —
+    // naming the function each side sits on so the other is findable without searching.
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain('set to "off" by the @diagnostic on "helper"')
+    expect(errors[0]).toContain('to "error" by the one on "fs"')
   })
 
   it('refuses a severity and a rule it does not know, and a wrong argument shape', () => {
@@ -516,6 +513,21 @@ export function opaque(): f32 { return 0.5 }
 // policy is that the same program passed or refused on whether its condition — or its
 // derivative — went through a helper, and §54's whole claim is that this compiler answers
 // before Tint does.
+// ═══ The nine programs, both directions, one table ═══
+//
+// This arm was answered wrong three times running, each time in the direction opposite the
+// last, so both directions are pinned here together rather than in two places that can drift:
+//
+//   1. a user call returned the JOIN OF NOTHING — a bare `unknown` — and laundered a
+//      non-uniform value, so L1 to L5 compiled while Tint refused them.
+//   2. it returned the JOIN OF EVERY ARGUMENT, and over-refused, so A1 to A5 were refused
+//      while Tint accepted them.
+//   3. it returns the join of the arguments the callee's RESULT DEPENDS ON, which is what the
+//      summary pass computes. Both halves of the table come out right from that one rule.
+//
+// Every row was measured on Chromium 141 (`chromium_headless_shell-1194`), with the
+// broken-shader instrument reporting `fn broken( {` first, and the ACCEPTED rows were emitted
+// and handed to Tint whole.
 describe('a value that goes through a helper keeps its class', () => {
   const EDGE = 'export function edge(x: f32): bool { return x > 0.5 }\n'
 
@@ -597,6 +609,122 @@ describe('a value that goes through a helper keeps its class', () => {
     // these compile — and both were measured ACCEPTED on Tint, so refusing them would be a
     // false positive on a program both targets run.
     expect(compiled(source).wgsl).toContain('textureSample(t, s,')
+  })
+
+  it.each([
+    [
+      'A1 the helper ignores both arguments',
+      `${HEAD}export function always(uv: vec2, m: f32): bool { return true }
+@fragment export function fs(v: VsOut): vec4 {
+  if (always(v.uv, k)) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'A2 it returns the uniform of two parameters',
+      `${HEAD}export function pick(a: f32, b: f32): f32 { return b }
+@fragment export function fs(v: VsOut): vec4 {
+  if (pick(v.uv.x, k) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'A3 the non-uniform argument is spent on a local nothing returns',
+      `${HEAD}export function gate(uv: vec2, m: f32): bool {
+  const unused = uv.x * 2.
+  return m > 0.5
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (gate(v.uv, k)) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'A4 it is spent on a branch the return does not sit under',
+      `${HEAD}export function gate2(uv: vec2, m: f32): bool {
+  let acc: f32 = 0.
+  if (uv.x > 0.5) { acc = 1. }
+  return m > 0.5
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (gate2(v.uv, k)) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'A5 the realistic one: the answer comes from the uniform parameter',
+      `${HEAD}export function lightingMode(uv: vec2, mode: f32): bool { return mode > 0.5 }
+@fragment export function fs(v: VsOut): vec4 {
+  if (lightingMode(v.uv, k)) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'A6 transitive: the forwarded argument is the uniform one',
+      `${HEAD}export function inner2(a: f32, b: f32): f32 { return a }
+export function outer2(p: f32, q: f32): f32 { return inner2(p, q) }
+@fragment export function fs(v: VsOut): vec4 {
+  if (outer2(k, v.uv.x) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+  ])('accepts a call whose RESULT does not depend on the non-uniform argument: %s', (_w, src) => {
+    // The argument reaches the helper and never reaches its return value, so it cannot make
+    // the value vary. Joining every argument refused all six; Tint accepts all six. The
+    // summary pass is what tells the two halves of this table apart.
+    expect(compiled(src).wgsl).toContain('textureSample(t, s,')
+  })
+
+  it.each([
+    [
+      'D1 control dependence: the return sits under a branch on the non-uniform parameter',
+      `${HEAD}export function pick(x: f32, y: f32): f32 {
+  if (x > 0.5) { return 1. }
+  return y
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (pick(v.uv.x, k) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'D2 transitive: the forwarded argument lands in the callee\u2019s dependent slot',
+      `${HEAD}export function inner(a: f32, b: f32): f32 { return a }
+export function outer(p: f32, q: f32): f32 { return inner(q, p) }
+@fragment export function fs(v: VsOut): vec4 {
+  if (outer(k, v.uv.x) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'D3 a local carries the non-uniform parameter into the return',
+      `${HEAD}export function via(x: f32, y: f32): f32 {
+  const c = x * 2.
+  return c + y
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (via(v.uv.x, k) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'D4 written under a branch on it, then returned',
+      `${HEAD}export function via3(x: f32, y: f32): f32 {
+  let acc: f32 = y
+  if (x > 0.5) { acc = 1. }
+  return acc
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (via3(v.uv.x, k) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+  ])('still refuses one whose result DOES depend on it, however indirectly: %s', (_w, src) => {
+    // The other side of the summary: a parameter reaches the result through a local, through
+    // a branch it does not appear in, or through a callee's own dependent slot. Each of these
+    // is refused by Tint, and each would be accepted by a summary that read only the
+    // `return` expressions.
+    expect(errorsOf(src)[0]).toContain('is reached under "VsOut.uv"')
   })
 
   it('keeps the BARRIER threshold where it was: unknown is still not uniform', () => {

@@ -356,7 +356,7 @@ const FOR_UPDATE_OP: Readonly<Record<number, BinOp>> = {
 
 /** The constant a `case` label selects on. A bare literal is the common form; `case -1:` is
  *  a PrefixUnaryExpression and `case MODE_B:` a module constant, and both fold to the same
- *  number the IR's `cases[].value` holds — the same fold `xs[N]` and a loop bound use, so
+ *  number the IR's `cases[].values` holds — the same fold `xs[N]` and a loop bound use, so
  *  the three places a constant has to be known at compile time agree on what counts as one.
  *
  *  `scrutKind` is the selector's own type, and the label has to fit it: the emitter spells
