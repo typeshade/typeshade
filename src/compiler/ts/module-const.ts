@@ -549,6 +549,25 @@ function lowerOne(
       return undefined
     }
   }
+  // A bool const is checked here for the same reason (#64). `true`, `false`, `1` and `0` all
+  // spell; anything else reached the fail-closed bool arm of each writer's `literal`
+  // (`wgsl.ts`, `glsl.ts`) as SD0017 thrown from inside `emitModule`, which `source-file.ts`
+  // wraps as TS8015 anchored on the file's `"use typeshade"` directive — the one line that has
+  // nothing to do with the declaration. This arm costs the same spurious TS8022 per use the
+  // integer arms above already cost, since the binding is never defined; the anchor on the
+  // declaration is what the author needs first, and the writers' arms stay for the `fn()`
+  // EDSL surface, where a hand-built ConstDecl can carry anything.
+  if (k === 'bool' && numeric !== 0 && numeric !== 1) {
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        decl,
+        `Module const "${name}" is bool, but ${numeric} is neither true nor false. Write true, false, 1 or 0.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    )
+    return undefined
+  }
   const value = k === 'f32' ? numeric : k === 'bool' ? numeric : Math.trunc(numeric)
   scope.define({
     kind: 'module',

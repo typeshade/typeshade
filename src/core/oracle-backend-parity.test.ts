@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, f32, vec4, u32T, f32T, vec4fT, vec2fT } from './ir/index.js'
+import { fn, module, f32, vec4, u32T, f32T, vec4fT, vec2fT, matT } from './ir/index.js'
 import type { FuncDecl, ShaderType, Stmt } from './ir/index.js'
 import { compileModule, ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './oracle.js'
 import {
@@ -16,7 +16,7 @@ import { pow, fract, round, unpack4x8unorm, pack4x8unorm, bitcastU32 } from './i
 // boring: same intrinsic set, fail-loud on what it cannot compute, never a
 // plausible-wrong value. compileModule is PRODUCTION-used (map cpu-projections).
 
-const mat3T: ShaderType = { kind: 'mat', n: 3 } as unknown as ShaderType
+const mat3T: ShaderType = matT(3, 3)
 const vec3T: ShaderType = { kind: 'vec', n: 3, elem: 'f32' } as ShaderType
 
 /** Hand-built decl: `fn f(m: mat3, v: vec3) -> vec3 { return m <bop> v }` —
@@ -74,15 +74,74 @@ describe('X-GIS #763 O — oracle backend parity', () => {
     expect(out).toEqual([10, 40, 90]) // fail-before: [NaN, NaN, NaN]
   })
 
-  it('O2: mat × mat computes the real column-major product; vec × mat fails LOUD', () => {
-    // mat*mat is now a real column-major product (the mat64 matmul path needs it;
-    // it matches both GPU backends' native mat*mat). diag(1,2,3)² = diag(1,4,9).
+  it('O2: mat × mat computes the real column-major product', () => {
+    // mat*mat is a real column-major product (the mat64 matmul path needs it; it matches both
+    // GPU backends' native mat*mat). diag(1,2,3)² = diag(1,4,9).
     const mm = compileModule(module({ funcs: [matBinFn('o2mm', mat3T, mat3T, mat3T)] }))
     const diag = [1, 0, 0, 0, 2, 0, 0, 0, 3]
     expect(mm.fns['o2mm']!(diag, diag)).toEqual([1, 0, 0, 0, 4, 0, 0, 0, 9])
-    // vec × mat (row-vector form) is still unimplemented — fail loud, not wrong.
+  })
+
+  // `vec × mat` used to throw here ("fail loud, not wrong") because no front end could build
+  // one. wgsl.txt:9960-9995 gives it the ROW-vector product and #149 types it, so the oracle
+  // now has to compute it — an evaluator that throws on a form the compiler emits is the
+  // divergence this suite exists to catch.
+  it('O2: vec × mat is the row-vector product, which is transpose(m) * v', () => {
     const vm = compileModule(module({ funcs: [matBinFn('o2vm', vec3T, mat3T, vec3T)] }))
-    expect(() => vm.fns['o2vm']!([1, 2, 3], [1, 0, 0, 0, 1, 0, 0, 0, 1])).toThrow(/vec\*mat/)
+    // Deliberately NOT symmetric: with a symmetric matrix the row and column products agree
+    // and the comparison below proves nothing.
+    const m = [1, 2, 3, 4, 5, 6, 7, 8, 9] // columns (1,2,3) (4,5,6) (7,8,9)
+    const v = [1, 0, 0]
+    // v · each column.
+    expect(vm.fns['o2vm']!(v, m)).toEqual([1, 4, 7])
+    // The column form takes the first column whole, so the two really do differ.
+    const mv = compileModule(module({ funcs: [matBinFn('o2mv', mat3T, vec3T, vec3T)] }))
+    expect(mv.fns['o2mv']!(m, v)).toEqual([1, 2, 3])
+  })
+
+  it('O2: a NON-SQUARE product is shaped by the static type, not by the value length', () => {
+    // Six numbers are a mat2x3 or a mat3x2 and the two multiply to different shapes, which a
+    // flat column-major list cannot say. mat2x3 (2 columns of 3) times a vec2 gives a vec3.
+    const mat2x3T = matT(2, 3)
+    const vec2T: ShaderType = { kind: 'vec', n: 2, elem: 'f32' }
+    const mv = compileModule(module({ funcs: [matBinFn('o2ns', mat2x3T, vec2T, vec3T)] }))
+    const m = [1, 2, 3, 4, 5, 6] // columns (1,2,3) and (4,5,6)
+    expect(mv.fns['o2ns']!(m, [1, 0])).toEqual([1, 2, 3])
+    expect(mv.fns['o2ns']!(m, [0, 1])).toEqual([4, 5, 6])
+    // The SAME six numbers as a mat3x2 — 3 columns of 2 — take a vec3 and give a vec2, which
+    // is the whole point: the value is identical and only the static shape decides.
+    const t = compileModule(module({ funcs: [matBinFn('o2nsT', matT(3, 2), vec3T, vec2T)] }))
+    expect(t.fns['o2nsT']!(m, [1, 0, 0])).toEqual([1, 2])
+    expect(t.fns['o2nsT']!(m, [0, 0, 1])).toEqual([5, 6])
+  })
+
+  // The row #149 names for this suite. `determinant` is the one matrix builtin whose value
+  // the oracle computes rather than reshuffles, so a wrong cofactor expansion would be a
+  // plausible number rather than a crash — which is exactly what a parity gate is for.
+  it('O2: determinant of a 2 and a 3 agree with the hand computation', () => {
+    const det = (t: ShaderType, name: string): FuncDecl => ({
+      name,
+      params: [{ name: 'm', type: t }],
+      ret: f32T,
+      body: [
+        {
+          s: 'return',
+          expr: {
+            op: 'call',
+            type: f32T,
+            fn: 'determinant',
+            args: [{ op: 'param', type: t, name: 'm' } as unknown as never],
+          } as unknown as never,
+        },
+      ],
+    })
+    const m = compileModule(module({ funcs: [det(matT(2, 2), 'd2'), det(matT(3, 3), 'd3')] }))
+    // Column-major [[a,b],[c,d]] is the matrix (a c / b d), determinant ad - cb.
+    expect(m.fns['d2']!([1, 2, 3, 4])).toBe(1 * 4 - 3 * 2)
+    // A singular 3x3 (third column is the sum of the first two) must be exactly 0.
+    expect(m.fns['d3']!([1, 2, 3, 4, 5, 6, 5, 7, 9])).toBe(0)
+    // And a scaling matrix is the product of its diagonal.
+    expect(m.fns['d3']!([2, 0, 0, 0, 3, 0, 0, 0, 4])).toBe(24)
   })
 
   it('O3: GPU-only stubs throw by default, return placeholders only under opt-in', () => {

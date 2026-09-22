@@ -162,22 +162,30 @@ export function fs(v: V): vec4 {
 })
 
 describe('a struct field named with a WGSL reserved keyword', () => {
-  // Tint, measured 2026-09-21: "'ref' is a reserved keyword" (wgsl.txt §2.3, the reserved-word
-  // list). Found by the adversarial review of this very suite: an earlier draft of the texture
-  // rows in `texture-dims.test.ts` named a uniform field `ref`, which made those programs
-  // Tint-invalid for a reason that had nothing to do with the row they were pinning.
+  // THIS ROW HAS BEEN CLOSED, and the history is the point of keeping it. It was found by
+  // writing this suite — an earlier draft of the texture rows in `texture-dims.test.ts` named a
+  // uniform field `ref`, which made those programs Tint-invalid for a reason that had nothing
+  // to do with the row they pinned — and at the time the front end accepted all nine names with
+  // zero diagnostics and emitted a module Tint refuses (`'ref' is a reserved keyword`, measured
+  // 2026-09-21). #165 closed it, so the `it.fails` that recorded the gap is now a plain `it`
+  // recording the rule, which is where a closed row belongs.
   //
-  // THE ASYMMETRY IS THE INTERESTING HALF. `src/core/reserved-words.ts` exists and the GLSL
-  // path uses it — a field named `filter` is refused by the JS-array check, and the GLSL
-  // sanitiser renames a colliding identifier — but `emit-alias.ts` applies the rename to
-  // GENERATED identifiers only, so an AUTHORED name reaches the WGSL verbatim. Nine keywords
-  // were measured to compile clean here and be refused by Tint: `ref`, `typedef`, `union`,
-  // `shared`, `do`, `asm`, `enum`, `inline`, `static`; `var` is refused by Tint's parser
-  // instead ("expected '}' for struct declaration").
-  //
-  // NO ISSUE YET — this one was found by writing the suite rather than by the audit. It belongs
-  // with the other author-surface refusals; the lane that files it should flip this row.
-  const RESERVED = ['ref', 'typedef', 'union', 'shared', 'do', 'asm', 'enum', 'inline', 'static']
+  // The asymmetry it came from: `src/core/reserved-words.ts` has always existed and the GLSL
+  // path used it, but the rename applied to GENERATED identifiers only, so an AUTHORED name
+  // reached the WGSL verbatim. `var` is refused here too, where Tint's own message is a parse
+  // error ("expected '}' for struct declaration") rather than the reserved-word one.
+  const RESERVED = [
+    'ref',
+    'typedef',
+    'union',
+    'shared',
+    'do',
+    'asm',
+    'enum',
+    'inline',
+    'static',
+    'var',
+  ]
 
   const withField = (name: string): string => `"use typeshade"
 interface U {
@@ -194,17 +202,25 @@ export function fs(v: V): vec4 {
 }
 `
 
-  it('reaches the emitted WGSL verbatim today, which is the shape Tint refuses', () => {
+  it('refuses every name WGSL reserves, naming the target and the remedy', () => {
+    const wrong: string[] = []
     for (const name of RESERVED) {
-      expect(compilesClean(withField(name)), name).toContain(`${name}: f32,`)
+      const errors = errorsOf(withField(name))
+      if (errors.length !== 1) {
+        wrong.push(`${name}: ${String(errors.length)} diagnostics`)
+        continue
+      }
+      const message = errors[0] ?? ''
+      // The message has to say WHICH name, that WGSL is what reserves it, and what to do —
+      // a bare "reserved word" would leave an author guessing which field and which target.
+      if (!message.includes(`"${name}"`) || !message.includes('reserved in WGSL'))
+        wrong.push(`${name}: ${message}`)
+      if (!/Rename it\.?/.test(message)) wrong.push(`${name}: no remedy — ${message}`)
     }
+    expect(wrong).toEqual([])
   })
 
-  it.fails(
-    'refuses a field name WGSL reserves, as the GLSL path already does — no issue yet',
-    () => {
-      const accepted = RESERVED.filter((name) => errorsOf(withField(name)).length === 0)
-      expect(accepted).toEqual([])
-    },
-  )
+  it('leaves an ordinary field name alone, so the check is a rule and not a blanket', () => {
+    expect(errorsOf(withField('weight'))).toEqual([])
+  })
 })

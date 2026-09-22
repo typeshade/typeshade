@@ -755,6 +755,23 @@ export function parseParams(
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input')
     }
     const location = numberDecorator(p, sourceFile, 'location')
+    // An emulated double on the entry's IO boundary (#151 F64-09). A FRAGMENT @location input
+    // is interpolated; a VERTEX one is a buffer read, which carries a scalar f64's pair in one
+    // slot but cannot carry a vec64's two.
+    if (
+      stage !== undefined &&
+      location !== undefined &&
+      refuseF64EntryIo(
+        pType,
+        `Parameter "${p.name.text}"`,
+        stage === 'vertex' ? 'attribute' : 'varying',
+        p,
+        sourceFile,
+        diagnostics,
+      )
+    ) {
+      return undefined
+    }
     params.push({
       name: p.name.text,
       type: pType,
@@ -943,6 +960,20 @@ export function parseSignature(
     stageInfo.stage,
   )
   if (!ret) return undefined
+  // A stage output of an emulated double is a varying or a render-target write (#151 F64-09).
+  if (
+    stageInfo.stage !== undefined &&
+    refuseF64EntryIo(
+      ret,
+      `The return of entry "${name}"`,
+      'varying',
+      node.type ?? node,
+      sourceFile,
+      diagnostics,
+    )
+  ) {
+    return undefined
+  }
   const decl: FuncDecl = { name, params, ret, body: [] }
   recordParamDefaults(decl, node.parameters)
   // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
@@ -982,6 +1013,81 @@ export function parseSignature(
     refuseVertexWithoutPosition(ret, node, name, sourceFile, diagnostics, structs)
   }
   return decl
+}
+
+/** True, having reported it, when an emulated double sits on an entry's IO boundary.
+ *
+ *  A `@location` varying is INTERPOLATED, and interpolating a (hi, lo) pair word by word is
+ *  not the interpolation of the double it encodes: the low word is the part f32 could not
+ *  hold, and a hardware blend of it carries no meaning. The fp64 pass refuses it as SD0044,
+ *  and a `vec64` vertex ATTRIBUTE as SD0041 (it would need two slots), both at emit, with no
+ *  source span. Said here instead, at the parameter, the field or the return type that has
+ *  it, naming the bridge an author can write (#151 F64-09).
+ *
+ *  A SCALAR `f64` vertex attribute is not refused: a vertex `@location` input is a buffer
+ *  read, not a varying, and one `vec2<f32>` slot carries the pair exactly — which is what the
+ *  pass accepts. */
+type F64IoPlace =
+  /** A `@location` that is INTERPOLATED between the stages: a fragment input, any entry
+   *  output. The pair's two words would be blended one at a time. */
+  | 'varying'
+  /** A bare vertex `@location` parameter, which is a buffer read. A scalar double's pair
+   *  rides the one slot it already has; anything wider needs more than one. */
+  | 'attribute'
+  /** A `@location` field of an IO struct, which the fp64 pass refuses whichever direction it
+   *  faces — its struct rule keys on `f.location !== undefined` alone. */
+  | 'io-struct-field'
+
+function refuseF64EntryIo(
+  type: ShaderType,
+  what: string,
+  place: F64IoPlace,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (!containsF64Type(type)) return false
+  // The one f64 an entry CAN carry, and the only place it can: see 'attribute' above.
+  if (place === 'attribute' && type.kind === 'f64') return false
+  // The remedy is an ORDINARY one, deliberately: there is no author-facing helper for
+  // splitting a double into its words and no plan for one, because the words are the
+  // emulation's business and not the language's (§39). A uniform or storage binding carries
+  // an f64 and is visible from every stage, so a double that two stages need is read where
+  // it is needed rather than handed across.
+  const bridge =
+    `Narrow it with f32(x), or compute the double in the stage that needs it — a uniform or ` +
+    `storage binding carries an f64 and every stage can read one.`
+  const reason =
+    place === 'varying'
+      ? `an emulated double is a pair of f32 words, and a @location varying interpolates ` +
+        `each word on its own, which is not the interpolation of the double`
+      : place === 'attribute'
+        ? `a vertex attribute is one slot per @location, and only a scalar f64 fits one — ` +
+          `this shape needs more`
+        : `the fp64 pass carries no emulated double in an entry IO struct, whichever ` +
+          `direction it faces` +
+          (type.kind === 'f64'
+            ? ` — a scalar one rides a bare @location parameter, if that is what you meant`
+            : '')
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${what} carries ${typeKey(type)}: ${reason}. ${bridge}`,
+    TS_CODES.F64_ENTRY_IO,
+  )
+  return true
+}
+
+/** Whether `t` carries an emulated double anywhere — the scalar, a vector of them, a matrix of
+ *  them, or an array or struct field of any of those. The fp64 pass's own `containsF64`, in
+ *  the front end's terms; a struct is taken by NAME there and its fields are checked where the
+ *  struct is validated, so the recursion here stops at one. */
+function containsF64Type(t: ShaderType): boolean {
+  if (t.kind === 'f64' || t.kind === 'vec64') return true
+  if (t.kind === 'mat') return t.elem === 'f64'
+  if (t.kind === 'array') return containsF64Type(t.elem)
+  return false
 }
 
 /** True, having reported it, when a `@vertex` entry's return carries no `@builtin(position)`:
@@ -1477,6 +1583,19 @@ function checkStructBuiltinFields(
           `has neither @builtin(...) nor @location(...): ${remedy}`,
         TS_CODES.STRUCT_FIELD_MISSING_ATTR,
       )
+      continue
+    }
+    if (
+      field.location !== undefined &&
+      refuseF64EntryIo(
+        field.type,
+        `Struct "${structName}" field "${field.name}", a ${stage} ${direction},`,
+        'io-struct-field',
+        node,
+        sourceFile,
+        diagnostics,
+      )
+    ) {
       continue
     }
     if (!field.builtin) continue

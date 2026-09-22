@@ -130,9 +130,13 @@ function glslType(t: ShaderType): string {
     case 'vec':
       return `${({ f32: 'vec', i32: 'ivec', u32: 'uvec', bool: 'bvec' } as const)[t.elem]}${t.n}`
     case 'mat':
-      // matNxN<f64> → DF64MatN before emit; reaching here = fp64Lower bypassed.
-      if (t.elem === 'f64') throw dslError('SD0040', `glslType(mat${t.n}<f64>)`)
-      return `mat${t.n}`
+      // matCxR<f64> → DF64MatN before emit; reaching here = fp64Lower bypassed.
+      if (t.elem === 'f64') throw dslError('SD0040', `glslType(mat${t.cols}x${t.rows}<f64>)`)
+      // GLSL ES 3.00 spells a SQUARE matrix `matN` and every other shape `matCxR`, with the
+      // same column-major C×R meaning WGSL's `matCxR<f32>` has (glsl-es-300.txt:955-967).
+      // `mat3x3` is legal GLSL too, but `mat3` is the spelling every driver's error messages
+      // and every shader in the wild use, so the square arm keeps it.
+      return t.cols === t.rows ? `mat${t.cols}` : `mat${t.cols}x${t.rows}`
     case 'struct':
       return t.name
     case 'array': {

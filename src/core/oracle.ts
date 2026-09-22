@@ -49,8 +49,6 @@ import {
   BUILTINS,
   GPU_STUBS,
   zeroOf,
-  matVec,
-  matMul,
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
@@ -65,6 +63,12 @@ import {
   selectComponents,
   TYPED_BIT_BUILTINS,
   bitBuiltin,
+  matTransposeShaped,
+  matColumn,
+  setMatColumn,
+  matVecShaped,
+  vecMatShaped,
+  matMulShaped,
 } from './cpu-runtime.js'
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js'
 import type { ConsoleSink } from './console.js'
@@ -174,16 +178,26 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         e.a.type.kind === 'mat' &&
         (e.b.type.kind === 'vec' || e.b.type.kind === 'vec64')
       ) {
-        return matVec(av as number[], bv as number[])
+        return matVecShaped(av as number[], bv as number[], e.a.type.cols, e.a.type.rows)
       }
       // A real column-major matrix product — needed for the mat64 (emulated
       // double) matmul path, whose metamorphic gate evaluates the AUTHORED
       // module here. (The native-mat*mat case stays supported by the same code.)
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat') {
-        return matMul(av as number[], bv as number[])
+        return matMulShaped(
+          av as number[],
+          bv as number[],
+          e.a.type.cols,
+          e.a.type.rows,
+          e.b.type.cols,
+        )
       }
+      // vecR * matCxR — the ROW-vector product (wgsl.txt:9960-9995), which is
+      // `transpose(m) * v`. It used to throw here, on the ground that the front end had no
+      // arm for it; now that `binResultType` types it, the oracle has to evaluate it or the
+      // three backends disagree (#149).
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
-        throw new Error('typeshade/cpu: vec*mat (row-vector form) is not implemented — use mat*vec')
+        return vecMatShaped(av as number[], bv as number[], e.b.type.cols, e.b.type.rows)
       }
       // The RESULT type's numeric kind drives WGSL integer semantics (wrap, truncating
       // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (X-GIS #2274).
@@ -233,6 +247,13 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
           return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number)
         }
+      }
+      // `transpose` needs the matrix's SHAPE, and a flat column-major list cannot carry it:
+      // six numbers are a mat2x3 or a mat3x2, and the two transpose to different things. The
+      // static argument type says which, exactly as the bit builtins below read their kind.
+      if (e.declRef === undefined && e.fn === 'transpose') {
+        const t = e.args[0]!.type
+        if (t.kind === 'mat') return matTransposeShaped(args[0] as number[], t.cols, t.rows)
       }
       // A bit builtin whose value depends on the argument's kind (§10) takes the static kind.
       if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
@@ -318,7 +339,10 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     }
     case 'index': {
       const base = evalExpr(e.base, env, ctx) as CpuValue[]
-      return base[evalExpr(e.idx, env, ctx) as number]
+      const i = evalExpr(e.idx, env, ctx) as number
+      // `m[j]` is COLUMN j, which is `rows` components of a flat list — not `base[j]`.
+      if (e.base.type.kind === 'mat') return matColumn(base as number[], i, e.base.type.rows)
+      return base[i]
     }
     case 'matchExpr': {
       // CPU semantics mirror the WGSL pre-emit lowering: evaluate the
@@ -428,7 +452,13 @@ function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ct
   }
   if (target.op === 'index') {
     const base = evalExpr(target.base, env, ctx) as CpuValue[]
-    base[evalExpr(target.idx, env, ctx) as number] = value
+    const i = evalExpr(target.idx, env, ctx) as number
+    // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
+    if (target.base.type.kind === 'mat') {
+      setMatColumn(base as number[], i, target.base.type.rows, value as number[])
+      return
+    }
+    base[i] = value
     return
   }
   throw new Error(`typeshade/cpu: bad assignment target ${target.op}`)

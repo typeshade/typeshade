@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, typeKey } from '../../../core/ir/types.js'
+import { f32T, f64T, typeKey } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { resolveMathExpand } from '../math-alias.js'
@@ -246,7 +246,18 @@ export function mathResultType(fn: string, args: readonly Expr[]): ShaderType {
   if (fn === 'dot' && first.kind === 'vec' && first.elem !== 'f32' && first.elem !== 'bool') {
     return { kind: 'scalar', scalar: first.elem }
   }
+  // The same rule one kind over: a reduction of an emulated-double vector is an f64. The fp64
+  // pass composes it from the SCALAR df64 error-free transforms and hands back the (hi, lo)
+  // pair (passes/fp64-lower.ts, the dot/length/distance arm), and the fn() EDSL types it f64
+  // (ir/node.ts); typing it f32 here was a lie the pass then contradicted, so `const l =
+  // length(v64)` could not be returned from a function declared `f64` (#151 F64-01).
+  if ((fn === 'length' || fn === 'distance' || fn === 'dot') && first.kind === 'vec64') return f64T
   if (fn === 'length' || fn === 'distance' || fn === 'dot' || fn === 'determinant') return f32T
+  // transpose(matCxR) -> matRxC (wgsl.txt:23397, "transpose any shape"). Identity on a square
+  // matrix, which is why it read as `first` while mat4x4 was the only float matrix.
+  if (fn === 'transpose' && first.kind === 'mat') {
+    return { kind: 'mat', cols: first.rows, rows: first.cols, elem: first.elem }
+  }
   return first
 }
 

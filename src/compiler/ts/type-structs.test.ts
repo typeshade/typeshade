@@ -148,7 +148,7 @@ describe('the three spellings agree', () => {
       {
         name: 'Camera',
         fields: [
-          { name: 'view', type: { kind: 'mat', n: 4, elem: 'f32' } },
+          { name: 'view', type: { kind: 'mat', cols: 4, rows: 4, elem: 'f32' } },
           { name: 'pos', type: { kind: 'vec', n: 3, elem: 'f32' } },
         ],
       },

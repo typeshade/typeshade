@@ -495,8 +495,11 @@ describe('vector arithmetic in a later argument stays clean (the callee-span TS2
 // require, and narrowing it to `f32` closes none of these: the scalar brands are OPTIONAL, so
 // `i32`, `u32` and `f64` are all assignable to `f32` too (measured). They were pinned here as
 // silent until the front end's argument check for the math builtins (#57, TS8036, roadmap 0.2
-// item 9); three are that diagnostic now, reported by the service like any compiler
-// diagnostic. The `f64` form belongs to the fp64 pass and stays caught at emit only (SD0041).
+// item 9); all four are that diagnostic now, reported by the service like any compiler
+// diagnostic. The `f64` factor was the last silent one: it reached emit and came back as
+// SD0041 with no source span, which is the hole #151 closes — an emulated double is refused
+// where it is WRITTEN, whether it is the operand or, as here, the blend factor of native
+// vectors.
 describe('mix blend factors the GPU compilers refuse (#57)', () => {
   const diagnosticsOf = (body: string): string[] => {
     const service = createTypeshadeLanguageService()
@@ -517,10 +520,12 @@ describe('mix blend factors the GPU compilers refuse (#57)', () => {
       'export function f(a: vec3, b: vec3, t: u32): vec3 {\n  return mix(a, b, t)\n}',
       [factor('u32')],
     ],
-    // An `f64` blend factor is the fp64 pass's, caught by the compiler only at emit, as SD0041.
+    // An `f64` blend factor has no overload on either target — the pass would have to narrow
+    // it, which loses the half of the double f32 cannot hold. Tint: no matching call to
+    // 'mix(vec3<f32>, vec3<f32>, vec2<f32>)' on the lowered pair (#151).
     'mix(vec3, vec3, f64)': [
       'export function f(a: vec3, b: vec3, t: f64): vec3 {\n  return mix(a, b, t)\n}',
-      [],
+      [factor('f64')],
     ],
     // A blend factor whose vector brand the arithmetic already erased: `c * 2.` types as
     // `number`, so it matches `mix(vec3, vec3, number)` outright and the TS2769 rule in
@@ -532,7 +537,7 @@ describe('mix blend factors the GPU compilers refuse (#57)', () => {
     ],
   }
   for (const [name, [body, expected]] of Object.entries(reported)) {
-    it(`${name}: ${expected.length === 0 ? 'left to the fp64 pass' : 'TS8036 on the factor'}`, () => {
+    it(`${name}: TS8036 on the factor`, () => {
       expect(diagnosticsOf(body)).toEqual(expected)
     })
   }

@@ -127,3 +127,27 @@ export function nodeAtPosition(root: ts.Node, pos: number): ts.Node {
   visit(root)
   return found
 }
+
+/**
+ * {@link nodeAtPosition}, plus the editor's touching rule: a caret at the END of a name answers
+ * for that name.
+ *
+ * `nodeAtPosition`'s span test is half-open, so one offset past `k` in `let k = 1.` is the
+ * whitespace and not the identifier — and a hover there fell through to TypeScript's own quick
+ * info, which says `number` where the compiler lowered an `f32` (#56). The end of a name is
+ * also where an editor leaves the caret after typing it, so it is a position readers hit
+ * constantly.
+ *
+ * The rule mirrors `ts.getTouchingPropertyName`, which is compiler-internal: when the position
+ * does not land inside an identifier, the token ending exactly at it answers instead. Nothing
+ * else moves — a position inside a token still belongs to that token, so a name is never
+ * answered for from inside the name after it, and a keyword, a punctuation mark and trivia are
+ * left alone. `nodeAtPosition` itself keeps the half-open rule its other callers (completions,
+ * rename, the TS1206 filter) are written against.
+ */
+export function touchingNodeAtPosition(root: ts.Node, pos: number): ts.Node {
+  const node = nodeAtPosition(root, pos)
+  if (ts.isIdentifier(node) || pos <= 0) return node
+  const before = nodeAtPosition(root, pos - 1)
+  return ts.isIdentifier(before) && before.getEnd() === pos ? before : node
+}

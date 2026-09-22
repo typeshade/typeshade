@@ -380,6 +380,38 @@ const df64_fract = fn('df64_fract', { a: vec2fT }, (p) =>
   df64_sub({ a: p.a, b: df64_floor({ a: p.a }) }),
 )
 
+/** The parity residue of an f32 that is already an integer: 0 when it is even, 1 when it is
+ *  odd. `x/2` is exact for an integer (the exponent moves, the mantissa does not), so the
+ *  floor and the doubling are exact too, and a negative x gives the same answer
+ *  (floor(-1.5)·2 = -4, -3 − (-4) = 1). */
+const parityF32 = (x: ReadonlyNode<'f32'>): Node<'f32'> => x.sub(floor(x.mul(0.5)).mul(2.0))
+
+/** round(a) — the nearest integer with TIES TO THE EVEN one, which is what WGSL defines
+ *  (`round`: "the integer k nearest to e, with ties going to the even integer") and what the
+ *  CPU oracle answers (`roundTiesToEven`, cpu-runtime.ts). Deliberately NOT {@link df64_nint},
+ *  whose ties go toward +∞ (`floor(x + 0.5)`) because the mod-2π reduction it serves is ported
+ *  to that convention: the two disagree at every half-integer, so an f64 `round` built on nint
+ *  would answer 1 where WGSL, GLSL and the oracle all answer 0 for `round(0.5)` (#151).
+ *
+ *  Composed from the verified helpers only — f = ⌊a⌋, d = a − f ∈ [0, 1), and d > ½ (or d == ½
+ *  with f odd) takes f + 1. The parity of an integral df64 is the parity of hi plus the parity
+ *  of lo: both words are integers when the pair is (every f32 of magnitude 2²⁴ or more is
+ *  itself an even integer), and their residues sum to 1 exactly when the value is odd. */
+const df64_round = fn(
+  'df64_round',
+  { a: vec2fT },
+  (p) => {
+    const f = Let(df64_floor({ a: p.a }))
+    const d = Let(df64_sub({ a: p.a, b: f }))
+    const half = vec2(0.5, 0.0)
+    const odd = Let(parityF32(f.x).add(parityF32(f.y)).eq(1.0))
+    return df64_gt({ a: d, b: half })
+      .or(df64_eq({ a: d, b: half }).and(odd))
+      .select(df64_add({ a: f, b: vec2(1.0, 0.0) }), f)
+  },
+  { lintDisable: ['no-float-eq'] }, // exact tie and parity tests, not tolerances
+)
+
 // ── Conversions ──
 
 /** The EXPLICIT precision-losing narrow: f64 → f32 as hi + lo. (The widen
@@ -703,6 +735,9 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   const vFract = fn(`df64_v${n}_fract`, { a: sT }, (p) =>
     gather(LANES.map((c) => Let(df64_fract({ a: laneOf(p.a, c) })))),
   )
+  const vRound = fn(`df64_v${n}_round`, { a: sT }, (p) =>
+    gather(LANES.map((c) => Let(df64_round({ a: laneOf(p.a, c) })))),
+  )
   const vSin = fn(`df64_v${n}_sin`, { a: sT }, (p) =>
     gather(LANES.map((c) => Let(df64_sin({ a: laneOf(p.a, c) })))),
   )
@@ -734,6 +769,7 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     vMix.decl,
     vFloor.decl,
     vFract.decl,
+    vRound.decl,
     vSin.decl,
     vCos.decl,
     vNormalize.decl,
@@ -843,6 +879,7 @@ export const DF64_ORDER: readonly FuncDecl[] = [
   df64_mix.decl,
   df64_floor.decl,
   df64_fract.decl,
+  df64_round.decl,
   df64_narrow.decl,
   df64_nint.decl,
   df64_sin_taylor.decl,
