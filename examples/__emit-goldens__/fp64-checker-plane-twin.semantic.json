@@ -1,0 +1,28 @@
+{
+  "twin": "fp64-checker-plane-twin",
+  "of": "fp64-checker-plane",
+  "equal": false,
+  "diff": {
+    "interface": [],
+    "resources": [],
+    "constants": [
+      "-lit f32=1",
+      "-lit f32=1",
+      "-lit f32=4",
+      "-lit f32=4",
+      "-lit u32=1",
+      "-lit u32=1"
+    ],
+    "controlFlow": [
+      "+fs_checker#23 let v#23 = (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32))",
+      "+fs_checker#24 let v#24 = (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32))",
+      "+fs_checker#25 let v#25 = (*:vec3<f32> (call mix:vec3<f32> (varref v#23:vec3<f32>) (varref v#24:vec3<f32>) (varref v#19:f32)) (call mix:f32 (lit:f32) (lit:f32) (varref v#22:f32)))",
+      "+fs_checker#26 return (construct:vec4<f32> (varref v#25:vec3<f32>) (lit:f32))",
+      "+vs#0 let v#0 = (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32))",
+      "+vs#1 let v#1 = (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32))",
+      "+vs#2 return (construct:struct:st#0 (construct:vec4<f32> (varref v#0:f32) (varref v#1:f32) (lit:f32) (lit:f32)) (construct:vec2<f32> (+:f32 (*:f32 (varref v#0:f32) (lit:f32)) (lit:f32)) (+:f32 (*:f32 (varref v#1:f32) (lit:f32)) (lit:f32))))",
+      "-fs_checker#23 return (construct:vec4<f32> (*:vec3<f32> (call mix:vec3<f32> (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (construct:vec3<f32> (lit:f32) (lit:f32) (lit:f32)) (varref v#19:f32)) (call mix:f32 (lit:f32) (lit:f32) (varref v#22:f32))) (lit:f32))",
+      "-vs#0 return (construct:struct:st#0 (construct:vec4<f32> (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32) (lit:f32)) (construct:vec2<f32> (+:f32 (*:f32 (-:f32 (*:f32 (call f32:f32 (&:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32)) (lit:f32)) (+:f32 (*:f32 (-:f32 (*:f32 (call f32:f32 (>>:u32 (param vi:u32) (lit:u32))) (lit:f32)) (lit:f32)) (lit:f32)) (lit:f32))))"
+    ]
+  }
+}
