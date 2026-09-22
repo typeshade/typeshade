@@ -16,7 +16,7 @@
 import ts from 'typescript'
 import type { Expr } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { i32T, typeKey, u32T, voidT } from '../../../core/ir/types.js'
+import { casResultT, i32T, typeKey, u32T, voidT } from '../../../core/ir/types.js'
 import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
@@ -167,6 +167,43 @@ export function lowerAtomicCall(
   }
   const elemT = loc.type.elem === 'u32' ? u32T : i32T
   const args: Expr[] = [loc]
+  // The compare-and-exchange takes TWO values after the location — the value to compare
+  // against and the one to store — and both are the atomic's own integer type.
+  if (sig.arity === 3) {
+    for (const [i, what] of [
+      [1, 'compare'],
+      [2, 'value'],
+    ] as const) {
+      const argNode = node.arguments[i]
+      if (!argNode) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `${name} takes the location, the value to compare against and the value to store; ` +
+            `got ${String(node.arguments.length)} argument(s).`,
+          TS_CODES.ARITY_MISMATCH,
+        )
+        return undefined
+      }
+      let v = lowerExpression(argNode, sourceFile, scope, diagnostics)
+      if (!v) return undefined
+      v = retargetIntLitCtx(v, argNode, elemT)
+      if (typeKey(v.type) !== typeKey(elemT)) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          argNode,
+          `${name} ${what} must be ${typeKey(elemT)} to match the ${typeKey(loc.type)}, got ` +
+            `${typeKey(v.type)}.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      args.push(v)
+    }
+    return { op: 'call', type: casResultT(loc.type.elem), fn: name, args }
+  }
   if (sig.arity === 2) {
     const valueNode = node.arguments[1]!
     let value = lowerExpression(valueNode, sourceFile, scope, diagnostics)

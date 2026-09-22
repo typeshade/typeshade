@@ -146,21 +146,65 @@ const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
 
 const vecCtorOverloads = (name: string, elem: VecElem): string => {
   const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4
-  const type = vecTypeName(elem, n)
+  // The PLAIN `vecN` names take WGSL's type argument, `vec3<u32>(1, 2, 3)` (#150). The short
+  // names (`vec3u`) name their element already and the compiler refuses a second one, so they
+  // stay ungeneric and the editor's "Expected 0 type arguments" is the right answer for them.
+  const generic = /^vec[234]$/.test(name)
+  const type = generic ? `VecFor${n}<T>` : vecTypeName(elem, n)
+  const head = generic ? `declare function ${name}<T = f32>` : `declare function ${name}`
   // A component of a bool vector (§27) is a bool; of every other vector, a number.
+  //
+  // PARAMETER types stay concrete even on the generic names, and only the RETURN rides on T.
+  // A conditional in a parameter position defeats `diagnostics.ts`'s vector-arithmetic filter
+  // (issue #43): that rule reads the brand off the resolved parameter type to decide whether
+  // the shape the arithmetic erased would have fitted, and an unresolved `VecFor3<T>` carries
+  // no brand, so `vec4(c * 2., 1.)` — a shape every example uses — started reporting TS2345.
+  // The bool components get overloads of their own below instead of widening this one, which
+  // would stop `vec3(1., true, 2.)` reporting.
   const c = elem === 'bool' ? 'bool' : 'number'
+  const shorter = (k: 2 | 3): string => vecTypeName(elem, k)
   const lines: string[] = []
+  // `vec3()` is the ZERO value (wgsl.txt:20015-20030). Not on the emulated double, whose zero
+  // is a pair the fp64 pass assembles rather than a literal the constructor can write — the
+  // compiler refuses `vec3f64()` for the same reason.
+  if (elem !== 'f64') lines.push(`${head}(): ${type}`)
   if (n === 2) {
-    lines.push(`declare function ${name}(x: ${c}, y: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}): ${type}`)
   } else if (n === 3) {
-    lines.push(`declare function ${name}(x: ${c}, y: ${c}, z: ${c}): ${type}`)
-    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 2)}, z: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}): ${type}`)
+    lines.push(`${head}(v: ${shorter(2)}, z: ${c}): ${type}`)
+    // The composition WGSL allows in the other order (wgsl.txt:20889/20987). Only the
+    // vector-FIRST forms were declared, so `vec3(x, v2)` was red in the editor and green in
+    // the compiler — the editor reading the vector as the scalar the first parameter names
+    // ("Argument of type 'f32' is not assignable to parameter of type 'vec2'"). #157.
+    lines.push(`${head}(x: ${c}, v: ${shorter(2)}): ${type}`)
   } else {
-    lines.push(`declare function ${name}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`)
-    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 3)}, w: ${c}): ${type}`)
-    lines.push(`declare function ${name}(v: ${vecTypeName(elem, 2)}, z: ${c}, w: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`)
+    lines.push(`${head}(v: ${shorter(3)}, w: ${c}): ${type}`)
+    lines.push(`${head}(v: ${shorter(2)}, z: ${c}, w: ${c}): ${type}`)
+    // The same gap at width 4, for the THREE-argument compositions.
+    lines.push(`${head}(x: ${c}, v: ${shorter(2)}, w: ${c}): ${type}`)
+    lines.push(`${head}(x: ${c}, y: ${c}, v: ${shorter(2)}): ${type}`)
+    // NOT declared, and the omission is measured rather than an oversight: `vec4(x, v3)` and
+    // `vec4(v2, v2)` are real WGSL and the compiler accepts both, but adding a SECOND
+    // two-argument overload costs TypeScript the contextual type it uses to infer through
+    // vector arithmetic. With one candidate, `vec4(mix(c * 0.5, d, 0.5), 1.)` contextually
+    // types its first argument `vec3` and `mix` infers `vec3`; with two, the context is gone,
+    // `mix` infers from the `number` the arithmetic erased `c * 0.5` to, and the call reports
+    // TS2769 on a program that compiles. `vec4(c * 0.5, 1.)` is a far more common spelling
+    // than either of the two, so the editor is better off without them until the #43 filter
+    // can restore a shape through a NESTED call. Tracked on #157.
+    // The same gap at width 4: a vec2 or a vec3 anywhere but first, and the two-vector form.
   }
-  lines.push(`declare function ${name}(scalar: ${c}): ${type}`)
+  lines.push(`${head}(scalar: ${c}): ${type}`)
+  // `vec3<bool>(true, false, true)` and `vec3<bool>(true)`. Generic with NO default, so the
+  // type argument has to be written: an inferable `T` here would make the bare
+  // `vec3(true, false, true)` legal in the editor, which the compiler refuses.
+  if (generic) {
+    const bools = Array.from({ length: n }, (_, i) => `${'xyzw'[i]!}: bool`).join(', ')
+    lines.push(`declare function ${name}<T>(${bools}): VecFor${n}<T>`)
+    lines.push(`declare function ${name}<T>(scalar: bool): VecFor${n}<T>`)
+  }
   // The element-CONVERTING form (#8 A8): one whole vector of this constructor's own size and
   // a different element kind. The compiler's rule (`isConvertibleVector`) is exactly "native
   // vec, same n, different elem", so the overloads are the two other native kinds — and an
@@ -169,7 +213,7 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
   if (elem !== 'f64') {
     for (const other of NATIVE_VEC_ELEMS) {
       if (other === elem) continue
-      lines.push(`declare function ${name}(v: ${vecTypeName(other, n)}): ${type}`)
+      lines.push(`${head}(v: ${vecTypeName(other, n)}): ${type}`)
     }
   }
   // The NARROWING form (§39): `vec3(v)` on a `vec3f64` takes each lane's (hi, lo) pair down
@@ -177,7 +221,13 @@ const vecCtorOverloads = (name: string, elem: VecElem): string => {
   // width has it — the compiler refuses the integer and bool ones, since the fp64 pass has no
   // f64 → i32 body at all.
   if (elem === 'f32') {
-    lines.push(`declare function ${name}(v: ${vecTypeName('f64', n)}): ${type}`)
+    // The return is spelled CONCRETELY rather than as `${type}`, and not by accident. `${type}`
+    // is `VecFor${n}<T>` on the plain `vecN` names, which carry a `<T = f32>` type argument
+    // since #150 — so writing it here left `T` unbound in a declaration with no type parameter
+    // ("Cannot find name 'T'", caught by the d.ts self-check when the two lanes merged). The
+    // narrowing always yields the FLOAT vector whatever the constructor is called, so naming
+    // that is both correct and the reason the overload needs no type parameter of its own.
+    lines.push(`declare function ${name}(v: ${vecTypeName('f64', n)}): ${vecTypeName('f32', n)}`)
   }
   return lines.join('\n')
 }
@@ -395,10 +445,24 @@ const vecCtors = VEC_CTOR_NAMES.map((name) => {
 }).join('\n')
 
 const scalarCasts = SCALAR_CAST_NAMES.map((name) => {
-  const line = `declare function ${name}(x: number): ${name}`
+  // A conversion, and — for every name but `f64`, whose zero is the pair the fp64 pass
+  // assembles — the ZERO-value form WGSL also spells (#150): `f32()`, `i32()`, `u32()`,
+  // `bool()`. `bool` converts from a number and returns a boolean, so its argument is not
+  // `number` in the general case; the generated line below is the numeric one it already had.
+  const zero = name === 'f64' ? '' : `declare function ${name}(): ${name}\n`
+  // A cast takes a `bool` too (wgsl.txt:20207): `u32(b)` is 1 or 0, and the compiler has
+  // always lowered it. The editor read `f32(true)` as "Argument of type 'boolean' is not
+  // assignable to parameter of type 'number'", which is the false POSITIVE this file exists to
+  // prevent. `f64` is the exception: it WIDENS an f32 and the compiler refuses anything else,
+  // so admitting a bool there would be the opposite mistake (#157).
+  const arg = name === 'f64' ? 'number' : 'number | bool'
+  const line = `${zero}declare function ${name}(x: ${arg}): ${name}`
   const doc = FUNCTION_DOCS[name]
   if (!doc) return line
-  return `${renderJSDoc(doc)}\n${line}`
+  return line
+    .split('\n')
+    .map((l) => `${renderJSDoc(doc)}\n${l}`)
+    .join('\n')
 }).join('\n')
 
 const freeMath = FREE_MATH_NAMES.map((name) => {
@@ -624,6 +688,31 @@ type Vec64Any = vec2f64 | vec3f64 | vec4f64
 
 ${vecTypeAliases}
 
+/** The vector a \`vecN<T>(...)\` call builds, from the type argument the author wrote (#150).
+ *
+ * Keyed on \`keyof\`, not on assignability. The scalar brands are OPTIONAL properties (see the
+ * note above \`scalarBrands\`), which keeps a plain \`number\` flowing into any of them but also
+ * makes \`f32\` and \`u32\` mutually ASSIGNABLE — so \`T extends u32\` matches every scalar and
+ * cannot tell them apart. \`keyof\` sees a declared key whether or not it is optional, so
+ * \`typeof u32Tag extends keyof T\` is exactly "T is the u32 brand". \`bool\` is \`boolean\` and
+ * carries no tag, so it is discriminated by assignability, where it is genuinely disjoint. */
+type VecElemOf<T, U, I, D, B, F> = T extends boolean
+  ? B
+  : typeof u32Tag extends keyof T
+    ? U
+    : typeof i32Tag extends keyof T
+      ? I
+      : typeof f64Tag extends keyof T
+        ? D
+        : F
+/** What \`bitcast<T>\` reads: the OTHER 32-bit type. Keyed on \`keyof\` for the same reason
+ * \`VecElemOf\` is — the scalar brands are optional properties, so \`f32 extends u32\` is true
+ * and a conditional written on assignability collapses to one arm for both instantiations. */
+type BitcastArg<T> = typeof u32Tag extends keyof T ? f32 : u32
+type VecFor2<T> = VecElemOf<T, vec2u, vec2i, vec2f64, vec2b, vec2>
+type VecFor3<T> = VecElemOf<T, vec3u, vec3i, vec3f64, vec3b, vec3>
+type VecFor4<T> = VecElemOf<T, vec4u, vec4i, vec4f64, vec4b, vec4>
+
 type Numeric = number | vec2 | vec3 | vec4 | vec2i | vec3i | vec4i | vec2u | vec3u | vec4u
 
 /** JavaScript Console API surface exposed by the \`"use typeshade"\` authoring environment.
@@ -715,27 +804,48 @@ declare const samplerTag: unique symbol
  * which is exactly what the compiler enforces. \`E\` is the sampled element kind and
  * \`A\` whether the view is an array, so \`textureNumLayers\` can refuse a plain 2D texture in
  * the editor the way the compiler refuses it. */
-type texture_2d<E = f32> = { readonly [textureTag]: readonly [E, false] }
-type texture_2d_array<E = f32> = { readonly [textureTag]: readonly [E, true] }
+/** What a sampled texture's element may be: "T must be f32, i32, or u32" (wgsl.txt:7047-7048).
+ * It was unconstrained, so \`texture_2d<bool>\` typechecked in the editor while the compiler
+ * refused it. */
+type TextureElem = f32 | i32 | u32
+/** The \`vec4\` a texel fetch yields, by the texture's element: WGSL's \`textureLoad\` returns
+ * \`vec4<T>\` (wgsl.txt:24137-24176), and every overload used to say \`vec4\`, so a fetch from a
+ * \`texture_2d<u32>\` read as an f32 vector in the editor. Keyed on \`keyof\` for the reason
+ * \`VecElemOf\` is: the scalar brands are optional properties and so are mutually assignable. */
+type Vec4OfElem<E> = typeof u32Tag extends keyof E
+  ? vec4u
+  : typeof i32Tag extends keyof E
+    ? vec4i
+    : vec4
+/** A texel coordinate: WGSL takes "i32, or u32" (wgsl.txt:24129) and the ambient overloads took
+ * the signed one alone, so \`textureLoad(t, vec2u(...), 0)\` — which Tint accepts, measured —
+ * was red in the editor and green in the compiler. NOT called \`IVecN\`: that reads like GLSL's
+ * \`ivec2\`, which is not a name this surface has, and the union is both signednesses. */
+type TexelCoord2 = vec2i | vec2u
+type TexelCoord3 = vec3i | vec3u
+type texture_2d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, false] }
+type texture_2d_array<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, true] }
 /** A cube texture is six faces looked up by a DIRECTION, and a 3D texture a volume addressed
- * by a \`vec3\` coordinate; both are core in both targets (roadmap 0.4 item 12). A cube is
- * only ever sampled, since neither target has a texel fetch for one, so its element is
- * \`f32\` alone: the editor refuses \`texture_cube<u32>\` here and the compiler says why. */
-type texture_cube<E = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
-type texture_3d<E = f32> = { readonly [textureTag]: readonly [E, '3d'] }
+ * by a \`vec3\` coordinate. A cube's element is not \`f32\` alone: \`textureGather\` reads an
+ * integer cube, so the element is the same \`TextureElem\` every sampled texture takes, and it
+ * is SAMPLING that is float-only — which the compiler says at the call rather than at the
+ * declaration. */
+type texture_cube<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
+type texture_3d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '3d'] }
 /** WebGPU-only (roadmap 0.4 item 12): a 1D texture is a row of texels addressed by ONE number,
  * and a cube array is N cube maps addressed by a direction and a layer. GLSL ES 3.00 has
  * neither, so a module using one emits WGSL alone. */
-type texture_1d<E = f32> = { readonly [textureTag]: readonly [E, '1d'] }
-type texture_cube_array<E = f32> = { readonly [textureTag]: readonly [E, 'cube-array'] }
+type texture_1d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '1d'] }
+type texture_cube_array<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, 'cube-array'] }
 /** A multisampled colour texture (roadmap 0.4 item 13): read one sample at a time with
  * \`textureLoad(t, coords, sampleIndex)\`, never sampled. WebGPU-only. */
-type texture_multisampled_2d<E = f32> = { readonly [textureTag]: readonly [E, '2d-ms'] }
+type texture_multisampled_2d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '2d-ms'] }
 type sampler = { readonly [samplerTag]: true }
 
 declare const storageTextureTag: unique symbol
 /** The texel formats a storage texture may carry: the sixteen every WebGPU device stores to
- * with no feature requested. Measured against a real device, not read off a spec — a format
+ * with no feature requested, plus \`"bgra8unorm"\`, which needs the \`bgra8unorm-storage\`
+ * feature and stores only. Measured against a real device, not read off a spec — a format
  * outside them compiles and then fails when the host builds the bind group. */
 type StorageFormat =
   | 'rgba8unorm'
@@ -754,12 +864,17 @@ type StorageFormat =
   | 'rgba32uint'
   | 'rgba32sint'
   | 'rgba32float'
+  | 'bgra8unorm'
 /** How a shader may touch a storage texture. \`"read_write"\` is the three single-channel
  * 32-bit formats only, which {@link texture_storage_2d} enforces. */
 type StorageAccess = 'write' | 'read' | 'read_write'
 /** The formats a device stores AND loads through one binding. Every other format is
  * \`"write"\` or \`"read"\`, one at a time. */
 type ReadWriteStorageFormat = 'r32uint' | 'r32sint' | 'r32float'
+/** The formats a device stores to and never loads from, which is \`"bgra8unorm"\` alone.
+ * Measured: a bind group layout for it at \`read-only\` or \`read-write\` is refused with
+ * "does not support storage texture access", on a device that requested the feature. */
+type WriteOnlyStorageFormat = 'bgra8unorm'
 /** The texel a format's channel kind decides: a \`"…uint"\` format is a \`vec4u\`, a
  * \`"…sint"\` one a \`vec4i\`, and every other one — unorm, snorm and float — a \`vec4\`.
  * Written as a conditional type so the editor refuses a mismatched store the way the compiler
@@ -776,19 +891,27 @@ type StorageTexel<F extends StorageFormat> = F extends \`\${string}uint\`
 type texture_storage_2d<
   F extends StorageFormat,
   A extends StorageAccess = 'write',
-> = A extends 'read_write'
-  ? F extends ReadWriteStorageFormat
-    ? { readonly [storageTextureTag]: readonly [F, A, false] }
-    : never
-  : { readonly [storageTextureTag]: readonly [F, A, false] }
+> = A extends 'write'
+  ? { readonly [storageTextureTag]: readonly [F, A, false] }
+  : F extends WriteOnlyStorageFormat
+    ? never
+    : A extends 'read_write'
+      ? F extends ReadWriteStorageFormat
+        ? { readonly [storageTextureTag]: readonly [F, A, false] }
+        : never
+      : { readonly [storageTextureTag]: readonly [F, A, false] }
 type texture_storage_2d_array<
   F extends StorageFormat,
   A extends StorageAccess = 'write',
-> = A extends 'read_write'
-  ? F extends ReadWriteStorageFormat
-    ? { readonly [storageTextureTag]: readonly [F, A, true] }
-    : never
-  : { readonly [storageTextureTag]: readonly [F, A, true] }
+> = A extends 'write'
+  ? { readonly [storageTextureTag]: readonly [F, A, true] }
+  : F extends WriteOnlyStorageFormat
+    ? never
+    : A extends 'read_write'
+      ? F extends ReadWriteStorageFormat
+        ? { readonly [storageTextureTag]: readonly [F, A, true] }
+        : never
+      : { readonly [storageTextureTag]: readonly [F, A, true] }
 
 declare const depthTextureTag: unique symbol
 declare const samplerComparisonTag: unique symbol
@@ -869,25 +992,35 @@ declare function textureSampleCompareLevel(
   ref: number,
 ): f32
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
-declare function textureGather<E>(component: number, tex: texture_2d<E>, smp: sampler, uv: vec2): vec4
+declare function textureGather<E extends TextureElem = f32>(
+  component: number,
+  tex: texture_2d<E>,
+  smp: sampler,
+  uv: vec2,
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
-declare function textureGather<E>(
+declare function textureGather<E extends TextureElem = f32>(
   component: number,
   tex: texture_2d_array<E>,
   smp: sampler,
   uv: vec2,
   layer: number,
-): vec4
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
-declare function textureGather<E>(component: number, tex: texture_cube<E>, smp: sampler, dir: vec3): vec4
+declare function textureGather<E extends TextureElem = f32>(
+  component: number,
+  tex: texture_cube<E>,
+  smp: sampler,
+  dir: vec3,
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
-declare function textureGather<E>(
+declare function textureGather<E extends TextureElem = f32>(
   component: number,
   tex: texture_cube_array<E>,
   smp: sampler,
   dir: vec3,
   layer: number,
-): vec4
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
 declare function textureGather(tex: texture_depth_2d, smp: sampler, uv: vec2): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureGather)}
@@ -1062,58 +1195,83 @@ declare function textureSampleGrad(
   ddy: vec3,
 ): vec4
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(tex: texture_2d<E>, coord: vec2i, level: number): vec4
+declare function textureLoad<E extends TextureElem = f32>(
+  tex: texture_2d<E>,
+  coord: TexelCoord2,
+  level: number,
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(
+declare function textureLoad<E extends TextureElem = f32>(
   tex: texture_2d_array<E>,
-  coord: vec2i,
+  coord: TexelCoord2,
   layer: number,
   level: number,
-): vec4
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(tex: texture_3d<E>, coord: vec3i, level: number): vec4
+declare function textureLoad<E extends TextureElem = f32>(
+  tex: texture_3d<E>,
+  coord: TexelCoord3,
+  level: number,
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(tex: texture_1d<E>, coord: number, level: number): vec4
+declare function textureLoad<E extends TextureElem = f32>(
+  tex: texture_1d<E>,
+  coord: number,
+  level: number,
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad<E>(tex: texture_multisampled_2d<E>, coord: vec2i, sampleIndex: number): vec4
+declare function textureLoad<E extends TextureElem = f32>(
+  tex: texture_multisampled_2d<E>,
+  coord: TexelCoord2,
+  sampleIndex: number,
+): Vec4OfElem<E>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
-declare function textureLoad(tex: texture_depth_multisampled_2d, coord: vec2i, sampleIndex: number): f32
+declare function textureLoad(tex: texture_depth_multisampled_2d, coord: TexelCoord2, sampleIndex: number): f32
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
   tex: texture_storage_2d<F, A>,
-  coord: vec2i,
+  coord: TexelCoord2,
 ): StorageTexel<F>
 ${renderJSDoc(FUNCTION_DOCS.textureLoad)}
 declare function textureLoad<F extends StorageFormat, A extends 'read' | 'read_write'>(
   tex: texture_storage_2d_array<F, A>,
-  coord: vec2i,
+  coord: TexelCoord2,
   layer: number,
 ): StorageTexel<F>
 ${renderJSDoc(FUNCTION_DOCS.textureStore)}
 declare function textureStore<F extends StorageFormat, A extends 'write' | 'read_write'>(
   tex: texture_storage_2d<F, A>,
-  coord: vec2i,
+  coord: TexelCoord2,
   value: StorageTexel<F>,
 ): void
 ${renderJSDoc(FUNCTION_DOCS.textureStore)}
 declare function textureStore<F extends StorageFormat, A extends 'write' | 'read_write'>(
   tex: texture_storage_2d_array<F, A>,
-  coord: vec2i,
+  coord: TexelCoord2,
   layer: number,
   value: StorageTexel<F>,
 ): void
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_2d<E> | texture_2d_array<E>): vec2u
+declare function textureDimensions<E extends TextureElem = f32>(
+  tex: texture_2d<E> | texture_2d_array<E>,
+  level?: number,
+): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_cube<E> | texture_cube_array<E>): vec2u
+declare function textureDimensions<E extends TextureElem = f32>(
+  tex: texture_cube<E> | texture_cube_array<E>,
+  level?: number,
+): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_3d<E>): vec3u
+declare function textureDimensions<E extends TextureElem = f32>(
+  tex: texture_3d<E>,
+  level?: number,
+): vec3u
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_1d<E>): u32
+declare function textureDimensions<E extends TextureElem = f32>(tex: texture_1d<E>, level?: number): u32
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
-declare function textureDimensions<E>(tex: texture_multisampled_2d<E>): vec2u
+declare function textureDimensions<E extends TextureElem = f32>(tex: texture_multisampled_2d<E>): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumSamples)}
-declare function textureNumSamples<E>(
+declare function textureNumSamples<E extends TextureElem = f32>(
   tex: texture_multisampled_2d<E> | texture_depth_multisampled_2d,
 ): u32
 ${renderJSDoc(FUNCTION_DOCS.textureDimensions)}
@@ -1124,9 +1282,10 @@ declare function textureDimensions(
     | texture_depth_cube
     | texture_depth_cube_array
     | texture_depth_multisampled_2d,
+  level?: number,
 ): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
-declare function textureNumLayers<E>(tex: texture_cube_array<E>): u32
+declare function textureNumLayers<E extends TextureElem = f32>(tex: texture_cube_array<E>): u32
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
 declare function textureNumLayers(tex: texture_depth_cube_array): u32
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
@@ -1136,9 +1295,65 @@ declare function textureDimensions<F extends StorageFormat, A extends StorageAcc
   tex: texture_storage_2d<F, A> | texture_storage_2d_array<F, A>,
 ): vec2u
 ${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
-declare function textureNumLayers<E>(tex: texture_2d_array<E>): u32
+declare function textureNumLayers<E extends TextureElem = f32>(tex: texture_2d_array<E>): u32
+${renderJSDoc(FUNCTION_DOCS.textureNumLayers)}
+declare function textureNumLayers<F extends StorageFormat, A extends StorageAccess>(
+  tex: texture_storage_2d_array<F, A>,
+): u32
 ${renderJSDoc(FUNCTION_DOCS.arrayLength)}
 declare function arrayLength<T>(xs: array<T>): u32
+${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}
+declare function quantizeToF16(e: f32): f32
+${renderJSDoc(FUNCTION_DOCS.quantizeToF16)}
+declare function quantizeToF16<T extends vec2 | vec3 | vec4>(e: T): T
+${renderJSDoc(FUNCTION_DOCS.pack4x8unorm)}
+declare function pack4x8unorm(e: vec4): u32
+${renderJSDoc(FUNCTION_DOCS.pack4x8snorm)}
+declare function pack4x8snorm(e: vec4): u32
+${renderJSDoc(FUNCTION_DOCS.unpack4x8unorm)}
+declare function unpack4x8unorm(e: u32): vec4
+${renderJSDoc(FUNCTION_DOCS.unpack4x8snorm)}
+declare function unpack4x8snorm(e: u32): vec4
+${renderJSDoc(FUNCTION_DOCS.pack2x16float)}
+declare function pack2x16float(e: vec2): u32
+${renderJSDoc(FUNCTION_DOCS.pack2x16unorm)}
+declare function pack2x16unorm(e: vec2): u32
+${renderJSDoc(FUNCTION_DOCS.pack2x16snorm)}
+declare function pack2x16snorm(e: vec2): u32
+${renderJSDoc(FUNCTION_DOCS.unpack2x16float)}
+declare function unpack2x16float(e: u32): vec2
+${renderJSDoc(FUNCTION_DOCS.unpack2x16unorm)}
+declare function unpack2x16unorm(e: u32): vec2
+${renderJSDoc(FUNCTION_DOCS.unpack2x16snorm)}
+declare function unpack2x16snorm(e: u32): vec2
+${renderJSDoc(FUNCTION_DOCS.atomicCompareExchangeWeak)}
+declare function atomicCompareExchangeWeak<T extends u32 | i32>(
+  location: atomic<T>,
+  compare: T,
+  value: T,
+): { old_value: T; exchanged: bool }
+${renderJSDoc(FUNCTION_DOCS.textureBarrier)}
+declare function textureBarrier(): void
+${renderJSDoc(FUNCTION_DOCS.workgroupUniformLoad)}
+declare function workgroupUniformLoad<T>(w: T): T
+${renderJSDoc(FUNCTION_DOCS.dot4U8Packed)}
+declare function dot4U8Packed(a: u32, b: u32): u32
+${renderJSDoc(FUNCTION_DOCS.dot4I8Packed)}
+declare function dot4I8Packed(a: u32, b: u32): i32
+${renderJSDoc(FUNCTION_DOCS.pack4xU8)}
+declare function pack4xU8(e: vec4u): u32
+${renderJSDoc(FUNCTION_DOCS.pack4xU8Clamp)}
+declare function pack4xU8Clamp(e: vec4u): u32
+${renderJSDoc(FUNCTION_DOCS.pack4xI8)}
+declare function pack4xI8(e: vec4i): u32
+${renderJSDoc(FUNCTION_DOCS.pack4xI8Clamp)}
+declare function pack4xI8Clamp(e: vec4i): u32
+${renderJSDoc(FUNCTION_DOCS.unpack4xU8)}
+declare function unpack4xU8(e: u32): vec4u
+${renderJSDoc(FUNCTION_DOCS.unpack4xI8)}
+declare function unpack4xI8(e: u32): vec4i
+${renderJSDoc(FUNCTION_DOCS.bitcast)}
+declare function bitcast<T extends u32 | f32>(e: BitcastArg<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atomicLoad)}
 declare function atomicLoad<T extends u32 | i32>(location: atomic<T>): T
 ${renderJSDoc(FUNCTION_DOCS.atomicStore)}
@@ -1184,7 +1399,11 @@ ${langConsts}
 // from an arity alone: \`select\`'s third argument is a bool, \`atan\` has two arities, \`bool\`
 // takes a bool as well as a number, and \`discard\` is a statement, not a call.
 ${renderJSDoc(FUNCTION_DOCS.select)}
-declare function select<T extends Numeric>(falseValue: T, trueValue: T, cond: bool | BoolVec): T
+declare function select<T extends Numeric | bool | BoolVec | Vec64Any | f64>(
+  falseValue: T,
+  trueValue: T,
+  cond: bool | BoolVec,
+): T
 ${renderJSDoc(FUNCTION_DOCS.any)}
 declare function any(v: bool | BoolVec): bool
 ${renderJSDoc(FUNCTION_DOCS.all)}

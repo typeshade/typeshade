@@ -81,8 +81,27 @@ export function atomicStep(
   old: number,
   arg: number,
   kind: NumKind,
-): { readonly next: number; readonly result: number } {
+  /** The value to STORE, for `atomicCompareExchangeWeak` alone (#152), where `arg` is the value
+   *  to compare against. Every other builtin takes one operand and ignores this. */
+  store?: number,
+): { readonly next: number; readonly result: CpuValue } {
   switch (fn) {
+    // `atomicCompareExchangeWeak(&x, cmp, val)` stores `val` only when the location holds
+    // `cmp`, and answers the contents it held BEFORE the call plus whether the store happened
+    // (wgsl.txt:25584). The field names are WGSL's own, in snake_case: measured on Tint,
+    // `r.oldValue` is "struct member oldValue not found".
+    //
+    // "Weak" names a hardware licence to fail spuriously, which this oracle does not exercise:
+    // one invocation at a time, so a comparison that holds cannot be beaten to the location.
+    // A device may answer `exchanged: false` where this answers true, and a shader that loops
+    // until it succeeds — which is the shape WGSL documents — is correct on both.
+    case 'atomicCompareExchangeWeak': {
+      const exchanged = old === arg
+      return {
+        next: exchanged ? wrapInt(store ?? 0, kind) : old,
+        result: { old_value: old, exchanged },
+      }
+    }
     case 'atomicLoad':
       return { next: old, result: old }
     case 'atomicStore':
@@ -168,6 +187,9 @@ export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, kind: NumKind = '
 // canonical target.
 const minNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.min(a, b))
 const maxNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.max(a, b))
+/** An integer clamped into a byte range, for the saturating packs (#152). Plain `Math` rather
+ *  than the NaN-aware pair above: the operands are integers by the time they reach it. */
+const clampNum = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v)
 
 // ── Builtins (vec-aware where WGSL is component-wise) ──
 type Builtin = (...args: CpuValue[]) => CpuValue
@@ -246,6 +268,13 @@ const f16BitsToF32 = (h: number): number => {
   _bitcastView.setUint32(0, bits >>> 0, true)
   return _bitcastView.getFloat32(0, true)
 }
+
+/** `quantizeToF16` on a scalar or on any width of vector (#150): the f16 round trip applied
+ *  per component. Shared by the four neutral ids, which differ only in how GLSL spells them. */
+const quantizeF16 = (x: CpuValue): CpuValue =>
+  isArr(x)
+    ? (x as number[]).map((c) => f16BitsToF32(f32ToF16Bits(c)))
+    : f16BitsToF32(f32ToF16Bits(x as number))
 
 /** Whether a comparison of values of type `t` rounds to f32 first: an f32 scalar or a vector
  *  of f32. The GPU computes f32, so exact f64 equality would silently disagree with it. */
@@ -469,6 +498,13 @@ export const BUILTINS: Record<string, Builtin> = {
   round: map1(roundTiesToEven),
   floor: map1(Math.floor),
   ceil: map1(Math.ceil),
+  // KNOWN LIMIT (#154): `abs(-2147483648)` on an `i32` is that value itself on both targets —
+  // 2^31 has no i32, so the result wraps (wgsl.txt:21451-21453) — and this gives 2147483648.
+  // It is not fixable here: a builtin is handed plain numbers, and the f32 `-2147483648.` is
+  // the same number with a genuine `+2147483648` answer. Fixing it needs the oracle and the
+  // codegen to wrap a call's result by its IR TYPE, which is a change to every integer
+  // builtin rather than to this row; an id of its own is not open either, since a portable id
+  // spells as its own name and the registry's map is for genuinely divergent spellings.
   abs: map1(Math.abs),
   sign: map1(Math.sign),
   radians: map1((d) => (d * Math.PI) / 180),
@@ -533,16 +569,25 @@ export const BUILTINS: Record<string, Builtin> = {
         )
       : s(edge as number, x as number)
   },
-  length: (v) => Math.sqrt((v as number[]).reduce((s, c) => s + (c as number) * (c as number), 0)),
+  // WGSL gives `length` and `distance` a SCALAR overload as well as the vector ones, and
+  // defines the scalar form as `abs(e)` / `abs(e1 - e2)` (wgsl.txt:22626). Both targets accept
+  // them — measured: `length(1.5)` on Tint and `length(float)` on a WebGL2 driver each compile
+  // — and the oracle threw `v.reduce is not a function` on a program the GPU ran (#154).
+  length: (v) =>
+    isArr(v)
+      ? Math.sqrt((v as number[]).reduce((s, c) => s + (c as number) * (c as number), 0))
+      : Math.abs(v as number),
   dot: (a, b) =>
     (a as number[]).reduce((s, c, i) => s + (c as number) * ((b as number[])[i] as number), 0),
   distance: (a, b) =>
-    Math.sqrt(
-      (a as number[]).reduce((s, c, i) => {
-        const d = (c as number) - ((b as number[])[i] as number)
-        return s + d * d
-      }, 0),
-    ),
+    isArr(a)
+      ? Math.sqrt(
+          (a as number[]).reduce((s, c, i) => {
+            const d = (c as number) - ((b as number[])[i] as number)
+            return s + d * d
+          }, 0),
+        )
+      : Math.abs((a as number) - (b as number)),
   normalize: (v) => {
     const a = v as number[]
     const l = Math.sqrt(a.reduce((s, c) => s + (c as number) * (c as number), 0))
@@ -609,6 +654,74 @@ export const BUILTINS: Record<string, Builtin> = {
     const n = (u as number) >>> 0
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255)
   },
+  // `workgroupUniformLoad(w)` (#152): the VALUE workgroup memory holds. The builtin is a read
+  // between two barriers, and the oracle models the read and not the barriers: it is an
+  // EXPRESSION, and `dispatch` synchronises barrier STATEMENTS. That is a real limitation and
+  // not a fiction — an invocation that reads a value another was mid-way through writing gets
+  // a different answer here than on a device. The oracle is an algebra oracle; a race is not
+  // algebra, and the same caveat already covers every other unsynchronised read it performs.
+  workgroupUniformLoad: (x) => x,
+  // ── The packed 4x8 integer family (#152) ──
+  //
+  // A `u32` read as four bytes, component 0 in the LOW byte (wgsl.txt:21906/21920). The signed
+  // forms sign-extend each byte, the `Clamp` packs saturate instead of truncating, and both
+  // dots accumulate in 32 bits the way the hardware does. Verified against a real device by
+  // dispatching each one and reading the buffer back, not by reading the spec twice.
+  unpack4xU8: (e) => {
+    const n = (e as number) >>> 0
+    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff]
+  },
+  unpack4xI8: (e) => {
+    const n = (e as number) >>> 0
+    return [0, 8, 16, 24].map((sh) => (((n >>> sh) & 0xff) << 24) >> 24)
+  },
+  pack4xU8: (v) => (v as number[]).reduce((acc, x, i) => acc | ((x & 0xff) << (8 * i)), 0) >>> 0,
+  pack4xI8: (v) => (v as number[]).reduce((acc, x, i) => acc | ((x & 0xff) << (8 * i)), 0) >>> 0,
+  pack4xU8Clamp: (v) =>
+    (v as number[]).reduce((acc, x, i) => acc | (clampNum(x, 0, 255) << (8 * i)), 0) >>> 0,
+  pack4xI8Clamp: (v) =>
+    (v as number[]).reduce((acc, x, i) => acc | ((clampNum(x, -128, 127) & 0xff) << (8 * i)), 0) >>>
+    0,
+  dot4U8Packed: (a, b) => {
+    const x = (a as number) >>> 0
+    const y = (b as number) >>> 0
+    let acc = 0
+    for (const sh of [0, 8, 16, 24]) acc = (acc + ((x >>> sh) & 0xff) * ((y >>> sh) & 0xff)) >>> 0
+    return acc >>> 0
+  },
+  dot4I8Packed: (a, b) => {
+    const x = (a as number) >>> 0
+    const y = (b as number) >>> 0
+    let acc = 0
+    for (const sh of [0, 8, 16, 24]) {
+      const p = Math.imul((((x >>> sh) & 0xff) << 24) >> 24, (((y >>> sh) & 0xff) << 24) >> 24)
+      acc = (acc + p) | 0
+    }
+    return acc | 0
+  },
+  // `abs` on an unsigned value is the identity, and the integer `dot` is the sum of the
+  // component-wise products (#154). Their own ids because GLSL ES 3.00 spells neither.
+  absU: (x) => x,
+  // Every multiply and every add wraps at 32 bits. Reducing in doubles and wrapping once at the
+  // end is not the same function: a component product past 2^53 is rounded before the wrap, and
+  // `dot(vec2i(2147483647, 1), vec2i(2147483647, 1))` came out 0 here against 2 on Tint AND 2
+  // on a WebGL2 driver. `Math.imul` is the 32-bit multiply.
+  //
+  // The two signednesses are backed differently, and the difference is worth naming. WGSL
+  // MANDATES the wrap for `i32` and for `u32` alike, and GLSL ES 3.00 mandates it for `uint`;
+  // for `int` it leaves overflow UNDEFINED (§4.1.3). So `dotU` is spec-backed on both targets,
+  // and `dotI` matches WGSL's rule and the driver measured above rather than a guarantee GLSL
+  // gives. The determinism report is where that asymmetry is recorded for an author.
+  dotI: (a, b) => {
+    const xs = a as number[]
+    const ys = b as number[]
+    return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) | 0, 0)
+  },
+  dotU: (a, b) => {
+    const xs = a as number[]
+    const ys = b as number[]
+    return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) >>> 0, 0) >>> 0
+  },
   // f32 bit-pattern reinterpreted as u32 (WGSL bitcast<u32> / GLSL floatBitsToUint).
   bitcastU32: (x) => {
     _bitcastView.setFloat32(0, Math.fround(x as number), true)
@@ -624,11 +737,53 @@ export const BUILTINS: Record<string, Builtin> = {
   // itself (or the struct member holding it), and its length is the answer the GPU gives.
   // Computable, so it lives here and not among the GPU_STUBS below.
   arrayLength: (xs) => (xs as readonly CpuValue[]).length,
+  //
+  // The scale is rounded to f32 FIRST, for the reason the signed twin below spells out: a GPU
+  // multiplies in f32 and this oracle would otherwise multiply in f64. Measured, an f64 product
+  // parts from the emitted GLSL inline (`floor(0.5 + clamp(e, 0, 1) * 255.0)`, evaluated in f32)
+  // on 127 of the 511 inputs e = i/510 — at e = 0.8098039031028748 the f64 product is just under
+  // 206.5 and rounds to 206 where both targets answer 207. An oracle that agrees with NEITHER
+  // target is the one thing it may not be.
   pack4x8unorm: (v) => {
     const a = v as number[]
-    const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff
+    const q = (x: number): number =>
+      Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 255)) & 0xff
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
   },
+  // The signed twin (#150, WGSL §17.10): ⌊0.5 + 127 × clamp(e, -1, 1)⌋, low 8 bits of the
+  // two's complement, component 0 in the low byte.
+  //
+  // Two things the first cut of this got wrong, both measured on a real driver. The scale is
+  // rounded to f32 FIRST: a GPU multiplies in f32, and there are 129 f32 values per sign whose
+  // f32 product with 127 is exactly k + 0.5 while the f64 product is just under it — on those,
+  // an f64 multiply rounds down where both targets round up. And `clamp` follows WGSL's NaN
+  // rule (`minNum`/`maxNum`: if one operand is NaN the other is returned), which is why a NaN
+  // component packs as -127 on both targets; `Math.min`/`Math.max` propagate the NaN and
+  // packed 0 instead.
+  pack4x8snorm: (v) => {
+    const a = v as number[]
+    const q = (x: number): number => Math.round(Math.fround(maxNum(-1, minNum(1, x)) * 127)) & 0xff
+    return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
+  },
+  // Sign-extend each byte, then max(v / 127, -1): the -128 pattern is -1.0079 before the
+  // clamp (WGSL §17.11).
+  unpack4x8snorm: (u) => {
+    const n = (u as number) >>> 0
+    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) =>
+      Math.max(((b << 24) >> 24) / 127, -1),
+    )
+  },
+  // Round to what an IEEE-754 binary16 holds and come back as an f32 (#150, WGSL §17.7.28).
+  // The same encode the 2×16 float pack uses, so a value that survives one survives the other.
+  //
+  // FOUR ids, one behaviour: the registry spells argument strings and has no type to switch
+  // on, and the GLSL round trip is two components at a time, so the front end picks the id by
+  // the argument's width. Here the width is visible in the value, so one function serves all
+  // four and the vector ids cannot drift from the scalar one.
+  quantizeToF16: quantizeF16,
+  quantizeToF16Vec2: quantizeF16,
+  quantizeToF16Vec3: quantizeF16,
+  quantizeToF16Vec4: quantizeF16,
   // ── 2×16 pack/unpack — native builtins on BOTH targets (only the names
   // diverge; see the intrinsic registry). Component 0 → the 16 LOW bits, per
   // both specs. Quantisation follows WGSL's ⌊0.5 + scale·clamp(e)⌋, which JS
@@ -641,9 +796,12 @@ export const BUILTINS: Record<string, Builtin> = {
     const n = (u as number) >>> 0
     return [f16BitsToF32(n & 0xffff), f16BitsToF32(n >>> 16)]
   },
+  // `Math.fround` on the scale for the same reason as the 4x8 pair: the product is an f32 on
+  // both targets and an f64 here without it.
   pack2x16unorm: (v) => {
     const a = v as number[]
-    const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 65535) & 0xffff
+    const q = (x: number): number =>
+      Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 65535)) & 0xffff
     return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0
   },
   unpack2x16unorm: (u) => {
@@ -652,7 +810,8 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   pack2x16snorm: (v) => {
     const a = v as number[]
-    const q = (x: number): number => Math.round(Math.max(-1, Math.min(1, x)) * 32767) & 0xffff
+    const q = (x: number): number =>
+      Math.round(Math.fround(Math.max(-1, Math.min(1, x)) * 32767)) & 0xffff
     return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0
   },
   unpack2x16snorm: (u) => {
@@ -688,6 +847,15 @@ export const GPU_STUBS: Record<string, Builtin> = {
   dpdyCoarse: (x) => zeroLike(x),
   dpdyFine: (x) => zeroLike(x),
   textureLoad: () => [0, 0, 0, 1],
+  // The UNSIGNED-coordinate fetch ids (#147). They differ from the signed ones only in the
+  // GLSL column, which wraps the coordinate in the signed constructor GLSL's `texelFetch`
+  // takes, so the oracle answers exactly what the signed ids answer.
+  textureLoadU: () => [0, 0, 0, 1],
+  textureLoad3dU: () => [0, 0, 0, 1],
+  textureLoadArrayU: () => [0, 0, 0, 1],
+  // The layer count of a storage array (#147): a fact about the binding the host made, which
+  // the oracle has no memory of, so it is a stub like the reads.
+  textureNumLayersStorage: () => 1,
   // 2d-array reads (X-GIS #1651) — same placeholder/throw contract as their 2d twins:
   // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.
   textureSampleArray: () => [0, 0, 0, 1],

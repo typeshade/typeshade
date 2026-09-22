@@ -161,7 +161,13 @@ export function f(a: f32): f32 {
     expect(r.determinism[0]!.accuracy).toMatch(/1 - 2\^-24 for a tiny negative x/)
   })
 
-  it('lists a gather as filtered and ldexp as a target difference, with the GLSL note', () => {
+  it('lists a gather as filtered, and no longer lists ldexp at all', () => {
+    // `ldexp` WAS a `target` row here, on a GLSL spelling that built 2^e from one biased
+    // exponent and gave +Inf at e = 128 (#141). The spelling now builds it in two halves, and
+    // a sweep of every legal exponent, -149 to 128, found the GLSL and WGSL answers identical
+    // for x = 1.0 and x = 0.75 — 278 of 278, where the old one missed 22. An operation with one
+    // answer on both targets does not belong in this report, so the row is gone and the gather
+    // is the only one left.
     const r = moduleOf(`"use typeshade";
 declare const tex: texture_2d<f32>;
 declare const smp: sampler;
@@ -169,12 +175,8 @@ export function f(uv: vec2, c: vec4): vec4 {
   const scaled: f32 = ldexp(c.x, 3);
   return textureGather(0, tex, smp, uv) * scaled;
 }`)
-    expect(rows(r).map((row) => row.slice(0, 3))).toEqual([
-      ['ldexp', 'f32', 'target'],
-      ['textureGather', 'f32', 'filtered'],
-    ])
-    expect(r.determinism[0]!.note).toMatch(/e = 128/)
-    expect(r.determinism[1]!.accuracy).toMatch(/which four/)
+    expect(rows(r).map((row) => row.slice(0, 3))).toEqual([['textureGather', 'f32', 'filtered']])
+    expect(r.determinism[0]!.accuracy).toMatch(/which four/)
   })
 
   it("never lists integer arithmetic, comparisons or a call to the module's own helper", () => {
@@ -258,11 +260,116 @@ describe('accuracyOf', () => {
     expect(accuracyOf('determinant')?.kind).toBe('unbounded')
     expect(accuracyOf('textureSampleCompareLevelArray')?.kind).toBe('filtered')
     expect(accuracyOf('textureGather')?.kind).toBe('filtered')
-    expect(accuracyOf('ldexp')?.kind).toBe('target')
+    // `ldexp` left the `target` column with #141: the GLSL scale is built in two halves now,
+    // and a sweep of every legal exponent found the two targets identical on all 278.
+    expect(accuracyOf('ldexp')?.kind).toBe('exact')
     expect(accuracyOf('pack2x16snorm')?.kind).toBe('target')
     expect(accuracyOf('pack2x16float')?.kind).toBe('exact')
     expect(accuracyOf('textureLoad')?.kind).toBe('exact')
     expect(accuracyOf('atomicAdd')?.kind).toBe('exact')
     expect(accuracyOf('no-such-builtin')).toBeUndefined()
+  })
+})
+
+// The rows #150 added, pinned by VALUE rather than only by "is placed somewhere": both are
+// load-bearing claims in §44 and the CHANGELOG, and the structural test above only forces a new
+// id into one column or the other, not into the right one.
+describe('the pack and quantize rows say what the emitted code actually does', () => {
+  it('quantizeToF16 is a target row at every width, with the reason in the note', () => {
+    for (const id of [
+      'quantizeToF16',
+      'quantizeToF16Vec2',
+      'quantizeToF16Vec3',
+      'quantizeToF16Vec4',
+    ]) {
+      const a = accuracyOf(id)!
+      expect(a.kind, id).toBe('target')
+      // WGSL settles the conversion; the GLSL half round trip does not pin its rounding.
+      expect('note' in a && a.note, id).toMatch(/packHalf2x16/)
+      // The three measured divergences, not just the tie.
+      expect('note' in a && a.note, id).toMatch(/halfway/)
+      expect('note' in a && a.note, id).toMatch(/NaN/)
+      expect('note' in a && a.note, id).toMatch(/subnormal/)
+    }
+  })
+
+  it('lists a pack, whose float kind is the one it READS', () => {
+    // Every `pack` row was unreachable. The walk takes a node's float kind from its RESULT
+    // type, and a pack answers a `u32` of bytes, so `floatElemOf` returned `undefined` and the
+    // node was dropped before `accuracyOf` was asked — four `target` rows, two of them older
+    // than the 4x8 pair, describing a divergence the report could not report. Measured before
+    // the fix, this module reported an EMPTY list.
+    const r = moduleOf(`"use typeshade";
+declare let out: storage<array<u32>>;
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = pack4x8unorm(vec4(0.5, 0.5, 0.5, 0.5));
+  out[1] = pack4x8snorm(vec4(0.5, 0.5, 0.5, 0.5));
+  out[2] = pack2x16unorm(vec2(0.5, 0.5));
+  out[3] = pack2x16snorm(vec2(0.5, 0.5));
+}`)
+    expect(r.determinism.map((e) => [e.op, e.elem, e.kind])).toEqual([
+      ['pack4x8unorm', 'f32', 'target'],
+      ['pack4x8snorm', 'f32', 'target'],
+      ['pack2x16unorm', 'f32', 'target'],
+      ['pack2x16snorm', 'f32', 'target'],
+    ])
+    // `every` on the list above would be vacuously true on an empty one, and `toEqual` already
+    // pins the whole list, so the claim worth adding here is the one the list cannot make: the
+    // INTEGER work beside the packs — the `u32` stores and the index arithmetic — is still not
+    // listed, which is what keeps this from being "report anything with a float argument".
+    expect(r.determinism.map((e) => e.op)).not.toContain('*')
+    expect(r.determinism.map((e) => e.op)).not.toContain('+')
+  })
+
+  // #175: the same "the result type hides the row" drop the packs just left behind, on the one
+  // operation where the pass cannot fix it. `accuracyOf` gives every `textureGather*` id the
+  // `filtered` row, and that row is about WHICH four texels the footprint selects — which is
+  // implementation-defined whatever the texture's element. But a gather on a `texture_2d<u32>`
+  // answers a `vec4<u32>`, and `DeterminismEntry.elem` is the public `'f32' | 'f64'`, so there
+  // is no float kind to report it under. Measured: the f32 texture lists the row, the u32 and
+  // i32 ones list nothing. Closing it means widening an exported union, which is a decision
+  // about the report's shape and not a fix inside this pass.
+  it.fails('#175: a gather on an integer texture is filtered too, and is not listed', () => {
+    const r = moduleOf(`"use typeshade";
+declare const tex: texture_2d<u32>;
+declare const smp: sampler;
+declare let out: storage<array<u32>>;
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = textureGather(0, tex, smp, vec2(0.5, 0.5)).x;
+}`)
+    expect(r.determinism.map((e) => [e.op, e.kind])).toEqual([['textureGather', 'filtered']])
+  })
+
+  it('both 4x8 packs are target rows: a driver rounds the exact half to even', () => {
+    // `pack4x8unorm` was promoted to `exact` on a measurement that only holds when Tint
+    // CONST-EVALUATES the call. Swept at RUNTIME over 511 inputs e = i/510, a WGSL driver and
+    // the GLSL inline parted on 34 of them — i = 1 packs 0 on WGSL and 1 on GLSL, i = 5 packs
+    // 2 and 3 — and a WGSL-only self-check, one shader computing both the builtin and
+    // `floor(0.5 + 255 * e)`, disagrees with ITSELF on the same 34. So the driver rounds the
+    // tie to even while the inline, and WGSL's own written rule, round it up. The CPU oracle
+    // sides with GLSL — it rounds the scale in f32, the way both targets do (see the oracle's
+    // own test) — so on those 34 it answers what a WebGL2 driver answers and not what a WGSL
+    // driver answers, which is exactly the oracle/GPU equality `exact` is supposed to promise
+    // and cannot here.
+    //
+    // The lesson is the const/runtime split: a constant argument is folded by the shader
+    // compiler and answers its own way, so a measurement taken on literals says nothing about
+    // the instruction a driver issues. The same split was already visible in this lane on
+    // `ldexp(1.0, -149)`, const-evaluated to a subnormal and flushed to zero at runtime.
+    for (const id of ['pack4x8unorm', 'pack4x8snorm']) {
+      const a = accuracyOf(id)!
+      expect(a.kind, id).toBe('target')
+      expect('note' in a && a.note, id).toMatch(/half|even/)
+    }
+
+    // The 2x16 packs are NATIVE GLSL builtins, defined with round(), so no spelling of ours
+    // can reach them and they stay `target` on the mechanism the unorm row just left behind.
+    for (const id of ['pack2x16unorm', 'pack2x16snorm']) {
+      const a = accuracyOf(id)!
+      expect(a.kind, id).toBe('target')
+      expect('note' in a && a.note, id).toMatch(/round\(\)/)
+    }
   })
 })

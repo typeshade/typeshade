@@ -1,0 +1,716 @@
+{
+  "specRepository": "https://github.com/gpuweb/gpuweb",
+  "specCommit": "358eebc8e7bf2d6efa41a4b8b3fbc3a715288204",
+  "generator": "scripts/bake-wgsl-names.ts",
+  "builtinFunctions": {
+    "section": "builtin-functions",
+    "count": 169,
+    "names": [
+      "abs",
+      "acos",
+      "acosh",
+      "all",
+      "any",
+      "array",
+      "arrayLength",
+      "asin",
+      "asinh",
+      "atan",
+      "atan2",
+      "atanh",
+      "atomicAdd",
+      "atomicAnd",
+      "atomicCompareExchangeWeak",
+      "atomicExchange",
+      "atomicLoad",
+      "atomicMax",
+      "atomicMin",
+      "atomicOr",
+      "atomicStore",
+      "atomicStoreMax",
+      "atomicStoreMin",
+      "atomicSub",
+      "atomicXor",
+      "bitcast",
+      "bool",
+      "bufferArrayView",
+      "bufferLength",
+      "bufferView",
+      "ceil",
+      "clamp",
+      "cos",
+      "cosh",
+      "countLeadingZeros",
+      "countOneBits",
+      "countTrailingZeros",
+      "cross",
+      "degrees",
+      "determinant",
+      "distance",
+      "dot",
+      "dot4I8Packed",
+      "dot4U8Packed",
+      "dpdx",
+      "dpdxCoarse",
+      "dpdxFine",
+      "dpdy",
+      "dpdyCoarse",
+      "dpdyFine",
+      "exp",
+      "exp2",
+      "extractBits",
+      "f16",
+      "f32",
+      "faceForward",
+      "firstLeadingBit",
+      "firstTrailingBit",
+      "floor",
+      "fma",
+      "fract",
+      "frexp",
+      "fwidth",
+      "fwidthCoarse",
+      "fwidthFine",
+      "i32",
+      "insertBits",
+      "inverseSqrt",
+      "ldexp",
+      "length",
+      "log",
+      "log2",
+      "mat2x2",
+      "mat2x3",
+      "mat2x4",
+      "mat3x2",
+      "mat3x3",
+      "mat3x4",
+      "mat4x2",
+      "mat4x3",
+      "mat4x4",
+      "max",
+      "min",
+      "mix",
+      "modf",
+      "normalize",
+      "pack2x16float",
+      "pack2x16snorm",
+      "pack2x16unorm",
+      "pack4x8snorm",
+      "pack4x8unorm",
+      "pack4xI8",
+      "pack4xI8Clamp",
+      "pack4xU8",
+      "pack4xU8Clamp",
+      "pow",
+      "quadBroadcast",
+      "quadSwapDiagonal",
+      "quadSwapX",
+      "quadSwapY",
+      "quantizeToF16",
+      "radians",
+      "reflect",
+      "refract",
+      "reverseBits",
+      "round",
+      "saturate",
+      "select",
+      "sign",
+      "sin",
+      "sinh",
+      "smoothstep",
+      "sqrt",
+      "step",
+      "storageBarrier",
+      "subgroupAdd",
+      "subgroupAll",
+      "subgroupAnd",
+      "subgroupAny",
+      "subgroupBallot",
+      "subgroupBroadcast",
+      "subgroupBroadcastFirst",
+      "subgroupElect",
+      "subgroupExclusiveAdd",
+      "subgroupExclusiveMul",
+      "subgroupInclusiveAdd",
+      "subgroupInclusiveMul",
+      "subgroupMax",
+      "subgroupMin",
+      "subgroupMul",
+      "subgroupOr",
+      "subgroupShuffle",
+      "subgroupShuffleDown",
+      "subgroupShuffleUp",
+      "subgroupShuffleXor",
+      "subgroupXor",
+      "tan",
+      "tanh",
+      "textureBarrier",
+      "textureDimensions",
+      "textureGather",
+      "textureGatherCompare",
+      "textureLoad",
+      "textureNumLayers",
+      "textureNumLevels",
+      "textureNumSamples",
+      "textureSample",
+      "textureSampleBaseClampToEdge",
+      "textureSampleBias",
+      "textureSampleCompare",
+      "textureSampleCompareLevel",
+      "textureSampleGrad",
+      "textureSampleLevel",
+      "textureStore",
+      "transpose",
+      "trunc",
+      "u32",
+      "unpack2x16float",
+      "unpack2x16snorm",
+      "unpack2x16unorm",
+      "unpack4x8snorm",
+      "unpack4x8unorm",
+      "unpack4xI8",
+      "unpack4xU8",
+      "vec2",
+      "vec3",
+      "vec4",
+      "workgroupBarrier",
+      "workgroupUniformLoad"
+    ]
+  },
+  "predeclaredTypes": {
+    "section": "predeclared-types",
+    "count": 13,
+    "names": [
+      "bool",
+      "f16",
+      "f32",
+      "i32",
+      "sampler",
+      "sampler_comparison",
+      "texture_depth_2d",
+      "texture_depth_2d_array",
+      "texture_depth_cube",
+      "texture_depth_cube_array",
+      "texture_depth_multisampled_2d",
+      "texture_external",
+      "u32"
+    ]
+  },
+  "typeGenerators": {
+    "section": "predeclared-types",
+    "count": 26,
+    "names": [
+      "array",
+      "atomic",
+      "mat2x2",
+      "mat2x3",
+      "mat2x4",
+      "mat3x2",
+      "mat3x3",
+      "mat3x4",
+      "mat4x2",
+      "mat4x3",
+      "mat4x4",
+      "ptr",
+      "texture_1d",
+      "texture_2d",
+      "texture_2d_array",
+      "texture_3d",
+      "texture_cube",
+      "texture_cube_array",
+      "texture_multisampled_2d",
+      "texture_storage_1d",
+      "texture_storage_2d",
+      "texture_storage_2d_array",
+      "texture_storage_3d",
+      "vec2",
+      "vec3",
+      "vec4"
+    ]
+  },
+  "builtinValues": {
+    "section": "builtin-inputs-outputs",
+    "count": 20,
+    "values": [
+      {
+        "name": "clip_distances",
+        "stages": [
+          {
+            "stage": "vertex",
+            "direction": "output"
+          }
+        ],
+        "type": "array<f32, N> (N <= 8)",
+        "extension": "clip_distances"
+      },
+      {
+        "name": "frag_depth",
+        "stages": [
+          {
+            "stage": "fragment",
+            "direction": "output"
+          }
+        ],
+        "type": "f32",
+        "extension": ""
+      },
+      {
+        "name": "front_facing",
+        "stages": [
+          {
+            "stage": "fragment",
+            "direction": "input"
+          }
+        ],
+        "type": "bool",
+        "extension": ""
+      },
+      {
+        "name": "global_invocation_id",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "vec3<u32>",
+        "extension": ""
+      },
+      {
+        "name": "global_invocation_index",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": "linear_indexing"
+      },
+      {
+        "name": "instance_index",
+        "stages": [
+          {
+            "stage": "vertex",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": ""
+      },
+      {
+        "name": "local_invocation_id",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "vec3<u32>",
+        "extension": ""
+      },
+      {
+        "name": "local_invocation_index",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": ""
+      },
+      {
+        "name": "num_subgroups",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": "subgroups and subgroup_id"
+      },
+      {
+        "name": "num_workgroups",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "vec3<u32>",
+        "extension": ""
+      },
+      {
+        "name": "position",
+        "stages": [
+          {
+            "stage": "vertex",
+            "direction": "output"
+          },
+          {
+            "stage": "fragment",
+            "direction": "input"
+          }
+        ],
+        "type": "vec4<f32>",
+        "extension": ""
+      },
+      {
+        "name": "primitive_index",
+        "stages": [
+          {
+            "stage": "fragment",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": "primitive_index"
+      },
+      {
+        "name": "sample_index",
+        "stages": [
+          {
+            "stage": "fragment",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": ""
+      },
+      {
+        "name": "sample_mask",
+        "stages": [
+          {
+            "stage": "fragment",
+            "direction": "input"
+          },
+          {
+            "stage": "fragment",
+            "direction": "output"
+          }
+        ],
+        "type": "u32",
+        "extension": ""
+      },
+      {
+        "name": "subgroup_id",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": "subgroups and subgroup_id"
+      },
+      {
+        "name": "subgroup_invocation_id",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          },
+          {
+            "stage": "fragment",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": "subgroups"
+      },
+      {
+        "name": "subgroup_size",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          },
+          {
+            "stage": "fragment",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": "subgroups"
+      },
+      {
+        "name": "vertex_index",
+        "stages": [
+          {
+            "stage": "vertex",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": ""
+      },
+      {
+        "name": "workgroup_id",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "vec3<u32>",
+        "extension": ""
+      },
+      {
+        "name": "workgroup_index",
+        "stages": [
+          {
+            "stage": "compute",
+            "direction": "input"
+          }
+        ],
+        "type": "u32",
+        "extension": "linear_indexing"
+      }
+    ]
+  },
+  "attributes": {
+    "section": "attributes",
+    "count": 18,
+    "names": [
+      "align",
+      "binding",
+      "blend_src",
+      "builtin",
+      "compute",
+      "const",
+      "diagnostic",
+      "fragment",
+      "group",
+      "id",
+      "interpolate",
+      "invariant",
+      "location",
+      "must_use",
+      "size",
+      "subgroup_size",
+      "vertex",
+      "workgroup_size"
+    ]
+  },
+  "keywords": {
+    "section": "keyword-summary",
+    "count": 26,
+    "names": [
+      "alias",
+      "break",
+      "case",
+      "const",
+      "const_assert",
+      "continue",
+      "continuing",
+      "default",
+      "diagnostic",
+      "discard",
+      "else",
+      "enable",
+      "false",
+      "fn",
+      "for",
+      "if",
+      "let",
+      "loop",
+      "override",
+      "requires",
+      "return",
+      "struct",
+      "switch",
+      "true",
+      "var",
+      "while"
+    ]
+  },
+  "reservedWords": {
+    "section": "reserved-words",
+    "source": "wgsl/wgsl.reserved.plain",
+    "count": 146,
+    "names": [
+      "NULL",
+      "Self",
+      "abstract",
+      "active",
+      "alignas",
+      "alignof",
+      "as",
+      "asm",
+      "asm_fragment",
+      "async",
+      "attribute",
+      "auto",
+      "await",
+      "become",
+      "cast",
+      "catch",
+      "class",
+      "co_await",
+      "co_return",
+      "co_yield",
+      "coherent",
+      "column_major",
+      "common",
+      "compile",
+      "compile_fragment",
+      "concept",
+      "const_cast",
+      "consteval",
+      "constexpr",
+      "constinit",
+      "crate",
+      "debugger",
+      "decltype",
+      "delete",
+      "demote",
+      "demote_to_helper",
+      "do",
+      "dynamic_cast",
+      "enum",
+      "explicit",
+      "export",
+      "extends",
+      "extern",
+      "external",
+      "fallthrough",
+      "filter",
+      "final",
+      "finally",
+      "friend",
+      "from",
+      "fxgroup",
+      "get",
+      "goto",
+      "groupshared",
+      "highp",
+      "impl",
+      "implements",
+      "import",
+      "inline",
+      "instanceof",
+      "interface",
+      "layout",
+      "lowp",
+      "macro",
+      "macro_rules",
+      "match",
+      "mediump",
+      "meta",
+      "mod",
+      "module",
+      "move",
+      "mut",
+      "mutable",
+      "namespace",
+      "new",
+      "nil",
+      "noexcept",
+      "noinline",
+      "nointerpolation",
+      "non_coherent",
+      "noncoherent",
+      "noperspective",
+      "null",
+      "nullptr",
+      "of",
+      "operator",
+      "package",
+      "packoffset",
+      "partition",
+      "pass",
+      "patch",
+      "pixelfragment",
+      "precise",
+      "precision",
+      "premerge",
+      "priv",
+      "protected",
+      "pub",
+      "public",
+      "readonly",
+      "ref",
+      "regardless",
+      "register",
+      "reinterpret_cast",
+      "require",
+      "resource",
+      "restrict",
+      "self",
+      "set",
+      "shared",
+      "sizeof",
+      "smooth",
+      "snorm",
+      "static",
+      "static_assert",
+      "static_cast",
+      "std",
+      "subroutine",
+      "super",
+      "target",
+      "template",
+      "this",
+      "thread_local",
+      "throw",
+      "trait",
+      "try",
+      "type",
+      "typedef",
+      "typeid",
+      "typename",
+      "typeof",
+      "union",
+      "unless",
+      "unorm",
+      "unsafe",
+      "unsized",
+      "use",
+      "using",
+      "varying",
+      "virtual",
+      "volatile",
+      "wgsl",
+      "where",
+      "with",
+      "writeonly",
+      "yield"
+    ]
+  },
+  "enableExtensions": {
+    "section": "enable-extensions-sec",
+    "count": 7,
+    "names": [
+      "atomic_vec2u_min_max",
+      "clip_distances",
+      "dual_source_blending",
+      "f16",
+      "primitive_index",
+      "subgroup_size_control",
+      "subgroups"
+    ]
+  },
+  "languageExtensions": {
+    "section": "language-extensions-sec",
+    "count": 15,
+    "names": [
+      "atomic_vec2u_min_max",
+      "buffer_view",
+      "fragment_depth",
+      "immediate_address_space",
+      "linear_indexing",
+      "packed_4x8_integer_dot_product",
+      "pointer_composite_access",
+      "readonly_and_readwrite_storage_textures",
+      "subgroup_id",
+      "subgroup_uniformity",
+      "swizzle_assignment",
+      "texture_and_sampler_let",
+      "texture_formats_tier1",
+      "uniform_buffer_standard_layout",
+      "unrestricted_pointer_parameters"
+    ]
+  }
+}

@@ -1861,6 +1861,8 @@ A capability can need either half, both halves, or neither.
 | `multiview` | directive `GL_OVR_multiview2` and host feature `OVR_multiview2` | unsupported, fails closed |
 | `f16` | unsupported, fails closed | directive `f16` and host feature `shader-f16` |
 | `subgroups` | unsupported, fails closed | directive `subgroups` and host feature `subgroups` |
+| `bgra8unormStorage` | unsupported, fails closed | host feature `bgra8unorm-storage`, derived |
+| `packed4x8Dot` | unsupported, fails closed | core, derived; a language feature to check |
 
 A capability with a host half and no source half costs zero emitted bytes: declaring it
 moves no byte of the shader. The `32` in `float32Blend` and `float32Filterable` is
@@ -1896,10 +1898,23 @@ Two notes before you trust a row.
 
 ### Derived and implied capabilities
 
-Three capabilities are derived, which means they are read off the module's shape and never
-declared. A storage binding implies `storageBuffer`, a compute entry implies `compute`, and
-a multisampled texture load implies `msaaTextureLoad`. `enables` is typed to exclude those
-three, so naming one is a compile error.
+Some capabilities are derived, which means they are read off the module's shape and never
+declared. A storage binding implies `storageBuffer`, a compute entry implies `compute`, a
+multisampled texture load implies `msaaTextureLoad`, a storage-texture binding implies
+`storageTexture`, a 1D texture implies `texture1d`, a cube-array texture implies
+`textureCubeArray`, a `textureGather` call implies `textureGather`, and a call to one of the
+eight packed 4x8 integer builtins implies `packed4x8Dot`. `bgra8unormStorage` is
+derived from a binding's FORMAT rather than its kind: `bgra8unorm` is the one storage format
+that is not core, and a device refuses the bind group layout unless it requested
+`bgra8unorm-storage` (measured — and Tint compiles the module either way, so nothing but this
+capability carries the requirement to the host). `enables` is typed to exclude every derived
+id, so naming one is a compile error.
+
+A capability is not the only thing a host may have to check. A WGSL *language* feature is a
+property of the browser's shading-language implementation rather than of the device, so it is
+not requested at `requestDevice` at all, and no directive announces it in the emitted module.
+`reflect().requiredLanguageFeatures` lists the ones a module's source uses, for
+`navigator.gpu.wgslLanguageFeatures` to answer.
 
 One capability can also imply another. `float32Blend` pulls in `floatRenderTarget`, because
 blending into a float target needs that target to be renderable as a colour attachment
