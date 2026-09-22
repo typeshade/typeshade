@@ -38,7 +38,7 @@ describe('the integer-literal deprecation, behind its flag', () => {
     ])
     expect(found[0]!.message).toBe(
       '"i" is written as an integer and types as f32 today; it will type as i32 ' +
-        '(§13, roadmap item 25). Write "i = 0." to keep f32, or leave it and take i32.',
+        '(§13, #148). Write "i = 0." to keep f32, or leave it and take i32.',
     )
     // A TREE of integer literals has no one-character fix, so it is told to annotate.
     expect(found[2]!.message).toContain('Annotate it — "n: f32 = 2 + 3"')

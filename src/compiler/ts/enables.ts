@@ -1,12 +1,15 @@
 // ═══ The file-level `"enable <extension>";` directive (§50) ═══
 //
-// WGSL turns a language extension on with a module-scope `enable f16;`. Two of the four
+// WGSL turns a language extension on with a module-scope `enable f16;`. Some of the
 // extensions this compiler can spell are DERIVED from use, because WGSL refuses the use
-// without them: writing `@builtin(clip_distances)` is the whole declaration, and
-// `required-caps.ts` turns it into `enable clip_distances;`. The other two — `f16` and
-// `subgroups` — are turned on by an author who intends to write against them, and until now
-// the `"use typeshade"` front end had no spelling for that at all: `enables` was EDSL-only
-// metadata on a hand-assembled `ModuleDecl`.
+// without them: writing `@builtin(clip_distances)` is the whole declaration, `@blend_src(n)`
+// is the whole of `dual_source_blending`, and `required-caps.ts` turns each into its
+// directive. The rest — `f16` and `subgroups` — are turned on by an author who intends to
+// write against them, and until now the `"use typeshade"` front end had no spelling for that
+// at all: `enables` was EDSL-only metadata on a hand-assembled `ModuleDecl`.
+//
+// The vocabulary is DERIVED from the profile below rather than listed, so no count of it is
+// written anywhere that could go stale as a lane appends a capability row.
 //
 // The spelling is a string directive beside `"use typeshade"`, the one top-level statement
 // form a TypeShade file already has:

@@ -109,9 +109,10 @@ export const TS_CODES = {
    *  a double into its two `f32` words — they are the emulation's business (§39). */
   F64_ENTRY_IO: 'TS8038',
   /** A file-level `"enable <extension>";` directive (§50) naming an extension outside the
-   *  vocabulary the WGSL backend's capability profile carries a directive for (`f16`,
-   *  `subgroups`, `clip_distances`, `primitive_index`). A misspelled name would otherwise be
-   *  an ordinary string expression statement and silently enable nothing. */
+   *  vocabulary the WGSL backend's capability profile carries a directive for
+   *  (`clip_distances`, `dual_source_blending`, `f16`, `primitive_index`, `subgroups`). A
+   *  misspelled name would otherwise be an ordinary string expression statement and silently
+   *  enable nothing. */
   ENABLE_NAME: 'TS8050',
   /** A buffer binding's store type breaks one of WGSL's host-shareable rules (§51), which a
    *  struct hides from the type map and the backend only meets as emitted text: a `bool`
@@ -125,7 +126,7 @@ export const TS_CODES = {
    *  across the invocations that run together (§54). */
   UNIFORMITY: 'TS8052',
   /** A DEPRECATION warning, not an error: an integer-written literal in a declaration that
-   *  declares no type still becomes `f32` and will become `i32` (§13, roadmap item 25).
+   *  declares no type still becomes `f32` and will become `i32` (§13, #148).
    *  Reported only when the caller asks for it with `deprecations: true`; the compiler's
    *  behaviour has not changed. */
   INT_LITERAL_DEPRECATION: 'TS8053',

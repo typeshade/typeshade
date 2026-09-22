@@ -22,6 +22,8 @@ import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { TS_CODES } from './codes.js'
 import { reflect } from '../../core/reflect.js'
+import { padUniformArrays } from '../../core/passes/uniform-layout.js'
+import { emitModuleAt } from '../../core/backends/wgsl.js'
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`)
@@ -112,6 +114,50 @@ export function fs(): vec4 { return vec4(U_.items[1].xs[0] * U_.k) }`)
     ])
   })
 
+  it('aligns a member whose element needs NO wrapper, which is the other half of the rule', () => {
+    // Two rules, and only one of them is the element's. `array<P, 2>` where `P` is four f32s
+    // has a natural stride of 16 already, so no wrapper is built — but `AlignOf(P)` is 4, and
+    // `RequiredAlignOf(array<E, N>)` in a uniform is `roundUp(16, AlignOf(E))`, which is 16.
+    // Without `@align(16)` on the member the array lands at offset 4, behind the scalar, while
+    // `reflect()` goes on reporting 16: the emit and the reflection describing different
+    // bytes, which is the whole of §51. The early return that skipped a rebuild with no
+    // wrapper in it threw exactly this case away.
+    const c = compiled(`interface P { a: f32; b: f32; c: f32; d: f32 }
+interface U { k: f32; ps: array<P, 2> }
+declare const U_: uniform<U>
+@fragment
+export function fs(): vec4 { return vec4(U_.k * U_.ps[1].a) }`)
+    expect(c.wgsl).toContain('@align(16) ps: array<P, 2>,')
+    expect(c.wgsl).not.toContain('_Pad16')
+    const u = reflect(c.module).uniforms[0]!
+    expect(u.fields.map((f) => [f.name, f.offset])).toEqual([
+      ['k', 0],
+      ['ps', 16],
+    ])
+    expect(u.size).toBe(48)
+  })
+
+  it('is idempotent: a module already padded is returned unchanged, by identity', () => {
+    // The pass reads a field's authored `size`/`align` before falling back to the layout it
+    // computes, so a second run finds nothing left to do. Not a nicety — `lowerForBackend`
+    // runs the chain once per emit and a module is emitted for WGSL and measured in the same
+    // breath, so a pass that padded its own padding would wrap the wrapper.
+    const { module } = compiled(SCALAR_ARRAY)
+    const once = padUniformArrays(module)
+    expect(once).not.toBe(module)
+    expect(padUniformArrays(once)).toBe(once)
+  })
+
+  it('pads at every optimization level, because it is a lowering and not an optimization', () => {
+    // It lived in the WGSL backend's `optimize`, which only the default path calls, so
+    // `emitModuleAt(m, level)` — a public entry, and the one `measure()` uses — skipped it and
+    // wrote the very stride Chromium 141 refuses. `preOptimize` runs before either tier.
+    const { module } = compiled(SCALAR_ARRAY)
+    for (const level of ['O0', 'O1', 'O2'] as const) {
+      expect(emitModuleAt(module, level), level).toContain('@align(16) xs: array<_Pad16_f32, 4>,')
+    }
+  })
+
   it('pads a vec2 array too, and leaves a vec4 array alone', () => {
     // vec2 is 8 bytes, so its natural stride is 8 and the uniform rule rounds it to 16. vec4
     // is already 16, so it needs no wrapper — which is what keeps this from padding
@@ -122,7 +168,12 @@ declare const U_: uniform<U>
 export function fs(): vec4 { return U_.vs[1] * U_.ws[2].x }`)
     expect(c.wgsl).toContain('struct _Pad16_vec2_f32_ {\n  @size(16) v: vec2<f32>,\n}')
     expect(c.wgsl).toContain('@align(16) ws: array<_Pad16_vec2_f32_, 3>,')
-    expect(c.wgsl).toContain('vs: array<vec4<f32>, 2>,')
+    // A vec4 is already 16-aligned, so its array carries no wrapper AND no `@align`: the
+    // member's required alignment is `roundUp(16, 16)`, which the natural alignment already
+    // meets. Writing one there would be noise, and would drift `array<vec4, N>` from the emit
+    // every other authoring surface produces.
+    expect(c.wgsl).toContain('  vs: array<vec4<f32>, 2>,')
+    expect(c.wgsl).not.toContain('@align(16) vs:')
     expect(c.wgsl).toContain('U_.ws[2].v.x')
     expect(c.wgsl).not.toContain('_Pad16_vec4')
   })

@@ -60,7 +60,7 @@ export function reportIntegerLiteralDeprecations(
             sourceFile,
             node,
             `"${name}" is written as an integer and types as f32 today; it will type as i32 ` +
-              `(§13, roadmap item 25). ${fix}, or leave it and take i32.`,
+              `(§13, #148). ${fix}, or leave it and take i32.`,
             TS_CODES.INT_LITERAL_DEPRECATION,
             'warning',
           ),

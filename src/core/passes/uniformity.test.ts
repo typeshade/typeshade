@@ -25,8 +25,8 @@ import { compile } from '../../compiler/ts/compile.js'
 import { compileTsSource } from '../../compiler/ts/source-file.js'
 import { TS_CODES } from '../../compiler/ts/codes.js'
 import { uniformityViolations } from './uniformity.js'
-import type { FuncDecl, ModuleDecl } from '../ir/nodes.js'
-import { f32T, vec2fT, vec4fT } from '../ir/types.js'
+import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js'
+import { boolT, f32T, u32T, vec2fT, vec3uT, vec4fT, voidT } from '../ir/types.js'
 
 const HEAD = `declare const t: texture_2d<f32>
 declare const s: sampler
@@ -252,6 +252,30 @@ let tile: workgroup<array<f32, 64>>
     expect(errors.join('\n')).toContain('workgroupBarrier() is reached under')
   })
 
+  it('refuses two directives that set one rule two ways, rather than emitting both', () => {
+    // WGSL takes one severity per rule per scope, so both lines in one module is
+    // `conflicting diagnostic directive` on Tint — and a module no driver accepts is exactly
+    // what §54 exists to catch at the line. Deduplicating on the (severity, rule) PAIR let
+    // this through: the two rows differ, so both were kept and both were written.
+    const conflict = errorsOf(
+      frag(
+        `  return textureSample(t, s, v.uv)`,
+        '@diagnostic("off", "derivative_uniformity")\n@diagnostic("error", "derivative_uniformity")\n',
+      ),
+    )
+    expect(conflict.join('\n')).toContain('is already set to "off"')
+    expect(conflict.join('\n')).toContain('conflicting diagnostic directive')
+    // The SAME severity written twice says one thing twice, which is not a conflict — and one
+    // directive is emitted, not two.
+    const twice = compiled(
+      frag(
+        `  return textureSample(t, s, v.uv)`,
+        '@diagnostic("off", "derivative_uniformity")\n@diagnostic("off", "derivative_uniformity")\n',
+      ),
+    )
+    expect(twice.wgsl!.match(/diagnostic\(off, derivative_uniformity\);/g)).toHaveLength(1)
+  })
+
   it('refuses a severity and a rule it does not know, and a wrong argument shape', () => {
     for (const [attr, want] of [
       ['@diagnostic("loud", "derivative_uniformity")\n', 'is not a diagnostic severity'],
@@ -367,5 +391,198 @@ describe('the walk itself, on a module the front end never saw', () => {
     expect(found).toHaveLength(1)
     expect(found[0]!.kind).toBe('barrier')
     expect(found[0]!.cause).toContain('cannot prove uniform')
+  })
+})
+
+// ═══ The four proofs the walk makes, each pinned by the shape that once broke it ═══
+//
+// Every row below is a program an earlier version of this walk answered WRONG, in one of the
+// two directions the header says must not happen: a derivative refused though Tint accepts
+// it, or a barrier admitted though Tint refuses it. None of the four is reachable from the
+// example corpus, so the compile gate never saw them — which is how they got in.
+describe('the walk claims only what it has proven', () => {
+  it('leaves an UNKNOWN divergence unknown, rather than promoting it to non-uniform', () => {
+    // `return` under a condition this walk cannot classify makes the rest of the function
+    // reachable by a subset of the invocations — but by which subset is exactly what is not
+    // known, so the class after it is the DIVERGENCE's own, not the literal `non-uniform`.
+    // Promoting it refused this program, which Tint compiles: a call into a user function is
+    // `unknown`, and `unknown` is above the derivative threshold.
+    expect(
+      compiled(
+        `${HEAD}export function opaque(): f32 { return 0.5 }
+@fragment export function fs(v: VsOut): vec4 {
+  if (opaque() > 0.5) { return vec4(0., 0., 0., 1.) }
+  return textureSample(t, s, v.uv)
+}`,
+      ).wgsl,
+    ).toContain('textureSample(t, s,')
+    // The BARRIER threshold is untouched by that: `unknown` is still not `uniform`.
+    expect(
+      errorsOf(`declare let out: storage<array<f32>>
+export function opaque(): f32 { return 0.5 }
+@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
+  if (opaque() > 0.5) { return }
+  workgroupBarrier()
+  out[lid.x] = 1.
+}`)[0],
+    ).toContain('workgroupBarrier() is reached under')
+  })
+
+  it('rebinds the ROOT of a write, so `v.x = …` is a write to `v`', () => {
+    // Reading only a bare `varref` target left `g` at the class its initialiser had, so the
+    // condition below read `uniform` and the barrier was ADMITTED — where Tint answers
+    // `'workgroupBarrier' must only be called from uniform control flow`. A false PROOF, which
+    // is the one thing the barrier threshold cannot tolerate.
+    const member = errorsOf(`declare let out: storage<array<f32>>
+@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
+  let g: vec2 = vec2(0., 0.)
+  g.x = f32(lid.x)
+  if (g.x > 4.) { workgroupBarrier() }
+  out[lid.x] = g.x
+}`)
+    expect(member[0]).toContain('workgroupBarrier() is reached under')
+    expect(member[0]).toContain('local_invocation_id')
+    // The same through an index, which reaches the root the same way.
+    const index = errorsOf(`declare let out: storage<array<f32>>
+@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
+  let g: array<f32, 2> = [0., 0.]
+  g[0] = f32(lid.x)
+  if (g[0] > 4.) { workgroupBarrier() }
+  out[lid.x] = g[1]
+}`)
+    expect(index[0]).toContain('workgroupBarrier() is reached under')
+  })
+
+  it('reports a call under a branch once, not once per loop iteration', () => {
+    // The loop fixpoint walks a body more than once — that is what follows a value carried
+    // round the loop — and every walk pushed its own finding, so an author read the same
+    // sentence about the same line two or three times over.
+    // A copy chain three deep is what makes the body walk settle only on the third pass —
+    // `a = b; b = c` carries `c`'s class round the loop one name per iteration — so the
+    // barrier under it was reported three times over. Measured: 3 without the filter, 1 with.
+    const errors = errorsOf(`declare let out: storage<array<f32>>
+@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
+  let a: f32 = 0.
+  let b: f32 = 0.
+  let c: f32 = f32(lid.x)
+  for (let i = 0; i < 4; i++) {
+    if (lid.x > u32(4)) { workgroupBarrier() }
+    a = b
+    b = c
+  }
+  out[lid.x] = a
+}`)
+    expect(errors.filter((e) => e.includes('workgroupBarrier() is reached under'))).toHaveLength(1)
+  })
+})
+
+describe('where the diagnostic points', () => {
+  it('underlines the barrier call, not the entry it sits in', () => {
+    // The `call` node the barrier lowering returns carried no span, so §54's diagnostic fell
+    // back to the enclosing declaration and underlined the entry's `@compute` decorator —
+    // three lines above the statement an author has to move. An editor squiggle over a whole
+    // function is a squiggle that says nothing.
+    const source = `"use typeshade"
+declare let out: storage<array<f32>>
+@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
+  if (lid.x > u32(4)) { workgroupBarrier() }
+  out[lid.x] = 1.
+}`
+    const [d, ...rest] = compileTsSource(source).diagnostics.filter((x) => x.category === 'error')
+    expect(rest).toEqual([])
+    expect(d!.code).toBe(TS_CODES.UNIFORMITY)
+    expect(source.slice(d!.start, d!.start + d!.length)).toBe('workgroupBarrier()')
+    expect([d!.line, d!.endLine]).toEqual([4, 4])
+  })
+})
+
+describe('the call graph, walked to a fixpoint that does not read declaration order', () => {
+  const BARRIER: Stmt = {
+    s: 'call',
+    expr: { op: 'call', type: voidT, fn: 'workgroupBarrier', args: [] },
+  }
+  const calls = (name: string): Stmt => ({
+    s: 'call',
+    expr: { op: 'call', type: voidT, fn: name, args: [] },
+  })
+  const helper = (name: string, body: readonly Stmt[]): FuncDecl => ({
+    name,
+    params: [],
+    ret: voidT,
+    body,
+  })
+  /** `lid.x > 4u`, on a `@builtin(local_invocation_id)` parameter: the seed table's own
+   *  non-uniform value, and what Tint refuses a barrier under. */
+  const lidOver4: Expr = {
+    op: 'compare',
+    type: boolT,
+    cop: '>',
+    a: {
+      op: 'member',
+      type: u32T,
+      base: { op: 'param', type: vec3uT, name: 'lid' },
+      field: 'x',
+    },
+    b: { op: 'lit', type: u32T, value: 4 },
+  }
+  const compute = (body: readonly Stmt[]): FuncDecl => ({
+    name: 'cs',
+    params: [{ name: 'lid', type: vec3uT, builtin: 'local_invocation_id' }],
+    ret: voidT,
+    body,
+    stage: 'compute',
+  })
+  const moduleOf = (funcs: readonly FuncDecl[]): ModuleDecl => ({
+    consts: [],
+    structs: [],
+    bindings: [],
+    funcs,
+  })
+
+  it('answers a call chain the same whichever end of it is declared first', () => {
+    // Accumulating the start classes into ONE map made the answer depend on `m.funcs` order:
+    // a helper walked before its caller seeded its own callees from a start class nothing had
+    // set yet, and `joinKnown` can only degrade, so a function two calls below an entry stayed
+    // at that first guess forever. The same program compiled with the entry declared first and
+    // did not with the helpers first — a difference an author has no way to read.
+    const inner = helper('inner', [BARRIER])
+    const outer = helper('outer', [calls('inner')])
+    const entry = compute([calls('outer')])
+    expect(uniformityViolations(moduleOf([inner, outer, entry]))).toEqual([])
+    expect(uniformityViolations(moduleOf([entry, outer, inner]))).toEqual([])
+  })
+
+  it('still carries a caller’s non-uniform control flow two calls down, in either order', () => {
+    // The relaxation only ever admits what is proven, so the same chain under a branch on
+    // `local_invocation_id` keeps the refusal — from the entry, through `outer`, into `inner`.
+    const inner = helper('inner', [BARRIER])
+    const outer = helper('outer', [calls('inner')])
+    const entry = compute([{ s: 'if', arms: [{ cond: lidOver4, body: [calls('outer')] }] }])
+    for (const funcs of [
+      [inner, outer, entry],
+      [entry, outer, inner],
+    ]) {
+      const found = uniformityViolations(moduleOf(funcs))
+      expect(found.map((v) => [v.fn, v.callee, v.kind])).toEqual([
+        ['inner', 'workgroupBarrier', 'barrier'],
+      ])
+      expect(found[0]!.cause).toContain('local_invocation_id')
+    }
+  })
+
+  it('takes a helper NOTHING calls on its own terms, as WGSL does', () => {
+    // A module of helpers alone — a fragment of a shader under test, or a library compiled by
+    // itself — has no caller to claim anything wrong about, so its body starts uniform. A
+    // pessimistic seed refused a barrier at the top level of such a module, under no branch at
+    // all, with a message about moving it out of one; and no spelling got the module through,
+    // since the diagnostic filter does not reach the barrier rule.
+    expect(uniformityViolations(moduleOf([helper('sync', [BARRIER])]))).toEqual([])
+    // Not vacuous: the same barrier under a branch this walk cannot classify is still
+    // reported, because `unknown` is not `uniform`.
+    const opaque: Expr = { op: 'call', type: boolT, fn: 'hostSaysSo', args: [] }
+    const found = uniformityViolations(
+      moduleOf([helper('sync', [{ s: 'if', arms: [{ cond: opaque, body: [BARRIER] }] }])]),
+    )
+    expect(found.map((v) => [v.fn, v.kind])).toEqual([['sync', 'barrier']])
   })
 })

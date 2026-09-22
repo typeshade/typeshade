@@ -325,8 +325,9 @@ non-host-shareable` on both builds, and silently emitted into the std140 block b
   always gave it. All four fail closed on GLSL ES 3.00, which has no row for any of them. The
   two extensions no use can derive have an author spelling at last: a `"enable subgroups"`
   string directive beside `"use typeshade"`, whose vocabulary is the WGSL backend's capability
-  profile (`clip_distances`, `f16`, `primitive_index`, `subgroups`) and whose misspelling is
-  `TS8050` naming the four and enabling nothing. The other WGSL axis is reported too:
+  profile — `clip_distances`, `f16`, `primitive_index` and `subgroups` when this landed, and
+  `dual_source_blending` since §53 — and whose misspelling is `TS8050` naming that list and
+  enabling nothing. The other WGSL axis is reported too:
   `reflect().requiredLanguageFeatures` lists the language extensions a module needs and the
   writer emits `requires <feature>;`, with one row today —
   `readonly_and_readwrite_storage_textures` for a storage texture bound `read` or `read_write`,

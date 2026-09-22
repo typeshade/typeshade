@@ -71,7 +71,8 @@ export type LayoutKind = 'std140' | 'std430'
  *  `'std430'` is WGSL's own layout; the uniform address space's extra element rule is what
  *  that pass adds on top.
  *
- *  @internal Not re-exported from the package barrel. */
+ *  @internal Exported for that one caller. The published entry is {@link wgslLayout},
+ *  which answers the question a consumer has: the layout of a whole struct. */
 export function typeLayout(
   t: ShaderType,
   layout: LayoutKind,

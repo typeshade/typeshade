@@ -392,14 +392,19 @@ export const wgslBackend: Backend = {
   // gate (_optimizer-gpu-parity). Every pass skips a fn containing a raw Stmt (the
   // polygon composer's _mcSS fill/stroke), so those precision-critical paths are
   // emitted verbatim, untouched.
-  // The uniform 16-byte array padding (§51) runs BEFORE the optimizer, not in `postLower`
-  // after it. It is a LOWERING — it changes a struct's member types and the reads that reach
-  // through them — and an optimizer that has not seen it hoists the unlowered form: LICM
-  // lifted `U.weights` out of a loop as `let _licm0 = U.weights;`, and the padding then had
-  // no `member` node left to rewrite, so `_licm0[i]` came out typed as the WRAPPER and was
-  // multiplied as an f32. Padding first, LICM hoists the padded array and the index keeps
-  // its `.v`.
-  optimize: (m) => fixpoint(flatIntegerVaryings(padUniformArrays(m))),
+  // The uniform 16-byte array padding (§51) and the `@interpolate(flat)` derivation (§53) are
+  // LOWERINGS, so they are in `preOptimize` and not here. Inside `optimize` they ran on the
+  // default path only, and `emitModuleAt(m, level)` — a public entry — skipped both and wrote
+  // the two programs they exist to stop writing. `preOptimize` runs before EITHER tier.
+  //
+  // Before the optimizer, not after it in `postLower`: the padding changes a struct's member
+  // types and the reads that reach through them, and an optimizer that has not seen it hoists
+  // the unlowered form. LICM lifted `U.weights` out of a loop as `let _licm0 = U.weights;`,
+  // and the padding then had no `member` node left to rewrite, so `_licm0[i]` came out typed
+  // as the WRAPPER and was multiplied as an f32. Padding first, LICM hoists the padded array
+  // and the index keeps its `.v`.
+  preOptimize: (m) => flatIntegerVaryings(padUniformArrays(m)),
+  optimize: (m) => fixpoint(m),
   // One copy of a pointer-taking function per address space its calls use — see wgsl-ptr.ts.
   // After the optimizer, since a pass that folds a call away removes a space with it.
   postLower: (m) => pointerSpaces(m),

@@ -749,7 +749,8 @@ written — the backend spelled every scalar constant with a float literal, so t
 `const N: u32 = 16.0;`, which is the half issues #13 and #17 were about — and it has been true
 since they landed.
 
-**A window is open on the default (§54's neighbour, roadmap item 25).** Everything above is
+**A window is open on the default (#148; the policy it follows is roadmap item 25, the
+deprecation-policy row, and `RELEASING.md` §7).** Everything above is
 about a position that DECLARES a type. Where nothing declares one — `let i = 0`, `const K = 5`
 — the literal still takes `f32`, so `xs[i]` is `Index must be i32 or u32`. WGSL concretizes an
 abstract integer to `i32` when nothing else decides (wgsl.txt:3929-3933, 4100-4104), GLSL's `5`
@@ -761,7 +762,7 @@ default and moves no emitted byte:
 ```ts
 compile(source, { deprecations: true })
 // TS8053 (warning): "i" is written as an integer and types as f32 today; it will type as i32
-// (§13, roadmap item 25). Write "i = 0." to keep f32, or leave it and take i32.
+// (§13, #148). Write "i = 0." to keep f32, or leave it and take i32.
 ```
 
 `RELEASING.md` §7 is the policy the window follows and the list of the windows that are open.
@@ -3160,6 +3161,8 @@ neutral capability, and `hostFeaturesFor(wgslBackend, …)` turns it into what t
 at `requestDevice`.
 
 ```ts
+"use typeshade"
+
 class VsOut {
   @builtin("position") pos: vec4
   @builtin("clip_distances") cd: array<f32, 4> // vertex OUTPUT only, N from 1 to 8
@@ -3299,6 +3302,8 @@ The compiler emits the padding itself. A wrapper struct carries `@size(16)` and 
 rewritten one field deeper:
 
 ```ts
+"use typeshade"
+
 class Palette {
   count: f32               // a scalar BEFORE the list, which is where @align earns its keep
   weights: array<f32, 4>   // four floats in the source
@@ -3420,6 +3425,8 @@ i32)'` on Tint — while `x << 1u`, the one spelling Tint accepts, was refused h
 equal-types rule. Both paths now agree:
 
 ```ts
+"use typeshade"
+
 export function f(x: i32, n: i32, u: u32): i32 {
   const a = x << n        // WGSL (x << u32(n))
   const b = x >> u         // WGSL (x >> u), no cast needed
@@ -3471,11 +3478,15 @@ clause above a full one, and that read as `switch case fall-through is not allow
 shape that is *not* fall-through, since an empty clause has nothing to fall through:
 
 ```ts
-switch (k) {
-  case 0:
-  case 1: return 10   // WGSL `case 0, 1: {`   ·   GLSL `case 0: case 1: {`
-  case 2: return 20
-  default: return 99
+"use typeshade"
+
+export function tier(k: i32): i32 {
+  switch (k) {
+    case 0:
+    case 1: return 10   // WGSL `case 0, 1: {`   ·   GLSL `case 0: case 1: {`
+    case 2: return 20
+    default: return 99
+  }
 }
 ```
 
@@ -3577,6 +3588,8 @@ user-defined fragment inputs must have a '@interpolate(flat)' attribute`. A VERT
 `@location` parameters are vertex ATTRIBUTES, not varyings, and are left alone.
 
 ```ts
+"use typeshade"
+
 class VsOut {
   @builtin("position") pos: vec4
   @location(0) id: u32       // WGSL @interpolate(flat) · GLSL `flat out uint id;`
@@ -3707,6 +3720,8 @@ barrier rule rests on.
 It is **flow-sensitive**, which is what makes both thresholds true rather than merely stated.
 The environment is threaded in statement order and merged at each branch's join:
 
+<!-- doc-snippets: skip — the first half is REFUSED on purpose, so it cannot be a unit that compiles; both halves are pinned by src/core/passes/uniformity.test.ts. -->
+
 ```ts
 const edge = v.uv.x > 0.5
 if (edge) { return textureSample(t, s, v.uv) }   // refused, naming VsOut.uv — the root, not the name
@@ -3742,8 +3757,20 @@ keeps the old answer.
 analysis and emits WGSL's module-scope directive:
 
 ```ts
+"use typeshade"
+
+declare const t: texture_2d<f32>
+declare const s: sampler
+class VsOut {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+
 @diagnostic("off", "derivative_uniformity")
-@fragment export function fs(v: VsOut): vec4 { … }
+@fragment export function fs(v: VsOut): vec4 {
+  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }   // taken as written
+  return vec4(0., 0., 0., 1.)
+}
 ```
 
 ```wgsl

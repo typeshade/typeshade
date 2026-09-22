@@ -8,6 +8,8 @@ interface Varying {
   readonly location: number
   readonly type: ShaderType
   readonly interpolate?: string
+  /** The name the varying is EMITTED under: a struct field's name, or a bare parameter's. */
+  readonly name: string
   readonly where: string
 }
 
@@ -22,7 +24,7 @@ export interface InterstageMismatch {
 function varyings(
   structs: readonly StructDecl[],
   type: ShaderType,
-  own: { location?: number; interpolate?: string },
+  own: { location?: number; interpolate?: string; name: string },
   where: string,
 ): Varying[] {
   if (own.location !== undefined) {
@@ -31,6 +33,7 @@ function varyings(
         location: own.location,
         type,
         interpolate: emittedInterpolation({ type, ...own }),
+        name: own.name,
         where,
       },
     ]
@@ -48,6 +51,7 @@ function varyings(
       // refused a legal pair where one side spelled it and the other did not (§53).
       type: f.type,
       interpolate: emittedInterpolation(f),
+      name: f.name,
       where: `${s.name}.${f.name}`,
     })
   }
@@ -88,7 +92,7 @@ export function interstageMismatches(
   // A vertex entry's bare (non-struct) return is `@builtin(position)`, never a varying, so
   // only its struct return can carry one.
   const outAt = new Map<number, Varying>()
-  for (const v of varyings(structs, vertex.ret, {}, `${vertex.name}'s return`)) {
+  for (const v of varyings(structs, vertex.ret, { name: '' }, `${vertex.name}'s return`)) {
     outAt.set(v.location, v)
   }
   const found: InterstageMismatch[] = []
@@ -106,6 +110,20 @@ export function interstageMismatches(
           `${slot} leaves "${vertex.name}" as ${typeKey(have.type)} (${have.where}) and ` +
             `enters "${fragment.name}" as ${typeKey(want.type)} (${want.where}); ` +
             `an interstage slot is one type on both sides.`,
+        )
+        continue
+      }
+      // GLSL ES 3.00 links a varying by NAME, not by slot: this writer emits no explicit
+      // location for one, so two names at one `@location` are `FRAGMENT varying texCoord does
+      // not match any VERTEX varying` at link time — measured on a real WebGL2 context. WGSL
+      // links by slot and takes the pair, so this is the one interstage rule that is GLSL's
+      // alone, and a module with no GLSL half would still be refused by it: one source, one
+      // program, is what §53 is for.
+      if (have.name !== want.name) {
+        say(
+          `${slot} leaves "${vertex.name}" as "${have.name}" (${have.where}) and enters ` +
+            `"${fragment.name}" as "${want.name}" (${want.where}); GLSL ES 3.00 links a ` +
+            `varying by name, so the two sides of a slot carry one name.`,
         )
         continue
       }

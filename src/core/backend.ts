@@ -305,6 +305,22 @@ export interface Backend {
    *  choose differently without a change to the shared driver. It runs after the
    *  lowering passes and before the module is assembled into source. */
   optimize(lowered: ModuleDecl): ModuleDecl
+  /** Optional. The target's own LOWERINGS, run after the shared lowering passes and BEFORE
+   *  either optimizer tier — the explicit-level one as well as {@link optimize}.
+   *
+   *  The distinction is what a pass IS, not when it happens to be convenient. An optimizer
+   *  makes a module faster and may be skipped; a lowering makes it the module the target
+   *  accepts and may not. WGSL's uniform 16-byte array padding (§51) and its
+   *  `@interpolate(flat)` derivation (§53) are lowerings, and while they lived inside
+   *  `optimize` the public `emitModuleAt(m, level)` and `lowerWgsl(m, level)` skipped both
+   *  and wrote the exact two programs the default path was fixed to stop writing — a bare
+   *  `@location(0) id: u32` Tint refuses, and an unpadded uniform array.
+   *
+   *  Before the optimizer, not after it in {@link postLower}: the padding changes a struct's
+   *  member types and the reads that reach through them, and an optimizer that has not seen
+   *  it hoists the unlowered form. LICM lifted `U.weights` out of a loop as
+   *  `let _licm0 = U.weights;` and the padding then had no `member` node left to rewrite. */
+  preOptimize?(lowered: ModuleDecl): ModuleDecl
   /** Optional. The last rewrite before the module is spelled, run after {@link optimize} and
    *  after every optimizer tier, for a target whose SPELLING needs a shape the IR does not
    *  carry. WGSL uses it to give a function with a pointer parameter one copy per address

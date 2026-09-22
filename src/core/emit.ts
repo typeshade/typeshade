@@ -386,7 +386,10 @@ export function lowerForBackend(
     ),
     be,
   )
-  const optimized = level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
+  // The target's own LOWERINGS, before EITHER optimizer tier: a lowering makes the module
+  // the target accepts and cannot be skipped by asking for a different optimization level.
+  const lowered = be.preOptimize === undefined ? pre : be.preOptimize(pre)
+  const optimized = level === undefined ? be.optimize(lowered) : optimizeAt(lowered, level)
   // After every tier, so a target whose spelling needs a shape the IR does not carry gets it
   // whichever optimizer ran. Identity for a backend that declares none.
   return be.postLower === undefined ? optimized : be.postLower(optimized)

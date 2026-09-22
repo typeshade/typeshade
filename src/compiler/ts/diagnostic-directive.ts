@@ -84,13 +84,29 @@ export function collectDiagnosticDirectives(
         )
         continue
       }
-      const directive: DiagnosticDirective = {
-        severity: severity as DiagnosticDirective['severity'],
-        rule,
+      // Deduplicated on the RULE, not on the (severity, rule) pair. WGSL allows one severity
+      // per rule in a scope, so two directives setting the same rule differently are a
+      // `conflicting diagnostic directive` on Tint — and the pair test let both through, so
+      // the module carried both lines and no driver accepted it, silently. The same severity
+      // written twice is not a conflict: it says the same thing.
+      const prior = out.find((x) => x.rule === rule)
+      if (prior !== undefined) {
+        if (prior.severity !== severity) {
+          diagnostics.push(
+            makeDiagnostic(
+              sourceFile,
+              d,
+              `"${rule}" is already set to "${prior.severity}" by another @diagnostic in this ` +
+                `file, and this one sets it to "${severity}". WGSL takes one severity per rule ` +
+                `per scope, and both would be emitted: "conflicting diagnostic directive" on ` +
+                `Tint. Keep one of the two.`,
+              TS_CODES.ATTRIBUTE_NAME,
+            ),
+          )
+        }
+        continue
       }
-      if (!out.some((x) => x.severity === directive.severity && x.rule === directive.rule)) {
-        out.push(directive)
-      }
+      out.push({ severity: severity as DiagnosticDirective['severity'], rule })
     }
   }
   return out

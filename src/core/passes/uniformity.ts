@@ -326,39 +326,60 @@ interface Flow {
  *  non-uniform; a `barrier` one whenever it is not definitely uniform. See the header for why
  *  the two thresholds differ. */
 export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
-  // Where each function's body starts. An entry starts at `uniform`; a helper starts at the
-  // join of the control flow at every call of it, which the rounds below compute. A helper
-  // nothing calls keeps `undefined`, which reads as `unknown` and so keeps its barrier
-  // refused — a function no entry reaches is emitted by nothing, and claiming it uniform
-  // would be claiming something about a caller that does not exist.
-  const startAt = new Map<string, Known>()
-  for (const f of m.funcs) {
-    if (stageOf(f) !== undefined) startAt.set(f.name, { at: 'uniform', why: 'the entry' })
-  }
   const byName = new Map(m.funcs.map((f) => [f.name, f]))
-
-  let found: UniformityViolation[] = []
-  // A fixpoint over the call graph. Each round re-walks every function at the class its
-  // callers reached it under; a round that changes no start class is the last. Bounded by the
-  // number of functions plus one, which is the longest chain a class can travel.
-  for (let round = 0; round <= m.funcs.length; round++) {
-    found = []
-    let changed = false
-    const record = (callee: string, at: Known): void => {
-      if (!byName.has(callee)) return
-      const prior = startAt.get(callee)
-      const next = prior === undefined ? at : joinKnown(prior, at)
-      if (prior === undefined || prior.at !== next.at) {
-        startAt.set(callee, next)
-        changed = true
-      }
-    }
-    for (const f of m.funcs) {
-      walkFunction(m, f, startAt.get(f.name), found, record)
-    }
-    if (!changed) break
+  const isEntry = (name: string): boolean => {
+    const f = byName.get(name)
+    return f !== undefined && stageOf(f) !== undefined
   }
-  return found
+  const entrySeed = (name: string): Known =>
+    isEntry(name)
+      ? { at: 'uniform', why: 'the entry' }
+      : // A function NOTHING calls is analysed on its own, by WGSL and by this walk alike, so
+        // its body starts uniform: there is no caller to claim anything wrong about. A
+        // pessimistic seed refused a barrier at the top level of a helper-only module — under
+        // no branch at all, with a message about moving it out of one — and no spelling got
+        // such a module through, since the diagnostic filter does not reach the barrier rule.
+        { at: 'uniform', why: 'no call of it' }
+
+  // A DESCENDING fixpoint over the call graph. Every function starts uniform and degrades as
+  // the classes at its call sites come in; a round that changes no start class is the last.
+  //
+  // Recomputed into a FRESH map each round, not accumulated into one. Accumulating made the
+  // answer depend on declaration order: a helper walked before its caller in round 0 seeded
+  // its own callees from a start class nothing had set yet, and `joinKnown` can only degrade,
+  // so a function two calls below an entry stayed at that first guess forever — the same
+  // program with the entry declared first compiled, and with the helpers first it did not.
+  let startAt = new Map<string, Known>(m.funcs.map((f) => [f.name, entrySeed(f.name)]))
+  for (let round = 0; round <= m.funcs.length + 1; round++) {
+    const next = new Map<string, Known>()
+    const record = (callee: string, at: Known): void => {
+      // An entry cannot be called (§52 refuses it), so nothing degrades one.
+      if (!byName.has(callee) || isEntry(callee)) return
+      const prior = next.get(callee)
+      next.set(callee, prior === undefined ? at : joinKnown(prior, at))
+    }
+    // The findings of a fixpoint round are thrown away: only the LAST pass, over the settled
+    // start classes, reports.
+    for (const f of m.funcs) walkFunction(m, f, startAt.get(f.name), [], record)
+    for (const f of m.funcs) if (!next.has(f.name)) next.set(f.name, entrySeed(f.name))
+    if (m.funcs.every((f) => next.get(f.name)?.at === startAt.get(f.name)?.at)) break
+    startAt = next
+  }
+
+  const found: UniformityViolation[] = []
+  for (const f of m.funcs) {
+    walkFunction(m, f, startAt.get(f.name), found, () => undefined)
+  }
+  // One call, one violation. A loop body is walked more than once — the fixpoint that follows
+  // a value carried round the loop — so a barrier inside one was reported once per iteration,
+  // and an author saw the same sentence twice about the same line.
+  const seen = new Set<string>()
+  return found.filter((v) => {
+    const key = `${v.fn}|${v.callee}|${v.kind}|${v.span?.start ?? -1}|${v.cause}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function walkFunction(
@@ -379,7 +400,12 @@ function walkFunction(
   const checkExpr = (e: Expr, flow: Flow): void => {
     eachExpr(e, (x) => {
       if (x.op !== 'call') return
-      const at = flow.diverged ? join(flow.at, 'non-uniform') : flow.at
+      // The divergence's OWN class, not the literal `non-uniform`: an early `return` under a
+      // condition this walk cannot follow leaves the rest of the function `unknown`, which is
+      // what the header promises and what keeps a derivative under it from being refused
+      // though Tint accepts it. The barrier threshold is unchanged, since `unknown` is still
+      // not `uniform`.
+      const at = flow.diverged ? join(flow.at, flow.diverged.at) : flow.at
       const why = flow.diverged ? flow.diverged.why : flow.why
       record(x.fn, { at, why })
       if (DERIVATIVE_INTRINSICS.has(x.fn)) {
@@ -430,10 +456,24 @@ function walkFunction(
         case 'assignOp': {
           // A write under a branch is only as uniform as the branch: the invocations that did
           // not take it keep the old value, so the two differ afterwards.
-          if (s.target.op === 'varref') {
+          //
+          // The ROOT of the target, not the target itself. `v.x = f32(lid.x)` and
+          // `v[0] = f32(lid.x)` write `v`, and reading only a bare `varref` left `v` at the
+          // class its initialiser had — so `if (v.x > 4.) { workgroupBarrier() }` was ACCEPTED
+          // where Tint answers `'workgroupBarrier' must only be called from uniform control
+          // flow`. That is a false PROOF, not a conservative gap, which is the one thing the
+          // barrier threshold cannot tolerate. A write through a member joins rather than
+          // replaces: the other lanes of `v` keep what they had.
+          const root = rootVarref(s.target)
+          if (root !== undefined) {
             const v = classify(m, f, cur.env, s.expr)
             const under: Known = { at: cur.at, why: cur.why }
-            cur = { ...cur, env: bind(cur, s.target.name, joinKnown(v, under)) }
+            const whole = joinKnown(v, under)
+            const prior = s.target.op === 'varref' ? undefined : cur.env.get(root)
+            cur = {
+              ...cur,
+              env: bind(cur, root, prior === undefined ? whole : joinKnown(prior, whole)),
+            }
           }
           break
         }
@@ -538,6 +578,22 @@ function walkFunction(
   }
 
   walk(f.body, entry)
+}
+
+/** The name a write ultimately lands on: `v` for `v`, `v.x`, `v[0]`, `v.a[i].b`. `undefined`
+ *  when the write does not reach a local at all — a storage or module binding, which this
+ *  walk claims nothing about anyway. */
+function rootVarref(target: Expr): string | undefined {
+  switch (target.op) {
+    case 'varref':
+      return target.name
+    case 'member':
+      return rootVarref(target.base)
+    case 'index':
+      return rootVarref(target.base)
+    default:
+      return undefined
+  }
 }
 
 /** `env` with `name` bound, without mutating the environment a sibling branch holds. */

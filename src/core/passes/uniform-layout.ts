@@ -114,8 +114,16 @@ function makeLayout(
             ok = false
             break
           }
-          cursor = roundUp(cursor, fl.align) + fl.size
-          if (fl.align > align) align = fl.align
+          // The field's OWN `@size` and `@align`, where this pass has already written them.
+          // Reading the type alone made the walk answer differently on a module it had
+          // already padded — a wrapper's `@size(16)` over an `f32` read back as 4 — so a
+          // second application wrapped the wrapper. The pass is a lowering and runs once in
+          // the pipeline, but `lowerForBackend` is public and a caller may run it twice; a
+          // pass whose second application is not the identity is a trap either way.
+          const size = f.size ?? fl.size
+          const fieldAlign = f.align ?? fl.align
+          cursor = roundUp(cursor, fieldAlign) + size
+          if (fieldAlign > align) align = fieldAlign
         }
         const out = ok ? { size: roundUp(cursor, align), align } : undefined
         memo.set(t.name, out)
@@ -130,7 +138,14 @@ function makeLayout(
         // `array<{a: f32, b: f32}, 3>` through with a stride of 8, which Tint refuses.
         const natural = roundUp(el.size, el.align)
         const stride = roundUp(natural, UNIFORM_ARRAY_ALIGN)
-        if (stride === natural) return { size: natural * t.size, align: el.align }
+        // An ARRAY in this address space is 16-aligned whatever its element is:
+        // `RequiredAlignOf(array<E, N>)` is `roundUp(16, AlignOf(E))`, which is 16 for every
+        // E. The stride and the alignment are two rules, and only the stride depends on the
+        // element — reading the element's alignment here put `array<P, 3>` (P four floats,
+        // stride 16 already) at offset 4 with no `@align`, which Tint answers with `the
+        // offset of a struct member of type 'array<P, 3>' in address space 'uniform' must be
+        // a multiple of 16 bytes, but 'xs' is currently at offset 4`.
+        if (stride === natural) return { size: natural * t.size, align: UNIFORM_ARRAY_ALIGN }
         decide(t.elem, stride)
         // The wrapper gives the ELEMENT its stride; the MEMBER holding the array carries
         // `@align(16)`, which is also what raises the enclosing struct's own alignment.
@@ -194,6 +209,10 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
   const layoutOf = makeLayout(structs, (elem, size) => {
     wrapperSizes.set(typeKey(elem), size)
   })
+  // The element's OWN size and alignment, as emitted — to tell an array whose element is
+  // already 16-aligned (no `@align` needed) from one that is not (a scalar, a `vec2`, a
+  // struct that maxes out under 16). The wrapper recorder plays no part, so it is a no-op.
+  const elemLayoutOf = makeLayout(structs, () => undefined)
   // A uniform whose WHOLE type is a list has no member to carry the `@align(16)`, and no
   // struct for `reflect()` to describe either — `reflect().uniforms` is empty for one. Refused
   // rather than emitted, since what would be emitted is the very stride Tint rejects.
@@ -233,7 +252,21 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
       wrapperSizes.delete(typeKey(arrayElem))
       layoutOf(f.type)
       const size = wrapperSizes.get(typeKey(arrayElem))
-      if (size === undefined) return f
+      // No wrapper needed — the element's stride is already a multiple of 16 — but the MEMBER
+      // may still need `@align(16)`: the array's required alignment in this address space is
+      // `roundUp(16, AlignOf(elem))`, so an element whose OWN alignment is under 16 leaves the
+      // array under-aligned unless the member says so, and a scalar before it lands the array
+      // at offset 4. Two rules, one of which the wrapper does not carry. But an element already
+      // 16-aligned (a `vec4`, a matCxR with four rows, a struct that reaches 16 on its own)
+      // aligns the array to 16 with no attribute at all — `roundUp(16, 16)` is 16 — so writing
+      // one there is noise the emit does not need, and `array<vec4, N>` stays byte-identical.
+      if (size === undefined) {
+        const el = elemLayoutOf(arrayElem)
+        const needsAlign = el !== undefined && el.align < UNIFORM_ARRAY_ALIGN
+        if (!needsAlign || f.align === UNIFORM_ARRAY_ALIGN) return f
+        changed = true
+        return { ...f, align: UNIFORM_ARRAY_ALIGN }
+      }
       // A struct laid out for BOTH address spaces cannot be padded: std430 gives the same
       // array its natural stride, so padding it here would move every byte a host packs for
       // the storage binding, while `reflect()` keeps reporting the unpadded offsets. Refused
@@ -272,7 +305,13 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
     })
     return changed ? { ...s, fields } : s
   })
-  if (wrappers.size === 0) return m
+  // No wrapper anywhere: no read has to be rewritten, and no struct has to be added. The
+  // ALIGNMENTS may still have moved, though — a uniform array whose element stride is already
+  // 16 needs `@align(16)` on its member and nothing else — so the rebuilt structs are carried
+  // out, and only a module where nothing at all changed returns `m` unchanged.
+  if (wrappers.size === 0) {
+    return nextStructs.every((s, i) => s === m.structs[i]) ? m : { ...m, structs: nextStructs }
+  }
 
   /** The authored array type a `member` expression reads, when that member was padded. */
   const paddedMember = (e: Expr): Extract<ShaderType, { kind: 'array' }> | undefined => {

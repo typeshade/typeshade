@@ -1,8 +1,8 @@
 // The two units §53 added on the IR, exercised on the IR — not only through the
 // `"use typeshade"` front end, which reaches both by a different route (the front end calls
 // `interstageMismatches` itself, and the emit calls `flatIntegerVaryings` from the WGSL
-// backend's `optimize` chain). A module assembled here is the other authoring surface, and it
-// is the one that would carry a regression neither the goldens nor the front-end tests see.
+// backend's `preOptimize` hook). A module assembled here is the other authoring surface, and
+// it is the one that would carry a regression neither the goldens nor the front-end tests see.
 
 import { describe, it, expect } from 'vitest'
 import {
@@ -12,7 +12,8 @@ import {
   isIntegerVarying,
 } from './varying-interpolate.js'
 import { interstageMismatches } from './lint/rules/interstage-io.js'
-import type { FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js'
+import { emitModule, emitModuleAt } from '../backends/wgsl.js'
+import type { Expr, FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js'
 import { f32T, u32T, vec2fT, vec2uT, vec4fT, structT } from '../ir/types.js'
 
 const vsOut = (id: { type: typeof u32T | typeof vec2fT; interpolate?: string }): StructDecl => ({
@@ -109,6 +110,59 @@ describe('flatIntegerVaryings, on the IR', () => {
   })
 })
 
+describe('the flattening is a LOWERING, so every emit entry runs it', () => {
+  // A module complete enough to EMIT — every path returns — which is what separates this from
+  // the identity checks above: the question here is not what the pass does but whether the
+  // writer ever reaches it.
+  const zero: Expr = { op: 'lit', type: f32T, value: 0 }
+  const emittable: ModuleDecl = {
+    consts: [],
+    structs: [vsOut({ type: u32T })],
+    bindings: [],
+    funcs: [
+      {
+        name: 'vs',
+        params: [],
+        ret: structT('VsOut'),
+        stage: 'vertex',
+        body: [
+          {
+            s: 'return',
+            expr: {
+              op: 'construct',
+              type: structT('VsOut'),
+              args: [
+                { op: 'construct', type: vec4fT, args: [zero, zero, zero, zero] },
+                { op: 'lit', type: u32T, value: 0 },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        name: 'fs',
+        params: [{ name: 'v', type: structT('VsOut') }],
+        ret: vec4fT,
+        stage: 'fragment',
+        body: [{ s: 'return', expr: { op: 'construct', type: vec4fT, args: [zero] } }],
+      },
+    ],
+  }
+
+  it('writes @interpolate(flat) at every optimization level, not only the default', () => {
+    // `flatIntegerVaryings` lived in the WGSL backend's `optimize`, which only the default
+    // path calls: `emitModuleAt(m, level)` — a public entry, and the one `measure()` uses —
+    // went straight to `optimizeAt` and skipped it, writing an integral varying with no
+    // `@interpolate(flat)`. That is `integral user-defined vertex outputs must have
+    // '@interpolate(flat)'` on Tint, at every level but one. A lowering a module is wrong
+    // without is not an optimization, so it runs before either tier now.
+    for (const level of ['O0', 'O1', 'O2'] as const) {
+      expect(emitModuleAt(emittable, level), level).toContain('@interpolate(flat) id: u32,')
+    }
+    expect(emitModule(emittable)).toContain('@interpolate(flat) id: u32,')
+  })
+})
+
 describe('interstageMismatches, on the IR', () => {
   const pair = (out: StructDecl, into: StructDecl): ModuleDecl => ({
     consts: [],
@@ -152,6 +206,28 @@ describe('interstageMismatches, on the IR', () => {
   it('takes the derived flat on one side and the written one on the other', () => {
     const m = pair(vsOut({ type: u32T, interpolate: 'flat' }), fsIn(u32T))
     expect(interstageMismatches(m.structs, m.funcs)).toEqual([])
+  })
+
+  it('refuses two names at one slot, because GLSL ES 3.00 links a varying by NAME', () => {
+    // Measured on a real WebGL2 context: this writer emits no explicit location for a
+    // varying, so a vertex `id` read as a fragment `texCoord` is `FRAGMENT varying texCoord
+    // does not match any VERTEX varying` at LINK time — after both stages compiled clean, and
+    // in a message naming neither struct. WGSL links by slot and takes the pair, so this is
+    // the one interstage rule that is GLSL's alone; one source, one program, is what §53 is
+    // for, so the pair is refused whether or not the module has a GLSL half.
+    const renamed: StructDecl = {
+      name: 'FsIn',
+      fields: [
+        { name: 'pos', type: vec4fT, builtin: 'position', attr: '@builtin(position)' },
+        { name: 'texCoord', type: u32T, location: 0, attr: '@location(0)' },
+      ],
+    }
+    const m = pair(vsOut({ type: u32T }), renamed)
+    const found = interstageMismatches(m.structs, m.funcs)
+    expect(found).toHaveLength(1)
+    expect(found[0]!.message).toContain('leaves "vs" as "id"')
+    expect(found[0]!.message).toContain('enters "fs" as "texCoord"')
+    expect(found[0]!.message).toContain('links a varying by name')
   })
 
   it("is silent with several entries of a stage, where the pairing is the host's", () => {

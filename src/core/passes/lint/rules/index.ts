@@ -58,11 +58,13 @@ export const RULES: readonly LintRule[] = [
   callSignature,
   smoothstepEdgeOrder,
   fragmentOnlyBuiltin,
-  builtinValueType,
-  interstageIo,
   portableKernel,
   noShadowedLocal,
   usesDeclared,
+  // Appended, as the note above says: RULES' order is the diagnostic order, and inserting in
+  // the middle moves every message after the insertion point for a module that trips two.
+  builtinValueType,
+  interstageIo,
 ]
 
 export {
