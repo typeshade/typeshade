@@ -20,8 +20,6 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   bool: 'Boolean value.',
   workgroup:
     "A module variable one workgroup shares, `let tile: workgroup<array<f32, 64>>`: zero at the start of each workgroup, read and written by every invocation of the workgroup, and a compute entry's alone. WGSL `var<workgroup>`; GLSL ES 3.00 has no form for it.",
-  perInvocation:
-    'A module variable each invocation owns for its lifetime, `let seed: perInvocation<u32> = 7`: at its constant initializer, or zero, when the invocation starts. WGSL `var<private>`, a name TypeScript reserves; GLSL ES 3.00 spells it as a plain global.',
   atomic:
     'An `atomic<u32>` or `atomic<i32>`: an integer location in a read-write storage binding that many invocations update at once through `atomicAdd`, `atomicLoad` and the other atomic builtins. It is never read or assigned directly, and it is declared only inside a storage binding, as `declare let bins: storage<array<atomic<u32>>>`.',
   vec2: 'A two-component vector of `f32`.',

@@ -3,22 +3,21 @@
 /* @example
 {
   "title": "Per-invocation state",
-  "blurb": "`let seed: perInvocation<u32>` is WGSL's `var<private>`, one copy per invocation that every function of the invocation shares: a random-number generator keeps its state in it instead of threading a seed through each call (§24). GLSL ES 3.00 spells it as a plain global, so it renders on both targets. Renders a hash-noise field.",
+  "blurb": "A plain top-level `let seed: u32` is WGSL's `var<private>`, one copy per invocation that every function of the invocation shares: a random-number generator keeps its state in it instead of threading a seed through each call (§24). GLSL ES 3.00 spells it as a plain global, so it renders on both targets. Renders a hash-noise field.",
   "renderable": true
 }
 */
 
-// A per-invocation variable (roadmap 0.2 item 5, §24): `let seed: perInvocation<u32>` is WGSL's
-// `var<private>`, one copy per invocation that every function of the invocation shares, so a
-// random-number generator can keep its state in it instead of threading a seed through each
-// call. The name is not `private<T>` because TypeScript reserves `private` in strict mode.
-// GLSL ES 3.00 spells it as a plain global, which is per-invocation there too, so this renders
-// on both targets and the compile gate runs it on Tint and ANGLE.
+// A per-invocation variable (roadmap 0.2 item 5, §24): a plain top-level `let seed: u32` is
+// WGSL's `var<private>`, one copy per invocation that every function of the invocation shares,
+// so a random-number generator can keep its state in it instead of threading a seed through
+// each call. GLSL ES 3.00 spells it as a plain global, which is per-invocation there too, so
+// this renders on both targets and the compile gate runs it on Tint and ANGLE.
 //
 // Renders a hash-noise field: each pixel seeds the generator from its position and draws three
 // values from it.
 
-let seed: perInvocation<u32> = 7
+let seed: u32 = 7
 
 class VsOut {
   @builtin("position") pos: vec4

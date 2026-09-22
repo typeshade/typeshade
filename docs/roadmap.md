@@ -48,7 +48,8 @@ one only a compiler with a reference implementation can play.
 finding the GPU meaning is the compiler's job. `perInvocation<T>` is where this was learned: the
 address space of a module variable was spelled by the author because that is how WGSL spells it,
 and then a plain top-level `let` turned out to carry the same information, so the compiler reads
-it from the syntax and the explicit wrapper stays as an option nobody has to reach for. The
+it from the syntax and the wrapper was removed: keeping it as an alternative spelling left one
+variable with two ways to write it, which is a thing to learn and not a thing to use. The
 implementation got smaller and the file got more ordinary at the same time. A GPU concept earns a
 new spelling only when no ordinary TypeScript shape carries it. Where a shape genuinely cannot run
 on a GPU, the refusal names the reason and the ordinary-TypeScript fix, at compile time rather
