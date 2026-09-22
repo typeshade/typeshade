@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A conditional on a struct and on an array",
+  "blurb": "Two arms that are structs, and two that are fixed-length arrays, chosen at run time (§31). Neither target has an operator for it: WGSL's `select` is declared for a scalar or a vector and WGSL has no ternary, and a WebGL2 driver refuses GLSL's ternary on a struct or an array. So the conditional is hoisted into a slot and an `if` on both targets, the way a multi-arm conditional expression already is; not a helper function, whose arguments would evaluate both arms. Issue #113: before that, this shape compiled with zero diagnostics and both backends rejected the result.",
+  "renderable": true
+}
+*/
+
 // A conditional whose two arms are STRUCTS, and one whose arms are fixed-length ARRAYS (§31).
 //
 // NEITHER target has an operator for it, which is what this example exists to pin. WGSL's

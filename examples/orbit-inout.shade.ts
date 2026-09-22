@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A method that changes its object",
+  "blurb": "A `class Body` whose `step`, `turn` and `advance` assign to `this`, so each takes its object by reference (§26): GLSL ES 3.00 spells that `inout Body self_`, WGSL spells it `self_: ptr<function, Body>` and reads through it as `(*self_)`, and the call is a plain statement on both. `reach`, which only reads, keeps its object by value. The render twin of `particle-step`, so the gate links the `inout` spelling on a real WebGL2 driver.",
+  "renderable": true
+}
+*/
+
 // A method that changes its object takes it BY REFERENCE (§26). GLSL ES 3.00 spells that
 // `inout Body self_`; WGSL spells it as a pointer, `self_: ptr<function, Body>`, and reads
 // through it as `(*self_)`. The call is a plain statement either way.

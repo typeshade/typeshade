@@ -56,6 +56,135 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **Each `.shade.ts` example registers itself** (#65). Every example used to be registered by
+  appending an object literal to one hand-ordered array in `examples/_shade.ts`, so two branches
+  that each added an example added adjacent lines to the same region and git could not tell the
+  two additions apart: every such pair conflicted on every merge, five hand resolutions across
+  three branches in one afternoon, none of them a real disagreement — and resolving one by
+  taking a side dropped an example silently. The hand-written half `compile()` cannot infer
+  (`title`, `blurb`, `renderable`, `twinOf`, and the refusal `reason`) now lives in the shader
+  it describes, as a JSON block in a comment after the `"use typeshade"` directive, and
+  `_shade.ts` scans the directory for them in id order. Two branches adding two examples touch
+  two NEW files and no shared line.
+
+  A sibling MODULE per example — the shape first proposed — does not work: `shadeExamples` is
+  consumed at module scope as a plain array by five callers, so discovery has to be synchronous,
+  which rules out `import()`; static imports would leave one import line and one array entry per
+  example, halving the conflict class rather than removing it. A comment costs no new file and
+  cannot drift away from, or outlive, the shader it describes. A `.shade.ts` file stays exactly
+  as non-importable as it was, and the block is REQUIRED — a shader without one, or with one
+  that is not JSON, or that claims `renderable: false` with no reason, fails loudly instead of
+  going unregistered. No golden changed by the registry itself, and the gate is unmoved: it
+  covers the same examples it did, discovered rather than listed.
+
+- **The surface baker prints a union's members sorted** (#61). A union's constituent order in
+  TypeScript is a function of the whole program rather than of the declaration, so adding
+  `./debug` to `API_SUBPATHS` re-spelled `TypeshadeSymbolKind` in `src/__api__/surface.md` while
+  `src/language-service/types.ts` was byte-identical on both sides — and every future subpath
+  addition would have shuffled unrelated rows into its own surface diff, which is the noise that
+  trains a reviewer to skim the one file this gate exists to have read. Members are a set, so
+  sorting them loses nothing; the guard is that the printed form must split into balanced parts,
+  which leaves `boolean` (internally `false | true`), an enum, and any union nested inside a
+  signature exactly as TypeScript printed them. 27 such nested unions remain, all inside
+  parameter lists, and sorting those needs the signature rebuilt from the type rather than
+  post-processed as text. Measured both ways: before, removing `./debug` moved
+  `TypeshadeSymbolKind`; after, it moves only `./debug`'s own rows. The re-bake in this commit
+  is reordering alone — all 50 changed rows were checked to be permutations of their old
+  members, token for token — and a new arm keeps every top-level union sorted from here.
+- **The order that makes a shadowed varying correct is now asserted** (#62). Three porting
+  twins emit a fragment `main()` that declares a local with the same name as an `in` varying,
+  and the shader is correct only because the gather prelude is emitted BEFORE the body, so the
+  one read of the global precedes the declaration that shadows it. Nothing said so and nothing
+  checked it, while three plausible changes would reverse it — materialising the input aggregate
+  lazily at first use, hoisting user declarations to the top of `main()`, or extending
+  field-inlining to substitute the reads its collision guard currently rejects. Under any of
+  them the shader still compiles, still links and reads the wrong `uv`, and the only signal
+  would be a re-baked golden, which says "this moved" rather than "this is now wrong".
+  `glsl-stages-parity.test.ts` now re-emits every renderable example, finds each varying a local
+  shadows, and asserts the read is in front and is the only use in front — changing no golden
+  and no emitter.
+- **The roadmap carries the audit's twelve new rows** (#159, from #144 §8). Seven deferrals that
+  existed only as a sentence in the surface document, and five gaps with no row at all, are now
+  items with a size and an issue: 13a and 13b for the texture argument, stage and query work
+  (#145, #147) and 13c for the §36 deferral list (offsets, `textureNumLevels`,
+  `textureSampleBaseClampToEdge`, `texture_external`, storage 1d and 3d); 8a, 8b and 9a for the
+  builtins (#150, #152, #154); and T11 to T15 and T17 for the language work, four of them the
+  audit's BLOCKERs — uniform array stride (#156), `@interpolate(flat)` on an integer varying
+  (#158), the shift right-hand side (#160) and derivative uniformity (#161) — beside literal
+  typing (#148) and the `enable` spelling with the missing capabilities (#146). **Five of those
+  seven rows are already gone again**, which is what a roadmap row is for: #168 shipped T11,
+  T12, T14 and T17 whole, and most of T13, so those four were deleted and T13 narrowed to the
+  two statement forms that measurably remain (`do…while` and a labelled `break`, each refused
+  as TS8099 today). T15 stays, because #148 shipped only its deprecation window: `let i = 0`
+  still types the literal `f32` and `xs[i]` is still `Index must be i32 or u32`, measured rather
+  than assumed. Item 23 gains
+  the five override rows in its Notes, the `f16` row gains the wiring order #153 records, and
+  After 1.0 gains `atomic<vec2<u32>>`. The two rows this branch also proposed, for the matrices
+  and the f64 holes, are not here: #166 shipped both while it was open, and `main`'s own T18
+  records the f64 work as delivered.
+- **Four structural tests, so a whole class of omission cannot come back** (#155, from the WGSL
+  spec audit #144). A texture feature arrives in layers — a type spelling, an argument check, a
+  stage rule, an emit, an ambient declaration, a CPU stub — and nothing forced them to arrive
+  together, which is how six classes of program that this front end accepts and Tint refuses
+  came to exist. Four suites now read an authority instead of a hand list.
+  `src/core/spec-conformance/coredef-texture-overloads.test.ts` reads Tint's own overload table,
+  baked from `core.def` into a checked-in fixture by `scripts/bake-coredef-textures.ts`
+  (`bun run bake:coredef`), and
+  forces every one of its 184 `fn texture*` rows to be claimed: SUPPORTED by a `"use typeshade"`
+  witness synthesised from the row's own parameter list, or DEFERRED with a reason and the issue
+  that owns it. `stage-rules.test.ts` derives the fragment-only, fragment-or-compute and
+  compute-only sets from a second fixture off the same `core.def` — every builtin carrying a
+  `@stage`, the derivatives, the barriers and the atomics included — and compares them with the
+  two hand-written sets the compiler keeps in two layers, the pair that lost
+  `textureSampleCubeArray`. `ambient-registry-closure.test.ts` pins the ambient library against
+  the lowerer in both directions, the one pair of the four authorities nothing compared.
+  `capability-reachability.test.ts` gains a `"use typeshade"` SOURCE witness per `Capability`,
+  seven of thirteen today; of the six without one, the three a program could exist for carry the
+  very probe that must keep failing, and the three host-only device features carry the reason
+  there is no program to write.
+  Every allowlist in the four is shrink-only: three of them by MEASUREMENT — an entry whose
+  program has since started to work fails the suite that holds it — and the ambient closure by
+  set membership, since "is this name declared" needs no program to answer.
+- **The compile gate creates a render pipeline** (#155). `createShaderModule` compiles a module;
+  it does not create a pipeline, so everything WebGPU validates about a module rather than
+  inside it — the vertex state against the entry's `@location` inputs, the colour targets
+  against its outputs — went unseen, and a shader whose attributes no buffer supplies compiles
+  and cannot draw. The gate now builds one render pipeline per render pair (74 of the 85
+  examples), with the layouts and targets derived from the IR entries rather than authored, and
+  prints the reason for every example it does not build one for. Its own instrument check sits
+  beside the two existing ones: a module Tint compiles, with a `@location` vertex input and no
+  buffer supplying it, must be REPORTED, or the leg is blind. The audit expected the stage rules
+  to surface here too; measured on this SwiftShader build they do not — `createShaderModule`
+  reports them itself, and the gate's existing WGSL leg already sees that class.
+- **The Tint-invalid emits were pinned as `it.fails` rows that a fix must flip, and every one
+  of them has now been flipped** (#155). `src/compiler/ts/tint-invalid.test.ts` held four
+  language programs that compiled clean here and were refused by Chromium: an `array<f32, N>` in
+  a `var<uniform>` (stride 4 where WGSL requires 16), a shift with an `i32` right-hand side, an
+  integer varying with no `@interpolate(flat)`, and a helper that assigns to its whole
+  parameter. Each was re-measured on Tint on 2026-09-21, and each is now an ordinary assertion
+  of the rule that closed it: #156 PADS the uniform array (`@align(16) xs: array<_Pad16_f32,
+4>`), #160 wraps the shift operand as `u32(...)` and refuses the parameter write as TS8018
+  naming the copy to make, and #158 derives `@interpolate(flat)` for an integer varying and
+  leaves a float one alone. The ratchet is what reported all of it — with one instructive
+  exception recorded in the file's header: the uniform-array row's body asked for a DIAGNOSTIC,
+  and #156 closed it by padding, which produces none, so that row stayed green and its companion
+  arm on the EMIT is what caught the fix. Where the defect is a non-const integer in a slot the spec types otherwise
+  — the shift, and the texture rows — the operand comes from a UNIFORM, which is load-bearing:
+  written as a `const` the front end folds it to a literal, and a WGSL integer literal is an
+  abstract-int that converts on its own, so Tint accepts that program. The same shape covers the texture rows
+  (`texture-dims.test.ts`, `storage-textures.test.ts`, `ambient.test.ts`), and the sweeps the
+  audit asked for: every GPU stub's placeholder value and strict-mode throw, every PORTABLE id's
+  CPU twin and its identical spelling through both real writers, every `INTRINSICS` row's text
+  from one literal table, every `MATH_ARG_SPECS` rule against a wrong kind, a wrong count and a
+  wrong shape, the precision line for each of the thirteen sampler types GLSL ES 3.00 does not
+  predeclare, every handle kind `reflect()` can hold, and the golden set of both example
+  registries with no orphan. The f64 rows this issue asked for are not here either: #166 landed
+  a sweep driven by the pass's own exported twin registry, which supersedes the hand table. The
+  fifth program the suite found — a struct field named with a WGSL reserved keyword, which used
+  to compile with zero diagnostics and emit a module Tint refuses — is a closed row rather than a
+  row waiting on a fix: #165 shipped the refusal, so it reads as a plain `it` pinning TS8068 over
+  all ten names, the name and the target in the message, and a remedy.
+
 - **Packing, bitcast and the constructors WGSL spells** (§44, #150). The IR and both backends
   have spelled the eight pack/unpack ids and the two `bitcast` ids since the registry was
   written, and nothing on this surface could NAME them: every one was `Unknown function`.
@@ -1015,6 +1144,24 @@ structures in ESSL 1.0 and webgl`, and the same for arrays. That second half cor
 
 ### Changed
 
+- **Four sentences in the surface document, and three code comments, now say what main does**
+  (#159, from the WGSL spec audit #144). Each was re-measured on this tree before it was
+  rewritten. §8's field-metadata paragraph said `@size`, `@offset`, `@interpolate` and `@ignore`
+  "parse but do not reach the emitted struct yet"; all four are `TS8028 Unknown attribute`, and
+  the `@interpolate("linear")` in the example above it now carries the `(target)` marker
+  `@align(16)` already had. §11 said `transpose` has no `f32` form — it and `determinant` take a
+  `mat4` on both targets and have since roadmap 0.2 item 8; what is missing is the rest of the
+  matrix table, which is now a roadmap row. §13 said a `u32` module constant is emitted as
+  `const N: u32 = 16.0;` — it is emitted as `16u`, and the issue that paragraph described was
+  fixed by #17. In the source: the ambient library's cube-texture JSDoc still said the editor
+  refuses `texture_cube<u32>`, which stopped being true when `textureGather` admitted an integer
+  cube; `ModuleDecl.enables` described `DeclarableCapability` as excluding "the three ids derived
+  from the module's own shape" when it excludes seven; and the GLSL capability table said "FIVE
+  of the six fail closed" when nine capabilities have no GLSL row and eight fail closed.
+- **`renderable: false` now states WHY** (#155). A `.shade.ts` registration that claims no GLSL
+  ES 3.00 form carries the refusal it expects, and `shade-examples.test.ts` checks it rather than
+  accepting any refusal — so an example that loses its GLSL form for a NEW reason keeps a flag
+  that no longer means what it says.
 - **`examples/block-scope.shade.ts` carries a float `%=` on a vector to the gate** (§22,
   [#20](https://github.com/typeshade/typeshade/issues/20)). The compound-assignment emit sites
   route a float `%` through the backend's `floatMod` spelling at any width, but the corpus

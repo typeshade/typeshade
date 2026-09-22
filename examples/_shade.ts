@@ -35,8 +35,35 @@
 // the bytes and compiles them. That makes this module node-only, which is what the leading
 // underscore has meant in this directory since `_scan.ts`: a helper, not an example, and
 // not importable from a browser build. `examples/index.ts` stays runtime-free.
+//
+// ═══ WHY EACH SHADER CARRIES ITS OWN REGISTRATION (#65) ═══
+//
+// Until now every example was registered by appending an object literal to ONE hand-ordered
+// array here. Two branches that each add an example add adjacent lines to the same region, and
+// git cannot tell the two additions apart, so every such pair conflicted on every merge — five
+// hand resolutions across three branches in one afternoon, none of them a real disagreement.
+// Worse, resolving one by taking a side drops an example silently.
+//
+// So the hand-written half — everything `compile()` cannot infer: `title`, `blurb`,
+// `renderable` and `twinOf` — now lives in the shader it describes, as a JSON block in a
+// comment directly after the `"use typeshade"` directive. Two branches adding two examples
+// touch two NEW files and no shared line, which removes the class rather than narrowing it.
+//
+// WHY NOT A SIBLING MODULE PER EXAMPLE, which is the shape the issue proposed first: it does
+// not work without breaking something. `shadeExamples` is consumed at module scope as a plain
+// array by five callers (the gate and four suites), so discovery has to be SYNCHRONOUS — which
+// rules out `import()`. Static imports would leave this file with one import line and one array
+// entry per example, two adjacent-line regions instead of one, which halves the conflict class
+// rather than removing it. A sibling `.json` per example would work, at the cost of 49 new
+// files and of metadata that can drift away from, or outlive, the shader it describes. A header
+// costs no files and cannot: deleting the shader deletes its registration with it.
+//
+// WHY A COMMENT IS SAFE. It is not a declaration, so a `.shade.ts` file stays exactly as
+// non-importable as it was, `compile()` ignores it, and `"use typeshade"` is still the first
+// non-comment line of every file. The block is REQUIRED: a shader without one fails the drift
+// arm in `shade-examples.test.ts` rather than going quietly unregistered.
 
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compile } from '../src/index.js'
@@ -49,558 +76,121 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 export const SHADE_EXT = '.shade.ts'
 
 /** The hand-written half of a `.shade.ts` registration: everything `compile()` cannot infer. */
-interface ShadeSpec {
+type ShadeSpec = {
   /** Registry id. Also the golden filename stem, so it must not collide with an `examples` id. */
   readonly id: string
   readonly title: string
   readonly blurb: string
-  /** Has a GLSL ES 3.00 form — both stages emit AND link. Authored, never derived: a flag
-   *  computed by try/catch around the emitter agrees with the emitter by construction, and
-   *  the compile gate would then have nothing left to catch. */
-  readonly renderable: boolean
   /** The `examples` id this file is the source-language TWIN of: the same shader, authored
    *  through the other surface. Set it and `shade-twins.test.ts` pins the two emits side by
    *  side and compares the lowered modules — which is what turns "the EDSL corpus is the
    *  oracle" from a claim in the surface document into something a suite can fail on. */
   readonly twinOf?: string
+} & (
+  | {
+      /** Has a GLSL ES 3.00 form — both stages emit AND link. Authored, never derived: a flag
+       *  computed by try/catch around the emitter agrees with the emitter by construction, and
+       *  the compile gate would then have nothing left to catch. */
+      readonly renderable: true
+    }
+  | {
+      readonly renderable: false
+      /** WHY the GLSL backend cannot serve this example, checked rather than believed
+       *  (`shade-examples.test.ts`): a substring of the refusal the backend throws, or the
+       *  literal `NO_ENTRY_POINT` for a module that emits a stage with no `main()` because it
+       *  declares no entry point.
+       *
+       *  `renderable: false` without one would be a way to opt out of the compile gate for
+       *  free; with one, the flag and the reason are both claims a suite can fail. A UNION
+       *  rather than an optional field, so `tsc` refuses an entry that leaves it out. */
+      readonly reason: string
+    }
+)
+
+/** The `reason` of an example whose GLSL stages emit but carry no `main()`, because the module
+ *  declares no entry point at all. Not a refusal message — there is no throw to match. */
+export const NO_ENTRY_POINT = 'no entry point'
+
+/** The `@example` block every `.shade.ts` file carries, directly after its directive:
+ *
+ *  ```text
+ *  "use typeshade"
+ *
+ *  / * @example
+ *  { "title": "Hello triangle", "blurb": "…", "renderable": true }
+ *  * /
+ *  ```
+ *
+ *  Matched non-greedily, so the FIRST block wins and an `@example` mentioned later in prose
+ *  cannot shadow it. */
+const EXAMPLE_BLOCK = /\/\*\s*@example\s*([\s\S]*?)\*\//
+
+/** Read one shader's registration out of its own source.
+ *
+ *  @param id - the file's basename without `.shade.ts`, which is also the registry id.
+ *  @param source - the file's bytes.
+ *  @returns the hand-written half of the registration.
+ *  @throws when the block is missing, is not JSON, or omits a field — each of which would
+ *  otherwise leave the example silently unregistered or half-described.
+ */
+function readSpec(id: string, source: string): ShadeSpec {
+  const file = `${id}${SHADE_EXT}`
+  const block = EXAMPLE_BLOCK.exec(source)
+  if (block === null) {
+    throw new Error(
+      `typeshade: ${file} carries no @example block — every shader registers itself, so a file ` +
+        `without one would never reach the compile gate or the emit goldens`,
+    )
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(block[1] ?? '')
+  } catch (e) {
+    throw new Error(
+      `typeshade: ${file}'s @example block is not JSON: ${e instanceof Error ? e.message : String(e)}`,
+    )
+  }
+  const spec = parsed as Partial<Record<string, unknown>>
+  const { title, blurb, renderable, twinOf, reason } = spec
+  if (typeof title !== 'string' || title === '')
+    throw new Error(`typeshade: ${file}'s @example block has no "title"`)
+  if (typeof blurb !== 'string' || blurb === '')
+    throw new Error(`typeshade: ${file}'s @example block has no "blurb"`)
+  if (typeof renderable !== 'boolean')
+    throw new Error(
+      `typeshade: ${file}'s @example block needs "renderable": true or false — authored, never ` +
+        `derived, because a flag computed from the emitter agrees with it by construction and ` +
+        `the compile gate would then have nothing left to catch`,
+    )
+  if (twinOf !== undefined && typeof twinOf !== 'string')
+    throw new Error(`typeshade: ${file}'s "twinOf" is not a string`)
+  const common = { id, title, blurb, ...(twinOf === undefined ? {} : { twinOf }) }
+  if (renderable) return { ...common, renderable: true }
+  if (typeof reason !== 'string' || reason === '')
+    throw new Error(
+      `typeshade: ${file} is "renderable": false and states no "reason" — the flag is a claim ` +
+        `this package checks (shade-examples.test.ts), not a way out of the compile gate`,
+    )
+  return { ...common, renderable: false, reason }
 }
 
-/** The curated order, and the one place a `.shade.ts` file is registered.
+/** `readSpec` under a name a suite may import: `shade-examples.test.ts` drives it with a
+ *  missing, malformed and incomplete block, because refusing those is the whole reason a
+ *  shader registering ITSELF is safer than one hand-ordered array. Not part of the corpus. */
+export const readSpecForTest = readSpec
+
+/** Every `.shade.ts` file in this directory, id-sorted, each registered from its own bytes.
  *
- *  `file` is `${id}${SHADE_EXT}` for every entry, which is why it is not spelled out: the
- *  drift arm in `shade-examples.test.ts` compares this list against the `*.shade.ts` files
- *  on disk in both directions, so a sixth file that nobody registers fails the suite rather
- *  than going quietly missing the way these five did. */
-const SHADE_ORDER: readonly ShadeSpec[] = [
-  {
-    id: 'hello',
-    title: 'Hello triangle',
-    blurb:
-      'The smallest complete TypeShade program — a vertex stage that positions three corners from `vertex_index` and a fragment stage that paints them flat red. Both stages, two IO structs, no resources.',
-    renderable: true,
-  },
-  {
-    id: 'hello-vsout',
-    title: 'Hello varyings',
-    blurb:
-      'The triangle again, now carrying a `uv` varying from the vertex stage into the fragment stage through a shared `VsOut` class — the `@builtin("position")` + `@location(0)` pair that every interpolated value rides.',
-    renderable: true,
-  },
-  {
-    id: 'hello-vsin',
-    title: 'Hello vertex attributes',
-    blurb:
-      'Vertex input from a buffer rather than from `vertex_index`: a `VsIn` class of `@location`-tagged attributes becomes GLSL `in` declarations and WGSL struct parameters from the one declaration.',
-    renderable: true,
-  },
-  {
-    id: 'hello-uniform',
-    title: 'Hello uniform',
-    blurb:
-      'A bare `declare const scale: uniform<f32>` — the shortest resource declaration there is. WGSL takes a loose scalar uniform; GLSL ES 3.00 has no std140 block to put one in, so this example emits WGSL alone.',
-    // GLSL ES 3.00 refuses the vertex stage outright (`uniform binding 'scale' must be a
-    // struct (a std140 UBO block)`), so there is no stage pair to compile or link.
-    renderable: false,
-  },
-  {
-    id: 'hello-uniform-struct',
-    title: 'Hello uniform block',
-    blurb:
-      'The uniform that DOES have a GLSL ES 3.00 form: a `Uniforms` class behind `uniform<T>` lays out as a std140 block on both targets, so unlike `hello-uniform` this one emits and links on WebGL2. The first source-compiled example with a binding and a renderable GLSL pair — the configuration whose absence let #14 hide.',
-    renderable: true,
-  },
-  {
-    id: 'hello-camera',
-    title: 'Hello camera uniform',
-    blurb:
-      'A `Camera` class of `mat4` + `vec3` behind `uniform<Camera>`, read by a plain helper function. Shows the std140 block both backends lay out, and that a module needs no entry point to be a module.',
-    // No `@vertex` / `@fragment` in the file: both GLSL stages emit, but what they emit is a
-    // uniform block and a helper with no `main()`, which is not a linkable program.
-    renderable: false,
-  },
-  {
-    id: 'array-literal-ramp',
-    title: 'Array literals',
-    blurb:
-      'A fullscreen triangle whose corners come from two `array<f32, 3>` lists and whose colour comes from an `array<vec3, 3>` of stops weighted by an `array<i32, 3>` — a list at every element type the initializer form takes, through Tint and a real WebGL2 context.',
-    renderable: true,
-  },
-  {
-    id: 'twin-structs',
-    title: 'Twin IO structs',
-    blurb:
-      'Two IO structs with identical fields, a vertex output and a fragment input, with object literals in all three positions that declare which one they build: a return type, an annotation and a parameter type. The case matching field names alone cannot decide.',
-    renderable: true,
-  },
-  {
-    id: 'bitfield-bands',
-    title: 'Bitfield bands',
-    blurb:
-      'A fullscreen triangle whose colour is chosen by a `switch` over a band index built with `&=`, `|=`, `<<=`, `>>=` and `^=`, with `let x: f32` declared before it is assigned and the varyings returned as `{ pos, uv }` shorthand.',
-    renderable: true,
-  },
-  {
-    id: 'textured-quad',
-    title: 'Texture, sampler and overrides',
-    blurb:
-      'A fullscreen triangle sampling a `texture_2d<f32>` through a `sampler`, tinted by two `override<f32>` specialization constants — WGSL declares the handles and the overrides, GLSL ES 3.00 fuses texture and sampler into one `sampler2D` and spells each override as a `#define`.',
-    renderable: true,
-  },
-  {
-    id: 'palette-const',
-    title: 'Module vector and array constants',
-    blurb:
-      'A fullscreen triangle banded by a module-scope `array<vec4, 3>` palette and an `array<f32, 3>` of stops, with a `vec3` constant built from an earlier scalar one — every shape a module constant can now take, read from both stages.',
-    renderable: true,
-  },
-  {
-    id: 'convert-grid',
-    title: 'Converting constructors',
-    blurb:
-      'A fullscreen triangle whose corner comes from `vec2(vec2u(...))` and whose colour comes from an `f32`→`u32`→`f32` round trip — the element-converting constructor in both directions and at both ends of the pipeline.',
-    renderable: true,
-  },
-  {
-    id: 'module-const',
-    title: 'Module constants',
-    blurb:
-      'A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands every spelling to Tint and to a real WebGL2 context.',
-    renderable: true,
-  },
-  {
-    id: 'hillshade-twin',
-    title: 'Hillshade (source twin)',
-    blurb:
-      '`hillshade.ts` written in the source language: the Horn 3x3 gradient over a procedural height field, lit by a sun azimuth. The cartographic twin — the shading maths reads the same on both surfaces because it is all plain arithmetic.',
-    renderable: true,
-    twinOf: 'hillshade',
-  },
-  {
-    id: 'plasma-twin',
-    title: 'Plasma (source twin)',
-    blurb:
-      '`shadertoy-plasma.ts` written in the source language: three interfering sine waves, the same wave at three phase offsets becoming the three colour channels. The smallest fullscreen twin there is.',
-    renderable: true,
-    twinOf: 'plasma',
-  },
-  {
-    id: 'julia-twin',
-    title: 'Julia set (source twin)',
-    blurb:
-      '`julia.ts` written in the source language: the escape-time iteration as a `for` loop with a `break`, and the orbiting constant handed over to the pointer through a `mix`.',
-    renderable: true,
-    twinOf: 'julia',
-  },
-  {
-    id: 'mandelbrot-twin',
-    title: 'Mandelbrot set (source twin)',
-    blurb:
-      "`mandelbrot.ts` written in the source language: the same smooth escape-time colouring, with the EDSL's `.neg()` spelled as the unary minus it always was.",
-    renderable: true,
-    twinOf: 'mandelbrot',
-  },
-  {
-    id: 'domain-warp-twin',
-    title: 'Domain warping (source twin)',
-    blurb:
-      '`domain-warp.ts` written in the source language: hash, value noise and a 4-octave fbm as three plain helper functions, then fed their own output twice over. The twin with the deepest call graph.',
-    renderable: true,
-    twinOf: 'domain-warp',
-  },
-  {
-    id: 'tunnel-twin',
-    title: 'Tunnel (source twin)',
-    blurb:
-      '`tunnel.ts` written in the source language: polar coordinates with 1/r for the receding wall, twisted by an angle that grows with depth.',
-    renderable: true,
-    twinOf: 'tunnel',
-  },
-  {
-    id: 'ocean-twin',
-    title: 'Ocean horizon (source twin)',
-    blurb:
-      '`ocean.ts` written in the source language: the fBm octave accumulator as a `for` loop over three mutated locals, where the EDSL mutates three auto-vars. Sky and sea both evaluated, blended by a horizon step.',
-    renderable: true,
-    twinOf: 'ocean',
-  },
-  {
-    id: 'starfield-twin',
-    title: 'Starfield (source twin)',
-    blurb:
-      '`starfield.ts` written in the source language: three parallax layers accumulated into one mutated `vec3` local across a `for` loop, each cell hashed for whether it holds a star.',
-    renderable: true,
-    twinOf: 'starfield',
-  },
-  {
-    id: 'kaleidoscope-twin',
-    title: 'Kaleidoscope (source twin)',
-    blurb:
-      '`kaleidoscope.ts` written in the source language: the polar mirror fold through `mod`, the portable floor-mod, so the negative angles `atan2` produces wrap identically on both targets.',
-    renderable: true,
-    twinOf: 'kaleidoscope',
-  },
-  {
-    id: 'gradient-twin',
-    title: 'Gradient pass (source twin)',
-    blurb:
-      '`gradient-pass.ts` written in the source language instead of built with `fn()` / `module()` — the same shader through the other surface, with a uniform block both targets lay out and a GLSL pair that links.',
-    renderable: true,
-    twinOf: 'gradient',
-  },
-  {
-    id: 'fp64-deep-zoom-twin',
-    title: 'fp64 deep zoom (source twin)',
-    blurb:
-      '`fp64-deep-zoom.ts` written in the source language: one world coordinate swept across the screen as `fract()` stripes, the left half on plain f32 and the right half on the emulated double. The authoring surface is the same on both halves, `+`, `*` and `fract()`, and only the declared type of the uniform differs (§39), so the twin is where you read what the `f64` type costs an author: nothing but the annotation. Past ~10⁷·² one f32 ulp swallows a whole stripe and the left half goes flat while the right keeps striping to 10⁹.',
-    renderable: true,
-    twinOf: 'fp64-deep-zoom',
-  },
-  {
-    id: 'fp64-checker-plane-twin',
-    title: 'fp64 checker plane (source twin)',
-    blurb:
-      '`fp64-checker-plane.ts` written in the source language: a 1-unit checkerboard on a world plane seen from 10⁸ units out, where one f32 ulp is eight whole cells wide. The tile grid comes back from `floor` and `fract` on the `f64` type (§39), with `u.center.x` a lane read of a `vec2f64`, `f64(dx)` widening the f32 screen offset and the literal in `* 0.5` lifted to a full double, so cell parity stays exact where narrowing first would already have lost it. The left half runs the same formulas on the narrowed coordinate and collapses flat, which is the bug the emulation exists for; the `f64` half keeps its anti-aliased cell borders.',
-    renderable: true,
-    twinOf: 'fp64-checker-plane',
-  },
-  {
-    id: 'fp64-loran-twin',
-    title: 'fp64 hyperbolic navigation (source twin)',
-    blurb:
-      '`fp64-loran.ts` written in the source language: the LORAN chart grid, cyan hyperbolae of constant d1 - d2 to two stations and amber ellipses of constant d1 + d2, with the whole cancellation chain on the emulated half riding `distance()` on a `vec2f64` and a df64 `fract` (§39) and narrowing only the band phase. `vec2f64(u.center.x + f64(dx), ...)` is the lane read plus the f32 widen, `* 0.25` is a literal lifted to the full double beside an `f64`, and `f32(u.st_a.x)` is the per-lane narrow the f32 half of the formula needs. Past ~10⁷·² the coordinate ulp grows wider than a band and the plain-f32 left half dissolves into blocky garbage while the right half stays sharp to 10⁹.',
-    renderable: true,
-    twinOf: 'fp64-loran',
-  },
-  {
-    id: 'fp64-rtc-twin',
-    title: 'fp64 relative-to-center (source twin)',
-    blurb:
-      "`fp64-rtc.ts` written in the source language: a survey marker a few fractional units from the eye, drawn as a reticle. The f64 half reads both `vec2f64` world positions from the uniform, subtracts them as doubles and narrows the small delta with `f32(...)`; the f32 half narrows first and subtracts after, so at 10⁸ both operands land on the same 8-unit ulp grid and the reticle snaps off-target in whole-ulp jumps. The twin that shows §39's subtract-then-narrow discipline in one expression: `f32(u.center.x + f64(dx) - u.mark.x)` against `f32(u.center.x) + dx - f32(u.mark.x)`.",
-    renderable: true,
-    twinOf: 'fp64-rtc',
-  },
-  {
-    id: 'fp64-julia-twin',
-    title: 'fp64 Julia set (source twin)',
-    blurb:
-      '`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed and bailout lifted to full doubles beside it (§39), and the two halves lower to `df64_add` / `df64_mul` / `df64_le` against the very same f32 ops.',
-    renderable: true,
-    twinOf: 'fp64-julia',
-  },
-  {
-    id: 'fp64-burning-ship-twin',
-    title: 'fp64 Burning Ship (source twin)',
-    blurb:
-      '`fp64-burning-ship.ts` written in the source language: the |Re z|, |Im z| fold spelled as `abs` on an `f64` inside the extended-precision iteration, the centre read lane by lane off a `vec2f64`, and every literal beside a double lifted to one (§39). The half-selection is a ternary and the split screen an `if`/`else` over `||`, and the f32 half narrows with `f32(x)` exactly where the EDSL spelled `toF32`.',
-    renderable: true,
-    twinOf: 'fp64-burning-ship',
-  },
-  {
-    id: 'fp64-newton-twin',
-    title: 'fp64 Newton fractal (source twin)',
-    blurb:
-      "`fp64-newton.ts` written in the source language: Newton's method for z³ = 1 as a counted 48-step loop with a full complex DIVISION every step, so its f64 branch is the one place in the family that exercises `df64_div`. The split screen is a plain `if`/`else` over `uv.x < 0.5 || u.fp64 < 0.5`, and where the EDSL had to spell `f64(1.0)` to get a double reciprocal, the twin writes `1.0 / (gx * gx + gy * gy)` and §39 lifts the literal beside the `f64`.",
-    renderable: true,
-    twinOf: 'fp64-newton',
-  },
-  {
-    id: 'fp64-mandelbrot-de-twin',
-    title: 'fp64 distance estimate (source twin)',
-    blurb:
-      "`fp64-mandelbrot-de.ts` written in the source language: the mixed-precision distance estimate with the split spelled per value, the orbit's `let zx: f64 = 0.` beside the derivative's plain `let ux = 0.`, and `f32(zx)` narrowing z once per step so the `2*z*dz + 1` recurrence stays in f32. `u.center.x` is a lane read of a `vec2f64` (§39), and `log` / `exp`, which have no emulated-double form, are reached only after the narrow, exactly where the original reaches them. The twin with two escape-time loops in one entry, an all-f32 branch and an f64-orbit branch, one per half of the split screen.",
-    renderable: true,
-    twinOf: 'fp64-mandelbrot-de',
-  },
-  {
-    id: 'fp64-clock-twin',
-    title: 'fp64 long-uptime clock (source twin)',
-    blurb:
-      '`fp64-clock.ts` written in the source language: the mission-time epoch read from the uniform as an `f64`, the live `time` widened with `f64(x)` and added in extended precision, the f32 `speed` lifted beside the double, and only the sub-unit `fract()` phase narrowed with `f32(x)` to drive the dial (§39). The left dial narrows the epoch first and freezes once one f32 ulp is wider than a second, past about 10⁷·² s; the right one keeps sweeping to 10⁹ s. Nothing crosses the entry boundary as a double: the fragment stage reads the uniform itself, which is the remedy the varying refusal names.',
-    renderable: true,
-    twinOf: 'fp64-clock',
-  },
-  {
-    id: 'fp64-cancellation-twin',
-    title: 'fp64 catastrophic cancellation (source twin)',
-    blurb:
-      '`fp64-cancellation.ts` written in the source language: (x-1)⁷ in EXPANDED form near x = 1, where eight ~1-sized terms must cancel to nine digits and f32 answers with noise thousands of times the plot range. The f64 half is ordinary arithmetic on this surface, `1. + f64(d)`, six multiplies for the powers and six for the coefficients, with each bare literal lifted to a full double because it sits beside one (§39); only the ~w⁷-sized result narrows, through `f32()`.',
-    renderable: true,
-    twinOf: 'fp64-cancellation',
-  },
-  {
-    id: 'fp64-sine-sweep-twin',
-    title: 'fp64 sine sweep (source twin)',
-    blurb:
-      '`fp64-sine-sweep.ts` written in the source language: sin(x) for x = a large `f64` base plus a small on-screen sweep, the two halves side by side. The f32 half narrows the base first, exactly where the original does, so its argument quantizes to a few treads and the wave becomes a staircase; the f64 half adds the sweep to the double and calls the emulated `sin` (§39). `8*PI` is a JavaScript number on the EDSL side, so the twin spells the literal it evaluates to.',
-    renderable: true,
-    twinOf: 'fp64-sine-sweep',
-  },
-  {
-    id: 'cutout',
-    title: 'Cutout (source language)',
-    blurb:
-      "`discard` in a helper the fragment entry calls, with `fwidth` softening the rim and `saturate`, `exp2` and `**` shaping the falloff — the example that carries #8 A6's spellings to Tint and a real WebGL2 context. Renders a circular cutout with a radial centre-to-rim gradient.",
-    renderable: true,
-  },
-  {
-    id: 'compute-reduction-twin',
-    title: 'Compute reduction (source twin)',
-    blurb:
-      "`compute-reduction.ts` written in the source language: the EDSL's `reduce()` combinator spelled as the `for` loop it expands into. WGSL-only like its original — GLSL ES 3.00 has no compute stage.",
-    renderable: false,
-    twinOf: 'compute-reduction',
-  },
-  {
-    id: 'array-length',
-    title: 'Runtime array length',
-    blurb:
-      "The bounds guard every kernel over a runtime-sized storage array needs: `src.length` reads the bound buffer's length as WGSL `arrayLength(&src)`, a `u32`, so the guard is real where it once folded to `gid.x >= 0u` and returned every invocation (#46). WGSL-only: GLSL ES 3.00 has no storage buffers — which is why its `half` field is legal here and refused in a render module (#103).",
-    renderable: false,
-  },
-  {
-    id: 'block-scope',
-    title: 'Block scope',
-    blurb:
-      'Two sequential loops over `i`, a `p` in a loop body beside a `p` in an `if` arm, and an inner `p` that shadows the outer one: the block scoping TypeScript has and the IR now follows, with the second declaration of each name emitted as `i_1`, `p_1` (#38). Also a float `%=` for GLSL ES 3.00 (#20), on a scalar and on a vector, and a shift inside 0 to 31 (#71). Renders concentric rings with a faint square lattice.',
-    renderable: true,
-  },
-  {
-    id: 'atomic-histogram',
-    title: 'Atomic histogram',
-    blurb:
-      'Many invocations count into one bin at once with `atomicAdd(bins[bin], 1)`, one indivisible step each; a storage struct field and a bare `storage<atomic<u32>>` binding show the other two shapes of location, and the value an atomic returns is what it held before. WGSL-only: GLSL ES 3.00 has no storage buffers and no atomics.',
-    renderable: false,
-  },
-  {
-    id: 'private-state',
-    title: 'Per-invocation state',
-    blurb:
-      "A plain top-level `let seed: u32` is WGSL's `var<private>`, one copy per invocation that every function of the invocation shares: a random-number generator keeps its state in it instead of threading a seed through each call (§24). GLSL ES 3.00 spells it as a plain global, so it renders on both targets. Renders a hash-noise field.",
-    renderable: true,
-  },
-  {
-    id: 'workgroup-scratch',
-    title: 'Workgroup scratch memory',
-    blurb:
-      "`let tile: workgroup<array<f32, 64>>` is WGSL's `var<workgroup>`, one copy per workgroup its invocations share, here as scratch each invocation owns a slot of, beside a workgroup array of atomics and a per-invocation counter (§24). WGSL-only: WebGL2 has no compute stage and no workgroup memory.",
-    renderable: false,
-  },
-  {
-    id: 'workgroup-reduce',
-    title: 'Workgroup reduction',
-    blurb:
-      '64 invocations sum 64 values into one through workgroup memory, with `workgroupBarrier()` ordering the rounds (§25). On the CPU it runs through `dispatch`, which holds every invocation of a workgroup at each barrier; a workgroup whose invocations disagree about a barrier is refused with the line and the counts. WGSL-only: WebGL2 has no compute stage.',
-    renderable: false,
-  },
-  {
-    id: 'default-args',
-    title: 'Default parameter values',
-    blurb:
-      "Three helpers with default parameters, each called with a different argument omitted (§14). Neither target has default arguments, so the emitted function keeps every parameter and the call site carries the value: `vignette(v.uv)` emits `vignette(v.uv, 0.8, 1.35)`. A default may read a module const and call a helper, since it is lowered once in the module's scope.",
-    renderable: true,
-  },
-  {
-    id: 'shape-inheritance',
-    title: 'Inheritance',
-    blurb:
-      "An `abstract class Shape` with a concrete method and an abstract one, two classes that extend it, and one that extends a subclass and calls `super` (§26). A struct is flat, with the base's fields first, and dispatch is static: a class inherits a method by lowering the base's body again with `this` typed as itself, so `coverage` calls each class's own `sdf` and no `Shape_coverage` is emitted.",
-    renderable: true,
-  },
-  {
-    id: 'bare-position',
-    title: 'A vertex that returns only the position',
-    blurb:
-      'The smallest render pair: a vertex entry whose return is typed `vec4`, which carries `@builtin(position)` on its own, and a fragment entry that reads `@builtin(position)` and returns one colour. Nothing travels between the stages, so no I/O struct is needed. On GLSL ES 3.00 the return is `gl_Position`, which is not a varying and links nothing.',
-    renderable: true,
-  },
-  {
-    id: 'generic-helpers',
-    title: 'Generics by monomorphisation',
-    blurb:
-      'Three generic helpers, each compiled once per set of argument types the file calls it with (§30). `pick` is called on an f32 and on a vec3, so the module carries `pick_f32` and `pick_vec3`; `head` is called on an f32 array and on a u32 one. Nothing called `pick` is emitted: a generic is not a function the module has, its instances are. A type parameter is a type wherever a type is written, a return and `array<T, N>` included.',
-    renderable: true,
-  },
-  {
-    id: 'generic-class',
-    title: 'A generic class by monomorphisation',
-    blurb:
-      "A `class Slot<T>` used at f32 and at vec3, so the module carries `Slot_f32` and `Slot_vec3` as separate structs, each with its own constructor and its own copy of every method (§32). Neither target has a generic struct: a WGSL or GLSL struct is one layout. Nothing called `Slot` is emitted. A type parameter's default is read the way TypeScript reads it, so `Level` needs no type argument; a static cannot mention `T`, so it is one function under the class's own name; and a base written `extends Slot<f32>` inherits the instance.",
-    renderable: true,
-  },
-  {
-    id: 'mixin-surface',
-    title: 'The mixin pattern',
-    blurb:
-      "A `function Tinted(Base)` whose body is one `return class extends Base { … }`, applied to two different geometry classes (§29). TypeScript runs a mixin at run time; there is no run time here, so it runs when the file is compiled and gives a list of members. Nothing named `Tinted(Disc)` reaches the emitted code: the mixin adds its field behind the base's and ahead of the applying class's own, and `TintedDisc` and `TintedBar` each carry their own copy of its `lit` method.",
-    renderable: true,
-  },
-  {
-    id: 'tuple-and-brand',
-    title: 'A tuple and a branded alias',
-    blurb:
-      "A tuple is a list of a length the type fixes, which is what `array<T, N>` is, so `[f32, f32]` IS `array<f32, 2>` (§28): it is returned, taken as a parameter and written as a list at the call site, and the emitted WGSL and GLSL know only the array. A brand, `f32 & { readonly [m]: 'm' }`, is the nominal-typing idiom; it carries no data, so it is erased and the parameter is an f32.",
-    renderable: true,
-  },
-  {
-    id: 'orbit-inout',
-    title: 'A method that changes its object',
-    blurb:
-      'A `class Body` whose `step`, `turn` and `advance` assign to `this`, so each takes its object by reference (§26): GLSL ES 3.00 spells that `inout Body self_`, WGSL spells it `self_: ptr<function, Body>` and reads through it as `(*self_)`, and the call is a plain statement on both. `reach`, which only reads, keeps its object by value. The render twin of `particle-step`, so the gate links the `inout` spelling on a real WebGL2 driver.',
-    renderable: true,
-  },
-  {
-    id: 'ray-class',
-    title: 'Class methods',
-    blurb:
-      'A `class Ray` with a constructor, a method and a static function, and a `class Sphere` whose `hit(ray)` method returns the distance along the ray (§26). Each method is a function whose first parameter is the struct, so both targets carry it as written; a fullscreen triangle shades the sphere by its normal.',
-    renderable: true,
-  },
-  {
-    id: 'shadow-compare',
-    title: 'A shadow map, read by comparison',
-    blurb:
-      'A depth texture read through a `sampler_comparison` with `textureSampleCompare` and `textureSampleCompareLevel`, on a plain 2D shadow map and on a cascade array (\u00a734). Both targets have a spelling: WGSL keeps two bindings and puts the comparison on the sampler, GLSL ES 3.00 fuses them into one `sampler2DShadow` and folds the reference into the coordinate. Measured on Tint and on a WebGL2 driver; the two sampler kinds are not interchangeable, and the compiler says so before either backend does.',
-    renderable: true,
-  },
-  {
-    id: 'cube-env',
-    title: 'Cube and 3D textures, bias and gradients',
-    blurb:
-      'An environment map as a `texture_cube<f32>` looked up by direction, a colour-grading table as a `texture_3d<f32>` the shaded colour indexes, `textureSampleBias` and `textureSampleGrad`, and a point light\u2019s shadow as a `texture_depth_cube` compared by the direction from the light (\u00a735). All core in both targets, so both halves of the gate run it; the compiler checks each coordinate\u2019s width against the texture\u2019s dim and says so before either target refuses the generated code. Measured on Tint and on a WebGL2 driver: a bias is fragment-only on both, gradients are legal in any stage, and level 0 on a depth cube is `textureGrad` with zero gradients.',
-    renderable: true,
-  },
-  {
-    id: 'cube-array-gather',
-    title: 'The WGSL-only textures',
-    blurb:
-      'A colour ramp as a `texture_1d<f32>`, two environment maps as a `texture_cube_array<f32>` picked by layer, a hand-written percentage-closer filter from `textureGatherCompare`, a `textureGather` of one channel from four texels, and a point light\u2019s shadow as a `texture_depth_cube_array` (\u00a736). GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives a capability (`texture1d`, `textureCubeArray`, `textureGather`) with a WGSL row and no GLSL row: this example runs on the Tint half of the gate alone. The argument order is the spec\u2019s: the component first on a colour texture, none on a depth one, the layer after the coordinate, the reference after the layer.',
-    renderable: false,
-  },
-  {
-    id: 'msaa-resolve',
-    title: 'A multisampled texture, resolved by hand',
-    blurb:
-      'An MSAA render target as a `texture_multisampled_2d<f32>` read one sample at a time with `textureLoad(t, coords, sampleIndex)` and averaged over `textureNumSamples`, and its depth attachment as a `texture_depth_multisampled_2d` (\u00a737). A multisampled texture cannot be used with a sampler, so every sampling form is refused with the load named instead. WGSL-only: GLSL ES 3.00 has no `sampler2DMS`, so the binding derives `msaaTextureLoad` and the Tint half of the gate alone runs it.',
-    renderable: false,
-  },
-  {
-    id: 'storage-texture',
-    title: 'A storage texture',
-    blurb:
-      'An image a compute entry writes by texel coordinate, with no sampler and no filtering (\u00a733). The format and the access mode are part of the type, as they are in WGSL, and are written as string literal types so `tsc` checks a mistyped format in the editor. Three bindings: one `"write"`, one `"read_write"` at `"r32float"` (the only formats a device reads and writes through one binding), and one integer format whose texel is a `vec4u`. WGSL-only: GLSL ES 3.00 has no image load/store, which is ES 3.10. Two things it refuses that Tint does not, because Tint compiles a shader and a device binds one.',
-    renderable: false,
-  },
-  {
-    id: 'particle-step',
-    title: 'Methods that change their object',
-    blurb:
-      'A `class Particle` whose `step`, `bounce` and `tick` assign to `this`, called on a storage element: each takes and returns the struct and the call statement writes the receiver back, `ps[gid.x] = Particle_tick(ps[gid.x], dt)` (§26). WGSL-only: a storage buffer and a compute stage have no WebGL2 form.',
-    renderable: false,
-  },
-  {
-    id: 'pick-composite',
-    title: 'A conditional on a struct and on an array',
-    blurb:
-      "Two arms that are structs, and two that are fixed-length arrays, chosen at run time (§31). Neither target has an operator for it: WGSL's `select` is declared for a scalar or a vector and WGSL has no ternary, and a WebGL2 driver refuses GLSL's ternary on a struct or an array. So the conditional is hoisted into a slot and an `if` on both targets, the way a multi-arm conditional expression already is; not a helper function, whose arguments would evaluate both arms. Issue #113: before that, this shape compiled with zero diagnostics and both backends rejected the result.",
-    renderable: true,
-  },
-  {
-    id: 'bool-select',
-    title: 'Boolean vectors',
-    blurb:
-      'A comparison of two vectors is a vector of bools (§27): `v.uv > vec2(0.5)` masks the screen, `select` picks a colour per channel from two palettes through it, and `all`/`any` of the mask tint the corners. WGSL spells the comparison as an operator, GLSL ES 3.00 as `lessThan`/`greaterThan` with `mix`; the gate runs both.',
-    renderable: true,
-  },
-  {
-    id: 'bit-bump',
-    title: 'Builtin breadth',
-    blurb:
-      '`reflect`, `refract` and `faceForward` light a bump, `transpose` and `determinant` read the host matrix, and the bit builtins (`firstLeadingBit`, `reverseBits`, `countOneBits`, `extractBits`, `insertBits`) band the screen, with `fwidthCoarse` marking where a band starts (§10). GLSL ES 3.00 spells several of them differently and casts `findMSB` back to `uint`; the gate runs both.',
-    renderable: true,
-  },
-  {
-    id: 'normal-matrix',
-    title: 'Matrices beyond mat4',
-    blurb:
-      'Every `matCxR` is a type (§40): the normal matrix is the model matrix truncated with `mat3(m)` rather than padded to a `mat4`, `determinant` on the 3×3 gives the handedness, a `mat2x3` transposes into a `mat3x2`, and `v * m` and `transpose(m) * v` are checked against each other. A `mat3` rides the std140 block unchanged — a TWO-ROW matrix is the one shape whose column stride the two targets disagree on, measured, and that one is refused.',
-    renderable: true,
-  },
-  {
-    id: 'fp64-lane-stripes',
-    title: 'Emulated doubles',
-    blurb:
-      'The `f64` surface as source (§39): an `f64` uniform field lifted against a literal and an f32, a lane of a `vec3f64` read as `p.x` and `p[1]`, `vec3(p)` narrowing per lane, `length`/`dot` typed `f64`, `round` through the ties-to-even df64 body, and nothing crossing the entry boundary: a double cannot be a varying, so the fragment stage reads the uniform itself, which is the remedy the refusal names. A world coordinate near 10⁷ stripes on the emulated half and goes flat on the plain-f32 half; the gate runs both targets and the oracle checks the numeric core against the double.',
-    renderable: true,
-  },
-  {
-    id: 'packing-bitcast',
-    title: 'Packing, bitcast and the constructors',
-    blurb:
-      'The portable builtins WGSL has that this surface lacked (§44): the pack/unpack family round-tripped per channel, `bitcast` reading the exponent bits of a coordinate, `quantizeToF16` on a vector, the zero-value `vec2()` and the type-argument `vec3<u32>(...)`, an `array(...)` that infers its own element and count, and `all`/`any` on a plain bool. GLSL ES 3.00 has six of the pack ids natively under other names, neither 4x8 form and no `quantizeToF16`; the gate runs both.',
-    renderable: true,
-  },
-  {
-    id: 'integer-math',
-    title: 'Integer abs and dot',
-    blurb:
-      'The two builtins the registry called portable and are not (§45): GLSL ES 3.00 has no `abs(uint)` and no integer `dot`, so an unsigned `abs` becomes the identity there and an integer `dot` becomes a `_idot` helper, while the signed `abs` and the float `dot` beside them keep the portable spelling as controls. The GLSL half links only because of the fix, so the gate is the test.',
-    renderable: true,
-  },
-  {
-    id: 'packed-bytes',
-    title: 'Packed 4x8 integer builtins',
-    blurb:
-      'The eight builtins that read a `u32` as four bytes or write four back (§47): both packed dot products, both unpacks and all four packs, truncating and saturating. WGSL-only — GLSL ES 3.00 has no form of any of them, so this one is `renderable: false` and the gate runs its Tint half alone, which is exactly what the `packed4x8Dot` capability promises. The values it computes were dispatched on a real device and read back, and the CPU oracle returns the same ones.',
-    renderable: false,
-  },
-  {
-    id: 'compute-sync',
-    title: 'Compare-exchange, uniform load, texture barrier',
-    blurb:
-      'The three synchronisation builtins WGSL has and this surface lacked (§48): `atomicCompareExchangeWeak`, whose result struct WGSL gives no writable name so it is bound by inference and read field by field; `workgroupUniformLoad`, a read of workgroup memory between two barriers that every invocation must reach; and `textureBarrier`. WebGPU-only — GLSL ES 3.00 has no compute stage — so this one is `renderable: false` and the gate runs its Tint half alone.',
-    renderable: false,
-  },
-  {
-    id: 'clip-planes',
-    title: 'User clip planes',
-    blurb:
-      'Four user clip planes through `@builtin("clip_distances")`, the vertex output the rasterizer reads before it rasterizes (§50). Nothing in the source names a capability: writing the id derives `enable clip_distances;`, the `clipDistances` capability on `reflect().requiredFeatures` and the `clip-distances` feature the host requests at `requestDevice` — which the compile gate now does, so the Tint half runs it. The type is the one WGSL leaves to the author, `array<f32, N>` with N from 1 to 8, and the stage rule is checked at the authoring line.',
-    // GLSL ES 3.00 reaches `gl_ClipDistance` only through `EXT_clip_cull_distance`, which
-    // WebGL2 does not expose, so the capability has no row in that backend's profile and the
-    // module fails closed there naming it. Emitting a shader whose clip planes silently did
-    // nothing is the outcome that refusal exists to prevent.
-    renderable: false,
-  },
-  {
-    id: 'uniform-array',
-    title: 'A uniform holding a list',
-    blurb:
-      "A `uniform` holding `array<f32, 4>` — the one shape WGSL lays out differently from everything else (§51). Its uniform address space aligns every array element to 16 bytes, so four floats occupy four sixteen-byte slots; the compiler emits that padding itself, as a wrapper struct carrying `@size(16)` with the reads rewritten through it, so the bytes the WGSL declares are the bytes `reflect()` reports. GLSL ES 3.00's std140 gives `float[4]` the same stride natively, which is why the unpadded program links on WebGL2 and dies on WebGPU. The `array<vec4, 2>` beside it is the control: already 16 bytes an element, emitted as written.",
-    renderable: true,
-  },
-  {
-    id: 'id-pick',
-    title: 'An integer varying, and the interpolation it has no choice about',
-    blurb:
-      'Entry IO as WGSL declares it (§53). A `u32` at a `@location` is an INTEGRAL varying, and neither target can interpolate one: WGSL requires `@interpolate(flat)` on it (Tint: "integral user-defined vertex outputs must have a \'@interpolate(flat)\' attribute") and GLSL ES 3.00 requires `flat`. The compiler emitted the WGSL bare while the GLSL writer added the qualifier, so one source described two different programs; the attribute is derived from the type now, on both writers. Beside it, the two attributes that pass through as written: `@interpolate("perspective", "centroid")` on a float varying, which GLSL spells `smooth centroid`, and `@invariant` on the position, which it spells `invariant gl_Position;`.',
-    renderable: true,
-  },
-  {
-    id: 'sample-branch',
-    title: 'A sample under a branch, and the directive that allows it',
-    blurb:
-      'WGSL requires `textureSample` to be called from UNIFORM control flow (§54): the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. A sample inside an `if` on a varying is a shader-creation error — Tint: `\'textureSample\' must only be called from uniform control flow` — and the compiler emitted it with zero diagnostics. This file is the other half of the rule: the author who wants the branch anyway writes `@diagnostic("off", "derivative_uniformity")` on the entry, which emits WGSL\'s module-scope `diagnostic(off, derivative_uniformity);` and takes the module as written. Beside it, a sample under a `uniform` condition, which needs no directive because every invocation takes the same side of it.',
-    renderable: true,
-  },
-  {
-    id: 'voronoi-twin',
-    title: 'Voronoi (source twin)',
-    blurb:
-      "`voronoi.ts` written in the source language, and the gate for issue #40. The 3×3 neighbour scan is spelled the natural way — `for (let j: i32 = -1; j <= 1; j++)` — and that declaration was the one shape the source lowerer could not write: a negative literal is a `PrefixUnaryExpression`, so the two declaration sites that special-cased a `lit` node never saw it. The `for` init emitted `var j: i32 = -1.0;` with zero diagnostics, which Tint refuses with `cannot convert value of type 'abstract-float' to type 'i32'`, while `let k: i32 = -1` outside a loop was refused outright. Everything in the repo except the gate missed it, because no `.shade.ts` example had a signed loop counter. This one does.",
-    renderable: true,
-    twinOf: 'voronoi',
-  },
-]
+ *  SORTED, not curated: nothing pins registry order — `shade-examples.test.ts` sorts both sides
+ *  before comparing, `scripts/compile-gate.ts` only iterates, `shade-twins.test.ts` looks
+ *  entries up by id, and the goldens are per-id files. Deriving the order from the id rather
+ *  than from whichever line an author picked is the second half of removing the conflict class:
+ *  there is no longer an order for two branches to disagree about. */
+const SHADE_ORDER: readonly ShadeSpec[] = readdirSync(HERE)
+  .filter((f) => f.endsWith(SHADE_EXT))
+  .map((f) => f.slice(0, -SHADE_EXT.length))
+  .sort()
+  .map((id) => readSpec(id, readFileSync(join(HERE, `${id}${SHADE_EXT}`), 'utf8')))
 
 /**
  * Compile one `.shade.ts` file into the registry shape the EDSL examples use.
@@ -650,4 +240,12 @@ export const SHADE_TWINS: ReadonlyMap<string, string> = new Map(
   SHADE_ORDER.flatMap((spec) =>
     spec.twinOf === undefined ? [] : [[spec.id, spec.twinOf] as const],
   ),
+)
+
+/** Non-renderable id → the reason its `renderable: false` states, for the suite that checks
+ *  the flag rather than believing it (`shade-examples.test.ts`). Kept here beside `SHADE_TWINS`
+ *  for the same reason: the relationship belongs to this corpus, and `_shared.ts` is the shape
+ *  the site consumes. */
+export const SHADE_REFUSALS: ReadonlyMap<string, string> = new Map(
+  SHADE_ORDER.flatMap((spec) => (spec.renderable ? [] : [[spec.id, spec.reason] as const])),
 )

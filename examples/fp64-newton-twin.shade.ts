@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 Newton fractal (source twin)",
+  "blurb": "`fp64-newton.ts` written in the source language: Newton's method for z³ = 1 as a counted 48-step loop with a full complex DIVISION every step, so its f64 branch is the one place in the family that exercises `df64_div`. The split screen is a plain `if`/`else` over `uv.x < 0.5 || u.fp64 < 0.5`, and where the EDSL had to spell `f64(1.0)` to get a double reciprocal, the twin writes `1.0 / (gx * gx + gy * gy)` and §39 lifts the literal beside the `f64`.",
+  "renderable": true,
+  "twinOf": "fp64-newton"
+}
+*/
 // The `"use typeshade"` twin of `fp64-newton.ts`.
 //
 // The fp64 family's DIVISION showcase: Newton's method z <- z - (z^3-1)/(3z^2) runs a full

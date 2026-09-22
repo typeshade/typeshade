@@ -563,6 +563,84 @@ declare const shadowSmp: sampler_comparison`,
   })
 })
 
+// P0-6 of the spec audit's tests critique (#155), CLOSED by #145 and kept as the record of the
+// rule. `wgsl.txt:25081`, `:24615`, `:24734` type `level`, `bias` and `depth_ref` as `f32`;
+// `intArg` (`lower/expression-call.ts`) used to retype a LITERAL and early-return on anything
+// else, so a non-constant `i32` was emitted unchanged and Tint refused the module. The front
+// end now refuses it first, as TS8041, and names the `f32(...)` the author should write.
+//
+// THE VALUE COMES FROM A UNIFORM ON PURPOSE, and still does now that the rows are positive.
+// Written as `const l: i32 = 2` the front end folds it to the literal `2`, and a WGSL integer
+// literal is an abstract-int that converts to `f32` by itself — measured on Tint on 2026-09-21,
+// which ACCEPTS that program. A row reading its value from a `const` would therefore pass
+// against a compiler that had never learned the rule, which is the whole point of the uniform.
+//
+// ALSO PINNED IN `src/language-service/ambient.test.ts`, from the other side: there the same
+// programs are asked whether the EDITOR reports them, which is a different layer.
+describe('the scalar arguments have the type the spec gives them', () => {
+  // `dref`, not `ref`: a uniform field name reaches the emitted WGSL verbatim, and `ref` is a
+  // WGSL reserved keyword — Tint would refuse the module for THAT, before ever reaching the
+  // overload check these rows are about, and the refusal quoted below would be a fiction.
+  const SCALAR_DECLS = `interface U {
+  lvl: i32;
+  bias: i32;
+  dref: i32;
+}
+declare const u: uniform<U>
+declare const atlas: texture_2d<f32>
+declare const shadowMap: texture_depth_2d
+declare const cmp: sampler_comparison
+declare const smp: sampler`
+
+  const scalar = (body: string): string => `"use typeshade"
+${SCALAR_DECLS}
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+${body}
+}
+`
+
+  const LEVEL = scalar('  return textureSampleLevel(atlas, smp, p.xy, u.lvl)')
+  const BIAS = scalar('  return textureSampleBias(atlas, smp, p.xy, u.bias)')
+  const DEPTH_REF = scalar(
+    '  return vec4(textureSampleCompare(shadowMap, cmp, p.xy, u.dref), 0., 0., 1.)',
+  )
+
+  // Each row names the slot, the type it got, and the exact remedy — the message is the whole
+  // value of refusing in the front end rather than letting Tint say
+  // "no matching call to 'textureSampleLevel(texture_2d<f32>, sampler, vec2<f32>, i32)'".
+  it('refuses an integer variable as a level, naming f32 and the remedy', () => {
+    expect(errorsOf(LEVEL)).toEqual([
+      'textureSampleLevel level must be an f32; got i32. Write f32(u.lvl).',
+    ])
+    expect(compile(LEVEL).wgsl).toBeUndefined()
+  })
+
+  it('refuses an integer variable as a bias, naming f32 and the remedy', () => {
+    expect(errorsOf(BIAS)).toEqual([
+      'textureSampleBias bias must be an f32; got i32. Write f32(u.bias).',
+    ])
+  })
+
+  it('refuses an integer variable as a reference depth, naming f32 and the remedy', () => {
+    expect(errorsOf(DEPTH_REF)).toEqual([
+      'textureSampleCompare depth_ref must be an f32; got i32. Write f32(u.dref).',
+    ])
+  })
+
+  // The remedy the message names has to WORK, or the refusal sends the author in a circle.
+  // This is the half a refusal test alone cannot cover: it proves the rule is a type rule and
+  // not a ban on a uniform-sourced argument.
+  it('takes the f32() the refusal asks for, on all three slots', () => {
+    const fixed = scalar(`  const a = textureSampleLevel(atlas, smp, p.xy, f32(u.lvl))
+  const b = textureSampleBias(atlas, smp, p.xy, f32(u.bias))
+  const c = textureSampleCompare(shadowMap, cmp, p.xy, f32(u.dref))
+  return a + b + vec4(c, 0., 0., 1.)`)
+    expect(errorsOf(fixed)).toEqual([])
+    expect(compile(fixed).wgsl ?? '').toContain('textureSampleLevel(atlas, smp, p.xy, f32(u.lvl))')
+  })
+})
+
 // The level query and the unsigned coordinate (#147). Both were measured before they were
 // written: `textureDimensions(t, 0)` and `textureLoad(t, vec2u(0, 0), 0u)` are accepted by
 // Tint, `uvec2(textureSize(t, int(0)))` compiles on a WebGL2 driver — and

@@ -24,10 +24,17 @@
 // every WGSL here goes to Tint and every renderable GLSL pair to a real WebGL2 context.
 
 import { describe, it, expect } from 'vitest'
-import { readdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { shadeExamples, SHADE_EXT } from './_shade.js'
+import {
+  shadeExamples,
+  SHADE_EXT,
+  SHADE_REFUSALS,
+  SHADE_TWINS,
+  NO_ENTRY_POINT,
+  readSpecForTest,
+} from './_shade.js'
 import { examples } from './index.js'
 import { checkGolden } from './_goldens.js'
 import { emitModule, emitGlslModule, reflect } from '../src/index.js'
@@ -51,9 +58,72 @@ describe('"use typeshade" examples — the directory and the registry agree', ()
   })
 
   it('every .shade.ts file is registered, and every registration has a file', () => {
-    // Both directions in one assertion, so a diff shows the unregistered file and the stale
-    // registration together rather than one failing run each.
+    // Since #65 each shader carries its own `@example` block and `_shade.ts` SCANS for them, so
+    // this direction is now true by construction — `readSpec` throws on a file without a block
+    // rather than skipping it, which is the stronger form of the same guarantee. The arm stays
+    // because the construction is what is being asserted: a scanner that silently dropped a
+    // file (a filter typo, a changed extension) would show up here and nowhere else.
     expect([...shadeExamples].map((e) => e.id).sort()).toEqual(onDisk)
+  })
+
+  it('reads the hand-written half out of every shader, not a default', () => {
+    // The half `compile()` cannot infer. A scanner that returned a stub for a file it could not
+    // parse would keep every arm above green and quietly register 49 identical examples.
+    for (const ex of shadeExamples) {
+      expect(ex.title, `${ex.id} has no title`).not.toBe('')
+      expect(ex.blurb.length, `${ex.id} has a stub blurb`).toBeGreaterThan(40)
+    }
+    expect(new Set(shadeExamples.map((e) => e.title)).size).toBe(shadeExamples.length)
+    expect(new Set(shadeExamples.map((e) => e.blurb)).size).toBe(shadeExamples.length)
+  })
+
+  it('refuses a shader whose @example block is missing, malformed or incomplete', () => {
+    // The instrument: the four refusals `readSpec` exists to make. Without them a shader could
+    // go unregistered — exactly the failure the one hand-ordered array used to allow through a
+    // mis-resolved merge — or register half-described.
+    const bodyOf = (id: string): string =>
+      readFileSync(join(HERE, `${id}${SHADE_EXT}`), 'utf8').replace(
+        /\/\*\s*@example[\s\S]*?\*\//,
+        '',
+      )
+    const hello = bodyOf('hello')
+    const withBlock = (json: string): string =>
+      `"use typeshade"\n\n/* @example\n${json}\n*/\n${hello}`
+    for (const [why, source] of [
+      ['no block at all', `"use typeshade"\n${hello}`],
+      ['not JSON', withBlock('{ title: "x" }')],
+      [
+        'no title',
+        withBlock(
+          '{ "blurb": "a blurb long enough to pass the length floor", "renderable": true }',
+        ),
+      ],
+      [
+        'no renderable',
+        withBlock('{ "title": "x", "blurb": "a blurb long enough to pass the length floor" }'),
+      ],
+      [
+        'renderable false with no reason',
+        withBlock('{ "title": "x", "blurb": "a blurb long enough", "renderable": false }'),
+      ],
+    ] as const) {
+      expect(() => readSpecForTest('probe', source), why).toThrow()
+    }
+    // …and the positive control, so the arm is not passing because everything throws.
+    expect(() =>
+      readSpecForTest('probe', withBlock('{ "title": "x", "blurb": "y", "renderable": true }')),
+    ).not.toThrow()
+  })
+
+  it('registers in id order, so there is no order for two branches to disagree about', () => {
+    expect([...shadeExamples].map((e) => e.id)).toEqual([...shadeExamples].map((e) => e.id).sort())
+  })
+
+  it('names a real EDSL example in every twinOf claim', () => {
+    const edsl = new Set(examples.map((e) => e.id))
+    const dangling = [...SHADE_TWINS.entries()].filter(([, twin]) => !edsl.has(twin))
+    expect(dangling).toEqual([])
+    expect(SHADE_TWINS.size).toBeGreaterThan(0)
   })
 
   it('each registration names its own file', () => {
@@ -139,4 +209,80 @@ describe('"use typeshade" examples — emit goldens', () => {
       checkGolden(`${ex.id}.fragment.glsl`, emitGlslModule(ex.module, 'fragment'))
     })
   }
+})
+
+// ═══ P1-40 and P1-41 of #155 ═══
+//
+// The arms above check coverage in ONE direction — every example has its goldens — and accept
+// ANY refusal as evidence for `renderable: false`. Both leave a hole a rename walks through:
+// a golden whose example was renamed stays in `__emit-goldens__/` forever, still green,
+// because nothing asks the reverse question; and an example that stops being renderable for a
+// NEW reason (a capability it did not need before) keeps its flag and its silence.
+describe('"use typeshade" examples — the goldens and the refusals are both exact', () => {
+  /** Every golden file the two registries imply, by the protocol each suite uses:
+   *  `<id>.wgsl` for every example, both GLSL stages for a renderable one, and — for a
+   *  `.shade.ts` file that claims a twin — the `.diff` and `.semantic.json` the twin suites
+   *  bake beside them. */
+  const expectedGoldens = (): string[] => {
+    const want = new Set<string>()
+    for (const ex of [...examples, ...shadeExamples]) {
+      want.add(`${ex.id}.wgsl`)
+      if (ex.renderable) {
+        want.add(`${ex.id}.vertex.glsl`)
+        want.add(`${ex.id}.fragment.glsl`)
+      }
+    }
+    for (const id of SHADE_TWINS.keys()) {
+      want.add(`${id}.diff`)
+      want.add(`${id}.semantic.json`)
+    }
+    return [...want].sort()
+  }
+
+  it('bakes exactly the goldens the registries imply — no missing file, and no orphan', () => {
+    // The orphan half is the new one: a renamed example leaves its old goldens behind, and
+    // they are never read again, so every suite stays green while the directory rots.
+    const onDiskGoldens = readdirSync(join(HERE, '__emit-goldens__')).sort()
+    expect(onDiskGoldens).toEqual(expectedGoldens())
+  })
+
+  it('states a refusal reason for every non-renderable example, and no reason for a renderable one', () => {
+    const nonRenderable = shadeExamples
+      .filter((e) => !e.renderable)
+      .map((e) => e.id)
+      .sort()
+    expect([...SHADE_REFUSALS.keys()].sort()).toEqual(nonRenderable)
+    expect(nonRenderable.length).toBeGreaterThan(0)
+  })
+
+  it('refuses every non-renderable example FOR THE REASON its registration states', () => {
+    // The 'genuinely cannot serve' arm above accepts ANY refusal, so an example that lost
+    // its GLSL form for a new
+    // reason — a capability it did not need before — keeps a flag that now means something
+    // else. Naming the reason in the registry is what turns the flag into a claim.
+    const wrong: string[] = []
+    for (const ex of shadeExamples.filter((e) => !e.renderable)) {
+      const reason = SHADE_REFUSALS.get(ex.id) ?? ''
+      const seen = (['vertex', 'fragment'] as const).map((stage) => {
+        try {
+          return emitGlslModule(ex.module, stage).includes('void main()')
+            ? 'emits a main()'
+            : NO_ENTRY_POINT
+        } catch (e) {
+          return e instanceof Error ? e.message : String(e)
+        }
+      })
+      if (!seen.some((s) => s.includes(reason))) {
+        wrong.push(`${ex.id}: states ${JSON.stringify(reason)}, got ${JSON.stringify(seen)}`)
+      }
+    }
+    expect(wrong).toEqual([])
+  })
+
+  it('names a reason that is a refusal, not a shrug', () => {
+    // A reason of `''` would match every message above and green the arm for free.
+    for (const [id, reason] of SHADE_REFUSALS) {
+      expect(reason.length, id).toBeGreaterThan(10)
+    }
+  })
 })

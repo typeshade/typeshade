@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 catastrophic cancellation (source twin)",
+  "blurb": "`fp64-cancellation.ts` written in the source language: (x-1)⁷ in EXPANDED form near x = 1, where eight ~1-sized terms must cancel to nine digits and f32 answers with noise thousands of times the plot range. The f64 half is ordinary arithmetic on this surface, `1. + f64(d)`, six multiplies for the powers and six for the coefficients, with each bare literal lifted to a full double because it sits beside one (§39); only the ~w⁷-sized result narrows, through `f32()`.",
+  "renderable": true,
+  "twinOf": "fp64-cancellation"
+}
+*/
 // The `"use typeshade"` twin of `fp64-cancellation.ts`.
 //
 // The numerics-textbook figure, live on the GPU: (x-1)^7 evaluated in EXPANDED form

@@ -36,7 +36,12 @@ const COMPARE_FIX = (args: string): string =>
  *  by a sentence about the author's own file. It is also what makes this list's relationship
  *  to `DERIVATIVE_INTRINSICS` (§54) a test rather than a comment: every id here needs uniform
  *  control flow too, and `intrinsics.ts` says so. A claim nothing enforces is the failure this
- *  very header criticises. */
+ *  very header criticises.
+ *
+ *  `src/core/spec-conformance/stage-rules.test.ts` compares this map's keys, UNIONED with the
+ *  front end's set, against the ids derived from Tint's `core.def` `@stage("fragment")` rows.
+ *  The union is what matters there: which of the two layers owns an id is an implementation
+ *  detail, and an id falling between them is exactly how `textureSampleCubeArray` was lost. */
 export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',

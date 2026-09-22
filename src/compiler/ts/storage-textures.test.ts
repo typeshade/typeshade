@@ -561,3 +561,77 @@ describe('the write is an effect', () => {
     expect(wgsl.match(/textureStore\(/g)).toHaveLength(3)
   })
 })
+
+// P0-4 (second half) and P0-5 of the spec audit's tests critique (#155). The storage path in
+// `lower/expression-call.ts` runs neither the coordinate-width check the sampled path runs nor
+// the vertex-stage rule `textureStore` got, so both shapes below compile clean here and Tint
+// refuses the emit. Written as `it.fails` so the lane that adds the check flips them.
+//
+// THE VERTEX ROW IS ALSO PINNED STRUCTURALLY, as the `STAGE_GAPS` entries of
+// `src/core/spec-conformance/coredef-texture-overloads.test.ts`, which reaches it per core.def
+// OVERLOAD rather than per program. Closing #145 empties that allowlist and flips this row, in
+// the same commit; the two are deliberate duplicates, one by case and one by class.
+describe('what the storage path checks, and the two rows #164 closed', () => {
+  const store = (decls: string, body: string): string => `"use typeshade"
+${decls}
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+${body}
+}
+`
+
+  const WRONG_WIDTH = store(
+    `declare const acc: texture_storage_2d<"r32float", "read_write">`,
+    `  const v = textureLoad(acc, vec3i(0, 0, 0))
+  textureStore(acc, vec2i(0, 0), v)`,
+  )
+
+  const VERTEX_READ = `"use typeshade"
+declare const src: texture_storage_2d<"r32float", "read_write">
+class Clip {
+  @builtin("position") pos: vec4;
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  const v = textureLoad(src, vec2i(0, 0))
+  return { pos: v }
+}
+`
+
+  // Both rows were `it.fails` against an emit Tint refuses — the coordinate one measured as
+  // "no matching call to 'textureLoad(texture_storage_2d<r32float, read_write>, vec3<i32>)'"
+  // (wgsl.txt:24255), the vertex one as a read `core.def:1585-1589` stages `fragment, compute`
+  // exactly as `textureStore`. #164 closed both, so each now asserts the sentence the front end
+  // says instead of the WGSL it used to emit.
+  it('refuses a coordinate of the wrong width, as on a sampled texture', () => {
+    // The wrong-width call is also why `v` never binds, so the cascade is asserted too rather
+    // than filtered out: a reader should see that one mistake yields exactly these two.
+    expect(errorsOf(WRONG_WIDTH)).toEqual([
+      'textureLoad on a texture_storage_2d<r32float, read_write> takes a vec2 coordinate; got vec3<i32>.',
+      'Unknown identifier "v".',
+    ])
+    expect(compile(WRONG_WIDTH).wgsl).toBeUndefined()
+  })
+
+  it('takes the vec2 coordinate the refusal asks for', () => {
+    // The remedy has to work, or the rule reads as a ban on `read_write` loads.
+    const ok = store(
+      `declare const acc: texture_storage_2d<"r32float", "read_write">`,
+      `  const v = textureLoad(acc, vec2i(0, 0))
+  textureStore(acc, vec2i(0, 0), v)`,
+    )
+    expect(errorsOf(ok)).toEqual([])
+    expect(wgslOf(ok)).toContain('textureLoad(acc, vec2<i32>(0, 0))')
+  })
+
+  it('refuses a storage read reachable from a vertex entry, naming the access mode', () => {
+    // The sentence carries the rule that makes it a RESOURCE rule rather than a name rule,
+    // which is the distinction #164 turned on: a `read_write` texture is unreachable from a
+    // vertex stage entirely, so measuring one there is refused along with writing it.
+    const errors = errorsOf(VERTEX_READ)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain('"textureLoad" is only valid in a fragment or compute shader')
+    expect(errors[0]).toContain('"vs" is a vertex entry')
+    expect(errors[0]).toContain('must not be reached from a vertex stage')
+  })
+})

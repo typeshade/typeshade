@@ -81,8 +81,15 @@ import {
   texture2dArrayfT,
   samplerT,
   vec2i,
+  module,
+  f32T,
+  type FuncDecl,
+  type ModuleDecl,
   type Node,
 } from './ir/index.js'
+import { emitModule } from './backends/wgsl.js'
+import { emitGlslModule } from './backends/glsl.js'
+import { MATH_FN_ARITY } from '../compiler/ts/math-alias.js'
 
 describe('intrinsic registry coverage (the spelling agreement surface)', () => {
   it('no id is BOTH divergent and portable (single classification)', () => {
@@ -388,5 +395,74 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       .map((e) => e.fn)
       .filter((id) => !isKnownIntrinsic(id) && !PRE_EMIT_INTRINSICS.has(id))
     expect(unclassified).toEqual([])
+  })
+})
+
+// ═══ P1-34 of #155 — a portable id is spelled identically by the REAL writers ═══
+//
+// "Portable" is asserted only negatively above: an id is in `INTRINSICS` or in
+// `PORTABLE_INTRINSICS`, never both, and every `INTRINSICS` row genuinely diverges. Nothing
+// checked the positive claim the set's own comment makes — that a portable id reaches both
+// targets as `name(args)`.
+//
+// WHY THROUGH `emitModule` / `emitGlslModule` AND NOT `spellIntrinsic`. `spellIntrinsic` falls
+// through to `${name}(${args})` for anything without an `INTRINSICS` row, so asserting it on a
+// portable id would be true BY CONSTRUCTION — a test that cannot fail. The thing that can
+// rewrite a portable call is downstream of the registry: the GLSL legalizer, the emit-alias
+// pass, a backend's own special case. So the assertion runs the whole writer and reads the
+// call out of the emitted text.
+describe('every PORTABLE id survives both writers under its own name', () => {
+  const ARG_NAMES = ['a', 'b', 'c', 'd'] as const
+
+  /** `fn probe(a: f32, …) -> f32 { return <id>(a, …) }`, with the arity the front end's own
+   *  table gives the id. The parameters are `f32` because what is measured is the call TEXT,
+   *  not the type: a writer that rewrites `mod` or `round` does it by name. */
+  const probeModule = (id: string, arity: number): ModuleDecl => {
+    const params = ARG_NAMES.slice(0, arity).map((name) => ({ name, type: f32T }))
+    return module({
+      funcs: [
+        {
+          name: 'probe',
+          params,
+          ret: f32T,
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'call',
+                fn: id,
+                type: f32T,
+                args: params.map((p) => ({ op: 'param', type: f32T, name: p.name })),
+              },
+            },
+          ],
+        } as unknown as FuncDecl,
+      ],
+    })
+  }
+
+  const returnedCall = (text: string): string => /return ([^;]*);/.exec(text)?.[1] ?? '<no return>'
+
+  it('spells every portable id the same way on WGSL and on GLSL ES 3.00, and that way is the id', () => {
+    const wrong: string[] = []
+    for (const id of [...PORTABLE_INTRINSICS].sort()) {
+      const arity = MATH_FN_ARITY[id] ?? 1
+      const m = probeModule(id, arity)
+      const expected = `${id}(${ARG_NAMES.slice(0, arity).join(', ')})`
+      const wgsl = returnedCall(emitModule(m))
+      const glsl = returnedCall(emitGlslModule(m, 'fragment'))
+      if (wgsl !== expected || glsl !== expected) {
+        wrong.push(`${id}: wgsl ${wgsl}, glsl ${glsl}, expected ${expected}`)
+      }
+    }
+    expect(wrong).toEqual([])
+  })
+
+  it('sees a DIVERGENT id through the same probe, so the arm above is not measuring nothing', () => {
+    // `round` is in `INTRINSICS` precisely because GLSL ES 3.00's `round()` is
+    // implementation-chosen at exact halves; it must come out as `roundEven` on the GLSL side.
+    const m = probeModule('round', 1)
+    expect(returnedCall(emitModule(m))).toBe('round(a)')
+    expect(returnedCall(emitGlslModule(m, 'fragment'))).toBe('roundEven(a)')
   })
 })

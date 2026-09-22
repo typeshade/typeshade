@@ -418,3 +418,61 @@ describe('the smaller findings of that review', () => {
     ).toContain('is a texture; it is declared bare, not inside uniform<...>')
   })
 })
+
+// P1-7 of the spec audit's tests critique (#155). `wgsl.txt:24129`, `:24155`, `:25316`,
+// `:25352` — and `core.def`'s `implicit(T: fiu32, C: iu32, A: iu32, L: iu32)` — say the
+// coordinate, the array layer and the level are each "i32, or u32", INDEPENDENTLY. This
+// compiler accepts all of that and emits it unchanged; nothing pinned it, and the only shapes
+// any suite asserted were integer LITERALS, which take their type from the slot.
+//
+// The rows matter because two open issues pull in opposite directions: the ambient library
+// types these `i32` only (#147, the editor's half) and the audit proposes checking scalar
+// texture arguments (#145). Both must leave these programs accepted.
+describe('the integer texture arguments take either signedness, as the spec allows', () => {
+  const HEAD = `interface U {
+  layerU: u32;
+  layerI: i32;
+  lvlU: u32;
+  lvlI: i32;
+}
+declare const u: uniform<U>
+declare const atlas: texture_2d_array<f32>
+declare const tex: texture_2d<f32>
+declare const smp: sampler
+class V {
+  @builtin("position") pos: vec4
+  @location(0) uv: vec2
+}
+@fragment
+export function fs(v: V): vec4 {
+`
+
+  const read = (body: string): string => wgslOf(`${HEAD}  return ${body}\n}\n`)
+
+  it('takes an unsigned coordinate on textureLoad, and keeps the level unsigned with it', () => {
+    expect(read('textureLoad(tex, vec2u(0, 0), 0)')).toContain(
+      'textureLoad(tex, vec2<u32>(0u, 0u), 0u)',
+    )
+  })
+
+  it('takes a u32 layer beside an i32 level on an array load, which are separate type parameters', () => {
+    expect(read('textureLoad(atlas, vec2i(0, 0), u.layerU, u.lvlI)')).toContain(
+      'textureLoad(atlas, vec2<i32>(0, 0), u.layerU, u.lvlI)',
+    )
+  })
+
+  it('takes a u32 level on a plain 2d load', () => {
+    expect(read('textureLoad(tex, vec2i(0, 0), u.lvlU)')).toContain(
+      'textureLoad(tex, vec2<i32>(0, 0), u.lvlU)',
+    )
+  })
+
+  it('takes either signedness as the layer of textureSampleLevel', () => {
+    expect(read('textureSampleLevel(atlas, smp, v.uv, u.layerU, 1.)')).toContain(
+      'textureSampleLevel(atlas, smp, v.uv, u.layerU, 1.0)',
+    )
+    expect(read('textureSampleLevel(atlas, smp, v.uv, u.layerI, 1.)')).toContain(
+      'textureSampleLevel(atlas, smp, v.uv, u.layerI, 1.0)',
+    )
+  })
+})

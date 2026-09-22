@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 distance estimate (source twin)",
+  "blurb": "`fp64-mandelbrot-de.ts` written in the source language: the mixed-precision distance estimate with the split spelled per value, the orbit's `let zx: f64 = 0.` beside the derivative's plain `let ux = 0.`, and `f32(zx)` narrowing z once per step so the `2*z*dz + 1` recurrence stays in f32. `u.center.x` is a lane read of a `vec2f64` (§39), and `log` / `exp`, which have no emulated-double form, are reached only after the narrow, exactly where the original reaches them. The twin with two escape-time loops in one entry, an all-f32 branch and an f64-orbit branch, one per half of the split screen.",
+  "renderable": true,
+  "twinOf": "fp64-mandelbrot-de"
+}
+*/
 // The `"use typeshade"` twin of `fp64-mandelbrot-de.ts`.
 //
 // MIXED precision on purpose: the ORBIT (z) iterates in f64, its absolute position is what

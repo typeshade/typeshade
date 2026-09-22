@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Cube and 3D textures, bias and gradients",
+  "blurb": "An environment map as a `texture_cube<f32>` looked up by direction, a colour-grading table as a `texture_3d<f32>` the shaded colour indexes, `textureSampleBias` and `textureSampleGrad`, and a point light’s shadow as a `texture_depth_cube` compared by the direction from the light (§35). All core in both targets, so both halves of the gate run it; the compiler checks each coordinate’s width against the texture’s dim and says so before either target refuses the generated code. Measured on Tint and on a WebGL2 driver: a bias is fragment-only on both, gradients are legal in any stage, and level 0 on a depth cube is `textureGrad` with zero gradients.",
+  "renderable": true
+}
+*/
+
 // Cube and 3D textures, bias and gradient sampling (§35). An environment map is a CUBE
 // texture, six faces looked up by a direction rather than a coordinate; a colour-grading table
 // is a 3D texture, a volume the shaded colour itself indexes. Both are core in both targets, so

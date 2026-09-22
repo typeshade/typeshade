@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 sine sweep (source twin)",
+  "blurb": "`fp64-sine-sweep.ts` written in the source language: sin(x) for x = a large `f64` base plus a small on-screen sweep, the two halves side by side. The f32 half narrows the base first, exactly where the original does, so its argument quantizes to a few treads and the wave becomes a staircase; the f64 half adds the sweep to the double and calls the emulated `sin` (§39). `8*PI` is a JavaScript number on the EDSL side, so the twin spells the literal it evaluates to.",
+  "renderable": true,
+  "twinOf": "fp64-sine-sweep"
+}
+*/
 // The `"use typeshade"` twin of `fp64-sine-sweep.ts`.
 //
 // sin(x) where the argument x is a LARGE base plus a small on-screen sweep. Once the base

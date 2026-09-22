@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Class methods",
+  "blurb": "A `class Ray` with a constructor, a method and a static function, and a `class Sphere` whose `hit(ray)` method returns the distance along the ray (§26). Each method is a function whose first parameter is the struct, so both targets carry it as written; a fullscreen triangle shades the sphere by its normal.",
+  "renderable": true
+}
+*/
+
 // Classes with methods (design #86, §26): a `class Ray` with a constructor, a method and a static
 // function, and a `class Sphere` whose `hit(ray)` method returns the distance along the ray or
 // a negative number for a miss. Each method is a function whose first parameter is the struct

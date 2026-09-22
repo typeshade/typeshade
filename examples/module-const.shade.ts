@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Module constants",
+  "blurb": "A module-scope constant of every scalar type the compiler allows — `u32`, `i32`, `f32`, `bool` — each one used, so the compile gate hands every spelling to Tint and to a real WebGL2 context.",
+  "renderable": true
+}
+*/
+
 // Module-scope constants of every scalar type the compiler allows, each one USED, so the
 // compile gate hands their spelling to Tint and to a real WebGL2 context on every run.
 //

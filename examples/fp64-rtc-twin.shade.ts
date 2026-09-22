@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 relative-to-center (source twin)",
+  "blurb": "`fp64-rtc.ts` written in the source language: a survey marker a few fractional units from the eye, drawn as a reticle. The f64 half reads both `vec2f64` world positions from the uniform, subtracts them as doubles and narrows the small delta with `f32(...)`; the f32 half narrows first and subtracts after, so at 10⁸ both operands land on the same 8-unit ulp grid and the reticle snaps off-target in whole-ulp jumps. The twin that shows §39's subtract-then-narrow discipline in one expression: `f32(u.center.x + f64(dx) - u.mark.x)` against `f32(u.center.x) + dx - f32(u.mark.x)`.",
+  "renderable": true,
+  "twinOf": "fp64-rtc"
+}
+*/
 // The `"use typeshade"` twin of `fp64-rtc.ts`.
 //
 // Relative-to-center, the technique every planet-scale engine ships: a survey marker sits at

@@ -1,5 +1,12 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A sample under a branch, and the directive that allows it",
+  "blurb": "WGSL requires `textureSample` to be called from UNIFORM control flow (§54): the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. A sample inside an `if` on a varying is a shader-creation error — Tint: `'textureSample' must only be called from uniform control flow` — and the compiler emitted it with zero diagnostics. This file is the other half of the rule: the author who wants the branch anyway writes `@diagnostic(\"off\", \"derivative_uniformity\")` on the entry, which emits WGSL's module-scope `diagnostic(off, derivative_uniformity);` and takes the module as written. Beside it, a sample under a `uniform` condition, which needs no directive because every invocation takes the same side of it.",
+  "renderable": true
+}
+*/
 // The whole `derivative_uniformity` path (§54), compiled on Tint and on ANGLE by the gate.
 //
 // WGSL requires `textureSample` to be called from UNIFORM control flow: the implicit level of

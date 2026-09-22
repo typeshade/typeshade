@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A storage texture",
+  "blurb": "An image a compute entry writes by texel coordinate, with no sampler and no filtering (§33). The format and the access mode are part of the type, as they are in WGSL, and are written as string literal types so `tsc` checks a mistyped format in the editor. Three bindings: one `\"write\"`, one `\"read_write\"` at `\"r32float\"` (the only formats a device reads and writes through one binding), and one integer format whose texel is a `vec4u`. WGSL-only: GLSL ES 3.00 has no image load/store, which is ES 3.10. Two things it refuses that Tint does not, because Tint compiles a shader and a device binds one.",
+  "renderable": false,
+  "reason": "missing capabilities: storageTexture, compute"
+}
+*/
+
 // A storage texture: an image a shader writes by texel coordinate (§33).
 //
 // Not a sampled texture. There is no sampler and no filtering — the shader addresses texels

@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Compare-exchange, uniform load, texture barrier",
+  "blurb": "The three synchronisation builtins WGSL has and this surface lacked (§48): `atomicCompareExchangeWeak`, whose result struct WGSL gives no writable name so it is bound by inference and read field by field; `workgroupUniformLoad`, a read of workgroup memory between two barriers that every invocation must reach; and `textureBarrier`. WebGPU-only — GLSL ES 3.00 has no compute stage — so this one is `renderable: false` and the gate runs its Tint half alone.",
+  "renderable": false,
+  "reason": "storageBuffer, compute"
+}
+*/
 // The three WGSL synchronisation and compare-exchange builtins (§48): `atomicCompareExchangeWeak`,
 // `workgroupUniformLoad` and `textureBarrier`. All three were unknown names, and all three are
 // WebGPU-only — GLSL ES 3.00 has no compute stage, so it has no workgroup memory, no atomic

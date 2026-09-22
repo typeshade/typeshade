@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 Burning Ship (source twin)",
+  "blurb": "`fp64-burning-ship.ts` written in the source language: the |Re z|, |Im z| fold spelled as `abs` on an `f64` inside the extended-precision iteration, the centre read lane by lane off a `vec2f64`, and every literal beside a double lifted to one (§39). The half-selection is a ternary and the split screen an `if`/`else` over `||`, and the f32 half narrows with `f32(x)` exactly where the EDSL spelled `toF32`.",
+  "renderable": true,
+  "twinOf": "fp64-burning-ship"
+}
+*/
 // The `"use typeshade"` twin of `fp64-burning-ship.ts`.
 //
 // The Burning Ship (z <- (|Re z| + i*|Im z|)^2 + c) is the fp64 family's showcase for `abs`
