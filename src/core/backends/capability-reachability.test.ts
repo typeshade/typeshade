@@ -45,6 +45,7 @@ import {
   vec4,
   f32T,
   u32T,
+  vec4fT,
   texture2dMsfT,
   arrayT,
   type Capability,
@@ -410,9 +411,124 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
   // `f32T` / `i32T` / `u32T` / `boolT`, so the missing one is `f16T` (and, behind it, an
   // `'f16'` member of `Scalar` — ir/types.ts:9 — that every vector/matrix arm keys off).
   f16: { kind: 'typeConstant', id: 'f16T' },
-  // subgroups is a family of intrinsics; `subgroupAdd` is the canonical one. Any of them
-  // landing in the registry makes the cap real — swap the id if a different one ships first.
-  subgroups: { kind: 'intrinsic', id: 'subgroupAdd' },
+  // subgroups stopped being intrinsic-only when the two subgroup BUILT-IN VALUES gained
+  // their stage rules and their derived capability (§50): `@builtin(subgroup_invocation_id)`
+  // on a compute or fragment entry emits `enable subgroups;` and reports the host feature,
+  // with no subgroup intrinsic anywhere. That is a source witness, so the witness is the
+  // module shape — the same kind the other two extension-gated ids use. The intrinsic family
+  // (`subgroupAdd`, `subgroupBallot`, …) is still absent and is still a separate debt, but
+  // it is no longer what makes the CAPABILITY reachable.
+  subgroups: {
+    kind: 'moduleShape',
+    what: "an entry parameter with builtin 'subgroup_invocation_id'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'fs_probe',
+          stage: 'fragment',
+          params: [
+            {
+              name: 'sid',
+              type: u32T,
+              attr: '@builtin(subgroup_invocation_id)',
+              builtin: 'subgroup_invocation_id',
+            },
+          ],
+          ret: vec4fT,
+          body: [],
+        },
+      ],
+    }),
+  },
+  // The two extension-gated BUILT-IN VALUES (§50). The witness is the module SHAPE, not the
+  // `builtin` kind above: that one resolves through a GLSL emit, and neither id has any GLSL
+  // ES 3.00 mapping — the whole point of the capability is that the module fails closed
+  // there. What makes each reachable is that spelling the id derives the cap, which is what
+  // `requiredCaps` is asked here.
+  clipDistances: {
+    kind: 'moduleShape',
+    what: "a struct field with builtin 'clip_distances'",
+    build: () => ({
+      consts: [],
+      structs: [
+        {
+          name: 'VsOut',
+          fields: [
+            { name: 'pos', type: vec4fT, attr: '@builtin(position)', builtin: 'position' },
+            {
+              name: 'cd',
+              type: arrayT(f32T, 4),
+              attr: '@builtin(clip_distances)',
+              builtin: 'clip_distances',
+            },
+          ],
+        },
+      ],
+      bindings: [],
+      funcs: [],
+    }),
+  },
+  primitiveIndex: {
+    kind: 'moduleShape',
+    what: "an entry parameter with builtin 'primitive_index'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'fs_probe',
+          stage: 'fragment',
+          params: [
+            {
+              name: 'pi',
+              type: u32T,
+              attr: '@builtin(primitive_index)',
+              builtin: 'primitive_index',
+            },
+          ],
+          ret: vec4fT,
+          body: [],
+        },
+      ],
+    }),
+  },
+  // Dual-source blending (§53): the witness is the module SHAPE, like the two extension-gated
+  // built-in values above — `@blend_src` on a fragment output derives the capability, because
+  // WGSL refuses the attribute without `enable dual_source_blending;`.
+  dualSourceBlending: {
+    kind: 'moduleShape',
+    what: 'a struct field with blendSrc set',
+    build: () => ({
+      consts: [],
+      structs: [
+        {
+          name: 'Out',
+          fields: [
+            {
+              name: 'a',
+              type: vec4fT,
+              attr: '@location(0) @blend_src(0)',
+              location: 0,
+              blendSrc: 0,
+            },
+            {
+              name: 'b',
+              type: vec4fT,
+              attr: '@location(0) @blend_src(1)',
+              location: 0,
+              blendSrc: 1,
+            },
+          ],
+        },
+      ],
+      bindings: [],
+      funcs: [],
+    }),
+  },
   // multiview needs BOTH halves: a per-view id to read (`gl_ViewID_OVR`, which this DSL
   // would spell `@builtin(view_index)`) and the `layout(num_views = N) in;` qualifier.
   // The builtin is the half a witness can resolve mechanically; the qualifier has no
@@ -429,10 +545,6 @@ const UNREACHABLE_ALLOWLIST: Readonly<Partial<Record<Capability, string>>> = {
   // can be declared, passed, or returned. Reachable only once `Scalar` gains 'f16' and
   // the type constants / promotion rules follow.
   f16: 'no f16 value type — Scalar is f32|i32|u32|bool (ir/types.ts:9) — X-GIS #1681',
-  // X-GIS #1681 A3 — `enable subgroups;` emits on WGSL and the registry has no subgroup
-  // intrinsic (subgroupAdd / subgroupBallot / subgroupBroadcast), so the directive is
-  // the entire feature.
-  subgroups: 'no subgroup intrinsic in the registry (core/intrinsics.ts) — X-GIS #1681',
   // X-GIS #1681 A3 — the GLSL row emits `#extension GL_OVR_multiview2 : require` and the
   // module still renders SINGLE-VIEW: `layout(num_views = N) in;` is unspellable and
   // `gl_ViewID_OVR` has no `@builtin` mapping. The cap exists to prove the `#extension`
@@ -584,15 +696,57 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
 // from `"use typeshade"` SOURCE, and does `reflect().requiredFeatures` then name it — which is
 // what the host reads to decide whether to request the device feature.
 //
-// Nine of the fifteen can. The other six are listed with a reason, and — where a program
+// Twelve of the eighteen can. The other six are listed with a reason, and — where a program
 // could exist at all — with the very program that will become the witness once the gap closes,
 // so the list shrinks by measurement rather than by anyone remembering to look. It was seven of
-// thirteen until #164 added `packed4x8Dot` and `bgra8unormStorage`, both of them reachable, and
-// the claims-every-capability arm is what caught that they were unaccounted for.
+// thirteen until #164 added `packed4x8Dot` and `bgra8unormStorage` and #146 added
+// `clipDistances`, `primitiveIndex` and `dualSourceBlending` — all five reachable, and the
+// claims-every-capability arm is what caught each time that they were unaccounted for.
 
 /** A capability an author can reach by writing a program, and the program. Each is compiled
  *  below and `reflect().requiredFeatures` must name the capability. */
 const SOURCE_WITNESSES: Readonly<Partial<Record<Capability, string>>> = {
+  // The three #146 added (§50) are each derived from a `@builtin(...)` id or an attribute an
+  // author WRITES, so all three are reachable and belong here rather than on the list below.
+  // Measured: `reflect().requiredFeatures` is exactly `["clipDistances"]`, `["primitiveIndex"]`
+  // and `["dualSourceBlending"]` for these three programs.
+  clipDistances: `"use typeshade"
+class Clip {
+  @builtin("position") pos: vec4;
+  @builtin("clip_distances") cd: array<f32, 4>;
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  return { pos: vec4(0., 0., 0., 1.), cd: array<f32, 4>(1., 1., 1., 1.) }
+}
+`,
+  primitiveIndex: `"use typeshade"
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V, @builtin("primitive_index") pi: u32): vec4 {
+  return vec4(f32(pi), 0., 0., 1.)
+}
+`,
+  // Not a builtin id but an ATTRIBUTE pair: two `@location(0)` outputs distinguished by
+  // `@blend_src`, which is the shape WGSL gives dual-source blending (#158, §53).
+  dualSourceBlending: `"use typeshade"
+class Dual {
+  @location(0) @blend_src(0) a: vec4;
+  @location(0) @blend_src(1) b: vec4;
+}
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V): Dual {
+  const c = vec4(v.uv, 0., 1.)
+  return { a: c, b: c }
+}
+`,
   // Both arrived with #164 and both are reachable, so they are witnesses rather than entries on
   // the list below: measured, `reflect().requiredFeatures` is exactly `["packed4x8Dot"]` for the
   // first and includes `"bgra8unormStorage"` for the second.

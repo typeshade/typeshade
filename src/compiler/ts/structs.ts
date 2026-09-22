@@ -7,7 +7,15 @@ import { mapTsTypeToShaderType } from './type-map.js'
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js'
 import { TS_CODES } from './codes.js'
 import { makeDiagnostic } from './diagnostic.js'
-import { builtinDecoratorArg, checkAttributeName, checkBuiltinName } from './builtin-check.js'
+import {
+  builtinDecoratorArg,
+  checkAttributeName,
+  checkBuiltinName,
+  checkBuiltinType,
+  checkLocationType,
+  hasInvariantDecorator,
+  interpolateDecoratorArg,
+} from './builtin-check.js'
 import { applyMixins, isMixinHeritage, mixedMembers, type MixinApplication } from './mixins.js'
 import { pushTypeArguments } from './generics.js'
 import {
@@ -444,10 +452,71 @@ export function collectStructs(
             checkBuiltinName(diagnostics, sourceFile, builtinArg.argNode, builtinArg.name)
               ? builtinArg.name
               : undefined
+          // The TYPE rule is checked here, at the declaration, and not only where the struct
+          // is used as entry IO (`lower/function.ts`): the capability a `@builtin(...)` id
+          // derives is read off `m.structs` whatever the struct is used for, so a struct that
+          // declares `@builtin("clip_distances")` and is never an entry parameter emitted the
+          // directive and the field with no diagnostic at all.
+          if (builtin) {
+            checkBuiltinType(diagnostics, sourceFile, builtinArg!.argNode, builtin, type)
+          }
+          // The entry-IO attributes (§53). `@interpolate` rides a `@location`; `@invariant`
+          // rides `@builtin("position")`, the one output WGSL lets it steady; `@blend_src`
+          // rides a `@location(0)` fragment output and derives a capability. Each is checked
+          // where it is written, so the message names the line rather than the emitted text.
+          const interpolate = interpolateDecoratorArg(diagnostics, sourceFile, decos)
+          const invariant = hasInvariantDecorator(decos)
+          const blendSrc = numberDecorator(member, 'blend_src')
+          if (interpolate !== undefined && loc === undefined) {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@interpolate belongs on a @location field: it says how a VARYING is ` +
+                  `interpolated, and a @builtin carries its own rule.`,
+              ),
+            )
+          }
+          if (invariant && builtin !== 'position') {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@invariant belongs on @builtin("position"): it is WGSL's promise that this ` +
+                  `position is computed the same way in two pipelines, and no other output ` +
+                  `has that meaning.`,
+              ),
+            )
+          }
+          if (blendSrc !== undefined && blendSrc !== 0 && blendSrc !== 1) {
+            diagnostics.push(
+              diag(
+                sourceFile,
+                member,
+                `@blend_src takes 0 or 1 — the two sources a dual-source blend mixes — ` +
+                  `not ${String(blendSrc)}.`,
+              ),
+            )
+          }
           if (loc !== undefined) (field as { location?: number }).location = loc
           if (builtin) (field as { builtin?: string }).builtin = builtin
-          if (builtin) (field as { attr?: string }).attr = `@builtin(${builtin})`
-          else if (loc !== undefined) (field as { attr?: string }).attr = `@location(${loc})`
+          if (interpolate !== undefined && loc !== undefined) {
+            // The WHOLE argument list, `flat` or `linear, centroid` — the GLSL writer needs
+            // the sampling as well as the type, and storing only the type silently dropped
+            // the `centroid` half.
+            ;(field as { interpolate?: string }).interpolate = interpolate.slice(
+              '@interpolate('.length,
+              -1,
+            )
+          }
+          const extra =
+            (invariant && builtin === 'position' ? '@invariant ' : '') +
+            (blendSrc !== undefined ? `@blend_src(${String(blendSrc)}) ` : '') +
+            (interpolate !== undefined && loc !== undefined ? `${interpolate} ` : '')
+          if (builtin) (field as { attr?: string }).attr = `${extra}@builtin(${builtin})`.trim()
+          else if (loc !== undefined)
+            (field as { attr?: string }).attr = `@location(${loc}) ${extra}`.trim()
+          if (blendSrc !== undefined) (field as { blendSrc?: number }).blendSrc = blendSrc
           fields.push(field)
           if (member.initializer !== undefined) {
             fieldInits.push({ name: field.name, type: field.type, init: member.initializer })
@@ -514,7 +583,20 @@ export function collectStructs(
       }
     }
   }
-  return applyInheritance(out, sourceFile, nodeOf, diagnostics)
+  const inherited = applyInheritance(out, sourceFile, nodeOf, diagnostics)
+  // Struct-WIDE, so it belongs here and not in the per-entry walk: the same struct is a
+  // vertex output and a fragment input, and raising a slot collision or a bool varying from
+  // there printed one mistake twice, word for word (§53). `function.ts` keeps the checks that
+  // read the STAGE, which genuinely differ between the two uses.
+  //
+  // AFTER `applyInheritance`, because a base's fields are spliced in there: `class VsOut
+  // extends Base` with `@location(0)` on each side is one struct with two members at one slot,
+  // and checking the class's own fields alone walked straight past it (Tint:
+  // `'@location(0)' appears multiple times`).
+  for (const s of inherited) {
+    checkLocationSlots(diagnostics, sourceFile, nodeOf.get(s.decl.name), s.decl.name, s.decl.fields)
+  }
+  return inherited
 }
 
 function classDiag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
@@ -889,4 +971,72 @@ function numberDecorator(node: ts.Node, name: string): number | undefined {
 
 function diag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiagnostic {
   return makeDiagnostic(sf, node, message, TS_CODES.STRUCT_FIELD)
+}
+
+/** Two entry-IO rules that read the struct alone, checked once per declaration.
+ *
+ *  A slot collision — two members at one `@location` — is refused by WGSL outright ("must not
+ *  contain two entries with the same location value") and was emitted here with no diagnostic.
+ *  The one shape that puts two members at one location on purpose is a DUAL-SOURCE pair,
+ *  `@location(0) @blend_src(0)` beside `@location(0) @blend_src(1)`, so the slot is the
+ *  location AND the blend source.
+ *
+ *  A `@location` carries a value between stages, which WGSL restricts to a numeric scalar or a
+ *  numeric vector; {@link checkLocationType} owns that wording. */
+function checkLocationSlots(
+  diagnostics: TsCompilerDiagnostic[],
+  sourceFile: ts.SourceFile,
+  node: ts.Node | undefined,
+  structName: string,
+  fields: readonly StructField[],
+): void {
+  const at = node ?? sourceFile
+  const atLocation = new Map<string, string>()
+  const blendSources = new Set<number>()
+  for (const field of fields) {
+    if (field.location === undefined) continue
+    if (field.blendSrc !== undefined) blendSources.add(field.blendSrc)
+    const slot = `${String(field.location)}:${String(field.blendSrc ?? -1)}`
+    const prev = atLocation.get(slot)
+    if (prev !== undefined) {
+      diagnostics.push(
+        makeDiagnostic(
+          sourceFile,
+          at,
+          `Struct "${structName}" puts "${prev}" and "${field.name}" both at ` +
+            `@location(${String(field.location)})` +
+            `${field.blendSrc !== undefined ? ` @blend_src(${String(field.blendSrc)})` : ''}; ` +
+            `each slot carries one value.`,
+          TS_CODES.STRUCT_FIELD,
+        ),
+      )
+    } else atLocation.set(slot, field.name)
+    checkLocationType(
+      diagnostics,
+      sourceFile,
+      at,
+      `${structName}.${field.name}`,
+      field.type,
+      field.interpolate,
+    )
+  }
+  // A dual-source blend mixes TWO colours, so `@blend_src` comes as a pair: WGSL requires
+  // that a struct declaring one declares both, at the same `@location`. One alone emitted
+  // `enable dual_source_blending;` and a single source, which is not a shape the pipeline
+  // has. Stated from the spec rather than measured: the gate's adapter has no
+  // `dual-source-blending` feature, so Tint answers `extension 'dual_source_blending' is not
+  // allowed in the current environment` before it reaches the rule.
+  if (blendSources.size === 1) {
+    const only = [...blendSources][0]!
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        at,
+        `Struct "${structName}" declares @blend_src(${String(only)}) and not ` +
+          `@blend_src(${String(1 - only)}); a dual-source blend mixes two colours, so both sit ` +
+          `at the same @location.`,
+        TS_CODES.STRUCT_FIELD,
+      ),
+    )
+  }
 }

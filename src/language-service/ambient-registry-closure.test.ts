@@ -123,7 +123,10 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
 }
 
 /** The forms that are written in a DECLARATION rather than in an expression. One program
- *  exercises all seven, which is also the shape every example opens with. */
+ *  exercises all eleven, which is also the shape every example opens with. The last four are
+ *  the entry-IO and uniformity attributes #158 and #161 added (§53, §54); they are listed here
+ *  rather than excused on `DECLARED_NOT_LOWERABLE` because the witness below really does
+ *  compile them and each one really does reach the emitted WGSL. */
 const DECLARATION_FORMS: readonly string[] = [
   'builtin',
   'location',
@@ -132,6 +135,10 @@ const DECLARATION_FORMS: readonly string[] = [
   'compute',
   'uniform',
   'storage',
+  'interpolate',
+  'invariant',
+  'blend_src',
+  'diagnostic',
 ]
 
 const DECLARATION_WITNESS = `"use typeshade"
@@ -141,16 +148,23 @@ interface U {
 declare const un: uniform<U>
 declare let out: storage<array<f32>>
 class V {
-  @builtin("position") pos: vec4;
+  @builtin("position") @invariant pos: vec4;
   @location(0) uv: vec2;
+  @location(1) @interpolate("flat") id: u32;
+}
+class Dual {
+  @location(0) @blend_src(0) a: vec4;
+  @location(0) @blend_src(1) b: vec4;
 }
 @vertex
 export function vs(@builtin("vertex_index") i: u32): V {
-  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i }
 }
 @fragment
-export function fs(v: V): vec4 {
-  return vec4(un.k, 0., 0., 1.)
+@diagnostic("off", "derivative_uniformity")
+export function fs(v: V): Dual {
+  const c = vec4(un.k, 0., 0., 1.)
+  return { a: c, b: c }
 }
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
@@ -190,6 +204,11 @@ const AUTHORABLE_NOT_DECLARED: Readonly<Record<string, string>> = {
   bitcastF32: EDSL_ONLY('audit G11: `bitcast<T>(e)` has no authoring spelling', '#150'),
   f64FromParts: EDSL_ONLY('audit F64-13: the f64 lane bridge has no author spelling', '#151'),
   f64Parts: EDSL_ONLY('audit F64-13: the f64 lane bridge has no author spelling', '#151'),
+  // An OPERATOR, not a name: `~` (#160, §52) is spelled by syntax, and the ambient library
+  // declares functions, so there is nothing for it to declare — the same reason `+` and `*`
+  // never appear here. Not a deferral and not an omission: the row is authorable today, and
+  // `examples/__emit-goldens__/bit-bump.wgsl` carries the `~rolled` it emits.
+  '~': 'an operator is spelled by syntax, not by a name, so the ambient library has nothing to declare for it (#160 added it, §52)',
   storageFetchF32: INTERNAL('the GLSL storage-emulation fetch helper'),
   storageFetchI32: INTERNAL('the GLSL storage-emulation fetch helper'),
   storageFetchU32: INTERNAL('the GLSL storage-emulation fetch helper'),

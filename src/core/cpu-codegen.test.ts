@@ -97,7 +97,7 @@ const forS = (init: Stmt, cond: Expr, update: Stmt, body: Stmt[]): Stmt => ({
 })
 const switchS = (
   scrut: Expr,
-  cases: ReadonlyArray<{ value: number; body: Stmt[] }>,
+  cases: ReadonlyArray<{ values: number[]; body: Stmt[] }>,
   defaultBody?: Stmt[],
 ): Stmt => ({ s: 'switch', scrut, cases, defaultBody })
 
@@ -373,9 +373,9 @@ function buildModule(): ModuleDecl {
         switchS(
           param('s', i32T),
           [
-            { value: 0, body: [assign(vref('r'), lit(10)), { s: 'break' }] },
-            { value: 1, body: [assign(vref('r'), lit(20))] },
-            { value: 2, body: [ret(lit(222))] },
+            { values: [0], body: [assign(vref('r'), lit(10)), { s: 'break' }] },
+            { values: [1], body: [assign(vref('r'), lit(20))] },
+            { values: [2], body: [ret(lit(222))] },
           ],
           [assign(vref('r'), lit(99))],
         ),
@@ -390,7 +390,7 @@ function buildModule(): ModuleDecl {
           cmp('<', vref('i', i32T), param('n', i32T)),
           assignOp(vref('i', i32T), '+', lit(1, i32T)),
           [
-            switchS(vref('i', i32T), [{ value: 1, body: [{ s: 'continue' }] }], []),
+            switchS(vref('i', i32T), [{ values: [1], body: [{ s: 'continue' }] }], []),
             assignOp(vref('acc'), '+', lit(1)),
           ],
         ),
@@ -403,7 +403,7 @@ function buildModule(): ModuleDecl {
           cmp('<', vref('i', i32T), param('n', i32T)),
           assignOp(vref('i', i32T), '+', lit(1, i32T)),
           [
-            switchS(vref('i', i32T), [{ value: 1, body: [{ s: 'break' }] }], []),
+            switchS(vref('i', i32T), [{ values: [1], body: [{ s: 'break' }] }], []),
             assignOp(vref('acc'), '+', lit(1)),
           ],
         ),

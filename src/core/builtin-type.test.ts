@@ -64,6 +64,7 @@ describe('#8 B5 — builtin(name)', () => {
       'frag_depth',
       'sample_index',
       'sample_mask',
+      'primitive_index',
       'local_invocation_id',
       'local_invocation_index',
       'global_invocation_id',

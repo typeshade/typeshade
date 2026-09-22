@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createTypeshadeLanguageService } from './service.js'
+import { BUILTIN_DOCS } from './docs.js'
+import { WGSL_BUILTIN_NAMES } from './ambient.js'
 
 describe('getCompletions: TypeShade context items', () => {
   it('offers the attribute list right after @', () => {
@@ -33,6 +35,21 @@ describe('getCompletions: TypeShade context items', () => {
     const labels = items.map((i) => i.label)
     expect(labels).toContain('position')
     expect(labels).not.toContain('vertex_index')
+    // §50 — the two extension-gated fragment inputs and the subgroup pair, which used to be
+    // offered on compute alone even though WGSL gives both a fragment row.
+    expect(labels).toContain('primitive_index')
+    expect(labels).toContain('subgroup_invocation_id')
+    expect(labels).toContain('subgroup_size')
+    // `clip_distances` is a vertex OUTPUT, so no parameter position offers it.
+    expect(labels).not.toContain('clip_distances')
+  })
+
+  it('documents every builtin it offers', () => {
+    // `BUILTIN_DOCS` is a `Record<string, string>`, so nothing else forces an entry per id: a
+    // builtin added to the vocabulary with no sentence here hovers and completes blank.
+    for (const name of WGSL_BUILTIN_NAMES) {
+      expect(BUILTIN_DOCS[name], `no BUILTIN_DOCS sentence for '${name}'`).toBeTruthy()
+    }
   })
 
   it('offers vec2/vec3/vec4 as snippet completions', () => {

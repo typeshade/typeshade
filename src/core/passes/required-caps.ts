@@ -10,7 +10,7 @@
 import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js'
 import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js'
 import { collectFnRefs } from '../ir/collect-refs.js'
-import { PACKED_4X8_IDS, TEXTURE_GATHER_IDS } from '../intrinsics.js'
+import { PACKED_4X8_IDS, PACKED_4X8_LANGUAGE_FEATURE, TEXTURE_GATHER_IDS } from '../intrinsics.js'
 
 /** Capability DEPENDENCIES (X-GIS #1670) — declaring the key implies needing the values, so a
  *  host activating off `reflect().requiredFeatures` gets the whole set rather than the
@@ -25,6 +25,83 @@ import { PACKED_4X8_IDS, TEXTURE_GATHER_IDS } from '../intrinsics.js'
  *  activate both. */
 const CAP_IMPLIES: Readonly<Partial<Record<Capability, readonly Capability[]>>> = {
   float32Blend: ['floatRenderTarget'],
+}
+
+/** The `@builtin(<id>)` ids WGSL puts behind an `enable` extension, and the neutral
+ *  {@link Capability} each one derives (§50). Spelling the id is the declaration: WGSL refuses
+ *  the id itself without the extension, so there is nothing an author could usefully say that
+ *  the use does not already say. Ids WGSL gives away for free are absent, which is most of
+ *  them. */
+const BUILTIN_CAPS: Readonly<Record<string, Capability>> = {
+  clip_distances: 'clipDistances',
+  primitive_index: 'primitiveIndex',
+  subgroup_invocation_id: 'subgroups',
+  subgroup_size: 'subgroups',
+}
+
+/** Every `@builtin(<id>)` this module spells, from the structured `builtin` field on an IO
+ *  struct member, an entry parameter and a bare `retAttr`-authored return — the three places a
+ *  backend can spell one, exactly as `assertBuiltins` enumerates them. */
+function* moduleBuiltins(m: ModuleDecl): Generator<string> {
+  for (const s of m.structs) for (const f of s.fields) if (f.builtin !== undefined) yield f.builtin
+  for (const f of m.funcs) {
+    for (const p of f.params) if (p.builtin !== undefined) yield p.builtin
+    if (f.retBuiltin !== undefined) yield f.retBuiltin
+  }
+}
+
+/** A WGSL *language* extension — what a `requires` directive names, as opposed to the device
+ *  features `enable` names. It is reported by
+ *  `reflect().requiredLanguageFeatures` so a host can check it against
+ *  `navigator.gpu.wgslLanguageFeatures`, and the WGSL writer emits the directive for it.
+ *
+ *  One row today. `uniform_buffer_standard_layout` is NOT one: the Tint the compile gate runs
+ *  refuses the directive outright (`feature 'uniform_buffer_standard_layout' is not
+ *  supported`, measured 2026-09-21), and nothing this compiler emits asks for it anyway — the
+ *  layout layer reports a uniform array under std140's 16-byte element stride
+ *  (`reflect.ts`'s `typeLayout`), so a module never depends on the device relaxing the
+ *  rule. */
+export type LanguageFeature =
+  'readonly_and_readwrite_storage_textures' | typeof PACKED_4X8_LANGUAGE_FEATURE
+
+/** The language features the WGSL writer emits a `requires` directive for.
+ *
+ *  Reporting a feature and DIRECTING it are two decisions, and the two rows answer them
+ *  differently because the measurements differ. A storage texture read back needs the
+ *  extension to be a program at all, and `requires readonly_and_readwrite_storage_textures;`
+ *  is accepted by the Tint the gate runs (measured 2026-09-21), so the directive states a
+ *  dependency the module genuinely has. The packed 4x8 family compiles BARE on the same Tint,
+ *  and `requires packed_4x8_integer_dot_product;` is "accepted and changes nothing" (#152's
+ *  own measurement) — so a directive there buys nothing and can only fail a module closed on a
+ *  browser that lacks the name. Both are reported, for a host to check against
+ *  `navigator.gpu.wgslLanguageFeatures`; one is written. */
+export const REQUIRES_DIRECTIVE: ReadonlySet<LanguageFeature> = new Set([
+  'readonly_and_readwrite_storage_textures',
+])
+
+/** The WGSL language features this module's emit requires, sorted and deduplicated.
+ *
+ *  A storage texture bound `read` or `read_write` is the one row: core WGSL gives a storage
+ *  texture `write` only, and reading one back is the `readonly_and_readwrite_storage_textures`
+ *  extension. `requires readonly_and_readwrite_storage_textures;` is accepted by the Tint the
+ *  gate runs (measured 2026-09-21), so the directive is emitted rather than merely reported. */
+export function requiredLanguageFeatures(m: ModuleDecl): LanguageFeature[] {
+  const out = new Set<LanguageFeature>()
+  for (const b of m.bindings) {
+    if (b.type.kind === 'storage-texture' && b.type.access !== 'write') {
+      out.add('readonly_and_readwrite_storage_textures')
+    }
+  }
+  // `textureBarrier` is the same extension's: it orders the reads and writes of a
+  // read_write storage texture, so a module calling it depends on the extension whatever its
+  // bindings' access spells (#164's measurement).
+  if (m.funcs.some((f) => collectFnRefs(f).calls.has('textureBarrier'))) {
+    out.add('readonly_and_readwrite_storage_textures')
+  }
+  // The packed 4x8 family is a feature of the CALLS (#152), the same derivation `requiredCaps`
+  // performs for `packed4x8Dot`. Reported here and NOT directed — see REQUIRES_DIRECTIVE.
+  if (usesPacked4x8(m)) out.add(PACKED_4X8_LANGUAGE_FEATURE)
+  return [...out].sort()
 }
 
 /** Whether the module CALLS one of the packed 4x8 integer builtins (#152), as opposed to
@@ -89,6 +166,24 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built
     // `{ stage: 'compute' }` decl without attrs must NOT slip past the gate.
     if (stageOf(f) === 'compute') caps.add('compute')
+  }
+  // Extension-gated BUILT-IN VALUES (§50): WGSL refuses `@builtin(clip_distances)` and
+  // `@builtin(primitive_index)` unless the module enables the matching extension, and the
+  // subgroup pair needs `enable subgroups;` the same way — measured on Tint, `use of
+  // '@builtin(clip_distances)' requires enabling extension 'clip_distances'`. So the cap is
+  // DERIVED from the use rather than declared: an author who writes the builtin gets the
+  // directive and the host feature without naming either, and `reflect().requiredFeatures`
+  // tells the host what to request. Reads the structured `builtin` field, the same authority
+  // `assertBuiltins` reads, so a hand-built decl carrying only `attr` is treated the same way
+  // there and here.
+  for (const b of moduleBuiltins(m)) {
+    const cap = BUILTIN_CAPS[b]
+    if (cap !== undefined) caps.add(cap)
+  }
+  // `@blend_src` derives dual-source blending the same way (§53): WGSL refuses the attribute
+  // without `enable dual_source_blending;`, so the use is the declaration.
+  for (const s of m.structs) {
+    for (const f of s.fields) if (f.blendSrc !== undefined) caps.add('dualSourceBlending')
   }
   // OPT-IN language-feature caps (X-GIS #628) — f16 / subgroups the author turned on. Folded
   // in here so assertCaps gates them exactly like the derived resource caps (fail-closed

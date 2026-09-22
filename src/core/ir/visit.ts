@@ -202,7 +202,7 @@ export function mapStmtExpr(s: Stmt, f: (e: Expr) => Expr, onStmt?: (s: Stmt) =>
       return {
         ...s,
         scrut: f(s.scrut),
-        cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(S) })),
+        cases: s.cases.map((c) => ({ values: c.values, body: c.body.map(S) })),
         defaultBody: s.defaultBody?.map(S),
       }
     default:

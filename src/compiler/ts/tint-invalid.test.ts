@@ -1,9 +1,17 @@
-// ═══ Programs this front end accepts and Tint refuses ═══
+// ═══ Programs this front end once accepted and Tint refused — now the rules that closed them ═══
 //
-// Every `it` here compiles with ZERO diagnostics today and produces WGSL that Chromium's
-// shader compiler rejects. They are written as `it.fails` — vitest's inverted `it`, which is
-// red when the body PASSES — so the row cannot be forgotten: the lane that adds the diagnostic
-// has to flip `it.fails` to `it` in the same change, or the suite goes red on a fix.
+// EVERY ROW IN THIS FILE IS CLOSED. Each began as a program that compiled with ZERO diagnostics
+// and produced WGSL that Chromium's shader compiler rejects, written as `it.fails` — vitest's
+// inverted `it`, which is red when the body PASSES — so that the lane adding the fix could not
+// forget the row: the suite went red on the fix until it was flipped. That is exactly what
+// happened, five times (#165 for the reserved keyword, then #156, #158 and #160 twice), and
+// each row now asserts the shipped rule by CODE and by sentence instead of recording a gap.
+//
+// ONE OF THE FIVE DID NOT ANNOUNCE ITSELF, and the reason is worth keeping. The L15 row's
+// `it.fails` body asked whether a DIAGNOSTIC appeared; #156 closed it by PADDING instead, which
+// produces none, so the body went on failing and the row stayed green. What caught the fix was
+// its companion arm, which pinned the defective EMIT. A row whose title admits two outcomes
+// ("refused, or padded") needs the companion to watch the emit, not the diagnostic.
 //
 // WHY A SUITE OF ITS OWN. These are not argument-check cases belonging to one builtin's file;
 // they are the residue of the WGSL spec audit of 2026-09-21 (#144), which asked what the front
@@ -15,7 +23,7 @@
 // gate's own instruments (Chromium's WebGPU on SwiftShader, with the deliberately broken
 // shader checked first) on 2026-09-21; the refusal Tint gave is quoted on each row.
 //
-// TWO OF THE FOUR READ THEIR OPERAND FROM A UNIFORM, and that is load-bearing rather than
+// TWO OF THE FOUR LANGUAGE ROWS READ THEIR OPERAND FROM A UNIFORM, and that is load-bearing rather than
 // decoration. Written as `const n: i32 = 2` the front end folds the value to the literal `2`,
 // and a WGSL integer LITERAL is an abstract-int that converts to `f32` (or `u32`) on its own —
 // measured on Tint, which ACCEPTS that program. So a defect that is about a non-const `i32` in
@@ -63,12 +71,19 @@ export function fs(v: V): vec4 {
 }
 `
 
-  it('emits the array with its natural stride, which is the shape Tint refuses', () => {
-    expect(compilesClean(src)).toContain('xs: array<f32, 4>')
-  })
-
-  it.fails('is refused, or padded, by the front end — flipped by #156 (uniform layout)', () => {
-    expect(errorsOf(src)).not.toEqual([])
+  // CLOSED by #156, which chose the second of the two answers this row admitted: the array is
+  // PADDED rather than refused, so a uniform array of a narrow type is authorable and the
+  // emitted element carries a 16-byte stride.
+  //
+  // Worth recording how this one was caught, because the ratchet did NOT fire: the `it.fails`
+  // body asked for a DIAGNOSTIC, and padding produces none, so it went on failing and stayed
+  // green. What caught it was the companion arm below, which pinned the defective EMIT —
+  // `xs: array<f32, 4>` is no longer what comes out. A row whose body admits two outcomes
+  // needs the companion to be the emit, not the diagnostic.
+  it('pads the element to a 16-byte stride and aligns the array, so Tint takes it', () => {
+    const wgsl = compilesClean(src)
+    expect(wgsl).toContain('@align(16) xs: array<_Pad16_f32, 4>')
+    expect(wgsl).not.toContain('xs: array<f32, 4>')
   })
 })
 
@@ -92,13 +107,12 @@ export function fs(v: V): vec4 {
 }
 `
 
-  it('emits the shift with an i32 right-hand side, which is the shape Tint refuses', () => {
-    expect(compilesClean(src)).toContain('u.x << u.n')
-  })
-
-  it.fails('wraps the right-hand side as u32, or refuses — flipped by #160 (operators)', () => {
-    const wgsl = compile(src).wgsl ?? ''
-    expect(errorsOf(src).length > 0 || wgsl.includes('u32(u.n)')).toBe(true)
+  // CLOSED by #160: the binary path now wraps the right-hand side the way the compound path
+  // always did, so both spell the operand `u32(...)` and neither reaches Tint as `(i32, i32)`.
+  it('wraps the right-hand side as u32, the overload WGSL declares', () => {
+    const wgsl = compilesClean(src)
+    expect(wgsl).toContain('u.x << u32(u.n)')
+    expect(wgsl).not.toMatch(/u\.x << u\.n/)
   })
 })
 
@@ -121,12 +135,28 @@ export function fs(o: VsOut): vec4 {
 }
 `
 
-  it('emits the integer location with no interpolation attribute, which Tint refuses', () => {
-    expect(compilesClean(src)).toContain('@location(0) id: u32,')
-  })
-
-  it.fails('emits @interpolate(flat) on an integer varying — flipped by #158 (entry IO)', () => {
-    expect(compile(src).wgsl ?? '').toContain('@interpolate(flat)')
+  // CLOSED by #158: `flat` is derived for every integer varying, so the two targets agree —
+  // the GLSL writer had always added `flat`, and it was the WGSL side that was silent.
+  it('derives @interpolate(flat) for an integer varying, so both targets agree', () => {
+    const wgsl = compilesClean(src)
+    expect(wgsl).toContain('@location(0) @interpolate(flat) id: u32,')
+    // A FLOAT varying must not pick it up: the rule is about integers, not about locations.
+    const float = compilesClean(`"use typeshade"
+class VsOut {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@vertex
+export function vs(@builtin("vertex_index") i: u32): VsOut {
+  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }
+}
+@fragment
+export function fs(o: VsOut): vec4 {
+  return vec4(o.uv, 0., 1.)
+}
+`)
+    expect(float).toContain('@location(0) uv: vec2<f32>,')
+    expect(float).not.toContain('@interpolate(flat)')
   })
 })
 
@@ -149,15 +179,36 @@ export function fs(v: V): vec4 {
 }
 `
 
-  it('emits the assignment to the parameter itself, which Tint refuses', () => {
-    expect(compilesClean(src)).toContain('a = 1.0;')
+  // CLOSED by #160, which took the REFUSAL of the two answers this row admitted rather than
+  // shadowing silently: the write is reported where the author wrote it, with the copy to make.
+  it('refuses the write as TS8018, naming the parameter and the copy to make', () => {
+    const errors = compile(src).diagnostics.filter((d) => d.category === 'error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.code).toBe('TS8018')
+    expect(errors[0]?.message).toContain('Cannot assign to "a"')
+    expect(errors[0]?.message).toContain('a parameter is a value, not a variable')
+    expect(errors[0]?.message).toContain('let a_ = a;')
+    expect(compile(src).wgsl).toBeUndefined()
   })
 
-  it.fails('shadows the parameter, or refuses — flipped by #160 (statements)', () => {
-    const wgsl = compile(src).wgsl ?? ''
-    expect(errorsOf(src).length > 0 || !/fn h\(a: f32\) -> f32 \{\s*a = 1\.0;/.test(wgsl)).toBe(
-      true,
-    )
+  // The remedy the message spells has to compile, or the refusal sends the author in a circle.
+  it('takes the copy the message asks for, and emits it as a var', () => {
+    const fixed = `"use typeshade"
+export function h(a: f32): f32 {
+  let a_ = a
+  a_ = 1.
+  return a_
+}
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V): vec4 {
+  return vec4(h(v.uv.x), 0., 0., 1.)
+}
+`
+    expect(compilesClean(fixed)).toContain('var a_: f32 = a;')
   })
 })
 

@@ -182,3 +182,28 @@ export function retargetDeclaredIntLit(expr: Expr, node: ts.Expression, target: 
   if (!fitsTarget(expr.value, target)) return expr
   return { op: 'lit', type: target, value: expr.value }
 }
+
+/** The width a shift amount has to fit under, on both targets: WGSL's `i32`/`u32` and GLSL ES
+ *  3.00's `int`/`uint` are all 32 bits. */
+const SHIFT_BITS = 32
+
+/** The ONE sentence both shift paths raise for an amount outside `0 .. 31` (#71).
+ *
+ *  Both had their own wording, which said the same thing in different words and let the two
+ *  drift; a rule stated twice is a rule that will be changed once. The binary path lowers
+ *  `x << 32` and the compound path `y <<= 32`, and what they refuse is the same number for the
+ *  same reason: WGSL makes a constant amount that is not smaller than the bit width a
+ *  shader-creation error, and GLSL ES 3.00 leaves the result undefined — so `x << 32` is
+ *  `x << 0` on one target and anything at all on the other. A RUNTIME amount is not this: WGSL
+ *  masks it to the low five bits, so neither path says anything about one. */
+export function shiftAmountMessage(amount: number): string {
+  return (
+    `A shift amount must be between 0 and ${String(SHIFT_BITS - 1)}, got ${String(amount)}: ` +
+    `a ${String(SHIFT_BITS)}-bit integer has no bit to shift into.`
+  )
+}
+
+/** Whether `amount` is outside the range {@link shiftAmountMessage} describes. */
+export function shiftAmountOutOfRange(amount: number): boolean {
+  return amount < 0 || amount >= SHIFT_BITS
+}

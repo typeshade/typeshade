@@ -469,7 +469,7 @@ describe('glsl-es300 — GLSL ES integer rules (u32 switch labels, flat varyings
               scrut: { op: 'param', type: u32T, name: 'k' },
               cases: [
                 {
-                  value: 1,
+                  values: [1],
                   body: [
                     { s: 'assign', target: { op: 'varref', type: f32T, name: 'o' }, expr: lit(1) },
                   ],

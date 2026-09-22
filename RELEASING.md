@@ -199,5 +199,30 @@ to <https://www.npmjs.com/package/typeshade>.
 | A gate failed in `verify`                                                     | Nothing was built or uploaded. Fix it on `main`, delete the tag and the release, and cut it again from the fixed commit.                                                                                                                  |
 | The tarball check failed                                                      | An entry point does not resolve from the packed package. Nothing was uploaded. `src/publish-manifest.test.ts` D3 and D4 cover this case locally, so run `bun run build && bun run test` and they should reproduce it.                     |
 
+## 7. Deprecations: how a spelling's meaning changes
+
+A change to what a spelling MEANS is different from a change to what the compiler accepts. A
+program that used to be refused and now compiles breaks nobody; a program that used to compile
+to one thing and now compiles to another breaks everybody, silently, and the shader is the
+place a silent change is hardest to see. So a meaning change gets a window:
+
+1. **One release with the diagnostic and no behaviour change.** The new rule is implemented as
+   a `category: 'warning'` diagnostic behind an opt-in compile flag, the old behaviour is
+   untouched, and the emitted bytes are identical with the flag on and off. A consumer turns
+   the flag on in CI, sees every line the change will move, and edits them at their own pace.
+   The flag is named for what it reports, not for the release it belongs to.
+2. **One release that flips the default**, as a breaking change: a `### Changed` entry in
+   `CHANGELOG.md` naming the old meaning, the new one and the one-line edit that keeps the old,
+   every example golden re-baked and reviewed line by line, and the flag retired.
+
+The window is at least one minor release. Do not compress it because the change looks small:
+the size of the diff is not the size of the breakage.
+
+**Open windows.** Each is a row until its flip lands.
+
+| Spelling                                                                          | Today | After the flip                                                                                                                        | Flag                                              |
+| --------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| an integer-written literal in a declaration with no type annotation (`let i = 0`) | `f32` | `i32`, which is what WGSL concretizes an AbstractInt to and what a TypeScript reader expects of an array index (§13, roadmap item 25) | `compile(src, { deprecations: true })` → `TS8053` |
+
 Nothing in this file publishes anything by itself. Every path to the registry goes through a
 release you create.

@@ -138,6 +138,13 @@ const INTERNAL: Readonly<Record<string, string>> = {
     'a lowering-pipeline pass entry. Running it by hand yields a half-lowered module whose ' +
     'nodes are rebuilt, which breaks the object identity the authored-source location table ' +
     'is keyed on — so validate()/diagnose() must run BEFORE it, not after (X-GIS #1695).',
+  'src/core/reflect.ts#typeLayout':
+    'the leaf of the layout engine, exported for `passes/uniform-layout.ts` alone (§51): that ' +
+    'pass computes a struct AS EMITTED, after inserting the wrapper structs a uniform array ' +
+    'needs, so it owns its own struct and array recursion but must read the SAME scalar, ' +
+    "vector and matrix numbers — a second copy of the matrix arm is exactly what #149's " +
+    'measurement of the nine shapes would have drifted against. `wgslLayout` is the published ' +
+    'entry, and it answers the question a consumer has: the layout of a whole struct.',
   'src/core/backends/glsl.ts#lowerComputeToFragment':
     'the supported entry is the emulateCompute emit option; calling the pass directly yields ' +
     'a half-lowered module. Un-export tracked by X-GIS #1697.',

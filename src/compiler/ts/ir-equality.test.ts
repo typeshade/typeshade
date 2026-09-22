@@ -90,7 +90,7 @@ function normalizeStmt(s: Stmt): unknown {
       return {
         s: 'switch',
         scrut: normalizeExpr(s.scrut),
-        cases: s.cases.map((c) => ({ value: c.value, body: normalizeBody(c.body) })),
+        cases: s.cases.map((c) => ({ values: c.values, body: normalizeBody(c.body) })),
         defaultBody: s.defaultBody ? normalizeBody(s.defaultBody) : undefined,
       }
     default:

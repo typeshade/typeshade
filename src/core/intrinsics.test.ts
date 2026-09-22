@@ -109,6 +109,10 @@ describe('every divergent spelling is asserted as text, not only as divergent', 
   const EXPECTED: Readonly<
     Record<string, { readonly wgsl: string; readonly glsl: string | null }>
   > = {
+    // The one PREFIX OPERATOR in the registry (#160, §52). Both targets spell it identically,
+    // so it is here for completeness of the drift arm rather than for a divergence — and the
+    // quoted key is required, since `~` is not an identifier.
+    '~': { wgsl: '~a', glsl: '~a' },
     // GLSL ES 3.00 has no `abs(uint)`, and an unsigned value IS its own magnitude, so the
     // portable spelling is the argument itself (#164, §45).
     absU: { wgsl: 'abs(a, b, c, d, e, f, g)', glsl: 'a' },

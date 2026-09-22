@@ -59,6 +59,14 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   builtin:
     'Binds a field or parameter to a WebGPU builtin value, such as `@builtin("vertex_index")`.',
   location: 'Binds a field to a numeric shader IO location, such as `@location(0)`.',
+  interpolate:
+    'How a `@location` varying is interpolated: `@interpolate("flat")`, or a type and a sampling as in `@interpolate("linear", "centroid")`. An integer varying takes `flat` automatically. GLSL ES 3.00 has `smooth`, `flat` and `centroid` only, so `"linear"` and the `"sample"` position fail the module closed on that target.',
+  invariant:
+    'On `@builtin("position")`: WGSL\'s promise that this position is computed the same way in two pipelines, so a depth pre-pass matches the shading pass. Emits `invariant gl_Position;` on GLSL ES 3.00.',
+  blend_src:
+    'Which of the two colours a dual-source blend mixes this fragment output is: `@blend_src(0)` and `@blend_src(1)`, both at `@location(0)`. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
+  diagnostic:
+    'Sets the severity of a WGSL diagnostic rule for the whole module, as in `@diagnostic("off", "derivative_uniformity")` on an entry. Written on the entry, emitted as the module-scope `diagnostic(off, derivative_uniformity);`, because WGSL\'s function attribute does not reach the functions the entry calls. One rule is analysed here: `derivative_uniformity`.',
 }
 
 /** One Markdown sentence per `@builtin(...)` id in `WGSL_BUILTIN_NAMES`. */
@@ -71,6 +79,8 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   frag_depth: "Overrides the fragment's depth value.",
   sample_index: 'The index of the sample currently being processed, under multisampling.',
   sample_mask: 'The set of samples covered by the current fragment invocation.',
+  primitive_index:
+    'The index of the primitive the current fragment belongs to. Needs `enable primitive_index;`, which the use derives.',
   local_invocation_id: "The current invocation's id within its workgroup, as a 3-component vector.",
   local_invocation_index: "The current invocation's flattened index within its workgroup.",
   global_invocation_id: "The current invocation's id across the entire compute dispatch.",
@@ -78,7 +88,8 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   num_workgroups: 'The number of workgroups dispatched, as given to the dispatch call.',
   subgroup_invocation_id: "The current invocation's index within its subgroup.",
   subgroup_size: 'The number of invocations in the current subgroup.',
-  clip_distances: "Per-vertex clip distances against the pipeline's enabled user clip planes.",
+  clip_distances:
+    "Per-vertex clip distances against the pipeline's enabled user clip planes: a vertex output of `array<f32, N>` with N from 1 to 8. Needs `enable clip_distances;`, which the use derives.",
 }
 
 /** One Markdown sentence per builtin function: free math functions, expansions, casts, vector

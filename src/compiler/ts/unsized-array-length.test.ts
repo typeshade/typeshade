@@ -80,11 +80,18 @@ describe('#46 — the message tells each shape the truth about its own fix', () 
   // takes `ptr<storage, array<E>, AM>` and exists for nothing else, so naming it to a local or
   // a uniform author sends them to an intrinsic Tint would refuse on their program. Those three
   // were already invalid GPU code before this check; only the advice has to be true.
+  // This suite is about ONE code's message. A program may earn a second, independent
+  // diagnostic — `declare const u: uniform<array<f32>>` is also a runtime-sized array in the
+  // uniform address space, which WGSL refuses outright (`TS8051`, §51) — so the helper picks
+  // the code under test rather than demanding the program have exactly one problem.
   const messageFor = (src: string): string => {
     const errors = compileTsSource(src).diagnostics.filter((d) => d.category === 'error')
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.code).toBe(TS_CODES.UNSIZED_ARRAY_LENGTH)
-    return errors[0]!.message
+    const mine = errors.filter((d) => d.code === TS_CODES.UNSIZED_ARRAY_LENGTH)
+    expect(
+      mine,
+      `expected one ${TS_CODES.UNSIZED_ARRAY_LENGTH}, got: ${errors.map((d) => `${d.code ?? '—'} ${d.message}`).join(' | ')}`,
+    ).toHaveLength(1)
+    return mine[0]!.message
   }
 
   it('a field of a storage binding reads its length too — the root is what decides', () => {

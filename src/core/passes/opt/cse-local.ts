@@ -223,7 +223,7 @@ function recurseBlocks(
       return {
         ...s,
         cases: s.cases.map((c) => ({
-          value: c.value,
+          values: c.values,
           body: processBody(c.body, localSet, next, loadRoots),
         })),
         defaultBody: s.defaultBody

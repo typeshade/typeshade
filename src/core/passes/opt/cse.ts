@@ -215,7 +215,7 @@ function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
           ...s,
           scrut: replace(s.scrut),
           cases: s.cases.map((c, ci) => ({
-            value: c.value,
+            values: c.values,
             body: rewriteBlock(c.body, [...bp, `${idx}#c${ci}`]),
           })),
           defaultBody: s.defaultBody ? rewriteBlock(s.defaultBody, [...bp, `${idx}#d`]) : undefined,

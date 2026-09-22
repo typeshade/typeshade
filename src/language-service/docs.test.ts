@@ -91,8 +91,11 @@ describe('ambient lib JSDoc', () => {
       ).toBe(true)
     }
 
-    // Check that every declared function is documented (except attribute decorators which are in ATTRIBUTE_DOCS)
-    const attributeDecorators = new Set(['builtin', 'location', 'vertex', 'fragment', 'compute'])
+    // Check that every declared function is documented (except attribute decorators which are in ATTRIBUTE_DOCS).
+    // Derived from ATTRIBUTE_DOCS rather than listed again: a hand-written copy of its keys is a
+    // second list to keep in step, and §53 adding `@interpolate`, `@invariant` and `@blend_src`
+    // is exactly the update that gets forgotten.
+    const attributeDecorators = new Set(Object.keys(ATTRIBUTE_DOCS))
     for (const name of declaredNames) {
       if (!attributeDecorators.has(name)) {
         expect(

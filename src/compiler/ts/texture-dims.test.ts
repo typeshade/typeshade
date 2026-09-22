@@ -354,8 +354,15 @@ declare const ms: texture_multisampled_2d<f32>`,
     // f32-typed literal carrying the full double and emitted
     // `textureSampleLevel(atlas, smp, p.xy, 1e+300)` — "cannot be represented as 'f32'" on
     // Tint. An f64 in a float slot is now answered like an f64 anywhere else.
+    //
+    // For an out-of-f32-range LITERAL the answer now comes one step earlier still, from §52's
+    // range check at the literal itself, and it is the better of the two: the slot message
+    // would advise `f32(f64(1e300))`, which is infinity. The value still never reaches the
+    // emit, which is what this row exists to hold.
     expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, f64(1e300))`))).toEqual(
-      ['textureSampleLevel level must be an f32; got f64. Write f32(f64(1e300)).'],
+      [
+        '1e+300 is outside the range of f32 (about ±3.4e38), and there is no wider type here for it to take.',
+      ],
     )
     expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, f64(1.))`))).toEqual([
       'textureSampleLevel level must be an f32; got f64. Write f32(f64(1.)).',

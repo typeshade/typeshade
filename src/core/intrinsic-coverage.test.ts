@@ -115,10 +115,17 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         return undefined
       }
     }
-    const notDivergent = Object.entries(INTRINSICS)
+    // An entry earns its place unless BOTH columns agree AND the spelling they agree on is
+    // exactly the one the portable fall-through already writes. `spellIntrinsic` spells an id
+    // with no entry as `name(args)`, so that is the test for redundancy — not mere agreement.
+    // The OPERATOR ids are why: `~` is `~a` on both targets, identical and still not movable,
+    // because a portable `~` would be spelled `~(a, b, c)`, which is neither language.
+    const fallThrough = (k: string): string => `${k}(${args.join(', ')})`
+    const redundant = Object.entries(INTRINSICS)
       .filter(([, s]) => spell(s.wgsl) === spell(s.glsl))
+      .filter(([k, s]) => spell(s.wgsl) === fallThrough(k))
       .map(([k]) => k)
-    expect(notDivergent).toEqual([])
+    expect(redundant).toEqual([])
   })
 
   // Deliberate-diff catalogue: adding/removing a classified builtin must touch this snapshot,
@@ -294,6 +301,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "unpack4xU8",
         "workgroupBarrier",
         "workgroupUniformLoad",
+        "~",
       ]
     `)
   })
