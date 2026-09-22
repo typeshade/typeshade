@@ -202,15 +202,25 @@ export function fs(v: V): vec4 {
 }
 `
 
-  it('refuses every name WGSL reserves, naming the target and the remedy', () => {
+  // The code as well as the message: a caller that suppresses or routes this refusal keys on
+  // TS8068, so a rename of the code is a breaking change the message check alone would miss.
+  const refusalsOf = (src: string): { code: string; message: string }[] =>
+    compile(src)
+      .diagnostics.filter((d) => d.category === 'error')
+      // An uncoded diagnostic reads as '' and fails the check below, which is the point: what
+      // this row pins is a CODED refusal, not merely a refusal that happens to say the words.
+      .map((d) => ({ code: d.code ?? '', message: d.message }))
+
+  it('refuses every name WGSL reserves as TS8068, naming the target and the remedy', () => {
     const wrong: string[] = []
     for (const name of RESERVED) {
-      const errors = errorsOf(withField(name))
+      const errors = refusalsOf(withField(name))
       if (errors.length !== 1) {
         wrong.push(`${name}: ${String(errors.length)} diagnostics`)
         continue
       }
-      const message = errors[0] ?? ''
+      const { code, message } = errors[0] ?? { code: '', message: '' }
+      if (code !== 'TS8068') wrong.push(`${name}: ${code}, not TS8068`)
       // The message has to say WHICH name, that WGSL is what reserves it, and what to do —
       // a bare "reserved word" would leave an author guessing which field and which target.
       if (!message.includes(`"${name}"`) || !message.includes('reserved in WGSL'))

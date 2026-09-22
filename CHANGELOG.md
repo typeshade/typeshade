@@ -122,7 +122,11 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   wrong shape, the precision line for each of the thirteen sampler types GLSL ES 3.00 does not
   predeclare, every handle kind `reflect()` can hold, and the golden set of both example
   registries with no orphan. The f64 rows this issue asked for are not here either: #166 landed
-  a sweep driven by the pass's own exported twin registry, which supersedes the hand table.
+  a sweep driven by the pass's own exported twin registry, which supersedes the hand table. The
+  fifth program the suite found — a struct field named with a WGSL reserved keyword, which used
+  to compile with zero diagnostics and emit a module Tint refuses — is a closed row rather than a
+  row waiting on a fix: #165 shipped the refusal, so it reads as a plain `it` pinning TS8068 over
+  all ten names, the name and the target in the message, and a remedy.
 - **Every `matCxR` is a type** (§40). `mat4x4` was the only float matrix the surface admitted,
   on the recorded ground that "a 2×2 or 3×3 float matrix lays out differently under the WGSL
   and GLSL std140 rules". Measured on a real WebGL2 driver and on Tint, that is half right:
