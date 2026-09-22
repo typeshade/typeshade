@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Julia set (source twin)",
+  "blurb": "`julia.ts` written in the source language: the escape-time iteration as a `for` loop with a `break`, and the orbiting constant handed over to the pointer through a `mix`.",
+  "renderable": true,
+  "twinOf": "julia"
+}
+*/
+
 // The `"use typeshade"` twin of `julia.ts`.
 
 // The uniform block carries no field metadata, so it is written as an interface; `VsOut` below

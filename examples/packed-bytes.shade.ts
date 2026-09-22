@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Packed 4x8 integer builtins",
+  "blurb": "The eight builtins that read a `u32` as four bytes or write four back (§47): both packed dot products, both unpacks and all four packs, truncating and saturating. WGSL-only — GLSL ES 3.00 has no form of any of them, so this one is `renderable: false` and the gate runs its Tint half alone, which is exactly what the `packed4x8Dot` capability promises. The values it computes were dispatched on a real device and read back, and the CPU oracle returns the same ones.",
+  "renderable": false,
+  "reason": "packed4x8Dot"
+}
+*/
 // The packed 4x8 integer family (§47). Eight builtins that read a `u32` as four bytes or write
 // four back, and WGSL has all eight while GLSL ES 3.00 has none of them: no dot product of
 // packed bytes, no byte pack, no byte unpack. So this example is WGSL-ONLY — registered

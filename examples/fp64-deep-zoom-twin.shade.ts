@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 deep zoom (source twin)",
+  "blurb": "`fp64-deep-zoom.ts` written in the source language: one world coordinate swept across the screen as `fract()` stripes, the left half on plain f32 and the right half on the emulated double. The authoring surface is the same on both halves, `+`, `*` and `fract()`, and only the declared type of the uniform differs (§39), so the twin is where you read what the `f64` type costs an author: nothing but the annotation. Past ~10⁷·² one f32 ulp swallows a whole stripe and the left half goes flat while the right keeps striping to 10⁹.",
+  "renderable": true,
+  "twinOf": "fp64-deep-zoom"
+}
+*/
 // The `"use typeshade"` twin of `fp64-deep-zoom.ts`.
 //
 // The emulated-double surface in one screen: a world coordinate near 1e8, where an f32 ulp is

@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Inheritance",
+  "blurb": "An `abstract class Shape` with a concrete method and an abstract one, two classes that extend it, and one that extends a subclass and calls `super` (§26). A struct is flat, with the base's fields first, and dispatch is static: a class inherits a method by lowering the base's body again with `this` typed as itself, so `coverage` calls each class's own `sdf` and no `Shape_coverage` is emitted.",
+  "renderable": true
+}
+*/
+
 // Inheritance (roadmap 0.3 item T5, §26): an `abstract class Shape` with a field, a concrete
 // method and an abstract one, two classes that extend it, and one that extends a subclass and
 // calls `super` twice over: `super(center)` in a constructor runs the base's and copies its

@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "User clip planes",
+  "blurb": "Four user clip planes through `@builtin(\"clip_distances\")`, the vertex output the rasterizer reads before it rasterizes (§50). Nothing in the source names a capability: writing the id derives `enable clip_distances;`, the `clipDistances` capability on `reflect().requiredFeatures` and the `clip-distances` feature the host requests at `requestDevice` — which the compile gate now does, so the Tint half runs it. The type is the one WGSL leaves to the author, `array<f32, N>` with N from 1 to 8, and the stage rule is checked at the authoring line.",
+  "renderable": false,
+  "reason": "missing capabilities: clipDistances"
+}
+*/
 // User clip planes: `@builtin("clip_distances")`, the vertex output the rasterizer reads
 // before it rasterizes anything (surface doc §50).
 //

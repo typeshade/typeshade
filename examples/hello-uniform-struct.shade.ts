@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Hello uniform block",
+  "blurb": "The uniform that DOES have a GLSL ES 3.00 form: a `Uniforms` class behind `uniform<T>` lays out as a std140 block on both targets, so unlike `hello-uniform` this one emits and links on WebGL2. The first source-compiled example with a binding and a renderable GLSL pair — the configuration whose absence let #14 hide.",
+  "renderable": true
+}
+*/
+
 // The uniform that DOES have a GLSL ES 3.00 form, next to `hello-uniform`'s loose scalar
 // that does not. A struct behind `uniform<T>` lays out as a std140 block on both targets, so
 // this one emits and links on WebGL2 — and that is the point of it being here.

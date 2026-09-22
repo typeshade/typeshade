@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 Julia set (source twin)",
+  "blurb": "`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed and bailout lifted to full doubles beside it (§39), and the two halves lower to `df64_add` / `df64_mul` / `df64_le` against the very same f32 ops.",
+  "renderable": true,
+  "twinOf": "fp64-julia"
+}
+*/
 // The `"use typeshade"` twin of `fp64-julia.ts`.
 //
 // The Julia face of the double-float technique: the SEED is fixed

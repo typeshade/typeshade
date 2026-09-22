@@ -1,5 +1,12 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A uniform holding a list",
+  "blurb": "A `uniform` holding `array<f32, 4>` — the one shape WGSL lays out differently from everything else (§51). Its uniform address space aligns every array element to 16 bytes, so four floats occupy four sixteen-byte slots; the compiler emits that padding itself, as a wrapper struct carrying `@size(16)` with the reads rewritten through it, so the bytes the WGSL declares are the bytes `reflect()` reports. GLSL ES 3.00's std140 gives `float[4]` the same stride natively, which is why the unpadded program links on WebGL2 and dies on WebGPU. The `array<vec4, 2>` beside it is the control: already 16 bytes an element, emitted as written.",
+  "renderable": true
+}
+*/
 // A uniform holding a list, which is the shape WGSL lays out differently from every other
 // (surface doc §51).
 //

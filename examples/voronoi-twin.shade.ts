@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Voronoi (source twin)",
+  "blurb": "`voronoi.ts` written in the source language, and the gate for issue #40. The 3×3 neighbour scan is spelled the natural way — `for (let j: i32 = -1; j <= 1; j++)` — and that declaration was the one shape the source lowerer could not write: a negative literal is a `PrefixUnaryExpression`, so the two declaration sites that special-cased a `lit` node never saw it. The `for` init emitted `var j: i32 = -1.0;` with zero diagnostics, which Tint refuses with `cannot convert value of type 'abstract-float' to type 'i32'`, while `let k: i32 = -1` outside a loop was refused outright. Everything in the repo except the gate missed it, because no `.shade.ts` example had a signed loop counter. This one does.",
+  "renderable": true,
+  "twinOf": "voronoi"
+}
+*/
 // The `"use typeshade"` twin of `voronoi.ts`, and the gate for issue #40.
 //
 // The 3×3 neighbour scan is the reason this file exists. It is spelled the natural way —

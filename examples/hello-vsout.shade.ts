@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Hello varyings",
+  "blurb": "The triangle again, now carrying a `uv` varying from the vertex stage into the fragment stage through a shared `VsOut` class — the `@builtin(\"position\")` + `@location(0)` pair that every interpolated value rides.",
+  "renderable": true
+}
+*/
+
 class VsOut {
   @builtin("position") pos: vec4
   @location(0) uv: vec2

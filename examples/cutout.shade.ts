@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Cutout (source language)",
+  "blurb": "`discard` in a helper the fragment entry calls, with `fwidth` softening the rim and `saturate`, `exp2` and `**` shaping the falloff — the example that carries #8 A6's spellings to Tint and a real WebGL2 context. Renders a circular cutout with a radial centre-to-rim gradient.",
+  "renderable": true
+}
+*/
+
 // A `"use typeshade"` sibling of `discard-cutout.ts` (#8 A6). It is the example that carries
 // this item's new spellings into the compile gate: `discard` in a helper the FRAGMENT entry
 // calls, `fwidth` for the antialiased rim, and `saturate`, `exp2` and `**` shaping the

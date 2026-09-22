@@ -773,9 +773,10 @@ export type DeclarableCapability = Exclude<
  *
  *  `enables` is where a module names the GPU features its emit needs, by neutral id, and its
  *  type is what keeps that list honest. It is `readonly DeclarableCapability[]`, which is
- *  {@link Capability} minus the three ids derived from the module's own shape:
- *  `storageBuffer` (a storage binding), `compute` (a `@compute` entry) and `msaaTextureLoad`
- *  (a multisampled texture load). Naming one of those here is a compile error, so it cannot
+ *  {@link Capability} minus every id DERIVED from the module's own shape — `storageBuffer` (a
+ *  storage binding), `compute` (a `@compute` entry), `msaaTextureLoad` (a multisampled load),
+ *  `storageTexture`, `texture1d`, `textureCubeArray` and `textureGather` (the binding or the
+ *  call that needs each). Naming one of those here is a compile error, so it cannot
  *  read as a declaration that quietly does nothing. Each backend's own `capProfile` table is
  *  the authority for the ids that remain: it maps a neutral id to that target's `directive`
  *  and `hostFeature`, coverage is built from its keys, and a backend whose table has no row
@@ -824,11 +825,13 @@ export interface ModuleDecl {
    *  activates it from `reflect(m).requiredFeatures` and the emitted bytes do not move.
    *  Absent or empty means no directive and unchanged emitted source.
    *
-   *  The type is `DeclarableCapability`, which excludes the caps derived from the module's
-   *  shape (`storageBuffer`, `compute`, `msaaTextureLoad`, `storageTexture` and the three
-   *  texture ids); naming one here is a compile error. The caps derived from a
-   *  `@builtin(...)` id instead (`clipDistances`, `primitiveIndex`, `subgroups`, §50) are
-   *  NOT excluded: deriving and declaring fold into one set, so naming one is harmless. */
+   *  The type is `DeclarableCapability`, which excludes all NINE caps derived from the
+   *  module's shape — `storageBuffer`, `compute`, `msaaTextureLoad`, `storageTexture`, the
+   *  three texture ids, and `bgra8unormStorage` and `packed4x8Dot` (#147, #152), derived from
+   *  a binding's format and from the calls; naming one here is a compile error. The caps
+   *  derived from a `@builtin(...)` id instead (`clipDistances`, `primitiveIndex`,
+   *  `subgroups`, §50) are NOT excluded: deriving and declaring fold into one set, so naming
+   *  one is harmless. */
   readonly enables?: readonly DeclarableCapability[]
   /** The WGSL `diagnostic(<severity>, <rule>);` directives this module carries (§54). One
    *  rule today: `derivative_uniformity`, whose default severity is `error`, so switching it

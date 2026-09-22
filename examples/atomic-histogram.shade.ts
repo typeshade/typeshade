@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Atomic histogram",
+  "blurb": "Many invocations count into one bin at once with `atomicAdd(bins[bin], 1)`, one indivisible step each; a storage struct field and a bare `storage<atomic<u32>>` binding show the other two shapes of location, and the value an atomic returns is what it held before. WGSL-only: GLSL ES 3.00 has no storage buffers and no atomics.",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}
+*/
+
 // A histogram, the kernel atomics exist for (roadmap 0.2 item 4). Many invocations land in
 // one bin at once, so `bins[bin] = bins[bin] + 1` would lose counts; `atomicAdd(bins[bin], 1)`
 // is one indivisible step per invocation, and the value it returns is what the location held

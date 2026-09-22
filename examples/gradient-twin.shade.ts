@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Gradient pass (source twin)",
+  "blurb": "`gradient-pass.ts` written in the source language instead of built with `fn()` / `module()` — the same shader through the other surface, with a uniform block both targets lay out and a GLSL pair that links.",
+  "renderable": true,
+  "twinOf": "gradient"
+}
+*/
+
 // The `"use typeshade"` twin of `gradient-pass.ts`. Same shader, written in the source
 // language instead of built with `fn()` / `module()` — the pairing the goldens in
 // `shade-twins.test.ts` pin.

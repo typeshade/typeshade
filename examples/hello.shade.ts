@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Hello triangle",
+  "blurb": "The smallest complete TypeShade program — a vertex stage that positions three corners from `vertex_index` and a fragment stage that paints them flat red. Both stages, two IO structs, no resources.",
+  "renderable": true
+}
+*/
+
 class Clip {
   @builtin("position") pos: vec4
 }

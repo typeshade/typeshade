@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Texture, sampler and overrides",
+  "blurb": "A fullscreen triangle sampling a `texture_2d<f32>` through a `sampler`, tinted by two `override<f32>` specialization constants — WGSL declares the handles and the overrides, GLSL ES 3.00 fuses texture and sampler into one `sampler2D` and spells each override as a `#define`.",
+  "renderable": true
+}
+*/
+
 // The gated example for textures, samplers and overrides (#8 A7). Before it, nothing the
 // compile gate emitted declared a handle resource or a specialization constant from this
 // surface, so the gate said as much about A7 as it did before A7 existed.

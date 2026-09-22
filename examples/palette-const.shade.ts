@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Module vector and array constants",
+  "blurb": "A fullscreen triangle banded by a module-scope `array<vec4, 3>` palette and an `array<f32, 3>` of stops, with a `vec3` constant built from an earlier scalar one — every shape a module constant can now take, read from both stages.",
+  "renderable": true
+}
+*/
+
 // The gated example for module-level vector and array constants (#8 A9). Nothing the compile
 // gate emitted declared one, so the gate said as much about A9 as it did before A9 existed.
 // Every kind this item adds is here: a bare vector const, an annotated one, a float array, an

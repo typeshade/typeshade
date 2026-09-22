@@ -121,9 +121,11 @@ class VsIn {
 
 Of that list the compiler applies `@location`, `@builtin`, `@interpolate`, `@invariant` and
 `@blend_src` today (§53). `@location`, `@builtin` and `@interpolate` also apply to a bare entry
-PARAMETER, which is how a fragment entry that takes one varying writes it. `@align` on a field is an error (`TS8010`) rather than a silent
-no-op — the `@align(16)` above is *(target)*. `@size`, `@offset` and `@ignore` parse but do not
-reach the emitted struct yet.
+PARAMETER, which is how a fragment entry that takes one varying writes it. The rest are refused
+rather than silently dropped, under two codes: `@align` on a field is `TS8010` ("@align on a
+field is not applied"), so the `@align(16)` above is *(target)*; `@size`, `@offset` and
+`@ignore` are `TS8028` ("Unknown attribute"), because the compiler's attribute list does not
+carry them. Measured, not assumed: each of the five was compiled to read back its code.
 
 `class` here is a struct with attributes, not an object.
 

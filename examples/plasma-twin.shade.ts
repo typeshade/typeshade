@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Plasma (source twin)",
+  "blurb": "`shadertoy-plasma.ts` written in the source language: three interfering sine waves, the same wave at three phase offsets becoming the three colour channels. The smallest fullscreen twin there is.",
+  "renderable": true,
+  "twinOf": "plasma"
+}
+*/
+
 // The `"use typeshade"` twin of `shadertoy-plasma.ts`.
 //
 // The fullscreen head — the `{time, resolution}` uniform, `VsOut`, and the

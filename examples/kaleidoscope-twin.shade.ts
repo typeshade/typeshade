@@ -1,5 +1,14 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "Kaleidoscope (source twin)",
+  "blurb": "`kaleidoscope.ts` written in the source language: the polar mirror fold through `mod`, the portable floor-mod, so the negative angles `atan2` produces wrap identically on both targets.",
+  "renderable": true,
+  "twinOf": "kaleidoscope"
+}
+*/
+
 // The `"use typeshade"` twin of `kaleidoscope.ts`. `screenCoords` is a helper
 // function here rather than an import — see `plasma-twin.shade.ts` on the
 // repeated head.

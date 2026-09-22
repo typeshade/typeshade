@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "A generic class by monomorphisation",
+  "blurb": "A `class Slot<T>` used at f32 and at vec3, so the module carries `Slot_f32` and `Slot_vec3` as separate structs, each with its own constructor and its own copy of every method (§32). Neither target has a generic struct: a WGSL or GLSL struct is one layout. Nothing called `Slot` is emitted. A type parameter's default is read the way TypeScript reads it, so `Level` needs no type argument; a static cannot mention `T`, so it is one function under the class's own name; and a base written `extends Slot<f32>` inherits the instance.",
+  "renderable": true
+}
+*/
+
 // A generic CLASS by monomorphisation (roadmap 0.3 item T9, #92), the half of that item the
 // generic functions in `generic-helpers.shade.ts` are the other of.
 //

@@ -1,5 +1,13 @@
 "use typeshade"
 
+/* @example
+{
+  "title": "fp64 hyperbolic navigation (source twin)",
+  "blurb": "`fp64-loran.ts` written in the source language: the LORAN chart grid, cyan hyperbolae of constant d1 - d2 to two stations and amber ellipses of constant d1 + d2, with the whole cancellation chain on the emulated half riding `distance()` on a `vec2f64` and a df64 `fract` (§39) and narrowing only the band phase. `vec2f64(u.center.x + f64(dx), ...)` is the lane read plus the f32 widen, `* 0.25` is a literal lifted to the full double beside an `f64`, and `f32(u.st_a.x)` is the per-lane narrow the f32 half of the formula needs. Past ~10⁷·² the coordinate ulp grows wider than a band and the plain-f32 left half dissolves into blocky garbage while the right half stays sharp to 10⁹.",
+  "renderable": true,
+  "twinOf": "fp64-loran"
+}
+*/
 // The `"use typeshade"` twin of `fp64-loran.ts`.
 //
 // Hyperbolic radio navigation, the pre-GPS chart grid: two stations, and a position line is
