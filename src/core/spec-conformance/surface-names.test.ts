@@ -227,6 +227,31 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'MathObject', reason: 'the shape of the `Math` stand-in; lib.es5.d.ts calls it `Math`' },
   { name: 'AnyClass', reason: 'the constructor shape a mixin extends (surface document §29)' },
 
+  // The texture and vector type machinery #147 and #150 needed: each maps one type to another
+  // so the editor can give a texture builtin the element type the texture was declared with.
+  { name: 'TextureElem', reason: "what a sampled texture's element may be: `f32`, `i32` or `u32`" },
+  {
+    name: 'Vec4OfElem',
+    reason: "the `vec4` a texel fetch or a gather yields, by the texture's element",
+  },
+  {
+    name: 'TexelCoord2',
+    reason: 'a 2d texel coordinate, which WGSL takes as either integer vector',
+  },
+  {
+    name: 'TexelCoord3',
+    reason: 'a 3d or array texel coordinate, the same union one component wider',
+  },
+  { name: 'BitcastArg', reason: 'what `bitcast<T>` reads, derived from the type argument' },
+  { name: 'VecElemOf', reason: "a vector type's element kind, keyed on `keyof`" },
+  { name: 'VecFor2', reason: 'the `vec2` alias of an element type' },
+  { name: 'VecFor3', reason: 'the `vec3` alias of an element type' },
+  { name: 'VecFor4', reason: 'the `vec4` alias of an element type' },
+  {
+    name: 'WriteOnlyStorageFormat',
+    reason: 'the storage-texture formats a device stores to and never loads from',
+  },
+
   // Brand symbols. Each keeps one type from assigning to another; an author never writes one,
   // but each is a declared name and so is listed here rather than exempted by a pattern.
   { name: 'f32Tag', reason: 'the brand symbol of `f32`' },

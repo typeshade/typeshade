@@ -692,6 +692,16 @@ So the precedence rule can hand the author a WGSL-only module, and the compiler 
 | type machinery   | `Vec64Any`               | the union of the three `f64` vectors, taken by the reductions                         |
 | type machinery   | `MathObject`             | the shape of the `Math` stand-in; lib.es5.d.ts calls it `Math`                        |
 | type machinery   | `AnyClass`               | the constructor shape a mixin extends (surface document §29)                          |
+| type machinery   | `TextureElem`            | what a sampled texture's element may be: `f32`, `i32` or `u32`                        |
+| type machinery   | `Vec4OfElem`             | the `vec4` a texel fetch or a gather yields, by the texture's element                 |
+| type machinery   | `TexelCoord2`            | a 2d texel coordinate, which WGSL takes as either integer vector                      |
+| type machinery   | `TexelCoord3`            | a 3d or array texel coordinate, the same union one component wider                    |
+| type machinery   | `BitcastArg`             | what `bitcast<T>` reads, derived from the type argument                               |
+| type machinery   | `VecElemOf`              | a vector type's element kind, keyed on `keyof`                                        |
+| type machinery   | `VecFor2`                | the `vec2` alias of an element type                                                   |
+| type machinery   | `VecFor3`                | the `vec3` alias of an element type                                                   |
+| type machinery   | `VecFor4`                | the `vec4` alias of an element type                                                   |
+| type machinery   | `WriteOnlyStorageFormat` | the storage-texture formats a device stores to and never loads from                   |
 | brand tags       | `f32Tag`                 | the brand symbol of `f32`                                                             |
 | brand tags       | `i32Tag`                 | the brand symbol of `i32`                                                             |
 | brand tags       | `u32Tag`                 | the brand symbol of `u32`                                                             |
