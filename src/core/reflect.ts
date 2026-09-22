@@ -50,9 +50,11 @@ const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
  *  as a data texture there, but {@link reflect} describes the module as authored and reports
  *  its fields under std430 in `Reflection.storage`.
  *
- *  A `mat2` field under `'std140'` throws: WGSL's uniform rule gives a `mat2` a column stride
- *  of 8 bytes while GLSL std140 gives it 16, and this engine reports one number for both
- *  backends. Declare the two columns as `vec2` fields instead.
+ *  A TWO-ROW field — `mat2x2`, `mat3x2`, `mat4x2` — under `'std140'` throws: WGSL's uniform
+ *  rule gives a two-row matrix a column stride of 8 bytes while GLSL std140 rounds every
+ *  column to 16, and this engine reports one number for both backends. The other six shapes
+ *  agree byte for byte (measured on Tint and ANGLE, #149). Carry such a field as the `matCx4`
+ *  of the same column count, where both targets stride 16, or as `C` separate `vec2` fields.
  *
  *  Exported from `typeshade`.
  */

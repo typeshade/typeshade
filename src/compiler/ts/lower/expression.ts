@@ -439,6 +439,36 @@ function lowerBinary(
       )
       return undefined
     }
+    // WGSL's matrix product cancels the shared dimension — `matKxR * matCxK -> matCxR`, so
+    // the left operand's COLUMN count must equal the right operand's ROW count. `matVecMul`
+    // above types every pair that meets and returns undefined for one that does not, which
+    // then falls to the key check; but two matrices of ONE non-square shape have one key, so
+    // nothing looked at their dimensions and the pair was typed as the left operand.
+    // `mat2x3 * mat2x3` reached Tint as `(a * b)` and came back "no matching overload for
+    // 'operator * (mat2x3<f32>, mat2x3<f32>)'" (#169). `binResultType` already refuses it in
+    // the fn() EDSL (SD0001), so this is the two surfaces agreeing again.
+    if (
+      arith === '*' &&
+      left.type.kind === 'mat' &&
+      right.type.kind === 'mat' &&
+      left.type.cols !== right.type.rows
+    ) {
+      const meets =
+        typeKey(left.type) === typeKey(right.type)
+          ? ` transpose(${node.right.getText(sourceFile)}) turns this pair into one that meets.`
+          : ''
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `Type mismatch: cannot * ${typeKey(left.type)} and ${typeKey(right.type)}. WGSL's ` +
+          `matrix product is matKxR * matCxK -> matCxR: the left operand's ` +
+          `${String(left.type.cols)} columns must meet the right operand's ` +
+          `${String(right.type.rows)} rows.${meets}`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
     // `%` is the one arithmetic operator the emulation has no body for: there is no
     // df64 remainder, and `binResultType` refuses the pair in the fn() EDSL for the same
     // reason. Same-typed operands pass the key check above, so without this the program

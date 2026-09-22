@@ -3098,7 +3098,24 @@ author's choice rather than the compiler's.
 | `a * b` | `matKxR * matCxK`, the shared dimension cancelling | `matCxR` |
 
 `v * m` and `m * v` are different products, so the one you want is the one you write. A pair
-whose dimensions do not meet is refused, naming both shapes.
+whose dimensions do not meet is refused at the operator, naming both shapes and the rule. That
+includes the pair easiest to write by accident, two matrices of **one non-square shape**: a
+`mat2x3` has 2 columns and 3 rows, so `a * b` between two of them meets nothing, however alike
+the two look.
+
+```ts
+export function bad(a: mat2x3, b: mat2x3): mat3 {
+  return a * b
+  // Type mismatch: cannot * mat2x3<f32> and mat2x3<f32>. WGSL's matrix product is
+  // matKxR * matCxK -> matCxR: the left operand's 2 columns must meet the right operand's
+  // 3 rows. transpose(b) turns this pair into one that meets.
+}
+```
+
+**A matrix has `+`, `-` and `*` and nothing else.** `m / n` and `m % n` are refused, because
+neither target defines them, and so are the compound spellings `m /= n` and `m %= n`. `m *= n`
+carries the product rule above: the result has to land back in the target's own shape, which a
+square right operand does.
 
 **Builtins.** `transpose(m)` on a `matCxR` gives a `matRxC` — a different type unless the
 matrix is square. `determinant(m)` takes a square matrix only, since a non-square one has
