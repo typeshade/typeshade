@@ -590,15 +590,25 @@ export interface Reflection {
    *  `hostFeaturesFor` skips every capability the backend has no host feature for, so the
    *  loop above is correct either way. */
   readonly requiredFeatures: readonly Capability[]
-  /** Every WGSL *language* extension this module's emit requires (§50), sorted and
-   *  deduplicated. Always present; empty for a module that needs none, which is most.
+  /** Every WGSL *language* extension this module needs (§50), sorted and deduplicated. Always
+   *  present; empty for a module that needs none, which is most.
    *
    *  This is the `requires` axis of WGSL, not the `enable` axis {@link requiredFeatures}
-   *  reports: a language extension changes what the WGSL text may SAY, and a host checks it
-   *  against `navigator.gpu.wgslLanguageFeatures` rather than requesting it at
-   *  `requestDevice`. The WGSL writer emits `requires <feature>;` for each name here; GLSL ES
-   *  3.00 has no such axis, and the resource capability that carries each of these rows is
+   *  reports: a language extension changes what the WGSL text may SAY, and it is not requested
+   *  at `requestDevice` — it is either present in the browser's WGSL implementation or not, so
+   *  a host checks it against `navigator.gpu.wgslLanguageFeatures` before it builds the
+   *  module. GLSL ES 3.00 has no such axis, and the resource capability carrying each row is
    *  what fails a module closed on that target.
+   *
+   *  Two rows today, and the writer DIRECTS only one of them — reporting a feature and writing
+   *  `requires` for it are separate decisions, each measured. A storage texture bound `read` or
+   *  `read_write` (or a `textureBarrier` call) needs
+   *  `readonly_and_readwrite_storage_textures` to be a program at all, since core WGSL gives a
+   *  storage texture `write` only, and the directive is accepted by the Tint the gate runs, so
+   *  it is emitted. The packed 4x8 integer family (#152) reports
+   *  `packed_4x8_integer_dot_product` and emits nothing: all eight builtins compile bare on the
+   *  same Tint and the directive "changes nothing", so writing it could only fail a module
+   *  closed on a browser that lacks the name.
    *
    *  ```ts
    *  for (const f of reflect(m).requiredLanguageFeatures) {
@@ -892,6 +902,10 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   // `overrides` model, so a consumer never distinguishes "needs nothing" from "old
   // reflection shape".
   const requiredFeatures = requiredCaps(m).sort()
+  // The `requires` axis (#147, #152, §50) lives in `required-caps.ts`, which both this and the
+  // WGSL writer's preamble read: two lanes each grew a derivation of it — the storage-texture
+  // row here and the packed-4x8 row in the emit — and two copies of one answer is how
+  // reflection and emit come to disagree about what a module needs.
 
   return {
     bindGroups,

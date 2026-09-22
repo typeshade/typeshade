@@ -7,8 +7,9 @@
 //
 // One more kind of gap exists from TS8038 on. While several sessions worked the issue list of
 // #162 in parallel, each was given a BLOCK of codes to draw from, so two branches in flight at
-// once could not claim one number twice; `RESERVED_NAME` (TS8068) is the first code assigned
-// that way. A block's unused codes stay unused, exactly as 8011 does — a gap is never reused.
+// once could not claim one number twice; `F64_ENTRY_IO` (TS8038), `TEXTURE_ARGUMENT` (TS8041)
+// and `RESERVED_NAME` (TS8068) are the codes assigned that way. A block's unused codes stay
+// unused, exactly as 8011 does — a gap is never reused.
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
@@ -108,6 +109,23 @@ export const TS_CODES = {
    *  `f64` and every stage can see one. There is deliberately NO author-facing way to split
    *  a double into its two `f32` words — they are the emulation's business (§39). */
   F64_ENTRY_IO: 'TS8038',
+  /** A plain argument of a texture read that the target has no overload for (#145): a
+   *  coordinate or gradient of the wrong WIDTH for the texture's dim or of an element kind the
+   *  read does not take (a sampled read is by normalised `f32`, a texel fetch by whole
+   *  `i32`/`u32` texel), a layer, mip level or sample index that is not an integer or is not a
+   *  whole number of 0 or more, and a `level`, `bias` or `depth_ref` that is not an `f32`. Only
+   *  a bare numeric LITERAL is retargeted instead; anything else used to reach the backend
+   *  unchanged, where Tint answers "no matching call" about generated code the author never
+   *  wrote and GLSL ES 3.00 silently rounds.
+   *
+   *  ONE code for the whole family, on purpose. The width check and the fractional-literal
+   *  check were `TYPE_MISMATCH` before this; splitting the family by which property of the
+   *  argument is wrong gave two codes to one sentence shape and no caller a reason to care,
+   *  and the 1d coordinate check moved between the two by being rewritten. The TEXTURE itself
+   *  being wrong — a sampled texture handed to `textureStore`, a depth texture read plainly,
+   *  an access mode that forbids the call — stays `TYPE_MISMATCH`: that is the binding's
+   *  declaration, not the call's argument. */
+  TEXTURE_ARGUMENT: 'TS8041',
   /** A file-level `"enable <extension>";` directive (§50) naming an extension outside the
    *  vocabulary the WGSL backend's capability profile carries a directive for
    *  (`clip_distances`, `dual_source_blending`, `f16`, `primitive_index`, `subgroups`). A

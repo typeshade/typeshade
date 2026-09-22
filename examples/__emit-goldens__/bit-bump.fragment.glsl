@@ -61,7 +61,7 @@ void main() {
   vec3 nf = faceforward(n, fromEye, n);
   float highlight = pow(max(dot(reflect(fromLight, nf), toEye), 0.0), 16.0);
   vec3 bent = refract(fromEye, nf, 0.75);
-  float diffuse = (max(dot(nf, toLight), 0.0) * intBitsToFloat((-1 + 127) << 23));
+  float diffuse = (max(dot(nf, toLight), 0.0) * intBitsToFloat(((-1 >> 1) + 127) << 23) * intBitsToFloat(((-1 - (-1 >> 1)) + 127) << 23));
   float gain = determinant(transpose(frame.m));
   uint col = (uint((uv.x * 255.0)) + 1u);
   uint lead = _msb(col);

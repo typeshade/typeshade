@@ -1898,12 +1898,15 @@ A capability can need either half, both halves, or neither.
 | `clipDistances`      | unsupported, fails closed                                       | directive `clip_distances` and host feature `clip-distances`             |
 | `primitiveIndex`     | unsupported, fails closed                                       | directive `primitive_index` and host feature `primitive-index`           |
 | `dualSourceBlending` | unsupported, fails closed                                       | directive `dual_source_blending` and host feature `dual-source-blending` |
+| `bgra8unormStorage`  | unsupported, fails closed                                       | host feature `bgra8unorm-storage`, derived                               |
+| `packed4x8Dot`       | unsupported, fails closed                                       | core, derived; a language feature to check                               |
 
-`clipDistances`, `primitiveIndex` and `dualSourceBlending` are the rows nothing declares by
-hand: writing `@builtin("clip_distances")`, `@builtin("primitive_index")` or `@blend_src(n)`
-derives the capability, because WGSL refuses each of those without the matching `enable`. In a
-`"use typeshade"` file the other two are spelled as a string directive beside
-`"use typeshade"`:
+The bottom five rows are the ones nothing declares by hand. Writing
+`@builtin("clip_distances")`, `@builtin("primitive_index")` or `@blend_src(n)` derives the
+capability, because WGSL refuses each of those without the matching `enable`; a
+`"bgra8unorm"` storage texture and a call into the packed 4x8 family derive theirs from the
+binding and from the call. In a `"use typeshade"` file the two that no use can derive are
+spelled as a string directive beside `"use typeshade"`:
 
 ```ts
 'use typeshade'
@@ -1953,10 +1956,23 @@ Two notes before you trust a row.
 
 ### Derived and implied capabilities
 
-Three capabilities are derived, which means they are read off the module's shape and never
-declared. A storage binding implies `storageBuffer`, a compute entry implies `compute`, and
-a multisampled texture load implies `msaaTextureLoad`. `enables` is typed to exclude those
-three, so naming one is a compile error.
+Some capabilities are derived, which means they are read off the module's shape and never
+declared. A storage binding implies `storageBuffer`, a compute entry implies `compute`, a
+multisampled texture load implies `msaaTextureLoad`, a storage-texture binding implies
+`storageTexture`, a 1D texture implies `texture1d`, a cube-array texture implies
+`textureCubeArray`, a `textureGather` call implies `textureGather`, and a call to one of the
+eight packed 4x8 integer builtins implies `packed4x8Dot`. `bgra8unormStorage` is
+derived from a binding's FORMAT rather than its kind: `bgra8unorm` is the one storage format
+that is not core, and a device refuses the bind group layout unless it requested
+`bgra8unorm-storage` (measured — and Tint compiles the module either way, so nothing but this
+capability carries the requirement to the host). `enables` is typed to exclude every derived
+id, so naming one is a compile error.
+
+A capability is not the only thing a host may have to check. A WGSL *language* feature is a
+property of the browser's shading-language implementation rather than of the device, so it is
+not requested at `requestDevice` at all, and no directive announces it in the emitted module.
+`reflect().requiredLanguageFeatures` lists the ones a module's source uses, for
+`navigator.gpu.wgslLanguageFeatures` to answer.
 
 One capability can also imply another. `float32Blend` pulls in `floatRenderTarget`, because
 blending into a float target needs that target to be renderable as a colour attachment

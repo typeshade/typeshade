@@ -112,6 +112,52 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   determinant: 'Returns the determinant of a `mat4` as an `f32`.',
   ldexp:
     'Returns `x * 2^e`: an `f32` or float vector `x` with an `i32` or integer vector exponent `e` of the same shape. A bare literal exponent is an `i32`. Spelled through `intBitsToFloat` on GLSL ES 3.00, which has no `ldexp`.',
+  quantizeToF16:
+    'Rounds `e` to what an IEEE-754 binary16 can hold and returns it as an `f32`, so a shader can see the precision an f16 pipeline would give it without the `shader-f16` extension. Takes an `f32` or a float vector. GLSL ES 3.00 has no such builtin, so it is spelled as a `packHalf2x16`/`unpackHalf2x16` round trip, whose rounding of an exact half that spec does not pin.',
+  pack4x8unorm:
+    'Packs a `vec4` of values in [0, 1] into the four bytes of a `u32`, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packUnorm4x8` (that is ES 3.10).',
+  atomicCompareExchangeWeak:
+    'Stores the third argument into the atomic location only when it holds the second, as one indivisible step. Answers a struct: `old_value` is what the location held before the call and `exchanged` says whether the store happened. WGSL gives that struct no writable name, so bind the result with `const` and read its fields.',
+  textureBarrier:
+    'Holds every invocation of the workgroup until all have arrived, ordering their writes to the TEXTURE address space. A statement, in a compute entry or a function it calls, in uniform control flow. WebGPU-only, and part of the `readonly_and_readwrite_storage_textures` WGSL language feature that `reflect().requiredLanguageFeatures` reports.',
+  workgroupUniformLoad:
+    "Reads one value out of workgroup memory with a barrier on each side, so every invocation of the workgroup gets the same one. Takes a place in `workgroup<T>` memory, not storage, and returns its type. WebGPU-only, and it carries a barrier's placement rules: a compute entry or a function it calls, in uniform control flow.",
+  dot4U8Packed:
+    'Reads both `u32` arguments as four UNSIGNED bytes and sums the four products into a `u32`. WebGPU-only: GLSL ES 3.00 has no form of it, so a module using it emits WGSL alone. The host should check `navigator.gpu.wgslLanguageFeatures` for `packed_4x8_integer_dot_product`, which `reflect().requiredLanguageFeatures` reports.',
+  dot4I8Packed:
+    'Reads both `u32` arguments as four SIGNED bytes and sums the four products into an `i32`, wrapping at 32 bits. WebGPU-only, like `dot4U8Packed`.',
+  pack4xU8:
+    'Packs the low byte of each component of a `vec4u` into a `u32`, component 0 in the low byte. A component that does not fit is TRUNCATED, not clamped; `pack4xU8Clamp` saturates instead. WebGPU-only.',
+  pack4xI8:
+    'Packs the low byte of each component of a `vec4i` into a `u32`, four bytes in a word. The result is unsigned even though the components are not; a component that does not fit is TRUNCATED, where `pack4xI8Clamp` saturates. WebGPU-only.',
+  pack4xU8Clamp:
+    'Packs a `vec4u` into a `u32` as four bytes, clamping each component into [0, 255] first. WebGPU-only.',
+  pack4xI8Clamp:
+    'Packs a `vec4i` into a `u32` as four bytes, clamping each component into [-128, 127] first. The result is unsigned because it is a word of bytes, not a number with a sign. WebGPU-only.',
+  unpack4xU8:
+    'Unpacks the four bytes of a `u32` into a `vec4u`, the low byte into component 0. The inverse of `pack4xU8`. WebGPU-only.',
+  unpack4xI8:
+    'Unpacks the four bytes of a `u32` into a `vec4i`, sign-extending each byte, the low byte into component 0. The inverse of `pack4xI8`. WebGPU-only.',
+  pack4x8snorm:
+    'Packs a `vec4` of values in [-1, 1] into the four bytes of a `u32` as signed bytes, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packSnorm4x8` (that is ES 3.10).',
+  unpack4x8unorm:
+    'Unpacks the four bytes of a `u32` into a `vec4` of values in [0, 1], the low byte into component 0. The inverse of `pack4x8unorm`.',
+  unpack4x8snorm:
+    'Unpacks the four bytes of a `u32` into a `vec4` of values in [-1, 1], reading each as a signed byte, the low byte into component 0. The inverse of `pack4x8snorm`.',
+  pack2x16float:
+    'Packs a `vec2` into two IEEE-754 binary16 halves of a `u32`, component 0 in the low 16 bits. `packHalf2x16` on GLSL ES 3.00.',
+  pack2x16unorm:
+    'Packs a `vec2` of values in [0, 1] into two 16-bit halves of a `u32`, component 0 in the low 16 bits. `packUnorm2x16` on GLSL ES 3.00.',
+  pack2x16snorm:
+    'Packs a `vec2` of values in [-1, 1] into two signed 16-bit halves of a `u32`, component 0 in the low 16 bits. `packSnorm2x16` on GLSL ES 3.00.',
+  unpack2x16float:
+    'Unpacks the two binary16 halves of a `u32` into a `vec2`, the low 16 bits into component 0. `unpackHalf2x16` on GLSL ES 3.00.',
+  unpack2x16unorm:
+    'Unpacks the two 16-bit halves of a `u32` into a `vec2` of values in [0, 1], the low 16 bits into component 0. `unpackUnorm2x16` on GLSL ES 3.00.',
+  unpack2x16snorm:
+    'Unpacks the two signed 16-bit halves of a `u32` into a `vec2` of values in [-1, 1], the low 16 bits into component 0. `unpackSnorm2x16` on GLSL ES 3.00.',
+  bitcast:
+    'Reads the same 32 bits as another type: `bitcast<u32>(x)` on an `f32` and `bitcast<f32>(x)` on a `u32`. It reinterprets, it does not convert; `u32(x)` is the conversion. `floatBitsToUint` / `uintBitsToFloat` on GLSL ES 3.00.',
   countOneBits:
     'The number of 1 bits in each component of a `u32` or `i32` (or vector of them). A `_popcnt` helper on GLSL ES 3.00, which has no bit builtins.',
   reverseBits:

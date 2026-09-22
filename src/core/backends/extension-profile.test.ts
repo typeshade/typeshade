@@ -303,6 +303,18 @@ describe('X-GIS #1670 — WebGL2 extension profile surface (fail-before)', () =>
       // A storage texture is core WGSL at the sixteen formats every device supports with
       // STORAGE_BINDING and no feature request (roadmap 0.4 item 10), so the row is empty.
       storageTexture: {},
+      // The seventeenth format is not core (#147). Measured: a device with nothing requested
+      // refuses the bind group layout for `bgra8unorm` and one that asked for this feature
+      // builds it, while Tint compiles the module in both cases — so the capability is the
+      // only thing that carries the requirement to the host. GLSL ES 3.00 has no storage
+      // texture at all, so it has no row.
+      bgra8unormStorage: { hostFeature: 'bgra8unorm-storage' },
+      // The packed 4x8 integer family (#152): no directive and no device feature. Measured on
+      // Tint, all eight compile bare and `enable packed_4x8_integer_dot_product;` is refused
+      // as not an extension — it is a WGSL LANGUAGE feature, which `requiredLanguageFeatures`
+      // reports for a host to check. The row exists so the cap is supported here; GLSL ES 3.00
+      // has none, so a module using one fails closed there.
+      packed4x8Dot: {},
       // A 1d texture, a cube-array texture and textureGather are core WGSL with no feature to
       // request (roadmap 0.4 item 12); GLSL ES 3.00 has none of the three, so no row there.
       texture1d: {},

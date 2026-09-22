@@ -34,7 +34,11 @@ import { spellIntrinsic } from '../intrinsics.js'
 import { fp64Lower } from '../passes/fp64-lower.js'
 import { pointerSpaces, ptrSpaceOf } from './wgsl-ptr.js'
 import { selectComposite } from '../passes/select-composite.js'
-import { requiredCaps, requiredLanguageFeatures } from '../passes/required-caps.js'
+import {
+  REQUIRES_DIRECTIVE,
+  requiredCaps,
+  requiredLanguageFeatures,
+} from '../passes/required-caps.js'
 import { padUniformArrays } from '../passes/uniform-layout.js'
 import { flatIntegerVaryings } from '../passes/varying-interpolate.js'
 import { dslError } from '../diagnostics/error.js'
@@ -212,8 +216,20 @@ const WGSL_CAP_PROFILE = {
   msaaTextureLoad: {},
   // A storage texture needs no device feature at the sixteen core formats (roadmap 0.4 item
   // 10) — measured against a real adapter, which built a bind group layout for each of them
-  // with nothing requested. The formats that DO need one are not in `StorageTextureFormat`.
+  // with nothing requested. The seventeenth, `bgra8unorm`, is the row below.
   storageTexture: {},
+  // `bgra8unorm` storage, derived from the binding's own format (#147). Measured: the layout
+  // is refused on a device with nothing requested and built on one that asked for this
+  // feature, and Tint compiles the module in both cases.
+  bgra8unormStorage: { hostFeature: 'bgra8unorm-storage' },
+  // The packed 4x8 integer family (#152). No directive and no device feature: measured on
+  // Tint, all eight compile bare, `enable packed_4x8_integer_dot_product;` is REFUSED as not
+  // an extension, and `requires packed_4x8_integer_dot_product;` is accepted and changes
+  // nothing. It is a WGSL LANGUAGE feature, which a host checks on
+  // `navigator.gpu.wgslLanguageFeatures` — `reflect().requiredLanguageFeatures` reports it.
+  // The row exists so the cap is SUPPORTED here; GLSL ES 3.00 has no row, so a module using
+  // one fails closed there with SD0030 instead of reaching a writer that cannot spell it.
+  packed4x8Dot: {},
   // A 1d texture, a cube-array texture and textureGather are core WGSL (roadmap 0.4 item 12):
   // the rows are empty, and GLSL ES 3.00 has none of the three, so its profile has no row.
   texture1d: {},
@@ -436,7 +452,15 @@ export const wgslBackend: Backend = {
     // axis from `enable`. WGSL fixes only that directives precede declarations, not the
     // order of the two kinds; `enable` first is this writer's choice, for deterministic
     // bytes.
-    const requires = requiredLanguageFeatures(m).map((f) => `requires ${f};`)
+    //
+    // Only the rows `REQUIRES_DIRECTIVE` carries, which is not every row `reflect()` reports:
+    // a directive naming a feature the module compiles fine without can only fail it closed
+    // on a browser that lacks the name. `packed_4x8_integer_dot_product` is the reported-only
+    // row — measured on the gate's Tint, all eight builtins compile bare and the directive
+    // changes nothing (#152).
+    const requires = requiredLanguageFeatures(m)
+      .filter((f) => REQUIRES_DIRECTIVE.has(f))
+      .map((f) => `requires ${f};`)
     // `diagnostic(...)` first: WGSL fixes only that directives precede declarations, and a
     // severity an author set reads better above the extensions it applies across (§54).
     const rules = (m.diagnostics ?? []).map((d) => `diagnostic(${d.severity}, ${d.rule});`)

@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 453 exports
+## `.` — 459 exports
 
 ```
 abs
@@ -63,6 +63,8 @@ CapabilityRow
 CapProfile
 CapSupport
 CapSupportKind
+CAS_RESULT_STRUCTS
+casResultT
 ceil
 clamp
 ClassifiedSemanticDiff
@@ -281,6 +283,8 @@ pack2x16snorm
 pack2x16unorm
 pack4x8unorm
 PackBinding
+PACKED_4X8_IDS
+PACKED_4X8_LANGUAGE_FEATURE
 PackEntry
 packJson
 packModule
@@ -340,6 +344,7 @@ step
 Stmt
 storageBuffer
 StorageBuffer
+storageFormatFeature
 storageTexel
 StorageTextureAccess
 StorageTextureFormat
@@ -466,6 +471,7 @@ WgslValidator
 when
 WorkgroupCount
 workgroupSizeOf
+WRITE_ONLY_STORAGE_FORMATS
 ```
 
 ## `./dev` — 37 exports
@@ -564,7 +570,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 261 exports
+## `./core/ir` — 265 exports
 
 ```
 abs
@@ -597,6 +603,8 @@ Break
 Builder
 Call
 Capability
+CAS_RESULT_STRUCTS
+casResultT
 ceil
 clamp
 CmpArg
@@ -742,6 +750,7 @@ sqrt
 stageOf
 step
 Stmt
+storageFormatFeature
 storageTexel
 StorageTextureAccess
 StorageTextureFormat
@@ -828,6 +837,7 @@ vec4uT
 voidT
 when
 workgroupSizeOf
+WRITE_ONLY_STORAGE_FORMATS
 ```
 
 ## `./language-service` — 34 exports
@@ -869,7 +879,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 561 definitions
+## Shapes — 567 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
@@ -890,7 +900,7 @@ src/compiler/ts/source-file.ts#TsCompilerDiagnostic  interface  { category: "err
 src/compiler/ts/source-file.ts#compileTsSource  function  (source: string, options?: CompileTsSourceOptions) => CompileTsSourceResult
 src/compiler/ts/source-file.ts#isTypeshadeSource  function  (source: string, fileName?: string) => boolean
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; caseLabels?: (labels: readonly string[]) => string; constDecl: (name: string, type: ShaderType, value: string) => string; dereference?: (name: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitModuleVar?: (v: ModuleVarDecl) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; paramDecl?: (p: { name: string; type: ShaderType; builtin?: string; location?: number; interpolate?: string; attr?: string; mode?: "inout"; }) => string; phonyAssign?: string; placeholderStmt: (tag: string) => string; postLower?: (lowered: ModuleDecl) => ModuleDecl; preOptimize?: (lowered: ModuleDecl) => ModuleDecl; rawStmt: (s: RawStmt) => string; reference?: (lvalue: string) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string; vectorCompare?: (cop: CmpOp, a: string, b: string) => string; vectorSelect?: (ifFalse: string, ifTrue: string, cond: string, type: ShaderType) => string }
-src/core/backend.ts#CapProfile  type  { clipDistances?: <no-declaration>; compute?: <no-declaration>; dualSourceBlending?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; primitiveIndex?: <no-declaration>; storageBuffer?: <no-declaration>; storageTexture?: <no-declaration>; subgroups?: <no-declaration>; texture1d?: <no-declaration>; textureCubeArray?: <no-declaration>; textureGather?: <no-declaration> }
+src/core/backend.ts#CapProfile  type  { bgra8unormStorage?: <no-declaration>; clipDistances?: <no-declaration>; compute?: <no-declaration>; dualSourceBlending?: <no-declaration>; f16?: <no-declaration>; float32Blend?: <no-declaration>; float32Filterable?: <no-declaration>; floatRenderTarget?: <no-declaration>; msaaTextureLoad?: <no-declaration>; multiview?: <no-declaration>; packed4x8Dot?: <no-declaration>; primitiveIndex?: <no-declaration>; storageBuffer?: <no-declaration>; storageTexture?: <no-declaration>; subgroups?: <no-declaration>; texture1d?: <no-declaration>; textureCubeArray?: <no-declaration>; textureGather?: <no-declaration> }
 src/core/backend.ts#CapSupport  interface  { directive?: string; hostFeature?: string }
 src/core/backend.ts#CapSupportKind  type  "native" | "directive" | "host-feature" | "unsupported"
 src/core/backend.ts#Capabilities  class  { covers: (reqs: Iterable<Capability>) => boolean; has: (c: Capability) => boolean; missing: (reqs: Iterable<Capability>) => Capability[]; set: ReadonlySet<Capability> }
@@ -987,13 +997,15 @@ src/core/fp64/flavor-select.ts#isAppleGpu  function  (s: Fp64FlavorSignals) => b
 src/core/fp64/flavor-select.ts#recommendFp64Flavor  function  (s: Fp64FlavorSignals) => Fp64Flavor
 src/core/fragment.ts#EmitFragment  interface  { declares: FragmentDeclares; preamble: readonly string[]; requires: readonly string[]; source: string }
 src/core/fragment.ts#FragmentDeclares  interface  { bindings: readonly string[]; consts: readonly string[]; entryPoints: readonly string[]; functions: readonly string[]; overrides: readonly string[]; structs: readonly string[] }
-src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 1; readonly returns: "value" | "void"; }>>
+src/core/intrinsics.ts#ATOMIC_INTRINSICS  const  Readonly<Record<string, { readonly arity: 2 | 3 | 1; readonly returns: "value" | "void" | "casResult"; }>>
 src/core/intrinsics.ts#BARRIER_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#DERIVATIVE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#INTRINSICS  const  Readonly<Record<string, Spelling>>
 src/core/intrinsics.ts#INTRINSIC_BINDING_REFS  const  Readonly<Record<string, readonly string[]>>
 src/core/intrinsics.ts#INTRINSIC_HELPERS  const  Readonly<Record<string, { readonly fn: string; readonly def: string; }>>
 src/core/intrinsics.ts#IntrinsicTarget  type  "wgsl" | "glsl"
+src/core/intrinsics.ts#PACKED_4X8_IDS  const  ReadonlySet<string>
+src/core/intrinsics.ts#PACKED_4X8_LANGUAGE_FEATURE  const  "packed_4x8_integer_dot_product"
 src/core/intrinsics.ts#PORTABLE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#PRE_EMIT_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#TEXTURE_GATHER_IDS  const  ReadonlySet<string>
@@ -1077,7 +1089,7 @@ src/core/ir/node.ts#cross  const  (a: ReadonlyNode<"vec3<f32>">, b: ReadonlyNode
 src/core/ir/node.ts#degrees  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#distance  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
 src/core/ir/node.ts#div  function  { <E extends string, N extends number>(a: ReadonlyNode<E>, b: ReadonlyNode<`vec${N}<${E}>`>): Node<`vec${N}<${E}>`>; <K extends string>(a: ReadonlyNode<K>, b: ArithArg<K>): Node<K>; <K extends string>(a: number, b: ReadonlyNode<K>): Node<K>; }
-src/core/ir/node.ts#dot  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
+src/core/ir/node.ts#dot  function  { <K extends `vec${number}<f64>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f64">; <K extends `vec${number}<i32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"i32">; <K extends `vec${number}<u32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"u32">; <K extends `vec${number}<f32>`>(a: ReadonlyNode<K>, b: NoInfer<ReadonlyNode<K>>): Node<"f32">; }
 src/core/ir/node.ts#dpdx  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#dpdy  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#enumU32  function  <const M extends Record<string, number>>(values: M) => EnumU32<M>
@@ -1168,12 +1180,12 @@ src/core/ir/node.ts#vec4  const  (...a: NodeLike[]) => Node<"vec4<f32>">
 src/core/ir/node.ts#vec4f64  const  (...a: Vec64Arg[]) => Node<"vec4<f64>">
 src/core/ir/node.ts#vec4i  const  (...a: NodeLike[]) => Node<"vec4<i32>">
 src/core/ir/node.ts#vec4u  const  (...a: NodeLike[]) => Node<"vec4<u32>">
-src/core/ir/nodes.ts#ALL_CAPABILITIES  const  readonly ["storageBuffer", "compute", "msaaTextureLoad", "storageTexture", "texture1d", "textureCubeArray", "textureGather", "f16", "subgroups", "clipDistances", "primitiveIndex", "dualSourceBlending", "floatRenderTarget", "float32Blend", "float32Filterable", "multiview"]
+src/core/ir/nodes.ts#ALL_CAPABILITIES  const  readonly ["storageBuffer", "compute", "msaaTextureLoad", "storageTexture", "texture1d", "textureCubeArray", "textureGather", "f16", "subgroups", "clipDistances", "primitiveIndex", "dualSourceBlending", "floatRenderTarget", "float32Blend", "float32Filterable", "multiview", "bgra8unormStorage", "packed4x8Dot"]
 src/core/ir/nodes.ts#ASSEMBLED_AS  const  typeof ASSEMBLED_AS
 src/core/ir/nodes.ts#AddressSpace  type  "uniform" | "storage"
 src/core/ir/nodes.ts#BinOp  type  "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
 src/core/ir/nodes.ts#BindingDecl  interface  { access?: "read" | "read_write"; binding: number; glsl?: "std140-block" | "loose"; group: number; name: string; owner?: "module" | "host"; precision?: "highp" | "mediump" | "lowp"; space: AddressSpace; type: ShaderType }
-src/core/ir/nodes.ts#Capability  type  "storageBuffer" | "compute" | "msaaTextureLoad" | "storageTexture" | "texture1d" | "textureCubeArray" | "textureGather" | "f16" | "subgroups" | "clipDistances" | "primitiveIndex" | "dualSourceBlending" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview"
+src/core/ir/nodes.ts#Capability  type  "storageBuffer" | "compute" | "msaaTextureLoad" | "storageTexture" | "texture1d" | "textureCubeArray" | "textureGather" | "f16" | "subgroups" | "clipDistances" | "primitiveIndex" | "dualSourceBlending" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview" | "bgra8unormStorage" | "packed4x8Dot"
 src/core/ir/nodes.ts#CmpOp  type  "<" | ">" | "<=" | ">=" | "==" | "!="
 src/core/ir/nodes.ts#ConstDecl  interface  { cpuValue: number; name: string; type: ShaderType; valueExpr?: Expr; wgslValue: number }
 src/core/ir/nodes.ts#DeclarableCapability  type  "f16" | "subgroups" | "clipDistances" | "primitiveIndex" | "dualSourceBlending" | "floatRenderTarget" | "float32Blend" | "float32Filterable" | "multiview"
@@ -1195,8 +1207,9 @@ src/core/ir/nodes.ts#stageOf  const  (f: Pick<FuncDecl, "stage" | "attrs">) => "
 src/core/ir/nodes.ts#workgroupSizeOf  const  (f: Pick<FuncDecl, "attrs" | "workgroupSize">) => number
 src/core/ir/span.ts#SourceSpan  interface  { character: number; endCharacter: number; endLine: number; file: string; length: number; line: number; start: number }
 src/core/ir/span.ts#sourceSpanOf  function  (node: FuncDecl | Stmt | Expr) => SourceSpan
-src/core/ir/types.ts#ALL_STORAGE_TEXTURE_FORMATS  const  readonly ["rgba8unorm", "rgba8snorm", "rgba8uint", "rgba8sint", "rgba16uint", "rgba16sint", "rgba16float", "r32uint", "r32sint", "r32float", "rg32uint", "rg32sint", "rg32float", "rgba32uint", "rgba32sint", "rgba32float"]
+src/core/ir/types.ts#ALL_STORAGE_TEXTURE_FORMATS  const  readonly ["rgba8unorm", "rgba8snorm", "rgba8uint", "rgba8sint", "rgba16uint", "rgba16sint", "rgba16float", "r32uint", "r32sint", "r32float", "rg32uint", "rg32sint", "rg32float", "rgba32uint", "rgba32sint", "rgba32float", "bgra8unorm"]
 src/core/ir/types.ts#ArrayElemKey  type  K extends `array<${infer Inner}>` ? DropArraySize<Inner> : never
+src/core/ir/types.ts#CAS_RESULT_STRUCTS  const  readonly { readonly name: string; readonly fields: readonly { readonly name: string; readonly type: ShaderType; }[]; }[]
 src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
 src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; cols: infer C extends number; rows: infer R extends number; elem: infer E extends string; } ? `mat${C}x${R}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "atomic"; elem: infer E extends string; } ? `atomic<${E}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; elem: infer E extends string; } ? `texture_multisampled_2d<${E}>` : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "texture"; dim: "cube"; elem: infer E extends string; } ? `texture_cube<${E}>` : T extends { kind: "texture"; dim: "3d"; elem: infer E extends string; } ? `texture_3d<${E}>` : T extends { kind: "texture"; dim: "1d"; elem: infer E extends string; } ? `texture_1d<${E}>` : T extends { kind: "texture"; dim: "cube-array"; elem: infer E extends string; } ? `texture_cube_array<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#READ_WRITE_STORAGE_FORMATS  const  readonly ["r32uint", "r32sint", "r32float"]
@@ -1204,12 +1217,14 @@ src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
 src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly cols: 2 | 3 | 4; readonly rows: 2 | 3 | 4; readonly elem: "f32" | "f64"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array" | "cube" | "3d" | "1d" | "cube-array" | "2d-ms"; readonly elem: TextureElem; } | { readonly kind: "storage-texture"; readonly dim: "2d" | "2d-array"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d" | "2d-array" | "cube" | "cube-array" | "2d-ms"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#StorageTextureAccess  type  "read" | "read_write" | "write"
-src/core/ir/types.ts#StorageTextureFormat  type  "rgba8unorm" | "rgba8snorm" | "rgba8uint" | "rgba8sint" | "rgba16uint" | "rgba16sint" | "rgba16float" | "r32uint" | "r32sint" | "r32float" | "rg32uint" | "rg32sint" | "rg32float" | "rgba32uint" | "rgba32sint" | "rgba32float"
+src/core/ir/types.ts#StorageTextureFormat  type  "rgba8unorm" | "rgba8snorm" | "rgba8uint" | "rgba8sint" | "rgba16uint" | "rgba16sint" | "rgba16float" | "r32uint" | "r32sint" | "r32float" | "rg32uint" | "rg32sint" | "rg32float" | "rgba32uint" | "rgba32sint" | "rgba32float" | "bgra8unorm"
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
+src/core/ir/types.ts#WRITE_ONLY_STORAGE_FORMATS  const  readonly ["bgra8unorm"]
 src/core/ir/types.ts#arrayT  const  <E extends ShaderType, S extends number | undefined = undefined>(elem: E, size?: S) => { readonly kind: "array"; readonly elem: E; readonly size: S; }
 src/core/ir/types.ts#atomicI32T  const  { readonly kind: "atomic"; readonly elem: "i32"; }
 src/core/ir/types.ts#atomicU32T  const  { readonly kind: "atomic"; readonly elem: "u32"; }
 src/core/ir/types.ts#boolT  const  { readonly kind: "scalar"; readonly scalar: "bool"; }
+src/core/ir/types.ts#casResultT  const  (elem: "i32" | "u32") => ShaderType
 src/core/ir/types.ts#f32T  const  { readonly kind: "scalar"; readonly scalar: "f32"; }
 src/core/ir/types.ts#f64T  const  { readonly kind: "f64"; }
 src/core/ir/types.ts#i32T  const  { readonly kind: "scalar"; readonly scalar: "i32"; }
@@ -1226,6 +1241,7 @@ src/core/ir/types.ts#mat4x4fT  const  { readonly kind: "mat"; readonly cols: 4; 
 src/core/ir/types.ts#matT  const  (cols: 2 | 3 | 4, rows: 2 | 3 | 4, elem?: "f32" | "f64") => { readonly kind: "mat"; readonly cols: 2 | 3 | 4; readonly rows: 2 | 3 | 4; readonly elem: "f32" | "f64"; }
 src/core/ir/types.ts#samplerComparisonT  const  { readonly kind: "sampler-comparison"; }
 src/core/ir/types.ts#samplerT  const  { readonly kind: "sampler"; }
+src/core/ir/types.ts#storageFormatFeature  const  (format: StorageTextureFormat) => string
 src/core/ir/types.ts#storageTexel  const  (format: StorageTextureFormat) => TextureElem
 src/core/ir/types.ts#storageTextureLayoutAccess  const  (access: StorageTextureAccess) => "write-only" | "read-only" | "read-write"
 src/core/ir/types.ts#structT  const  <N extends string>(name: N) => { readonly kind: "struct"; readonly name: N; }
@@ -1326,7 +1342,7 @@ src/core/reflect.ts#FieldLayout  interface  { align: number; name: string; offse
 src/core/reflect.ts#LayoutKind  type  "std140" | "std430"
 src/core/reflect.ts#OverrideInfo  interface  { default: number | boolean; name: string; type: string }
 src/core/reflect.ts#ReflectOptions  interface  { fp64Flavor?: Fp64Flavor }
-src/core/reflect.ts#Reflection  interface  { bindGroups: readonly BindGroup[]; entries: readonly EntryInfo[]; overrides: readonly OverrideInfo[]; requiredFeatures: readonly Capability[]; requiredLanguageFeatures: readonly "readonly_and_readwrite_storage_textures"[]; requires: readonly ExternRequirement[]; storage: readonly StructLayout[]; uniforms: readonly StructLayout[]; vertex?: VertexLayout }
+src/core/reflect.ts#Reflection  interface  { bindGroups: readonly BindGroup[]; entries: readonly EntryInfo[]; overrides: readonly OverrideInfo[]; requiredFeatures: readonly Capability[]; requiredLanguageFeatures: readonly LanguageFeature[]; requires: readonly ExternRequirement[]; storage: readonly StructLayout[]; uniforms: readonly StructLayout[]; vertex?: VertexLayout }
 src/core/reflect.ts#ResourceKind  type  "texture" | "storage-texture" | "sampler" | "uniform-buffer" | "storage-buffer"
 src/core/reflect.ts#StructLayout  interface  { align: number; fields: readonly FieldLayout[]; name: string; size: number }
 src/core/reflect.ts#VertexAttr  interface  { location: number; name: string; offset: number; type: string }

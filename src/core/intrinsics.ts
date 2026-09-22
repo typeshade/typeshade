@@ -83,7 +83,7 @@ const storageFetchGlsl =
  *  Exported from `typeshade`.
  */
 export const ATOMIC_INTRINSICS: Readonly<
-  Record<string, { readonly arity: 1 | 2; readonly returns: 'value' | 'void' }>
+  Record<string, { readonly arity: 1 | 2 | 3; readonly returns: 'value' | 'void' | 'casResult' }>
 > = {
   atomicLoad: { arity: 1, returns: 'value' },
   atomicStore: { arity: 2, returns: 'void' },
@@ -95,6 +95,20 @@ export const ATOMIC_INTRINSICS: Readonly<
   atomicOr: { arity: 2, returns: 'value' },
   atomicXor: { arity: 2, returns: 'value' },
   atomicExchange: { arity: 2, returns: 'value' },
+  // The eleventh (#152, wgsl.txt:25584): `atomicCompareExchangeWeak(&x, cmp, val)` stores
+  // `val` only when the location holds `cmp`, and answers a STRUCT rather than a value — the
+  // old contents and whether the exchange happened. WGSL names that struct
+  // `__atomic_compare_exchange_result<T>` and gives the author no way to write the name:
+  // measured on Tint, a variable declared with it is "invalid type for variable declaration",
+  // so the result is bound by inference and its fields read. The fields are `old_value` and
+  // `exchanged`, in snake_case — `r.oldValue` is "struct member oldValue not found".
+  atomicCompareExchangeWeak: { arity: 3, returns: 'casResult' },
+  // There is no twelfth. #152's row L08 also names `atomicStoreMin` and `atomicStoreMax` on an
+  // `atomic<vec2<u32>>`, and that row is DEFERRED here on purpose: the WGSL spec marks the pair
+  // "proposed, After 1.0" (wgsl.txt:25629), no shipping Tint has them, and `atomic.elem` is
+  // `'u32' | 'i32'` (`src/core/ir/types.ts`), so a vector atomic would widen the IR's atomic
+  // type for a builtin nothing can compile yet. `src/compiler/ts/atomics.test.ts` carries the
+  // matching `it.todo`.
 }
 
 /** The barriers (roadmap 0.2 item 5, #82): `workgroupBarrier()` and `storageBarrier()`,
@@ -108,6 +122,12 @@ export const ATOMIC_INTRINSICS: Readonly<
 export const BARRIER_INTRINSICS: ReadonlySet<string> = new Set([
   'workgroupBarrier',
   'storageBarrier',
+  // `textureBarrier` (#152, wgsl.txt:26030-26042) joins them: the same statement shape and the
+  // same two rules, over the TEXTURE address space rather than workgroup or storage memory.
+  // Measured on Tint: it compiles in a compute entry with no storage texture in sight, is
+  // "'textureBarrier' must only be called from uniform control flow" inside an `if`, and is
+  // "built-in cannot be used by vertex pipeline stage" outside a compute entry.
+  'textureBarrier',
 ])
 
 /** Whether `name` is one of the {@link BARRIER_INTRINSICS}.
@@ -140,7 +160,12 @@ const atomicSpellings = (): Record<string, Spelling> =>
     Object.entries(ATOMIC_INTRINSICS).map(([name, sig]): [string, Spelling] => [
       name,
       {
-        wgsl: (a) => (sig.arity === 1 ? `${name}(&${a[0]})` : `${name}(&${a[0]}, ${a[1]})`),
+        wgsl: (a) =>
+          sig.arity === 1
+            ? `${name}(&${a[0]})`
+            : sig.arity === 2
+              ? `${name}(&${a[0]}, ${a[1]})`
+              : `${name}(&${a[0]}, ${a[1]}, ${a[2]})`,
         glsl: () => {
           throw new Error(
             `glsl-es300: ${name} has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
@@ -186,6 +211,32 @@ export const TEXTURE_GATHER_IDS: ReadonlySet<string> = new Set([
   'textureGatherCompareArray',
 ])
 
+/** The eight packed 4x8 integer builtins (#152, wgsl.txt:21906/21920). Exported so the
+ *  capability pass derives `packed4x8Dot` from a call without a second list, and so
+ *  reflection can name the WGSL language feature they belong to.
+ *
+ *  Exported from `typeshade`.
+ */
+export const PACKED_4X8_IDS: ReadonlySet<string> = new Set([
+  'dot4U8Packed',
+  'dot4I8Packed',
+  'pack4xU8',
+  'pack4xI8',
+  'pack4xU8Clamp',
+  'pack4xI8Clamp',
+  'unpack4xU8',
+  'unpack4xI8',
+])
+
+/** The WGSL LANGUAGE feature a module using {@link PACKED_4X8_IDS} depends on, as
+ *  `navigator.gpu.wgslLanguageFeatures` names it. Not an extension: measured on Tint,
+ *  `enable packed_4x8_integer_dot_product;` is refused ("expected extension") while the calls
+ *  compile bare, so there is no directive to emit and the check belongs at the host.
+ *
+ *  Exported from `typeshade`.
+ */
+export const PACKED_4X8_LANGUAGE_FEATURE = 'packed_4x8_integer_dot_product'
+
 function gatherSpellings(): Record<string, Spelling> {
   const out: Record<string, Spelling> = {}
   for (const id of TEXTURE_GATHER_IDS) {
@@ -203,6 +254,17 @@ function gatherSpellings(): Record<string, Spelling> {
   }
   return out
 }
+
+/** A builtin WGSL spells natively and GLSL ES 3.00 has no form of at all. The GLSL column
+ *  throws rather than inventing one, which is the same shape the storage-texture rows use: a
+ *  module reaching it has already slipped past the capability gate, and a throw from the writer
+ *  is better than emitted source no driver accepts. */
+const wgslOnly = (name: string): Spelling => ({
+  wgsl: (a) => `${name}(${join(a)})`,
+  glsl: () => {
+    throw new Error(`glsl-es300: ${name} has no GLSL ES 3.00 form`)
+  },
+})
 
 /** The spelling of each builtin id on each target, keyed by id. Only builtins whose spelling
  *  differs between WGSL and GLSL ES 3.00 have an entry; a builtin with no entry is spelled the
@@ -361,11 +423,37 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   extractBits: { wgsl: (a) => `extractBits(${join(a)})`, glsl: (a) => `_xbits(${join(a)})` },
   insertBits: { wgsl: (a) => `insertBits(${join(a)})`, glsl: (a) => `_ibits(${join(a)})` },
   // ldexp(x, e) = x * 2^e. GLSL ES 3.00 has no ldexp (ES 3.10 added it); the power of two is
-  // built from its bits, which is exact for every exponent from -126 to 127, where exp2 need
-  // not be. `e` is an i32 or a vector of them, so the shift broadcasts.
+  // built from its bits, which is exact where exp2 need not be. `e` is an i32 or a vector of
+  // them, so the shift broadcasts.
+  //
+  // The scale is built in TWO HALVES (#141), because one biased exponent cannot hold the range
+  // WGSL admits. `(e + 127) << 23` is the bit pattern of 2^e only while `e + 127` lands in
+  // [1, 254]; outside that it is a pattern of something else entirely. Measured on a WebGL2
+  // driver against WGSL over every legal exponent, -149 to 128, with x = 1.0 and x = 0.75:
+  //
+  //   the single-scale form   disagreed on 22 of 278 exponents (23 for 0.75)
+  //   the two-half form       disagreed on 0 of 278, for both
+  //
+  // and the disagreements were not near misses. At `e = 128` the pattern is `0x7F800000`, so
+  // `ldexp(0.5, 128)` was +Inf where WGSL gives the finite 2^127. Worse, at the bottom of the
+  // range the sum goes NEGATIVE and the pattern becomes a large negative float:
+  // `ldexp(1.0, -149)` was -1.6225928e32 where WGSL gives 0. Splitting `e` into `e >> 1` and
+  // `e - (e >> 1)` keeps each half inside the representable band for every `e` in range, and
+  // the two multiplies are each correctly rounded on both targets.
+  //
+  // The exponent string is spliced THREE times, which is safe here for the reason it is safe
+  // in `pack4x8unorm` above (which splices its argument eight): a shader expression is pure,
+  // so repeating it repeats work and nothing else, and a driver's CSE collapses it. `atomArgs`
+  // parenthesises each occurrence, so an argument like `a + b` still binds as one operand.
+  //
+  // The halving is a signed `>>`, and the alternative `e / 2` was swept too: both agreed with
+  // WGSL on all 278 exponents for both mantissas, so the driver's right shift of a negative
+  // value is the arithmetic one. The shift is kept because it is the form measured first; if a
+  // driver is ever found whose signed `>>` is logical, `e / 2` is the drop-in, already checked.
   ldexp: {
     wgsl: (a) => `ldexp(${join(a)})`,
-    glsl: (a) => `(${a[0]} * intBitsToFloat((${a[1]} + 127) << 23))`,
+    glsl: (a) =>
+      `(${a[0]} * intBitsToFloat(((${a[1]} >> 1) + 127) << 23) * intBitsToFloat(((${a[1]} - (${a[1]} >> 1)) + 127) << 23))`,
     // Both operands land inside operators — see `atomArgs` above.
     atomArgs: true,
   },
@@ -385,13 +473,21 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     atomArgs: true,
   },
   inverseSqrt: { wgsl: (a) => `inverseSqrt(${join(a)})`, glsl: (a) => `inversesqrt(${join(a)})` },
-  // fma(a,b,c) = a·b+c. WGSL has a fused hardware fma — a SINGLE rounding, atomic:
-  // a driver's fast-math cannot distribute or reassociate it (unlike a·b then +c).
-  // GLSL ES 3.00 (WebGL2) has NO fma (it is ES 3.10 / GLSL 4.00), so emit the
-  // NON-fused `(a*b+c)` fallback there. DIVERGENT (not portable): only the WGSL
-  // target gets the unfoldable single-rounding, which is the entire point — it is
-  // the one form Apple/Metal cannot fold back into a plain f32 product when
-  // building df64 twoProd error terms (aHi·bLo etc.). Diagnostic use for now.
+  // fma(a,b,c) = a·b+c. GLSL ES 3.00 (WebGL2) has NO fma (it is ES 3.10 / GLSL 4.00), so the
+  // GLSL column emits the plain `(a*b+c)`.
+  //
+  // This comment used to say WGSL's `fma` is "a SINGLE rounding, atomic" that a driver's
+  // fast-math cannot distribute, in CONTRAST to GLSL. That contrast is not in either spec
+  // (#141). WGSL §15.7.4.1 makes `fma` INHERITED from `x * y + z`, and the builtin's own note
+  // says an implementation may perform an ordinary multiply followed by an ordinary add; GLSL
+  // ES 3.00 §4.5.1 likewise allows `a * b + c` to be "one correctly rounded operation or a
+  // sequence of two". Both targets leave exactly the same room, so neither the id nor the
+  // fallback buys a rounding guarantee, and a future change must not assume one.
+  //
+  // What IS true, and is a separate point about fast-math rather than about the specs: spelling
+  // the operation as `fma` is the one form Apple/Metal has not been observed to fold back into
+  // a plain f32 product when building df64 twoProd error terms (aHi·bLo etc.). That is why the
+  // id exists; it is an observation about a compiler, not a promise the language makes.
   fma: { wgsl: (a) => `fma(${join(a)})`, glsl: (a) => `((${a[0]}) * (${a[1]}) + (${a[2]}))` },
   // ── 2×16 pack/unpack — NATIVE on both targets, divergent NAME only ──
   // WGSL pack2x16float/unorm/snorm ↔ GLSL ES 3.00 packHalf2x16 / packUnorm2x16 /
@@ -425,10 +521,17 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // GLSL ES 3.00 (WebGL2) has NO packUnorm4x8/unpackUnorm4x8 — those are GLSL 4.00 /
   // ES 3.10 only. Inline the WGSL semantics by hand (round(clamp(v,0,1)*255), byte 0 in
   // the low bits). Verified against the CPU oracle on a real WebGL2 GPU.
+  // `floor(0.5 + v)`, not `round(v)` (#141). GLSL ES 3.00 §8.3 says of `round`: "The fraction
+  // 0.5 will round in a direction chosen by the implementation", while WGSL §17.12 DEFINES the
+  // pack as `⌊ 0.5 + 255 × min(1, max(0, e)) ⌋`. For `e = 0.5` the product 127.5 is exact, so a
+  // driver was free to answer 127 where WGSL and the oracle answer 128. Spelling WGSL's own
+  // formula removes the freedom rather than relying on a driver to resolve it the same way.
+  // Measured: the two spellings agree on this driver (`0x80808080` for `vec4(0.5)` from both),
+  // so nothing that worked moves — what changes is what another driver is allowed to do.
   pack4x8unorm: {
     wgsl: (a) => `pack4x8unorm(${join(a)})`,
     glsl: (a) =>
-      `(uint(round(clamp(${a[0]}.x, 0.0, 1.0) * 255.0)) | (uint(round(clamp(${a[0]}.y, 0.0, 1.0) * 255.0)) << 8) | (uint(round(clamp(${a[0]}.z, 0.0, 1.0) * 255.0)) << 16) | (uint(round(clamp(${a[0]}.w, 0.0, 1.0) * 255.0)) << 24))`,
+      `(uint(floor(0.5 + clamp(${a[0]}.x, 0.0, 1.0) * 255.0)) | (uint(floor(0.5 + clamp(${a[0]}.y, 0.0, 1.0) * 255.0)) << 8) | (uint(floor(0.5 + clamp(${a[0]}.z, 0.0, 1.0) * 255.0)) << 16) | (uint(floor(0.5 + clamp(${a[0]}.w, 0.0, 1.0) * 255.0)) << 24))`,
     // The argument is a `.x`/`.y`/`.z`/`.w` postfix BASE — see `atomArgs` above.
     atomArgs: true,
   },
@@ -437,6 +540,96 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) =>
       `(vec4(uvec4(${a[0]}, ${a[0]} >> 8, ${a[0]} >> 16, ${a[0]} >> 24) & 0xFFu) / 255.0)`,
   },
+  // 4×8 SNORM, the signed twin of the pair above (#150). GLSL ES 3.00 has no
+  // packSnorm4x8/unpackSnorm4x8 either (ES 3.10 / GLSL 4.00), so both are inlined by hand.
+  //
+  // WGSL §17.10: pack4x8snorm quantises each component as ⌊0.5 + 127 × clamp(e, -1, 1)⌋ and
+  // keeps the low 8 bits of the two's complement; component 0 is the LOW byte. `floor(0.5 + x)`
+  // is not `round(x)` on this half: GLSL's `round` is implementation-chosen at an exact half
+  // and `roundEven` goes to even, while WGSL rounds -0.5 toward +∞ to 0. Written as the floor
+  // form so the two targets agree on -0.5/127 and 0.5/127, which is the divergence #141 records
+  // for the UNORM twin above.
+  pack4x8snorm: {
+    wgsl: (a) => `pack4x8snorm(${join(a)})`,
+    glsl: (a) =>
+      `(uint(int(floor(0.5 + clamp(${a[0]}.x, -1.0, 1.0) * 127.0)) & 0xFF) | ` +
+      `(uint(int(floor(0.5 + clamp(${a[0]}.y, -1.0, 1.0) * 127.0)) & 0xFF) << 8) | ` +
+      `(uint(int(floor(0.5 + clamp(${a[0]}.z, -1.0, 1.0) * 127.0)) & 0xFF) << 16) | ` +
+      `(uint(int(floor(0.5 + clamp(${a[0]}.w, -1.0, 1.0) * 127.0)) & 0xFF) << 24))`,
+    // The argument is a `.x`/`.y`/`.z`/`.w` postfix BASE — see `atomArgs` above.
+    atomArgs: true,
+  },
+  // The inverse: sign-extend each byte, then `max(v / 127, -1)` (WGSL §17.11 — the -128
+  // pattern would give -1.0079, which the max clamps). Sign extension is a 24-bit left shift
+  // into an ivec4 followed by an ARITHMETIC right shift, which is what `>>` is on a signed
+  // integer in GLSL ES 3.00 §5.9.
+  unpack4x8snorm: {
+    wgsl: (a) => `unpack4x8snorm(${join(a)})`,
+    glsl: (a) =>
+      `max(vec4(ivec4(uvec4(${a[0]}, ${a[0]} >> 8, ${a[0]} >> 16, ${a[0]} >> 24) << 24) >> 24) ` +
+      `/ 127.0, vec4(-1.0))`,
+    // `${a[0]} >> 8` re-embeds the argument as an operator operand.
+    atomArgs: true,
+  },
+  // `quantizeToF16(e)` (#150, wgsl.txt:23036): round to what an IEEE-754 binary16 can hold and
+  // come back as an f32, so a shader can see the precision an f16 pipeline would give it
+  // without the shader-f16 extension. GLSL ES 3.00 has no such builtin, but it has the pair
+  // that does exactly this: pack a half and unpack it again.
+  //
+  // One id per WIDTH, as the texture reads do, because the registry spells argument STRINGS
+  // and has no type to switch on: WGSL's overload takes an f32 or a vecN<f32>, and the GLSL
+  // round trip is two components at a time.
+  quantizeToF16: {
+    wgsl: (a) => `quantizeToF16(${join(a)})`,
+    glsl: (a) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}, 0.0))).x`,
+  },
+  // ONE COMPONENT AT A TIME, never two per round trip. A paired `packHalf2x16(v)` was the
+  // obvious spelling and is wrong: measured on a real driver, the half-encode of a component
+  // that overflows binary16 yields a 17-bit value whose carry lands in the OTHER half
+  // (`0x3C00` became `0x3C02` beside an infinite neighbour), so one component silently
+  // corrupted the next. WGSL's `quantizeToF16` is per-component and cannot do that, so neither
+  // does this.
+  quantizeToF16Vec2: {
+    wgsl: (a) => `quantizeToF16(${join(a)})`,
+    glsl: (a) =>
+      `vec2(${['x', 'y'].map((c) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.${c}, 0.0))).x`).join(', ')})`,
+    atomArgs: true,
+  },
+  quantizeToF16Vec3: {
+    wgsl: (a) => `quantizeToF16(${join(a)})`,
+    glsl: (a) =>
+      `vec3(${['x', 'y', 'z'].map((c) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.${c}, 0.0))).x`).join(', ')})`,
+    atomArgs: true,
+  },
+  quantizeToF16Vec4: {
+    wgsl: (a) => `quantizeToF16(${join(a)})`,
+    glsl: (a) =>
+      `vec4(${['x', 'y', 'z', 'w'].map((c) => `unpackHalf2x16(packHalf2x16(vec2(${a[0]}.${c}, 0.0))).x`).join(', ')})`,
+    atomArgs: true,
+  },
+  // The two PORTABLE lies the spec audit found (#154): `abs` and `dot` are spelled identically
+  // on both targets for every element kind, and GLSL ES 3.00 has neither an unsigned `abs` nor
+  // an integer `dot`. Measured on a WebGL2 driver: `abs(uvec3)`, `abs(uint)`, `dot(ivec3,
+  // ivec3)` and `dot(uvec3, uvec3)` are each "no matching overloaded function found", while
+  // `abs(ivec3)` and `dot(vec3, vec3)` compile. So the float `abs`/`dot` and the SIGNED `abs`
+  // keep the portable spelling and only these three ids are divergent.
+  //
+  // `abs` on an unsigned value is the IDENTITY (wgsl.txt:21450: "Returns e" for u32), so the
+  // GLSL column is the argument itself rather than a call.
+  absU: {
+    wgsl: (a) => `abs(${join(a)})`,
+    glsl: (a) => `${a[0]}`,
+    // The GLSL column IS the argument, with no call or constructor around it — the most
+    // extreme re-embedding in this table, and the emit walk never wraps a leaf. Without this,
+    // `parens: 'minimal'` turned `abs(u.k - 1) * u.k` into `u.k - 1u * u.k`: different
+    // arithmetic, no diagnostic, measured as different pixels on a real driver.
+    atomArgs: true,
+  },
+  // The integer dot goes through the `_idot` helper glsl-bits.ts writes, one overload per
+  // vector type the module uses. Not an inline sum: that would splice both arguments once per
+  // component, after every optimizer pass has run.
+  dotI: { wgsl: (a) => `dot(${join(a)})`, glsl: (a) => `_idot(${join(a)})` },
+  dotU: { wgsl: (a) => `dot(${join(a)})`, glsl: (a) => `_idot(${join(a)})` },
   // bitcast<u32>(f) on WGSL; floatBitsToUint(f) on GLSL. The neutral id drops the
   // WGSL generic-call syntax that used to live in the IR.
   bitcastU32: {
@@ -456,6 +649,31 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `textureLoad(${join(a)})`,
     glsl: (a) =>
       a.length >= 3 ? `texelFetch(${a[0]}, ${a[1]}, int(${a[2]}))` : `texelFetch(${join(a)})`,
+  },
+  // WGSL's texel coordinate is "i32, or u32" (wgsl.txt:24129); GLSL's `texelFetch` takes a
+  // SIGNED one only. Measured on a WebGL2 driver: `texelFetch(t, uvec2(0u, 0u), 0)` is "no
+  // matching overloaded function found", while `texelFetch(t, ivec2(uvec2(0u, 0u)), 0)`
+  // compiles. So an UNSIGNED coordinate gets its own ids, which wrap it in the signed
+  // constructor of the texture's own width; the signed ids above are untouched, and no emit
+  // that already worked moves a byte. The width is the texture's and the registry sees
+  // argument STRINGS, which is why it is an id per width — as `textureDimensions3d` is.
+  textureLoadU: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) =>
+      a.length >= 3
+        ? `texelFetch(${a[0]}, ivec2(${a[1]}), int(${a[2]}))`
+        : `texelFetch(${a[0]}, ivec2(${a[1]}), 0)`,
+  },
+  textureLoad3dU: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) =>
+      a.length >= 3
+        ? `texelFetch(${a[0]}, ivec3(${a[1]}), int(${a[2]}))`
+        : `texelFetch(${a[0]}, ivec3(${a[1]}), 0)`,
+  },
+  textureLoadArrayU: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) => `texelFetch(${a[0]}, ivec3(ivec2(${a[1]}), int(${a[2]})), int(${a[3]}))`,
   },
   // GLSL textureSize REQUIRES an int lod (WGSL textureDimensions(t) defaults to base
   // level 0); supply 0 when absent, else cast the given level to int. WGSL
@@ -564,6 +782,24 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
       throw new Error('glsl-es300: storageBarrier has no GLSL ES 3.00 spelling (no compute stage)')
     },
   },
+  textureBarrier: {
+    wgsl: () => 'textureBarrier()',
+    glsl: () => {
+      throw new Error('glsl-es300: textureBarrier has no GLSL ES 3.00 spelling (no compute stage)')
+    },
+  },
+  // `workgroupUniformLoad(&w)` (#152, wgsl.txt:26057): one value read from workgroup memory,
+  // with a barrier on each side, so every invocation of the workgroup gets the same one. The
+  // argument is a POINTER on WGSL, spelled here the way the atomics' is. GLSL ES 3.00 has no
+  // compute stage and so no workgroup memory to read uniformly.
+  workgroupUniformLoad: {
+    wgsl: (a) => `workgroupUniformLoad(&${a[0]})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: workgroupUniformLoad has no GLSL ES 3.00 spelling (no compute stage)',
+      )
+    },
+  },
   textureDimensions: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: (a) =>
@@ -640,6 +876,40 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `textureNumLayers(${join(a)})`,
     glsl: (a) => `uint(textureSize(${a[0]}, 0).z)`,
   },
+  // The layer count of a STORAGE array (#147, wgsl.txt:24360; measured accepted on Tint). Its
+  // own id because a storage texture has no mip levels: GLSL's `imageSize` takes no level and
+  // is ES 3.10 anyway, so the whole storage family fails closed on GLSL through the
+  // `storageTexture` capability and this column is never reached.
+  textureNumLayersStorage: {
+    wgsl: (a) => `textureNumLayers(${join(a)})`,
+    glsl: () => {
+      throw new Error(
+        'glsl-es300: a storage texture has no GLSL ES 3.00 spelling (image load/store is ES 3.10)',
+      )
+    },
+  },
+  // ── The packed 4x8 integer family (#152, wgsl.txt:21906/21920) ──
+  //
+  // Eight builtins that read a `u32` as four packed bytes, or write four back. They are WGSL's
+  // and WGSL's alone: GLSL ES 3.00 has no dot-product-of-packed-bytes and no byte pack, so every
+  // GLSL column here throws and the `packed4x8Dot` capability is what fails a module closed on
+  // that target before any writer is asked to spell one.
+  //
+  // Measured on Tint, with a broken shader fed to the same instrument first: all eight compile
+  // with NO directive. `enable packed_4x8_integer_dot_product;` is refused — "expected
+  // extension | Possible values: 'clip_distances', 'dual_source_blending', 'f16',
+  // 'primitive_index', 'subgroups'" — because it is a LANGUAGE feature, not an extension. A
+  // `requires packed_4x8_integer_dot_product;` is accepted and changes nothing, and the browser
+  // reports the name in `navigator.gpu.wgslLanguageFeatures`. So the emitted module carries no
+  // directive and `reflect().requiredLanguageFeatures` is where a host learns to check.
+  dot4U8Packed: wgslOnly('dot4U8Packed'),
+  dot4I8Packed: wgslOnly('dot4I8Packed'),
+  pack4xU8: wgslOnly('pack4xU8'),
+  pack4xI8: wgslOnly('pack4xI8'),
+  pack4xU8Clamp: wgslOnly('pack4xU8Clamp'),
+  pack4xI8Clamp: wgslOnly('pack4xI8Clamp'),
+  unpack4xU8: wgslOnly('unpack4xU8'),
+  unpack4xI8: wgslOnly('unpack4xI8'),
   // The fp64 anti-fast-math guard VALUE (runtime 1.0), spelled as a texel
   // fetch from the injected `_fp64` 1×1 texture (passes/fp64-lower.ts owns
   // the binding; the name is reserved). A UBO-sourced guard is defeated by

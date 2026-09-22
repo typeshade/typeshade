@@ -16,6 +16,7 @@ import { compileModuleJs } from '../../core/cpu-codegen.js'
 import { startDebugSession } from '../../core/debug/session.js'
 import { optimizeAt } from '../../core/passes/opt/optimize.js'
 import { emitModule } from '../../core/backends/wgsl.js'
+import { reflect } from '../../core/reflect.js'
 
 const REDUCE = `"use typeshade"
 declare const src: storage<array<f32>>
@@ -305,5 +306,121 @@ export function k(@builtin("global_invocation_id") gid: vec3u): void {
     ).toEqual([
       `${TS_CODES.TYPE_MISMATCH} "store(1)" returns nothing, so it cannot initialize "x"; call it on its own line.`,
     ])
+  })
+})
+
+// #152: `textureBarrier` and `workgroupUniformLoad`. Both were unknown names; both carry the
+// two placement rules this file already pins, and each rule below is one Tint states in its
+// own words, measured with a broken shader fed to the same instrument first.
+describe("textureBarrier and workgroupUniformLoad carry a barrier's rules", () => {
+  const errorsOf = (src: string): string[] =>
+    compileTsSource(src)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => d.message)
+
+  const CS = (decls: string, body: string): string => `"use typeshade"
+declare let o: storage<array<u32>>
+${decls}
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+${body}
+}
+`
+
+  it('emits textureBarrier bare, and names the language feature it belongs to', () => {
+    // Measured: Tint compiles `textureBarrier()` in a compute entry with NO storage texture in
+    // sight, so nothing in the module's shape announces the requirement.
+    const r = compile(CS('', '  o[gid.x] = 1\n  textureBarrier()'))
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('textureBarrier();')
+    expect(reflect(r.module).requiredLanguageFeatures).toEqual([
+      'readonly_and_readwrite_storage_textures',
+    ])
+  })
+
+  it('refuses textureBarrier outside a compute entry and inside a branch', () => {
+    // Tint: "built-in cannot be used by vertex pipeline stage" / "'textureBarrier' must only be
+    // called from uniform control flow". Both are said here first, in the author's own file.
+    expect(
+      errorsOf(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  textureBarrier()
+  return vec4(0.)
+}
+`)[0],
+    ).toBe(
+      'textureBarrier() belongs in a compute entry or a function it calls; a fragment entry ' +
+        'has no workgroup whose texture writes it could order.',
+    )
+    // Still refused inside a branch, and now by §54's walk rather than by this file's own
+    // `inBranch()` arm: `textureBarrier` is one of `BARRIER_INTRINSICS`, and the uniformity
+    // analysis reads that set, so it inherited the same relaxation the other two barriers got
+    // — a branch on a value the invocations do NOT share is what WGSL refuses, not a branch.
+    // `o[0]` is a storage read, which the walk cannot prove uniform, so the refusal stands and
+    // the code moved from `BARRIER_PLACEMENT` to `UNIFORMITY`.
+    const branched = errorsOf(CS('', '  if (o[0] === 1) {\n    textureBarrier()\n  }'))[0]
+    expect(branched).toContain('textureBarrier() is reached under')
+    expect(branched).toContain('every invocation of the workgroup has to reach it')
+  })
+
+  it('spells workgroupUniformLoad as the pointer WGSL takes, on any shape', () => {
+    for (const [decl, read, expected] of [
+      ['let w: workgroup<u32>', 'workgroupUniformLoad(w)', 'workgroupUniformLoad(&w)'],
+      ['let w: workgroup<vec4u>', 'workgroupUniformLoad(w).x', 'workgroupUniformLoad(&w).x'],
+      [
+        'let w: workgroup<array<u32, 8>>',
+        'workgroupUniformLoad(w[2])',
+        'workgroupUniformLoad(&w[2])',
+      ],
+    ] as const) {
+      const r = compile(CS(decl, `  o[gid.x] = ${read}`))
+      expect(
+        r.diagnostics.filter((d) => d.category === 'error'),
+        decl,
+      ).toEqual([])
+      expect(r.wgsl, decl).toContain(expected)
+    }
+  })
+
+  it('refuses workgroupUniformLoad of storage, of a branch, and of a render stage', () => {
+    // Tint: "no matching call to 'workgroupUniformLoad(ptr<storage, u32, read_write>)'", with
+    // two candidates, both workgroup pointers. The surface says which memory it reads instead.
+    expect(errorsOf(CS('', '  o[gid.x] = workgroupUniformLoad(o[1])'))[0]).toBe(
+      'workgroupUniformLoad reads WORKGROUP memory; this value is not in it. Declare the ' +
+        'variable "let w: workgroup<T>" and read it as workgroupUniformLoad(w).',
+    )
+    expect(
+      errorsOf(
+        CS('let w: workgroup<u32>', '  if (o[0] === 1) {\n    o[1] = workgroupUniformLoad(w)\n  }'),
+      )[0],
+    ).toContain('workgroupUniformLoad() must be reached by every invocation of the workgroup')
+    // A fragment entry has no workgroup memory at all, and Tint refuses the VARIABLE there
+    // ("var with 'workgroup' address space cannot be used by fragment pipeline stage") rather
+    // than the builtin. So does this surface, by a rule that predates the builtin and fires
+    // while the argument is lowered — which is why `lowerWorkgroupUniformLoad` carries no stage
+    // arm of its own. The message names what the author has to move.
+    expect(
+      errorsOf(`"use typeshade"
+let w: workgroup<u32>
+@fragment
+export function fs(): vec4 {
+  return vec4(f32(workgroupUniformLoad(w)) * 0., 0., 0., 1.)
+}
+`)[0],
+    ).toBe(
+      '"w" is workgroup memory, which only a compute entry has; a fragment entry cannot read ' +
+        'or write it.',
+    )
+  })
+
+  it('fails closed on GLSL ES 3.00, which has neither', () => {
+    // Both live in the barrier family's GLSL column, which throws: there is no compute stage
+    // there, so no workgroup memory and no texture barrier.
+    const r = compile(
+      CS('let w: workgroup<u32>', '  textureBarrier()\n  o[gid.x] = workgroupUniformLoad(w)'),
+    )
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.glsl).toBeUndefined()
   })
 })

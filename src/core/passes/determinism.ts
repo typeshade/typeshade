@@ -20,8 +20,8 @@
 // functions) inherit those bounds, and leaves the trigonometric functions, `determinant` and
 // the derivatives with undefined precision. So the `inherited` rows mean the same on both
 // targets, and the `absolute`, `ulp` and `unbounded` rows are bounded by the driver alone on
-// GLSL. Where the two targets can differ on an input WGSL settles (`ldexp`, the three `pack`
-// builtins) the row's kind is `target` and its `note` says on which input.
+// GLSL. Where the two targets can differ on an input WGSL settles (the four `pack` builtins,
+// the `quantizeToF16` widths) the row's kind is `target` and its `note` says on which input.
 //
 // The report reads the IR the front end built, before either backend lowers it, so it names
 // what the author wrote: `fma`, not the `a * b + c` GLSL spells it as; `mod`, not
@@ -130,6 +130,15 @@ const EMULATED_BOUND =
 const HALF_NOTE =
   'GLSL ES 3.00 rounds the scaled value with round(), whose exact half goes in an implementation-chosen direction; WGSL takes floor(0.5 + x), so an input that lands on a half may pack one step apart'
 
+const UNORM_HALF_NOTE =
+  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 255 * clamp(e, 0, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to EVEN; swept at runtime over 511 inputs e = f32(i) / 510, both e and the f32 product clamp(e, 0, 1) * 255 come back bit-identical from the two targets, so nothing upstream of the rounding differs; 66 of those products land exactly on k + 0.5, and on the 34 with an even k the builtin answers k while the GLSL inline AND a WGSL inline of the same formula answer k + 1 (i = 1 packs 0 against 1, i = 5 packs 2 against 3)'
+
+const SNORM_HALF_NOTE =
+  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 127 * clamp(e, -1, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to EVEN; swept at runtime over 509 inputs e = (f32(i) - 254) / 254, both e and the f32 product come back bit-identical from the two targets, 244 products land exactly on a half and 122 of them part — at a product of -125.5 the builtin packs the byte 130, which is -126, the even one, and both inlines pack 131, which is -125'
+
+const QUANTIZE_NOTE =
+  'GLSL ES 3.00 has no such builtin and the backend spells it as packHalf2x16 then unpackHalf2x16, one component at a time; measured against a WGSL driver, the two part in three places — a value exactly halfway between two binary16 neighbours (the GLSL round trip rounds to nearest even, the driver moved), a magnitude above the largest finite binary16 (WGSL gives an infinity, the GLSL round trip a NaN), and a magnitude below the smallest normal one (the driver flushed it to zero, the GLSL round trip kept the subnormal)'
+
 /** WGSL §15.7.4.1, the rows that are not "correctly rounded" or "correct result", keyed by the
  *  IR's name for the operation, plus the `target` rows where the GLSL ES 3.00 spelling can
  *  answer differently on an input WGSL settles. `degrees` and `radians` are inherited rows
@@ -174,10 +183,13 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   fwidthCoarse: UNBOUNDED,
   fwidthFine: UNBOUNDED,
   inverseSqrt: ulp('2 ULP'),
-  ldexp: target(
-    'correctly rounded',
-    'GLSL ES 3.00 has no ldexp and the backend builds 2^e from bits, which overflows at e = 128, where WGSL gives the finite x * 2^128',
-  ),
+  // Was a `target` row, on a GLSL spelling that built 2^e from ONE biased exponent (#141). That
+  // spelling disagreed with WGSL on 22 of the 278 legal exponents, measured by sweeping -149 to
+  // 128 on a WebGL2 driver against Tint with x = 1.0 and x = 0.75: +Inf at e = 128 where WGSL
+  // gives the finite 2^127, and a large NEGATIVE float below e = -127, where the biased sum
+  // goes negative (`ldexp(1.0, -149)` was -1.6225928e32 against WGSL's 0). The scale is now
+  // built in two halves, which the same sweep found agrees on all 278 for both mantissas.
+  ldexp: EXACT,
   length: inherited('sqrt(dot(x, x)) for a vector, sqrt(x * x) for a scalar'),
   log: absolute('2^-21 absolute error for x in [0.5, 2], 3 ULP outside it'),
   log2: absolute('2^-21 absolute error for x in [0.5, 2], 3 ULP outside it'),
@@ -189,7 +201,23 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   normalize: inherited('x / length(x)'),
   pack2x16snorm: target('correct result', HALF_NOTE),
   pack2x16unorm: target('correct result', HALF_NOTE),
-  pack4x8unorm: target('correct result', HALF_NOTE),
+  pack4x8unorm: target('correct result', UNORM_HALF_NOTE),
+  // The signed twin (#150). It was first recorded EXACT, on the reasoning that its GLSL inline
+  // spells WGSL's own `floor(0.5 + x)` where the unorm one spells `round()`. Measured on a
+  // real driver, that is not enough: WGSL's `pack4x8snorm` is a native builtin there too, and
+  // the driver rounded the tie to EVEN while the inline rounds it up, so the two targets part
+  // on exactly the inputs the unorm row already records.
+  pack4x8snorm: target('correct result', SNORM_HALF_NOTE),
+  // The four `quantizeToF16` widths (#150). WGSL converts to IEEE-754 binary16 and back with
+  // one rounding, and the CPU oracle implements round-to-nearest-even, the conversion real
+  // GPUs do. GLSL ES 3.00 has no such builtin, so the backend spells it as the
+  // packHalf2x16/unpackHalf2x16 round trip, and THAT spec does not pin the rounding of the
+  // f32 → binary16 conversion. A value exactly halfway between two binary16 neighbours may
+  // therefore come back one step apart on the two targets; every other value is one answer.
+  quantizeToF16: target('correct result', QUANTIZE_NOTE),
+  quantizeToF16Vec2: target('correct result', QUANTIZE_NOTE),
+  quantizeToF16Vec3: target('correct result', QUANTIZE_NOTE),
+  quantizeToF16Vec4: target('correct result', QUANTIZE_NOTE),
   pow: inherited('exp2(y * log2(x))'),
   radians: inherited('x * 0.017453292519943295474'),
   reflect: inherited('x - 2 * dot(x, y) * y'),
@@ -266,6 +294,26 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   '__fround',
   'pack2x16float',
   'unpack2x16float',
+  // The integer `abs` and `dot` (#154). Integer arithmetic is exact on every target: `abs` on
+  // an unsigned value is the identity, the signed one wraps at the minimum on all three, and
+  // the dot is a sum of products that wraps the same way. They have their own ids only because
+  // GLSL ES 3.00 has no `abs(uint)` and no integer `dot` at all.
+  'absU',
+  'dotI',
+  'dotU',
+  // The packed 4x8 integer family (#152). Every one is integer bit manipulation with one
+  // answer: a byte extract, a byte pack (truncating or saturating), or a sum of four byte
+  // products that wraps at 32 bits. Each was DISPATCHED on a real device and the buffer read
+  // back, and the CPU oracle returns the same values, so `exact` is measured rather than
+  // argued. WGSL-only, so there is no second target for one of them to differ on.
+  'dot4U8Packed',
+  'dot4I8Packed',
+  'pack4xU8',
+  'pack4xI8',
+  'pack4xU8Clamp',
+  'pack4xI8Clamp',
+  'unpack4xU8',
+  'unpack4xI8',
   'countOneBits',
   // `~x` (§52): one answer on every driver — it is the bit pattern, not an approximation.
   '~',
@@ -279,6 +327,9 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'arrayLength',
   'workgroupBarrier',
   'storageBarrier',
+  'textureBarrier',
+  'atomicCompareExchangeWeak',
+  'workgroupUniformLoad',
 ])
 
 /** What WGSL §15.7.4 allows the result of one operation to be, for a builtin id, a binary
@@ -336,12 +387,36 @@ type Hit = Omit<DeterminismEntry, 'count' | 'where'>
  *  selections and stay exact on a double. */
 const F64_EMULATED: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%', 'floor'])
 
+/** The builtins whose float kind is the ARGUMENT's, because the result is a `u32` of bytes.
+ *
+ *  `floatElemOf` reads a node's RESULT type, which is what "one row per operation and float"
+ *  means everywhere else. A pack takes a float vector and answers a word, so every one of these
+ *  rows was unreachable: the walk asked the `u32` result for a float kind, got `undefined`, and
+ *  dropped the node before `accuracyOf` was ever consulted. Measured on a module calling all
+ *  four and nothing else, the report came back EMPTY, so the four `target` rows this table
+ *  carries — two of them older than the 4x8 pair — described a divergence the report could not
+ *  report. The float kind that matters for a pack is the one it READS.
+ *
+ *  `textureGather` on an integer texture is the one row still out of reach by this mechanism
+ *  and is NOT fixed here: its `filtered` row is about which four texels the footprint selects,
+ *  which is implementation-defined whatever the element, but the entry's `elem` is the public
+ *  `'f32' | 'f64'` and an integer gather has no float kind to report. See the `it.fails` in
+ *  `determinism.test.ts`. */
+const PACK_FLOAT_ARG: ReadonlySet<string> = new Set([
+  'pack4x8unorm',
+  'pack4x8snorm',
+  'pack2x16unorm',
+  'pack2x16snorm',
+])
+
 function hitOf(e: Expr): Hit | undefined {
   let op: string
   if (e.op === 'binop') op = binopName(e)
   else if (e.op === 'call' && e.declRef === undefined) op = e.fn
   else return undefined
-  const elem = floatElemOf(e.type)
+  const from =
+    e.op === 'call' && PACK_FLOAT_ARG.has(op) && e.args[0] !== undefined ? e.args[0].type : e.type
+  const elem = floatElemOf(from)
   if (elem === undefined) return undefined
   const acc = accuracyOf(op)
   if (elem === 'f64') {
@@ -363,8 +438,8 @@ function hitOf(e: Expr): Hit | undefined {
  *  functions: a builtin with a ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one
  *  inherited from a formula the driver may reassociate or fuse (`pow`, `mix`, `normalize`,
  *  `fma`, `fract`, the matrix products), a derivative or `determinant`, a filtered texture read
- *  or gather, an operation the GLSL ES 3.00 spelling may answer differently (`ldexp`, the
- *  `pack` builtins), and every emulated `f64` arithmetic operator and bounded builtin. Empty
+ *  or gather, an operation the GLSL ES 3.00 spelling may answer differently (the `pack`
+ *  builtins, `quantizeToF16`), and every emulated `f64` arithmetic operator and bounded builtin. Empty
  *  when every operation in the module has one answer under the assumption the module header
  *  states, which is when a GPU result and the CPU oracle can differ only by the oracle's own
  *  rounding and never by the driver's choice. A `raw` statement is opaque and contributes

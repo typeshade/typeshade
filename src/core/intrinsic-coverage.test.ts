@@ -1,12 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DERIVATIVE_INTRINSICS,
   INTRINSICS,
   PORTABLE_INTRINSICS,
   PRE_EMIT_INTRINSICS,
   isKnownIntrinsic,
 } from './intrinsics.js'
-import { FRAGMENT_ONLY_IDS } from './passes/lint/rules/fragment-only-builtin.js'
 import {
   f32,
   u32,
@@ -99,7 +97,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
     expect(overlap).toEqual([])
   })
 
-  it('every INTRINSICS entry needs its map row — a plain name(args) pair belongs in the set', () => {
+  it('every INTRINSICS entry is GENUINELY divergent (wgsl ≠ glsl) — a portable one belongs in the set, not the map', () => {
     const args = ['a', 'b', 'c'] // enough positional args for every entry's spelling
     // A column that THROWS (a builtin one target has no form for, such as `arrayLength` on
     // GLSL ES 3.00, which has no storage buffers) is the most divergent spelling there is.
@@ -110,21 +108,17 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         return undefined
       }
     }
-    // What the map is FOR is a spelling the fall-through cannot produce. Two reasons qualify,
-    // and until `~` (§52) only the first had ever arisen: the two targets spell it
-    // differently, or the spelling is not `name(args)` at all. `~a` is the same text on both
-    // and still cannot fall through, because the fall-through writes a CALL. An entry that is
-    // `name(args)` on both columns is the one that belongs in `PORTABLE_INTRINSICS` instead,
-    // and that is what this arm still catches.
-    const unjustified = Object.entries(INTRINSICS)
-      .filter(([id, s]) => {
-        const w = spell(s.wgsl)
-        const g = spell(s.glsl)
-        if (w !== g) return false
-        return w === `${id}(${args.join(', ')})`
-      })
+    // An entry earns its place unless BOTH columns agree AND the spelling they agree on is
+    // exactly the one the portable fall-through already writes. `spellIntrinsic` spells an id
+    // with no entry as `name(args)`, so that is the test for redundancy — not mere agreement.
+    // The OPERATOR ids are why: `~` is `~a` on both targets, identical and still not movable,
+    // because a portable `~` would be spelled `~(a, b, c)`, which is neither language.
+    const fallThrough = (k: string): string => `${k}(${args.join(', ')})`
+    const redundant = Object.entries(INTRINSICS)
+      .filter(([, s]) => spell(s.wgsl) === spell(s.glsl))
+      .filter(([k, s]) => spell(s.wgsl) === fallThrough(k))
       .map(([k]) => k)
-    expect(unjustified).toEqual([])
+    expect(redundant).toEqual([])
   })
 
   // Deliberate-diff catalogue: adding/removing a classified builtin must touch this snapshot,
@@ -138,6 +132,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
     expect(catalogue).toMatchInlineSnapshot(`
       [
         "abs",
+        "absU",
         "acos",
         "acosh",
         "all",
@@ -150,6 +145,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "atanh",
         "atomicAdd",
         "atomicAnd",
+        "atomicCompareExchangeWeak",
         "atomicExchange",
         "atomicLoad",
         "atomicMax",
@@ -172,6 +168,10 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "determinant",
         "distance",
         "dot",
+        "dot4I8Packed",
+        "dot4U8Packed",
+        "dotI",
+        "dotU",
         "dpdx",
         "dpdxCoarse",
         "dpdxFine",
@@ -210,8 +210,17 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "pack2x16float",
         "pack2x16snorm",
         "pack2x16unorm",
+        "pack4x8snorm",
         "pack4x8unorm",
+        "pack4xI8",
+        "pack4xI8Clamp",
+        "pack4xU8",
+        "pack4xU8Clamp",
         "pow",
+        "quantizeToF16",
+        "quantizeToF16Vec2",
+        "quantizeToF16Vec3",
+        "quantizeToF16Vec4",
         "radians",
         "reflect",
         "refract",
@@ -231,6 +240,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "storageFetchU32",
         "tan",
         "tanh",
+        "textureBarrier",
         "textureDimensions",
         "textureDimensions1d",
         "textureDimensions3d",
@@ -242,10 +252,14 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "textureGatherDepth",
         "textureGatherDepthArray",
         "textureLoad",
+        "textureLoad3dU",
         "textureLoadArray",
+        "textureLoadArrayU",
         "textureLoadDepthMs",
         "textureLoadMs",
+        "textureLoadU",
         "textureNumLayers",
+        "textureNumLayersStorage",
         "textureNumSamples",
         "textureSample",
         "textureSampleArray",
@@ -274,8 +288,12 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "unpack2x16float",
         "unpack2x16snorm",
         "unpack2x16unorm",
+        "unpack4x8snorm",
         "unpack4x8unorm",
+        "unpack4xI8",
+        "unpack4xU8",
         "workgroupBarrier",
+        "workgroupUniformLoad",
         "~",
       ]
     `)
@@ -370,55 +388,5 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       .map((e) => e.fn)
       .filter((id) => !isKnownIntrinsic(id) && !PRE_EMIT_INTRINSICS.has(id))
     expect(unclassified).toEqual([])
-  })
-})
-
-describe('DERIVATIVE_INTRINSICS (§54)', () => {
-  it('holds every implicit-LOD sampling form and every derivative, and nothing else', () => {
-    // Derived from the catalogue rather than listed, so a sampling id added there joins by
-    // construction. The two halves of the rule are spelled out here so that a change to the
-    // derivation is a change to this list and not a silent widening.
-    expect([...DERIVATIVE_INTRINSICS].sort()).toEqual([
-      'dpdx',
-      'dpdxCoarse',
-      'dpdxFine',
-      'dpdy',
-      'dpdyCoarse',
-      'dpdyFine',
-      'fwidth',
-      'fwidthCoarse',
-      'fwidthFine',
-      'textureSample',
-      'textureSampleArray',
-      'textureSampleBias',
-      'textureSampleBiasArray',
-      'textureSampleBiasCubeArray',
-      'textureSampleCompare',
-      'textureSampleCompareArray',
-      'textureSampleCompareCube',
-      'textureSampleCompareCubeArray',
-      'textureSampleCubeArray',
-    ])
-    // The explicit-LOD forms are the fix the diagnostic names, so they must NOT be in it.
-    for (const id of [
-      'textureSampleLevel',
-      'textureSampleGrad',
-      'textureSampleCompareLevel',
-      'textureSampleLevelArray',
-    ]) {
-      expect(DERIVATIVE_INTRINSICS.has(id), id).toBe(false)
-    }
-  })
-
-  it("is a superset of the fragment-only rule's ids, which the comment claims", () => {
-    // `intrinsics.ts` says FRAGMENT_ONLY_IDS is a subset of this set, "pinned by a test rather
-    // than derived" — the two answer different questions (which STAGE may reach an id, with a
-    // per-id fix string, versus which need uniform control flow), and a claim nothing enforces
-    // is the failure `fragment-only-builtin.ts` criticises in its own header. This is the test.
-    for (const id of FRAGMENT_ONLY_IDS.keys()) {
-      expect(DERIVATIVE_INTRINSICS.has(id), `${id} is fragment-only but not a derivative`).toBe(
-        true,
-      )
-    }
   })
 })

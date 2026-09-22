@@ -445,6 +445,34 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     renderable: true,
   },
   {
+    id: 'packing-bitcast',
+    title: 'Packing, bitcast and the constructors',
+    blurb:
+      'The portable builtins WGSL has that this surface lacked (§44): the pack/unpack family round-tripped per channel, `bitcast` reading the exponent bits of a coordinate, `quantizeToF16` on a vector, the zero-value `vec2()` and the type-argument `vec3<u32>(...)`, an `array(...)` that infers its own element and count, and `all`/`any` on a plain bool. GLSL ES 3.00 has six of the pack ids natively under other names, neither 4x8 form and no `quantizeToF16`; the gate runs both.',
+    renderable: true,
+  },
+  {
+    id: 'integer-math',
+    title: 'Integer abs and dot',
+    blurb:
+      'The two builtins the registry called portable and are not (§45): GLSL ES 3.00 has no `abs(uint)` and no integer `dot`, so an unsigned `abs` becomes the identity there and an integer `dot` becomes a `_idot` helper, while the signed `abs` and the float `dot` beside them keep the portable spelling as controls. The GLSL half links only because of the fix, so the gate is the test.',
+    renderable: true,
+  },
+  {
+    id: 'packed-bytes',
+    title: 'Packed 4x8 integer builtins',
+    blurb:
+      'The eight builtins that read a `u32` as four bytes or write four back (§47): both packed dot products, both unpacks and all four packs, truncating and saturating. WGSL-only — GLSL ES 3.00 has no form of any of them, so this one is `renderable: false` and the gate runs its Tint half alone, which is exactly what the `packed4x8Dot` capability promises. The values it computes were dispatched on a real device and read back, and the CPU oracle returns the same ones.',
+    renderable: false,
+  },
+  {
+    id: 'compute-sync',
+    title: 'Compare-exchange, uniform load, texture barrier',
+    blurb:
+      'The three synchronisation builtins WGSL has and this surface lacked (§48): `atomicCompareExchangeWeak`, whose result struct WGSL gives no writable name so it is bound by inference and read field by field; `workgroupUniformLoad`, a read of workgroup memory between two barriers that every invocation must reach; and `textureBarrier`. WebGPU-only — GLSL ES 3.00 has no compute stage — so this one is `renderable: false` and the gate runs its Tint half alone.',
+    renderable: false,
+  },
+  {
     id: 'clip-planes',
     title: 'User clip planes',
     blurb:
