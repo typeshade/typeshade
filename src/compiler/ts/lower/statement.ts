@@ -20,7 +20,12 @@ import {
   numericMismatch,
   retargetLit,
 } from '../numeric.js'
-import { retargetDeclaredIntLit, retargetIntLitCtx } from '../lit-coerce.js'
+import {
+  retargetDeclaredIntLit,
+  retargetIntLitCtx,
+  shiftAmountMessage,
+  shiftAmountOutOfRange,
+} from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { lowerCall } from './expression-call.js'
 import { lowerArrayLiteral } from './expression-array.js'
@@ -159,6 +164,41 @@ function lowerStatementNode(
     return lowerVariableStatement(node, sourceFile, scope, diagnostics)
   if (ts.isExpressionStatement(node))
     return lowerExpressionStatement(node, sourceFile, scope, diagnostics)
+  // Two shapes that deserve their own sentence rather than the catch-all below (§52). Both
+  // are recorded deferrals, not oversights: the reason is in the message and in the docs.
+  // `while (c)` is accepted and reads its bound from the CONDITION, not from a header
+  // (`lowerWhile` lowers it into the one loop node the IR has, with a synthetic counter), so
+  // "a do…while has no header" would not be the reason. The reason is the loop node itself:
+  // the IR has a single top-tested `for`, and a do…while runs its body once BEFORE the test,
+  // which that shape cannot express. WGSL spells it `loop { body; break if !(c); }`
+  // (wgsl.txt:11554, 11872-11878) and GLSL ES 3.00 has `do…while` outright — so both targets
+  // could carry it; what is missing is an IR node for a bottom-tested loop, and adding one
+  // means a new `Stmt` kind through all three backends and the trip-count analysis. A
+  // recorded deferral, not a target constraint.
+  if (ts.isDoStatement(node)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `do…while is not supported: the IR has one loop shape, a top-tested "for", and a ` +
+        `do…while runs its body before the first test. Write "while (c) { … }" with the ` +
+        `body's first pass unrolled above it, or a counted "for".`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
+  if (ts.isLabeledStatement(node)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `A labelled statement is not supported: neither WGSL nor GLSL ES 3.00 has a label, so ` +
+        `"${node.label.text}:" has nothing to name it for. Restructure with a flag, or hoist ` +
+        `the inner loop into a function and return from it.`,
+      TS_CODES.UNSUPPORTED,
+    )
+    return undefined
+  }
   pushDiag(
     diagnostics,
     sourceFile,
@@ -798,6 +838,29 @@ function lowerExpressionStatement(
     return lowerUpdate(expr, sourceFile, scope, diagnostics)
   }
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    // `_ = f()`, WGSL's phony assignment (§52): call it and drop the result, explicitly. It
+    // is what an author reaches for when a `@must_use` builtin's value is not wanted, and it
+    // read as `Cannot assign to unknown name "_"` before. `_` is only phony when nothing
+    // declares it, so a program with its own `_` keeps assigning to that.
+    if (ts.isIdentifier(expr.left) && expr.left.text === '_' && scope.resolve('_') === undefined) {
+      const dropped = lowerExpression(expr.right, sourceFile, scope, diagnostics)
+      if (!dropped) return undefined
+      if (dropped.op !== 'call') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          expr.right,
+          `"_ = ..." drops the result of a call. "${truncate(expr.right.getText(sourceFile))}" ` +
+            `is not one, so there is nothing to drop; remove the line.`,
+          TS_CODES.UNSUPPORTED,
+        )
+        return undefined
+      }
+      // The same IR a bare `f();` makes. The BACKEND decides whether the target needs the
+      // `_ = ` spelling — WGSL writes it for a builtin whose result is `@must_use`, GLSL
+      // never — so the author's `_` is a statement of intent, not a token to carry through.
+      return { s: 'call', expr: dropped }
+    }
     return lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics)
   }
   if (ts.isBinaryExpression(expr)) {
@@ -916,7 +979,7 @@ function lowerBitwiseAssignOp(
         sourceFile,
         right,
         isShift
-          ? `Bitwise "${bop}=" needs a non-negative shift amount, got ${String(folded.value)}.`
+          ? shiftAmountMessage(folded.value)
           : `Bitwise "${bop}=" on a u32 target needs a non-negative value, got ${String(folded.value)}.`,
         TS_CODES.TYPE_MISMATCH,
       )
@@ -924,19 +987,14 @@ function lowerBitwiseAssignOp(
     }
     value = { op: 'lit', type: want, value: folded.value }
   }
-  // A constant amount of 32 or more has no bit to shift into: WGSL makes it a shader-creation
-  // error and GLSL ES 3.00 leaves the result undefined, so it is refused here, as the negative
-  // amount above is. The fold is the one the loop bound uses, so `16 + 16` and a module const
-  // are caught with the literal; a runtime amount is left alone, since WGSL masks it (#71).
+  // A constant amount outside 0..31 has no bit to shift into: WGSL makes it a shader-creation
+  // error and GLSL ES 3.00 leaves the result undefined, so it is refused here (#71). The fold
+  // is the one the loop bound uses, so `16 + 16` and a module const are caught with the
+  // literal; a runtime amount is left alone, since WGSL masks it. `shiftAmountMessage` is the
+  // same sentence the binary path raises — one rule, one wording.
   const amount = isShift ? foldConstNumber(value, scope) : undefined
-  if (amount !== undefined && amount >= 32) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      right,
-      `Bitwise "${bop}=" needs a shift amount less than 32, got ${String(amount)}: a 32-bit integer has no bit to shift into.`,
-      TS_CODES.TYPE_MISMATCH,
-    )
+  if (amount !== undefined && shiftAmountOutOfRange(amount)) {
+    pushDiag(diagnostics, sourceFile, right, shiftAmountMessage(amount), TS_CODES.TYPE_MISMATCH)
     return undefined
   }
   if (isShift && typeKey(value.type) === 'i32') {
@@ -1162,12 +1220,10 @@ export function lowerLValue(
     )
     return undefined
   }
-  if (binding.kind === 'param')
-    return withSpan(
-      { op: 'param', type: binding.type, name: irNameOf(binding) } as Expr,
-      sourceFile,
-      node,
-    )
+  if (binding.kind === 'param') {
+    refuseParamWrite(node, node.text, sourceFile, diagnostics)
+    return undefined
+  }
   return withSpan(
     { op: 'varref', type: binding.type, name: irNameOf(binding) } as Expr,
     sourceFile,
@@ -1421,4 +1477,35 @@ function pushDiag(
 function truncate(s: string, n = 60): string {
   const t = s.replace(/\s+/g, ' ').trim()
   return t.length <= n ? t : t.slice(0, n) + '…'
+}
+
+/** A WHOLE-parameter write, refused for every spelling that reaches one: `a = v`, `a += v`,
+ *  `a++`. WGSL formal parameters are values, not references, and Tint says so outright:
+ *  `cannot assign to parameter 'a'` / `parameters are immutable`. The compiler emitted
+ *  `a = 1.0;` with zero diagnostics (§52), and the docs called it a bug it did not catch.
+ *
+ *  NOT shadowed by `var a = a;`, which is what the issue proposed: that is `redeclaration of
+ *  'a'` on the same Tint, because a WGSL function's parameters and its top-level locals share
+ *  one scope. A shadow would therefore have to RENAME the local, changing the identifier the
+ *  author wrote and a debugger shows, to save one line. So the line is asked for instead. A
+ *  write THROUGH a parameter (`p.x = 1.`) keeps its own message, which `checkRootWritable`
+ *  raises before this.
+ *
+ *  ONE function because the three spellings lower in two different files: `lowerAssign` here
+ *  and `lowerUpdate` in control.ts, which built its own `{ op: 'param' }` target and so
+ *  emitted `a = (a + 1);` past this rule until it called this. */
+export function refuseParamWrite(
+  node: ts.Node,
+  name: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `Cannot assign to "${name}" — a parameter is a value, not a variable. Copy it ` +
+      `into a local first: "let ${name}_ = ${name};", then write that.`,
+    TS_CODES.ASSIGN_TARGET,
+  )
 }

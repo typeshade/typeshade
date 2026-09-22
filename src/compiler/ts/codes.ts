@@ -28,7 +28,7 @@ export const TS_CODES = {
   TOP_LEVEL: 'TS8014',
   BACKEND: 'TS8015',
   INDEX_OOB: 'TS8016',
-  /** Invalid `switch` case: a label that is not an integer constant, does not fit the selector, or repeats another; a fall-through case body; or `continue` in a switch no loop encloses. */
+  /** Invalid `switch` case: a label that is not an integer constant, does not fit the selector, or repeats another; an empty clause with no body below it to share (a trailing one, or one above `default:`); or `continue` in a switch no loop encloses. */
   SWITCH_CASE: 'TS8017',
   /** An assignment or `++`/`--` target that is not a writable name (not an identifier, unknown, or a non-writable parameter). Assigning to a known immutable binding is `CONST_ASSIGN` instead. */
   ASSIGN_TARGET: 'TS8018',
@@ -128,6 +128,28 @@ export const TS_CODES = {
    *  an access mode that forbids the call — stays `TYPE_MISMATCH`: that is the binding's
    *  declaration, not the call's argument. */
   TEXTURE_ARGUMENT: 'TS8041',
+  /** A file-level `"enable <extension>";` directive (§50) naming an extension outside the
+   *  vocabulary the WGSL backend's capability profile carries a directive for
+   *  (`clip_distances`, `dual_source_blending`, `f16`, `primitive_index`, `subgroups`). A
+   *  misspelled name would otherwise be an ordinary string expression statement and silently
+   *  enable nothing. */
+  ENABLE_NAME: 'TS8050',
+  /** A buffer binding's store type breaks one of WGSL's host-shareable rules (§51), which a
+   *  struct hides from the type map and the backend only meets as emitted text: a `bool`
+   *  field in a `uniform` or `storage` struct (`type 'bool' cannot be used in address space
+   *  'uniform' as it is non-host-shareable`), a runtime-sized `array<T>` that is not its
+   *  struct's last member, or a runtime-sized array in a uniform, whose type must be
+   *  constructible. */
+  LAYOUT: 'TS8051',
+  /** A call that needs uniform control flow — `textureSample` and the other implicit-LOD
+   *  forms, the derivatives, or a barrier — reached under a condition that is not uniform
+   *  across the invocations that run together (§54). */
+  UNIFORMITY: 'TS8052',
+  /** A DEPRECATION warning, not an error: an integer-written literal in a declaration that
+   *  declares no type still becomes `f32` and will become `i32` (§13, #148).
+   *  Reported only when the caller asks for it with `deprecations: true`; the compiler's
+   *  behaviour has not changed. */
+  INT_LITERAL_DEPRECATION: 'TS8053',
   /** A declared name that a target reserves, checked on the name the emit actually carries
    *  (#103): `half` as a struct field, which ANGLE answers with "Illegal use of reserved
    *  word" in generated text the author never wrote, or `as` as a local, which Tint refuses.

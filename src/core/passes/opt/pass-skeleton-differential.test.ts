@@ -110,7 +110,7 @@ const PLANTED: ModuleDecl = {
         {
           s: 'switch',
           scrut: { op: 'lit', type: i32T, value: 0 },
-          cases: [{ value: 0, body: [letS('caseLit', lit(5.5)), setMut(vref('caseLit'))] }],
+          cases: [{ values: [0], body: [letS('caseLit', lit(5.5)), setMut(vref('caseLit'))] }],
           defaultBody: [letS('defLit', lit(6.5)), setMut(vref('defLit'))],
         },
         {

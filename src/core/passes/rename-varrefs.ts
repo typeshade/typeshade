@@ -156,7 +156,7 @@ export function rewriteExprsInFunc(f: FuncDecl, rewrite: (e: Expr) => Expr): Fun
           const body = walkBlock(c.body)
           if (body === c.body) return c
           casesChanged = true
-          return { value: c.value, body: body as Stmt[] }
+          return { values: c.values, body: body as Stmt[] }
         })
         const defaultBody = s.defaultBody ? walkBlock(s.defaultBody) : undefined
         return scrut === s.scrut && !casesChanged && defaultBody === s.defaultBody

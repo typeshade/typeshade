@@ -336,6 +336,41 @@ describe('reflect() reports the bindings a LOWERING injects, not just the declar
     })
     expect(reflect(plain).bindGroups.flatMap((g) => g.entries.map((e) => e.name))).toEqual(['p'])
   })
+
+  // §50 — the `requires` axis, the WGSL LANGUAGE extensions, which is a different list from
+  // `requiredFeatures` (the device features `enable` names) and answered against
+  // `navigator.gpu.wgslLanguageFeatures` rather than requested at requestDevice.
+  it('lists required language features', () => {
+    const rw = (access: 'write' | 'read_write'): ModuleDecl => ({
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'acc',
+          space: 'uniform',
+          type: { kind: 'storage-texture', dim: '2d', format: 'r32float', access },
+        },
+      ],
+      funcs: [
+        {
+          name: 'cs',
+          stage: 'compute',
+          workgroupSize: 64,
+          params: [],
+          ret: { kind: 'void' },
+          body: [],
+        },
+      ],
+    })
+    expect(reflect(rw('read_write')).requiredLanguageFeatures).toEqual([
+      'readonly_and_readwrite_storage_textures',
+    ])
+    // Write-only is core WGSL, so the list stays empty — which is what keeps this from
+    // being a rubber stamp that reports the feature for every storage texture.
+    expect(reflect(rw('write')).requiredLanguageFeatures).toEqual([])
+  })
 })
 
 // The matrix layout rows of wgsl.txt:15528-15640, and the one place the two targets part.

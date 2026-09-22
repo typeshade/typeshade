@@ -48,7 +48,14 @@ import type { AddressInfo } from 'node:net'
 import { chromium } from 'playwright'
 import { examples } from '../examples/index.js'
 import { shadeExamples } from '../examples/_shade.js'
-import { emitGlslModule, emitModule } from '../src/index.js'
+import {
+  emitGlslModule,
+  emitModule,
+  hostFeaturesFor,
+  reflect,
+  wgslBackend,
+  type Capability,
+} from '../src/index.js'
 
 /** The four flags that make WebGPU exist on SwiftShader. `--enable-unsafe-webgpu` alone
  *  leaves `'gpu' in navigator === false` without `--enable-unsafe-swiftshader`. */
@@ -77,6 +84,10 @@ interface Verdict {
 
 interface PageReport {
   readonly adapter: string
+  /** The optional device features the corpus asked for and this adapter granted. */
+  readonly granted: readonly string[]
+  /** The ones it asked for and this adapter does not have — printed, never silently dropped. */
+  readonly missing: readonly string[]
   /** The instrument check: did each compiler REPORT the deliberately broken shader? */
   readonly brokenWgslReported: boolean
   readonly brokenGlslReported: boolean
@@ -111,6 +122,16 @@ function jobs(): Job[] {
   })
 }
 
+/** The optional WebGPU features the corpus needs, derived from the modules themselves rather
+ *  than listed by hand: a capability an example requires translates into the `requiredFeatures`
+ *  string the WGSL target wants, which is exactly what a host would pass `requestDevice`. An
+ *  example that opts into nothing contributes nothing, so this is empty for most corpora. */
+function wantedFeatures(): string[] {
+  const caps = new Set<Capability>()
+  for (const ex of ALL_EXAMPLES) for (const c of reflect(ex.module).requiredFeatures) caps.add(c)
+  return [...new Set(hostFeaturesFor(wgslBackend, [...caps]))].sort()
+}
+
 /** A page on loopback — a secure context, so `navigator.gpu` exists. Serves one empty document. */
 function serve(): Promise<Server> {
   return new Promise((resolveServer) => {
@@ -123,13 +144,25 @@ function serve(): Promise<Server> {
 }
 
 /** Runs INSIDE the browser. Plain DOM + WebGPU + WebGL2 — nothing from this package. */
-async function compileInPage(input: { jobs: Job[]; broken: string }): Promise<PageReport> {
+async function compileInPage(input: {
+  jobs: Job[]
+  broken: string
+  wanted: string[]
+}): Promise<PageReport> {
   if (!('gpu' in navigator) || navigator.gpu === undefined) {
     throw new Error('navigator.gpu is absent — WebGPU is not reachable in this browser')
   }
   const adapter = await navigator.gpu.requestAdapter()
   if (adapter === null) throw new Error('requestAdapter() returned null — no WebGPU adapter')
-  const device = await adapter.requestDevice()
+  // The OPTIONAL features the corpus asks for, intersected with what this adapter has.
+  // `requestDevice()` with no list gives a device with none of them, and Tint then refuses
+  // `enable clip_distances;` with `extension 'clip_distances' is not allowed in the current
+  // environment` — which reads like a bad emit and is not one. An example that needs a
+  // feature the adapter genuinely lacks is reported below rather than silently compiled
+  // against a device that cannot honour it.
+  const granted = input.wanted.filter((f) => adapter.features.has(f as GPUFeatureName))
+  const missing = input.wanted.filter((f) => !adapter.features.has(f as GPUFeatureName))
+  const device = await adapter.requestDevice({ requiredFeatures: granted as GPUFeatureName[] })
   const info = adapter.info
   const adapterLabel = `${info.vendor || '?'} / ${info.architecture || '?'} / ${info.description || info.device || '?'}`
 
@@ -200,7 +233,14 @@ async function compileInPage(input: { jobs: Job[]; broken: string }): Promise<Pa
       glslErrors: job.glsl === null ? null : glslErrors(job.glsl.vertex, job.glsl.fragment),
     })
   }
-  return { adapter: adapterLabel, brokenWgslReported, brokenGlslReported, verdicts }
+  return {
+    adapter: adapterLabel,
+    granted,
+    missing,
+    brokenWgslReported,
+    brokenGlslReported,
+    verdicts,
+  }
 }
 
 async function main(): Promise<number> {
@@ -226,7 +266,11 @@ async function main(): Promise<number> {
   try {
     const page = await browser.newPage()
     await page.goto(`http://127.0.0.1:${String(port)}/`)
-    report = await page.evaluate(compileInPage, { jobs: all, broken: 'fn broken( {' })
+    report = await page.evaluate(compileInPage, {
+      jobs: all,
+      broken: 'fn broken( {',
+      wanted: wantedFeatures(),
+    })
   } finally {
     await browser.close()
     server.close()
@@ -234,6 +278,12 @@ async function main(): Promise<number> {
 
   let failures = 0
   console.log(`compile gate — WebGPU adapter: ${report.adapter}`)
+  if (report.granted.length > 0 || report.missing.length > 0) {
+    console.log(
+      `features: requested ${report.granted.join(', ') || '(none)'}` +
+        (report.missing.length > 0 ? ` · NOT on this adapter: ${report.missing.join(', ')}` : ''),
+    )
+  }
   // The instrument verdict is printed on BOTH paths. A check whose success is silent cannot be
   // told apart, in a CI log, from a check that was deleted — and this one is the only reason to
   // believe the greens below (CLAUDE.md §12: validate the instrument before believing a zero).

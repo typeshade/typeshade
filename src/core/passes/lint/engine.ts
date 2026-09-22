@@ -340,7 +340,7 @@ export function mapStmts(body: readonly Stmt[], f: (s: Stmt) => Stmt | null): St
     } else if (cur.s === 'switch') {
       cur = {
         ...cur,
-        cases: cur.cases.map((c) => ({ value: c.value, body: mapStmts(c.body, f) })),
+        cases: cur.cases.map((c) => ({ values: c.values, body: mapStmts(c.body, f) })),
         defaultBody: cur.defaultBody ? mapStmts(cur.defaultBody, f) : undefined,
       }
     }

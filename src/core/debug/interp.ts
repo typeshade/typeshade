@@ -661,7 +661,9 @@ export function* execBody(
       }
       case 'switch': {
         const v = (yield* evalExpr(s.scrut, env, ctx)) as number
-        const hit = s.cases.find((c) => c.value === v)
+        // A clause may hold SEVERAL selectors (`case 0, 1:` in WGSL), so the match is
+        // membership, not equality.
+        const hit = s.cases.find((c) => c.values.includes(v))
         const chosen = hit ? hit.body : s.defaultBody
         if (chosen) {
           const r = yield* execBody(chosen, env, ctx)

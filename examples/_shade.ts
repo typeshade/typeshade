@@ -560,6 +560,46 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
       'The three synchronisation builtins WGSL has and this surface lacked (§48): `atomicCompareExchangeWeak`, whose result struct WGSL gives no writable name so it is bound by inference and read field by field; `workgroupUniformLoad`, a read of workgroup memory between two barriers that every invocation must reach; and `textureBarrier`. WebGPU-only — GLSL ES 3.00 has no compute stage — so this one is `renderable: false` and the gate runs its Tint half alone.',
     renderable: false,
   },
+  {
+    id: 'clip-planes',
+    title: 'User clip planes',
+    blurb:
+      'Four user clip planes through `@builtin("clip_distances")`, the vertex output the rasterizer reads before it rasterizes (§50). Nothing in the source names a capability: writing the id derives `enable clip_distances;`, the `clipDistances` capability on `reflect().requiredFeatures` and the `clip-distances` feature the host requests at `requestDevice` — which the compile gate now does, so the Tint half runs it. The type is the one WGSL leaves to the author, `array<f32, N>` with N from 1 to 8, and the stage rule is checked at the authoring line.',
+    // GLSL ES 3.00 reaches `gl_ClipDistance` only through `EXT_clip_cull_distance`, which
+    // WebGL2 does not expose, so the capability has no row in that backend's profile and the
+    // module fails closed there naming it. Emitting a shader whose clip planes silently did
+    // nothing is the outcome that refusal exists to prevent.
+    renderable: false,
+  },
+  {
+    id: 'uniform-array',
+    title: 'A uniform holding a list',
+    blurb:
+      "A `uniform` holding `array<f32, 4>` — the one shape WGSL lays out differently from everything else (§51). Its uniform address space aligns every array element to 16 bytes, so four floats occupy four sixteen-byte slots; the compiler emits that padding itself, as a wrapper struct carrying `@size(16)` with the reads rewritten through it, so the bytes the WGSL declares are the bytes `reflect()` reports. GLSL ES 3.00's std140 gives `float[4]` the same stride natively, which is why the unpadded program links on WebGL2 and dies on WebGPU. The `array<vec4, 2>` beside it is the control: already 16 bytes an element, emitted as written.",
+    renderable: true,
+  },
+  {
+    id: 'id-pick',
+    title: 'An integer varying, and the interpolation it has no choice about',
+    blurb:
+      'Entry IO as WGSL declares it (§53). A `u32` at a `@location` is an INTEGRAL varying, and neither target can interpolate one: WGSL requires `@interpolate(flat)` on it (Tint: "integral user-defined vertex outputs must have a \'@interpolate(flat)\' attribute") and GLSL ES 3.00 requires `flat`. The compiler emitted the WGSL bare while the GLSL writer added the qualifier, so one source described two different programs; the attribute is derived from the type now, on both writers. Beside it, the two attributes that pass through as written: `@interpolate("perspective", "centroid")` on a float varying, which GLSL spells `smooth centroid`, and `@invariant` on the position, which it spells `invariant gl_Position;`.',
+    renderable: true,
+  },
+  {
+    id: 'sample-branch',
+    title: 'A sample under a branch, and the directive that allows it',
+    blurb:
+      'WGSL requires `textureSample` to be called from UNIFORM control flow (§54): the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. A sample inside an `if` on a varying is a shader-creation error — Tint: `\'textureSample\' must only be called from uniform control flow` — and the compiler emitted it with zero diagnostics. This file is the other half of the rule: the author who wants the branch anyway writes `@diagnostic("off", "derivative_uniformity")` on the entry, which emits WGSL\'s module-scope `diagnostic(off, derivative_uniformity);` and takes the module as written. Beside it, a sample under a `uniform` condition, which needs no directive because every invocation takes the same side of it.',
+    renderable: true,
+  },
+  {
+    id: 'voronoi-twin',
+    title: 'Voronoi (source twin)',
+    blurb:
+      "`voronoi.ts` written in the source language, and the gate for issue #40. The 3×3 neighbour scan is spelled the natural way — `for (let j: i32 = -1; j <= 1; j++)` — and that declaration was the one shape the source lowerer could not write: a negative literal is a `PrefixUnaryExpression`, so the two declaration sites that special-cased a `lit` node never saw it. The `for` init emitted `var j: i32 = -1.0;` with zero diagnostics, which Tint refuses with `cannot convert value of type 'abstract-float' to type 'i32'`, while `let k: i32 = -1` outside a loop was refused outright. Everything in the repo except the gate missed it, because no `.shade.ts` example had a signed loop counter. This one does.",
+    renderable: true,
+    twinOf: 'voronoi',
+  },
 ]
 
 /**

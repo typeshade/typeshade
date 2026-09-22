@@ -37,8 +37,23 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let word = insertBits(col, countOneBits(col), 8u, 4u);
   let _gv0 = f32(lead);
   let bands = vec3<f32>((_gv0 * 0.125), (f32(nibble) * 0.0625), (f32(extractBits(word, 8u, 4u)) * 0.125));
+  let shift = i32(lead);
+  let rolled = ((col << u32(shift)) & 255u);
+  let inverted = (~rolled & 255u);
+  var stepGain: f32 = 0.0;
+  switch (i32(nibble) & 3) {
+    case 0, 1: {
+      stepGain = 0.25;
+    }
+    case 2: {
+      stepGain = 0.5;
+    }
+    default: {
+      stepGain = 1.0;
+    }
+  }
   let edge = min(fwidthCoarse(_gv0), 1.0);
-  let lit = (bands * diffuse);
+  let lit = (((bands * diffuse) * stepGain) + vec3<f32>((f32(inverted) * 0.001953125), 0.0, 0.0));
   let tint = (bent * 0.1);
   let base = (lit + tint);
   let _lc0 = (highlight * gain);

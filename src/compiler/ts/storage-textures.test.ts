@@ -255,8 +255,17 @@ ${body}
     // `navigator.gpu.wgslLanguageFeatures` reports
     // `readonly_and_readwrite_storage_textures`, the module compiles with and without a
     // `requires` directive, and a `requires` naming a feature the browser lacks is refused —
-    // so the check belongs at the host, before the module is built, and the emitted source
-    // carries no directive.
+    // so the check belongs at the host, before the module is built.
+    //
+    // The DIRECTIVE is emitted as well, since §50 gave the `requires` axis a writer (#146):
+    // `requires readonly_and_readwrite_storage_textures;` is accepted by the Tint the compile
+    // gate runs, and a module binding a storage texture at `read` depends on the extension to
+    // be a program at all — the bare `read` access mode needs it too, so the directive names a
+    // dependency the module already has rather than adding one. Reporting it for the host to
+    // check and writing it in the source are both true; the assertion below is the reported
+    // half, and the emitted half is the line after it. Not every reported row is written:
+    // `packed_4x8_integer_dot_product` is reported and emits nothing, because those builtins
+    // compile bare and the directive changes nothing (see `REQUIRES_DIRECTIVE`).
     const readable = compile(
       compute(
         `declare const src: texture_storage_2d<"r32float", "read">\ndeclare let out: storage<array<u32>>`,
@@ -266,7 +275,7 @@ ${body}
     expect(reflect(readable.module!).requiredLanguageFeatures).toEqual([
       'readonly_and_readwrite_storage_textures',
     ])
-    expect(readable.wgsl).not.toContain('requires ')
+    expect(readable.wgsl).toContain('requires readonly_and_readwrite_storage_textures;')
     // A write-only storage texture is core WGSL and needs none.
     const writeOnly = compile(
       compute(

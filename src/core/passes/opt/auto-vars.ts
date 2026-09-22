@@ -160,7 +160,7 @@ function autoVarsFn(f: FuncDecl): FuncDecl {
         return {
           ...s,
           scrut: rewrite(s.scrut),
-          cases: s.cases.map((c) => ({ value: c.value, body: processBlock(c.body) })),
+          cases: s.cases.map((c) => ({ values: c.values, body: processBlock(c.body) })),
           defaultBody: s.defaultBody ? processBlock(s.defaultBody) : undefined,
         }
       default:

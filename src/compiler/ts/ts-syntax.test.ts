@@ -194,7 +194,9 @@ describe('the bitwise compound assignments', () => {
     // makes `y |= -2` work on an i32 target.
     expect(
       diagnose('export function f(i: i32): i32 {\n  let y: i32 = i;\n  y <<= -1;\n  return y;\n}'),
-    ).toBe('Bitwise "<<=" needs a non-negative shift amount, got -1.')
+    ).toBe(
+      'A shift amount must be between 0 and 31, got -1: a 32-bit integer has no bit to shift into.',
+    )
     expect(
       diagnose('export function f(i: u32): u32 {\n  let y: u32 = i;\n  y |= -2;\n  return y;\n}'),
     ).toBe('Bitwise "|=" on a u32 target needs a non-negative value, got -2.')
@@ -345,7 +347,7 @@ describe('switch, with the break TypeScript requires', () => {
     const sw = body.find((s) => s.s === 'switch')!
     expect(sw.s).toBe('switch')
     if (sw.s !== 'switch') return
-    expect(sw.cases.map((c) => c.value)).toEqual([0, 1])
+    expect(sw.cases.map((c) => c.values)).toEqual([[0], [1]])
     for (const c of sw.cases) expect(c.body.some((s) => s.s === 'break')).toBe(false)
   })
 
@@ -393,7 +395,7 @@ describe('switch, with the break TypeScript requires', () => {
     `)
     const sw = body.find((s) => s.s === 'switch')!
     if (sw.s !== 'switch') throw new Error('expected a switch')
-    expect(sw.cases.map((c) => c.value)).toEqual([-1, 2])
+    expect(sw.cases.map((c) => c.values)).toEqual([[-1], [2]])
     // The `const MODE: i32 = 2` line itself still emits as `2.0`; that is #13, in the
     // backend's emitConst, not this front end — the folded case value above is already 2.
   })
@@ -478,17 +480,25 @@ describe('switch, with the break TypeScript requires', () => {
         }
       `),
     ).toBe('switch case must be an integer constant: a literal or a module const.')
+    // `case 0: case 1:` is NOT one of these any more (§52): an empty clause above a full one
+    // is how TypeScript spells two selectors sharing a body, which is `case 0, 1:` in WGSL.
+    // What is still refused is an empty clause above `default:`, which shares nothing: WGSL's
+    // selector list cannot carry `default`, so the selector would have to attach to some
+    // OTHER clause's body — and until this was refused, that is what it silently did.
     expect(
       diagnose(`
         export function f(x: i32): f32 {
           switch (x) {
-            case 0:
-            case 1: return 1.;
+            case 0: return 1.;
+            case 2:
             default: return 0.;
           }
         }
       `),
-    ).toBe('switch case fall-through is not allowed.')
+    ).toBe(
+      'switch case 2 sits above "default:" with no body of its own. A case that should do ' +
+        "what the default does needs its own body; WGSL has no form for sharing the default's.",
+    )
   })
 
   it('refuses a label the selector cannot hold, and one that repeats', () => {

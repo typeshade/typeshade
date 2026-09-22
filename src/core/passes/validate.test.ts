@@ -97,6 +97,15 @@ describe('X-GIS #763 V1 — CORE rule firing fixtures', () => {
       // name is a SILENT miscompile on every backend (two sibling scopes binding `t` folded
       // to the same literal at O1), not a style opinion.
       'no-shadowed-local',
+      // §50 — a `@builtin(...)` id declared with a type WGSL does not give it. CORE because
+      // the CAPABILITY is derived from the same IR read: a struct declaring
+      // `@builtin(clip_distances)` emits `enable clip_distances;` whatever the struct is used
+      // for, so the type rule has to be read off the IR too, on every surface.
+      'builtin-value-type',
+      // A vertex output and the fragment input reading it must agree slot for slot (§53): both
+      // writers emit the two declarations from the same fields, and a drift between them is
+      // clean text on both targets that fails at pipeline creation.
+      'interstage-io',
     ])
   })
 })

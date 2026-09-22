@@ -11,6 +11,19 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ## [Unreleased]
 
+### Changed
+
+- **A barrier's placement rule is the spec's, not a stricter one** (§54,
+  [#161](https://github.com/typeshade/typeshade/issues/161)). `workgroupBarrier()` and
+  `storageBarrier()` were refused inside any `if` or `switch` at all. What WGSL and Tint refuse
+  is a branch on a value the invocations do not share: measured on Chromium 141 and 153 alike,
+  a barrier under a condition on a uniform buffer value is ACCEPTED, and one under
+  `if (id.x > 4u)` on `local_invocation_id` is `'workgroupBarrier' must only be called from
+uniform control flow`. The rule is now the uniformity walk's verdict, which reports a barrier
+  unless the control flow is PROVABLY uniform — so a kernel branching on a dispatch-wide flag
+  compiles, a shape the walk cannot read keeps the refusal it had, and the code that moved is
+  `TS8034` becoming `TS8052`.
+
 ### Removed
 
 - **`perInvocation<T>`, the second spelling of the per-invocation variable** (§24,
@@ -194,6 +207,305 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   WGSL on Tint and GLSL ES 3.00 on a real WebGL2 context, with nothing crossing its entry
   boundary, and its numeric core is evaluated twice — on the oracle as a double and on the lowered module under f32 rounding — with a
   discriminative case plain `f32` provably cannot compute.
+
+- **A deprecation window before an integer-written literal types as `i32`** (§13,
+  [#148](https://github.com/typeshade/typeshade/issues/148)). Where nothing declares a type —
+  `let i = 0`, `const K = 5` — a literal still takes `f32`, so `xs[i]` is `Index must be i32 or
+u32`. WGSL concretizes an abstract integer to `i32` when nothing else decides, GLSL's `5` is
+  an `int`, and a TypeScript reader expects `let i = 0` to index an array, so that default will
+  change. **It has not changed here.** This release carries step one of the window and nothing
+  else: `compile(source, { deprecations: true })` reports a `TS8053` WARNING on every
+  declaration the flip will move, naming the one-line edit that keeps `f32`, and the flag moves
+  no emitted byte — `wgsl` and `glsl` are byte-identical with it on and with it off, which is
+  what makes it safe to turn on in a build. A literal written as a float, and one in a position
+  that declares a type, are both left alone: the flip does not move them.
+
+  `RELEASING.md` §7 now states the policy a meaning change follows — one release with the
+  diagnostic and no behaviour change, then one release that flips the default as a breaking
+  change with every golden re-baked and reviewed — and carries the list of windows that are
+  open. A change to what a spelling ACCEPTS breaks nobody; a change to what it MEANS breaks
+  everybody, silently, and a shader is the hardest place to see a silent change.
+
+- **Derivative uniformity is analysed, or switched off on request, before Tint sees the module**
+  (§54, [#161](https://github.com/typeshade/typeshade/issues/161)). WGSL requires
+  `textureSample`, `textureSampleBias`, `textureSampleCompare` and the screen-space derivatives
+  to be called from uniform control flow, and its `derivative_uniformity` rule has default
+  severity `error`. `textureSample` inside an `if` on a fragment input compiled here with zero
+  diagnostics and died at `createShaderModule`. It is refused at the call now, naming the value
+  the control flow depends on — `"VsOut.uv" (a fragment input at @location(0))` — and the three
+  ways out: hoist the call, use `textureSampleLevel`, or write
+  `@diagnostic("off", "derivative_uniformity")` on the entry, which emits WGSL's module-scope
+  `diagnostic(off, derivative_uniformity);` and takes the module as written.
+  `examples/sample-branch.shade.ts` compiles that whole path on Tint and on ANGLE.
+
+  Measured on Chromium 141 (`chromium_headless_shell-1194`) and 153
+  (`chromium_headless_shell-1243`, the build CI installs), identically on both, with the
+  broken-shader instrument check passing on both compilers first: the bare form is
+  `'textureSample' must only be called from uniform control flow`, the same under a uniform
+  buffer value is accepted, `textureSampleLevel` is accepted anywhere, `dpdx` gets the same
+  message, and both spellings of the diagnostic filter are accepted. All of it is reported by
+  `createShaderModule` rather than only by `createRenderPipeline`, so the compile gate already
+  runs Tint's own check on every example and needs no pipeline leg — the issue's acceptance
+  item rests on a premise the measurement disproves.
+
+  The severity is honoured rather than merely emitted: `off` silences the rule, `info` and
+  `warning` demote it to a warning, `error` is the default it already has — and none of them
+  silences a BARRIER, whose requirement is not `derivative_uniformity` and is not filterable
+  (measured: Tint still answers `'workgroupBarrier' must only be called from uniform control
+flow` with the directive in the module).
+
+  The analysis is three-valued on purpose, because the two callers want opposite answers from
+  one walk: a derivative is refused only when its control flow is DEFINITELY non-uniform, so
+  anything the walk cannot follow goes through to Tint rather than becoming a false positive;
+  a barrier is reported unless its control flow is DEFINITELY uniform, so the relaxation can
+  only ever admit what has been proven and a shape the walk cannot read keeps its old refusal.
+  It is FLOW-SENSITIVE — the environment threaded in statement order, branches merged at their
+  join, loop bodies iterated to a fixpoint — and INTERPROCEDURAL, with entries starting uniform
+  and each call site handing its callee both the control flow it is reached under and the class
+  of each argument, joined per parameter position. Both are what make those thresholds true
+  rather than merely stated: order decides, so `let g = v.uv.x; g = 0.25;
+if (g > 0.5)` is accepted as Tint accepts it, and a copy chain of any length is followed, so
+  a barrier under one is refused as Tint refuses it. A call into a user function is AT LEAST
+  `unknown` and AT MOST as uniform as the arguments its RESULT DEPENDS ON — never `uniform`,
+  since its body can read a module `var` or a built-in value the walk never sees; never more
+  uniform than the arguments that reach the result, since otherwise a one-line helper launders
+  the value; and never less, since an argument spent on a local, a side effect or a branch the
+  return does not sit under cannot make the value vary. The fixpoint therefore computes a
+  SUMMARY per function — the parameter positions its return value depends on, by data and by
+  control dependence, transitively through its own callees — and a call site joins those
+  arguments alone. Measured on Chromium 141, instrument first: Tint refuses
+  `if (edge(v.uv.x)) { textureSample(…) }` for an `edge` that is just `x > 0.5`, refuses a
+  sample under `if (x > 0.5)` inside a helper called as `shade(v.uv.x, …)`, and ACCEPTS
+  `if (lightingMode(v.uv, k)) { … }` where the helper's answer comes from the uniform `mode` —
+  so a helper is not a policy boundary in either direction. All nine programs are pinned in one
+  table, because this arm was answered wrong twice before, each time in the direction opposite
+  the last.
+
+  Two more rules, both found as FALSE PROOFS rather than gaps. A write's TARGET is a
+  computation: `a[u32(x)] = y` makes every element of `a` depend on `x`, and reading only the
+  assigned value and the enclosing branch accepted a sample under `if (idx(v.uv.x, k) > 0.5)`,
+  which Tint refuses — so the target's index expressions now join the written variable's class,
+  in the walk and in the summary alike. And a read of `private`, `workgroup` or `read_write`
+  storage is NON-UNIFORM BY ADDRESS SPACE, with no regard for what was written into it: that is
+  Tint's own rule, measured down to its refusing a read of a variable nothing in the module
+  writes, and `workgroupUniformLoad` is the carve-out — uniform by construction, and with a
+  workgroup read non-uniform on sight it is the only spelling left that can carry a barrier.
+  A `uniform` binding, a read-only storage binding, a module `const` and an `override` stay
+  uniform. One bit on the return summary carries the answer out of a nullary helper, since a
+  call's class floors at `unknown` and never looks inside a body. Every row was measured on
+  Chromium 141 with the instrument reporting first, and no example in the corpus refuses under
+  the new rule. A `return` under a non-uniform condition makes everything after it
+  non-uniform; a `discard` does not, both measured — an invocation that discards is demoted to
+  a helper and goes on contributing the neighbour a derivative differences against, which is
+  why `discard` beside `fwidth` is the ordinary antialiased-cutout idiom. GLSL ES 3.00 needs
+  none of it — an implicit derivative in non-uniform control flow is undefined there rather
+  than refused — and its text does not move.
+
+- **Entry IO attributes, and the interpolation an integer varying has no choice about** (§53,
+  [#158](https://github.com/typeshade/typeshade/issues/158)). WGSL requires every integral
+  user-defined IO to carry `@interpolate(flat)` — there is no interpolation for a `u32` — and
+  the compiler emitted `@location(0) id: u32,` bare while the GLSL writer had always added
+  `flat`. One source described two different programs, and the WGSL half was one Tint refuses.
+  Measured on Chromium 141 (`chromium_headless_shell-1194`), with the broken-shader instrument
+  check passing on both compilers first: the bare WGSL form is `integral user-defined vertex
+outputs must have a '@interpolate(flat)' attribute` and the bare GLSL form is `'in' : must
+use 'flat' interpolation here`; both are accepted with the qualifier. The attribute is
+  derived from the TYPE now, for a scalar and a vector alike, on both writers, and for both
+  spellings of a varying — a struct field and a bare entry parameter, which reaches no struct
+  and so stayed bare (`integral user-defined fragment inputs must have a '@interpolate(flat)'
+attribute`). A vertex entry's `@location` parameters are vertex attributes, not varyings, and
+  are left alone. `examples/id-pick.shade.ts` compiles it on Tint and on ANGLE.
+
+  `@interpolate`, `@invariant` and `@blend_src` are attributes an author writes, and all three
+  reach the emitted struct: `@interpolate("perspective", "centroid")` is
+  `@interpolate(perspective, centroid)` on WGSL and `smooth centroid` on GLSL ES 3.00,
+  `@invariant` on `@builtin("position")` is `invariant gl_Position;` there, and a
+  `@blend_src(0)` / `@blend_src(1)` pair at one `@location` derives the `dualSourceBlending`
+  capability and emits `enable dual_source_blending;`. The three shapes GLSL ES 3.00 does not
+  have — `"linear"`, the `"sample"` position, and the second blend source — fail the module
+  CLOSED there rather than emitting something else: it simply has no GLSL half, the way a
+  storage texture already does not. No example carries `@blend_src`:
+  `adapter.features.has('dual-source-blending')` is false on the gate's adapter and Tint
+  answers `extension 'dual_source_blending' is not allowed in the current environment`, so a
+  gate example would test the adapter rather than the emit.
+
+  **And seven shapes that emitted clean text nothing would run.** A `bool` at a `@location`;
+  two members at one `@location` (a dual-source pair excepted — there the slot is the location
+  AND the blend source), checked after `extends` splices a base's fields in and across an
+  entry's parameter list as well as a struct; a `@location` on a compute entry, in both the
+  bare-parameter and the struct spelling; a `@builtin` declared with a type WGSL does not give
+  it; a non-`flat` `@interpolate` on an integer varying, which Tint refuses with
+  `interpolation type must be 'flat' for integral user-defined IO types` while GLSL answers
+  from the type and emits `flat` regardless; a `@blend_src` with no pair; and a vertex output
+  and fragment input that disagree at one slot. The interstage pair is compared in WGSL's own
+  canonical form, so `@interpolate(flat)` and `@interpolate(flat, first)` are one answer and so
+  are `@interpolate(perspective, center)` and no attribute at all — comparing the spelling
+  refused pairs both targets take. The last
+  is the one that needed somewhere new to live: when both stages share a struct they agree by
+  construction, but two structs — which is what an author writes when the fragment reads a
+  subset — let them drift, and a `vec2` output read as a `vec3` input emitted clean WGSL and
+  clean GLSL with the failure arriving at pipeline creation, in a message naming neither struct
+  nor field. It is a CORE lint rule on the IR, so every authoring surface is covered at every
+  emit, and the front end runs the same function to point at the fragment declaration. A vertex
+  output the fragment ignores stays legal: WGSL constrains only the slots the fragment names.
+  The slot and varying-type rules moved to the struct collector on the way, because raising
+  them per entry printed one mistake twice — a vertex output and a fragment input are the same
+  struct.
+
+- **Operators, switch and statements as WGSL spells them** (§52,
+  [#160](https://github.com/typeshade/typeshade/issues/160)). A shift amount is a `u32`
+  whatever it shifts: `x << n` with an `i32` `n` emitted `(x << n)`, which Tint refuses with
+  `no matching overload for 'operator << (i32, i32)'`, while `x << 1u` — the one spelling it
+  accepts — was refused here by the equal-types rule. The binary path now casts the way the
+  compound path always did, retyping a bare integer literal rather than wrapping it; `&`, `|`
+  and `^` keep the equal-types rule. The kind rule reads the ELEMENT, so `vec2u << vec2u` is
+  two lanes shifted rather than a type error, and a `vec2i` amount takes the same conversion
+  one lane wider; a scalar amount on a vector target is refused naming the splat, because
+  WGSL's only vector overload is `vecN<T> << vecN<u32>`. Measured on Chromium 141
+  (`chromium_headless_shell-1194`): Tint takes `vec2<u32> << vec2<u32>` and
+  `vec2<i32> << vec2<u32>`, and refuses both `vec2<i32> << vec2<i32>` and
+  `vec2<u32> << u32` with `no matching overload`, while ANGLE takes all four — so the
+  conversion is load-bearing and the broadcast GLSL ES 3.00 §5.9 allows is refused here. There
+  is no gate example for it: TypeScript's own `<<` yields `number`, so a lane-wise shift is
+  TS2322 under the ambient lib before the compiler sees it, and the rule lives in the lowering
+  to keep one kind rule across `&`, `|`, `^` and the scalar shifts. `~x` lowers to `~x` on both targets, with the CPU oracle
+  routing it by the static kind (`~5` is `-6` on an `i32`, `4294967290` on a `u32`); unary `+`
+  is the identity both targets give it; and `-u` on a `u32` is refused naming both fixes,
+  since WGSL defines unary minus for the signed and float kinds only. One switch clause may
+  carry several selectors: `case 0: case 1:` is `case 0, 1:` on WGSL and stacked labels on
+  GLSL ES 3.00, which is what the IR now holds, and it used to be refused as "fall-through" —
+  the one shape that is not fall-through. An empty clause above `default:` is refused instead
+  of joined, because a WGSL selector list cannot carry `default` and the selector would have to
+  attach to some other clause's body: `case 1: default: r = 10.; break; case 2: r = 20.;`
+  lowered to `case 1, 2: { r = 20.0; }` beside `default: { r = 10.0; }`, so `f(1)` was 20 on
+  both GPUs and in the oracle where TypeScript says 10. The mirror image is refused too: an
+  empty `default:` with a clause after it falls through into that clause in TypeScript and
+  runs nothing on both targets, and it emitted `default: { }` with no diagnostic. An empty
+  `default:` as the last clause does nothing in either language and stays legal. Calling an entry point is refused, `_ = f()` is
+  WGSL's phony assignment rather than an unknown name — and has no second meaning, since §62's
+  reserved-name rule refuses a local of that name — and a decimal literal past the f32 range is
+  refused instead of reaching the writer as `1e+40`.
+
+  **A parameter is a value, and the shadow that would have hidden it is not spellable.**
+  `a = 1.` emitted `a = 1.0;`, which Tint refuses (`cannot assign to parameter 'a'`); the
+  docs called it a bug the compiler did not catch. It is caught now, with the line to add in
+  the message. The obvious fix — shadowing the parameter with `var a = a;` — was measured on
+  Chromium 141 and is `redeclaration of 'a'`, because a WGSL function's parameters and its
+  top-level locals share one scope; a shadow would have to rename what the author wrote, so
+  the line is asked for instead. Every spelling that writes a parameter reaches the rule, not
+  just `a = v`: `a++`, `++a`, `a--` and a `for` whose update is `a += k` each built their own
+  write target and so emitted `a = (a + 1);` past it; one function raises it now, so the three
+  sites cannot drift apart again.
+
+  `do … while` and a labelled `break` are likewise refused with their own reason rather than the
+  catch-all. For the first the reason is the IR's loop node, not a missing header — `while (c)`
+  has no header either and is accepted, reading its bound from the condition. The IR has one
+  loop shape, a top-tested `for`, and a `do … while` runs its body before the first test; both
+  targets could carry it (`loop { body; break if !(c); }` on WGSL, `do … while` outright on
+  GLSL ES 3.00), so what is missing is a bottom-tested `Stmt` kind through all three backends
+  and the trip-count analysis. It is a recorded deferral, and its code says so: `TS8099`, not
+  the loop-bound code it borrowed. Neither target has a label for the second.
+
+  The bitwise complement's intrinsic id is the operator `~`, not a name. CSE keys a call by its
+  `fn` alone, so an id an author could also spell would let a user function of that name and
+  `~x` fold into each other — silently, on the GPU and in the oracle alike; `~` is not a
+  TypeScript identifier, so no declaration can collide with it.
+
+- **A uniform lays out the bytes `reflect()` reports** (§51,
+  [#156](https://github.com/typeshade/typeshade/issues/156)). WGSL's uniform address space
+  aligns every array element to 16 bytes, so `array<f32, 4>` in a `uniform` is sixty-four bytes
+  and not sixteen. The compiler emitted it as written, with zero diagnostics, while `reflect()`
+  had always reported it at stride 16 — the emit and the reflection described different memory,
+  and the GLSL ES 3.00 std140 block linked on WebGL2 with the layout reflection described. The
+  WGSL writer now pads: a wrapper struct carrying `@size(16)` for the element stride,
+  `@align(16)` on the member for the array's offset, and every read rewritten one field deeper
+  (`U.xs[i].v`). Both attributes are load-bearing — a struct's alignment comes from its members
+  and `@size` does not raise it, so with the stride alone a member following a scalar lands at
+  offset 4, which is the same disagreement one level down. Where a padded array is read WHOLE
+  rather than indexed — a local, a call argument, a return, a struct built by value — the
+  authored array is rebuilt from its elements rather than letting the wrapper type leak.
+  A storage array is untouched (std430 has no such rule) and the GLSL text does not move, since
+  std140 gives `float[4]` the 16-byte stride natively.
+
+  **What was measured, and on which build.** Chromium 141 (`chromium_headless_shell-1194`) has
+  no `uniform_buffer_standard_layout` language feature and therefore refuses the unpadded module
+  (`'uniform' storage requires that array elements are aligned to 16 bytes, but array element of
+type 'f32' has a stride of 4 bytes`), refuses `@align(16) @size(64)` on the member of a bare
+  array with the same text (the stride rule is on the element), and reports the padded struct's
+  offsets as exactly the ones `reflect()` gives, checked by hand on nine shapes. Chromium 153 —
+  what `gate:compile` launches when `TYPESHADE_CHROMIUM` is unset, and what CI installs — HAS
+  that feature and accepts the unpadded form. So the padding is not justified by "every driver
+  refuses it": it is justified by emit and reflection agreeing, and by the module running where
+  the relaxation is absent. A green compile gate is not evidence for it;
+  `src/compiler/ts/uniform-layout.test.ts` and the `emit-reflection-conformance` sweep are.
+  `examples/uniform-array.shade.ts` runs on both halves of the gate as the two-target example.
+
+  **What the padding cannot reach is refused, not emitted.** A list of lists needs the rule at
+  both levels and has one member to carry the attribute; a bare list as the whole binding has no
+  member at all, and `reflect().uniforms` describes nothing for it; and one struct bound as both
+  a uniform and a storage buffer would have its storage half's bytes moved by padding the
+  uniform half. Each is refused naming the shape and the fix, and a list of `vec4` is exempt
+  from all three.
+
+  **Three shapes a struct used to hide.** A field's type does not say which address space it
+  lands in, so each of these reached a backend as text a driver refuses: `bool` in a `uniform`
+  or `storage` struct (`type 'bool' cannot be used in address space 'uniform' as it is
+non-host-shareable` on both builds, and silently emitted into the std140 block by the GLSL
+  writer — a divergence between the targets, not a shared failure), a runtime-sized `array<T>`
+  that is not its struct's last field, and a runtime-sized array in a uniform. All three are
+  `TS8051`. Separately, `array<T, 0>` and a negative or fractional length are refused at the
+  type as `TS8002`, wherever written. A `bool` local, parameter or return is untouched: the
+  rules are about host-shared bytes. `@size` and `@align` stay refused as author attributes,
+  because applying them would mean teaching the layout engine `reflect()` shares with the GLSL
+  writer to read them, and a half-applied attribute is the disagreement this change closes.
+
+- **`enable`, `requires`, and the built-in values behind an extension** (§50,
+  [#146](https://github.com/typeshade/typeshade/issues/146)). WGSL puts
+  some built-in values behind an `enable` extension, and writing the id is now the whole
+  declaration: `@builtin("clip_distances")` derives `enable clip_distances;`, the neutral
+  capability `clipDistances` on `reflect().requiredFeatures` and the host feature
+  `clip-distances`, and `@builtin("primitive_index")` the same for `primitiveIndex`. Both were
+  previously unreachable or silently wrong — `clip_distances` was admitted by name with no
+  stage rule and no size rule, so it sat on a fragment input and emitted WGSL Tint refuses
+  (`use of '@builtin(clip_distances)' requires enabling extension 'clip_distances'`). Each id
+  now carries its stage, direction and type at the authoring line: `clip_distances` is a vertex
+  output of `array<f32, N>` with N from 1 to 8, `primitive_index` a `u32` fragment input, and
+  the subgroup pair is accepted on a fragment entry as well as a compute one, which the spec
+  always gave it. All four fail closed on GLSL ES 3.00, which has no row for any of them. The
+  two extensions no use can derive have an author spelling at last: a `"enable subgroups"`
+  string directive beside `"use typeshade"`, whose vocabulary is the WGSL backend's capability
+  profile — `clip_distances`, `f16`, `primitive_index` and `subgroups` when this landed, and
+  `dual_source_blending` since §53 — and whose misspelling is `TS8050` naming that list and
+  enabling nothing. The other WGSL axis is reported too:
+  `reflect().requiredLanguageFeatures` lists the language extensions a module needs and the
+  writer emits `requires <feature>;`, with one row today —
+  `readonly_and_readwrite_storage_textures` for a storage texture bound `read` or `read_write`,
+  since core WGSL gives one `write` only. Measured against the Tint the compile gate runs:
+  `requires readonly_and_readwrite_storage_textures;` is accepted;
+  `requires uniform_buffer_standard_layout;` is refused by Chromium 141 and accepted by
+  Chromium 153, and is emitted by neither — a `requires` naming a feature an implementation
+  lacks is itself a shader-creation error, so it could only narrow where a module runs;
+  `@builtin("global_invocation_index")`, `@builtin("workgroup_index")` and
+  `@builtin("frag_depth", "less")` are all refused by that Tint, so none of the three is
+  admitted and §50 records each with its message. A file that enables nothing emits the bytes
+  it always did.
+
+  **The compile gate asks for the features the corpus needs.** An extension-gated id costs a
+  device feature, and `requestDevice()` with no `requiredFeatures` gives a device with none —
+  Tint then says `extension 'clip_distances' is not allowed in the current environment`, which
+  reads like a bad emit and is not one. `scripts/compile-gate.ts` now derives the list from the
+  modules themselves (`hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures)`), requests
+  what the adapter has and prints what it lacks. `examples/clip-planes.shade.ts` is the new
+  evidence: four user clip planes, WGSL-only, compiling on the gate's real Tint.
+  `primitive_index` gets no example — `primitive-index` is not among that adapter's features —
+  so its emit is pinned by `src/compiler/ts/builtin-values.test.ts`, and its host-feature
+  string is the one value here no measurement could confirm. The one existing example whose
+  bytes moved is `examples/storage-texture.shade.ts`, which now leads with `requires
+readonly_and_readwrite_storage_textures;` for its `read_write` binding; that directive can
+  only ever narrow what compiles, since a `requires` naming a feature an implementation lacks
+  is itself a shader-creation error, and the feature is present on every WebGPU this compiler
+  targets (measured in `navigator.gpu.wgslLanguageFeatures`).
+
 - **The determinism report** (§38, roadmap 0.7 item 22). `compile()` returns `determinism`, the
   operations in the module whose result may differ by driver: a builtin WGSL §15.7.4 gives a
   ULP or absolute bound (`sin`, `exp`, `atan2`, `/`), one inherited from a formula the driver

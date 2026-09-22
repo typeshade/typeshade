@@ -54,7 +54,7 @@ function ddStmt(s: Stmt): Stmt[] {
       return [
         {
           ...s,
-          cases: s.cases.map((c) => ({ value: c.value, body: ddBody(c.body) })),
+          cases: s.cases.map((c) => ({ values: c.values, body: ddBody(c.body) })),
           defaultBody: s.defaultBody ? ddBody(s.defaultBody) : undefined,
         },
       ]

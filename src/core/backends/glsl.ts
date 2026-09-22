@@ -67,6 +67,7 @@ import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../f
 import { bodyHasRaw } from '../passes/opt/dce.js'
 import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js'
 import { singleExitBody } from '../passes/single-exit.js'
+import { isIntegerVarying } from '../passes/varying-interpolate.js'
 import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js'
 import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js'
 import { reachFrom } from '../passes/stage-bindings.js'
@@ -83,6 +84,7 @@ import {
   type ParenMode,
 } from '../emit.js'
 import { autoVars } from '../passes/opt/index.js'
+import { requiredCaps } from '../passes/required-caps.js'
 import { wgslLayout } from '../reflect.js'
 import { sanitizeReservedIdents } from './glsl-sanitize.js'
 import { hoistDiscardingCtorArgs } from './glsl-legalize.js'
@@ -223,13 +225,10 @@ function glslType(t: ShaderType): string {
   }
 }
 
-// An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage varyings.
-function isIntType(t: ShaderType): boolean {
-  return (
-    (t.kind === 'scalar' && (t.scalar === 'i32' || t.scalar === 'u32')) ||
-    (t.kind === 'vec' && (t.elem === 'i32' || t.elem === 'u32'))
-  )
-}
+// An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage
+// varyings, and so does WGSL. ONE predicate for both writers and for the interstage rule
+// (§53): the spelling differs per target, the question does not.
+const isIntType = isIntegerVarying
 
 function glslLit(value: number | boolean, t: ShaderType): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false'
@@ -432,12 +431,14 @@ function structByName(structs: ReadonlyMap<string, StructDecl>, name: string): S
  *  NO rows for `storageBuffer` / `compute` / `msaaTextureLoad` / `storageTexture` (WebGL2
  *  has no SSBOs, no compute stage, no MSAA texel fetch, and no image load/store — that last
  *  one is ES 3.10, measured on a driver: `layout(rgba8) uniform writeonly image2D` is
- *  "invalid layout qualifier: not supported") and none for `f16` / `subgroups` (WGSL `enable`
- *  language features with no GLSL ES 3.00 counterpart). FIVE of the six fail closed
- *  here, naming the cap; `storageBuffer` is the exception and does NOT — a storage module
+ *  "invalid layout qualifier: not supported") and none for `f16` / `subgroups` /
+ *  `clipDistances` / `primitiveIndex` (WGSL `enable` language features with no GLSL ES 3.00
+ *  counterpart; the last two are derived from a `@builtin(...)` id rather than declared, §50).
+ *  SEVEN of the eight fail closed here, naming the cap; `storageBuffer` is the exception and
+ *  does NOT — a storage module
  *  is REWRITTEN to a data texture (lowerStorageToDataTexture) BEFORE the gate runs, so by
  *  the time assertCaps looks there is no storage binding left to require it. The
- *  profile's emptiness for all six is the pinned invariant either way, not an oversight
+ *  profile's emptiness for all eight is the pinned invariant either way, not an oversight
  *  (extension-profile.test.ts, passes/required-caps.test.ts, enable-directives.test.ts).
  *
  *  The three HOST-side rows cost ZERO emitted bytes: WebGL2 activates them through
@@ -522,6 +523,10 @@ export const glslEs300Backend: Backend = {
   // oracle's JS `%` (also trunc-mod), so all three backends now agree.
   floatMod: (a, b) => `(${a} - ${b} * trunc(${a} / ${b}))`,
   // C-style GLSL switch falls through — each case must `break` or it leaks into the next.
+  // GLSL ES 3.00 has no label LIST: several selectors sharing one body are STACKED labels,
+  // which that spec explicitly allows ("Fall through labels are allowed", §6.2). WGSL's
+  // `case 0, 1:` is a parse error here.
+  caseLabels: (labels) => labels.map((l) => `case ${l}:`).join(' '),
   caseBreak: 'break;',
   // X-GIS #1671 — emit THIS target's payload. A raw carrying only the WGSL spelling
   // still cannot lower (raw text is opaque to the IR, so there is nothing to
@@ -631,8 +636,14 @@ export const glslEs300Backend: Backend = {
   // Bare lines, NO trailing separator — the one contract every backend's preamble keeps
   // (backend.ts); here the caller splices the result as ONE `parts` entry and `parts` are
   // joined with '\n', so the separator is already the assembler's.
+  //
+  // `requiredCaps(m)`, not `m.enables`, the same authority the WGSL preamble reads (§50): a
+  // capability may be DERIVED from a `@builtin(...)` id rather than declared, and a derived
+  // one carrying a `#extension` line would be dropped here. No row does today — `multiview`
+  // is this profile's only directive and nothing derives it — so the emitted bytes do not
+  // move; the point is that the two writers answer one question.
   modulePreamble: (m) => {
-    const dirs = (m.enables ?? [])
+    const dirs = requiredCaps(m)
       .map((c) => GLSL_CAP_PROFILE[c]?.directive)
       .filter((d): d is string => d !== undefined)
     if (dirs.length === 0) return ''
@@ -641,6 +652,35 @@ export const glslEs300Backend: Backend = {
       .map((d) => `#extension ${d} : require`)
       .join('\n')
   },
+}
+
+/** The GLSL ES 3.00 interpolation qualifier for a WGSL `@interpolate(type, sampling)` on a
+ *  varying, or `''` when the default is right (§53).
+ *
+ *  That spec has `smooth`, `flat` and `centroid`, and nothing else: `linear`
+ *  (`noperspective` on desktop GL) and the `sample` positions are not in ES 3.00 at all, so a
+ *  module asking for one fails CLOSED here rather than linking with an interpolation it did
+ *  not ask for — which is the exact silent divergence this writer exists to prevent. An
+ *  integer varying takes `flat` whatever it says, since there is no interpolating it. */
+function glslInterpolation(interpolate: string | undefined, isInt: boolean): string {
+  if (isInt) return 'flat '
+  if (interpolate === undefined) return ''
+  const [type, sampling] = interpolate.split(/\s*,\s*/)
+  if (type === 'linear') {
+    throw new UnsupportedFeatureError(
+      'glsl-es300: @interpolate("linear") has no GLSL ES 3.00 form — that spec has smooth, ' +
+        'flat and centroid, and linear (desktop `noperspective`) is none of them. Use ' +
+        '"perspective", or keep the shader WGSL-only.',
+    )
+  }
+  if (sampling === 'sample') {
+    throw new UnsupportedFeatureError(
+      'glsl-es300: @interpolate(..., "sample") has no GLSL ES 3.00 form — per-sample ' +
+        'interpolation is ES 3.2. Use "center" or "centroid".',
+    )
+  }
+  const head = type === 'flat' ? 'flat ' : 'smooth '
+  return sampling === 'centroid' ? `${head}centroid ` : head
 }
 
 /** Emit a std140 UBO block for a uniform struct binding. The block tag is the STRUCT
@@ -891,11 +931,21 @@ function emitGlslEntry(
       // GLSL ES requires `flat` on an integer inter-stage varying (a fragment-IN that carries
       // an int/uint can't be interpolated). @interpolate(flat) float varyings match it (X-GIS #763 P4).
       // Vertex attributes (vertex-IN) are not varyings → no flat.
-      const flat =
-        stage === 'fragment' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
+      const flat = stage === 'fragment' ? glslInterpolation(s.interpolate, isIntType(s.type)) : ''
       lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`)
       inNames.add(inName(s.name))
     }
+  }
+  // `@invariant` on `@builtin("position")` (§53): WGSL writes it as a member attribute, GLSL
+  // ES 3.00 as a global re-declaration of the builtin it steadies (that spec §4.6.1,
+  // `invariant gl_Position;`). Vertex stage only — it is a promise about the position this
+  // stage COMPUTES, and the fragment stage reads `gl_FragCoord`, which is not it.
+  if (stage === 'vertex') {
+    const io = f.ret.kind === 'struct' ? structs.get(f.ret.name)?.fields : undefined
+    const steady =
+      io?.some((x) => x.builtin === 'position' && /@invariant\b/.test(x.attr ?? '')) ??
+      /@invariant\b/.test(f.retAttr ?? '')
+    if (steady) lines.push('invariant gl_Position;')
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
   if (
@@ -939,8 +989,7 @@ function emitGlslEntry(
     // @interpolate(flat) float varyings (X-GIS #763 P4) — both sides derive from the same
     // structured field, so the qualifier stays link-matched. A fragment draw buffer
     // (fragment-OUT) is not interpolated → no flat.
-    const flat =
-      stage === 'vertex' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
+    const flat = stage === 'vertex' ? glslInterpolation(s.interpolate, isIntType(s.type)) : ''
     lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`)
   }
 

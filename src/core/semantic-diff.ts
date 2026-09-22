@@ -379,7 +379,7 @@ function stmtSig(s: Stmt, c: Canon, locals: ReadonlyMap<string, string>): string
     case 'for':
       return `for cond=${E(s.cond)}`
     case 'switch':
-      return `switch ${E(s.scrut)} cases=[${s.cases.map((k) => k.value).join(',')}] default=${s.defaultBody ? 'y' : 'n'}`
+      return `switch ${E(s.scrut)} cases=[${s.cases.map((k) => k.values.join('|')).join(',')}] default=${s.defaultBody ? 'y' : 'n'}`
     case 'placeholder':
       return `placeholder ${s.tag}`
     case 'raw':

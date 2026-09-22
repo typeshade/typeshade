@@ -133,7 +133,7 @@ function dropDead(body: readonly Stmt[], used: ReadonlySet<string>, writes: FnWr
     } else if (s.s === 'switch') {
       out.push({
         ...s,
-        cases: s.cases.map((c) => ({ value: c.value, body: dropDead(c.body, used, writes) })),
+        cases: s.cases.map((c) => ({ values: c.values, body: dropDead(c.body, used, writes) })),
         defaultBody: s.defaultBody ? dropDead(s.defaultBody, used, writes) : undefined,
       })
     } else {

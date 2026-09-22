@@ -337,7 +337,7 @@ function recurseBlocks(
       return {
         ...s,
         cases: s.cases.map((c) => ({
-          value: c.value,
+          values: c.values,
           body: gvnBlock(c.body, localSet, next, loadRoots, env),
         })),
         defaultBody: s.defaultBody

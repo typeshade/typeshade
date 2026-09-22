@@ -33,7 +33,10 @@ const COMPARE_FIX = (args: string): string =>
  *  happened: `textureSample` on a `texture_cube_array` was in NEITHER table (#143 added it to
  *  both), and `textureSample` itself was in this one and not the front end's until #145, so a
  *  vertex entry sampling a `texture_2d` was answered by an SD0109 from the backend instead of
- *  by a sentence about the author's own file. */
+ *  by a sentence about the author's own file. It is also what makes this list's relationship
+ *  to `DERIVATIVE_INTRINSICS` (§54) a test rather than a comment: every id here needs uniform
+ *  control flow too, and `intrinsics.ts` says so. A claim nothing enforces is the failure this
+ *  very header criticises. */
 export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',

@@ -251,7 +251,14 @@ export type Stmt =
   | {
       readonly s: 'switch'
       readonly scrut: Expr
-      readonly cases: ReadonlyArray<{ readonly value: number; readonly body: readonly Stmt[] }>
+      /** One clause per entry. `values` is the SELECTORS that share the clause's body, in
+       *  source order: WGSL spells them `case 0, 1: { … }` and GLSL ES 3.00
+       *  `case 0: case 1: { … }`, which is why the IR carries the list rather than one
+       *  number and a fall-through. Never empty. */
+      readonly cases: ReadonlyArray<{
+        readonly values: readonly number[]
+        readonly body: readonly Stmt[]
+      }>
       readonly defaultBody?: readonly Stmt[]
       /** Where this statement came from in its authored `"use typeshade"` source; absent on
        *  an EDSL-authored or pass-synthesised statement. Read it with {@link sourceSpanOf}. */
@@ -418,6 +425,32 @@ export interface StructField {
   readonly builtin?: string
   /** Structured `@interpolate(mode)` (set alongside `location`). */
   readonly interpolate?: string
+  /** Structured `@blend_src(0|1)` on a fragment output (§53): the two colours a dual-source
+   *  blend mixes, which both sit at `@location(0)`. It derives the `dualSourceBlending`
+   *  capability, and GLSL ES 3.00 has no second source, so a module carrying one fails
+   *  closed there. */
+  readonly blendSrc?: number
+  /** The byte size WGSL's `@size(n)` gives this field, when the field's own type is smaller.
+   *  Set by the uniform-layout pass (§51) and by nothing else: it is how the wrapper struct
+   *  that gives a uniform array its 16-byte element stride is spelled,
+   *  `struct _Pad16_f32 { @size(16) v: f32, }`. It is NOT an author attribute — `@size` on a
+   *  field is still refused at the front end, because `reflect`'s layout engine does not read
+   *  this, and an attribute the emit honoured while reflection ignored it is the very
+   *  emit-versus-reflection disagreement §51 exists to close. The WGSL writer emits it; GLSL
+   *  ES 3.00 has no equivalent, and no module reaches that writer carrying one (the pass runs
+   *  on the WGSL side alone). */
+  readonly size?: number
+  /** The byte alignment WGSL's `@align(n)` gives this field. Set by the uniform-layout pass
+   *  (§51) and by nothing else, for the same reason `size` is, and it is the other half of the
+   *  same fix: `@size(16)` on a wrapper's field gives the ARRAY ELEMENT its 16-byte stride,
+   *  and `@align(16)` on the MEMBER holding that array gives the array its 16-byte offset.
+   *  With the stride fixed but the member unaligned the array lands at offset 4, which is the
+   *  offset `reflect()` does NOT report; Chromium 141 states it outright (`the offset of a
+   *  struct member of type 'array<_Pad16_f32, 3>' in address space 'uniform' must be a
+   *  multiple of 16 bytes, but 'xs' is currently at offset 4`), and an implementation with
+   *  `uniform_buffer_standard_layout` accepts the same text while laying it out differently
+   *  from what reflection reports. */
+  readonly align?: number
 }
 /** A `ModuleDecl.structs` entry: a WGSL `struct` declaration. On GLSL it becomes a
  *  plain struct, or a flattened set of `in`/`out` globals when its fields carry
@@ -623,9 +656,12 @@ export interface FuncDecl {
  *  - Derived resource capabilities, `storageBuffer`, `compute`, `msaaTextureLoad` and
  *    `storageTexture`, are inferred from a module's shape (a storage binding, a `@compute`
  *    entry, a multisampled texture load, a storage-texture binding) and never declared.
- *  - Opt-in language capabilities, `f16` and `subgroups`, are declared in
- *    `ModuleDecl.enables`. Each is a WGSL `enable` directive with no GLSL ES 3.00
- *    counterpart, so a module using one fails closed on the GLSL backend.
+ *  - Opt-in language capabilities, `f16`, `subgroups`, `clipDistances` and
+ *    `primitiveIndex`, are declared in `ModuleDecl.enables`, or — for the two that a
+ *    `@builtin(...)` id names outright — derived from that use by `requiredCaps`, the way
+ *    `enable clip_distances;` is what WGSL asks for before `@builtin(clip_distances)` is
+ *    spelled. Each is a WGSL `enable` directive with no GLSL ES 3.00 counterpart, so a
+ *    module using one fails closed on the GLSL backend.
  *  - Opt-in device capabilities are also declared in `ModuleDecl.enables`. They change
  *    what the device can do and leave what the source may spell unchanged.
  *    `floatRenderTarget` (WebGL2 `EXT_color_buffer_float`, WebGPU core), `float32Blend`
@@ -656,6 +692,9 @@ export type Capability =
   | 'textureGather'
   | 'f16'
   | 'subgroups'
+  | 'clipDistances'
+  | 'primitiveIndex'
+  | 'dualSourceBlending'
   | 'floatRenderTarget'
   | 'float32Blend'
   | 'float32Filterable'
@@ -676,6 +715,9 @@ export const ALL_CAPABILITIES = [
   'textureGather',
   'f16',
   'subgroups',
+  'clipDistances',
+  'primitiveIndex',
+  'dualSourceBlending',
   'floatRenderTarget',
   'float32Blend',
   'float32Filterable',
@@ -685,11 +727,16 @@ export const ALL_CAPABILITIES = [
 ] as const satisfies readonly Capability[]
 
 /** The capabilities a module may name in `ModuleDecl.enables`: {@link Capability} minus
- *  the three derived resource capabilities. Those three are inferred from the module's
- *  shape by `requiredCaps` (a storage binding means `storageBuffer`, a `@compute` entry
- *  means `compute`, a multisampled texture means `msaaTextureLoad`), so declaring one
- *  would at best restate the shape and at worst assert a feature the module does not
- *  use. This type makes that a compile error.
+ *  the derived resource capabilities. Those are inferred from the module's shape by
+ *  `requiredCaps` (a storage binding means `storageBuffer`, a `@compute` entry means
+ *  `compute`, a multisampled texture means `msaaTextureLoad`, and so on through the four
+ *  texture ids), so declaring one would at best restate the shape and at worst assert a
+ *  feature the module does not use. This type makes that a compile error.
+ *
+ *  `clipDistances`, `primitiveIndex` and `subgroups` are on BOTH sides and deliberately so:
+ *  each is derived from a `@builtin(...)` id the module spells (§50), and each is still
+ *  declarable, because a module may hold the directive for a feature it reaches another way.
+ *  Deriving and declaring meet in one set, so naming one changes nothing.
  *
  *  Only the authoring surface narrows: `requiredCaps`, {@link Capabilities} and
  *  {@link CapProfile} keep reading the full `Capability`, because the derived ids are
@@ -777,10 +824,30 @@ export interface ModuleDecl {
    *  activates it from `reflect(m).requiredFeatures` and the emitted bytes do not move.
    *  Absent or empty means no directive and unchanged emitted source.
    *
-   *  The type is `DeclarableCapability`, which excludes the three caps derived from the
-   *  module's shape (`storageBuffer`, `compute`, `msaaTextureLoad`); naming one here is a
-   *  compile error. */
+   *  The type is `DeclarableCapability`, which excludes the caps derived from the module's
+   *  shape (`storageBuffer`, `compute`, `msaaTextureLoad`, `storageTexture` and the three
+   *  texture ids); naming one here is a compile error. The caps derived from a
+   *  `@builtin(...)` id instead (`clipDistances`, `primitiveIndex`, `subgroups`, §50) are
+   *  NOT excluded: deriving and declaring fold into one set, so naming one is harmless. */
   readonly enables?: readonly DeclarableCapability[]
+  /** The WGSL `diagnostic(<severity>, <rule>);` directives this module carries (§54). One
+   *  rule today: `derivative_uniformity`, whose default severity is `error`, so switching it
+   *  off is how an author says "I know this sample is under a non-uniform branch and I want it
+   *  anyway". MODULE-SCOPE, though the author writes it on an entry: WGSL's `@diagnostic` on a
+   *  function covers that function's own body and not the functions it calls, and a sample is
+   *  as often in a helper as in the entry.
+   *
+   *  The WGSL writer emits one line each, before every other directive. GLSL ES 3.00 has no
+   *  equivalent and needs none — implicit derivatives in non-uniform control flow are
+   *  undefined there rather than refused (glsl-es-300.txt:3751-3752) — so the GLSL text does
+   *  not move. Absent or empty leaves the emitted source unchanged. */
+  readonly diagnostics?: readonly DiagnosticDirective[]
+}
+
+/** One WGSL `diagnostic(severity, rule);` directive. */
+export interface DiagnosticDirective {
+  readonly severity: 'off' | 'info' | 'warning' | 'error'
+  readonly rule: string
 }
 
 /** The stage of a function declaration: `'vertex'`, `'fragment'` or `'compute'` for an

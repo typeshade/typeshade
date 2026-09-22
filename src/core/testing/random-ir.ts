@@ -407,9 +407,9 @@ class Gen {
               s: 'switch',
               scrut: iRef,
               cases: [
-                { value: 0, body: mkArm('continue') },
-                { value: 1, body: mkArm('break') },
-                { value: 2, body: mkArm('plain') },
+                { values: [0], body: mkArm('continue') },
+                { values: [1], body: mkArm('break') },
+                { values: [2], body: mkArm('plain') },
               ],
               defaultBody: mkArm('continue'),
             },
@@ -469,7 +469,7 @@ class Gen {
         out.push({
           s: 'switch',
           scrut,
-          cases: [0, 1, 2].map((value) => ({ value, body: mkArm() })),
+          cases: [0, 1, 2].map((value) => ({ values: [value], body: mkArm() })),
           defaultBody: mkArm(),
         })
       } else if (inLoop) {
