@@ -217,9 +217,17 @@ Roadmap 0.6 item B1 (#97) will let a file hold both a shader and its host half; 
 - Derives from: the same two WGSL sections; `WGSL_RESERVED` and `GLSL_ES300_RESERVED` in `src/core/reserved-words.ts`, from which `RESERVED_WORDS`, the list a generated name is checked against, is built.
 - Enforced by: `examples/reserved-word-safety.test.ts`, asserted on the rename maps.
 
+### 3.5. The case of a type name
+
+**Rule 3.6.** A type name an author writes must be lowercase when WGSL declares it and capitalized when TypeShade declares it, so the case of a name says where its meaning comes from.
+
+- Rationale: `f32`, `vec3`, `mat4x4`, `array`, `atomic`, `texture_2d`, `sampler`, `storage` and `uniform` are WGSL's own words, and an author who reads them in the WGSL specification finds the same word here; `Vec64Any`, `MatColumn`, `LaneKeys`, `TextureElem`, `TexelCoord2` and `VecFor3` are names TypeScript needed and WGSL does not have, and the capital says so. TypeScript's own convention, lowercase for a primitive and capitalized for an interface, points the other way for `array`, and it loses: raising `array` to `Array` would have to raise `vec3` and `f32` with it, which is the whole WGSL vocabulary this surface exists to spell, and the name `Array` is not available in any case. Declaring `type Array<T, N>` in the ambient library is `TS2300 Duplicate identifier 'Array'` against eight declarations in TypeScript's own library files, after which a list literal and every `Pick<Array<T>, …>` in the library stop type checking (`TS2314 Generic type 'Array<T>' requires 1 type argument(s)`). What a TypeScript author expects of an array is bought with behaviour instead: the readonly views are `Pick`ed from `ReadonlyArray<T>` and `Array<T>`, and the aggregate operations get member forms (#177).
+- Derives from: WGSL [Types](https://gpuweb.github.io/gpuweb/wgsl/#types), whose type names are lowercase; the measurement above, run with `tsc --strict` over the ambient library's own declarations.
+- Enforced by: `surface-names.test.ts`, whose WGSL source check passes only for a name the fixture carries under WGSL's spelling, so a capitalized WGSL name would be reported as unsourced and a lowercase TypeShade name needs a §9.3 row that review reads.
+
 ### 3.5. Claim rules for numbers
 
-**Rule 3.6.** A new surface section must take the next free `§` number in `docs/use-typeshade-surface.md` as the current tree makes it, and a new diagnostic must take the next free `TS80xx` code in `src/compiler/ts/codes.ts`.
+**Rule 3.7.** A new surface section must take the next free `§` number in `docs/use-typeshade-surface.md` as the current tree makes it, and a new diagnostic must take the next free `TS80xx` code in `src/compiler/ts/codes.ts`.
 A branch working in parallel may instead be handed a block of numbers and take the number from the block.
 A number must not be renumbered, a retired number must not be reused, and the unused numbers of a block must stay a gap.
 
@@ -827,12 +835,12 @@ A _diagnostic_ is one message the compiler reports for the author's benefit, wit
 - Derives from: [Diagnostics](https://gpuweb.github.io/gpuweb/wgsl/#diagnostics); surface §7 and §28 ("one mistake reads as one sentence"); the pinned sentences of the refusal tests under `src/compiler/ts/` (`TS8031 Recursive call: "a" -> "b" -> "a". WGSL has no call stack, so a function must not take part in a call cycle.`), which have that shape.
 - Enforced by: every refusal test asserts the code and the message text (Rule 12.5).
 
-**Rule 12.2.** A code must be `TS8` followed by a sequential number in the order codes were added, or a number from a block handed to a parallel branch (Rule 3.6), whose unused numbers stay a gap.
+**Rule 12.2.** A code must be `TS8` followed by a sequential number in the order codes were added, or a number from a block handed to a parallel branch (Rule 3.7), whose unused numbers stay a gap.
 `TS8099` is the catch-all for a site that does not yet deserve its own code, and a refusal that has a reason must leave it.
 
 - Rationale: a stable code is what a test, an issue, and a language service filter key on.
 - Derives from: the head comment of `src/compiler/ts/codes.ts`; surface §28 (roadmap 0.3 item T10, "in place of `TS8099 Unsupported expression`").
-- Enforced by: review against Rule 3.6.
+- Enforced by: review against Rule 3.7.
 
 **Rule 12.3.** Severity must follow the target's role: a program WGSL refuses must be an error; a shortfall of GLSL ES 3.00 on a module with a render entry must be a warning that leaves `wgsl` in place; a compute-only module's GLSL shortfall must be no diagnostic at all.
 
