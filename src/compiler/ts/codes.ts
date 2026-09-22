@@ -67,12 +67,13 @@ export const TS_CODES = {
    *  `arrayLength(&x)` (#46); the shapes that have no runtime length need an explicit size,
    *  which is what this says. */
   UNSIZED_ARRAY_LENGTH: 'TS8032',
-  /** A module variable (`let x: workgroup<T>`, `let y: perInvocation<T> = init`, §24)
-   *  declared or used where its address space forbids: a `const` with an address-space
-   *  wrapper, a `workgroup` variable with an initializer, a type the space cannot hold (a
-   *  texture, a runtime-sized array, an atomic in a per-invocation variable), an initializer
-   *  that is not a constant, or a `workgroup` variable reached from a vertex or fragment
-   *  entry (roadmap 0.2 item 5, #82). */
+  /** A module variable (`let x: workgroup<T>`, `let y: T = init`, §24) declared or used where
+   *  its address space forbids: a `const` with an address-space wrapper, a `workgroup`
+   *  variable with an initializer, a type the space cannot hold (a texture, a runtime-sized
+   *  array, an atomic in a per-invocation variable), an initializer that is not a constant, or
+   *  a `workgroup` variable reached from a vertex or fragment entry (roadmap 0.2 item 5, #82).
+   *  Also the retired `perInvocation<T>` wrapper (#83), which a plain top-level `let` replaced
+   *  and whose refusal names that `let`. */
   MODULE_VAR: 'TS8033',
   /** `workgroupBarrier()` / `storageBarrier()` somewhere a barrier cannot stand (§25): in a
    *  vertex or fragment entry, which has no workgroup; inside an `if` or `switch` body, where
