@@ -97,12 +97,12 @@ does not make `vec3` a scalar. A generic alias has no one target type and keeps 
 generics are roadmap 0.3 item T9.
 
 A struct is the members written in it, whichever of the three spellings declared it: a method
-or call signature, an index signature, an optional (`a?: f32`) member, and an `extends` clause
-are each rejected, since a WGSL struct has no form for them and silently dropping one would
-change the buffer layout the host fills. The optional member is the one where the three
-spellings used to disagree: an interface refused it and a class emitted it as required. They
-refuse it alike now. Inheritance is roadmap 0.3 item T5, which flattens the base's fields
-rather than dropping them.
+or call signature, an index signature and an optional (`a?: f32`) member are each rejected,
+since a WGSL struct has no form for them and silently dropping one would change the buffer
+layout the host fills. The optional member is the one where the three spellings used to
+disagree: an interface refused it and a class emitted it as required. They refuse it alike
+now. An `extends` clause is inheritance (roadmap 0.3 item T5, §26): the base's fields come
+first and the derived ones after, so nothing is dropped.
 
 Field metadata (`@location`, `@align`, `@size`, `@offset`, `@builtin`, `@interpolate`, `@ignore`) requires a **class field**. Interfaces and type-literal members cannot carry TS decorators, so a struct used as entry I/O — where WGSL requires `@builtin` or `@location` on every member — has to be a class.
 
@@ -128,7 +128,6 @@ an error (`TS8010`) rather than a silent no-op — the `@align(16)` above is *(t
 Forbidden on these classes:
 
 - `new Camera()` as a resource (a `new` on a class with a constructor builds a value, §26)
-- `extends` (`TS8010`: the base's fields would silently vanish from the layout)
 - `@compute` / `@vertex` / `@fragment` methods (an entry is a top-level function)
 - no fields at all — a struct with an empty field list has no WGSL form
 - a field name that is not a plain identifier (`"my-field": f32`, `[key]: f32`)
@@ -186,8 +185,12 @@ export function fs(
 - Builtins are ordinary entry parameters with `@builtin(...)` metadata.
 - A builtin is not a hidden global; its dependency is visible in the function signature.
 - The builtin name must match the target backend's supported builtin set.
-- Workgroup size is the only payload on `@compute`. Default `[1, 1, 1]` if omitted as `@compute`.
-- `@compute({ workgroup: [64, 1, 1] })` is accepted as an alias.
+- Workgroup size is the only payload on `@compute`, an array of one to three whole numbers; a bare
+  `@compute` takes the default of 64, emitted as `@workgroup_size(64)`.
+- The `y` and `z` sizes must be 1; `@compute([8, 8])` is refused (`TS8026`):
+  `@compute workgroup shape [8, 8] must have y and z equal to 1: the backend only carries the x workgroup size today, and would silently drop the rest.`
+- `@compute({ workgroup: [64, 1, 1] })` is refused (`TS8037`):
+  `@compute takes an array of one to three whole numbers, "@compute([64, 1, 1])", or no argument for the default of 64; "{ workgroup: [64, 1, 1] }" is not a workgroup shape.`
 
 ### What an entry may return
 
