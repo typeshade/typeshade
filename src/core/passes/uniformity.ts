@@ -68,11 +68,30 @@
 // And joining EVERY argument at a call is the mirror-image mistake: see the return-dependency
 // summary below, which is what makes a call read only the arguments its result depends on.
 //
-// WHAT IT DOES NOT REACH, stated rather than implied. It runs in the `"use typeshade"` front
-// end only, so an EDSL-assembled `ModuleDecl` is not checked here — the front end is where a
-// diagnostic can point at the authoring line, and an EDSL module reaches Tint, which owns the
-// complete rule, unchanged. A `raw` statement's text is opaque to it. And the seeds are the
-// spec's: anything outside them is `unknown`, never `uniform`.
+// WHAT IT DOES NOT REACH, stated rather than implied, and kept true of the tree:
+//
+//   • It runs in the `"use typeshade"` front end only, so an EDSL-assembled `ModuleDecl` is
+//     not checked here — the front end is where a diagnostic can point at the authoring line,
+//     and an EDSL module reaches Tint, which owns the complete rule, unchanged.
+//   • A `raw` statement's text is opaque to it.
+//   • The seeds are the spec's: anything outside them is `unknown`, never `uniform`.
+//   • SHARED MEMORY — a module `var`, `workgroup` memory, a writable storage binding — is
+//     classified MODULE-WIDE and flow-insensitively: the join of every write in the module,
+//     and not what the statement order of one invocation suggests. That is the honest reading
+//     for workgroup and storage memory, which the other invocations write concurrently, and it
+//     is deliberately conservative for a `private` variable: a uniform write that FOLLOWS a
+//     non-uniform one reads non-uniform here, where Tint's own flow-sensitive analysis would
+//     accept it. It only ever refuses, and no example in the corpus spells the shape.
+//   • The locals' half of the return-dependency summary is flow-insensitive too, so
+//     `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps `x` in its summary and is
+//     refused where the same statements inline are accepted. Filed as #180 rather than fixed
+//     here, with its measurement.
+//   • A barrier under a condition this walk cannot PROVE uniform keeps the refusal the old
+//     rule had, so `if (edge(k)) { workgroupBarrier() }` on a uniform `k` is refused where
+//     Tint accepts it: a user call's floor is `unknown`, and the barrier threshold takes
+//     nothing less than `uniform`. Also #180 — the summary could answer it.
+//   • An `inout` parameter is not modelled: `classify` answers a call's RESULT, so a value a
+//     callee writes back through one does not reach the caller's class for it.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js'
 import { stageOf } from '../ir/nodes.js'
@@ -260,21 +279,44 @@ function fieldUniformity(
 /** The parameter positions a function's return value depends on, keyed by function name. A
  *  function absent from the map is one this walk has no summary for (an extern, a name it
  *  cannot resolve), and a call of it joins EVERY argument, which is where this arm began. */
-type ReturnDeps = ReadonlyMap<string, ReadonlySet<number>>
+interface Summary {
+  /** Parameter positions the return value depends on. */
+  readonly params: ReadonlySet<number>
+  /** SHARED locations the return value depends on — a module `var` or a storage binding read
+   *  on the way to the result, transitively through this function's own callees. A parameter
+   *  list alone left `function peek(): f32 { return stash }` with an empty summary, so
+   *  `if (peek() > 0.25) { textureSample(…) }` read `unknown` and went through, while the same
+   *  read written inline was refused. A nullary helper is still a helper. */
+  readonly shared: ReadonlySet<string>
+}
 
-const sameNumbers = (a: ReadonlySet<number>, b: ReadonlySet<number> | undefined): boolean =>
-  b !== undefined && a.size === b.size && [...a].every((x) => b.has(x))
+type ReturnDeps = ReadonlyMap<string, Summary>
+
+const sameSummary = (a: Summary, b: Summary | undefined): boolean =>
+  b !== undefined &&
+  a.params.size === b.params.size &&
+  a.shared.size === b.shared.size &&
+  [...a.params].every((x) => b.params.has(x)) &&
+  [...a.shared].every((x) => b.shared.has(x))
 
 /** Every parameter position `f`'s return value depends on, given the summaries known so far. */
 function returnDepsOf(
   f: FuncDecl,
   byName: ReadonlyMap<string, FuncDecl>,
   known: ReturnDeps,
-): ReadonlySet<number> {
+  isShared: (name: string) => boolean,
+): Summary {
   const positionOf = new Map(f.params.map((p, i) => [p.name, i]))
   /** local name → the parameter positions its value depends on. Grows only. */
   const localDeps = new Map<string, Set<number>>()
   const result = new Set<number>()
+  /** local name → the shared locations its value depends on, and the same for the result. */
+  const localShared = new Map<string, Set<string>>()
+  const resultShared = new Set<string>()
+
+  /** The shared locations the last `depsOf` walk passed through. Collected beside the
+   *  parameter positions because both travel the same edges. */
+  let sharedSeen = new Set<string>()
 
   const depsOf = (e: Expr): Set<number> => {
     const acc = new Set<number>()
@@ -285,17 +327,21 @@ function returnDepsOf(
         return
       }
       if (x.op === 'varref') {
+        if (isShared(x.name)) sharedSeen.add(x.name)
         for (const d of localDeps.get(x.name) ?? []) acc.add(d)
+        for (const n of localShared.get(x.name) ?? []) sharedSeen.add(n)
         return
       }
       if (x.op === 'call' && byName.has(x.fn)) {
         const summary = known.get(x.fn)
         if (summary !== undefined) {
+          // A callee's own shared reads reach this result too.
+          for (const n of summary.shared) sharedSeen.add(n)
           // Only the arguments the CALLEE's result depends on — which is what makes the
           // summary transitive: `outer(p, q) { return inner(q, p) }` depends on `q` alone
           // when `inner`'s result depends on its first parameter alone.
           x.args.forEach((a, i) => {
-            if (summary.has(i)) visit(a)
+            if (summary.params.has(i)) visit(a)
           })
           return
         }
@@ -311,38 +357,73 @@ function returnDepsOf(
     return acc
   }
 
-  const grow = (name: string, deps: Iterable<number>): void => {
+  /** `depsOf`, with the shared locations it walked through returned beside the positions. */
+  const bothOf = (e: Expr): { params: Set<number>; shared: Set<string> } => {
+    sharedSeen = new Set()
+    const params = depsOf(e)
+    return { params, shared: sharedSeen }
+  }
+
+  const grow = (name: string, deps: Iterable<number>, shared: Iterable<string> = []): void => {
     const prior = localDeps.get(name) ?? new Set<number>()
     for (const d of deps) prior.add(d)
     localDeps.set(name, prior)
+    const priorShared = localShared.get(name) ?? new Set<string>()
+    for (const n of shared) priorShared.add(n)
+    localShared.set(name, priorShared)
   }
 
   const walk = (stmts: readonly Stmt[], control: ReadonlySet<number>): void => {
     for (const s of stmts) {
       switch (s.s) {
-        case 'let':
-          grow(s.name, depsOf(s.expr))
+        case 'let': {
+          const b = bothOf(s.expr)
+          grow(s.name, b.params, b.shared)
           break
-        case 'var':
-          if (s.init) grow(s.name, depsOf(s.init))
+        }
+        case 'var': {
+          if (s.init) {
+            const b = bothOf(s.init)
+            grow(s.name, b.params, b.shared)
+          }
           break
+        }
         case 'assign':
         case 'assignOp': {
           const root = rootVarref(s.target)
-          // Under a branch the written value carries the branch's own parameters too.
-          if (root !== undefined) grow(root, [...depsOf(s.expr), ...control])
+          // Three sources, not one: the assigned VALUE, the branch the write sits under, and
+          // the target's own INDEX expressions — see `targetIndices`. Reading only the first
+          // two gave `idx(x, y) { a[u32(x)] = y; return a[0] }` the summary `{y}`, so a call
+          // site joined the uniform argument and not the one the index came from.
+          if (root !== undefined) {
+            const value = bothOf(s.expr)
+            const indices = targetIndices(s.target).map(bothOf)
+            grow(
+              root,
+              [...value.params, ...control, ...indices.flatMap((i) => [...i.params])],
+              [...value.shared, ...indices.flatMap((i) => [...i.shared])],
+            )
+          }
           break
         }
-        case 'return':
-          if (s.expr) for (const d of depsOf(s.expr)) result.add(d)
+        case 'return': {
+          if (s.expr) {
+            const b = bothOf(s.expr)
+            for (const d of b.params) result.add(d)
+            for (const n of b.shared) resultShared.add(n)
+          }
           for (const d of control) result.add(d)
           break
+        }
         case 'if': {
           let all = new Set<number>(control)
           for (const arm of s.arms) {
-            const c = depsOf(arm.cond)
-            for (const d of c) all.add(d)
-            walk(arm.body, new Set([...control, ...c]))
+            const b = bothOf(arm.cond)
+            // A `return` under this arm differs by whatever the CONDITION read, shared
+            // locations included, so they join the result the same way parameters do.
+            for (const n of b.shared) resultShared.add(n)
+            for (const d of b.params) all.add(d)
+            walk(arm.body, new Set([...control, ...b.params]))
           }
           // The `else` runs under the negation of every arm, so it carries all of them.
           if (s.elseBody) walk(s.elseBody, all)
@@ -350,14 +431,18 @@ function returnDepsOf(
         }
         case 'for': {
           walk([s.init], control)
-          const inner = new Set([...control, ...depsOf(s.cond)])
+          const c = bothOf(s.cond)
+          for (const n of c.shared) resultShared.add(n)
+          const inner = new Set([...control, ...c.params])
           walk(s.body, inner)
           walk([s.update], inner)
           break
         }
         case 'switch': {
-          const inner = new Set([...control, ...depsOf(s.scrut)])
-          for (const c of s.cases) walk(c.body, inner)
+          const c = bothOf(s.scrut)
+          for (const n of c.shared) resultShared.add(n)
+          const inner = new Set([...control, ...c.params])
+          for (const cs of s.cases) walk(cs.body, inner)
           if (s.defaultBody) walk(s.defaultBody, inner)
           break
         }
@@ -369,26 +454,34 @@ function returnDepsOf(
 
   // Iterated because `localDeps` grows: a value carried round a loop, or a local read above
   // the line that widens it, is seen on the next pass. Bounded by the body's own size.
+  const size = (): number =>
+    [...localDeps.values()].reduce((n, v) => n + v.size, 0) +
+    [...localShared.values()].reduce((n, v) => n + v.size, 0) +
+    result.size +
+    resultShared.size
   for (let i = 0; i <= f.body.length + 2; i++) {
-    const before = [...localDeps.values()].reduce((n, v) => n + v.size, 0) + result.size
+    const before = size()
     walk(f.body, new Set())
-    const after = [...localDeps.values()].reduce((n, v) => n + v.size, 0) + result.size
-    if (after === before) break
+    if (size() === before) break
   }
-  return result
+  return { params: result, shared: resultShared }
 }
 
 /** Every function's return-dependency summary, to a fixpoint over the call graph: a callee's
  *  summary can widen its caller's, and WGSL forbids recursion, so this settles in as many
  *  rounds as the graph is deep. */
-function returnDependencies(m: ModuleDecl, byName: ReadonlyMap<string, FuncDecl>): ReturnDeps {
-  const out = new Map<string, ReadonlySet<number>>()
-  for (const f of m.funcs) out.set(f.name, new Set())
+function returnDependencies(
+  m: ModuleDecl,
+  byName: ReadonlyMap<string, FuncDecl>,
+  isShared: (name: string) => boolean,
+): ReturnDeps {
+  const out = new Map<string, Summary>()
+  for (const f of m.funcs) out.set(f.name, { params: new Set(), shared: new Set() })
   for (let round = 0; round <= m.funcs.length + 1; round++) {
     let changed = false
     for (const f of m.funcs) {
-      const next = returnDepsOf(f, byName, out)
-      if (!sameNumbers(next, out.get(f.name))) {
+      const next = returnDepsOf(f, byName, out, isShared)
+      if (!sameSummary(next, out.get(f.name))) {
         out.set(f.name, next)
         changed = true
       }
@@ -416,6 +509,27 @@ interface Cx {
   /** Which parameters each function's RETURN VALUE depends on — see the summary pass above.
    *  A call site joins the arguments at those positions and no others. */
   readonly retDeps: ReturnDeps
+  /** The module's SHARED locations — a module `var` (`private` or `workgroup`) and a storage
+   *  binding — and the class each holds, joined over every write anywhere in the module.
+   *
+   *  A return value is not the only thing that leaves a function. `function launder(n: f32,
+   *  mode: f32) { stash = n; return mode > 0.5 }` has a summary of `{mode}` that is CORRECT
+   *  about its result and says nothing about `stash`, so `if (launder(v.uv.x, k)) { if (stash
+   *  > 0.25) { textureSample(…) } }` was accepted where Tint refuses it — the same program
+   *  passing or failing on whether its write went through a helper, which is the invariant
+   *  this pass is built on. Worse, the flow-sensitive environment let a caller keep believing
+   *  its own `stash = 1.` across a call that overwrote it, and reach a barrier at `uniform`:
+   *  a false PROOF, which the barrier threshold cannot tolerate.
+   *
+   *  So a shared location is classified MODULE-WIDE and not through the environment: every
+   *  write joins its value with the control flow it sits under, and a read is that join. It is
+   *  deliberately flow-insensitive — workgroup and storage memory is written by the OTHER
+   *  invocations too, so there is no per-invocation statement order to be sensitive to, and a
+   *  private variable written under a branch diverges just the same. That costs a refusal
+   *  where a uniform write follows a non-uniform one, which Tint's own flow-sensitive analysis
+   *  would accept; it only ever refuses, and no example in the corpus spells it. */
+  readonly sharedAt: ReadonlyMap<string, Known>
+  readonly isShared: (name: string) => boolean
 }
 
 /** How one expression varies, read against the environment at this point. */
@@ -437,6 +551,11 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       return cx.paramAt.get(e.name) ?? { at: 'unknown', why: `"${e.name}"` }
     }
     case 'varref': {
+      // A SHARED location before the environment: see `Cx.sharedAt`. The environment is about
+      // this invocation's own locals, and shared memory is not one.
+      if (cx.isShared(e.name)) {
+        return cx.sharedAt.get(e.name) ?? { at: 'unknown', why: `"${e.name}"` }
+      }
       const local = env.get(e.name)
       if (local) return local
       const b = cx.m.bindings.find((x) => x.name === e.name)
@@ -482,8 +601,15 @@ function classify(cx: Cx, env: Env, e: Expr): Known {
       // programs Tint accepts. With no summary (an extern, an unresolved name) every argument
       // counts, which is the conservative floor this arm started from.
       const summary = cx.retDeps.get(e.fn)
-      const reaching = summary === undefined ? e.args : e.args.filter((_a, i) => summary.has(i))
-      const fromArgs = joinAll(cx, env, reaching, `${e.fn}(…)`)
+      const reaching =
+        summary === undefined ? e.args : e.args.filter((_a, i) => summary.params.has(i))
+      let fromArgs = joinAll(cx, env, reaching, `${e.fn}(…)`)
+      // …and the SHARED locations the result was read out of. A return value is not only a
+      // function of its arguments: `function peek(): f32 { return stash }` takes none and is
+      // exactly as uniform as `stash` is.
+      for (const name of summary?.shared ?? []) {
+        fromArgs = joinKnown(fromArgs, cx.sharedAt.get(name) ?? { at: 'unknown', why: name })
+      }
       // A call into a USER function is AT LEAST `unknown` and AT MOST as uniform as its
       // arguments. Both halves are load-bearing and each was wrong on its own:
       //
@@ -566,9 +692,34 @@ interface Flow {
  *  the two thresholds differ. */
 export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
   const byName = new Map(m.funcs.map((f) => [f.name, f]))
+  // The SHARED locations — every module `var`, and every binding that is not a read-only
+  // uniform. A uniform buffer is left out because nothing can write one, so its class is
+  // settled by its address space alone.
+  const sharedNames = new Set<string>([
+    ...(m.vars ?? []).map((v) => v.name),
+    ...m.bindings.filter((b) => b.space !== 'uniform').map((b) => b.name),
+  ])
+  const isShared = (name: string): boolean => sharedNames.has(name)
+  /** What a shared location holds before any write in this module is counted: a `private`
+   *  variable's own initializer, which the IR constrains to a constant expression, and
+   *  `unknown` for everything else — `workgroup` memory carries whatever the last dispatch
+   *  left in it, and a storage buffer whatever the host wrote. */
+  const sharedBase = new Map<string, Known>()
+  for (const v of m.vars ?? []) {
+    sharedBase.set(
+      v.name,
+      v.init !== undefined
+        ? { at: 'uniform', why: `"${v.name}" (its initializer is a constant)` }
+        : { at: 'unknown', why: `"${v.name}" (${v.space} memory, with no initializer)` },
+    )
+  }
+  for (const b of m.bindings) {
+    if (b.space !== 'uniform') sharedBase.set(b.name, { at: 'unknown', why: `"${b.name}"` })
+  }
+
   // Computed once, before the control-flow fixpoint: a summary is a fact about a function's
   // own body and does not depend on the flow its callers reach it under.
-  const retDeps = returnDependencies(m, byName)
+  const retDeps = returnDependencies(m, byName, isShared)
   const isEntry = (name: string): boolean => {
     const f = byName.get(name)
     return f !== undefined && stageOf(f) !== undefined
@@ -608,9 +759,15 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
 
   let startAt = new Map<string, Known>(m.funcs.map((f) => [f.name, entrySeed(f.name)]))
   let startArgs = new Map<string, readonly Known[]>()
+  let startShared = new Map<string, Known>(sharedBase)
   for (let round = 0; round <= m.funcs.length + 1; round++) {
     const next = new Map<string, Known>()
     const nextArgs = new Map<string, readonly Known[]>()
+    const nextShared = new Map<string, Known>(sharedBase)
+    const recordShared = (name: string, value: Known): void => {
+      const prior = nextShared.get(name)
+      nextShared.set(name, prior === undefined ? value : joinKnown(prior, value))
+    }
     const record = (callee: string, at: Known, args: readonly Known[]): void => {
       // An entry cannot be called (§52 refuses it), so nothing degrades one.
       if (!byName.has(callee) || isEntry(callee)) return
@@ -639,6 +796,7 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
         startAt.get(f.name),
         seedArgs(f.name, startArgs.get(f.name) ?? []),
         retDeps,
+        { at: startShared, isShared, record: recordShared },
         [],
         record,
       )
@@ -646,9 +804,11 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
     for (const f of m.funcs) if (!next.has(f.name)) next.set(f.name, entrySeed(f.name))
     const settled =
       m.funcs.every((f) => next.get(f.name)?.at === startAt.get(f.name)?.at) &&
-      m.funcs.every((f) => sameArgs(nextArgs.get(f.name), startArgs.get(f.name)))
+      m.funcs.every((f) => sameArgs(nextArgs.get(f.name), startArgs.get(f.name))) &&
+      [...sharedNames].every((n) => nextShared.get(n)?.at === startShared.get(n)?.at)
     startAt = next
     startArgs = nextArgs
+    startShared = nextShared
     if (settled) break
   }
 
@@ -660,6 +820,7 @@ export function uniformityViolations(m: ModuleDecl): UniformityViolation[] {
       startAt.get(f.name),
       seedArgs(f.name, startArgs.get(f.name) ?? []),
       retDeps,
+      { at: startShared, isShared, record: () => undefined },
       found,
       () => undefined,
     )
@@ -682,10 +843,16 @@ function walkFunction(
   start: Known | undefined,
   paramAt: ReadonlyMap<string, Known>,
   retDeps: ReturnDeps,
+  shared: {
+    readonly at: ReadonlyMap<string, Known>
+    readonly isShared: (name: string) => boolean
+    readonly record: (name: string, value: Known) => void
+  },
   found: UniformityViolation[],
   record: (callee: string, at: Known, args: readonly Known[]) => void,
 ): void {
-  const cx: Cx = { m, f, paramAt, retDeps }
+  const cx: Cx = { m, f, paramAt, retDeps, sharedAt: shared.at, isShared: shared.isShared }
+  const recordShared = shared.record
   const entry: Flow = {
     env: new Map(),
     at: start?.at ?? 'unknown',
@@ -772,11 +939,25 @@ function walkFunction(
           if (root !== undefined) {
             const v = classify(cx, cur.env, s.expr)
             const under: Known = { at: cur.at, why: cur.why }
-            const whole = joinKnown(v, under)
-            const prior = s.target.op === 'varref' ? undefined : cur.env.get(root)
-            cur = {
-              ...cur,
-              env: bind(cur, root, prior === undefined ? whole : joinKnown(prior, whole)),
+            // …and the target's own INDEX expressions, for the reason `targetIndices` gives:
+            // `a[u32(v.uv.x)] = k` makes `a` depend on `v.uv.x`, and reading the value and
+            // the branch alone left `a` uniform, so `if (a[0] > 0.5) { textureSample(…) }`
+            // was accepted where Tint refuses it. The same omission as the summary's, one
+            // level out, and the same false PROOF the note above is about.
+            const whole = targetIndices(s.target).reduce(
+              (acc, i) => joinKnown(acc, classify(cx, cur.env, i)),
+              joinKnown(v, under),
+            )
+            if (cx.isShared(root)) {
+              // Reported, not bound: a shared location has no per-invocation statement order
+              // to bind it into. `recordShared` joins it with every other write in the module.
+              recordShared(root, whole)
+            } else {
+              const prior = s.target.op === 'varref' ? undefined : cur.env.get(root)
+              cur = {
+                ...cur,
+                env: bind(cur, root, prior === undefined ? whole : joinKnown(prior, whole)),
+              }
             }
           }
           break
@@ -882,6 +1063,30 @@ function walkFunction(
   }
 
   walk(f.body, entry)
+}
+
+/** Every INDEX expression a write's target evaluates on its way to the root: `i` for `a[i]`,
+ *  and `i` and `j` for `a[i].b[j]`.
+ *
+ *  A write's target is not only a place, it is a computation, and WGSL taints the written
+ *  variable with it. `a[u32(x)] = y` makes every element of `a` depend on `x`, because WHICH
+ *  element took `y` is what `x` decided — so a later `a[0]` is only as uniform as `x` is.
+ *  Reading the assigned value alone accepted `if (idx(v.uv.x, k) > 0.5) { textureSample(…) }`
+ *  for an `idx` that writes `a[u32(x)] = y` and returns `a[0]`, where Tint answers
+ *  `'textureSample' must only be called from uniform control flow` and names `v` as the
+ *  possibly non-uniform parameter. Triangulated when it was found: the READ-side index
+ *  (`return a[u32(x)]`) was already refused, and the same program with no index depending on
+ *  the parameter (`a[0] = y`) is accepted by Tint too, so the write-side index was exactly
+ *  the gap. */
+function targetIndices(target: Expr): Expr[] {
+  switch (target.op) {
+    case 'index':
+      return [target.idx, ...targetIndices(target.base)]
+    case 'member':
+      return targetIndices(target.base)
+    default:
+      return []
+  }
 }
 
 /** The name a write ultimately lands on: `v` for `v`, `v.x`, `v[0]`, `v.a[i].b`. `undefined`

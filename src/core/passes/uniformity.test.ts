@@ -157,6 +157,8 @@ describe('a derivative under a branch the invocations do not share', () => {
   })
 })
 
+// Every acceptance below was measured ACCEPTED on Tint, not assumed: an acceptance a pass
+// asserts without a verdict beside it is the shape both of this arm's earlier mistakes took.
 describe('what stays legal', () => {
   it('accepts textureSample under a condition on a uniform value', () => {
     expect(
@@ -852,5 +854,153 @@ describe('the call graph, walked to a fixpoint that does not read declaration or
       moduleOf([helper('sync', [{ s: 'if', arms: [{ cond: opaque, body: [BARRIER] }] }])]),
     )
     expect(found.map((v) => [v.fn, v.kind])).toEqual([['sync', 'barrier']])
+  })
+})
+
+// ═══ The two channels a value can leave a function by, besides its return ═══
+//
+// Both of these were FALSE PROOFS rather than conservative gaps — the pass accepted a program
+// Tint refuses, and in one case asserted `uniform` about memory it does not model. Measured on
+// Chromium 141 (`chromium_headless_shell-1194`, `google / swiftshader`) through the compile
+// gate's own mechanics, with the broken-shader instrument reporting `fn broken( {` first.
+describe("a write's target and the module's shared memory are both channels", () => {
+  const CS = (decls: string, body: string) => `declare let out: storage<array<f32>>
+${decls}@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
+${body}
+  out[lid.x] = 1.
+}`
+
+  it('joins the INDEX a write lands on, through a helper (the summary)', () => {
+    // `a[u32(x)] = y` makes every element of `a` depend on `x`: which element took `y` is what
+    // `x` decided. The summary read the assigned value and the enclosing branch and not the
+    // target's own index, so `idx`'s summary was `{y}` and the call site joined the uniform
+    // argument. Tint: `'textureSample' must only be called from uniform control flow`, with
+    // `parameter 'v' of 'fs' may be non-uniform`.
+    expect(
+      errorsOf(`${HEAD}export function idx(x: f32, y: f32): f32 {
+  let a: array<f32, 2> = [0., 0.]
+  a[u32(x)] = y
+  return a[0]
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (idx(v.uv.x, k) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`)[0],
+    ).toContain('textureSample() is reached under "VsOut.uv"')
+  })
+
+  it('joins it in the flow walk too, with no helper in sight (the same omission)', () => {
+    // The same one-line gap one level out, and pre-existing rather than introduced: the walk's
+    // assign arm classified the value and the branch and never the target's index. Tint
+    // refuses this one as well.
+    expect(
+      errorsOf(`${HEAD}@fragment export function fs(v: VsOut): vec4 {
+  let a: array<f32, 2> = [0., 0.]
+  a[u32(v.uv.x)] = k
+  if (a[0] > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`)[0],
+    ).toContain('textureSample() is reached under "VsOut.uv"')
+  })
+
+  it('leaves a write whose index depends on nothing non-uniform alone', () => {
+    // The triangulation that makes the two rows above about the INDEX and not about writes in
+    // general: same helper, constant subscript. Tint ACCEPTS this, measured.
+    expect(
+      compiled(`${HEAD}export function idx3(x: f32, y: f32): f32 {
+  let a: array<f32, 2> = [0., 0.]
+  a[0] = y
+  return a[0]
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (idx3(v.uv.x, k) > 0.5) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`).wgsl,
+    ).toContain('textureSample(t, s,')
+  })
+
+  it.each([
+    [
+      'a helper stows into a module var and returns something else entirely',
+      `${HEAD}let stash: f32 = 0.
+export function launder(nonUniform: f32, mode: f32): bool {
+  stash = nonUniform
+  return mode > 0.5
+}
+@fragment export function fs(v: VsOut): vec4 {
+  if (launder(v.uv.x, k)) {
+    if (stash > 0.25) { return textureSample(t, s, v.uv) }
+  }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'a void helper stows and the caller reads it in a condition',
+      `${HEAD}let stash: f32 = 0.
+export function stow(x: f32): void { stash = x }
+@fragment export function fs(v: VsOut): vec4 {
+  stow(v.uv.x)
+  if (stash > 0.25) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'the READ is behind a nullary helper, so no argument carries it',
+      `${HEAD}let stash: f32 = 0.
+export function stow(x: f32): void { stash = x }
+export function peek(): f32 { return stash }
+@fragment export function fs(v: VsOut): vec4 {
+  stow(v.uv.x)
+  if (peek() > 0.25) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+    [
+      'through a writable storage binding rather than a module var',
+      `${HEAD}declare let scratch: storage<array<f32>>
+export function stow2(x: f32): void { scratch[0] = x }
+@fragment export function fs(v: VsOut): vec4 {
+  stow2(v.uv.x)
+  if (scratch[0] > 0.25) { return textureSample(t, s, v.uv) }
+  return vec4(0., 0., 0., 1.)
+}`,
+    ],
+  ])('refuses a value laundered through shared memory: %s', (_what, src) => {
+    // A return value is not the only thing that leaves a function. The summary is CORRECT
+    // about the result in each of these and says nothing about the write, so the pass accepted
+    // programs whose inline forms it already refused — the same program passing or failing on
+    // whether its write went through a helper. Tint refuses every row.
+    expect(errorsOf(src)[0]).toContain('is reached under')
+  })
+
+  it('does not assert `uniform` about a location a callee overwrote', () => {
+    // The worse half, and a hang if it ships: the caller's own `stash = 1.` was bound into the
+    // flow-sensitive environment, a statement-level call fell through the walk untouched, and
+    // the barrier was reached at `uniform`. Tint: `'workgroupBarrier' must only be called from
+    // uniform control flow`. Two controls measured beside it — replacing the call with the
+    // assignment it performs, and dropping the prior write — were both already refused, so the
+    // acceptance turned entirely on the call sitting between the two writes.
+    const errors = errorsOf(
+      CS(
+        `let stash: f32 = 0.\nexport function stow(x: f32): void { stash = x }\n`,
+        `  stash = 1.\n  stow(f32(lid.x))\n  if (stash > 0.5) { workgroupBarrier() }`,
+      ),
+    )
+    expect(errors[0]).toContain('workgroupBarrier() is reached under')
+    expect(errors[0]).toContain('local_invocation_id')
+  })
+
+  it('still accepts shared memory every write of which is uniform', () => {
+    // The cost of classifying shared memory module-wide is a refusal where a uniform write
+    // follows a non-uniform one, which Tint's flow-sensitive analysis would accept. What must
+    // NOT cost anything is the ordinary case: a location written a constant, or a uniform
+    // buffer's value, is uniform and a barrier under it stands. Both measured ACCEPTED on Tint.
+    for (const write of ['  flag = 1.', '  flag = k2']) {
+      const src = CS(
+        `declare const k2: uniform<f32>\nlet flag: f32 = 0.\n`,
+        `${write}\n  if (flag > 0.5) { workgroupBarrier() }`,
+      )
+      expect(errorsOf(src), write).toEqual([])
+    }
   })
 })

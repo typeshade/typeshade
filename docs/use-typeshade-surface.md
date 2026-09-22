@@ -4446,10 +4446,32 @@ those through while Tint refused it — the same hole as the helper CONDITION ab
 the other end. A parameter no call site reached stays `unknown`, which is what leaves a
 helper-only module exactly as it was.
 
-What it does not reach is stated rather than implied: it runs in the `"use typeshade"` front
-end only, where a diagnostic can point at the authoring line, so an EDSL-assembled module
-reaches Tint — which owns the complete rule — unchanged; and a `raw` statement's text is opaque
-to it.
+**Shared memory is a channel too, and a return value is not the only thing that leaves a
+function.** A module `var`, `workgroup` memory and a writable storage binding are classified
+MODULE-WIDE — the join of every write anywhere in the module, each joined with the control flow
+it sits under — rather than through the per-invocation statement order. A helper that stows a
+fragment input into a module variable and returns something else entirely has a summary that is
+correct about its result and silent about the write, so reading the summary alone accepted
+programs whose inline forms were already refused. Worse, the flow-sensitive environment let a
+caller keep believing its own `stash = 1.` across a call that overwrote it and reach a barrier
+at `uniform` — a false proof, which is the one thing the barrier threshold cannot tolerate.
+Module-wide is also the honest reading: workgroup and storage memory is written by the *other*
+invocations, so there is no one statement order to be sensitive to.
+
+**A write's target is a computation, not just a place.** `a[u32(x)] = y` makes every element of
+`a` depend on `x`, because which element took `y` is what `x` decided — so the index expressions
+of a target join the written variable's class, in the walk and in the summary alike.
+
+What it does not reach is stated rather than implied, and kept true of the tree: it runs in the
+`"use typeshade"` front end only, where a diagnostic can point at the authoring line, so an
+EDSL-assembled module reaches Tint — which owns the complete rule — unchanged; a `raw`
+statement's text is opaque to it; an `inout` parameter is not modelled, since the walk answers
+a call's result; and two refusals are deliberately conservative, filed as
+[#180](https://github.com/typeshade/typeshade/issues/180) with their measurements rather than
+fixed here — a barrier under `if (edge(k))` on a uniform `k`, which Tint accepts and the
+barrier threshold refuses because a user call's floor is `unknown`, and a summary that is
+flow-insensitive over locals, so `gate(x, y) { let acc = x * 2.; acc = y; return acc }` keeps
+`x` where the same statements inline do not. Both only ever refuse.
 
 **The barrier rule is the spec's now, not a stricter one.** It used to refuse every `if` and
 `switch`. `if (k > 0.5)` on a uniform buffer value is accepted by Tint, and is accepted here —
