@@ -13,6 +13,48 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **`random` has a source, and the check that should have asked for one was reading the wrong
+  thing** (§55, [#181](https://github.com/typeshade/typeshade/issues/181)). The free
+  `declare function random(seed)` had no §9.3 row, no `TYPESHADE_EXTENSIONS` entry and no
+  mention in any document, and `surface-names.test.ts` was green: `unaccounted()` classified by
+  BARE NAME, so a free top-level function was credited to the ECMAScript MEMBER `Math.random`
+  while `declaredNames()` recorded, and the classifier discarded, the declaration kind that says
+  the two are different names (Rule 2.1(b)). The classifier now reads the kind: `Math` and
+  `console` account for their MEMBERS, a free declaration must be a WGSL name or carry a row,
+  and an unknown kind throws rather than defaulting to the permissive case. Twelve names lost
+  their source when it was tightened, every one of them real and none of them new to the
+  surface, and all twelve are recorded rather than removed: `random`, the five free spellings of
+  a `Math` member WGSL has no builtin for (`log10`, `log1p`, `expm1`, `cbrt`, `hypot`) and the
+  six free spellings of a `Math` constant (`PI`, `E`, `LN2`, `LN10`, `LOG2E`, `LOG10E`) beside
+  `TAU`, which already had its row for exactly this reason. The table is 61 rows to 73, family 5
+  is `mod`, `fill`, the five expansions and `random`, family 9 is the constants, and the eleven
+  that are not `random` have no surface `§` of their own yet, which is now an Appendix B row
+  against Rule 9.7.
+- **`random`'s declaration says what its refusal says** (§55, #181). The parameter was
+  `seed: number | vec2 | vec3` while the compiler answers
+  `TS8003 random(seed) seed must be f32, vec2, or vec3` to a `u32`, an `i32` and an `f64`; it
+  reads `seed: f32 | vec2 | vec3` now, and the hover with it. What that did NOT do is the
+  measurement worth keeping: the three programs do not move into TypeScript's own checker,
+  because the scalar brands are OPTIONAL properties
+  (`type f32 = number & { readonly [f32Tag]?: true }`), so a `u32` is structurally an `f32` and
+  the editor shows the same one `TS8003` it showed before. `vecTag` is required and carries the
+  arity, which is why a `vec4` seed draws TypeScript's `2345` as well. An `f32` variable, a
+  float literal and an integer literal (`random(3)`, an `f32` seed of 3.0 by Rule 5.1) compile
+  exactly as before, each pinned in `src/language-service/random-seed.test.ts` together with the
+  editor's silence and the reason for it. The return type is untouched: `f32` was always right.
+- **What `random(seed)` actually computes is written down, including the part that is wrong**
+  (§55, #181). The name was documented nowhere — zero mentions in the surface document,
+  `AUTHORING.md`, `README.md` and this file — and the hover claimed "the same seed always gives
+  the same value", which is true of the IR and false of a GPU. §55 gives the three seed shapes,
+  the emitted text for each, the refusals, and the defect: WGSL bounds `sin` to 2⁻¹¹ absolute
+  error on [-π, π] and not at all outside it, which is where a hash of
+  `dot(seed, vec2(12.9898, 78.233))` lives, so moving `sin` by 2⁻¹¹ moves `random(0.5)` from
+  0.9642 to 0.3306 and `random(12.)` from 0.3497 to 0.7161, and #181 measures the emitted
+  expression against the f64 oracle at up to 0.8078 apart on a [0, 1) range. Nothing in the
+  front end says so, which is the new Appendix B row against Rule 12.6; #181 replaces the hash
+  with murmur3's `fmix32` over a counter, bit-exact on all four legs, and this change deliberately
+  does not touch the lowering or `Math.random`.
+
 - **A barrier's placement rule is the spec's, not a stricter one** (§54,
   [#161](https://github.com/typeshade/typeshade/issues/161)). `workgroupBarrier()` and
   `storageBarrier()` were refused inside any `if` or `switch` at all. What WGSL and Tint refuse
