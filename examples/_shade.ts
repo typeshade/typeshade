@@ -248,6 +248,94 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     twinOf: 'gradient',
   },
   {
+    id: 'fp64-deep-zoom-twin',
+    title: 'fp64 deep zoom (source twin)',
+    blurb:
+      '`fp64-deep-zoom.ts` written in the source language: one world coordinate swept across the screen as `fract()` stripes, the left half on plain f32 and the right half on the emulated double. The authoring surface is the same on both halves, `+`, `*` and `fract()`, and only the declared type of the uniform differs (§39), so the twin is where you read what the `f64` type costs an author: nothing but the annotation. Past ~10⁷·² one f32 ulp swallows a whole stripe and the left half goes flat while the right keeps striping to 10⁹.',
+    renderable: true,
+    twinOf: 'fp64-deep-zoom',
+  },
+  {
+    id: 'fp64-checker-plane-twin',
+    title: 'fp64 checker plane (source twin)',
+    blurb:
+      '`fp64-checker-plane.ts` written in the source language: a 1-unit checkerboard on a world plane seen from 10⁸ units out, where one f32 ulp is eight whole cells wide. The tile grid comes back from `floor` and `fract` on the `f64` type (§39), with `u.center.x` a lane read of a `vec2f64`, `f64(dx)` widening the f32 screen offset and the literal in `* 0.5` lifted to a full double, so cell parity stays exact where narrowing first would already have lost it. The left half runs the same formulas on the narrowed coordinate and collapses flat, which is the bug the emulation exists for; the `f64` half keeps its anti-aliased cell borders.',
+    renderable: true,
+    twinOf: 'fp64-checker-plane',
+  },
+  {
+    id: 'fp64-loran-twin',
+    title: 'fp64 hyperbolic navigation (source twin)',
+    blurb:
+      '`fp64-loran.ts` written in the source language: the LORAN chart grid, cyan hyperbolae of constant d1 - d2 to two stations and amber ellipses of constant d1 + d2, with the whole cancellation chain on the emulated half riding `distance()` on a `vec2f64` and a df64 `fract` (§39) and narrowing only the band phase. `vec2f64(u.center.x + f64(dx), ...)` is the lane read plus the f32 widen, `* 0.25` is a literal lifted to the full double beside an `f64`, and `f32(u.st_a.x)` is the per-lane narrow the f32 half of the formula needs. Past ~10⁷·² the coordinate ulp grows wider than a band and the plain-f32 left half dissolves into blocky garbage while the right half stays sharp to 10⁹.',
+    renderable: true,
+    twinOf: 'fp64-loran',
+  },
+  {
+    id: 'fp64-rtc-twin',
+    title: 'fp64 relative-to-center (source twin)',
+    blurb:
+      "`fp64-rtc.ts` written in the source language: a survey marker a few fractional units from the eye, drawn as a reticle. The f64 half reads both `vec2f64` world positions from the uniform, subtracts them as doubles and narrows the small delta with `f32(...)`; the f32 half narrows first and subtracts after, so at 10⁸ both operands land on the same 8-unit ulp grid and the reticle snaps off-target in whole-ulp jumps. The twin that shows §39's subtract-then-narrow discipline in one expression: `f32(u.center.x + f64(dx) - u.mark.x)` against `f32(u.center.x) + dx - f32(u.mark.x)`.",
+    renderable: true,
+    twinOf: 'fp64-rtc',
+  },
+  {
+    id: 'fp64-julia-twin',
+    title: 'fp64 Julia set (source twin)',
+    blurb:
+      '`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed and bailout lifted to full doubles beside it (§39), and the two halves lower to `df64_add` / `df64_mul` / `df64_le` against the very same f32 ops.',
+    renderable: true,
+    twinOf: 'fp64-julia',
+  },
+  {
+    id: 'fp64-burning-ship-twin',
+    title: 'fp64 Burning Ship (source twin)',
+    blurb:
+      '`fp64-burning-ship.ts` written in the source language: the |Re z|, |Im z| fold spelled as `abs` on an `f64` inside the extended-precision iteration, the centre read lane by lane off a `vec2f64`, and every literal beside a double lifted to one (§39). The half-selection is a ternary and the split screen an `if`/`else` over `||`, and the f32 half narrows with `f32(x)` exactly where the EDSL spelled `toF32`.',
+    renderable: true,
+    twinOf: 'fp64-burning-ship',
+  },
+  {
+    id: 'fp64-newton-twin',
+    title: 'fp64 Newton fractal (source twin)',
+    blurb:
+      "`fp64-newton.ts` written in the source language: Newton's method for z³ = 1 as a counted 48-step loop with a full complex DIVISION every step, so its f64 branch is the one place in the family that exercises `df64_div`. The split screen is a plain `if`/`else` over `uv.x < 0.5 || u.fp64 < 0.5`, and where the EDSL had to spell `f64(1.0)` to get a double reciprocal, the twin writes `1.0 / (gx * gx + gy * gy)` and §39 lifts the literal beside the `f64`.",
+    renderable: true,
+    twinOf: 'fp64-newton',
+  },
+  {
+    id: 'fp64-mandelbrot-de-twin',
+    title: 'fp64 distance estimate (source twin)',
+    blurb:
+      "`fp64-mandelbrot-de.ts` written in the source language: the mixed-precision distance estimate with the split spelled per value, the orbit's `let zx: f64 = 0.` beside the derivative's plain `let ux = 0.`, and `f32(zx)` narrowing z once per step so the `2*z*dz + 1` recurrence stays in f32. `u.center.x` is a lane read of a `vec2f64` (§39), and `log` / `exp`, which have no emulated-double form, are reached only after the narrow, exactly where the original reaches them. The twin with two escape-time loops in one entry, an all-f32 branch and an f64-orbit branch, one per half of the split screen.",
+    renderable: true,
+    twinOf: 'fp64-mandelbrot-de',
+  },
+  {
+    id: 'fp64-clock-twin',
+    title: 'fp64 long-uptime clock (source twin)',
+    blurb:
+      '`fp64-clock.ts` written in the source language: the mission-time epoch read from the uniform as an `f64`, the live `time` widened with `f64(x)` and added in extended precision, the f32 `speed` lifted beside the double, and only the sub-unit `fract()` phase narrowed with `f32(x)` to drive the dial (§39). The left dial narrows the epoch first and freezes once one f32 ulp is wider than a second, past about 10⁷·² s; the right one keeps sweeping to 10⁹ s. Nothing crosses the entry boundary as a double: the fragment stage reads the uniform itself, which is the remedy the varying refusal names.',
+    renderable: true,
+    twinOf: 'fp64-clock',
+  },
+  {
+    id: 'fp64-cancellation-twin',
+    title: 'fp64 catastrophic cancellation (source twin)',
+    blurb:
+      '`fp64-cancellation.ts` written in the source language: (x-1)⁷ in EXPANDED form near x = 1, where eight ~1-sized terms must cancel to nine digits and f32 answers with noise thousands of times the plot range. The f64 half is ordinary arithmetic on this surface, `1. + f64(d)`, six multiplies for the powers and six for the coefficients, with each bare literal lifted to a full double because it sits beside one (§39); only the ~w⁷-sized result narrows, through `f32()`.',
+    renderable: true,
+    twinOf: 'fp64-cancellation',
+  },
+  {
+    id: 'fp64-sine-sweep-twin',
+    title: 'fp64 sine sweep (source twin)',
+    blurb:
+      '`fp64-sine-sweep.ts` written in the source language: sin(x) for x = a large `f64` base plus a small on-screen sweep, the two halves side by side. The f32 half narrows the base first, exactly where the original does, so its argument quantizes to a few treads and the wave becomes a staircase; the f64 half adds the sweep to the double and calls the emulated `sin` (§39). `8*PI` is a JavaScript number on the EDSL side, so the twin spells the literal it evaluates to.',
+    renderable: true,
+    twinOf: 'fp64-sine-sweep',
+  },
+  {
     id: 'cutout',
     title: 'Cutout (source language)',
     blurb:
