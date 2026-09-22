@@ -4,8 +4,8 @@ Step 1 of the example port: a **classification**, not a port. First measured on 
 `b6d6c56`; the rows have been re-measured since, most recently on this branch with A1 (#19)
 and the #14 fix in place. Where a row's verdict changed, the correction note below says so.
 
-> **Corrected three times.** This document was written before four changes that invalidate
-> much of it, and the rows have been updated for all four. (1) **A1** — vector × scalar
+> **Corrected four times.** This document was written before five changes that invalidate
+> much of it, and the rows have been updated for all five. (1) **A1** — vector × scalar
 > broadcast — landed in [#19](https://github.com/typeshade/typeshade/pull/19), so the single
 > largest blocker below is gone. (2) [#13](https://github.com/typeshade/typeshade/issues/13)
 > and [#14](https://github.com/typeshade/typeshade/issues/14), the two backend bugs writing
@@ -14,10 +14,13 @@ and the #14 fix in place. Where a row's verdict changed, the correction note bel
 > [#18](https://github.com/typeshade/typeshade/pull/18). (3) Writing out the remaining twelve
 > twins ([#42](https://github.com/typeshade/typeshade/pull/42)) cost three more rows their
 > **portable** verdict — [#38](https://github.com/typeshade/typeshade/issues/38) and
-> [#40](https://github.com/typeshade/typeshade/issues/40) — so the headline figure is **11 of
-> 36**, not the 14 this document measured.
+> [#40](https://github.com/typeshade/typeshade/issues/40) — so the headline figure was **11 of
+> 36**, not the 14 this document measured. (4) The **`f64` surface** (§39 of
+> `docs/use-typeshade-surface.md`, [#166] closing [#151]) landed **N1** and **N2**, the two
+> blockers no issue #8 item covered, and eleven of the thirteen `fp64-*` examples became twins
+> in one change: the headline figure is **24 of 36**.
 >
-> What has **not** changed is the lesson those four taught, and #40 sharpened it: everything
+> What has **not** changed is the lesson those five taught, and #40 sharpened it: everything
 > here measures whether the compiler **accepts the source**, which is not the same as whether
 > the **output is correct** — and `voronoi-twin` shows that passing every gate in this
 > repository is not the same either. See
@@ -70,54 +73,73 @@ see [Verified, not inferred](#verified-not-inferred).
 It is the prioritisation signal: a row blocked by something that blocks 28 examples is not
 waiting on its own feature, it is waiting on the corpus-wide one.
 
-| #   | Example               | Category     | Now          | Blocked by                   | Blocks (total) |
-| --- | --------------------- | ------------ | ------------ | ---------------------------- | -------------- |
-| 1   | `graticule`           | cartographic | blocked      | **A6-deriv**                 | 5 / 36         |
-| 2   | `hillshade`           | cartographic | **portable** | —                            | —              |
-| 3   | `fp64-deep-zoom`      | cartographic | blocked      | **A6-f64**                   | 13 / 36        |
-| 4   | `fp64-checker-plane`  | cartographic | blocked      | **A6-f64**, N1, N2           | 13 / 36        |
-| 5   | `fp64-loran`          | cartographic | blocked      | **A6-f64**, N1, N2, A6-deriv | 13 / 36        |
-| 6   | `fp64-mercator-tiles` | cartographic | blocked      | **A6-f64**, N1, N2, L-loop   | 13 / 36        |
-| 7   | `fp64-rtc`            | cartographic | blocked      | **A6-f64**, N1               | 13 / 36        |
-| 8   | `color-ramp`          | cartographic | blocked      | **A6-deriv**                 | 5 / 36         |
-| 9   | `discard-cutout`      | generic      | blocked      | **A6-discard**               | 1 / 36         |
-| 10  | `plasma`              | generic      | **portable** | —                            | —              |
-| 11  | `voronoi`             | generic      | blocked      | **B-negint**                 | 1 / 36         |
-| 12  | `julia`               | generic      | **portable** | —                            | —              |
-| 13  | `mandelbrot`          | generic      | **portable** | —                            | —              |
-| 14  | `fbm-clouds`          | generic      | blocked      | **L-loop**                   | 4 / 36         |
-| 15  | `domain-warp`         | generic      | **portable** | —                            | —              |
-| 16  | `raymarch-sphere`     | generic      | blocked      | **B-scope**                  | 2 / 36         |
-| 17  | `raymarch-boxes`      | generic      | blocked      | **B-scope**                  | 2 / 36         |
-| 18  | `tunnel`              | generic      | **portable** | —                            | —              |
-| 19  | `metaballs`           | generic      | blocked      | **L-loop**                   | 4 / 36         |
-| 20  | `ocean`               | generic      | **portable** | —                            | —              |
-| 21  | `starfield`           | generic      | **portable** | —                            | —              |
-| 22  | `truchet`             | generic      | blocked      | **A6-deriv**                 | 5 / 36         |
-| 23  | `kaleidoscope`        | generic      | **portable** | —                            | —              |
-| 24  | `heart`               | generic      | blocked      | **A6-deriv**                 | 5 / 36         |
-| 25  | `fp64-mandelbrot`     | generic      | blocked      | **A6-f64**, N1, N2, L-loop   | 13 / 36        |
-| 26  | `fp64-julia`          | generic      | blocked      | **A6-f64**, N1, N2           | 13 / 36        |
-| 27  | `fp64-burning-ship`   | generic      | blocked      | **A6-f64**, N1, N2           | 13 / 36        |
-| 28  | `fp64-newton`         | generic      | blocked      | **A6-f64**, N1, N2           | 13 / 36        |
-| 29  | `fp64-mandelbrot-de`  | generic      | blocked      | **A6-f64**, N1, N2           | 13 / 36        |
-| 30  | `fp64-clock`          | generic      | blocked      | **A6-f64**                   | 13 / 36        |
-| 31  | `fp64-cancellation`   | generic      | blocked      | **A6-f64**, N2               | 13 / 36        |
-| 32  | `fp64-sine-sweep`     | generic      | blocked      | **A6-f64**                   | 13 / 36        |
-| 33  | `gradient`            | generic      | **portable** | —                            | —              |
-| 34  | `override-quality`    | generic      | **portable** | —                            | —              |
-| 35  | `texture-array-lod`   | generic      | **portable** | —                            | —              |
-| 36  | `compute-reduction`   | compute      | **portable** | —                            | —              |
+| #   | Example               | Category     | Now          | Blocked by     | Blocks (total) |
+| --- | --------------------- | ------------ | ------------ | -------------- | -------------- |
+| 1   | `graticule`           | cartographic | blocked      | **A6-deriv**   | 4 / 36         |
+| 2   | `hillshade`           | cartographic | **portable** | —              | —              |
+| 3   | `fp64-deep-zoom`      | cartographic | **portable** | —              | —              |
+| 4   | `fp64-checker-plane`  | cartographic | **portable** | —              | —              |
+| 5   | `fp64-loran`          | cartographic | **portable** | —              | —              |
+| 6   | `fp64-mercator-tiles` | cartographic | blocked      | **L-loop**     | 4 / 36         |
+| 7   | `fp64-rtc`            | cartographic | **portable** | —              | —              |
+| 8   | `color-ramp`          | cartographic | blocked      | **A6-deriv**   | 4 / 36         |
+| 9   | `discard-cutout`      | generic      | blocked      | **A6-discard** | 1 / 36         |
+| 10  | `plasma`              | generic      | **portable** | —              | —              |
+| 11  | `voronoi`             | generic      | blocked      | **B-negint**   | 1 / 36         |
+| 12  | `julia`               | generic      | **portable** | —              | —              |
+| 13  | `mandelbrot`          | generic      | **portable** | —              | —              |
+| 14  | `fbm-clouds`          | generic      | blocked      | **L-loop**     | 4 / 36         |
+| 15  | `domain-warp`         | generic      | **portable** | —              | —              |
+| 16  | `raymarch-sphere`     | generic      | blocked      | **B-scope**    | 2 / 36         |
+| 17  | `raymarch-boxes`      | generic      | blocked      | **B-scope**    | 2 / 36         |
+| 18  | `tunnel`              | generic      | **portable** | —              | —              |
+| 19  | `metaballs`           | generic      | blocked      | **L-loop**     | 4 / 36         |
+| 20  | `ocean`               | generic      | **portable** | —              | —              |
+| 21  | `starfield`           | generic      | **portable** | —              | —              |
+| 22  | `truchet`             | generic      | blocked      | **A6-deriv**   | 4 / 36         |
+| 23  | `kaleidoscope`        | generic      | **portable** | —              | —              |
+| 24  | `heart`               | generic      | blocked      | **A6-deriv**   | 4 / 36         |
+| 25  | `fp64-mandelbrot`     | generic      | blocked      | **L-loop**     | 4 / 36         |
+| 26  | `fp64-julia`          | generic      | **portable** | —              | —              |
+| 27  | `fp64-burning-ship`   | generic      | **portable** | —              | —              |
+| 28  | `fp64-newton`         | generic      | **portable** | —              | —              |
+| 29  | `fp64-mandelbrot-de`  | generic      | **portable** | —              | —              |
+| 30  | `fp64-clock`          | generic      | **portable** | —              | —              |
+| 31  | `fp64-cancellation`   | generic      | **portable** | —              | —              |
+| 32  | `fp64-sine-sweep`     | generic      | **portable** | —              | —              |
+| 33  | `gradient`            | generic      | **portable** | —              | —              |
+| 34  | `override-quality`    | generic      | **portable** | —              | —              |
+| 35  | `texture-array-lod`   | generic      | **portable** | —              | —              |
+| 36  | `compute-reduction`   | compute      | **portable** | —              | —              |
 
-**Portable today: 13 of 36.** The twins measured 11; A7 adds `override-quality`, whose source form compiles with `override<T>`, and A3 adds `texture-array-lod`, whose `vec2i(0, 0)` was the last thing holding it after A7. The earlier figure was 14 — up from 2 once
+**Portable today: 24 of 36.** That is the 13 this document last measured plus the eleven
+`fp64-*` rows the `f64` surface opened. The 13 were the eleven twins that had shipped, plus
+`override-quality`, whose source form compiles with `override<T>` (A7), plus
+`texture-array-lod`, whose `vec2i(0, 0)` was the last thing holding it after A7 (A3). The
+eleven are every `fp64-*` example except `fp64-mercator-tiles` and `fp64-mandelbrot`:
+[#166](https://github.com/typeshade/typeshade/pull/166), closing
+[#151](https://github.com/typeshade/typeshade/issues/151), landed §39 of
+`docs/use-typeshade-surface.md` and with it **N1** (a component read on a `vec2<f64>`) and
+**N2** (an f64 literal), the two blockers no issue #8 item covered.
+
+Those eleven are not a feature-list verdict. Each one is written out, compiled, gated and
+measured: `reflect()` deep-equals its original's, the two goldens bake, Tint and a real WebGL2
+context accept both emits, and the CPU oracle agrees with the original at |Δ| = 0 on the
+double row AND on the emulated row over all 101 samples (`examples/fp64-twins.test.ts`). The
+two rows that did not move are held by **L-loop** alone, and for the same reason in both: the
+loop bound is a uniform the user turns, a zoom level in `fp64-mercator-tiles` and an iteration
+budget in `fp64-mandelbrot`, where §17 requires a counted `for` over a constant bound.
+
+The earlier figures were 14, up from 2 once
 [#19](https://github.com/typeshade/typeshade/pull/19) landed A1 and removed the single largest
-blocker — and then all twelve unwritten twins were written out. Three of them do not compile,
-and rows 11, 16 and 17 above carry the blockers that stopped them (**B-negint**, **B-scope**).
-Eleven have shipped: `compute-reduction` in
+blocker, and then 13 once all twelve unwritten twins were written out. Three of those do not
+compile, and rows 11, 16 and 17 above carry the blockers that stopped them (**B-negint**,
+**B-scope**). Twenty-two twins have shipped: `compute-reduction` in
 [#16](https://github.com/typeshade/typeshade/pull/16), `gradient` once
-[#14](https://github.com/typeshade/typeshade/issues/14) — fixed in
-[#18](https://github.com/typeshade/typeshade/pull/18) — unblocked its GLSL, and nine fullscreen
-twins in [#42](https://github.com/typeshade/typeshade/pull/42).
+[#14](https://github.com/typeshade/typeshade/issues/14), fixed in
+[#18](https://github.com/typeshade/typeshade/pull/18), unblocked its GLSL, nine fullscreen
+twins in [#42](https://github.com/typeshade/typeshade/pull/42), and the eleven fp64 twins
+here.
 
 The three that fell out are the point, not a footnote: _accepts the source_ is not _emits a
 correct shader_, and one of the three passed every gate in this repository except Tint — see
@@ -125,43 +147,53 @@ correct shader_, and one of the three passed every gate in this repository excep
 
 ## The blockers
 
-| Code            | Missing feature                                                      | Issue #8        | Blocks | Examples                                                                                                                                                                  |
-| --------------- | -------------------------------------------------------------------- | --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A6-f64**      | ~~the `f64()` cast~~ — **landed** (#8 A6); N1 and N2 still block the family | A6, seam S1     | 13     | every `fp64-*`                                                                                                                                                            |
-| **N1**          | component read on a `vec2<f64>` (`c.x`)                              | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-rtc`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`          |
-| **N2**          | an f64 literal — `let z: f64 = 0.` and `f64Val * 2.` both fail       | **not in #8**   | 9      | `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-cancellation` |
-| **A6-deriv**    | ~~`fwidth`, and `dpdx` / `dpdy`~~ — **landed** (#8 A6)               | A6              | 5      | `graticule`, `fp64-loran`, `color-ramp`, `truchet`, `heart`                                                                                                               |
-| **L-loop**      | a loop bound that is not a compile-time constant                     | later (M22·S31) | 4      | `fp64-mercator-tiles`, `fbm-clouds`, `metaballs`, `fp64-mandelbrot`                                                                                                       |
-| **A3**          | ~~an integer literal taking the declared type~~ — **landed** (#8 A3) | A3              | 0      | — (`texture-array-lod` compiles)                                                                                                                                          |
-| **A6-discard**  | ~~the `discard` statement~~ — **landed** (#8 A6)                     | A6              | 1      | `discard-cutout`                                                                                                                                                          |
-| **A7-tex**      | ~~`texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`~~ — **landed** (#8 A7) | A7              | 0      | — (`texture-array-lod` compiles)                                                                                                                                          |
-| **A7-override** | ~~`override<T>` specialization constants~~ — **landed** (#8 A7)      | A7              | 0      | — (`override-quality` compiles)                                                                                                                                           |
-| **B-scope**     | a local name bound in two block scopes of one function ([#38])       | **a bug**       | 2      | `raymarch-sphere`, `raymarch-boxes`                                                                                                                                       |
-| **B-negint**    | a negative integer literal in a local or `for` declaration ([#40])   | **a bug**       | 1      | `voronoi`                                                                                                                                                                 |
+| Code            | Missing feature                                                                               | Issue #8        | Blocks | Examples                                                                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------- | --------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **A6-f64**      | ~~the `f64()` cast~~ — **landed** (#8 A6), and with N1 and N2 the family is open              | A6, seam S1     | 0      | — (was 13: every `fp64-*`; eleven twins shipped, and the last two are L-loop)                                                                                                        |
+| **N1**          | ~~component read on a `vec2<f64>` (`c.x`)~~ — **landed** (§39, [#151] in [#166])              | **not in #8**   | 0      | — (was 9: `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-rtc`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`)          |
+| **N2**          | ~~an f64 literal: `let z: f64 = 0.`, `f64Val * 2.`~~ — **landed** (§39, [#151] in [#166])     | **not in #8**   | 0      | — (was 9: `fp64-checker-plane`, `fp64-loran`, `fp64-mercator-tiles`, `fp64-mandelbrot`, `fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-cancellation`) |
+| **A6-deriv**    | ~~`fwidth`, and `dpdx` / `dpdy`~~ — **landed** (#8 A6)                                        | A6              | 4      | `graticule`, `color-ramp`, `truchet`, `heart` (`fp64-loran` is off this list: its twin calls `fwidth` twice and compiles)                                                            |
+| **L-loop**      | a loop bound that is not a compile-time constant (§17)                                        | later (M22·S31) | 4      | `fp64-mercator-tiles`, `fbm-clouds`, `metaballs`, `fp64-mandelbrot`; it is now the WHOLE of what holds the fp64 family                                                               |
+| **A3**          | ~~an integer literal taking the declared type~~ — **landed** (#8 A3)                          | A3              | 0      | — (`texture-array-lod` compiles)                                                                                                                                                     |
+| **A6-discard**  | ~~the `discard` statement~~ — **landed** (#8 A6)                                              | A6              | 1      | `discard-cutout`                                                                                                                                                                     |
+| **A7-tex**      | ~~`texture_2d_array<f32>`, `sampler`, `textureSample*` / `textureLoad`~~ — **landed** (#8 A7) | A7              | 0      | — (`texture-array-lod` compiles)                                                                                                                                                     |
+| **A7-override** | ~~`override<T>` specialization constants~~ — **landed** (#8 A7)                               | A7              | 0      | — (`override-quality` compiles)                                                                                                                                                      |
+| **B-scope**     | a local name bound in two block scopes of one function ([#38])                                | **a bug**       | 2      | `raymarch-sphere`, `raymarch-boxes`                                                                                                                                                  |
+| **B-negint**    | a negative integer literal in a local or `for` declaration ([#40])                            | **a bug**       | 1      | `voronoi`                                                                                                                                                                            |
 
 The last two rows are not missing features. They are compiler defects found by writing the
 twins, which is why they carry an issue number where the others carry an issue #8 item — and
 why they were filed rather than worked around.
 
+**B-scope measured again, while writing the fp64 twins.** The shape #38 names now compiles.
+Two sequential `for (let i: u32 = 0; …)` loops in one function emit `i` and `i_1` with no
+diagnostic on this branch, and `fp64-mandelbrot-de-twin`, whose two split-screen branches each
+bind `cx`, `cy`, `zx`, `zy`, `ux` and `uy`, is registered, gated and byte-pinned. That is an
+observation about the defect, not a verdict on rows 16 and 17: `raymarch-sphere` and
+`raymarch-boxes` move only when their twins are written, compiled and handed to Tint and
+WebGL2, which is the lesson `voronoi` taught below.
+
 [#38]: https://github.com/typeshade/typeshade/issues/38
 [#40]: https://github.com/typeshade/typeshade/issues/40
+[#151]: https://github.com/typeshade/typeshade/issues/151
+[#166]: https://github.com/typeshade/typeshade/pull/166
 
 ### What the corpus does **not** need
 
 Worth stating, because these rank high in issue #8 and would be natural things to reach for
 first. No example in the 36 is waiting on any of them:
 
-| Issue #8 item                                                                                     | Blocks |
-| ------------------------------------------------------------------------------------------------- | ------ |
-| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed)                                    | 0      |
-| ~~**A4** `type` / `interface` structs~~ (landed)                                                  | 0      |
-| **A5** `@align` / `@size` field decorators                                                        | 0      |
-| ~~**A8** element-converting constructors~~ (landed)                                               | 0      |
-| ~~**A9** module-level vector constants~~ (landed)                                                 | 0      |
-| ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed)                                         | 0      |
-| ~~**A11** object-literal contextual typing~~ (landed, in every position that declares a type)      | 0      |
-| **S5** `arrayLength`                                                                              | 0      |
-| **S7** `mat2` / `mat3`                                                                            | 0      |
+| Issue #8 item                                                                                 | Blocks |
+| --------------------------------------------------------------------------------------------- | ------ |
+| ~~**A2** member / component assignment (`v.x = 0.`)~~ (landed)                                | 0      |
+| ~~**A4** `type` / `interface` structs~~ (landed)                                              | 0      |
+| **A5** `@align` / `@size` field decorators                                                    | 0      |
+| ~~**A8** element-converting constructors~~ (landed)                                           | 0      |
+| ~~**A9** module-level vector constants~~ (landed)                                             | 0      |
+| ~~**A10** uninitialised `let`, `switch`, `<<=`~~ (landed)                                     | 0      |
+| ~~**A11** object-literal contextual typing~~ (landed, in every position that declares a type) | 0      |
+| **S5** `arrayLength`                                                                          | 0      |
+| ~~**S7** `mat2` / `mat3`~~ (landed)                                                           | 0      |
 
 A10 has landed even though it blocks nothing here: the 36 EDSL examples were written
 through a surface that spells these differently, so the corpus could not have shown the gap.
@@ -186,21 +218,30 @@ below that says "portable" means the GLSL form emits too. What the rows still do
 that the emitted shader is CORRECT; only Tint and WebGL2 answer that.
 
 Since the table was written, **A6-deriv**, **A6-discard** and **A6-f64** (the cast) have
-landed in #8 A6. The fp64 family is still held by **N1** and **N2**, which no issue item
-covers, so its rows have not moved.
+landed in #8 A6, and **N1** and **N2**, which no issue item covered, landed with §39 in
+[#166]. So the fp64 rows have moved: eleven of the thirteen are portable and shipped as twins,
+and the remaining two are **L-loop** and nothing else.
 
-| After landing      | Portable |
-| ------------------ | -------- |
-| (today, A1 landed) | 14 / 36  |
-| + A6-deriv         | 18 / 36  |
-| + A6-discard       | 19 / 36  |
-| + L-loop           | 21 / 36  |
-| + A6-f64           | 24 / 36  |
-| + N1               | 25 / 36  |
-| + N2               | 34 / 36  |
-| + A7-override      | 35 / 36  |
-| + A7-tex           | 35 / 36  |
-| + A3               | 36 / 36  |
+| After landing                                 | Portable |
+| --------------------------------------------- | -------- |
+| (today: A1, A3, A6, A7 and §39's f64 surface) | 24 / 36  |
+| + re-measuring the four **A6-deriv** rows     | 28 / 36  |
+| + re-measuring the one **A6-discard** row     | 29 / 36  |
+| + **L-loop**                                  | 33 / 36  |
+| + **B-scope** ([#38])                         | 35 / 36  |
+| + **B-negint** ([#40])                        | 36 / 36  |
+
+The rows are the ones the table above still marks blocked, in weight order, and the arithmetic
+is just that table: 24 portable, 12 blocked, four of them on **A6-deriv**, one on
+**A6-discard**, four on **L-loop**, two on **B-scope** and one on **B-negint**. Two of those
+six rows are named "re-measuring" rather than "landing" on purpose: the feature landed in #8
+A6, but a row moves in this document only when its twin has been written and gated, which is
+what the eleven fp64 rows in this change did and what `graticule`, `color-ramp`, `truchet`,
+`heart` and `discard-cutout` have not. `override-quality` and `texture-array-lod` are the
+standing exception: neither has a twin, and both moved on a compile probe alone, which is the
+weaker evidence this document's own opening warns about. **L-loop** is the largest single
+blocker left, at four rows, and it is the only thing between this corpus and every fp64
+example being a twin.
 
 Two things fall out of this that the issue's own ordering does not show.
 
@@ -209,10 +250,12 @@ twelve examples were waiting on it alone; [#19](https://github.com/typeshade/typ
 turned it into one rule shared by `lowerBinary` and `lowerAssignOp`, and those twelve are the
 jump from 2 portable to 14. Nothing left in the list has that weight.
 
-**The fp64 family needs three features, not one.** Issue #8 lists the `f64()` cast under
-A6 and stops there. The corpus needs the cast (13), component reads on `vec2<f64>` (9), and
-an f64 literal (9). Land only the cast and 10 of the 13 fp64 examples are still held up by
-one of the other two.
+**The fp64 family needed three features, not one, and it got all three.** Issue #8 listed the
+`f64()` cast under A6 and stopped there. The corpus needed the cast (13), component reads on
+`vec2<f64>` (9), and an f64 literal (9); landing only the cast would have left 10 of the 13
+fp64 examples held up by one of the other two. §39 landed all three, and the count bears the
+prediction out: eleven of the thirteen became twins in one change, and the two that did not
+are blocked by something that has nothing to do with doubles.
 
 ### A1 needed no workaround in the end
 
@@ -350,6 +393,29 @@ can: an external compiler is the only participant here with no stake in the IR b
 So the order for the next twin is fixed — write it, compile it, **then** bake. Baking first
 records the bug as the expected output.
 
+### And for an emulated double, a third leg
+
+Tint answers "is this a legal shader". It does not answer "does it compute the right number",
+and for the `f64` family that is the question the whole feature exists for: a twin whose df64
+chain lowered to plausible but wrong f32 arithmetic would pass `shade-twins.test.ts`, bake its
+goldens and be accepted by Tint and WebGL2 alike. So would a twin that quietly narrowed an
+operand one step earlier than its original, which is the single easiest way to write a
+"faithful" fp64 twin that is not one.
+
+`examples/fp64-twins.test.ts` is that leg, and it is the same metamorphic relation
+`fp64-lane-stripes.test.ts` holds one example's numeric core to
+(`oracle(fp64Lower(m)) ≈ oracle(m)`), run over every registered fp64 twin at the inputs it was
+ported against. Each sample is evaluated four times: the original and the twin as authored,
+where an `f64` is a JavaScript double, and both again fp64-lowered under `precision: 'f32'`,
+where every `f64` is the `splitF64` pair the host packs and every operation rounds the way a
+GPU rounds. Twin against original is the gate, on both rows, and it measures **exactly 0** on
+all 101 samples. Emulated against double is asserted only on the samples where it should hold:
+these are split screens whose left half narrows first on purpose, and the CPU double row does
+no `fround`, so on an f32-half sample the emulated row parts from it by design (6.04e-1 on
+`fp64-checker-plane`, 1.58e+0 on `fp64-rtc`). Which samples those are is a measurement carried
+in the test data, and the suite refuses a sample set that is all of one kind, so neither arm
+can go quiet.
+
 ## Verified, not inferred
 
 The table's per-example verdicts come from the IR walk. For the examples whose verdict
@@ -361,15 +427,18 @@ It is not a claim that the emitted shader is valid — see
 [What step 2 found](#what-step-2-found-that-this-classification-could-not) for the two places
 that distinction turned out to matter.
 
-| Example             | Written out as                    | Result                                                                                                                       |
-| ------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `gradient`          | a faithful twin                   | compiles clean, and since [#18](https://github.com/typeshade/typeshade/pull/18) its GLSL declares the uniform block it reads |
-| `compute-reduction` | a faithful twin                   | source compiles clean; shipped as a twin in [#16](https://github.com/typeshade/typeshade/pull/16)                            |
-| `plasma`            | a faithful twin                   | 1 error, an A1 mismatch (+1 cascade); clean once `* vec3(0.5)` is used                                                       |
-| `tunnel`            | a faithful twin                   | 1 error, an A1 mismatch; clean once `* vec3(…)` is used                                                                      |
-| `hillshade`         | a faithful twin                   | 2 errors, both A1 (+10 cascade); clean once `* vec2(…)` / `* vec3(…)`                                                        |
-| `graticule`         | twin with `fwidth(x)` → a literal | compiles clean — `fwidth` is genuinely the only gap                                                                          |
-| `discard-cutout`    | twin with the `discard` removed   | compiles clean — `discard` is genuinely the only gap                                                                         |
+| Example               | Written out as                                              | Result                                                                                                                                                 |
+| --------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gradient`            | a faithful twin                                             | compiles clean, and since [#18](https://github.com/typeshade/typeshade/pull/18) its GLSL declares the uniform block it reads                           |
+| `compute-reduction`   | a faithful twin                                             | source compiles clean; shipped as a twin in [#16](https://github.com/typeshade/typeshade/pull/16)                                                      |
+| `plasma`              | a faithful twin                                             | 1 error, an A1 mismatch (+1 cascade); clean once `* vec3(0.5)` is used                                                                                 |
+| `tunnel`              | a faithful twin                                             | 1 error, an A1 mismatch; clean once `* vec3(…)` is used                                                                                                |
+| `hillshade`           | a faithful twin                                             | 2 errors, both A1 (+10 cascade); clean once `* vec2(…)` / `* vec3(…)`                                                                                  |
+| `graticule`           | twin with `fwidth(x)` → a literal                           | compiles clean — `fwidth` is genuinely the only gap                                                                                                    |
+| `discard-cutout`      | twin with the `discard` removed                             | compiles clean — `discard` is genuinely the only gap                                                                                                   |
+| eleven `fp64-*`       | faithful twins                                              | compile clean, reflect equal, goldens baked, Tint and WebGL2 accept both emits, oracle agrees at 0 on 101 samples                                      |
+| `fp64-mercator-tiles` | a faithful twin, then a scratch scout with the bound frozen | `TS8006 for exit must compare "j" to a constant bound`; with the bound frozen the REST of the shader compiles clean, so **L-loop** is the sole blocker |
+| `fp64-mandelbrot`     | a faithful twin                                             | two `TS8006`, one per escape helper, both the `iters` bound read from the uniform; nothing else in the file is refused                                 |
 
 The cascade counts are worth noting on their own: one rejected `const` turns into ten
 `Unknown identifier` diagnostics downstream. That is issue #8's A12, seen here at full size
@@ -409,16 +478,26 @@ file a registry entry, goldens and a compile-gate slot. A twin lands as: write
 The `-twin` suffix is what keeps the golden stems disjoint; `shade-examples.test.ts` asserts
 that disjointness, because both corpora bake into one `__emit-goldens__/` directory.
 
-Eleven twins have landed: `compute-reduction-twin` in #16, `gradient-twin` once
-[#14](https://github.com/typeshade/typeshade/issues/14) was fixed, and nine fullscreen twins —
+Twenty-two twins have landed: `compute-reduction-twin` in #16, `gradient-twin` once
+[#14](https://github.com/typeshade/typeshade/issues/14) was fixed, nine fullscreen twins —
 `hillshade`, `plasma`, `julia`, `mandelbrot`, `domain-warp`, `tunnel`, `ocean`, `starfield`,
-`kaleidoscope` — in [#42](https://github.com/typeshade/typeshade/pull/42). Every one is in the
-compile gate: WGSL through Tint, GLSL ES 3.00 compiled and linked on a real WebGL2 context.
+`kaleidoscope` — in [#42](https://github.com/typeshade/typeshade/pull/42), and eleven fp64
+twins once §39 landed: `fp64-deep-zoom`, `fp64-checker-plane`, `fp64-loran`, `fp64-rtc`,
+`fp64-julia`, `fp64-burning-ship`, `fp64-newton`, `fp64-mandelbrot-de`, `fp64-clock`,
+`fp64-cancellation`, `fp64-sine-sweep`. Every one is in the compile gate: WGSL through Tint,
+GLSL ES 3.00 compiled and linked on a real WebGL2 context, 98 examples and 0 failures with the
+eleven counted.
 
 The three that were written and could not land are `voronoi`, `raymarch-sphere` and
-`raymarch-boxes`. They are absent rather than renamed: a twin that spells the shader
-differently from its original to dodge a compiler bug is not an oracle, it is a second
-program that happens to compile.
+`raymarch-boxes`; `fp64-mercator-tiles` and `fp64-mandelbrot` join them, each written out in
+full and each stopped at one line, the `for` whose bound is a uniform. All five are absent
+rather than renamed: a twin that spells the shader differently from its original to dodge a
+compiler bug or a refusal is not an oracle, it is a second program that happens to compile.
+Freezing `fp64-mercator-tiles`'s bound to the literal 21 was measured, in a scratch file that
+is not a deliverable: the oracle then agrees exactly at zoom 21 and disagrees at every other
+zoom, by up to 1.306e-1 on the double row over the ported sample set. The loop bound is a
+control the user turns, so a constant there draws a different picture at eleven of the twelve
+zoom levels.
 
 ### What changes between an original and its twin
 
@@ -456,48 +535,48 @@ bun -e 'import {compileTsSource} from "./src/index.ts";
         console.log(compileTsSource(require("fs").readFileSync(process.argv[1],"utf8")).diagnostics)' probe.shade.ts
 ```
 
-| Probe                                                                                                           | Result                                                                                                  |
-| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `vec3(1.,.5,.25) * 0.5`                                                                                         | ✓ since [#19](https://github.com/typeshade/typeshade/pull/19); emits `(… * 0.5)`, the EDSL's own text   |
-| `0.5 * p.xyz`                                                                                                   | ✓ since #19, operand order kept as written                                                              |
-| `c *= 0.5` (c: vec3)                                                                                            | ✓ since #19                                                                                             |
-| `a * b` (both vec3)                                                                                             | ✓                                                                                                       |
-| `f64(p.x)`                                                                                                      | ✓ since #8 A6 — the cast exists; an f64 LITERAL still does not (N2)                                     |
-| `u.cx * u.cx` (f64 uniform field)                                                                               | ✓ — f64 **arithmetic** works; only the cast and the literal are missing                                 |
-| `u.cx * 2.`                                                                                                     | ✗ `Type mismatch: cannot * f64 and f32. Types must match.` — #19 reworded this; f64 is a different item |
-| `let zx: f64 = 0.`                                                                                              | ✗ `cannot let/const zx f64 and f32`                                                                     |
-| `u.c.x` where `c: vec2<f64>`                                                                                    | ✗ `.x on vec2<f64> — swizzle requires vec2/vec3/vec4`                                                   |
-| `vec2f64(u.c)`                                                                                                  | ✓ — the constructor exists, the component read does not                                                 |
-| `fwidth(p.x)` / `dpdx(p.x)` / `dpdy(p.x)`                                                                       | ✓ since #8 A6                                                                                           |
-| `exp2(x)` / `saturate(x)` / `select(a,b,c)`                                                                     | ✓ since #8 A6 — plus `fma(a,b,c)`, `atan(y,x)`, `bool(i)` and `a ** b`                                  |
-| `sign` `round` `trunc` `ceil` `degrees` `radians` `inverseSqrt`                                                 | ✓                                                                                                       |
-| `mod` `atan2` `distance` `normalize` `cross` `dot` `length`                                                     | ✓                                                                                                       |
-| `c ? 1. : 0.`                                                                                                   | ✓ — and it lowers to `select(...)`, so it is the spelling for the EDSL's `.select()`                    |
-| `discard`                                                                                                       | ✓ since #8 A6 — in an entry and in a helper the entry calls                                             |
-| `declare const tex: texture_2d<f32>` / `sampler`                                                                | ✓ since #8 A7 — written bare, no uniform<> wrapper                                                      |
-| `declare const quality: override<f32>`                                                                          | ✓ since #8 A7 — default 0 without an initializer, or `= 1.` to state one                                |
-| `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a constant bound`                                                       |
-| `for (let i: u32 = 0; i < WINDOW; i++)` with `const WINDOW: u32 = 8`                                            | ✓ — a module const **is** a constant bound                                                              |
-| `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                       |
-| `for (let i: i32 = 64; i > 1; i /= 2)`, `i *= 2`, `i -= 1`                                                      | ✓ since #8 A15: `+=`, `-=`, `*=` and `/=` are all update forms                                          |
-| `for (let i: i32 = 0; i < 1024; i++)`                                                                           | ✗ `for trip count 1024 exceeds 256.` since #8 A15; it used to say the loop "does not exit"              |
-| `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                              |
-| `vec2i(1, 2)`, `return 0` in a u32 fn, `g(1)`, `{ id: 0 }`, `c ? 1 : 2`, `min(i, 4)`                            | ✓ since #8 A3 (`min(i, 4)` used to emit the invalid `min(i, 4.0)`)                                      |
-| `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                       |
-| `const UP = vec3(0., 1., 0.)`, `const XS = array<f32, 3>(…)` (module vector / array const)                      | ✓ since #8 A9 — through `ConstDecl.valueExpr`, the field the EDSL's `constExpr` fills                   |
-| `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                           |
-| `const xs: array<f32, 3> = [1., 2., 3.]` (a list as an array's initializer)                                     | ✓ since #8 A16: `array<i32, 3> = [1, 2, 3]` too, which the `array<i32, 3>(…)` call still cannot spell   |
-| `f32(vi & 1) * 4. - 1.` (the fullscreen-triangle vertex stage)                                                  | ✓                                                                                                       |
-| `1u`                                                                                                            | ✗ TS parse error — `"const u" requires an initializer`                                                  |
-| `type Camera = { view: mat4; pos: vec3 }`, `interface Camera { … }`                                             | ✓ since #8 A4                                                                                           |
-| `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                             |
-| `m: mat3`                                                                                                       | ✗ `Unknown type "mat3"`                                                                                 |
-| `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                    |
-| `let x: f32;` then `x = 1.`                                                                                     | ✓ since #8 A10; the annotation carries the type, so it is required                                      |
-| `v.x = 1.` / `o.pos = …` / `ps[i].a = 1.` / `v.x += 1.`                                                         | ✓ since #8 A2 (`v.xy = …` is still rejected, as WGSL rejects it)                                        |
-| `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                       |
-| `declare const params: uniform<vec4u>` (non-struct uniform)                                                     | ✓                                                                                                       |
-| `@compute([8, 8, 1])`, a struct return by object literal, a helper returning a struct, a helper taking a struct | ✓                                                                                                       |
+| Probe                                                                                                           | Result                                                                                                |
+| --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `vec3(1.,.5,.25) * 0.5`                                                                                         | ✓ since [#19](https://github.com/typeshade/typeshade/pull/19); emits `(… * 0.5)`, the EDSL's own text |
+| `0.5 * p.xyz`                                                                                                   | ✓ since #19, operand order kept as written                                                            |
+| `c *= 0.5` (c: vec3)                                                                                            | ✓ since #19                                                                                           |
+| `a * b` (both vec3)                                                                                             | ✓                                                                                                     |
+| `f64(p.x)`                                                                                                      | ✓ since #8 A6 — the cast exists, and since §39 so does the literal                                    |
+| `u.cx * u.cx` (f64 uniform field)                                                                               | ✓ — f64 **arithmetic** works, and since §39 so do the cast, the literal and the lane read             |
+| `u.cx * 2.`                                                                                                     | ✓ since §39 ([#151] in [#166]): the literal beside an f64 is lifted to a full double                  |
+| `let zx: f64 = 0.`                                                                                              | ✓ since §39: a literal in a declared f64 position keeps the whole double                              |
+| `u.c.x` where `c: vec2<f64>`                                                                                    | ✓ since §39: `p.x`, `p.xy` and `p[1]` are lane READS, constant index, no writes                       |
+| `vec2f64(u.c)`                                                                                                  | ✓ — the constructor and the component read both exist since §39                                       |
+| `fwidth(p.x)` / `dpdx(p.x)` / `dpdy(p.x)`                                                                       | ✓ since #8 A6                                                                                         |
+| `exp2(x)` / `saturate(x)` / `select(a,b,c)`                                                                     | ✓ since #8 A6 — plus `fma(a,b,c)`, `atan(y,x)`, `bool(i)` and `a ** b`                                |
+| `sign` `round` `trunc` `ceil` `degrees` `radians` `inverseSqrt`                                                 | ✓                                                                                                     |
+| `mod` `atan2` `distance` `normalize` `cross` `dot` `length`                                                     | ✓                                                                                                     |
+| `c ? 1. : 0.`                                                                                                   | ✓ — and it lowers to `select(...)`, so it is the spelling for the EDSL's `.select()`                  |
+| `discard`                                                                                                       | ✓ since #8 A6 — in an entry and in a helper the entry calls                                           |
+| `declare const tex: texture_2d<f32>` / `sampler`                                                                | ✓ since #8 A7 — written bare, no uniform<> wrapper                                                    |
+| `declare const quality: override<f32>`                                                                          | ✓ since #8 A7 — default 0 without an initializer, or `= 1.` to state one                              |
+| `for (…; f32(i) < u.n; i++)`                                                                                    | ✗ `for exit must compare "i" to a constant bound`                                                     |
+| `for (let i: u32 = 0; i < WINDOW; i++)` with `const WINDOW: u32 = 8`                                            | ✓ — a module const **is** a constant bound                                                            |
+| `for (let j: i32 = -1; j <= 1; j++)`, 256-trip loops, nested, `break`, `while`                                  | ✓                                                                                                     |
+| `for (let i: i32 = 64; i > 1; i /= 2)`, `i *= 2`, `i -= 1`                                                      | ✓ since #8 A15: `+=`, `-=`, `*=` and `/=` are all update forms                                        |
+| `for (let i: i32 = 0; i < 1024; i++)`                                                                           | ✗ `for trip count 1024 exceeds 256.` since #8 A15; it used to say the loop "does not exit"            |
+| `vec2i(1, 2)`                                                                                                   | ✗ `Vector constructor element type mismatch: expected i32`                                            |
+| `vec2i(1, 2)`, `return 0` in a u32 fn, `g(1)`, `{ id: 0 }`, `c ? 1 : 2`, `min(i, 4)`                            | ✓ since #8 A3 (`min(i, 4)` used to emit the invalid `min(i, 4.0)`)                                    |
+| `vec3(0.5)` splat, `vec4(v3, 1.)`, `vec4(v2, 0., 1.)`, `p.rgb`                                                  | ✓                                                                                                     |
+| `const UP = vec3(0., 1., 0.)`, `const XS = array<f32, 3>(…)` (module vector / array const)                      | ✓ since #8 A9 — through `ConstDecl.valueExpr`, the field the EDSL's `constExpr` fills                 |
+| `vec3f(v)`, `vec3u(v)`, `vec2(gid.xy)` (element-converting)                                                     | ✓ since #8 A8                                                                                         |
+| `const xs: array<f32, 3> = [1., 2., 3.]` (a list as an array's initializer)                                     | ✓ since #8 A16: `array<i32, 3> = [1, 2, 3]` too, which the `array<i32, 3>(…)` call still cannot spell |
+| `f32(vi & 1) * 4. - 1.` (the fullscreen-triangle vertex stage)                                                  | ✓                                                                                                     |
+| `1u`                                                                                                            | ✗ TS parse error — `"const u" requires an initializer`                                                |
+| `type Camera = { view: mat4; pos: vec3 }`, `interface Camera { … }`                                             | ✓ since #8 A4                                                                                         |
+| `class Camera { @align(16) view: mat4 }`                                                                        | ✗ `TS8010 @align on a field is not applied`                                                           |
+| ~~`m: mat3`~~                                                                                                   | ✓ since §40 — every `matCxR` is a type                                                                |
+| `arrayLength(src)`                                                                                              | ✗ `Unknown function`                                                                                  |
+| `let x: f32;` then `x = 1.`                                                                                     | ✓ since #8 A10; the annotation carries the type, so it is required                                    |
+| `v.x = 1.` / `o.pos = …` / `ps[i].a = 1.` / `v.x += 1.`                                                         | ✓ since #8 A2 (`v.xy = …` is still rejected, as WGSL rejects it)                                      |
+| `dst[gid.x] = 1.` / `dst[gid.x] += 2.`                                                                          | ✓                                                                                                     |
+| `declare const params: uniform<vec4u>` (non-struct uniform)                                                     | ✓                                                                                                     |
+| `@compute([8, 8, 1])`, a struct return by object literal, a helper returning a struct, a helper taking a struct | ✓                                                                                                     |
 
 The command above prints diagnostics, so it measures acceptance and nothing else. One row
 carries a claim it cannot show: the element-converting constructor also changed what the CPU
