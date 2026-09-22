@@ -94,8 +94,8 @@ export interface CompileTsSourceResult {
   /** Every `override<T>` the module declares — WGSL specialization constants, which the
    *  pipeline sets and no pass folds. Empty for a module that declares none. */
   readonly overrides: readonly OverrideDecl[]
-  /** Every module variable (`let x: workgroup<T>`, `let y: perInvocation<T> = init`, §24) the
-   *  module declares. Empty for a module that declares none. */
+  /** Every module variable (`let x: workgroup<T>`, `let y: T = init`, §24) the module
+   *  declares. Empty for a module that declares none. */
   readonly vars: readonly ModuleVarDecl[]
   /** Every name the front end declared while lowering `sourceFile`, with the `ShaderType` it
    *  gave it and the UTF-16 span of the declared name: the table an editor answers "what type

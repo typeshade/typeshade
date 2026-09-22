@@ -1557,14 +1557,13 @@ invocation owns for its whole run, across every function it calls (WGSL's `var<p
 memory one workgroup's invocations share (WGSL's `var<workgroup>`). Roadmap 0.2 item 5,
 design [#82](https://github.com/typeshade/typeshade/issues/82).
 
-**Spelling.** A top-level `let` is a module variable. Plain, it is the per-invocation one:
-`let seed: u32 = 7` is what a module-level `let` means to a TypeScript reader, a value this run
-of the program owns, and in a shader the run is the invocation. Workgroup memory has no
-TypeScript counterpart, so it is always written out, as a wrapper type on the annotation the
-way a resource is a `declare const|let` with `uniform<T>` or `storage<T>`:
-`let tile: workgroup<array<f32, 64>>`. The per-invocation space has the same kind of wrapper,
-`perInvocation<T>`, for a writer who wants the space on the line. No `declare`: `declare` stays
-the mark of a value the host provides, and a module variable is the module's own.
+**Spelling.** A top-level `let` is a module variable. Plain, it is the per-invocation one, and
+that is its only spelling: `let seed: u32 = 7` is what a module-level `let` means to a TypeScript
+reader, a value this run of the program owns, and in a shader the run is the invocation.
+Workgroup memory has no TypeScript counterpart, so it is always written out, as a wrapper type on
+the annotation the way a resource is a `declare const|let` with `uniform<T>` or `storage<T>`:
+`let tile: workgroup<array<f32, 64>>`. No `declare`: `declare` stays the mark of a value the host
+provides, and a module variable is the module's own.
 
 ```ts
 "use typeshade"
@@ -1594,9 +1593,9 @@ export function k(
   a math builtin over those; a list for an array, an object literal for a struct); without one
   the variable is zero. Without an annotation the type is the initializer's, by the rule a
   `const` follows: `let v = 1.5` and `let n = 7` are both f32, and `let n: u32 = 7` is the
-  integer. Any stage may use it. `let seed: perInvocation<u32> = 7` is the same variable with
-  its space written out; the name is not WGSL's `private` because TypeScript reserves that
-  word in strict mode, and every module is strict.
+  integer. Any stage may use it. The space itself is never written out, and WGSL's own name for
+  it could not be written anyway: `private` is a word TypeScript reserves in strict mode, and
+  every module is strict.
 - `workgroup<T>` emits `var<workgroup> tile: array<f32, 64>;`. It takes no initializer (WGSL
   forbids one) and is zero at the start of each workgroup. Only a compute entry, and the helpers
   it calls, may read or write it; a vertex or fragment entry that names it is refused (TS8033).
@@ -1615,7 +1614,11 @@ type, a resource type without `declare` (`let x: storage<array<f32>>` is a bindi
 its `declare let`), a non-constant initializer, an initializer of another type, and a type the
 space cannot hold are TS8033 with the fix. A `const` with a wrapper type is TS8033: a `const` is
 a module constant (§12). A repeated name, or a name a const or a binding already has, is
-TS8023. A top-level `var` stays TS8014.
+TS8023. A top-level `var` stays TS8014. `perInvocation<T>`, a wrapper this section once offered
+as a second way to write the per-invocation variable, was removed: one variable with two
+spellings is two things to learn and one of them redundant. Writing it is TS8033,
+`perInvocation<T> was removed: a top-level let is already the per-invocation variable. Drop the
+wrapper and write let seed: u32.`
 
 **In the IR and the emit.** A module variable is `ModuleDecl.vars`, not a binding: it has no
 group, no binding and no layout, and `reflect()` reports nothing for it. WGSL emits it between

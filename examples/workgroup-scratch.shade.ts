@@ -4,8 +4,9 @@
 // `var<workgroup>`, one copy per workgroup that its 64 invocations share, zero when the
 // workgroup starts. This kernel uses it as scratch each invocation owns a slot of, and a
 // workgroup array of atomics as the workgroup's own counters, so the compile gate sees both
-// spellings on Tint. A barrier, which is what lets one invocation read another's slot, is the
-// next step of #82; without one each invocation touches only its own slot.
+// forms of workgroup memory on Tint. A barrier, which is what lets one invocation read
+// another's slot, is the next step of #82; without one each invocation touches only its own
+// slot.
 //
 // GLSL ES 3.00 has no workgroup memory (WebGL2 has no compute stage), so like `array-length`
 // this module is WGSL-only.
@@ -16,7 +17,7 @@ declare let counts: storage<array<u32>>
 
 let tile: workgroup<array<f32, 64>>
 let seen: workgroup<array<atomic<u32>, 2>>
-let calls: perInvocation<u32>
+let calls: u32
 
 function tally(x: f32): void {
   calls = calls + 1

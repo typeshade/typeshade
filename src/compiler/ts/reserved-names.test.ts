@@ -114,7 +114,7 @@ export function fs(): vec4 { return vec4(cam.half + cam.rest, 0., 0., 1.) }
     ['const half: f32 = 0.5', '"half"', 'a module constant'],
     ['declare const half: uniform<f32>', '"half"', 'a binding'],
     ['declare const half: override<f32>', '"half"', 'an override'],
-    ['let input: perInvocation<f32> = 0.', '"input"', 'a module variable'],
+    ['let input: f32 = 0.', '"input"', 'a module variable'],
   ])('reports %s', (decl, quoted, noun) => {
     expect(warningsOf(render(decl))).toContain(GLSL(quoted, noun))
     expect(errorsOf(render(decl))).toEqual([])
