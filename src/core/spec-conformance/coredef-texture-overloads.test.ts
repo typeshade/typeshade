@@ -245,8 +245,6 @@ const errorsOf = (src: string): string[] =>
 
 const OFFSET =
   'the `@const offset` argument has no authoring spelling (audit F11); deferred by docs/use-typeshade-surface.md §36 and roadmap row 13c'
-const DIMENSIONS_LEVEL =
-  '`textureDimensions(t, level)` is refused as arity though the registry already spells it (audit F12); issue #147'
 const NUM_LEVELS = '`textureNumLevels` absent (audit F3); deferred by docs §36 and roadmap row 13c'
 const BASE_CLAMP =
   '`textureSampleBaseClampToEdge` absent (audit F5); deferred by docs §36 and roadmap row 13c'
@@ -254,15 +252,16 @@ const EXTERNAL =
   '`texture_external` absent (audit T6/F18); deferred by docs §36 and roadmap row 13c'
 const STORAGE_1D_3D =
   'storage textures of dimension 1d and 3d absent (audit T7/T8/F17); deferred by docs §36 and roadmap row 13c'
-const STORAGE_NUM_LAYERS =
-  '`textureNumLayers` on a storage array is refused with the sampled-texture reason (audit F13); issue #147'
 const DEPTH_PLAIN_READ =
   'a plain, non-comparison read of a depth texture needs separate samplers on GLSL ES 3.00, where a texture and its sampler are one object (audit F7/F9/F10); part of #133'
-const BARRIER =
-  '`textureBarrier()` is WGSL-only and belongs behind a capability (audit G15/T14); issue #152'
 const TEXEL_BUFFER =
   '`texel_buffer` is a Dawn extension (`chromium_experimental_texel_buffer`), outside the WGSL 1.0 surface this package targets (docs/use-typeshade-surface.md); nothing spells it and no issue asks for one'
 
+// THREE REASON GROUPS LEFT THIS LIST when #164 landed, and the shrink arm below named every
+// row: DIMENSIONS_LEVEL (the ten `textureDimensions(t, level)` overloads, audit F12),
+// STORAGE_NUM_LAYERS (`textureNumLayers` on a storage array, audit F13) and BARRIER
+// (`textureBarrier`, audit G15/T14). They are supported now, so they are asserted by the
+// SUPPORTED arm above from a synthesised witness rather than excused here.
 const DEFERRED: Readonly<Record<string, string>> = {
   // OFFSET (26)
   'textureGather(C, texture_2d<T>, sampler, vec2<f32>, vec2<i32>) -> vec4<T>': OFFSET,
@@ -302,17 +301,6 @@ const DEFERRED: Readonly<Record<string, string>> = {
   'textureSampleLevel(texture_3d<f32>, sampler, vec3<f32>, f32, vec3<i32>) -> vec4<f32>': OFFSET,
   'textureSampleLevel(texture_depth_2d, sampler, vec2<f32>, L, vec2<i32>) -> f32': OFFSET,
   'textureSampleLevel(texture_depth_2d_array, sampler, vec2<f32>, A, L, vec2<i32>) -> f32': OFFSET,
-  // DIMENSIONS_LEVEL (10)
-  'textureDimensions(texture_1d<T>, L) -> u32': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_2d<T>, L) -> vec2<u32>': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_2d_array<T>, L) -> vec2<u32>': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_3d<T>, L) -> vec3<u32>': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_cube<T>, L) -> vec2<u32>': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_cube_array<T>, L) -> vec2<u32>': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_depth_2d, L) -> vec2<u32>': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_depth_2d_array, L) -> vec2<u32>': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_depth_cube, L) -> vec2<u32>': DIMENSIONS_LEVEL,
-  'textureDimensions(texture_depth_cube_array, L) -> vec2<u32>': DIMENSIONS_LEVEL,
   // NUM_LEVELS (10)
   'textureNumLevels(texture_1d<T>) -> u32': NUM_LEVELS,
   'textureNumLevels(texture_2d<T>) -> u32': NUM_LEVELS,
@@ -353,9 +341,6 @@ const DEFERRED: Readonly<Record<string, string>> = {
   'textureStore(texture_storage_3d<F, W>, vec3<C>, vec4<f32>)': STORAGE_1D_3D,
   'textureStore(texture_storage_3d<F, W>, vec3<C>, vec4<i32>)': STORAGE_1D_3D,
   'textureStore(texture_storage_3d<F, W>, vec3<C>, vec4<u32>)': STORAGE_1D_3D,
-  // STORAGE_NUM_LAYERS (2)
-  'textureNumLayers(texture_storage_2d_array<F, R>) -> u32': STORAGE_NUM_LAYERS,
-  'textureNumLayers(texture_storage_2d_array<F, W>) -> u32': STORAGE_NUM_LAYERS,
   // DEPTH_PLAIN_READ (10)
   'textureLoad(texture_depth_2d, vec2<C>, L) -> f32': DEPTH_PLAIN_READ,
   'textureLoad(texture_depth_2d_array, vec2<C>, A, L) -> f32': DEPTH_PLAIN_READ,
@@ -367,8 +352,6 @@ const DEFERRED: Readonly<Record<string, string>> = {
   'textureSampleLevel(texture_depth_2d_array, sampler, vec2<f32>, A, L) -> f32': DEPTH_PLAIN_READ,
   'textureSampleLevel(texture_depth_cube, sampler, vec3<f32>, L) -> f32': DEPTH_PLAIN_READ,
   'textureSampleLevel(texture_depth_cube_array, sampler, vec3<f32>, A, L) -> f32': DEPTH_PLAIN_READ,
-  // BARRIER (1)
-  'textureBarrier()': BARRIER,
   // TEXEL_BUFFER (11)
   'textureDimensions(texel_buffer<F, R>) -> u32': TEXEL_BUFFER,
   'textureDimensions(texel_buffer<F, W>) -> u32': TEXEL_BUFFER,
@@ -395,16 +378,11 @@ const DEFERRED: Readonly<Record<string, string>> = {
 // shrink-only: the arm below fails a row that has started to be refused here, so a fix must
 // delete its entry in the same commit.
 const STAGE_GAPS: Readonly<Record<string, string>> = {
-  // F21 (audit §2): `lower/function.ts` gates `textureStore` out of a vertex entry but not a
-  // read of a WRITABLE storage texture, which `core.def` stages the same way. Closed by #145.
-  'textureDimensions(texture_storage_2d<F, W>) -> vec2<u32>': 'F21, #145',
-  'textureDimensions(texture_storage_2d_array<F, W>) -> vec2<u32>': 'F21, #145',
-  'textureLoad(texture_storage_2d<F, RW>, vec2<C>) -> vec4<f32>': 'F21, #145',
-  'textureLoad(texture_storage_2d<F, RW>, vec2<C>) -> vec4<i32>': 'F21, #145',
-  'textureLoad(texture_storage_2d<F, RW>, vec2<C>) -> vec4<u32>': 'F21, #145',
-  'textureLoad(texture_storage_2d_array<F, RW>, vec2<C>, A) -> vec4<f32>': 'F21, #145',
-  'textureLoad(texture_storage_2d_array<F, RW>, vec2<C>, A) -> vec4<i32>': 'F21, #145',
-  'textureLoad(texture_storage_2d_array<F, RW>, vec2<C>, A) -> vec4<u32>': 'F21, #145',
+  // EMPTY, and that is the record. Audit F21 (§2) had all eight rows here: `lower/function.ts`
+  // gated `textureStore` out of a vertex entry but not a READ of a writable storage texture,
+  // which `core.def` stages the same way. #164 closed it by recognising the rule the spec
+  // actually states — a resource with write access is not reachable from a vertex stage, which
+  // is about the RESOURCE and not the builtin name — and the arm below named all eight.
 }
 
 describe('every core.def texture overload is claimed (S1)', () => {

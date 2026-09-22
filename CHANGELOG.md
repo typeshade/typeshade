@@ -31,7 +31,8 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   cannot drift away from, or outlive, the shader it describes. A `.shade.ts` file stays exactly
   as non-importable as it was, and the block is REQUIRED — a shader without one, or with one
   that is not JSON, or that claims `renderable: false` with no reason, fails loudly instead of
-  going unregistered. No golden changed and the gate is unmoved at 85 examples.
+  going unregistered. No golden changed by the registry itself, and the gate is unmoved: it
+  covers the same examples it did, discovered rather than listed.
 
 - **The surface baker prints a union's members sorted** (#61). A union's constituent order in
   TypeScript is a function of the whole program rather than of the declaration, so adding
@@ -127,6 +128,50 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   to compile with zero diagnostics and emit a module Tint refuses — is a closed row rather than a
   row waiting on a fix: #165 shipped the refusal, so it reads as a plain `it` pinning TS8068 over
   all ten names, the name and the target in the message, and a remedy.
+
+- **Packing, bitcast and the constructors WGSL spells** (§44, #150). The IR and both backends
+  have spelled the eight pack/unpack ids and the two `bitcast` ids since the registry was
+  written, and nothing on this surface could NAME them: every one was `Unknown function`.
+  `pack4x8unorm`, `pack2x16float`, `unpack2x16snorm` and their siblings are authorable now, with
+  `pack4x8snorm`, `unpack4x8snorm` and `quantizeToF16` appended beside them. A pack takes exactly
+  the vector its name says and yields a `u32`, an unpack the reverse, and a wrong shape is one
+  sentence naming the single overload each has; the bit pattern of an unpack may be written as a
+  bare number, since an integer literal is retargeted in every integer position. `bitcast<u32>(x)`
+  names its target as a TYPE ARGUMENT as WGSL does, and says which of reinterpreting and
+  converting it is when handed the wrong one. `quantizeToF16(x)` rounds to what an IEEE-754
+  binary16 holds and comes back as an `f32`, on a scalar or a vector; WGSL spells it natively,
+  and GLSL ES 3.00, which has no such builtin, gets a `packHalf2x16`/`unpackHalf2x16` round trip,
+  one component at a time — pairing two into one `packHalf2x16` was measured to let an
+  overflowing component carry into its neighbour, which WGSL's per-component builtin cannot do.
+  It is a `target` row in the determinism report, naming the three divergences measured on a
+  real driver: the exact half (the GLSL round trip rounds to nearest even, the driver moved),
+  the magnitudes above the largest finite binary16 (an infinity on WGSL, a NaN through the GLSL
+  round trip) and those below the smallest normal one (flushed to zero by the driver, kept by
+  the round trip). `pack4x8snorm` is a `target` row beside its unorm twin for the same reason
+  measurement gave rather than the one reasoning suggested: its inline spells WGSL's own
+  `floor(0.5 + x)`, and the WGSL driver still rounded the tie to even. Its CPU twin rounds the
+  scale to f32 before rounding, and clamps by WGSL's NaN rule, because a driver does both.
+- **The three constructor spellings, and `all`/`any` on a bool** (§44, #150). `vec3()` is the
+  zero value, `vec3<u32>(1, 2, 3)` names its element as a type argument, and `array(1., 2., 3.)`
+  infers both its element type and its count. The middle one was a silent bug rather than a
+  missing feature: the type argument was read by nobody, so `vec3<u32>(1, 2, 3)` compiled clean
+  and emitted `vec3<f32>(1.0, 2.0, 3.0)` — a program that asked for an unsigned vector got a
+  float one, and a following `f32(v.x)` looked like a cast while casting nothing. A short name
+  already says its element, so `vec3u<f32>` is refused as a contradiction; `array(...)` refuses
+  elements that disagree rather than guessing which was meant. `all(e)` and `any(e)` on a plain
+  `bool` are overloads of both builtins in WGSL and both return the argument: the ambient lib
+  always admitted the scalar and the front end refused it, so the editor and the compiler
+  disagreed about a program WGSL defines. It lowers to the ARGUMENT, not to a call, since GLSL
+  ES 3.00 has no `all(bool)` overload to emit. `f32()`, `i32()`, `u32()` and `bool()` are the
+  scalar half of the same zero-value row and are spelled now too.
+  The ambient lib gained the zero and type-argument forms, and it distinguishes `vec3<u32>` from
+  `vec3<f32>` by `keyof` rather than by assignability, because the scalar brands are optional
+  properties and so are mutually assignable. Only the SCALAR-component forms take a type
+  argument: an ambient parameter has to be a concrete type for the vector-arithmetic filter
+  (#43) to read a shape off it, so composing from a shorter vector or converting a whole one
+  keeps the short name and the compiler refuses the long one, naming it.
+  `examples/packing-bitcast.shade.ts` runs all of it on both halves of the gate.
+
 - **Every `matCxR` is a type** (§40). `mat4x4` was the only float matrix the surface admitted,
   on the recorded ground that "a 2×2 or 3×3 float matrix lays out differently under the WGSL
   and GLSL std140 rules". Measured on a real WebGL2 driver and on Tint, that is half right:
@@ -293,6 +338,282 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   surface on both targets.
 
 ### Fixed
+
+- **Two GLSL spellings that parted from WGSL, and two comments that misread the specs**
+  (#141). `ldexp` built 2^e from ONE biased exponent, and `(e + 127) << 23` is the bit pattern
+  of 2^e only while `e + 127` lands in [1, 254]. Swept against WGSL over every legal exponent,
+  -149 to 128, on a WebGL2 driver with x = 1.0 and x = 0.75: the old spelling disagreed on 22 of
+  278 (23 for 0.75) and the disagreements were not near misses — `ldexp(0.5, 128)` was +Inf
+  where WGSL gives the finite 2^127, and below e = -127 the biased sum goes NEGATIVE, so
+  `ldexp(1.0, -149)` was -1.6225928e32 where WGSL gives 0. That second, worse half was not in
+  the issue. The scale is now built in two halves, which the same sweep found agrees on all 278
+  for both mantissas; the alternative `e / 2` split was swept too and also agreed, and the
+  comment says so in case a driver is ever found whose signed `>>` is logical.
+  `pack4x8unorm`'s GLSL inline used `round()`, whose exact half GLSL ES 3.00 §8.3 lets an
+  implementation resolve either way, where WGSL §17.12 DEFINES the pack as
+  `⌊ 0.5 + 255 × min(1, max(0, e)) ⌋`. It now spells WGSL's own formula, which is the right
+  spelling either way — but it does NOT make the pack deterministic across the two targets, and
+  the first measurement that said it did was taken wrong. Eight inputs whose f32 product with
+  255 is exactly an odd half were passed to a WGSL driver's native builtin as CONSTANTS, and the
+  driver, the new inline and the CPU oracle all answered half-up. Tint const-evaluates a literal
+  argument and answers its own way, so that says nothing about the instruction a driver issues:
+  swept at RUNTIME over 511 inputs `e = f32(i) / 510`, the driver's builtin and the inline part
+  on 34 of them (i = 1 packs 0 on WGSL and 1 on GLSL, i = 5 packs 2 and 3). The sweep carries
+  the intermediates out losslessly, which settles the mechanism rather than guessing it: `e` and
+  the f32 product `clamp(e, 0, 1) * 255` come back BIT-IDENTICAL from the two targets, so
+  nothing upstream of the rounding differs; 66 of those products land exactly on k + 0.5, and on
+  the 34 whose k is even the builtin answers k — the even one — while both the GLSL inline and a
+  WGSL inline of the same formula answer k + 1. `pack4x8snorm` is the same picture and harder:
+  509 inputs, 244 exact halves, 122 partings, and at a product of -125.5 the builtin packs the
+  byte 130 (-126) against both inlines' 131 (-125). So both 4×8 packs stay `target` rows with
+  the sweep in their notes; only `ldexp` leaves the column. The same const/runtime split is what
+  made `ldexp(1.0, -149)` look like a subnormal. The `pack2x16*` rows stay too: those are native
+  GLSL builtins defined with `round()`, and no spelling of ours reaches them.
+  And the four `pack` rows are REACHABLE now. The determinism walk takes a node's float kind
+  from its RESULT type, and a pack answers a `u32` of bytes, so every one of them was dropped
+  before its accuracy row was consulted — a module calling all four and nothing else reported an
+  EMPTY list. A pack's float kind is the one it READS, and the two `pack2x16*` rows had been
+  dead the same way since the report was written. One row of that shape is left and is filed
+  rather than fixed ([#175](https://github.com/typeshade/typeshade/issues/175)): a
+  `textureGather` on an INTEGER texture is `filtered` for the same footprint reason a float one
+  is, but `DeterminismEntry.elem` is the exported `'f32' | 'f64'` and an integer gather has no
+  float kind, so reporting it widens a public union. An `it.fails` pins it.
+- **The CPU oracle rounds a pack's scale in f32, the way both targets do.** `pack4x8unorm`,
+  `pack2x16unorm` and `pack2x16snorm` multiplied by the scale in f64 and rounded that. A GPU
+  multiplies in f32, so on a value whose f32 product lands exactly on k + 0.5 while its f64
+  product lands just under, the oracle rounded DOWN where both targets round up: measured
+  against the emitted GLSL inline over the 511 inputs `e = i/510`, the f64 form parted from it
+  on 127 of them, and at `e = 0.8098039031028748` the oracle packed 206 against both targets' 207. An oracle that agrees with NEITHER target is the one thing it may not be. `pack4x8snorm`
+  already had the `Math.fround` and documents the mechanism; its three siblings now match it.
+  The `fma` comment claimed WGSL's is "a SINGLE rounding, atomic" in contrast to GLSL's
+  `a * b + c`. Neither spec says that: WGSL §15.7.4.1 makes `fma` inherited from `x * y + z` and
+  its note allows an ordinary multiply then an ordinary add, and GLSL ES 3.00 §4.5.1 allows the
+  same two-step. The comment now states what both specs allow, and keeps the real point — that
+  the `fma` spelling is the form Apple/Metal has not been observed to fold back into a plain f32
+  product — as the observation about a compiler that it is. `const-fold`'s `EXACT_BUILTINS`
+  comment now names `fract` as the entry whose exactness was checked rather than assumed:
+  `fract` of a tiny negative may be 1.0 or the f32 below it, and measured,
+  `fract(-1e-30)` is exactly 1.0 on WGSL AND on a WebGL2 driver, with the fold agreeing.
+- **The ambient library declares what the compiler lowers** (§49, #157). Four rules the editor
+  stated more NARROWLY than the compiler, which is the worse of the two drifts: red squiggles on
+  a program that compiles. `select` takes any scalar or vector WGSL gives it, bools and bool
+  vectors and emulated doubles included, where `T extends Numeric` refused the first two; the
+  vector constructors take a component vector anywhere rather than first only, so `vec3(x, v2)`,
+  `vec4(x, v2, w)` and `vec4(x, y, v2)` are clean in the editor as they always were in the
+  compiler; and a cast takes a `bool` (`f32(true)` is 1.0), except `f64`, which widens an `f32`
+  and takes nothing else. A new `ambient-parity.test.ts` asserts the AGREEMENT rather than
+  either verdict, with rows on both sides — a row where both refuse is as much the subject as
+  one where both accept, and several rows the audit listed as disagreements
+  (`normalize` of a scalar, `sign` of an unsigned vector, `ldexp` with a float exponent,
+  `arrayLength` of a fixed array) turned out to agree already and are pinned so.
+  TWO rows are left disagreeing on purpose, with the cost measured: `vec4(x, v3)` and
+  `vec4(v2, v2)` are real WGSL the compiler takes, and declaring either adds a second
+  TWO-argument `vec4` overload, which costs TypeScript the contextual type it uses to infer
+  through vector arithmetic — `vec4(mix(c * 0.5, d, 0.5), 1.)` then reports TS2769 on a program
+  that compiles, because `mix` infers from the `number` the arithmetic erased rather than from
+  the `vec3` the context supplied. `vec4(c * 0.5, 1.)` is far more common than either, so the
+  editor is better off without them until the #43 filter can restore a shape through a nested
+  call; both are pinned as `it.fails`. A binding declared with a TYPE LITERAL rather than an
+  interface is still refused by both layers: accepting it means synthesising an anonymous
+  struct, which is a compiler feature rather than a parity fix, and it is pinned as it stands.
+- **Compare-exchange, the uniform load and the texture barrier** (§48, #152).
+  `atomicCompareExchangeWeak(x, cmp, val)` stores `val` only when the location holds `cmp` and
+  answers a STRUCT — what the location held before, and whether the store happened. WGSL gives
+  that struct no writable name: measured on Tint, a variable declared with
+  `__atomic_compare_exchange_result<u32>` is "invalid type for variable declaration", and
+  `r.oldValue` is "struct member oldValue not found". So the result is bound by inference, its
+  fields are spelled `old_value` and `exchanged` the way the target spells them, and NO struct
+  declaration is emitted — WGSL's is built in, and declaring one would shadow it. The type
+  exists in the IR and in the editor and in neither backend's output. `workgroupUniformLoad(w)`
+  reads one value out of workgroup memory with a barrier on each side, so it carries a
+  barrier's placement rules (Tint: "'workgroupUniformLoad' must only be called from uniform
+  control flow") and takes a place in `workgroup<T>` memory rather than storage ("no matching
+  call to 'workgroupUniformLoad(ptr<storage, u32, read_write>)'"); a render entry needs no rule
+  of its own, because a workgroup variable read from one is already refused where it is read.
+  `textureBarrier()` joins `workgroupBarrier` and `storageBarrier` with the same two rules, and
+  belongs to the `readonly_and_readwrite_storage_textures` language feature, which
+  `reflect().requiredLanguageFeatures` reports — it compiles with no storage texture in sight,
+  so nothing else in the module says so. All three are WebGPU-only and fail closed on GLSL ES
+  3.00, which has no compute stage. `examples/compute-sync.shade.ts` is the gate witness,
+  registered `renderable: false`. The oracle does not exercise the "weak" in the name: it runs
+  one invocation at a time, so a comparison that holds cannot be beaten to the location, and
+  the retry loop WGSL documents is correct on a device and here.
+  While adding that example the compile gate caught `'shared' is a reserved keyword` from Tint
+  with no diagnostic from the compiler first: the identifier sanitiser guards GENERATED names
+  only, so an author's local named after a WGSL reserved word reaches the driver unchanged. The
+  example renames its own local and says why; closing the gap is its own change.
+- **The packed 4x8 integer builtins** (§47, #152). Eight builtins that read a `u32` as four bytes
+  or write four back — `dot4U8Packed`, `dot4I8Packed`, `pack4xU8`, `pack4xI8`, their two `Clamp`
+  twins, `unpack4xU8` and `unpack4xI8` — were each an unknown name. They are authorable now,
+  with the types WGSL gives them: the unsigned dot is a `u32` and the signed one an `i32`, but
+  BOTH packs answer a `u32` — the signed pair included (index.bs:20307, :20341), because the
+  result is four bytes in a word and not a number with a sign — and a plain pack TRUNCATES each
+  component to its low byte while the `Clamp` form saturates first. Typing the signed packs
+  `i32` emitted WGSL Tint refuses ("cannot assign 'u32' to 'i32'"). The
+  values are not read off a specification: each call was DISPATCHED on a real device and the
+  buffer read back, and the CPU oracle was written to those numbers — `dot4U8Packed(0x01010101,
+0x01010101)` is 4, `dot4I8Packed(0x80808080, 0x01010101)` is -512,
+  `pack4xU8(vec4u(0x1FF, 0, 0, 0))` truncates to 0xFF, `pack4xU8Clamp(vec4u(400, …))` saturates
+  to the same byte, and `unpack4xI8(0x04FD02FF)` is (-1, 2, -3, 4).
+  GLSL ES 3.00 has no form of any of them, so a module using one derives the new
+  `packed4x8Dot` capability and fails closed there with the capability named, while its WGSL
+  half still emits. On the WGSL side there is NOTHING to declare, and the issue's expectation of
+  an `enable` directive is measurably wrong: Tint refuses `enable
+packed_4x8_integer_dot_product;` as not an extension ("Possible values: 'clip_distances',
+  'dual_source_blending', 'f16', 'primitive_index', 'subgroups'") and compiles every one of the
+  eight with nothing declared. It is a WGSL LANGUAGE feature, so the emitted module carries no
+  directive and `reflect().requiredLanguageFeatures` reports
+  `packed_4x8_integer_dot_product` for a host to check on `navigator.gpu.wgslLanguageFeatures`.
+  A file that declares its own function under one of the eight names keeps the call to its own
+  function, and then needs neither the capability nor the language feature.
+  `examples/packed-bytes.shade.ts` is the gate witness, registered `renderable: false`.
+- **An unsigned texel coordinate reaches GLSL in a form it takes** (§46, #147). WGSL types a
+  texel coordinate `i32, or u32` and this surface accepted both, but GLSL's `texelFetch` has no
+  unsigned overload: measured on a WebGL2 driver, `texelFetch(t, uvec2(0u, 0u), 0)` is "no
+  matching overloaded function found" while `texelFetch(t, ivec2(uvec2(0u, 0u)), 0)` compiles.
+  So `textureLoad(t, vec2u(...), 0)` compiled clean here and failed on WebGL2. An unsigned
+  coordinate now takes an id that wraps it in the signed constructor of the texture's own width,
+  on the 2d, 3d and array forms; a SIGNED coordinate keeps the ids every existing program
+  already uses, so no emit that worked moves a byte.
+- **A texture is asked about a level, a storage array about its layers, and a gather about a
+  const** (§46, #147). `textureDimensions(t, level)` was `expects 1 argument(s), got 2` while
+  the GLSL column had spelled `textureSize(t, int(level))` all along — measured accepted on
+  Tint and on WebGL2, including with a non-constant level. `textureNumLayers` on a
+  `texture_storage_2d_array` answered "takes a sampled texture; … has no sampler", the wrong
+  answer and the wrong reason; it is a `u32` now, WGSL-only like the rest of the storage family.
+  And `textureGather`'s component takes a module `const`, because WGSL asks for a
+  const-expression rather than a literal (a local is still refused: its value is not known until
+  the shader runs).
+- **`bgra8unorm` storage, behind the capability the device makes it need** (§46, #147). The
+  format list held the sixteen a device stores to with nothing requested, because a format
+  outside them compiles on Tint and then fails at `createBindGroupLayout`. `bgra8unorm` is the
+  seventeenth and the first that is not core: measured on two independent Chromium builds, a
+  device with no feature requested refuses it ("Texture format TextureFormat::BGRA8Unorm does
+  not support storage texture access StorageTextureAccess::WriteOnly"), a device that requested
+  `bgra8unorm-storage` takes it at `write`, and BOTH refuse it at `read` and at `read_write`.
+  Tint compiles every one of those spellings, so no shader compiler and no compile gate can
+  tell them apart. So the format is authorable at `write`, refused at the other two with the
+  reason that is about this format, and derives the new `bgra8unormStorage` capability from the
+  binding's own format — which is how `reflect().requiredFeatures` tells a host which feature
+  to request.
+- **`reflect().requiredLanguageFeatures`** (§46, #147). A WGSL LANGUAGE feature is not a device
+  feature: it is not requested at `requestDevice`, it is either in the browser's WGSL
+  implementation or not, and a host checks for it before it creates the shader module.
+  Reflection now reports `readonly_and_readwrite_storage_textures` when the module binds a
+  storage texture at `"read"` or `"read_write"`. Measured on Chromium:
+  `navigator.gpu.wgslLanguageFeatures` reports the name, the module compiles with and without a
+  `requires` directive, and a `requires` naming a feature the browser lacks is refused — so the
+  check belongs at the host and the emitted source carries no directive.
+- **A storage `textureDimensions` takes no mip level** (§46, #147). The sampled and depth
+  textures gained the two-argument form with this item; a storage texture must not have it, and
+  the difference is measured rather than reasoned: Tint answers `no matching call to
+'textureDimensions(texture_storage_2d<r32float, read>, u32)'` against 33 candidates, because a
+  storage texture has exactly one mip level. The extra argument is refused where it is written.
+- **The ambient texture declarations describe what the compiler lowers** (§46, #147). `E` is
+  constrained to `f32`, `i32` and `u32` ("T must be f32, i32, or u32"), so `texture_2d<bool>` is
+  red in the editor as it always was in the compiler; `textureLoad` and `textureGather` are
+  typed by the texture's element — the ARRAY gathers included, which declared the element
+  parameter and then returned a plain `vec4` anyway — so a fetch or gather from a
+  `texture_2d<u32>` is a `vec4u` in both layers rather than a `vec4` in one; every texel coordinate takes either integer vector; and
+  the level query and the storage layer count are declared. Each of these was a program one
+  layer accepted and the other refused.
+
+- **The two portable spellings that were not** (§45, #154). `abs` and `dot` carried no registry
+  entry, which claims a builtin spells the same on every target. Measured on a WebGL2 driver,
+  `abs(uvec3)`, `abs(uint)`, `dot(ivec3, ivec3)` and `dot(uvec3, uvec3)` are each "no matching
+  overloaded function found", while `abs(ivec3)` and `dot(vec3, vec3)` compile — so the claim
+  held for most forms and not for two, and a shader using either emitted GLSL that no WebGL2
+  context would take. An unsigned `abs` is now the identity on GLSL (which is what it is), and
+  an integer `dot` becomes a `_idot` helper with one overload per vector type the module uses —
+  a helper rather than an inline sum, because an inline splices both arguments once per
+  component after every optimizer pass has run. The signed `abs` and the float `dot` keep the
+  portable spelling. The choice is one exported rule, not one per front end: the `fn()` node
+  graph is the other authoring surface, and while it built the portable id it kept emitting the
+  same `abs(uvec3)` and `dot(ivec3, ivec3)`. It now asks the same function, and an integer `dot`
+  there returns the integer kind its operands share instead of an `f32` the value never was.
+  `examples/integer-math.shade.ts` is the gate witness: its GLSL half links only because of
+  this.
+- **The scalar conversions take a scalar, and a literal that fits** (§45, #154). `u32(-1)`
+  emitted `u32(-1.0)` — a negated literal is not a literal, so the fold that retypes one never
+  saw it — and Tint accepts that while refusing the `u32(-1)` the author wrote; it is now
+  `u32(-1) is out of range: a u32 holds 0 to 4294967295, and the two targets compute different
+values for a float that does not. …`, with the two numbers each of them answers and a `clamp`
+  example carrying the TARGET's own bounds. The refusal is for FLOATS, because that is where the
+  two targets disagree: measured, `u32(-1.)` is 0 on WGSL and 4294967295 on GLSL ES 3.00, and
+  `u32(4.3e9)` is 4294967295 there and 5032960 here. It reaches a `const` REFERENCE as well as a
+  spelled-out literal, which is the shape that actually got to a driver — const propagation
+  writes the value into the call before either backend sees it — so a negated literal, an alias
+  of another const and a `Math.floor(…)` initializer are all values the rule can see. A RUNTIME
+  conversion is untouched: `let k: i32 = -1; u32(k)` stays a call, bit-preserving on both.
+- **An integer conversion is folded, not range-checked** (§45, #154). `u32(i)` on an `i32` is a
+  bit REINTERPRETATION, and both targets perform it and agree: measured, `u32(-1i)` compiles on
+  Tint and is 4294967295, and a WebGL2 driver compiles `uint(-1)` and answers 4294967295 too.
+  What Tint refuses is the unsuffixed `u32(-1)`, because an unsuffixed integer literal is an
+  ABSTRACT integer and an abstract integer must be representable in its target — a fact about
+  the spelling, not about the program. This backend writes `u32` literals with their `u` and
+  `i32` literals with no suffix, so once const propagation had substituted a negative `i32`
+  constant into a `u32()` call, the module Tint saw was the one it refuses, with nothing in the
+  author's file saying `-1`. The conversion is now folded to the literal it yields — `u32(-1)`
+  is emitted as `4294967295u` — so no spelling Tint refuses is produced and no legal program is
+  turned away. The fold WRAPS the way the hardware wraps, through the same helper the const-fold
+  pass uses: the compile-time folder worked in doubles while the pass worked in 32-bit integers,
+  so the two disagreed about the same expression (`i32 100000 * 100000` is 1410065408 on both
+  targets and 10000000000 in doubles, `i32 1 / 2` is 0 there and 0.5 here), and every rule that
+  compares a compile-time value against what the GPU will compute was comparing the wrong one.
+- **The scalar conversions, continued.** `f32(vec3(...))` was accepted by
+  the surface, refused by Tint ("no matching constructor") and compiled by a WebGL2 driver as
+  `float(vec3)`, which silently takes `.x` — the two targets disagreed about whether the
+  program existed, and it is now `f32() takes a scalar; got vec3<f32>.` An emulated double is a
+  scalar for this rule, so `f32(f64(x))` is unchanged. An integer-written literal in a builtin
+  with no float form types as `i32`, the way WGSL materialises an AbstractInt, so
+  `countOneBits(5)` compiles where it used to be refused as an `f32`; `countOneBits(5.)` keeps
+  its refusal. On the CPU oracle, `length(e)` and `distance(e1, e2)` answer for a scalar (WGSL
+  defines them as `abs(e)` and `abs(e1 - e2)`, and both targets compile them) where the oracle
+  threw `v.reduce is not a function` on a program the GPU ran. `abs(-2147483648)` on an `i32`
+  is recorded rather than fixed, with the reason, and pinned as an `it.fails`.
+
+- **Every texture argument is checked before emit** (§42, #145). WGSL types each plain argument
+  of a texture read exactly, and only the WIDTH of a coordinate and a whole-number LITERAL were
+  checked, so anything else went through untouched: `const l: i32 = 2` as a level emitted
+  `textureSampleLevel(t, s, p.xy, 2)`, an `f32` layer emitted
+  `textureSampleLevel(t, s, p.xy, 1.0, 0.0)`, `textureSample(t, s, vec2i(0, 0))` emitted an
+  integer sampling coordinate, `textureLoad(t, vec2(0., 0.), 0)` a float fetch coordinate,
+  `textureSample(ramp, smp, u32(2))` on a `texture_1d` emitted `2u`, and a storage texture's
+  coordinate was checked by nobody at all — Tint answers "no matching call" to each about
+  generated code, and GLSL ES 3.00 silently rounds. An author now reads one sentence naming the
+  cast in their own file: `textureSampleLevel level must be an f32; got i32. Write f32(l).`,
+  `textureStore on a texture_storage_2d<rgba8unorm, write> takes a vec2 coordinate; got
+vec3<i32>.` A sampled read takes a normalised `f32` coordinate, a texel fetch a whole `i32` or
+  `u32` one, a layer, mip level and sample index an integer, and a `level`, `bias` and
+  `depth_ref` an `f32`. A BARE number is still retargeted rather than refused, because it has no
+  type of its own on this surface — `textureSampleLevel(t, s, uv, 0)` still emits `0.0` and
+  `textureStore(dstArr, at, 0, v)` still spells its layer `0` — but an explicit `i32(0)` is
+  answered like any other `i32` instead of having its cast silently deleted. The whole family
+  now carries one code, `TS8041`: the width check and the fractional-literal check were
+  `TS8003` before, and splitting one sentence shape across two codes gave no caller a reason to
+  care. The TEXTURE being wrong — a sampled texture handed to `textureStore`, an access mode
+  that forbids the call — stays `TS8003`.
+- **The stage a texture read and an atomic belong to** (§43, #145). Three WGSL rules are now
+  checked at the entry, over the call graph, with the chain named. `textureSample` and
+  `textureSampleArray` join the front end's fragment-only table, which already held the bias and
+  comparison forms, so a vertex entry sampling a plain 2D texture reads the front end's sentence
+  and a span in its own file rather than the backend lint's `SD0109`; the lint's own table gains
+  the thirteen ids it was missing (the three bias forms, the four comparison forms and the six
+  coarse and fine derivatives), so the two layers now hold the same nineteen. `textureStore` was
+  the only member of the fragment-or-compute table; it now holds every `atomic*` builtin
+  ("Atomic built-in functions must not be used in a vertex shader stage", wgsl.txt:25422), read
+  off the intrinsic catalogue so one added there is covered by existing, and ANY call touching a
+  storage texture declared `"read_write"` — a read, a `textureDimensions`, a `textureNumLayers`
+  — recognised by the argument's own type, because that rule is about the RESOURCE and
+  `textureLoad` is the id a sampled texture uses too. A `"read"` storage texture and every
+  sampled fetch stay legal in a vertex entry. The refusal is `"atomicAdd" is only valid in a
+fragment or compute shader; "vs" is a vertex entry. WGSL allows an atomic built-in in a
+fragment or compute stage only.`; `textureStore`'s wording moved from "is not valid in a
+  vertex shader" to the same shape. `FRAGMENT_ONLY_CALLS` and the new
+  `FRAGMENT_OR_COMPUTE_CALLS` are exported for the derivative-uniformity walk to seed from, and
+  the front end's table and the lint's are pinned EQUAL by a test that derives what they should
+  hold from the intrinsic catalogue, with every fix string pinned beside it. No emit changed:
+  the compile gate's whole corpus (91 examples at this commit) is byte-identical.
 
 - **A hover at the end of a name answers for that name**
   ([#56](https://github.com/typeshade/typeshade/issues/56)). The language service resolves a

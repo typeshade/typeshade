@@ -152,6 +152,35 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
   SQRT2: Math.SQRT2,
 }
 
+/** The bit-level builtins #150 made authorable: the ten pack/unpack ids the registry could
+ *  already spell, plus `quantizeToF16` and `bitcast`. Listed here so a file that declares its
+ *  own function under one of these names keeps the call, by the same additivity rule item 8's
+ *  builtins follow: before #150 each was an ordinary unknown name. */
+export const BIT_BUILTIN_NAMES: readonly string[] = [
+  'quantizeToF16',
+  'bitcast',
+  'pack4x8unorm',
+  'pack4x8snorm',
+  'unpack4x8unorm',
+  'unpack4x8snorm',
+  'pack2x16float',
+  'pack2x16unorm',
+  'pack2x16snorm',
+  'unpack2x16float',
+  'unpack2x16unorm',
+  'unpack2x16snorm',
+  // The packed 4x8 integer family (#152), added by the same additivity rule: each was an
+  // ordinary unknown name before, so a file declaring its own `pack4xU8` keeps the call.
+  'dot4U8Packed',
+  'dot4I8Packed',
+  'pack4xU8',
+  'pack4xI8',
+  'pack4xU8Clamp',
+  'pack4xI8Clamp',
+  'unpack4xU8',
+  'unpack4xI8',
+]
+
 /** The builtin names #8 A6 added to this surface, plus the two scalar casts it added.
  *
  *  A name in this set must NOT shadow a function the file declares. Before A6 each of these
@@ -163,9 +192,31 @@ export const MATH_CONST_ALIAS: Readonly<Record<string, number>> = {
  *
  *  `lowerCall` consults `scope.resolveCallee` before routing any of these to an intrinsic,
  *  a cast or the select Expr. */
+/** The texture reads this surface spells. They joined the surface after the additivity rule was
+ *  written and were never added to the set below, so a file declaring its own `textureSample`
+ *  lost the call to the builtin — the one thing the rule exists to prevent (#147, audit DC11
+ *  and A4). Kept as one list so a new texture name joins by being spelled here. */
+export const TEXTURE_BUILTIN_NAMES: readonly string[] = [
+  'textureSample',
+  'textureSampleLevel',
+  'textureSampleBias',
+  'textureSampleGrad',
+  'textureSampleCompare',
+  'textureSampleCompareLevel',
+  'textureLoad',
+  'textureStore',
+  'textureGather',
+  'textureGatherCompare',
+  'textureDimensions',
+  'textureNumLayers',
+  'textureNumSamples',
+]
+
 export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   // Item 8's builtins: a function the file declares under one of these names keeps the call.
   ...BREADTH_BUILTINS,
+  ...BIT_BUILTIN_NAMES,
+  ...TEXTURE_BUILTIN_NAMES,
   'arrayLength',
   'atomicLoad',
   'atomicStore',
@@ -179,6 +230,8 @@ export const USER_FIRST_BUILTINS: ReadonlySet<string> = new Set([
   'atomicExchange',
   'workgroupBarrier',
   'storageBarrier',
+  'textureBarrier',
+  'workgroupUniformLoad',
   'exp2',
   'saturate',
   'fwidth',

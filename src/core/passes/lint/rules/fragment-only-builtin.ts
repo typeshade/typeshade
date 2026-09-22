@@ -8,12 +8,18 @@ import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs.js'
 const DERIVATIVE_FIX =
   'precompute the quantity and pass it in (a per-vertex varying, a CPU-computed uniform, or finite differences of neighboring samples) — derivatives exist only in a fragment invocation'
 
+/** The comparison reads whose level of detail is implicit share ONE fix: the `…Level` twin
+ *  compares at level 0 and needs no derivatives. */
+const COMPARE_FIX = (args: string): string =>
+  `use textureSampleCompareLevel(${args}) — it compares at level 0 and needs no derivatives`
+
 /** Fragment-only builtin id -> the fix its message must name. Table-driven, so a
  *  further fragment-only builtin joins by adding ONE row.
  *
- *  THIS TABLE IS THE SINGLE FIX-AUTHORITY (X-GIS #1654). It now holds three fix families —
+ *  THIS TABLE IS THE SINGLE FIX-AUTHORITY (X-GIS #1654). It now holds four fix families —
  *  the explicit-LOD texture form, its array form (whose fix must name the layer
- *  argument), and the derivatives (no same-shape alternative exists at all) — so the
+ *  argument), the depth comparison's `…Level` twin, and the derivatives (no same-shape
+ *  alternative exists at all) — so the
  *  SD0109 catalogue hint (codes.ts) is deliberately GENERIC and points the reader at
  *  the diagnostic's own message; it is NOT a copy of any row. That replaces X-GIS #1650's
  *  "first row byte-identical to the catalogue hint / one string, two surfaces"
@@ -21,11 +27,18 @@ const DERIVATIVE_FIX =
  *  X-GIS #1651's array row had already broken. Per-id hints are pinned where they are
  *  authored: this rule's tests.
  *
- *  Exported for the spec-conformance suite (`src/core/spec-conformance/stage-rules.test.ts`),
- *  which compares this map's keys, UNIONED with the front end's own `FRAGMENT_ONLY_CALLS`,
- *  against the set derived from Tint's `core.def` `@stage("fragment")` rows. The union is
- *  what matters: which of the two layers owns an id is an implementation detail, and an id
- *  falling between them is how `textureSampleCubeArray` was lost. Not on the public barrel. */
+ *  EXPORTED since #145 so the front end's own stage walk (`FRAGMENT_ONLY_CALLS` in
+ *  `compiler/ts/lower/function.ts`) can be pinned equal to it. Two hand lists in two layers
+ *  stay equal only if something compares them, and each way of missing an id has already
+ *  happened: `textureSample` on a `texture_cube_array` was in NEITHER table (#143 added it to
+ *  both), and `textureSample` itself was in this one and not the front end's until #145, so a
+ *  vertex entry sampling a `texture_2d` was answered by an SD0109 from the backend instead of
+ *  by a sentence about the author's own file.
+ *
+ *  `src/core/spec-conformance/stage-rules.test.ts` compares this map's keys, UNIONED with the
+ *  front end's set, against the ids derived from Tint's `core.def` `@stage("fragment")` rows.
+ *  The union is what matters there: which of the two layers owns an id is an implementation
+ *  detail, and an id falling between them is exactly how `textureSampleCubeArray` was lost. */
 export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
   [
     'textureSample',
@@ -39,9 +52,35 @@ export const FRAGMENT_ONLY_IDS: ReadonlyMap<string, string> = new Map([
     'textureSampleCubeArray',
     'use textureSampleLevel(tex, smp, dir, layer, level) — an explicit LOD needs no derivatives',
   ],
+  // A bias SHIFTS the implicit level of detail, so it needs the same derivatives the plain
+  // sample does (#145): Tint and a WebGL2 driver each refuse it outside a fragment stage.
+  [
+    'textureSampleBias',
+    'use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives',
+  ],
+  [
+    'textureSampleBiasArray',
+    'use textureSampleLevel(tex, smp, uv, layer, level) — an explicit LOD needs no derivatives',
+  ],
+  [
+    'textureSampleBiasCubeArray',
+    'use textureSampleLevel(tex, smp, dir, layer, level) — an explicit LOD needs no derivatives',
+  ],
+  // The depth comparisons with an implicit level of detail (#145).
+  ['textureSampleCompare', COMPARE_FIX('tex, smp, uv, ref')],
+  ['textureSampleCompareArray', COMPARE_FIX('tex, smp, uv, layer, ref')],
+  ['textureSampleCompareCube', COMPARE_FIX('tex, smp, dir, ref')],
+  ['textureSampleCompareCubeArray', COMPARE_FIX('tex, smp, dir, layer, ref')],
   ['dpdx', DERIVATIVE_FIX],
   ['dpdy', DERIVATIVE_FIX],
   ['fwidth', DERIVATIVE_FIX],
+  // The coarse and fine spellings are the same quantity at a stated precision (#145).
+  ['dpdxCoarse', DERIVATIVE_FIX],
+  ['dpdxFine', DERIVATIVE_FIX],
+  ['dpdyCoarse', DERIVATIVE_FIX],
+  ['dpdyFine', DERIVATIVE_FIX],
+  ['fwidthCoarse', DERIVATIVE_FIX],
+  ['fwidthFine', DERIVATIVE_FIX],
 ])
 
 /** A fragment-only builtin must not be reachable from a VERTEX or COMPUTE entry.

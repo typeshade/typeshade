@@ -10,7 +10,7 @@ import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { compileModule } from '../../core/oracle.js'
 import { compileModuleJs } from '../../core/cpu-codegen.js'
-import type { CpuValue } from '../../core/cpu-runtime.js'
+import { BUILTINS, type CpuValue } from '../../core/cpu-runtime.js'
 
 const U = `class U { k: u32; s: i32; v: vec2i; m: mat4; w: vec4 }
 declare const u: uniform<U>`
@@ -91,9 +91,15 @@ describe('builtin breadth: geometry, matrices and exponents', () => {
       [12, 2, 1, 1],
     )
     expect(r.wgsl).toContain('let e = ldexp(1.5, 3);')
-    // GLSL ES 3.00 has no ldexp: the power of two is built from its bits.
+    // GLSL ES 3.00 has no ldexp: the power of two is built from its bits, in TWO HALVES (#141).
+    // One biased exponent cannot hold the range WGSL admits — `(e + 127) << 23` is the pattern
+    // of 2^e only while `e + 127` lands in [1, 254], and outside it the pattern means something
+    // else entirely (+Inf at e = 128, a large NEGATIVE float below e = -127). Measured over
+    // every legal exponent, -149 to 128: the single-scale form disagreed with WGSL on 22 of
+    // 278, the two-half form on none.
     expect(r.glsl?.fragment).toContain(
-      'vec2 v = (vec2(1.0, 2.0) * intBitsToFloat((ivec2(1, -1) + 127) << 23));',
+      'vec2 v = (vec2(1.0, 2.0) * intBitsToFloat(((ivec2(1, -1) >> 1) + 127) << 23) * ' +
+        'intBitsToFloat(((ivec2(1, -1) - (ivec2(1, -1) >> 1)) + 127) << 23));',
     )
   })
 })
@@ -245,5 +251,342 @@ export function fs(): vec4 {
     expect(r.diagnostics).toEqual([])
     expect(r.wgsl).toContain('fn reflect(a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {')
     expect(r.eval('fs', [])).toEqual([3, 3, 3, 1])
+  })
+})
+
+// The bit-level builtins #150 made authorable. The IR and both backends have spelled the eight
+// pack/unpack ids and the two bitcast ids since the registry was written; nothing on this
+// surface could NAME them, so every one was TS8004 "Unknown function". `quantizeToF16` and the
+// 4x8 snorm pair are new rows. What is pinned here: the WGSL and GLSL spelling of each, and the
+// CPU value against the number the spec fixes.
+describe('the bit-level builtins: pack, unpack, bitcast and quantizeToF16', () => {
+  /** `fs` over no bindings, on both CPU paths. */
+  const value = (body: string): number[] => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+${body}
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const out: number[][] = []
+    for (const make of [compileModule, compileModuleJs]) {
+      const cm = make(r.module)
+      out.push(cm.fns['fs']!([0, 0]) as number[])
+    }
+    expect(out[0], 'the two CPU paths must agree').toEqual(out[1])
+    return out[0]!
+  }
+
+  it('quantizeToF16 keeps a value binary16 holds and rounds one it does not', () => {
+    // 1 + 2^-10 is the next binary16 after 1, so it survives the round trip exactly. 1 + 2^-11
+    // is exactly halfway to it and rounds to even, which is 1.
+    expect(value('  return vec4(quantizeToF16(1.0009765625), 0., 0., 1.)')[0]).toBe(1.0009765625)
+    expect(value('  return vec4(quantizeToF16(1.00048828125), 0., 0., 1.)')[0]).toBe(1)
+    // 65504 is the largest finite binary16; one step past the halfway point to it overflows.
+    expect(value('  return vec4(quantizeToF16(65504.), 0., 0., 1.)')[0]).toBe(65504)
+    expect(value('  return vec4(quantizeToF16(1e-8), 0., 0., 1.)')[0]).toBe(0)
+  })
+
+  it('quantizeToF16 takes a vector, one id per width', () => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  return quantizeToF16(vec4(uv, 1.0009765625, 1.))
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('quantizeToF16(vec4<f32>(uv, 1.0009765625, 1.0))')
+    // GLSL has no such builtin: the half round trip, two components at a time.
+    expect(r.glsl?.fragment).toContain('unpackHalf2x16(packHalf2x16(')
+    expect(
+      value(
+        '  const q = quantizeToF16(vec2(1.0009765625, 1.00048828125))\n  return vec4(q, 0., 1.)',
+      ),
+    ).toEqual([1.0009765625, 1, 0, 1])
+  })
+
+  /** A packed `u32` asserted by COMPARING it in the shader, not by casting it to an f32 and
+   *  reading the number out. Every bit pattern worth pinning here is over 24 bits, and `f32()`
+   *  of one rounds on a GPU while the f64 oracle would hand back the exact integer — so a test
+   *  written that way would pass here and mean nothing about the target. */
+  const packs = (expr: string, expected: number): void => {
+    expect(
+      value(`  return vec4(select(0., 1., ${expr} === u32(${expected})), 0., 0., 1.)`)[0],
+    ).toBe(1)
+  }
+
+  it('pack2x16float packs component 0 into the low half, as both specs say', () => {
+    // 1.0 is 0x3C00 as a binary16, 0.0 is 0x0000, and component 0 is the LOW 16 bits.
+    packs('pack2x16float(vec2(1., 0.))', 0x00003c00)
+    packs('pack2x16float(vec2(0., 1.))', 0x3c000000)
+  })
+
+  it('the 4x8 snorm pair round-trips through the sign-extended bytes', () => {
+    // 1 -> 127 (0x7F), -1 -> -127 (0x81), 0 -> 0x00; component 0 is the LOW byte, so
+    // (1, -1, 0, 1) packs to 0x7F00817F.
+    packs('pack4x8snorm(vec4(1., -1., 0., 1.))', 0x7f00817f)
+    expect(value('  return unpack4x8snorm(pack4x8snorm(vec4(1., -1., 0., 1.)))')).toEqual([
+      1, -1, 0, 1,
+    ])
+    // The unorm twin for contrast: 1 -> 255, -1 clamps to 0.
+    packs('pack4x8unorm(vec4(1., -1., 0., 1.))', 0xff0000ff)
+  })
+
+  it('rounds the pack scale in f32, which is where a GPU rounds it', () => {
+    // The oracle's job is to answer what a GPU answers, and a GPU multiplies in f32. These
+    // bodies multiplied in f64, so on a value whose f32 product lands exactly on k + 0.5 while
+    // the f64 product lands just under it, the oracle rounded DOWN and both targets rounded up
+    // — an oracle that agrees with neither target. `pack4x8snorm` already had the f32 round and
+    // documents the mechanism; its three siblings did not.
+    //
+    // The inputs below are exact f32 values. Measured against the emitted GLSL inline
+    // (`floor(0.5 + clamp(e, 0, 1) * 255.0)`, evaluated in f32) over the 511 inputs e = i/510,
+    // the f64 form parted from it on 127 of them.
+    const lowByte = (u: unknown): number => (u as number) & 0xff
+    expect(lowByte(BUILTINS.pack4x8unorm!([0.8098039031028748, 0, 0, 0]))).toBe(207)
+    expect(lowByte(BUILTINS.pack4x8unorm!([0.9196078181266785, 0, 0, 0]))).toBe(235)
+    // f32(0.8098039031028748) * 255 is exactly 206.5; in f64 it is 206.49999... — which is the
+    // whole difference, so the f64 spelling of the same expression gives 206.
+    expect(Math.round(0.8098039031028748 * 255) & 0xff).toBe(206)
+
+    // The 2x16 pair, on the same mechanism at their own scales. Each input is an exact f32
+    // whose f32 product with the scale is exactly k + 0.5 while its f64 product is just under,
+    // so the two spellings answer one apart and the assertion cannot pass on the f64 body.
+    const low16 = (u: unknown): number => (u as number) & 0xffff
+    expect(low16(BUILTINS.pack2x16unorm!([0.5000152587890625, 0]))).toBe(32769)
+    expect(Math.round(0.5000152587890625 * 65535)).toBe(32768)
+    expect(low16(BUILTINS.pack2x16snorm!([0.500030517578125, 0]))).toBe(16385)
+    expect(Math.round(0.500030517578125 * 32767)).toBe(16384)
+  })
+
+  it('bitcast reads the same 32 bits the other way, and round-trips', () => {
+    // 1.0f is 0x3F800000.
+    packs('bitcast<u32>(1.)', 0x3f800000)
+    expect(value('  return vec4(bitcast<f32>(u32(1065353216)), 0., 0., 1.)')[0]).toBe(1)
+    expect(value('  return vec4(bitcast<f32>(bitcast<u32>(0.15625)), 0., 0., 1.)')[0]).toBe(0.15625)
+  })
+
+  it('agrees with the spec value on the six the round trips do not pin', () => {
+    // The tests above cover quantizeToF16, pack2x16float, the 4x8 pair and both bitcasts. The
+    // remaining six get their own value here, so every one of the twelve names has a number
+    // behind it rather than only a spelling.
+    // 2x16 unorm: 1.0 -> 0xFFFF, 0.0 -> 0x0000, component 0 in the low half.
+    packs('pack2x16unorm(vec2(1., 0.))', 0x0000ffff)
+    expect(value('  return vec4(unpack2x16unorm(u32(4294901760)), 0., 1.)')).toEqual([0, 1, 0, 1])
+    // 2x16 snorm: 1.0 -> 0x7FFF, -1.0 -> 0x8001 (and -1 is the clamp of -32768/32767).
+    packs('pack2x16snorm(vec2(1., -1.))', 0x80017fff)
+    expect(value('  return vec4(unpack2x16snorm(pack2x16snorm(vec2(1., -1.))), 0., 1.)')).toEqual([
+      1, -1, 0, 1,
+    ])
+    // 2x16 float: the binary16 of 1.0 is 0x3C00, already pinned; the UNPACK direction is not.
+    expect(value('  return vec4(unpack2x16float(u32(15360)), 0., 1.)')).toEqual([1, 0, 0, 1])
+    // 4x8 unorm unpack: 0xFF in the low byte is 1.0 in component 0.
+    expect(value('  return unpack4x8unorm(u32(255))')).toEqual([1, 0, 0, 0])
+  })
+
+  it('spells each one on both targets', () => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const a = pack4x8unorm(vec4(uv, 0., 1.))
+  const b = pack4x8snorm(vec4(uv, 0., 1.))
+  const c = pack2x16float(uv)
+  const d = pack2x16unorm(uv)
+  const e = pack2x16snorm(uv)
+  const f = unpack4x8unorm(a) + unpack4x8snorm(b)
+  const g = unpack2x16float(c) + unpack2x16unorm(d) + unpack2x16snorm(e)
+  return f + vec4(g, 0., 0.) + vec4(f32(bitcast<u32>(uv.x)), quantizeToF16(uv.y), 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const wgsl = r.wgsl ?? ''
+    for (const spelling of [
+      'pack4x8unorm(',
+      'pack4x8snorm(',
+      'pack2x16float(',
+      'pack2x16unorm(',
+      'pack2x16snorm(',
+      'unpack4x8unorm(',
+      'unpack4x8snorm(',
+      'unpack2x16float(',
+      'unpack2x16unorm(',
+      'unpack2x16snorm(',
+      'bitcast<u32>(',
+      'quantizeToF16(',
+    ])
+      expect(wgsl, spelling).toContain(spelling)
+    const glsl = r.glsl?.fragment ?? ''
+    // The three GLSL ES 3.00 natives, and the hand-inlined pair that spec lacks.
+    expect(glsl).toContain('packHalf2x16(')
+    expect(glsl).toContain('packUnorm2x16(')
+    expect(glsl).toContain('packSnorm2x16(')
+    expect(glsl).toContain('floatBitsToUint(')
+    expect(glsl).not.toContain('packSnorm4x8(')
+    expect(glsl).not.toContain('quantizeToF16(')
+  })
+
+  it('refuses the wrong shape, naming the one overload each has', () => {
+    expect(errorsOf(FS('  return vec4(f32(pack4x8unorm(uv)), 0., 0., 1.)'))).toEqual([
+      'TS8003 pack4x8unorm takes a vec4<f32>; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00 the same.',
+    ])
+    expect(errorsOf(FS('  return unpack2x16float(uv)'))).toEqual([
+      'TS8003 unpack2x16float takes a u32; got vec2<f32>. WGSL gives it one overload, and GLSL ES 3.00 the same.',
+    ])
+    expect(errorsOf(FS('  return vec4(f32(quantizeToF16(u.k)), 0., 0., 1.)'))).toEqual([
+      'TS8003 quantizeToF16 takes an f32 or a vector of them; got u32.',
+    ])
+    expect(errorsOf(FS('  return vec4(f32(bitcast(uv.x)), 0., 0., 1.)'))).toEqual([
+      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x). Those are the two the IR carries today; the signed pair is not here yet.',
+    ])
+    expect(errorsOf(FS('  return vec4(f32(bitcast<i32>(uv.x)), 0., 0., 1.)'))).toEqual([
+      'TS8003 bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x); got bitcast<i32>. Those are the two the IR carries today; the signed pair is not here yet.',
+    ])
+    expect(errorsOf(FS('  return vec4(f32(bitcast<u32>(u.k)), 0., 0., 1.)'))).toEqual([
+      'TS8003 bitcast<u32> reads the bits of an f32; got u32. A bitcast reinterprets 32 bits, it does not convert: u32(x) is the conversion.',
+    ])
+  })
+
+  it('a bare number in an unpack is retargeted, as every integer position is', () => {
+    // The bit pattern is written as a number; nobody should have to spell `u32(65536)`.
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  return vec4(unpack2x16unorm(65536), 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('unpack2x16unorm(65536u)')
+  })
+})
+
+// The two PORTABLE lies the spec audit found (#154). `abs` and `dot` were in
+// `PORTABLE_INTRINSICS`, which claims a name spells the same on every target. Measured on a
+// real WebGL2 driver, with the compile gate's own instrument check passing first:
+//
+//   abs(uvec3)          REJECTED  'abs' : no matching overloaded function found
+//   abs(uint)           REJECTED  'abs' : no matching overloaded function found
+//   dot(ivec3, ivec3)   REJECTED  'dot' : no matching overloaded function found
+//   dot(uvec3, uvec3)   REJECTED  'dot' : no matching overloaded function found
+//   abs(ivec3)          COMPILES      <- the control: the SIGNED abs is real GLSL
+//   dot(vec3, vec3)     COMPILES      <- the control: the float dot is real GLSL
+describe('the integer abs and dot spell GLSL forms that exist', () => {
+  const bothOf = (body: string): { wgsl: string; glsl: string } => {
+    const r = compile(`"use typeshade"
+${U}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+${body}
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([])
+    return { wgsl: r.wgsl ?? '', glsl: r.glsl?.fragment ?? '' }
+  }
+
+  it('abs on an unsigned value is the identity on GLSL, and still abs on WGSL', () => {
+    const { wgsl, glsl } = bothOf(
+      '  const uv3 = vec3u(u.k, u.k, u.k)\n  const a = abs(uv3)\n  const b = abs(u.k)\n' +
+        '  return vec4(f32(a.x) + f32(b), 0., 0., 1.)',
+    )
+    expect(wgsl).toContain('abs(uv3)')
+    expect(wgsl).toContain('abs(u.k)')
+    // No `abs(` on a uvec3 or a uint anywhere in the GLSL: the value is written as it is.
+    expect(glsl).toContain('uvec3 a = uv3;')
+    expect(glsl).toContain('uint b = u.k;')
+  })
+
+  it('abs on a SIGNED integer keeps the portable spelling on both', () => {
+    const { wgsl, glsl } = bothOf('  const a = abs(u.v)\n  return vec4(f32(a.x), 0., 0., 1.)')
+    expect(wgsl).toContain('abs(u.v)')
+    expect(glsl).toContain('abs(u.v)')
+  })
+
+  it('an integer dot becomes a _idot helper on GLSL, one overload per type used', () => {
+    const { wgsl, glsl } = bothOf(
+      '  const uv3 = vec3u(u.k, u.k, u.k)\n  const a = dot(u.v, u.v)\n  const b = dot(uv3, uv3)\n' +
+        '  return vec4(f32(a) + f32(b), 0., 0., 1.)',
+    )
+    expect(wgsl).toContain('dot(u.v, u.v)')
+    expect(wgsl).toContain('dot(uv3, uv3)')
+    expect(glsl).toContain('_idot(u.v, u.v)')
+    expect(glsl).toContain('_idot(uv3, uv3)')
+    // The helper, not an inline sum: an inline would splice BOTH arguments once per component.
+    expect(glsl).toContain('int _idot(ivec2 a, ivec2 b) {')
+    expect(glsl).toContain('uint _idot(uvec3 a, uvec3 b) {')
+    expect(glsl).toContain('return a.x * b.x + a.y * b.y + a.z * b.z;')
+  })
+
+  it('a float dot keeps the portable spelling, and no helper is emitted for it', () => {
+    const { wgsl, glsl } = bothOf('  const a = dot(uv, uv)\n  return vec4(a, 0., 0., 1.)')
+    expect(wgsl).toContain('dot(uv, uv)')
+    expect(glsl).toContain('dot(uv, uv)')
+    expect(glsl).not.toContain('_idot')
+  })
+
+  it('an integer literal first in an integer-only builtin is typed i32', () => {
+    // `countOneBits(5)` was typed f32 and refused as "takes an i32 or u32, or a vector of
+    // them; got f32" — about a program WGSL accepts, where 5 is an AbstractInt that
+    // materialises to i32 (measured accepted on Tint).
+    const { wgsl, glsl } = bothOf(
+      '  const a = countOneBits(5)\n  const b = reverseBits(5)\n  return vec4(f32(a) + f32(b), 0., 0., 1.)',
+    )
+    expect(wgsl).toContain('countOneBits(5)')
+    expect(wgsl).toContain('reverseBits(5)')
+    expect(glsl).toContain('_popcnt(5)')
+    // A float-written literal has no integer meaning and keeps its refusal.
+    expect(errorsOf(FS('  return vec4(f32(countOneBits(5.)), 0., 0., 1.)'))[0]).toBe(
+      'TS8036 countOneBits takes an i32 or u32, or a vector of them; got f32.',
+    )
+  })
+})
+
+// The CPU oracle rows the same audit found (#154).
+describe('the oracle answers the scalar and wrapping forms the GPU does', () => {
+  const value = (body: string): number[] => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+${body}
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    const out: number[][] = []
+    for (const make of [compileModule, compileModuleJs]) {
+      out.push(make(r.module).fns['fs']!([]) as number[])
+    }
+    expect(out[0], 'the two CPU paths must agree').toEqual(out[1])
+    return out[0]!
+  }
+
+  it('length and distance on a scalar are abs, where the oracle used to throw', () => {
+    // WGSL gives both a scalar overload defined as `abs(e)` / `abs(e1 - e2)`, and both targets
+    // compile it (measured on Tint and a WebGL2 driver). The oracle threw
+    // "v.reduce is not a function" on a program the GPU ran.
+    expect(value('  return vec4(length(-3.), distance(1., 4.), 0., 1.)')).toEqual([3, 3, 0, 1])
+  })
+
+  // 2^31 has no i32, so `abs(-2147483648)` is that value itself on both targets
+  // (wgsl.txt:21451-21453) and the oracle answers 2147483648. NOT fixable at the builtin: it
+  // is handed plain numbers, and the f32 `-2147483648.` is the same number with a genuine
+  // `+2147483648` answer. It needs the oracle and the codegen to wrap a call's result by its
+  // IR type, which is a change to every integer builtin rather than to this row; an id of its
+  // own is not open either, since a portable id spells as its own name and the registry's map
+  // is for genuinely divergent spellings. Pinned as it stands rather than left unstated.
+  it.fails('abs of the smallest i32 is itself, as it is on both targets (#154, oracle)', () => {
+    expect(value('  const m: i32 = -2147483648\n  return vec4(f32(abs(m)), 0., 0., 1.)')).toEqual([
+      -2147483648, 0, 0, 1,
+    ])
+  })
+
+  it('and the float of that magnitude keeps its real answer', () => {
+    expect(value('  const m: f32 = -2147483648.\n  return vec4(abs(m), 0., 0., 1.)')).toEqual([
+      2147483648, 0, 0, 1,
+    ])
+  })
+
+  it('an integer dot is an integer on the CPU too', () => {
+    expect(value('  const a = vec3i(1, 2, 3)\n  return vec4(f32(dot(a, a)), 0., 0., 1.)')).toEqual([
+      14, 0, 0, 1,
+    ])
   })
 })

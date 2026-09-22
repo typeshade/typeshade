@@ -20,14 +20,10 @@ export function lowerArrayCtor(
 ): Expr | undefined {
   const typeArgs = node.typeArguments
   if (!typeArgs || typeArgs.length < 1) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'array<T, N>(...) needs type arguments.',
-      TS_CODES.UNKNOWN_TYPE,
-    )
-    return undefined
+    // `array(1., 2., 3.)` INFERS both type arguments from the elements, as WGSL does
+    // (wgsl.txt:20133: "the element type and count are inferred"). The elements must agree —
+    // an array has one element type — and there must be at least one to read it from.
+    return inferredArrayCtor(node, sourceFile, scope, diagnostics)
   }
   const fakeRef = ts.factory.createTypeReferenceNode('array', [...typeArgs])
   const mapped = mapTsTypeToShaderType(fakeRef, sourceFile, diagnostics)
@@ -53,6 +49,54 @@ export function lowerArrayCtor(
     return undefined
   }
   return { op: 'construct', type: mapped, args }
+}
+
+/** `array(e1, e2, …)` with no type arguments (#150): the element type and the count come from
+ *  the elements themselves. Refused when they disagree, because an array has ONE element type
+ *  and guessing which one the author meant would move the emit of a program silently; the
+ *  message names the explicit form, which settles it.
+ *
+ *  A bare integer literal is left alone here. It lowers to an `f32` on this surface, so
+ *  `array(1, 2, 3)` infers `array<f32, 3>` — the same type `const x = 1` gives, and changing
+ *  that is #148's decision, not this one's. */
+function inferredArrayCtor(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (node.arguments.length === 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      'array() has no elements to infer from: the element type and the count come from them. ' +
+        'Give it elements, or write both out with the values: array<f32, 4>(0., 0., 0., 0.).',
+      TS_CODES.UNKNOWN_TYPE,
+    )
+    return undefined
+  }
+  const args: Expr[] = []
+  for (const arg of node.arguments) {
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics)
+    if (!lowered) return undefined
+    args.push(lowered)
+  }
+  const elem = args[0]!.type
+  const odd = args.findIndex((a) => typeKey(a.type) !== typeKey(elem))
+  if (odd > 0) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.arguments[odd]!,
+      `array(...) infers one element type from its elements; element 0 is ${typeKey(elem)} ` +
+        `and element ${odd} is ${typeKey(args[odd]!.type)}. Cast the odd one, or write the ` +
+        `type out: array<${typeKey(elem)}, ${args.length}>(...).`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return { op: 'construct', type: { kind: 'array', elem, size: args.length }, args }
 }
 
 /** `[a, b, c]` written where an `array<T, N>` is declared, e.g.

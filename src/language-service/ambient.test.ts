@@ -394,6 +394,275 @@ describe('vector-with-scalar math shapes: exactly the ones both backends accept'
   })
 })
 
+// The editor says what the compiler says about a texture (#147). Each of these was a program
+// one layer accepted and the other refused, which is the gap the ambient library exists to
+// close: the compiler is the authority on what lowers, and the ambient declarations have to
+// describe exactly that — no wider, no narrower.
+describe('the ambient texture declarations match what the compiler lowers', () => {
+  const diagnosticsOf = (body: string): string[] => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
+  }
+  const FS = (decls: string, body: string): string =>
+    `${decls}\n@fragment\nexport function fs(): vec4 {\n${body}\n}`
+
+  it('accepts an unsigned coordinate on textureLoad and textureStore', () => {
+    // WGSL's texel coordinate is "i32, or u32" (wgsl.txt:24129) and Tint accepts the unsigned
+    // form (measured); every ambient overload took `vec2i` alone, so the editor was red on a
+    // program the compiler emitted.
+    expect(
+      diagnosticsOf(
+        FS('declare const t: texture_2d<f32>', '  return textureLoad(t, vec2u(u32(0), u32(0)), 0)'),
+      ),
+    ).toEqual([])
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const d: texture_storage_2d<"rgba8unorm", "write">',
+          '  textureStore(d, vec2u(u32(0), u32(0)), vec4(1., 0., 0., 1.))\n  return vec4(1.)',
+        ),
+      ),
+    ).toEqual([])
+    // The signed form is untouched.
+    expect(
+      diagnosticsOf(
+        FS('declare const t: texture_2d<f32>', '  return textureLoad(t, vec2i(0, 0), 0)'),
+      ),
+    ).toEqual([])
+  })
+
+  it('constrains the element of every sampled texture type', () => {
+    // "T must be f32, i32, or u32" (wgsl.txt:7047-7048). `E` was unconstrained, so
+    // `texture_2d<bool>` typechecked in the editor while the compiler refused it.
+    expect(
+      diagnosticsOf(FS('declare const t: texture_2d<bool>', '  return vec4(0., 0., 0., 1.)')).some(
+        (d) => d.startsWith('typescript 2344'),
+      ),
+    ).toBe(true)
+    for (const elem of ['f32', 'i32', 'u32']) {
+      expect(
+        diagnosticsOf(
+          FS(
+            `declare const t: texture_2d<${elem}>`,
+            '  const v = textureLoad(t, vec2i(0, 0), 0)\n  return vec4(f32(v.x), 0., 0., 1.)',
+          ),
+        ),
+        elem,
+      ).toEqual([])
+    }
+  })
+
+  it('types textureLoad by the element, as the compiler does', () => {
+    // Every overload returned `vec4`, so a fetch from a `texture_2d<u32>` read as a float
+    // vector in the editor while the compiler typed it `vec4<u32>`.
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const t: texture_2d<u32>',
+          '  const v: vec4u = textureLoad(t, vec2i(0, 0), 0)\n  return vec4(f32(v.x), 0., 0., 1.)',
+        ),
+      ),
+    ).toEqual([])
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const t: texture_2d<i32>',
+          '  const v: vec4i = textureLoad(t, vec2i(0, 0), 0)\n  return vec4(f32(v.x), 0., 0., 1.)',
+        ),
+      ),
+    ).toEqual([])
+    // And the wrong element is reported, by SOMEBODY: an f32 vector is not what a u32
+    // texture fetches.
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const t: texture_2d<u32>',
+          '  const v: vec4 = textureLoad(t, vec2i(0, 0), 0)\n  return v',
+        ),
+      ),
+    ).not.toEqual([])
+  })
+
+  it('declares the level query and the storage layer count the compiler now takes', () => {
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const t: texture_2d<f32>',
+          '  const d = textureDimensions(t, 0)\n  return vec4(f32(d.x), 0., 0., 1.)',
+        ),
+      ),
+    ).toEqual([])
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const a: texture_storage_2d_array<"r32float", "read">',
+          '  return vec4(f32(textureNumLayers(a)), 0., 0., 1.)',
+        ),
+      ),
+    ).toEqual([])
+  })
+
+  it('admits bgra8unorm at write and refuses it at the other two, as a device does', () => {
+    // The seventeenth storage format, and the only one that is not core. Measured on two
+    // Chromium builds: a device that requested `bgra8unorm-storage` builds a bind group layout
+    // for it at `write-only` and refuses `read-only` and `read-write`, and a device that
+    // requested nothing refuses all three. The editor carries the access half of that, by the
+    // same conditional type that already enforced the read_write rule, so the two layers refuse
+    // the same programs.
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const dst: texture_storage_2d<"bgra8unorm", "write">',
+          '  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))\n  return vec4(0.)',
+        ),
+      ),
+    ).toEqual([])
+    for (const access of ['read', 'read_write']) {
+      expect(
+        diagnosticsOf(
+          FS(
+            `declare const dst: texture_storage_2d<"bgra8unorm", "${access}">`,
+            '  const v: vec4 = textureLoad(dst, vec2i(0, 0))\n  return v',
+          ),
+        ),
+      ).not.toEqual([])
+    }
+    // An ordinary format is unaffected at every access mode it already had.
+    expect(
+      diagnosticsOf(
+        FS(
+          'declare const src: texture_storage_2d<"rgba8unorm", "read">',
+          '  const v: vec4 = textureLoad(src, vec2i(0, 0))\n  return v',
+        ),
+      ),
+    ).toEqual([])
+  })
+})
+
+// The texture half of the same claim (#145, tests-critique P0-7). These six programs were the
+// classes the front end passed and Tint refused, measured on SwiftShader through the compile
+// gate's own instruments.
+//
+// Asserted against the EDITOR SWEEP — every diagnostic the service returns — and not against
+// `reports` above, which counts TypeScript's TS2345/TS2769 alone. Each row records WHICH LAYER
+// answers it, because that is the fact worth pinning and the two layers are not
+// interchangeable:
+//
+//   * T1b, T2 and G34 are STAGE rules. No ambient declaration can express "textureStore is not
+//     reachable from a vertex entry", so these are the compiler's forever.
+//   * T4 and T10 are ordinary TYPE errors — an `i32` in an `f32` slot — and `tsc` SHOULD catch
+//     them. It does not, because the ambient lib types every scalar texture argument `number`
+//     (`level: number`, `bias: number`), and `i32`/`u32` are branded `number` subtypes. That is
+//     an ambient-parity gap, not an impossibility: when the parity item types those parameters
+//     `f32`, these two rows gain a `typescript 2345` and this table is the deliberate edit that
+//     records it.
+//   * T6 is the one row `tsc` already answered before the compiler did, through the ambient
+//     `vec2i` parameter. It now carries both.
+describe('every texture shape a GPU compiler rejects is reported in the editor', () => {
+  const diagnosticsOf = (body: string): string[] => {
+    const service = createTypeshadeLanguageService()
+    service.openDocument('a.ts', `"use typeshade"\n${body}\n`)
+    return service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`)
+  }
+  const VS_HEAD = 'class Clip { @builtin("position") pos: vec4 }\n@vertex\n'
+
+  /** program → the diagnostic sources that must answer it, by `source code` prefix. */
+  const rejectedByTint: Readonly<
+    Record<string, { readonly src: string; readonly from: readonly string[] }>
+  > = {
+    // T1b: a cube-array sample in a vertex entry — `@stage("fragment")` on every
+    // `textureSample` overload (core.def:1143-1210). A stage rule: compiler only.
+    'textureSample(texture_cube_array) in a vertex entry': {
+      from: ['typeshade TS8099'],
+      src: `declare const envs: texture_cube_array<f32>
+declare const smp: sampler
+${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+  return { pos: textureSample(envs, smp, vec3(0., 0., 1.), 0) }
+}`,
+    },
+    // T2: a texture write in a vertex entry — core.def:1484-1522, wgsl.txt:7741-7742.
+    // A stage rule: compiler only.
+    'textureStore in a vertex entry': {
+      from: ['typeshade TS8099'],
+      src: `declare const dst: texture_storage_2d<"rgba8unorm", "write">
+${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+  return { pos: vec4(0., 0., 0., 1.) }
+}`,
+    },
+    // T4: an i32 where WGSL types the level f32 (wgsl.txt:25081). A TYPE error `tsc` misses
+    // today because the ambient `level` is `number` — see the note above.
+    'textureSampleLevel with an i32 level': {
+      from: ['typeshade TS8041'],
+      src: `declare const t: texture_2d<f32>
+declare const s: sampler
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  const l: i32 = 2
+  return textureSampleLevel(t, s, p.xy, l)
+}`,
+    },
+    // T6: a vec3 coordinate on a 2d storage texture (core.def:1573-1592, `C` is a vec2).
+    // BOTH layers: the ambient parameter is a `vec2i`, and the compiler checks the width.
+    'textureLoad with a vec3 coordinate on a 2d storage texture': {
+      from: ['typescript 2345', 'typeshade TS8041'],
+      src: `declare const src: texture_storage_2d<"r32float", "read">
+declare let out: storage<array<vec4>>
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[gid.x] = textureLoad(src, vec3i(0, 0, 0))
+}`,
+    },
+    // T10: an i32 where WGSL types the reference depth f32 (wgsl.txt:24734). Same ambient gap
+    // as T4.
+    'textureSampleCompare with an i32 depth_ref': {
+      from: ['typeshade TS8041'],
+      src: `declare const sh: texture_depth_2d
+declare const cs2: sampler_comparison
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  const r: i32 = 1
+  return vec4(textureSampleCompare(sh, cs2, p.xy, r))
+}`,
+    },
+    // G34: an atomic in a vertex entry (wgsl.txt:25422). A stage rule: compiler only.
+    'atomicAdd in a vertex entry': {
+      from: ['typeshade TS8099'],
+      src: `declare let total: storage<atomic<u32>>
+${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
+  const n = atomicAdd(total, 1)
+  return { pos: vec4(f32(n), 0., 0., 1.) }
+}`,
+    },
+  }
+  for (const [name, row] of Object.entries(rejectedByTint)) {
+    it(`${name}: reported, because Tint reports it too`, () => {
+      const got = diagnosticsOf(row.src)
+      for (const prefix of row.from) {
+        expect(
+          got.some((d) => d.startsWith(prefix)),
+          `${prefix} should answer:\n${row.src}\ngot: ${JSON.stringify(got)}`,
+        ).toBe(true)
+      }
+    })
+  }
+
+  // The seventh program of that measurement is the one #143 closed by RETARGETING rather than
+  // refusing: a bare `0` layer on a storage array is the form this surface spells, and it now
+  // emits the integer WGSL takes. Clean in the editor is the correct answer for it, and
+  // asserting so keeps the row from quietly turning into a refusal.
+  it('a literal layer on a storage array texture stays clean, in both layers', () => {
+    expect(
+      diagnosticsOf(`declare const dstArr: texture_storage_2d_array<"rgba8unorm", "write">
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  textureStore(dstArr, vec2i(0, 0), 0, vec4(1., 0., 0., 1.))
+}`),
+    ).toEqual([])
+  })
+})
+
 // WHERE THE DIAGNOSTIC LANDS, which is the other half of the TS2769 rule. TypeScript puts an
 // overload failure on the ARGUMENT span only when the first argument is the one that failed; as
 // soon as the mismatch is in a later argument it reports on the CALLEE instead. A filter that can
@@ -700,7 +969,11 @@ declare const cmp: sampler_comparison
 declare const smp: sampler
 ${FRAGMENT_TAIL}`
 
-  const unreported: Readonly<Record<string, string>> = {
+  // WAS `unreported`, and the rename is the record: both programs were reported by NEITHER
+  // half — not by the front end, not by `tsc` against the ambient library — and each was an
+  // `it.fails` waiting on #145. #164 shipped the argument typing, so the editor underlines
+  // them now, and the rows below assert that instead of recording the hole.
+  const nowReported: Readonly<Record<string, string>> = {
     // T4 — Tint: "no matching call to 'textureSampleLevel(texture_2d<f32>, sampler,
     // vec2<f32>, i32)'" (wgsl.txt:25081 types `level` f32).
     'an integer variable as a level': `${SCALAR_HEAD}
@@ -717,9 +990,12 @@ export function fs(v: V): vec4 {
 }`,
   }
 
-  for (const [name, body] of Object.entries(unreported)) {
-    it.fails(`${name}: reported by neither half — flipped by #145 (or #157 for the lib)`, () => {
-      expect(diagnosticsOf(body), body).not.toEqual([])
+  for (const [name, body] of Object.entries(nowReported)) {
+    it(`${name}: reported, since #164 types the argument`, () => {
+      const diagnostics = diagnosticsOf(body)
+      expect(diagnostics, body).not.toEqual([])
+      // The editor has to name the f32 the slot wants, or the underline is not actionable.
+      expect(diagnostics.join(' / ')).toContain('must be an f32')
     })
   }
 })
@@ -762,17 +1038,15 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     expect(store.diagnostics.filter((d) => d.category === 'error')).toEqual([])
   })
 
-  it.fails(
-    'tsc takes an unsigned coordinate on textureLoad — flipped by #147 (ambient u32)',
-    () => {
-      expect(tscErrors(LOAD)).toEqual([])
-    },
-  )
+  // Both were `it.fails` waiting on #147: the ambient library typed the coordinate `vec2i`
+  // alone, so the editor underlined a program the compiler and the spec both accept — the
+  // opposite polarity to the rows above. #164 widened the declaration, so they are plain
+  // assertions now, and they keep the editor from narrowing back.
+  it('tsc takes an unsigned coordinate on textureLoad', () => {
+    expect(tscErrors(LOAD)).toEqual([])
+  })
 
-  it.fails(
-    'tsc takes an unsigned coordinate on textureStore — flipped by #147 (ambient u32)',
-    () => {
-      expect(tscErrors(STORE)).toEqual([])
-    },
-  )
+  it('tsc takes an unsigned coordinate on textureStore', () => {
+    expect(tscErrors(STORE)).toEqual([])
+  })
 })

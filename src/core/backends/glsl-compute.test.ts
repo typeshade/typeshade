@@ -106,10 +106,12 @@ describe('glsl-es300 — compute → fragment-GPGPU lowering (emulateCompute)', 
     expect(fs).toMatch(/floor/)
     expect(fs).toContain('u_count.y')
     // the packed colour is written bit-exact. GLSL ES 3.00 has NO packUnorm4x8 (4.00/3.10
-    // only), so pack4x8unorm lowers to the hand-inlined round(clamp(v,0,1)*255) byte pack
+    // only), so pack4x8unorm lowers to the hand-inlined floor(0.5 + clamp(v,0,1)*255) byte
+    // pack — WGSL's own formula, rather than a round() whose exact half a driver may resolve
+    // either way (#141)
     // (verified byte-equal vs the oracle on real WebGL2 — the _compute-parity gate).
     expect(fs).not.toContain('packUnorm4x8(') // not a GLSL ES 3.00 builtin
-    expect(fs).toContain('round(clamp(') // the hand-inlined byte pack
+    expect(fs).toContain('floor(0.5 + clamp(') // the hand-inlined byte pack, WGSL's own rule
     expect(fs).toContain('255.0')
     expect(fs).toContain('<< 24') // the alpha byte shifted to the high bits
     // the per-fid guard early-out lowers to discard

@@ -19,6 +19,9 @@ import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { reflect } from '../../core/reflect.js'
 import { compileModule } from '../../core/oracle.js'
+import { FRAGMENT_ONLY_CALLS } from './lower/function.js'
+import { FRAGMENT_ONLY_IDS } from '../../core/passes/lint/rules/fragment-only-builtin.js'
+import { INTRINSICS } from '../../core/intrinsics.js'
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -158,6 +161,29 @@ describe('texture_1d: one number in, a texel out', () => {
     ])
   })
 
+  it('refuses an integer coordinate on a 1d SAMPLE, literal or not', () => {
+    // A sampled read is by normalised f32 coordinate whatever the dim. The literal exemption
+    // that lets `textureLoad(ramp, 3, 0)` spell its integer used to be tested on the FOLDED
+    // value and applied to the sampled reads too, where no retarget follows: `u32(2)` folded
+    // to a lit, skipped the element check, and emitted `textureSample(ramp, smp, 2u)` — "no
+    // matching call" on Tint with no diagnostic here. `i32(2)` survived only by accident, the
+    // writer spelling an i32 lit bare so WGSL read it as abstract-int.
+    expect(errorsOf(fragment(`  return textureSample(ramp, smp, u32(2))`))).toEqual([
+      'textureSample on a texture_1d<f32> takes an f32 coordinate; got u32.',
+    ])
+    expect(errorsOf(fragment(`  return textureSample(ramp, smp, i32(2))`))).toEqual([
+      'textureSample on a texture_1d<f32> takes an f32 coordinate; got i32.',
+    ])
+    expect(errorsOf(fragment(`  return textureSampleLevel(ramp, smp, u32(2), 0.)`))).toEqual([
+      'textureSampleLevel on a texture_1d<f32> takes an f32 coordinate; got u32.',
+    ])
+    // A BARE number in a sampled slot is an f32 already and stays clean, as does the integer
+    // coordinate of a fetch, which is where the exemption belongs.
+    expect(errorsOf(fragment(`  return textureSample(ramp, smp, 2)`))).toEqual([])
+    expect(errorsOf(fragment(`  return textureLoad(ramp, 2, 0)`))).toEqual([])
+    expect(errorsOf(fragment(`  return textureLoad(ramp, u32(2), 0)`))).toEqual([])
+  })
+
   it('takes an integer 1d texture through textureLoad', () => {
     const wgsl = wgslOf(
       fragment(
@@ -231,6 +257,62 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
       '"textureSampleCompare" is only valid in a fragment shader; "cs" is a compute entry.',
     ])
   })
+
+  it('textureSample on a cube array is fragment-only in every stage', () => {
+    // The compute arm above is one half. A VERTEX entry is the other, and used to be answered
+    // by the backend lint instead of the front end for the plain `texture_2d` id
+    // (tests-critique T1b, control T1c): both stages, both dims, one sentence, one span.
+    const vertex = (call: string): string => `"use typeshade"
+${DECLS}
+class Clip { @builtin("position") pos: vec4 }
+@vertex
+export function vs(@builtin("vertex_index") i: u32): Clip {
+  const dir: vec3 = vec3(0., 0., 1.)
+  return { pos: ${call} }
+}
+`
+    expect(errorsOf(vertex('textureSample(envs, smp, dir, 0)'))).toEqual([
+      '"textureSample" is only valid in a fragment shader; "vs" is a vertex entry.',
+    ])
+    expect(errorsOf(vertex('textureSample(atlas, smp, vec2(0., 0.))'))).toEqual([
+      '"textureSample" is only valid in a fragment shader; "vs" is a vertex entry.',
+    ])
+    expect(errorsOf(vertex('textureSample(pages, smp, vec2(0., 0.), 0)'))).toEqual([
+      '"textureSample" is only valid in a fragment shader; "vs" is a vertex entry.',
+    ])
+    // The explicit-LOD twin is what the message points at, and it is legal here.
+    expect(errorsOf(vertex('textureSampleLevel(atlas, smp, vec2(0., 0.), 0.)'))).toEqual([])
+  })
+})
+
+// Two hand lists in two layers stay equal only if something compares them (tests-critique
+// P1-27). The front end's `FRAGMENT_ONLY_CALLS` reports at the entry, in the author's file,
+// with the call chain; the core lint's `FRAGMENT_ONLY_IDS` is the EDSL's only gate and reports
+// at emit. Both ways of missing an id have happened: `textureSample` on a `texture_cube_array`
+// was in NEITHER table and reached Tint (T1b, fixed by #143), and `textureSample` itself was in
+// the lint and not the front end until #145. Neither table may drift from the other.
+describe('the two fragment-only tables hold the same ids', () => {
+  it('the front end and the lint agree, id for id', () => {
+    expect([...FRAGMENT_ONLY_CALLS].sort()).toEqual([...FRAGMENT_ONLY_IDS.keys()].sort())
+  })
+
+  it('and they hold exactly the reads whose level of detail is implicit', () => {
+    // Derived from the intrinsic catalogue by shape rather than copied: every sampling id
+    // whose LOD is implicit (the plain sample, the bias that shifts it, the depth comparison
+    // that needs it), plus the derivatives themselves. `…Level`, `…Grad` and every gather take
+    // no derivative and are legal in any stage — `fwidth` has no catalogue row of its own
+    // (it expands), so it is named beside the two it expands into.
+    const implicit = Object.keys(INTRINSICS)
+      .filter(
+        (id) =>
+          /^textureSample(Array|Cube|CubeArray)?$/.test(id) ||
+          /^textureSampleBias/.test(id) ||
+          /^textureSampleCompare(?!Level)/.test(id) ||
+          /^(dpdx|dpdy|fwidth)/.test(id),
+      )
+      .concat('fwidth')
+    expect([...FRAGMENT_ONLY_CALLS].sort()).toEqual([...new Set(implicit)].sort())
+  })
 })
 
 describe('textureGather: four texels, one channel each', () => {
@@ -286,16 +368,44 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     expect(r.wgsl).toContain('textureGather(0, atlas, smp,')
   })
 
-  it('refuses a component that is not a whole number from 0 to 3 written in the call', () => {
+  it('refuses a component that is not a whole number from 0 to 3 known at compile time', () => {
     expect(errorsOf(fragment(`  return textureGather(4, atlas, smp, p.xy)`))[0]).toContain(
-      "textureGather's component must be a whole number from 0 to 3 written in the call",
+      "textureGather's component must be a whole number from 0 to 3 known at compile time",
     )
+    // A LOCAL is not a const-expression: its value is not known until the shader runs.
     expect(
       errorsOf(
         fragment(`  const c = 1
   return textureGather(c, atlas, smp, p.xy)`),
       )[0],
-    ).toContain('written in the call')
+    ).toContain('known at compile time')
+  })
+
+  it('takes a module const as the gather component', () => {
+    // WGSL asks for a const-EXPRESSION, not a literal (wgsl.txt:23916-23925), and
+    // `textureGather(C, t, s, uv)` with a module `const C: i32 = 1` is measured accepted on
+    // Tint. It used to be refused for not being "written in the call".
+    const r = compile(`"use typeshade"
+${DECLS}
+const CHANNEL = 1
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  return textureGather(CHANNEL, atlas, smp, p.xy)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([])
+    expect(r.wgsl).toContain('textureGather(1, atlas, smp,')
+    // Out of range is still out of range, wherever the value came from.
+    expect(
+      errorsOf(`"use typeshade"
+${DECLS}
+const CHANNEL = 9
+@fragment
+export function fs(@builtin("position") p: vec4): vec4 {
+  return textureGather(CHANNEL, atlas, smp, p.xy)
+}
+`)[0],
+    ).toContain('known at compile time')
   })
 
   it('refuses a component on a depth texture, and its absence on a colour one', () => {

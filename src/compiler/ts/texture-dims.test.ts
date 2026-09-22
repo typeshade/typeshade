@@ -236,6 +236,205 @@ describe('the coordinate has the width the dim decides, and this says so first',
       errorsOf(fragment(`  return textureSampleGrad(env, smp, dir, vec2(0.), vec2(0.))`)),
     ).toEqual(['textureSampleGrad on a texture_cube<f32> takes a vec3 gradient; got vec2<f32>.'])
   })
+
+  it('refuses a coordinate of the right width and the wrong element kind', () => {
+    // The width was all that was checked, so `textureSample(atlas, smp, vec2i(0, 0))` emitted
+    // `textureSample(atlas, smp, vec2<i32>(0, 0))` and `textureLoad(atlas, vec2(0., 0.), 0)` a
+    // float fetch coordinate — both "no matching call" on Tint. A sampled read is by
+    // normalised f32 coordinate, a texel fetch by whole texel (wgsl.txt:24435, 24129).
+    expect(errorsOf(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
+      'textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<i32>.',
+    ])
+    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2(0., 0.), 0)`))).toEqual([
+      'textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2<f32>.',
+    ])
+    expect(errorsOf(fragment(`  return textureSample(env, smp, vec3i(0, 0, 1))`))).toEqual([
+      'textureSample on a texture_cube<f32> takes an f32 coordinate; got vec3<i32>.',
+    ])
+    // A u32 fetch coordinate is the other integer WGSL takes, and stays as written.
+    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2u(u32(0), u32(0)), 0)`))).toEqual([])
+  })
+})
+
+// The scalar arguments of a texture read (#145). `intArg` retargeted a whole-number LITERAL and
+// returned everything else unchanged, so a variable of the wrong type reached the backend: an
+// `i32` level emitted `textureSampleLevel(t, s, p.xy, 2)` and an `f32` layer emitted
+// `textureSampleLevel(t, s, p.xy, 1.0, 0.0)`, each of which Tint refuses with "no matching call"
+// while GLSL ES 3.00 silently rounds. WGSL types `level`, `bias` and `depth_ref` `f32`
+// (wgsl.txt:25081, 24615, 24734) and a layer, mip level and sample index an integer (24155).
+describe('the scalar arguments are checked, not just the literals', () => {
+  it('refuses an integer variable as level, bias and depth_ref, naming f32', () => {
+    expect(
+      errorsOf(
+        fragment(`  const l: i32 = 2
+  return textureSampleLevel(atlas, smp, p.xy, l)`),
+      ),
+    ).toEqual(['textureSampleLevel level must be an f32; got i32. Write f32(l).'])
+    expect(
+      errorsOf(
+        fragment(`  const b: i32 = 1
+  return textureSampleBias(atlas, smp, p.xy, b)`),
+      ),
+    ).toEqual(['textureSampleBias bias must be an f32; got i32. Write f32(b).'])
+    expect(
+      errorsOf(
+        fragment(
+          `  const r: i32 = 1
+  return vec4(textureSampleCompare(shadow, shadowSmp, p.xy, r))`,
+          `${DECLS}
+declare const shadow: texture_depth_2d
+declare const shadowSmp: sampler_comparison`,
+        ),
+      ),
+    ).toEqual(['textureSampleCompare depth_ref must be an f32; got i32. Write f32(r).'])
+    // A u32 is no better than an i32: WGSL has exactly the f32 overload.
+    expect(
+      errorsOf(
+        fragment(`  const l: u32 = u32(2)
+  return textureSampleLevel(atlas, smp, p.xy, l)`),
+      ),
+    ).toEqual(['textureSampleLevel level must be an f32; got u32. Write f32(l).'])
+    // The f32 the call takes stays as written, and a whole-number literal is still retargeted.
+    expect(
+      errorsOf(
+        fragment(`  const l: f32 = 2.
+  return textureSampleLevel(atlas, smp, p.xy, l)`),
+      ),
+    ).toEqual([])
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, 0)`))).toEqual([])
+  })
+
+  it('refuses a float variable as layer, mip level and sample index, naming the integers', () => {
+    expect(
+      errorsOf(
+        fragment(`  const k: f32 = 1.
+  return textureSampleLevel(pages, smp, p.xy, k, 0.)`),
+      ),
+    ).toEqual(['textureSampleLevel layer must be an i32 or a u32; got f32. Write i32(k).'])
+    expect(
+      errorsOf(
+        fragment(`  const l: f32 = 2.
+  return textureLoad(atlas, vec2i(0, 0), l)`),
+      ),
+    ).toEqual(['textureLoad mip level must be an i32 or a u32; got f32. Write u32(l).'])
+    expect(
+      errorsOf(
+        fragment(
+          `  const si: f32 = 1.
+  return textureLoad(ms, vec2i(0, 0), si)`,
+          `${DECLS}
+declare const ms: texture_multisampled_2d<f32>`,
+        ),
+      ),
+    ).toEqual(['textureLoad sample index must be an i32 or a u32; got f32. Write u32(si).'])
+  })
+
+  it('answers an explicit cast like any other expression, rather than deleting it', () => {
+    // A BARE number is the call's to type — it has none of its own on this surface — so
+    // `textureSampleLevel(t, s, uv, 0)` emits `0.0` and `textureLoad(t, c, 0)` emits the
+    // integer. `i32(0)` is not bare: it says what it is. Retargeting on the FOLDED value
+    // treated the two alike and silently emitted `0.0` for the cast, while refusing the same
+    // mistake spelled `const l: i32 = 0` — one author told to write a cast, another's deleted.
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, i32(0))`))).toEqual([
+      'textureSampleLevel level must be an f32; got i32. Write f32(i32(0)).',
+    ])
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, u32(2))`))).toEqual([
+      'textureSampleLevel level must be an f32; got u32. Write f32(u32(2)).',
+    ])
+    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2i(0, 0), f32(1))`))).toEqual([
+      'textureLoad mip level must be an i32 or a u32; got f32. Write u32(f32(1)).',
+    ])
+    // The bare forms are untouched, which is the whole point of the distinction.
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, 0)`))).toEqual([])
+    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2i(0, 0), 0)`))).toEqual([])
+  })
+
+  it('refuses an emulated double in a float slot, where it used to be narrowed', () => {
+    // `floatArg` folded first and accepted any numeric literal, so `f64(1e300)` became an
+    // f32-typed literal carrying the full double and emitted
+    // `textureSampleLevel(atlas, smp, p.xy, 1e+300)` — "cannot be represented as 'f32'" on
+    // Tint. An f64 in a float slot is now answered like an f64 anywhere else.
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, f64(1e300))`))).toEqual(
+      ['textureSampleLevel level must be an f32; got f64. Write f32(f64(1e300)).'],
+    )
+    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, p.xy, f64(1.))`))).toEqual([
+      'textureSampleLevel level must be an f32; got f64. Write f32(f64(1.)).',
+    ])
+  })
+
+  it('refuses an emulated double as a coordinate, naming the element and not the width', () => {
+    // A `vec2f64` has the width a 2d texture wants; what is wrong with it is the element. The
+    // width gate used to reject it first and say "takes a vec2 coordinate; got vec2<f64>",
+    // which names a width that is right.
+    expect(
+      errorsOf(
+        fragment(`  const c = vec2f64(f64(0.), f64(0.))
+  return textureSample(atlas, smp, c)`),
+      ),
+    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<f64>.'])
+  })
+
+  it('cuts a long argument short rather than smearing the message', () => {
+    // The span already points at the argument; the "Write f32(...)" half is a reminder of the
+    // shape, not a transcript.
+    expect(
+      errorsOf(
+        fragment(
+          `  const l: i32 = 2
+  return textureSampleLevel(atlas, smp, p.xy, l + l + l + l + l + l + l + l)`,
+        ),
+      ),
+    ).toEqual([
+      'textureSampleLevel level must be an f32; got i32. Write f32(l + l + l + l + l + l +…).',
+    ])
+  })
+
+  it('reports every shape under TS8041, code and sentence pinned together', () => {
+    // The tests above read `.message` alone, so the CODE was only ever asserted through the
+    // language service's `from:` labels — nothing here would have caught a site that pushed the
+    // right sentence under the wrong code, or a renumber. The code is part of the contract: it
+    // is what an editor filters on and what `codes.ts` promises never to reuse.
+    //
+    // One case per `TS_CODES.TEXTURE_ARGUMENT` site in `lowerTextureCall`, so a site that drifts
+    // off the code fails here rather than in a consumer's rule file.
+    const coded = (src: string) =>
+      compileTsSource(src)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message}`)
+
+    // 1. The coordinate's WIDTH against the texture's dim.
+    expect(coded(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
+      'TS8041 textureSample on a texture_cube<f32> takes a vec3 direction; got vec2<f32>.',
+    ])
+    // 2. The coordinate's ELEMENT kind: normalised reads are f32, a texel fetch is an integer.
+    expect(coded(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
+      'TS8041 textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<i32>.',
+    ])
+    expect(coded(fragment(`  return textureLoad(atlas, p.xy, 0)`))).toEqual([
+      'TS8041 textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; ' +
+        'got vec2<f32>.',
+    ])
+    // 3. An f32 scalar slot — level, bias, depth_ref.
+    expect(
+      coded(
+        fragment(`  const l: i32 = 2
+  return textureSampleLevel(atlas, smp, p.xy, l)`),
+      ),
+    ).toEqual(['TS8041 textureSampleLevel level must be an f32; got i32. Write f32(l).'])
+    // 4. An INTEGER scalar slot given a value with a float type of its own.
+    expect(
+      coded(
+        fragment(`  const a: f32 = 1.
+  return textureSampleLevel(pages, smp, p.xy, a, 0.)`),
+      ),
+    ).toEqual(['TS8041 textureSampleLevel layer must be an i32 or a u32; got f32. Write i32(a).'])
+    // 5. A literal in an integer slot that cannot be an index.
+    expect(coded(fragment(`  return textureSampleLevel(pages, smp, p.xy, -1, 0.)`))).toEqual([
+      'TS8041 A texture layer must be a whole number of 0 or more, got -1. WGSL rejects ' +
+        'a fractional or negative one and GLSL ES 3.00 silently rounds it, so the two targets ' +
+        'would disagree.',
+    ])
+  })
 })
 
 describe('an integer cube is declared, and only textureGather reads it', () => {
@@ -357,18 +556,20 @@ declare const shadowSmp: sampler_comparison`,
   })
 })
 
-// P0-6 of the spec audit's tests critique (#155). `wgsl.txt:25081`, `:24615`, `:24734` type
-// `level`, `bias` and `depth_ref` as `f32`; `intArg` (`lower/expression-call.ts`) retypes a
-// LITERAL and early-returns on anything else, so a non-constant `i32` is emitted unchanged.
+// P0-6 of the spec audit's tests critique (#155), CLOSED by #145 and kept as the record of the
+// rule. `wgsl.txt:25081`, `:24615`, `:24734` type `level`, `bias` and `depth_ref` as `f32`;
+// `intArg` (`lower/expression-call.ts`) used to retype a LITERAL and early-return on anything
+// else, so a non-constant `i32` was emitted unchanged and Tint refused the module. The front
+// end now refuses it first, as TS8041, and names the `f32(...)` the author should write.
 //
-// THE VALUE COMES FROM A UNIFORM ON PURPOSE. Written as `const l: i32 = 2` the front end folds
-// it to the literal `2`, and a WGSL integer literal is an abstract-int that converts to `f32`
-// by itself — measured on Tint on 2026-09-21, which ACCEPTS that program. The defect needs a
-// value no constant folder can reach.
+// THE VALUE COMES FROM A UNIFORM ON PURPOSE, and still does now that the rows are positive.
+// Written as `const l: i32 = 2` the front end folds it to the literal `2`, and a WGSL integer
+// literal is an abstract-int that converts to `f32` by itself — measured on Tint on 2026-09-21,
+// which ACCEPTS that program. A row reading its value from a `const` would therefore pass
+// against a compiler that had never learned the rule, which is the whole point of the uniform.
 //
 // ALSO PINNED IN `src/language-service/ambient.test.ts`, from the other side: there the same
-// two programs are asked whether the EDITOR reports them, which is a different layer and a
-// different fix. Closing #145 flips the rows in both files.
+// programs are asked whether the EDITOR reports them, which is a different layer.
 describe('the scalar arguments have the type the spec gives them', () => {
   // `dref`, not `ref`: a uniform field name reaches the emitted WGSL verbatim, and `ref` is a
   // WGSL reserved keyword — Tint would refuse the module for THAT, before ever reaching the
@@ -398,25 +599,117 @@ ${body}
     '  return vec4(textureSampleCompare(shadowMap, cmp, p.xy, u.dref), 0., 0., 1.)',
   )
 
-  it('passes an integer variable straight through today, which is the Tint-invalid shape', () => {
-    // Tint, measured 2026-09-21: "no matching call to
-    // 'textureSampleLevel(texture_2d<f32>, sampler, vec2<f32>, i32)'".
-    expect(compile(LEVEL).wgsl ?? '').toContain('textureSampleLevel(atlas, smp, p.xy, u.lvl)')
-    expect(compile(BIAS).wgsl ?? '').toContain('textureSampleBias(atlas, smp, p.xy, u.bias)')
-    expect(compile(DEPTH_REF).wgsl ?? '').toContain(
-      'textureSampleCompare(shadowMap, cmp, p.xy, u.dref)',
+  // Each row names the slot, the type it got, and the exact remedy — the message is the whole
+  // value of refusing in the front end rather than letting Tint say
+  // "no matching call to 'textureSampleLevel(texture_2d<f32>, sampler, vec2<f32>, i32)'".
+  it('refuses an integer variable as a level, naming f32 and the remedy', () => {
+    expect(errorsOf(LEVEL)).toEqual([
+      'textureSampleLevel level must be an f32; got i32. Write f32(u.lvl).',
+    ])
+    expect(compile(LEVEL).wgsl).toBeUndefined()
+  })
+
+  it('refuses an integer variable as a bias, naming f32 and the remedy', () => {
+    expect(errorsOf(BIAS)).toEqual([
+      'textureSampleBias bias must be an f32; got i32. Write f32(u.bias).',
+    ])
+  })
+
+  it('refuses an integer variable as a reference depth, naming f32 and the remedy', () => {
+    expect(errorsOf(DEPTH_REF)).toEqual([
+      'textureSampleCompare depth_ref must be an f32; got i32. Write f32(u.dref).',
+    ])
+  })
+
+  // The remedy the message names has to WORK, or the refusal sends the author in a circle.
+  // This is the half a refusal test alone cannot cover: it proves the rule is a type rule and
+  // not a ban on a uniform-sourced argument.
+  it('takes the f32() the refusal asks for, on all three slots', () => {
+    const fixed = scalar(`  const a = textureSampleLevel(atlas, smp, p.xy, f32(u.lvl))
+  const b = textureSampleBias(atlas, smp, p.xy, f32(u.bias))
+  const c = textureSampleCompare(shadowMap, cmp, p.xy, f32(u.dref))
+  return a + b + vec4(c, 0., 0., 1.)`)
+    expect(errorsOf(fixed)).toEqual([])
+    expect(compile(fixed).wgsl ?? '').toContain('textureSampleLevel(atlas, smp, p.xy, f32(u.lvl))')
+  })
+})
+
+// The level query and the unsigned coordinate (#147). Both were measured before they were
+// written: `textureDimensions(t, 0)` and `textureLoad(t, vec2u(0, 0), 0u)` are accepted by
+// Tint, `uvec2(textureSize(t, int(0)))` compiles on a WebGL2 driver — and
+// `texelFetch(t, uvec2(0u, 0u), 0)` is "no matching overloaded function found" there, which is
+// what the compiler was emitting.
+describe('a texture is asked about a level, and fetched by either integer', () => {
+  it('takes an explicit level on textureDimensions, on both targets', () => {
+    const { wgsl, glsl } = both(
+      fragment(`  const d = textureDimensions(atlas, 0)
+  return vec4(f32(d.x), 0., 0., 1.)`),
+    )
+    expect(wgsl).toContain('textureDimensions(atlas, 0u)')
+    // The GLSL column already spelled the 2-argument form; only the front end refused it.
+    expect(glsl).toContain('uvec2(textureSize(atlas, int(0u)))')
+    // The level-less form is untouched.
+    const plain = both(
+      fragment(`  const d = textureDimensions(atlas)
+  return vec4(f32(d.x), 0., 0., 1.)`),
+    )
+    expect(plain.wgsl).toContain('textureDimensions(atlas)')
+    expect(plain.glsl).toContain('uvec2(textureSize(atlas, 0))')
+  })
+
+  it('takes a level on a 3d texture, whose size is three wide', () => {
+    const { wgsl, glsl } = both(
+      fragment(`  const d = textureDimensions(lut, 1)
+  return vec4(f32(d.z), 0., 0., 1.)`),
+    )
+    expect(wgsl).toContain('textureDimensions(lut, 1u)')
+    expect(glsl).toContain('uvec3(textureSize(lut, int(1u)))')
+  })
+
+  it('refuses a level that is not a whole number, and a third argument', () => {
+    expect(
+      errorsOf(
+        fragment(`  const d = textureDimensions(atlas, 1.5)
+  return vec4(f32(d.x), 0., 0., 1.)`),
+      )[0],
+    ).toContain('must be a whole number of 0 or more')
+    expect(
+      errorsOf(
+        fragment(`  const d = textureDimensions(atlas, 0, 0)
+  return vec4(f32(d.x), 0., 0., 1.)`),
+      )[0],
+    ).toBe(
+      'textureDimensions on a texture_2d<f32> expects 1 argument(s), or 2 with an explicit mip level, got 3.',
     )
   })
 
-  it.fails('refuses an integer variable as a level, naming f32 — flipped by #145', () => {
-    expect(errorsOf(LEVEL)).not.toEqual([])
+  it('takes an unsigned coordinate and a u32 variable as layer and level', () => {
+    // WGSL's texel coordinate is "i32, or u32"; GLSL's texelFetch takes the signed one only,
+    // so an unsigned coordinate is wrapped in the signed constructor of the texture's width.
+    // The level is a `u32` const, which the folder replaces with its value — what matters
+    // here is that an unsigned COORDINATE reaches both targets in a form each one takes.
+    const { wgsl, glsl } = both(
+      fragment(`  const c = vec2u(u32(1), u32(2))
+  return textureLoad(atlas, c, u32(0))`),
+    )
+    expect(wgsl).toContain('textureLoad(atlas, c, 0u)')
+    expect(glsl).toContain('texelFetch(atlas, ivec2(c), int(0u))')
+    // The SIGNED coordinate keeps the spelling every existing program already emits.
+    const signed = both(fragment(`  return textureLoad(atlas, vec2i(1, 2), 0)`))
+    expect(signed.glsl).toContain('texelFetch(atlas, ivec2(1, 2), int(0u))')
+    expect(signed.glsl).not.toContain('ivec2(ivec2(')
   })
 
-  it.fails('refuses an integer variable as a bias, naming f32 — flipped by #145', () => {
-    expect(errorsOf(BIAS)).not.toEqual([])
-  })
-
-  it.fails('refuses an integer variable as a reference depth, naming f32 — flipped by #145', () => {
-    expect(errorsOf(DEPTH_REF)).not.toEqual([])
+  it('wraps an unsigned coordinate on a 3d and an array fetch too', () => {
+    const three = both(
+      fragment(`  const c = vec3u(u32(0), u32(0), u32(0))
+  return textureLoad(lut, c, 0)`),
+    )
+    expect(three.glsl).toContain('texelFetch(lut, ivec3(c), int(0u))')
+    const arr = both(
+      fragment(`  const c = vec2u(u32(0), u32(0))
+  return textureLoad(pages, c, 0, 0)`),
+    )
+    expect(arr.glsl).toContain('texelFetch(pages, ivec3(ivec2(c), int(0)), int(0u))')
   })
 })

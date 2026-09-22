@@ -180,17 +180,14 @@ const EDSL_ONLY = (what: string, issue: string): string =>
   `${what}; reachable from the EDSL only, with no front-end route (${issue})`
 const INTERNAL = (what: string): string => `${what}; an internal id a writer emits, never authored`
 
+// EIGHT IDS LEFT THIS LIST when #164 landed, and the shrink arm below named every one: the
+// `pack2x16*`/`unpack2x16*` family plus `pack4x8unorm`/`unpack4x8unorm`, each of which the IR
+// and both backends had always spelled while nothing on this surface could name it. `bitcastU32`
+// and `bitcastF32` stay, because the authoring spelling is `bitcast<T>(e)` — one declared name
+// over two catalogue ids, which is a mapping this list cannot express and #150 left as is.
 const AUTHORABLE_NOT_DECLARED: Readonly<Record<string, string>> = {
   bitcastU32: EDSL_ONLY('audit G11: `bitcast<T>(e)` has no authoring spelling', '#150'),
   bitcastF32: EDSL_ONLY('audit G11: `bitcast<T>(e)` has no authoring spelling', '#150'),
-  pack2x16float: EDSL_ONLY('audit G9/G10: the pack spellings', '#150'),
-  pack2x16snorm: EDSL_ONLY('audit G9/G10: the pack spellings', '#150'),
-  pack2x16unorm: EDSL_ONLY('audit G9/G10: the pack spellings', '#150'),
-  pack4x8unorm: EDSL_ONLY('audit G9/G10: the pack spellings', '#150'),
-  unpack2x16float: EDSL_ONLY('audit G9/G10: the unpack spellings', '#150'),
-  unpack2x16snorm: EDSL_ONLY('audit G9/G10: the unpack spellings', '#150'),
-  unpack2x16unorm: EDSL_ONLY('audit G9/G10: the unpack spellings', '#150'),
-  unpack4x8unorm: EDSL_ONLY('audit G9/G10: the unpack spellings', '#150'),
   f64FromParts: EDSL_ONLY('audit F64-13: the f64 lane bridge has no author spelling', '#151'),
   f64Parts: EDSL_ONLY('audit F64-13: the f64 lane bridge has no author spelling', '#151'),
   storageFetchF32: INTERNAL('the GLSL storage-emulation fetch helper'),

@@ -30,7 +30,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { compile } from '../../compiler/ts/compile.js'
 import { INTRINSICS, PORTABLE_INTRINSICS, PRE_EMIT_INTRINSICS } from '../intrinsics.js'
-import { FRAGMENT_ONLY_CALLS, NOT_IN_VERTEX_CALLS } from '../../compiler/ts/lower/function.js'
+import { FRAGMENT_ONLY_CALLS, FRAGMENT_OR_COMPUTE_CALLS } from '../../compiler/ts/lower/function.js'
 import { FRAGMENT_ONLY_IDS } from '../passes/lint/rules/fragment-only-builtin.js'
 
 interface StageRow {
@@ -131,35 +131,24 @@ const NOT_IN_CATALOGUE: Readonly<Record<string, string>> = {
   quadSwapDiagonal: 'quad operations: docs/roadmap.md:247',
   quadSwapX: 'quad operations: docs/roadmap.md:247',
   quadSwapY: 'quad operations: docs/roadmap.md:247',
-  textureBarrier:
-    '`textureBarrier()` is WGSL-only and belongs behind a capability (audit G15/T14); issue #152',
-  atomicCompareExchangeWeak: 'audit G12: absent, WGSL-only behind a capability; issue #152',
+  // `textureBarrier` and `atomicCompareExchangeWeak` were here until #164 gave each an id, and
+  // the arm below is what said so: a name that gains an id has to leave this list in the same
+  // commit, or the list would go on excusing a name the catalogue already carries.
   atomicStoreMax: 'audit G13: `atomic<vec2<u32>>` min/max, proposed After 1.0 in #144 §8',
   atomicStoreMin: 'audit G13: proposed After 1.0 in #144 §8',
 }
 
 /** An id this package does NOT refuse from a vertex entry although `core.def` stages its name
- *  `fragment, compute`. Every row is a program the front end accepts and a device rejects at
- *  pipeline creation, so this is a defect list; it is shrink-only (the arm below fails a row
- *  that has started to be refused). */
-const VERTEX_GAPS: Readonly<Record<string, string>> = {
-  // Audit G34: `lower/atomics.ts` carries no stage check, so an atomic in a `@vertex` entry
-  // compiles clean. Not yet filed as its own issue; tracked in #162 with the builtins family.
-  atomicAdd: 'audit G34, #162',
-  atomicAnd: 'audit G34, #162',
-  atomicExchange: 'audit G34, #162',
-  atomicLoad: 'audit G34, #162',
-  atomicMax: 'audit G34, #162',
-  atomicMin: 'audit G34, #162',
-  atomicOr: 'audit G34, #162',
-  atomicStore: 'audit G34, #162',
-  atomicSub: 'audit G34, #162',
-  atomicXor: 'audit G34, #162',
-}
+ *  `fragment, compute`. EMPTY, and the emptiness is the record: audit G34 had all ten atomics
+ *  here, because `lower/atomics.ts` carried no stage check and an atomic in a `@vertex` entry
+ *  compiled clean. #164 closed it, and the arm below is what reported the closure — it listed
+ *  every id to delete, by compiling each witness rather than by reading a set, which is why it
+ *  still fired when the fix landed somewhere neither this file nor the old comment predicted. */
+const VERTEX_GAPS: Readonly<Record<string, string>> = {}
 
-/** One `@vertex` program per `VERTEX_GAPS` id: the atomic call WGSL stages `fragment, compute`
- *  sitting in a vertex entry. Each compiles clean today, which is the defect; the arm below
- *  fails the moment one stops doing so. */
+/** One `@vertex` program per atomic: the call WGSL stages `fragment, compute` sitting in a
+ *  vertex entry. Each is now REFUSED, which the arm below asserts id by id; they were the
+ *  measurement that emptied `VERTEX_GAPS` above, so they stay as the positive rule. */
 const atomicVertex = (call: string, yieldsValue: boolean): string => `"use typeshade"
 declare let hist: storage<array<atomic<u32>>>
 class Clip {
@@ -234,35 +223,55 @@ describe('the compiler stage sets equal the sets core.def states (S4)', () => {
 
   it('refuses from a vertex entry every id whose WGSL name core.def stages "fragment, compute"', () => {
     const missing = idsSpelling(NOT_IN_VERTEX_NAMES).filter(
-      (id) => !NOT_IN_VERTEX_CALLS.has(id) && !(id in VERTEX_GAPS),
+      (id) => !FRAGMENT_OR_COMPUTE_CALLS.has(id) && !(id in VERTEX_GAPS),
     )
     expect(missing).toEqual([])
   })
 
-  it('loses the VERTEX_GAPS entry of an id the compiler has since learned to refuse', () => {
-    // BY MEASUREMENT, not by set membership. The fix for the atomics belongs in
-    // `lower/atomics.ts`, which has no stage check at all — and that fix would NOT add the id
-    // to `NOT_IN_VERTEX_CALLS`, so an entry cleared only by looking at that set could outlive
-    // the defect it names. Compiling the program is the question the entry actually answers.
-    const refused: string[] = []
-    for (const id of Object.keys(VERTEX_GAPS)) {
-      const witness = ATOMIC_VERTEX_WITNESS[id]
-      expect(witness, `${id} is in VERTEX_GAPS with no program to measure it by`).toBeDefined()
-      if (witness === undefined) continue
-      if (errorsOf(witness).length > 0 || NOT_IN_VERTEX_CALLS.has(id)) refused.push(id)
+  // BY MEASUREMENT, not by set membership — which is what made this arm useful. While the ids
+  // were still gaps it asked whether each PROGRAM compiled, not whether the id sat in some set,
+  // so when #164 fixed it by adding the atomics to `FRAGMENT_OR_COMPUTE_CALLS` (a set the old
+  // comment here predicted the fix would NOT touch) the arm fired anyway and named all ten.
+  // Now that they are refused, the same witnesses read as the rule.
+  it('refuses every atomic from a vertex entry, naming the id and the entry', () => {
+    const accepted: string[] = []
+    for (const [id, witness] of Object.entries(ATOMIC_VERTEX_WITNESS)) {
+      const errors = errorsOf(witness)
+      if (errors.length === 0) {
+        accepted.push(id)
+        continue
+      }
+      // The sentence has to name the author's own id and entry, not just refuse.
+      if (!errors.some((m) => m.includes(`"${id}"`) && m.includes('"vs" is a vertex entry')))
+        accepted.push(`${id}: ${errors.join(' / ')}`)
     }
     expect(
-      refused,
-      'This id is now refused from a vertex entry — delete its VERTEX_GAPS entry in the same ' +
-        'commit, so the list cannot outlive the defect it records.',
+      accepted,
+      'An atomic is not refused from a vertex entry, or is refused without naming it. WGSL: ' +
+        '"Atomic built-in functions must not be used in a vertex shader stage" (wgsl.txt:25422).',
     ).toEqual([])
+  })
+
+  it('keeps VERTEX_GAPS empty, so a new gap has to be added deliberately', () => {
+    // A regression would be re-admitting an atomic in a vertex entry. The arm above catches
+    // that directly; this one keeps the allowlist itself from quietly growing back.
+    expect(Object.keys(VERTEX_GAPS)).toEqual([])
   })
 
   it('refuses a compute-only builtin from a vertex and from a fragment entry', () => {
     // The barriers are gated at the call site (`lower/barriers.ts`) rather than through a set,
     // so this arm measures the behaviour instead of reading a constant.
     const ids = idsSpelling(COMPUTE_ONLY_NAMES)
-    expect(ids).toEqual(['storageBarrier', 'workgroupBarrier'])
+    // `textureBarrier` joined the other two when #164 gave it an id.
+    expect(ids).toEqual(['storageBarrier', 'textureBarrier', 'workgroupBarrier'])
+    // The clause after the semicolon says what the entry LACKS, and it is per-builtin: a
+    // texture barrier orders writes, the other two are waits. Pinned per id rather than
+    // matched loosely, so rewording any of the three sentences fails here.
+    const WHY: Readonly<Record<string, string>> = {
+      storageBarrier: 'has no workgroup to wait for',
+      workgroupBarrier: 'has no workgroup to wait for',
+      textureBarrier: 'has no workgroup whose texture writes it could order',
+    }
     for (const id of ids) {
       const fragment = `"use typeshade"
 class V {
@@ -291,11 +300,13 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   ${id}()
 }
 `
+      const why = WHY[id]
+      expect(why, `${id} is compute-only with no pinned reason clause`).toBeDefined()
       expect(errorsOf(fragment), `${id} in a fragment entry`).toEqual([
-        `${id}() belongs in a compute entry or a function it calls; a fragment entry has no workgroup to wait for.`,
+        `${id}() belongs in a compute entry or a function it calls; a fragment entry ${why}.`,
       ])
       expect(errorsOf(vertex), `${id} in a vertex entry`).toEqual([
-        `${id}() belongs in a compute entry or a function it calls; a vertex entry has no workgroup to wait for.`,
+        `${id}() belongs in a compute entry or a function it calls; a vertex entry ${why}.`,
       ])
       expect(errorsOf(compute), `${id} in a compute entry`).toEqual([])
     }

@@ -310,6 +310,12 @@ describe('O3b/O5b — the GPU stub contract, for every stub', () => {
     textureSampleArray: BLACK,
     textureSampleLevelArray: BLACK,
     textureLoadArray: BLACK,
+    // The unsigned-coordinate twins #164 added. Same placeholder as their signed counterparts,
+    // which is the point: the coordinate's signedness is a spelling difference on the GLSL side
+    // and changes nothing the oracle can observe. Each is measured by the arm below, not assumed.
+    textureLoadU: BLACK,
+    textureLoad3dU: BLACK,
+    textureLoadArrayU: BLACK,
     textureSampleBias: BLACK,
     textureSampleBiasArray: BLACK,
     textureSampleGrad: BLACK,
@@ -343,6 +349,7 @@ describe('O3b/O5b — the GPU stub contract, for every stub', () => {
     textureDimensionsMs: [1, 1],
     textureNumSamples: 1,
     textureNumLayers: 1,
+    textureNumLayersStorage: 1,
     // A write goes nowhere; `textureStore` is `void`, so nothing reads the value.
     textureStore: 0,
     // The derivatives keep the ARGUMENT's shape: `dpdx(v)` on a vec2 is a vec2 of zeros, not

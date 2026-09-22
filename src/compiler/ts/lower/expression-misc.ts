@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js'
 import type { ShaderType } from '../../../core/ir/types.js'
-import { f32T, f64T, typeKey } from '../../../core/ir/types.js'
+import { boolT, f32T, f64T, i32T, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
 import type { LoweringScope } from '../context.js'
 import { resolveMathExpand } from '../math-alias.js'
@@ -9,6 +9,7 @@ import { expandMath } from '../math-expand.js'
 import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
 import { lowerScalarCast } from '../numeric.js'
+import { foldConstNumber } from '../loop-bound.js'
 import { retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -21,6 +22,15 @@ import {
 } from './param-defaults.js'
 import { eachExpr } from '../../../core/ir/visit.js'
 
+/** The zero each scalar constructor builds with no arguments. `f64` is absent: its zero is the
+ *  pair the fp64 pass assembles, which is why `vec3f64()` has no zero form either. */
+const SCALAR_ZERO: Readonly<Record<string, Expr | undefined>> = {
+  f32: { op: 'lit', type: f32T, value: 0 },
+  i32: { op: 'lit', type: i32T, value: 0 },
+  u32: { op: 'lit', type: u32T, value: 0 },
+  bool: { op: 'lit', type: boolT, value: false },
+}
+
 export function lowerScalarCastCall(
   name: string,
   node: ts.CallExpression,
@@ -28,19 +38,29 @@ export function lowerScalarCastCall(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
+  // `f32()`, `i32()`, `u32()`, `bool()` are the ZERO-value constructors WGSL spells beside the
+  // vector ones (wgsl.txt:20015-20030, core.def `ctor i32() -> i32`): the scalar's zero, and
+  // `false` for a bool. The vector form landed with #150; this is the scalar half of the same
+  // row, and both targets write the literal rather than a call.
+  if (node.arguments.length === 0) {
+    const zero = SCALAR_ZERO[name]
+    if (zero) return zero
+  }
   if (node.arguments.length !== 1) {
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `${name}() expects 1 argument.`,
+      SCALAR_ZERO[name]
+        ? `${name}() expects 1 argument, or none for the zero value.`
+        : `${name}() expects 1 argument.`,
       TS_CODES.ARITY_MISMATCH,
     )
     return undefined
   }
   const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
   if (!arg) return undefined
-  const out = lowerScalarCast(name, arg)
+  const out = lowerScalarCast(name, arg, (e) => foldConstNumber(e, scope))
   if (typeof out === 'string') {
     pushDiag(diagnostics, sourceFile, node, out, TS_CODES.TYPE_MISMATCH)
     return undefined

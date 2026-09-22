@@ -262,6 +262,28 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
     }),
   },
 
+  // #147: the one storage FORMAT that is not core. Its witness is the same module shape with
+  // `bgra8unorm` written where `rgba8unorm` is above, because the format is what requiredCaps
+  // reads for this cap.
+  bgra8unormStorage: {
+    kind: 'moduleShape',
+    what: "a storage-texture binding whose format is 'bgra8unorm'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'dst',
+          space: 'uniform',
+          type: { kind: 'storage-texture', dim: '2d', format: 'bgra8unorm', access: 'write' },
+        },
+      ],
+      funcs: [],
+    }),
+  },
+
   // Roadmap 0.4 item 12: a 1d or cube-array texture binding, and a textureGather call. Each is
   // derived from the module's shape, so each resolves through the real requiredCaps.
   texture1d: {
@@ -337,6 +359,38 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
                   },
                   { op: 'varref', type: { kind: 'sampler' }, name: 'smp' },
                   { op: 'lit', type: { kind: 'vec', n: 2, elem: 'f32' }, value: 0 },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  },
+
+  // #152: the packed 4x8 integer family, derived from a call the same way textureGather is.
+  packed4x8Dot: {
+    kind: 'moduleShape',
+    what: 'a call to dot4U8Packed in a function body',
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'packed_probe',
+          params: [],
+          ret: { kind: 'scalar', scalar: 'u32' },
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'call',
+                type: { kind: 'scalar', scalar: 'u32' },
+                fn: 'dot4U8Packed',
+                args: [
+                  { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: 0x01010101 },
+                  { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: 0x01010101 },
                 ],
               },
             },
@@ -530,13 +584,43 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
 // from `"use typeshade"` SOURCE, and does `reflect().requiredFeatures` then name it — which is
 // what the host reads to decide whether to request the device feature.
 //
-// Seven of the thirteen can. The other six are listed with a reason, and — where a program
+// Nine of the fifteen can. The other six are listed with a reason, and — where a program
 // could exist at all — with the very program that will become the witness once the gap closes,
-// so the list shrinks by measurement rather than by anyone remembering to look.
+// so the list shrinks by measurement rather than by anyone remembering to look. It was seven of
+// thirteen until #164 added `packed4x8Dot` and `bgra8unormStorage`, both of them reachable, and
+// the claims-every-capability arm is what caught that they were unaccounted for.
 
 /** A capability an author can reach by writing a program, and the program. Each is compiled
  *  below and `reflect().requiredFeatures` must name the capability. */
 const SOURCE_WITNESSES: Readonly<Partial<Record<Capability, string>>> = {
+  // Both arrived with #164 and both are reachable, so they are witnesses rather than entries on
+  // the list below: measured, `reflect().requiredFeatures` is exactly `["packed4x8Dot"]` for the
+  // first and includes `"bgra8unormStorage"` for the second.
+  packed4x8Dot: `"use typeshade"
+interface U {
+  a: u32;
+  b: u32;
+}
+declare const u: uniform<U>
+class V {
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
+}
+@fragment
+export function fs(v: V): vec4 {
+  const d = dot4U8Packed(u.a, u.b)
+  return vec4(f32(d), 0., 0., 1.)
+}
+`,
+  // The format is part of the TYPE, so the capability is reached by declaring the binding —
+  // there is no builtin to call for it.
+  bgra8unormStorage: `"use typeshade"
+declare const dst: texture_storage_2d<"bgra8unorm", "write">
+@compute([64, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  textureStore(dst, vec2i(0, 0), vec4(1., 0., 0., 1.))
+}
+`,
   storageBuffer: `"use typeshade"
 declare let out: storage<array<f32>>
 @compute([64, 1, 1])

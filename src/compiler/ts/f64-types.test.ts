@@ -368,7 +368,12 @@ declare const s: sampler
 class C { @location(0) color: vec4 }
 `
 
-  it('refuses an f64 in every f32 slot naming f32(x)', () => {
+  // The wording moved when lane C's #145 landed beside this: `floatArg` and `vecArg` were
+  // rewritten there to COERCE and write back rather than only validate, and their messages
+  // gained the argument the author actually wrote (`f32(l)`, not `f32(x)`) and the
+  // `TEXTURE_ARGUMENT` code. Every refusal below still happens, on the same program, for the
+  // same reason; only the sentence improved, so the expectations move with it.
+  it('refuses an f64 in every f32 slot naming the argument to narrow', () => {
     expect(
       errorsOf(`${TEXTURE}@fragment
 export function fs(@location(0) uv: vec2): C {
@@ -376,7 +381,7 @@ export function fs(@location(0) uv: vec2): C {
   return { color: textureSampleLevel(t, s, uv, l) }
 }
 `),
-    ).toEqual(["textureSampleLevel's level must be an f32; got f64. Write f32(x)."])
+    ).toEqual(['textureSampleLevel level must be an f32; got f64. Write f32(l).'])
 
     expect(
       errorsOf(`${TEXTURE}@fragment
@@ -385,7 +390,7 @@ export function fs(@location(0) uv: vec2): C {
   return { color: textureSampleBias(t, s, uv, b) }
 }
 `),
-    ).toEqual(["textureSampleBias's bias must be an f32; got f64. Write f32(x)."])
+    ).toEqual(['textureSampleBias bias must be an f32; got f64. Write f32(b).'])
 
     expect(
       errorsOf(`"use typeshade"
@@ -398,12 +403,14 @@ export function fs(@location(0) uv: vec2): C {
   return { color: vec4(textureSampleCompare(shadow, cmp, uv, d)) }
 }
 `),
-    ).toEqual(["textureSampleCompare's reference depth must be an f32; got f64. Write f32(x)."])
+    ).toEqual(['textureSampleCompare depth_ref must be an f32; got f64. Write f32(d).'])
   })
 
   it('already refused the coordinate and the atomic value, and still does', () => {
     // Not new — `vecArg` checks the coordinate's shape and the atomic check its element — but
-    // pinned here so the slot sweep is complete rather than partial.
+    // pinned here so the slot sweep is complete rather than partial. The message names the
+    // ELEMENT rather than the width, because the width is the one thing this coordinate got
+    // right: a `vec2<f64>` is two wide, as a 2D sample wants, and f64 where f32 is wanted.
     expect(
       errorsOf(`${TEXTURE}@fragment
 export function fs(@location(0) uv: vec2): C {
@@ -411,7 +418,7 @@ export function fs(@location(0) uv: vec2): C {
   return { color: textureSample(t, s, c) }
 }
 `),
-    ).toEqual(['textureSample on a texture_2d<f32> takes a vec2 coordinate; got vec2<f64>.'])
+    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<f64>.'])
   })
 })
 
