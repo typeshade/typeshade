@@ -260,6 +260,28 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
     }),
   },
 
+  // #147: the one storage FORMAT that is not core. Its witness is the same module shape with
+  // `bgra8unorm` written where `rgba8unorm` is above, because the format is what requiredCaps
+  // reads for this cap.
+  bgra8unormStorage: {
+    kind: 'moduleShape',
+    what: "a storage-texture binding whose format is 'bgra8unorm'",
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          name: 'dst',
+          space: 'uniform',
+          type: { kind: 'storage-texture', dim: '2d', format: 'bgra8unorm', access: 'write' },
+        },
+      ],
+      funcs: [],
+    }),
+  },
+
   // Roadmap 0.4 item 12: a 1d or cube-array texture binding, and a textureGather call. Each is
   // derived from the module's shape, so each resolves through the real requiredCaps.
   texture1d: {
@@ -335,6 +357,38 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
                   },
                   { op: 'varref', type: { kind: 'sampler' }, name: 'smp' },
                   { op: 'lit', type: { kind: 'vec', n: 2, elem: 'f32' }, value: 0 },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  },
+
+  // #152: the packed 4x8 integer family, derived from a call the same way textureGather is.
+  packed4x8Dot: {
+    kind: 'moduleShape',
+    what: 'a call to dot4U8Packed in a function body',
+    build: () => ({
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'packed_probe',
+          params: [],
+          ret: { kind: 'scalar', scalar: 'u32' },
+          body: [
+            {
+              s: 'return',
+              expr: {
+                op: 'call',
+                type: { kind: 'scalar', scalar: 'u32' },
+                fn: 'dot4U8Packed',
+                args: [
+                  { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: 0x01010101 },
+                  { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: 0x01010101 },
                 ],
               },
             },

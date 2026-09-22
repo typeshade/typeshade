@@ -259,10 +259,14 @@ describe('optimize — CSE placement', () => {
     // 0 - 4294967295 wraps to 1 in u32. Merging the two makes it 0.
     expect(compileModule(m).fns.both!()).toBe(1)
     expect(compileModule(cse(m)).fns.both!()).toBe(1)
-    // and the emitted text keeps both spellings, which is where the damage was visible.
+    // and the emitted text keeps the two apart, which is where the damage was visible. The
+    // int->uint one is now the LITERAL its conversion yields rather than the call: an
+    // unsuffixed `-1` in WGSL is an AbstractInt, and `u32(-1)` is a shader-creation error on
+    // Tint where `u32(-1i)` is not, so const-fold spells the conversion as its own result
+    // (#154). Distinct from the float one either way, which is this test's subject.
     const wgsl = emitModule(cse(m))
     expect(wgsl).toContain('u32(-1.0)')
-    expect(wgsl).toContain('u32(-1)')
+    expect(wgsl).toContain('4294967295u')
   })
 
   // The same key loss on the other side: `String(-0)` is `"0"`.

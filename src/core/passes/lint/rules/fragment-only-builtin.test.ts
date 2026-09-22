@@ -23,7 +23,8 @@ import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs.js'
 import { texture2dfT, texture2dArrayfT, samplerT } from '../../../ir/index.js'
 import { emitModule } from '../../../backends/wgsl.js'
 import { ValidationError } from '../../validate.js'
-import { fragmentOnlyBuiltin } from './fragment-only-builtin.js'
+import { fragmentOnlyBuiltin, FRAGMENT_ONLY_IDS } from './fragment-only-builtin.js'
+import { INTRINSICS } from '../../../intrinsics.js'
 
 const FIX =
   'textureSample is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives'
@@ -245,5 +246,66 @@ describe('fragment-only-builtin — derivatives (X-GIS #1654)', () => {
       stage: 'fragment',
     })
     expect(run(module({ funcs: [fs, leafFwidth] }))).toEqual([])
+  })
+})
+
+// The table IS the fix authority (see the rule's own header), and #145 tripled it: three bias
+// rows, four comparison rows and the six coarse/fine derivatives. The positives above exercise
+// four ids, so a hint on any of the other fifteen could be wrong, or name a function that does
+// not exist, and nothing would say so. This pins the whole map at once — every row, the fix
+// text included — which is the only assertion that scales with the table.
+describe('every fix the table names is the one that id should be replaced by', () => {
+  const EXPLICIT_LOD =
+    'use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives'
+  const EXPLICIT_LOD_ARRAY =
+    'use textureSampleLevel(tex, smp, uv, layer, level) — an explicit LOD needs no derivatives'
+  const EXPLICIT_LOD_CUBE_ARRAY =
+    'use textureSampleLevel(tex, smp, dir, layer, level) — an explicit LOD needs no derivatives'
+
+  it('holds exactly these rows, with exactly these fixes', () => {
+    expect(Object.fromEntries(FRAGMENT_ONLY_IDS)).toEqual({
+      textureSample: EXPLICIT_LOD,
+      textureSampleArray: EXPLICIT_LOD_ARRAY,
+      textureSampleCubeArray: EXPLICIT_LOD_CUBE_ARRAY,
+      // A bias SHIFTS the implicit LOD, so the fix is the explicit-LOD form, as for the
+      // plain sample.
+      textureSampleBias: EXPLICIT_LOD,
+      textureSampleBiasArray: EXPLICIT_LOD_ARRAY,
+      textureSampleBiasCubeArray: EXPLICIT_LOD_CUBE_ARRAY,
+      // The comparison forms have their own `…Level` twin, which compares at level 0.
+      textureSampleCompare:
+        'use textureSampleCompareLevel(tex, smp, uv, ref) — it compares at level 0 and needs no derivatives',
+      textureSampleCompareArray:
+        'use textureSampleCompareLevel(tex, smp, uv, layer, ref) — it compares at level 0 and needs no derivatives',
+      textureSampleCompareCube:
+        'use textureSampleCompareLevel(tex, smp, dir, ref) — it compares at level 0 and needs no derivatives',
+      textureSampleCompareCubeArray:
+        'use textureSampleCompareLevel(tex, smp, dir, layer, ref) — it compares at level 0 and needs no derivatives',
+      // A derivative has no same-shape alternative at all.
+      dpdx: DERIV_FIX,
+      dpdy: DERIV_FIX,
+      fwidth: DERIV_FIX,
+      dpdxCoarse: DERIV_FIX,
+      dpdxFine: DERIV_FIX,
+      dpdyCoarse: DERIV_FIX,
+      dpdyFine: DERIV_FIX,
+      fwidthCoarse: DERIV_FIX,
+      fwidthFine: DERIV_FIX,
+    })
+  })
+
+  it('names, for every row, a builtin this surface actually has', () => {
+    // A fix that points at a function nobody can call is worse than no fix. Each row's text
+    // names its replacement first, so the first `word(` in it is the promise being made.
+    for (const [id, fix] of FRAGMENT_ONLY_IDS) {
+      const named = /use (\w+)\(/.exec(fix)?.[1]
+      if (named === undefined) {
+        expect(fix, `${id} has no "use X(...)" form, so it must be the derivative fix`).toBe(
+          DERIV_FIX,
+        )
+        continue
+      }
+      expect(Object.keys(INTRINSICS), `${id}'s fix names ${named}`).toContain(named)
+    }
   })
 })

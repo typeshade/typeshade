@@ -6,6 +6,7 @@ import type { LoweringScope } from './context.js'
 import { TS_CODES, type TsCode } from './codes.js'
 import { BUILTINS } from '../../core/cpu-runtime.js'
 import { isConstEvaluableMathFn } from './math-alias.js'
+import { foldIntLit, intElemOf, wrapInt } from '../../core/passes/opt/expr-utils.js'
 
 export const MAX_LOOP_TRIPS = 256
 
@@ -13,7 +14,10 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
   if (expr.op === 'lit' && typeof expr.value === 'number') return expr.value
   if (expr.op === 'unop') {
     const x = foldConstNumber(expr.a, scope)
-    return x === undefined ? undefined : -x
+    if (x === undefined) return undefined
+    // Wrapped when the type is an integer, for the reason the binop arm below carries.
+    const int = intElemOf(expr.type)
+    return int === undefined ? -x : wrapInt(-x, int)
   }
   // `resolveIr`, not `resolve`: the node already carries the IR name, which for a local that
   // shadows or follows another of the same source name is `p_1`, a name `resolve` does not
@@ -32,6 +36,15 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
     const a = foldConstNumber(expr.a, scope)
     const b = foldConstNumber(expr.b, scope)
     if (a === undefined || b === undefined) return undefined
+    // An INTEGER-typed operation is folded the way the hardware performs it, through the same
+    // helper the const-fold pass uses (#154). Folding it in doubles gave this function a
+    // different answer from the one the emitted module carries — `i32 100000 * 100000` is
+    // 1410065408 on both targets and 10000000000 here, `u32 0 - 1` is 4294967295 there and -1
+    // here, and `i32 1 / 2` is 0 there and 0.5 here. Every caller compares this value against
+    // something the GPU will compute (a loop's trip count, a divisor, a conversion's range), so
+    // a second set of arithmetic rules was a second set of answers.
+    const int = intElemOf(expr.type)
+    if (int !== undefined) return foldIntLit(expr.bop, a, b, int)
     switch (expr.bop) {
       case '+':
         return a + b
@@ -79,7 +92,9 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
   ) {
     const x = foldConstNumber(expr.args[0], scope)
     if (x === undefined) return undefined
-    return expr.fn === 'f32' ? x : Math.trunc(x)
+    // The conversion wraps into the target, which is what `foldIntConvert` emits and what both
+    // targets compute: `u32(-1i)` is 4294967295, not -1.
+    return expr.fn === 'f32' ? x : wrapInt(Math.trunc(x), expr.fn)
   }
   // A math builtin over constant arguments (issue #73). Not a declared function of the same
   // name (`declRef`), whose body this does not run, and only the intrinsics the oracle's
