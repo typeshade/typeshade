@@ -36,7 +36,10 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   counterpart and no plain-`let` meaning. The rule it rests on is the language design rules'
   2.1(c) with §9.3, that a name an author can write is a WGSL name, an ECMAScript name as
   TypeScript spells it, or a reviewed row of the extension table, and a second spelling of a
-  variable the surface already has is not a decision anyone reviewed; 13.6 covers the removal.
+  variable the surface already has is not a decision anyone reviewed; 13.7 governs the removal,
+  so the §9.3 row is deleted, the Appendix A row now reads a bare top-level `let` for
+  `var<private>`, and family 2's shape is that the private address space is the one with no
+  spelling of its own (Rule 6.5).
 
 ### Added
 
