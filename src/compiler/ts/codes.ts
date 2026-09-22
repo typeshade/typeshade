@@ -5,10 +5,11 @@
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
 //
-// One more kind of gap exists from TS8038 on. While several sessions worked the issue list of
-// #162 in parallel, each was given a BLOCK of codes to draw from, so two branches in flight at
-// once could not claim one number twice; `F64_ENTRY_IO` (TS8038), `TEXTURE_ARGUMENT` (TS8041)
-// and `RESERVED_NAME` (TS8068) are the codes assigned that way. A block's unused codes stay
+// One more kind of gap exists from TS8039 to TS8067. While several sessions worked the issue
+// list of #162 in parallel, each was given a BLOCK of codes to draw from, so two branches in
+// flight at once could not claim one number twice. `F64_ENTRY_IO` (TS8038) is the last code in
+// the sequential range; `TEXTURE_ARGUMENT` (TS8041) and `RESERVED_NAME` (TS8068) were assigned
+// from blocks, and the numbers a block did not spend stay unspent. A block's unused codes stay
 // unused, exactly as 8011 does — a gap is never reused.
 
 export const TS_CODES = {
@@ -47,7 +48,7 @@ export const TS_CODES = {
   BUILTIN_STAGE: 'TS8025',
   /** `@compute([x, y, z])` with `y` or `z` other than `1`: the backend only carries the first workgroup axis today, so a shape it would silently drop is rejected instead. */
   WORKGROUP_SHAPE: 'TS8026',
-  /** `mat2`/`mat3`: not implemented (only `mat4`/`mat4x4` maps to a real WGSL type), so authoring one is rejected instead of silently widening to `mat4x4`. */
+  /** A non-square `matCxR<f64>`: the fp64 pass carries one df64 body per DIMENSION (`DF64MatN`, matmul, matvec, transpose), so only a square matrix of doubles lowers. Every `matCxR<f32>` is a type (#149), so this no longer marks `mat2`/`mat3`. */
   MAT_UNSUPPORTED: 'TS8027',
   /** A decorator identifier outside the attribute vocabulary `"use typeshade"` defines (`@vertex`, `@fragment`, `@compute`, `@builtin`, `@location`), e.g. a misspelled `@vertx`: without this, the decorated function or field just silently stops being an entry point or an I/O field. */
   ATTRIBUTE_NAME: 'TS8028',
@@ -67,12 +68,13 @@ export const TS_CODES = {
    *  `arrayLength(&x)` (#46); the shapes that have no runtime length need an explicit size,
    *  which is what this says. */
   UNSIZED_ARRAY_LENGTH: 'TS8032',
-  /** A module variable (`let x: workgroup<T>`, `let y: perInvocation<T> = init`, §24)
-   *  declared or used where its address space forbids: a `const` with an address-space
-   *  wrapper, a `workgroup` variable with an initializer, a type the space cannot hold (a
-   *  texture, a runtime-sized array, an atomic in a per-invocation variable), an initializer
-   *  that is not a constant, or a `workgroup` variable reached from a vertex or fragment
-   *  entry (roadmap 0.2 item 5, #82). */
+  /** A module variable (`let x: workgroup<T>`, `let y: T = init`, §24) declared or used where
+   *  its address space forbids: a `const` with an address-space wrapper, a `workgroup`
+   *  variable with an initializer, a type the space cannot hold (a texture, a runtime-sized
+   *  array, an atomic in a per-invocation variable), an initializer that is not a constant, or
+   *  a `workgroup` variable reached from a vertex or fragment entry (roadmap 0.2 item 5, #82).
+   *  Also the retired `perInvocation<T>` wrapper (#83), which a plain top-level `let` replaced
+   *  and whose refusal names that `let`. */
   MODULE_VAR: 'TS8033',
   /** `workgroupBarrier()` / `storageBarrier()` somewhere a barrier cannot stand (§25): in a
    *  vertex or fragment entry, which has no workgroup; inside an `if` or `switch` body, where

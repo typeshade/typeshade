@@ -790,13 +790,12 @@ declare const atomicTag: unique symbol
  * (\`declare let bins: storage<array<atomic<u32>>>\`), never as a local or a parameter. */
 type atomic<T extends u32 | i32 = u32> = { readonly [atomicTag]: T }
 
-/** Module variables (roadmap 0.2 item 5, #82). \`let tile: workgroup<array<f32, 64>>\` is one
- * workgroup's shared memory, zero at the start of each workgroup; \`let seed: perInvocation<u32>
- * = 7\` is each invocation's own copy, at its initializer. Transparent like \`storage<T>\`: a
- * function body reads and writes the value as \`T\`. WGSL calls the second \`private\`, which
- * TypeScript reserves. */
+/** Workgroup memory (roadmap 0.2 item 5, #82). \`let tile: workgroup<array<f32, 64>>\` is one
+ * workgroup's shared memory, zero at the start of each workgroup and shared by its invocations.
+ * Transparent like \`storage<T>\`: a function body reads and writes the value as \`T\`. The other
+ * module-variable space, a value each invocation owns, is a plain top-level \`let\`
+ * (\`let seed: u32 = 7\`) and has no wrapper (§24). */
 type workgroup<T> = T
-type perInvocation<T> = T
 
 declare const textureTag: unique symbol
 declare const samplerTag: unique symbol

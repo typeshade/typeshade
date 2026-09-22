@@ -203,6 +203,19 @@ function enumNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
 
 const ENUM_CACHE = new WeakMap<ts.SourceFile, ReadonlySet<string>>()
 
+/** The retired module-variable wrapper, refused by name wherever it is written.
+ *  `perInvocation<T>` (#83) was a second spelling of the variable a plain top-level `let`
+ *  declares, and was removed (§24). It lives here rather than in module-vars.ts because
+ *  module-vars.ts imports this file, and both refusals want the one sentence. */
+export const RETIRED_VAR_WRAPPER = 'perInvocation'
+
+/** The sentence an author who writes the retired wrapper gets. `fix` is the remedy for the
+ *  site: a top-level `let` knows the author's own name and type argument, so it names the line
+ *  they meant, and every other site says it with `name` and `T`. */
+export const retiredWrapperMessage = (fix: string): string =>
+  `${RETIRED_VAR_WRAPPER}<T> was removed: a top-level let is already the per-invocation ` +
+  `variable. ${fix}`
+
 export function mapTsTypeToShaderType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
@@ -634,14 +647,29 @@ function mapGeneric(
   }
   // `atomic<u32>` / `atomic<i32>` (roadmap 0.2 item 4): a location in storage memory for the
   // atomic builtins. Where it may be declared is decided by the declaration sites, not here.
-  // The module-variable wrappers (§24) belong on a top-level `let`; anywhere else they are a
+  // The module-variable wrapper (§24) belongs on a top-level `let`; anywhere else it is a
   // misplaced declaration, not a type.
-  if (name === 'workgroup' || name === 'perInvocation') {
+  if (name === 'workgroup') {
     pushDiag(
       diagnostics,
       sourceFile,
       typeNode,
-      `${name}<T> declares a module variable and belongs at the top of the file: let name: ${name}<T>.`,
+      'workgroup<T> declares a module variable and belongs at the top of the file: let name: workgroup<T>.',
+    )
+    return undefined
+  }
+  // The retired wrapper anywhere a type can stand. module-vars.ts catches it on a top-level
+  // `let`, where every author who has written it will be, and puts their own name in the fix;
+  // this arm is the rest of the file, where the name is simply gone. Without it the annotation
+  // falls to `mapGeneric`'s tail and gets TS8002 "Type arguments are not supported yet", which
+  // names neither the removal nor what to write.
+  if (name === RETIRED_VAR_WRAPPER) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      retiredWrapperMessage('Drop the wrapper and write let name: T.'),
+      TS_CODES.MODULE_VAR,
     )
     return undefined
   }

@@ -1077,6 +1077,41 @@ function lowerAssignOp(
       }
     }
   }
+  // `m *= n` is `m = m * n`, so WGSL's product rule decides it: `matKxR * matCxK -> matCxR`,
+  // the left operand's columns against the right operand's rows. Two matrices of one
+  // non-square shape have one type key, so the mismatch check above never saw the pair and
+  // `c *= b` on two mat2x3 reached Tint as "no matching overload for 'operator *=
+  // (mat2x3<f32>, mat2x3<f32>)'" — the compound spelling of the hole #169 reports in `a * b`.
+  if (bop === '*' && target.type.kind === 'mat' && value.type.kind === 'mat') {
+    if (target.type.cols !== value.type.rows) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        right,
+        `Type mismatch: cannot *= ${typeKey(target.type)} and ${typeKey(value.type)}. WGSL's ` +
+          `matrix product is matKxR * matCxK -> matCxR: the target's ` +
+          `${String(target.type.cols)} columns must meet the right operand's ` +
+          `${String(value.type.rows)} rows, and the product must keep the target's own shape.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+  }
+  // The compound spelling of the refusal `m / n` gets in lowerBinary: WGSL gives a matrix
+  // `+`, `-` and `*` and no `/` or `%` (GLSL ES 3.00 agrees), and the equal-key path here
+  // never asked. `c /= b` on two mat3x3 emitted `c /= b`, which Tint answers "no matching
+  // overload for 'operator /= (mat3x3<f32>, mat3x3<f32>)'" (#169, the same family).
+  if ((bop === '/' || bop === '%') && target.type.kind === 'mat') {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `Cannot ${bop}= ${typeKey(target.type)}: a matrix has + - and * on both targets and no ` +
+        `${bop}. Divide the columns, or multiply by the inverse you computed.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
   // `x %= y` on an emulated double, for the reason `x % y` is refused: there is no df64
   // remainder. A MISMATCHED pair (`w %= s` with a vec64 and an f32) is already reported above
   // by the ordinary numeric mismatch, which names both operand types and says the same thing;

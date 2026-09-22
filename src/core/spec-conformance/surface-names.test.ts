@@ -180,11 +180,11 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   { name: 'vec64Tag', reason: 'the brand symbol of `Vec64`' },
 
   // Bindings and module variables. WGSL declares these with `var<uniform>`, `var<storage>`,
-  // `var<workgroup>`, `var<private>` and `override`, which TypeScript has no syntax to borrow.
+  // `var<workgroup>` and `override`, which TypeScript has no syntax to borrow. `var<private>` has
+  // no spelling: a top-level `let` is already that variable (#83).
   { name: 'uniform', reason: "declares a binding in WGSL's uniform address space" },
   { name: 'storage', reason: "declares a binding in WGSL's storage address space" },
   { name: 'workgroup', reason: "declares a module variable in WGSL's workgroup address space" },
-  { name: 'perInvocation', reason: 'declares a per-invocation module variable; WGSL says private' },
   { name: 'override', reason: 'declares a pipeline-overridable constant, WGSL `override`' },
 
   // Vectors of bool. WGSL writes `vec2<bool>` and predeclares no alias for it, but every

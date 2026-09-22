@@ -375,7 +375,7 @@ const SHADE_ORDER: readonly ShadeSpec[] = [
     id: 'private-state',
     title: 'Per-invocation state',
     blurb:
-      "`let seed: perInvocation<u32>` is WGSL's `var<private>`, one copy per invocation that every function of the invocation shares: a random-number generator keeps its state in it instead of threading a seed through each call (§24). GLSL ES 3.00 spells it as a plain global, so it renders on both targets. Renders a hash-noise field.",
+      "A plain top-level `let seed: u32` is WGSL's `var<private>`, one copy per invocation that every function of the invocation shares: a random-number generator keeps its state in it instead of threading a seed through each call (§24). GLSL ES 3.00 spells it as a plain global, so it renders on both targets. Renders a hash-noise field.",
     renderable: true,
   },
   {

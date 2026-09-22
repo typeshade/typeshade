@@ -116,8 +116,8 @@ export interface CompileTsSourceResult {
   /** Every `override<T>` the module declares — WGSL specialization constants, which the
    *  pipeline sets and no pass folds. Empty for a module that declares none. */
   readonly overrides: readonly OverrideDecl[]
-  /** Every module variable (`let x: workgroup<T>`, `let y: perInvocation<T> = init`, §24) the
-   *  module declares. Empty for a module that declares none. */
+  /** Every module variable (`let x: workgroup<T>`, `let y: T = init`, §24) the module
+   *  declares. Empty for a module that declares none. */
   readonly vars: readonly ModuleVarDecl[]
   /** The capabilities the file's `"enable <extension>";` directives turn on (§50), by neutral
    *  id. Empty for a file that enables nothing, which is most; the two extension-gated

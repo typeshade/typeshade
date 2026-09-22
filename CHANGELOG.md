@@ -24,6 +24,36 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   compiles, a shape the walk cannot read keeps the refusal it had, and the code that moved is
   `TS8034` becoming `TS8052`.
 
+### Removed
+
+- **`perInvocation<T>`, the second spelling of the per-invocation variable** (§24,
+  [#83](https://github.com/typeshade/typeshade/issues/83)). #83 added it as the wrapper for
+  WGSL's `var<private>`. #85 then made a plain top-level `let` that variable, because a
+  module-level `let` already means "a value this run of the program owns" to a TypeScript reader
+  and in a shader the run is the invocation, and kept the wrapper as an explicit alternative
+  spelling. One variable with two spellings is a thing to learn and not a thing to use, so the
+  wrapper is gone and the plain `let` is the whole surface. It could go without moving a byte of
+  output: measured over 13 declaration shapes (scalar, vector, matrix, sized array, struct, bool,
+  a negative initializer, no initializer, two names on one `let`, a helper that reads and writes
+  it) and both authored examples, the two spellings emitted byte-identical WGSL and
+  byte-identical GLSL for every stage, reflected the same, and gave the same answers from the
+  oracle and the CPU codegen. The one difference found anywhere was the source spans, every one
+  after the annotation shifted by the wrapper's own 15 characters, which is the position of the
+  author's text in the author's file and not something downstream of the front end can see.
+  `examples/private-state.shade.ts` and `examples/workgroup-scratch.shade.ts` write the plain
+  `let` and their emit goldens did not move. Writing the wrapper is now TS8033 at the
+  annotation, one sentence with the line to write instead:
+  `perInvocation<T> was removed: a top-level let is already the per-invocation variable. Drop the wrapper and write let seed: u32.`
+  The editor's ambient library no longer declares the name, so the hover and the `gpu` semantic
+  token go with it. `workgroup<T>` stays required: workgroup memory has no TypeScript
+  counterpart and no plain-`let` meaning. The rule it rests on is the language design rules'
+  2.1(c) with §9.3, that a name an author can write is a WGSL name, an ECMAScript name as
+  TypeScript spells it, or a reviewed row of the extension table, and a second spelling of a
+  variable the surface already has is not a decision anyone reviewed; 13.7 governs the removal,
+  so the §9.3 row is deleted, the Appendix A row now reads a bare top-level `let` for
+  `var<private>`, and family 2's shape is that the private address space is the one with no
+  spelling of its own (Rule 6.5).
+
 ### Added
 
 - **Packing, bitcast and the constructors WGSL spells** (§44, #150). The IR and both backends
@@ -582,6 +612,22 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   surface on both targets.
 
 ### Fixed
+
+- **A product of two matrices of one non-square shape is refused at the operator**
+  ([#169](https://github.com/typeshade/typeshade/issues/169)). WGSL's matrix product cancels
+  the shared dimension, `matKxR * matCxK -> matCxR`, so the left operand's columns must equal
+  the right operand's rows. `lowerBinary` compared the two operands' type keys and, when they
+  agreed, typed the expression as the left operand — and two matrices of one non-square shape
+  have one key, so nothing ever looked at their dimensions. `mat2x3 * mat2x3` compiled with
+  zero diagnostics and reached Tint as `(a * b)`, which answers `no matching overload for
+'operator * (mat2x3<f32>, mat2x3<f32>)'`; `binResultType` had refused the same pair in the
+  `fn()` EDSL all along (`SD0001`), so the two surfaces disagreed. The check now runs on both
+  spellings: `a * b` and `a *= b`, the latter also requiring the product to land back in the
+  target's own shape. The compound path had a second hole of the same family — the refusal of
+  `/` and `%` on a matrix lived only in `lowerBinary`, so `m /= n` and `m %= n` emitted on a
+  shape WGSL gives neither operator; both are refused now. §40 said "A pair whose dimensions
+  do not meet is refused, naming both shapes", which was true only of `m * v` and of two
+  square shapes of different size; it is true as written now.
 
 - **Two GLSL spellings that parted from WGSL, and two comments that misread the specs**
   (#141). `ldexp` built 2^e from ONE biased exponent, and `(e + 127) << 23` is the bit pattern
@@ -1272,12 +1318,13 @@ got 1`.
 - **A plain top-level `let` is a per-invocation variable** (§24, from the review of #82):
   `let seed: u32 = 7` emits `var<private> seed: u32 = 7u;`, a plain global on GLSL ES 3.00, and
   starts over at every host-facing call on the CPU, exactly as `perInvocation<u32>` does. That
-  wrapper stays as the explicit spelling and `workgroup<T>` stays required, since workgroup
-  memory has no TypeScript counterpart. Without an annotation the type is the initializer's by
-  the `const` rule. For both spellings an array takes a list and a struct an object literal as a
-  constant initializer, and a math builtin over constants counts as one (#73). A `let` with
-  neither type nor initializer, a resource type without `declare`, and a list without an array
-  type are TS8033 with the fix. Before this a plain top-level `let` was TS8014.
+  wrapper was the explicit spelling until it was removed (see Removed, above); `workgroup<T>`
+  stays required, since workgroup memory has no TypeScript counterpart. Without an annotation
+  the type is the initializer's by the `const` rule. For the plain `let` an array takes a list
+  and a struct an object literal as a constant initializer, and a math builtin over constants
+  counts as one (#73). A `let` with neither type nor initializer, a resource type without
+  `declare`, and a list without an array type are TS8033 with the fix. Before this a plain
+  top-level `let` was TS8014.
 - **Barriers and `dispatch`** (roadmap 0.2 item 5, design #82, step 2): `workgroupBarrier()`
   and `storageBarrier()` as statements, in a compute entry or a helper and never inside an
   `if` or `switch` body (TS8034 with the reason), emitted bare on WGSL and treated as effects

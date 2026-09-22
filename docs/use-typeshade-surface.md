@@ -1578,14 +1578,13 @@ invocation owns for its whole run, across every function it calls (WGSL's `var<p
 memory one workgroup's invocations share (WGSL's `var<workgroup>`). Roadmap 0.2 item 5,
 design [#82](https://github.com/typeshade/typeshade/issues/82).
 
-**Spelling.** A top-level `let` is a module variable. Plain, it is the per-invocation one:
-`let seed: u32 = 7` is what a module-level `let` means to a TypeScript reader, a value this run
-of the program owns, and in a shader the run is the invocation. Workgroup memory has no
-TypeScript counterpart, so it is always written out, as a wrapper type on the annotation the
-way a resource is a `declare const|let` with `uniform<T>` or `storage<T>`:
-`let tile: workgroup<array<f32, 64>>`. The per-invocation space has the same kind of wrapper,
-`perInvocation<T>`, for a writer who wants the space on the line. No `declare`: `declare` stays
-the mark of a value the host provides, and a module variable is the module's own.
+**Spelling.** A top-level `let` is a module variable. Plain, it is the per-invocation one, and
+that is its only spelling: `let seed: u32 = 7` is what a module-level `let` means to a TypeScript
+reader, a value this run of the program owns, and in a shader the run is the invocation.
+Workgroup memory has no TypeScript counterpart, so it is always written out, as a wrapper type on
+the annotation the way a resource is a `declare const|let` with `uniform<T>` or `storage<T>`:
+`let tile: workgroup<array<f32, 64>>`. No `declare`: `declare` stays the mark of a value the host
+provides, and a module variable is the module's own.
 
 ```ts
 "use typeshade"
@@ -1615,9 +1614,9 @@ export function k(
   a math builtin over those; a list for an array, an object literal for a struct); without one
   the variable is zero. Without an annotation the type is the initializer's, by the rule a
   `const` follows: `let v = 1.5` and `let n = 7` are both f32, and `let n: u32 = 7` is the
-  integer. Any stage may use it. `let seed: perInvocation<u32> = 7` is the same variable with
-  its space written out; the name is not WGSL's `private` because TypeScript reserves that
-  word in strict mode, and every module is strict.
+  integer. Any stage may use it. The space itself is never written out, and WGSL's own name for
+  it could not be written anyway: `private` is a word TypeScript reserves in strict mode, and
+  every module is strict.
 - `workgroup<T>` emits `var<workgroup> tile: array<f32, 64>;`. It takes no initializer (WGSL
   forbids one) and is zero at the start of each workgroup. Only a compute entry, and the helpers
   it calls, may read or write it; a vertex or fragment entry that names it is refused (TS8033).
@@ -1636,7 +1635,11 @@ type, a resource type without `declare` (`let x: storage<array<f32>>` is a bindi
 its `declare let`), a non-constant initializer, an initializer of another type, and a type the
 space cannot hold are TS8033 with the fix. A `const` with a wrapper type is TS8033: a `const` is
 a module constant (§12). A repeated name, or a name a const or a binding already has, is
-TS8023. A top-level `var` stays TS8014.
+TS8023. A top-level `var` stays TS8014. `perInvocation<T>`, a wrapper this section once offered
+as a second way to write the per-invocation variable, was removed: one variable with two
+spellings is two things to learn and one of them redundant. Writing it is TS8033,
+`perInvocation<T> was removed: a top-level let is already the per-invocation variable. Drop the
+wrapper and write let seed: u32.`
 
 **In the IR and the emit.** A module variable is `ModuleDecl.vars`, not a binding: it has no
 group, no binding and no layout, and `reflect()` reports nothing for it. WGSL emits it between
@@ -3126,7 +3129,24 @@ author's choice rather than the compiler's.
 | `a * b` | `matKxR * matCxK`, the shared dimension cancelling | `matCxR` |
 
 `v * m` and `m * v` are different products, so the one you want is the one you write. A pair
-whose dimensions do not meet is refused, naming both shapes.
+whose dimensions do not meet is refused at the operator, naming both shapes and the rule. That
+includes the pair easiest to write by accident, two matrices of **one non-square shape**: a
+`mat2x3` has 2 columns and 3 rows, so `a * b` between two of them meets nothing, however alike
+the two look.
+
+```ts
+export function bad(a: mat2x3, b: mat2x3): mat3 {
+  return a * b
+  // Type mismatch: cannot * mat2x3<f32> and mat2x3<f32>. WGSL's matrix product is
+  // matKxR * matCxK -> matCxR: the left operand's 2 columns must meet the right operand's
+  // 3 rows. transpose(b) turns this pair into one that meets.
+}
+```
+
+**A matrix has `+`, `-` and `*` and nothing else.** `m / n` and `m % n` are refused, because
+neither target defines them, and so are the compound spellings `m /= n` and `m %= n`. `m *= n`
+carries the product rule above: the result has to land back in the target's own shape, which a
+square right operand does.
 
 **Builtins.** `transpose(m)` on a `matCxR` gives a `matRxC` — a different type unless the
 matrix is square. `determinant(m)` takes a square matrix only, since a non-square one has
