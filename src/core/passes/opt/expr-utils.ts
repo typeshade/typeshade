@@ -4,7 +4,7 @@
 // (CSE, LICM, …). Kept in one place so the two passes cannot drift (duplicated
 // traversal logic that must agree is this codebase's #1 bug archetype).
 
-import type { Expr, Stmt, ShaderType } from '../../ir/index.js'
+import type { Expr, Stmt, ShaderType, BinOp } from '../../ir/index.js'
 import { typeKey } from '../../ir/index.js'
 import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js'
 import { calleeWritesOf, type FnWrites } from '../effects.js'
@@ -34,6 +34,62 @@ export function intElemOf(t: ShaderType): 'i32' | 'u32' | undefined {
  *  `0u - 1u` -> `4294967295`, `100000 * 100000` -> `1410065408`. */
 export const wrapInt = (v: number, elem: 'i32' | 'u32'): number =>
   elem === 'u32' ? v >>> 0 : v | 0
+
+/** Fold two INTEGER literals with the target's semantics, not JavaScript's.
+ *
+ *  This arm exists because the float arm below is wrong for integers in three separate
+ *  ways, each measured against gcc 13.3 -O2 and each reachable once const-prop has
+ *  substituted two known constants:
+ *    • DIVISION TRUNCATES. `i32 7 / 2` is 3, not 3.5 — and a fractional value carried in
+ *      an i32-typed `lit` emits as the literal `3.5`, which is not an i32 at all. The u32
+ *      spelling `3.5u` is not even WGSL grammar.
+ *    • ARITHMETIC WRAPS. `i32 2147483647 + 1` is -2147483648 and `i32 100000 * 100000` is
+ *      1410065408; folding in f64 kept 2147483648 and 10000000000, values the type cannot
+ *      hold.
+ *    • u32 IS UNSIGNED. `u32 0 - 1` is 4294967295. Folding in f64 produced `-1`, emitted
+ *      as `-1u` — again not WGSL grammar, and a compile error rather than a wrong pixel.
+ *  `%`, `&`, `|`, `^`, `<<`, `>>` were previously left unfolded entirely; they are folded
+ *  here because on integers they are exactly as well-defined as `+`. Multiplication goes
+ *  through `Math.imul`, which is the wrapping 32-bit product — `a * b` in f64 loses bits
+ *  above 2^53 and would wrap the WRONG value. */
+export function foldIntLit(
+  bop: BinOp,
+  a: number,
+  b: number,
+  elem: 'i32' | 'u32',
+): number | undefined {
+  const ua = elem === 'u32' ? a >>> 0 : a | 0
+  const ub = elem === 'u32' ? b >>> 0 : b | 0
+  switch (bop) {
+    case '+':
+      return wrapInt(ua + ub, elem)
+    case '-':
+      return wrapInt(ua - ub, elem)
+    case '*':
+      return wrapInt(Math.imul(ua, ub), elem)
+    case '/':
+      // Truncating division (C99 / WGSL). i32 INT_MIN / -1 overflows; wrapInt gives
+      // INT_MIN back, which is what the hardware produces.
+      return ub === 0 ? undefined : wrapInt(Math.trunc(ua / ub), elem)
+    case '%':
+      // JS `%` truncates toward zero, same as C and WGSL: -7 % 2 === -1.
+      return ub === 0 ? undefined : wrapInt(ua % ub, elem)
+    case '&':
+      return wrapInt(ua & ub, elem)
+    case '|':
+      return wrapInt(ua | ub, elem)
+    case '^':
+      return wrapInt(ua ^ ub, elem)
+    // A shift count outside [0, 31] is not folded: JS masks it to 5 bits, and leaning on
+    // that would bake one interpretation of a case the targets do not agree on.
+    case '<<':
+      return ub < 0 || ub > 31 ? undefined : wrapInt(ua << ub, elem)
+    case '>>':
+      return ub < 0 || ub > 31 ? undefined : wrapInt(elem === 'u32' ? ua >>> ub : ua >> ub, elem)
+    default:
+      return undefined
+  }
+}
 
 /** Memo for {@link keyOf}, keyed on the Expr OBJECT (X-GIS #2465).
  *

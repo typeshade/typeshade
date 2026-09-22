@@ -15,7 +15,8 @@ import {
   isVec64,
   typeKey,
 } from '../../core/ir/types.js'
-import { foldNumericLit, retargetIntLit } from './lit-coerce.js'
+import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js'
+import { wrapInt } from '../../core/passes/opt/expr-utils.js'
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -193,7 +194,11 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
  *  seeing a widen it would have to undo. `bool(x)` becomes the compare `x != 0`, which is
  *  what WGSL's bool conversion means and what all three backends already evaluate. Every
  *  other name keeps its behaviour exactly. */
-export function lowerScalarCast(name: string, arg: Expr): Expr | string {
+export function lowerScalarCast(
+  name: string,
+  arg: Expr,
+  constOf?: (e: Expr) => number | undefined,
+): Expr | string {
   const type = SCALAR_CAST[name]
   if (!type) return `Unknown scalar cast "${name}".`
   if (name === 'bool') {
@@ -236,11 +241,80 @@ export function lowerScalarCast(name: string, arg: Expr): Expr | string {
       `f32 first, so write ${name}(f32(x)).`
     )
   }
-  if (arg.op === 'lit' && typeof arg.value === 'number') {
-    const v = arg.value
+  // `f32(vec3(...))` was accepted and emitted `f32(vec3<f32>(...))` on WGSL and `float(vec3)`
+  // on GLSL. Measured: Tint REFUSES it ("no matching constructor for 'f32(vec3<f32>)'"), and a
+  // WebGL2 driver COMPILES it and silently takes `.x`. So the two targets do not merely differ
+  // on a corner, they disagree about whether the program exists; WGSL's conversions take a
+  // scalar (wgsl.txt:20207-20209), and that is the rule this surface follows.
+  // A SCALAR for this rule is a native scalar (including `bool`, which `bool(x)` handled
+  // above and which `u32(b)` converts) or an emulated double — `f32(f64(x))` is the narrowing
+  // the surface documents. A vector of any kind is not.
+  if (arg.type.kind !== 'scalar' && arg.type.kind !== 'f64') {
+    const width = arg.type.kind === 'vec' || arg.type.kind === 'vec64' ? arg.type.n : undefined
+    return (
+      `${name}() takes a scalar; got ${typeKey(arg.type)}.` +
+      (width === undefined
+        ? ''
+        : ` A vector is converted component-wise by its own constructor, ` +
+          `e.g. vec${width}${VEC_CTOR_SUFFIX[name] ?? ''}(v).`)
+    )
+  }
+  // A NEGATED literal is a unop, not a lit, so `u32(-1)` used to reach the backend as
+  // `u32(-1.0)`. Folded first, which is also what makes the range rule below see the number
+  // the author wrote.
+  const lit = foldNumericLit(arg)
+  const litValue = lit.op === 'lit' && typeof lit.value === 'number' ? lit.value : undefined
+  // A reference to a `const` is a compile-time value too, and by the time the backend sees it
+  // the const-propagation pass has substituted it: `const k: i32 = -1; u32(k)` EMITS `u32(-1)`,
+  // measured on the dev pipeline. So the range rule has to see through the reference, which is
+  // what `constOf` is — the caller's scope-aware folder, since this module knows nothing about
+  // scopes. Only the CHECK looks through it; the call itself is still emitted as written, so an
+  // in-range `u32(k)` keeps its name and the substitution stays the optimizer's business.
+  const v = litValue ?? constOf?.(arg)
+  if (v !== undefined) {
     if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`
-    if (name !== 'f32') return { op: 'lit', type, value: Math.trunc(v) }
-    return { op: 'lit', type: f32T, value: v }
+    if (name !== 'f32') {
+      const truncated = Math.trunc(v)
+      // An INT -> INT conversion is never out of range. It is a bit reinterpretation, which
+      // both targets perform and agree on: measured, `u32(-1i)` compiles on Tint and is
+      // 4294967295, and GLSL ES 3.00 compiles `uint(-1)` and answers 4294967295 too. What
+      // Tint refuses is `u32(-1)` with no suffix, because an unsuffixed integer literal is an
+      // ABSTRACT integer and an AbstractInt must fit its target — a fact about the SPELLING,
+      // not about the program. The const-fold pass rewrites that spelling into the literal the
+      // conversion yields (`foldIntConvert`), so the module Tint sees never contains one.
+      //
+      // A FLOAT operand is the case that genuinely diverges, and it is the only one refused
+      // here. Measured, by running the conversion on both: WGSL clamps and GLSL ES 3.00 leaves
+      // it undefined, so `u32(-1.)` is 0 on Tint and 4294967295 on a WebGL2 driver, and
+      // `u32(4.3e9)` is 4294967295 there and 5032960 here. Two targets, two answers, and no
+      // diagnostic anywhere — which is what this refusal is for.
+      const fromInteger = typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32'
+      if (fromInteger) {
+        // Folded rather than refused, and folded with the target's OWN wrap, so the front end
+        // agrees with the const-fold pass instead of contradicting it.
+        return litValue === undefined
+          ? { op: 'call', type, fn: name, args: [arg] }
+          : { op: 'lit', type, value: wrapInt(truncated, typeKey(type) === 'u32' ? 'u32' : 'i32') }
+      }
+      if (!fitsTarget(truncated, type)) {
+        const unsigned = typeKey(type) === 'u32'
+        // The clamp names the TARGET's own bounds. `clamp(x, 0., 1.)` was the example whatever
+        // the cast was, which for `i32(…)` proposed clamping into [0, 1] — advice that loses
+        // every value the type holds.
+        const bounds = unsigned ? '0., 4294967295.' : '-2147483648., 2147483647.'
+        return (
+          `${name}(${String(v)}) is out of range: ${unsigned ? 'a' : 'an'} ${typeKey(type)} ` +
+          `holds ${unsigned ? '0 to 4294967295' : '-2147483648 to 2147483647'}, and the two ` +
+          `targets compute different values for a float that does not. Measured: u32(-1.) is ` +
+          `0 on WGSL and 4294967295 on GLSL ES 3.00, and u32(4.3e9) is 4294967295 there and ` +
+          `5032960 here. Clamp it first if you want one answer, e.g. ` +
+          `${name}(clamp(x, ${bounds})).`
+        )
+      }
+      if (litValue !== undefined) return { op: 'lit', type, value: truncated }
+    } else if (litValue !== undefined) {
+      return { op: 'lit', type: f32T, value: v }
+    }
   }
   return { op: 'call', type, fn: name, args: [arg] }
 }

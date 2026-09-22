@@ -178,3 +178,236 @@ describe('what stays rejected', () => {
     )
   })
 })
+
+// WGSL's own two constructor spellings this surface lacked (#150): the TYPE ARGUMENT
+// (wgsl.txt:20889) and the ZERO value (wgsl.txt:20015-20030).
+describe('vecN<T>(...) names the element, and vecN() is the zero', () => {
+  it('vec3<u32>(1, 2, 3) builds an unsigned vector and vec3() the zero', () => {
+    // The type argument was read by NOBODY: `vec3<u32>(1, 2, 3)` compiled clean and emitted
+    // `vec3<f32>(1.0, 2.0, 3.0)`, so a program that asked for an unsigned vector silently got
+    // a float one and a following `f32(v.x)` cast nothing.
+    expect(typeKey(lowerReturn('vec3<u32>(1, 2, 3)', '', 'vec3u').type)).toBe('vec3<u32>')
+    expect(typeKey(lowerReturn('vec2<i32>(1, 2)', '', 'vec2i').type)).toBe('vec2<i32>')
+    expect(typeKey(lowerReturn('vec4<f32>(1., 2., 3., 4.)', '', 'vec4').type)).toBe('vec4<f32>')
+    expect(typeKey(lowerReturn('vec3<bool>(true, false, true)', '', 'vec3b').type)).toBe(
+      'vec3<bool>',
+    )
+    expect(typeKey(lowerReturn('vec3()', '', 'vec3').type)).toBe('vec3<f32>')
+    expect(typeKey(lowerReturn('vec4u()', '', 'vec4u').type)).toBe('vec4<u32>')
+  })
+
+  it('emits the element the type argument named, on both targets', () => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  const u = vec3<u32>(1, 2, 3)
+  const z = vec3()
+  return vec4(f32(u.x) + z.x, 0., 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('vec3<u32>(1u, 2u, 3u)')
+    expect(r.wgsl).toContain('vec3<f32>(0.0, 0.0, 0.0)')
+    expect(r.glsl?.fragment).toContain('uvec3(1u, 2u, 3u)')
+    expect(r.glsl?.fragment).toContain('vec3(0.0, 0.0, 0.0)')
+  })
+
+  it('refuses a second element name, and one that is not an element at all', () => {
+    expect(diagnose('vec3u<f32>(1, 2, 3)', '', 'vec3u')).toBe(
+      'vec3u<f32> names two element types; vec3u is already u32. Write vec3<f32> or vec3u.',
+    )
+    expect(diagnose('vec3<mat4>(1, 2, 3)', '', 'vec3')).toBe(
+      'vec3<mat4> is not a vector element type; write vec3<f32>, <i32>, <u32> or <bool>, or the short form vec3f.',
+    )
+    // The short name AGREEING with its own element is not a contradiction, so it is taken.
+    expect(typeKey(lowerReturn('vec3u<u32>(1, 2, 3)', '', 'vec3u').type)).toBe('vec3<u32>')
+  })
+
+  it('has no zero form for the emulated double, whose zero is a pair', () => {
+    expect(diagnose('vec3f64()', '', 'vec3f64')).toBe(
+      'vec3f64() has no zero-value form; write vec3f64(f64(0.)).',
+    )
+    // The type-argument spelling reaches the same refusal, and the refusal says what is on the
+    // line: it used to answer about `vec4f64()`, a call the author did not write. The FIX stays
+    // the short name, which is the one form that takes the f64 zero.
+    expect(diagnose('vec4<f64>()', '', 'vec4')).toBe(
+      'vec4<f64>() has no zero-value form; write vec4f64(f64(0.)).',
+    )
+  })
+})
+
+// The scalar conversions (#154). WGSL's `u32(e)`/`i32(e)`/`f32(e)` take a SCALAR and refuse a
+// value the target cannot hold; this surface emitted both anyway.
+describe('a scalar conversion takes a scalar, and a literal it can hold', () => {
+  it('refuses u32(-1) naming the range, where it used to emit u32(-1.0)', () => {
+    // Measured: Tint REFUSES `u32(-1)` ("value -1 cannot be represented as 'u32'") and a
+    // WebGL2 driver COMPILES `uint(-1.0)` and answers whatever it likes. The surface follows
+    // WGSL and says so in the author's file, rather than emitting a program the two targets
+    // disagree about. A negated literal is a unop, not a lit, which is why it used to slip
+    // past the fold here.
+    // A BARE `-1` is an f32 in this surface, so what it would have emitted is `u32(-1.0)`:
+    // the float conversion, which is defined on both targets and defined DIFFERENTLY. The
+    // message says which two numbers were measured rather than calling the result undefined.
+    expect(diagnose('u32(-1)', '', 'u32')).toBe(
+      'u32(-1) is out of range: a u32 holds 0 to 4294967295, and the two targets compute ' +
+        'different values for a float that does not. Measured: u32(-1.) is 0 on WGSL and ' +
+        '4294967295 on GLSL ES 3.00, and u32(4.3e9) is 4294967295 there and 5032960 here. ' +
+        'Clamp it first if you want one answer, e.g. u32(clamp(x, 0., 4294967295.)).',
+    )
+    // The clamp names the TARGET's own bounds, so the advice fits the cast that was written.
+    expect(diagnose('i32(4294967295)', '', 'i32')).toBe(
+      'i32(4294967295) is out of range: an i32 holds -2147483648 to 2147483647, and the two ' +
+        'targets compute different values for a float that does not. Measured: u32(-1.) is 0 ' +
+        'on WGSL and 4294967295 on GLSL ES 3.00, and u32(4.3e9) is 4294967295 there and ' +
+        '5032960 here. Clamp it first if you want one answer, e.g. ' +
+        'i32(clamp(x, -2147483648., 2147483647.)).',
+    )
+    // The values that DO fit are unchanged, negative ones included.
+    expect(typeKey(lowerReturn('i32(-1)', '', 'i32').type)).toBe('i32')
+    expect(typeKey(lowerReturn('u32(4294967295)', '', 'u32').type)).toBe('u32')
+  })
+
+  it("folds an INT to INT conversion rather than refusing it, with the target's wrap", () => {
+    // An int -> int conversion is a bit reinterpretation, and both targets perform it and
+    // agree: measured, `u32(-1i)` compiles on Tint and is 4294967295, and a WebGL2 driver
+    // compiles `uint(-1)` and answers 4294967295 too. What Tint refuses is the UNSUFFIXED
+    // `u32(-1)`, because an unsuffixed integer literal is an AbstractInt and an AbstractInt
+    // must fit its target — a fact about the spelling, not about the program. So the surface
+    // spells the conversion as the literal it yields, and no spelling Tint refuses is emitted.
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  const k: i32 = -1
+  const m: u32 = u32(4294967295)
+  return vec4(f32(u32(k)) * 0., f32(i32(m)) * 0., 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('4294967295u')
+    expect(r.wgsl).not.toContain('u32(-1)')
+    expect(r.glsl?.fragment).toContain('4294967295u')
+    expect(r.glsl?.fragment).not.toContain('uint(-1)')
+  })
+
+  it('wraps the fold the way the hardware does, so the check cannot contradict the emit', () => {
+    // The front end and the const-fold pass have to compute the same number. Folding in
+    // doubles gave two answers: `i32 100000 * 100000` is 1410065408 on both targets and
+    // 10000000000 in an f64 fold, `i32 1 / 2` is 0 there and 0.5 here. A range rule built on
+    // the second set refused programs that ran and admitted programs that did not.
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  const a: i32 = 100000
+  const b: i32 = 100000
+  const p: i32 = 1
+  const q: i32 = 2
+  return vec4(f32(u32(a * b)) * 0., f32(u32(p / q - 1)) * 0., 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    // 100000 * 100000 wraps to 1410065408, and 1 / 2 - 1 truncates to -1, which is 4294967295
+    // as a u32. Neither is the f64 answer, and both are what the two targets compute.
+    expect(r.wgsl).toContain('1410065408u')
+    expect(r.wgsl).toContain('4294967295u')
+  })
+
+  it('refuses a FLOAT conversion out of range, through a const reference too', () => {
+    // The case that genuinely diverges, and the shape that actually reached a driver: const
+    // propagation writes the value into the call before either backend sees it, so `u32(k)`
+    // emitted `u32(-1.0)` — 0 on WGSL, 4294967295 on GLSL ES 3.00 — with no diagnostic. The
+    // binding now carries what the compile-time folder can compute, so a negated literal, an
+    // alias and a call initializer are all values the rule sees.
+    const one = (body: string): readonly string[] =>
+      compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+${body}
+  return vec4(f32(u32(k)) * 0., 0., 0., 1.)
+}
+`)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => d.message)
+    const range =
+      'is out of range: a u32 holds 0 to 4294967295, and the two targets compute different ' +
+      'values for a float that does not.'
+    expect(one('  const k = -1.')[0]).toContain(range)
+    expect(one('  const j = -1.\n  const k = j')[0]).toContain(range)
+    expect(one('  const k = Math.floor(-1.5)')[0]).toContain(range)
+    // A float that DOES fit is left alone: both targets truncate toward zero and agree on 0.
+    expect(one('  const k = -0.5')).toEqual([])
+  })
+
+  it('leaves a RUNTIME conversion alone, where the two targets agree', () => {
+    // A mutable `let` has no compile-time value, so `u32(k)` stays a conversion: bit-preserving
+    // on WGSL and bit-preserving on GLSL ES 3.00, one answer. This is the escape hatch, and the
+    // reason nothing here refuses `u32` of a signed value on principle.
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  let k: i32 = -1
+  return vec4(f32(u32(k)) * 0., 0., 0., 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('u32(k)')
+    expect(r.glsl?.fragment).toContain('uint(k)')
+  })
+
+  it('refuses f32(vec3) naming the scalar rule', () => {
+    // Tint refuses it ("no matching constructor for 'f32(vec3<f32>)'"); a WebGL2 driver
+    // compiles `float(vec3)` and silently takes `.x`. The two targets do not merely differ on
+    // a corner — they disagree about whether the program exists.
+    expect(diagnose('f32(v)', 'v: vec3', 'f32')).toBe(
+      'f32() takes a scalar; got vec3<f32>. A vector is converted component-wise by its own ' +
+        'constructor, e.g. vec3(v).',
+    )
+    expect(diagnose('u32(v)', 'v: vec2i', 'u32')).toBe(
+      'u32() takes a scalar; got vec2<i32>. A vector is converted component-wise by its own ' +
+        'constructor, e.g. vec2u(v).',
+    )
+    // The emulated double is a scalar here: `f32(f64(x))` is the narrowing the surface spells.
+    expect(typeKey(lowerReturn('f32(f64(x))', 'x: f32', 'f32').type)).toBe('f32')
+  })
+})
+
+// `array(e1, e2, ...)` with no type arguments (#150, wgsl.txt:20133).
+describe('array(...) infers its element type and its count', () => {
+  it('array(1., 2., 3.) infers array<f32, 3>', () => {
+    expect(typeKey(lowerReturn('array(1., 2., 3.)[0]', '', 'f32').type)).toBe('f32')
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(): vec4 {
+  const a = array(1., 2., 3.)
+  return vec4(a[0], a[1], a[2], 1.)
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('array<f32, 3>(1.0, 2.0, 3.0)')
+    expect(r.glsl?.fragment).toContain('float[3](1.0, 2.0, 3.0)')
+  })
+
+  it('infers a vector element too, and keeps the explicit form working', () => {
+    const r = compile(`"use typeshade"
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const a = array(uv, uv)
+  const b = array<f32, 2>(1., 2.)
+  return vec4(a[0], b[0], b[1])
+}
+`)
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    expect(r.wgsl).toContain('array<vec2<f32>, 2>(uv, uv)')
+    expect(r.wgsl).toContain('array<f32, 2>(1.0, 2.0)')
+  })
+
+  it('refuses elements that disagree, and an empty list with nothing to infer from', () => {
+    expect(diagnose('array(1., i32(2))[0]', '', 'f32')).toBe(
+      'array(...) infers one element type from its elements; element 0 is f32 and element 1 ' +
+        'is i32. Cast the odd one, or write the type out: array<f32, 2>(...).',
+    )
+    expect(diagnose('array()[0]', '', 'f32')).toBe(
+      'array() has no elements to infer from: the element type and the count come from them. ' +
+        'Give it elements, or write both out with the values: array<f32, 4>(0., 0., 0., 0.).',
+    )
+  })
+})

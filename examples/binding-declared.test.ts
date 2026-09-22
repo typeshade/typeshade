@@ -114,7 +114,16 @@ const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[]
   // The multisampled resolve (item 13, §37): both stages refused under msaaTextureLoad.
   { id: 'msaa-resolve', stage: 'vertex', match: /msaaTextureLoad/ },
   { id: 'msaa-resolve', stage: 'fragment', match: /msaaTextureLoad/ },
+  // The packed 4x8 integer family (§47, #152): GLSL ES 3.00 has no form of any of the eight,
+  // so both stages are refused by the capability gate. This is the fail-closed half of the
+  // capability, asserted here rather than assumed — the alternative is a writer asked to spell
+  // `dot4U8Packed` and throwing from inside the emit.
+  { id: 'packed-bytes', stage: 'vertex', match: /packed4x8Dot/ },
+  { id: 'packed-bytes', stage: 'fragment', match: /packed4x8Dot/ },
 ]
+
+// `compute-sync` (§48, #152) is compute-only and so has no GLSL stage for this sweep to
+// examine at all, which is why it names no row above.
 
 describe('every binding a stage mentions is a binding that stage declares', () => {
   it('the sweep examined both halves of the invariant, on both targets', () => {

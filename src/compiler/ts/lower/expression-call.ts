@@ -10,9 +10,12 @@ import {
   storageTexel,
   typeKey,
   u32T,
+  vec2fT,
   vec2uT,
   vec3uT,
   vec4fT,
+  vec4iT,
+  vec4uT,
   voidT,
 } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js'
@@ -26,13 +29,20 @@ import {
   resolveMathFn,
 } from '../math-alias.js'
 import { SCALAR_CAST, literalPeerType } from '../numeric.js'
-import { foldNumericLit, retargetIntLit, retargetIntLitCtx } from '../lit-coerce.js'
+import {
+  foldNumericLit,
+  isIntegerLiteralTree,
+  retargetIntLit,
+  retargetIntLitCtx,
+} from '../lit-coerce.js'
 import { spanOf } from '../span.js'
 import { lowerExpression } from './expression.js'
 import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
 import { lowerAtomicCall } from './atomics.js'
+import { lowerWorkgroupUniformLoad } from './barriers.js'
 import { lowerClassCall } from './class-methods.js'
-import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../../core/intrinsics.js'
+import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js'
+import { divergentIntegerId } from '../../../core/ir/divergent-int.js'
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js'
 import {
   lowerExpandCall,
@@ -74,6 +84,32 @@ const VEC_CTOR: Readonly<Record<string, { n: 2 | 3 | 4; elem: VecCtorElem }>> = 
  *  double the fp64 pass assembles, and bool (§27). */
 type VecCtorElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool'
 
+/** What a `vecN<T>(…)` type argument may name, by the text the author wrote (#150). `f64` is
+ *  here because `vec3<f64>` is the long spelling of `vec3f64`, which the surface already has. */
+const TYPE_ARG_ELEM: Readonly<Record<string, VecCtorElem>> = {
+  f32: 'f32',
+  i32: 'i32',
+  u32: 'u32',
+  f64: 'f64',
+  bool: 'bool',
+}
+
+/** The short suffix each element kind has, for the message that offers it. */
+const SHORT_SUFFIX: Readonly<Record<string, string>> = {
+  f32: 'f',
+  i32: 'i',
+  u32: 'u',
+  f64: 'f64',
+  bool: 'b',
+}
+
+/** The zero of each element kind, for `vecN()`. The emulated double has none here: an `f64`
+ *  zero is a pair the fp64 pass assembles, not a literal this path can write. */
+function ctorZero(elem: VecCtorElem): Expr | undefined {
+  const t = elem === 'f32' ? f32T : elem === 'i32' ? i32T : elem === 'u32' ? u32T : undefined
+  if (t) return { op: 'lit', type: t, value: 0 }
+  return elem === 'bool' ? { op: 'lit', type: boolT, value: false } : undefined
+}
 /** Matrix constructor name -> its shape. Every `matCxR` of wgsl.txt:4621 plus the `matN`
  *  shorthand for a square one, matching the type names `type-map.ts` accepts, so a type an
  *  author can declare is a value an author can build. */
@@ -97,6 +133,8 @@ export function lowerCall(
   let intrinsicId: string | undefined
   let viaMath = false
   let ctor: { n: 2 | 3 | 4; elem: VecCtorElem } | undefined
+  /** The name the constructor was written under, for the messages that offer a short form. */
+  let ctorName = ''
 
   if (ts.isPropertyAccessExpression(callee)) {
     const obj = callee.expression
@@ -224,6 +262,17 @@ export function lowerCall(
       )
       return undefined
     }
+    // `workgroupUniformLoad` is a VALUE, unlike the barriers above, so it is lowered here
+    // rather than by the statement path — but it carries a barrier's placement rules (#152).
+    if (name === 'workgroupUniformLoad') {
+      const loaded: Expr[] = []
+      for (const a of node.arguments) {
+        const lowered = lowerExpression(a, sourceFile, scope, diagnostics)
+        if (!lowered) return undefined
+        loaded.push(lowered)
+      }
+      return lowerWorkgroupUniformLoad(loaded, node, sourceFile, scope, diagnostics)
+    }
     if (SCALAR_CAST[name]) return lowerScalarCastCall(name, node, sourceFile, scope, diagnostics)
     // A matrix constructor is its own function, deliberately NOT an arm of the vector one:
     // the two share only a name shape. A vector composes a flat component list; a matrix
@@ -233,6 +282,7 @@ export function lowerCall(
       return lowerMatrixCtor(matCtor, node, sourceFile, scope, diagnostics)
     }
     ctor = VEC_CTOR[name]
+    ctorName = name
     if (!ctor) {
       if (name === 'random') return lowerRandomCall(node, sourceFile, scope, diagnostics)
       if (resolveMathExpand(name))
@@ -240,7 +290,13 @@ export function lowerCall(
       // A texture read is a canonical intrinsic name too, but its arity and result type both
       // depend on the texture argument, so it is routed to lowerTextureCall below rather than
       // through MATH_FN_ARITY, which records neither (#8 A7).
-      if (name === 'mod' || TEXTURE_CALLS.has(name) || isCanonicalMathFn(name)) intrinsicId = name
+      if (
+        name === 'mod' ||
+        TEXTURE_CALLS.has(name) ||
+        BIT_CALLS.has(name) ||
+        isCanonicalMathFn(name)
+      )
+        intrinsicId = name
       else {
         const decl = scope.resolveCallee(name)
         if (decl) return lowerUserCall(node, decl, sourceFile, scope, diagnostics)
@@ -267,22 +323,105 @@ export function lowerCall(
     args.push(lowered)
   }
 
-  if (ctor) {
+  if (ctor !== undefined) {
+    // `vec3<u32>(1, 2, 3)` is WGSL's own spelling (wgsl.txt:20889), and the type argument was
+    // read by nobody: the call built a `vec3<f32>` and emitted `vec3<f32>(1.0, 2.0, 3.0)` with
+    // zero diagnostics, so a program that asked for an unsigned vector silently got a float one
+    // and a following `f32(v.x)` looked like a cast while casting nothing (#150).
+    const written = node.typeArguments?.[0]?.getText(sourceFile)
+    if (written !== undefined) {
+      const named = TYPE_ARG_ELEM[written]
+      if (named === undefined) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `vec${ctor.n}<${written}> is not a vector element type; write vec${ctor.n}<f32>, ` +
+            `<i32>, <u32> or <bool>, or the short form vec${ctor.n}${SHORT_SUFFIX[ctor.elem] ?? ''}.`,
+          TS_CODES.UNKNOWN_TYPE,
+        )
+        return undefined
+      }
+      // `vec3u<f32>(…)` names its element twice and disagrees with itself. Only the plain
+      // `vecN` spelling, whose own element is the default f32, takes one.
+      //
+      // Tested with the same regex the ambient lib uses, not with `endsWith(n)`:
+      // `'vec4f64'.endsWith('4')` is TRUE — the 4 of `f64` — so that test let `vec4f64<u32>`
+      // through and silently discarded the `f64`, which is the very swap this rule exists to
+      // stop. Its `vec2f64`/`vec3f64` siblings were refused correctly, so only the one name
+      // where the suffix collides leaked.
+      if (!/^vec[234]$/.test(ctorName) && named !== ctor.elem) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `${ctorName}<${written}> names two element types; ${ctorName} is already ` +
+            `${ctor.elem}. Write vec${ctor.n}<${written}> or ${ctorName}.`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      // The type-argument spelling takes SCALAR components (and none, for the zero value).
+      // Composing from a shorter vector or converting a whole one keeps the short name, and
+      // that is a parity rule, not a taste: the ambient lib types a parameter concretely —
+      // a conditional there defeats the vector-arithmetic filter issue #43 needs — so
+      // `vec3<i32>(v)` cannot be declared without either breaking that filter or lying about
+      // some other call. Refusing it here is what keeps the editor and the compiler saying
+      // the same thing about the same program, and `vec3i(v)` is the same value.
+      if (args.some((a) => a.type.kind === 'vec' || a.type.kind === 'vec64')) {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `vec${ctor.n}<${written}> takes scalar components; to build one from a vector, ` +
+            `write the short name: vec${ctor.n}${SHORT_SUFFIX[named] ?? ''}(...).`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      ctor = { n: ctor.n, elem: named }
+    }
+    const vc: { readonly n: 2 | 3 | 4; readonly elem: VecCtorElem } = ctor
+    // `vec3()` is the ZERO value (wgsl.txt:20015-20030): every component the element's zero.
+    // It was "Vector constructor component count mismatch.", which is true of nothing the
+    // author wrote — there are no components to count.
+    if (node.arguments.length === 0) {
+      const zero = ctorZero(vc.elem)
+      if (!zero) {
+        // Name the spelling the AUTHOR wrote. `vec4<f64>()` reaches here as much as `vec4f64()`
+        // does, and a refusal that answers about `vec4f64()` is about a call that is not on the
+        // line. The fix stays the short name, which is the one form that takes the f64 zero.
+        const spelled = written === undefined ? ctorName : `${ctorName}<${written}>`
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `${spelled}() has no zero-value form; write vec${vc.n}f64(f64(0.)).`,
+          TS_CODES.ARITY_MISMATCH,
+        )
+        return undefined
+      }
+      return {
+        op: 'construct',
+        type: vectorCtorType(vc.n, vc.elem),
+        args: Array.from({ length: vc.n }, () => zero),
+      }
+    }
     // `vec3u(1, 2, 3)` types each bare integer literal as the constructor's element kind
     // (#8 A3); an f32 constructor changes nothing, since retargetIntLitCtx only acts on an
     // integer target.
-    const elem = ctorElemType(ctor.elem)
+    const elem = ctorElemType(vc.elem)
     if (elem) {
       for (let i = 0; i < args.length; i++) {
         args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem)
       }
     }
-    if (args.length === 1 && isVectorCtorScalar(args[0]!.type, ctor.elem)) {
+    if (args.length === 1 && isVectorCtorScalar(args[0]!.type, vc.elem)) {
       const splat = args[0]!
       return {
         op: 'construct',
-        type: vectorCtorType(ctor.n, ctor.elem),
-        args: Array.from({ length: ctor.n }, () => splat),
+        type: vectorCtorType(vc.n, vc.elem),
+        args: Array.from({ length: vc.n }, () => splat),
       }
     }
     // vecN<T>(v: vecN<S>) — WGSL's element-converting constructor (`vec3f(v)`, `vec3u(v)`,
@@ -291,8 +430,8 @@ export function lowerCall(
     // size, a different element kind, every component converted. It is checked before the
     // component-count and element rules below, which are about composing a vector out of
     // parts and would reject it as an element-type mismatch.
-    if (args.length === 1 && isConvertibleVector(args[0]!.type, ctor)) {
-      return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args }
+    if (args.length === 1 && isConvertibleVector(args[0]!.type, vc)) {
+      return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args }
     }
     // vecN(v: vecN<f64>) — the per-lane NARROW, the one conversion an emulated-double vector
     // has. There is nothing to reinterpret componentwise: each lane is a (hi, lo) pair, and
@@ -340,8 +479,8 @@ export function lowerCall(
     // only has to lower scalar f64 constructor components; it can then reassemble
     // the target DF64VecN from those scalar pairs without treating a whole vec64 as
     // an f64 operand.
-    const ctorArgs = ctor.elem === 'f64' ? flattenF64VectorArgs(args) : args
-    if (vectorComponentCount(ctorArgs) !== ctor.n) {
+    const ctorArgs = vc.elem === 'f64' ? flattenF64VectorArgs(args) : args
+    if (vectorComponentCount(ctorArgs) !== vc.n) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -351,22 +490,25 @@ export function lowerCall(
       )
       return undefined
     }
-    const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, ctor.elem))
+    const badArg = ctorArgs.find((arg) => !isVectorCtorArg(arg.type, vc.elem))
     if (badArg) {
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `Vector constructor element type mismatch: expected ${ctor.elem}.`,
+        `Vector constructor element type mismatch: expected ${vc.elem}.`,
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined
     }
-    return { op: 'construct', type: vectorCtorType(ctor.n, ctor.elem), args: ctorArgs }
+    return { op: 'construct', type: vectorCtorType(vc.n, vc.elem), args: ctorArgs }
   }
 
   if (intrinsicId !== undefined && TEXTURE_CALLS.has(intrinsicId)) {
-    return lowerTextureCall(intrinsicId, args, node, sourceFile, diagnostics)
+    return lowerTextureCall(intrinsicId, args, node, sourceFile, scope, diagnostics)
+  }
+  if (intrinsicId !== undefined && BIT_CALLS.has(intrinsicId)) {
+    return lowerBitBuiltinCall(intrinsicId, args, node, sourceFile, diagnostics)
   }
   if (!intrinsicId) {
     // A call to a function this file declares and could not lower says nothing here: the
@@ -424,7 +566,8 @@ export function lowerCall(
   // that does not fit, with the fix.
   const display = `${viaMath ? 'Math.' : ''}${intrinsicId === 'atan2' ? 'atan' : intrinsicId}`
   if (!checkMathArgs(intrinsicId, display, args, node, sourceFile, diagnostics)) return undefined
-  return { op: 'call', type: mathResultType(intrinsicId, args), fn: intrinsicId, args }
+  const type = mathResultType(intrinsicId, args)
+  return { op: 'call', type, fn: divergentIntegerId(intrinsicId, args[0]?.type, type), args }
 }
 
 /** The scalar type a vector constructor's components must have, or undefined for the
@@ -648,6 +791,21 @@ function retargetIntrinsicLiterals(
   }
   const peerIndex = node.arguments.findIndex((a) => !isBareNumericLiteral(a))
   const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined
+  // A builtin with NO float form takes an integer, and an integer-written literal is what the
+  // author gave it: `countOneBits(5)` was typed f32 and refused as "takes an i32 or u32, or a
+  // vector of them; got f32", about a program WGSL accepts — 5 is an AbstractInt there and
+  // materialises to i32 (wgsl.txt:3930-3941, measured accepted on Tint). With no peer to take
+  // a kind from, i32 is that materialisation. Only an INTEGER-written literal: `countOneBits(5.)`
+  // has no integer meaning and keeps its refusal.
+  if (!peer && !mathTakesElem(intrinsicId, 'f32') && mathTakesElem(intrinsicId, 'i32')) {
+    for (let i = 0; i < args.length; i++) {
+      if (fixed[i] !== undefined) continue
+      const argNode = node.arguments[i]
+      if (argNode && args[i] && isIntegerLiteralTree(argNode)) {
+        args[i] = retargetIntLitCtx(args[i]!, argNode, i32T)
+      }
+    }
+  }
   if (!peer) return
   const target = literalPeerType(peer)
   // The first position too, for an integer peer of a builtin that takes integers (roadmap 0.2
@@ -773,6 +931,14 @@ function lowerBoolReduce(
 ): Expr | undefined | 'not-a-bool-vector' {
   const peek = lowerExpression(node.arguments[0]!, sourceFile, scope, [])
   if (!peek) return 'not-a-bool-vector'
+  // `all(e: bool) -> bool` and `any(e: bool) -> bool` are overloads of both builtins, and both
+  // "Return e" (wgsl.txt:21294-21314). The ambient lib always admitted the scalar; the front
+  // end refused it, so the editor and the compiler disagreed about a program WGSL defines.
+  // Lowered to the ARGUMENT, not to a call: a one-component reduction is the value itself, and
+  // GLSL ES 3.00 has no `all(bool)` overload at all, so emitting the call would fail there.
+  if (peek.type.kind === 'scalar' && peek.type.scalar === 'bool') {
+    return lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
+  }
   if (peek.type.kind !== 'vec' || peek.type.elem !== 'bool') {
     // An array takes the fold's turn and its own message; anything else is neither shape.
     if (peek.type.kind === 'array') return 'not-a-bool-vector'
@@ -789,6 +955,207 @@ function lowerBoolReduce(
   const arg = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics)
   if (!arg) return undefined
   return { op: 'call', type: boolT, fn: name, args: [arg] }
+}
+
+/** The bit-level builtins of WGSL §17.10-§17.11 and §17.7.28 (#150). The IR and both backends
+ *  have spelled these since the registry was written; nothing on this surface could NAME them.
+ *
+ *  Kept out of the generic math path because neither their argument nor their result follows
+ *  `args[0].type`: a pack takes a vector of `f32` and yields a `u32`, an unpack does the
+ *  reverse. The types are exact — WGSL has ONE overload each, so a `vec3` handed to
+ *  `pack4x8unorm` or an `i32` to `unpack2x16float` is refused here rather than by Tint. */
+const BIT_BUILTINS: Readonly<
+  Record<string, { readonly arg: ShaderType; readonly result: ShaderType }>
+> = {
+  pack4x8unorm: { arg: vec4fT, result: u32T },
+  pack4x8snorm: { arg: vec4fT, result: u32T },
+  unpack4x8unorm: { arg: u32T, result: vec4fT },
+  unpack4x8snorm: { arg: u32T, result: vec4fT },
+  pack2x16float: { arg: vec2fT, result: u32T },
+  pack2x16unorm: { arg: vec2fT, result: u32T },
+  pack2x16snorm: { arg: vec2fT, result: u32T },
+  unpack2x16float: { arg: u32T, result: vec2fT },
+  unpack2x16unorm: { arg: u32T, result: vec2fT },
+  unpack2x16snorm: { arg: u32T, result: vec2fT },
+  // The packed 4x8 INTEGER family (#152, wgsl.txt:21906/21920): a `u32` read as four bytes,
+  // component 0 in the low byte. Same one-overload shape as the rows above, so the same table.
+  // The two `dot4*Packed` forms take TWO arguments and live in their own table below.
+  pack4xU8: { arg: vec4uT, result: u32T },
+  pack4xU8Clamp: { arg: vec4uT, result: u32T },
+  // Both SIGNED packs return a `u32`, not an `i32`: WGSL declares them `-> u32`
+  // (index.bs:20307, :20341), and the value is four bytes in a word rather than a number with
+  // a sign. Typed `i32` here, a clean program emitted WGSL Tint refuses — measured,
+  // `out[gid.x] = pack4xI8(vec4i(1, 2, 3, 4))` into an i32 buffer is "cannot assign 'u32' to
+  // 'i32'", and adding the result to `dot4I8Packed`'s (which IS an i32) is "no matching
+  // overload for 'operator + (u32, i32)'". The CPU oracle always returned the unsigned value,
+  // so the IR type disagreed with its own oracle as well as with the target.
+  pack4xI8: { arg: vec4iT, result: u32T },
+  pack4xI8Clamp: { arg: vec4iT, result: u32T },
+  unpack4xU8: { arg: u32T, result: vec4uT },
+  unpack4xI8: { arg: u32T, result: vec4iT },
+}
+
+/** The two packed 4x8 DOT products (#152). Their own table because they take two `u32`s, not
+ *  one argument: `dot4U8Packed` sums four unsigned byte products into a `u32`, `dot4I8Packed`
+ *  four signed ones into an `i32`. Measured on a real device by dispatching both:
+ *  `dot4U8Packed(0x01010101, 0x01010101)` is 4 and `dot4I8Packed(0x80808080, 0x01010101)` is
+ *  -512. WGSL-only; the `packed4x8Dot` capability fails a module closed on GLSL ES 3.00. */
+const PACKED_DOTS: Readonly<Record<string, ShaderType>> = {
+  dot4U8Packed: u32T,
+  dot4I8Packed: i32T,
+}
+
+/** The names routed to {@link lowerBitBuiltinCall}: the ten above, plus the two whose id or
+ *  result the call site decides — `quantizeToF16`, whose GLSL spelling is one id per width,
+ *  and `bitcast`, whose result is its TYPE ARGUMENT. */
+const BIT_CALLS: ReadonlySet<string> = new Set([
+  ...Object.keys(BIT_BUILTINS),
+  ...Object.keys(PACKED_DOTS),
+  'quantizeToF16',
+  'bitcast',
+])
+
+/** The neutral id `quantizeToF16` takes at each width: GLSL has no such builtin and spells it
+ *  as a half-precision round trip, which runs two components at a time. */
+const QUANTIZE_ID: Readonly<Record<number, string>> = {
+  1: 'quantizeToF16',
+  2: 'quantizeToF16Vec2',
+  3: 'quantizeToF16Vec3',
+  4: 'quantizeToF16Vec4',
+}
+
+/** `bitcast<T>(e)`: the same 32 bits read as another type (wgsl.txt:21147). The target type is
+ *  a TYPE ARGUMENT, not an argument, because that is how WGSL spells it and how the two
+ *  neutral ids already in the registry are shaped (`bitcastU32`, `bitcastF32`). */
+const BITCAST_ID: Readonly<
+  Record<string, { readonly id: string; readonly from: ShaderType; readonly article: string }>
+> = {
+  u32: { id: 'bitcastU32', from: f32T, article: 'an' },
+  f32: { id: 'bitcastF32', from: u32T, article: 'a' },
+}
+
+function lowerBitBuiltinCall(
+  id: string,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  // The two packed dots take two `u32`s, so they are answered before the one-argument arity
+  // check below rather than by it.
+  const dotResult = PACKED_DOTS[id]
+  if (dotResult) {
+    if (!arityPlain(id, args, 2, node, sourceFile, diagnostics)) return undefined
+    for (const [i, a] of args.entries()) {
+      const retyped = retargetIntLitCtx(a, node.arguments[i]!, u32T)
+      if (typeKey(retyped.type) !== 'u32') {
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node.arguments[i]!,
+          `${id} reads each argument as four packed bytes, so both are u32; ` +
+            `argument ${String(i + 1)} is ${typeKey(a.type)}. Write u32(x).`,
+          TS_CODES.TYPE_MISMATCH,
+        )
+        return undefined
+      }
+      ;(args as Expr[])[i] = retyped
+    }
+    return { op: 'call', type: dotResult, fn: id, args: [...args] }
+  }
+  if (!arityPlain(id, args, 1, node, sourceFile, diagnostics)) return undefined
+  const arg = args[0]!
+  if (id === 'bitcast') {
+    const written = node.typeArguments?.[0]?.getText(sourceFile)
+    const target = written === undefined ? undefined : BITCAST_ID[written]
+    if (!target) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `bitcast needs the type to read the bits as, bitcast<u32>(x) or bitcast<f32>(x)` +
+          `${written === undefined ? '' : `; got bitcast<${written}>`}. Those are the two the ` +
+          `IR carries today; the signed pair is not here yet.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    if (typeKey(arg.type) !== typeKey(target.from)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `bitcast<${written}> reads the bits of ${target.article} ${typeKey(target.from)}; got ` +
+          `${typeKey(arg.type)}. A bitcast reinterprets 32 bits, it does not convert: ` +
+          `${written}(x) is the conversion.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: written === 'u32' ? u32T : f32T, fn: target.id, args: [arg] }
+  }
+  if (id === 'quantizeToF16') {
+    const n =
+      arg.type.kind === 'scalar' && arg.type.scalar === 'f32'
+        ? 1
+        : arg.type.kind === 'vec' && arg.type.elem === 'f32'
+          ? arg.type.n
+          : 0
+    if (n === 0) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `quantizeToF16 takes an f32 or a vector of them; got ${typeKey(arg.type)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return { op: 'call', type: arg.type, fn: QUANTIZE_ID[n]!, args: [arg] }
+  }
+  const sig = BIT_BUILTINS[id]!
+  // `unpack2x16float(65536)` writes the bit pattern as a bare number, which lowers to an f32
+  // on this surface. Retargeted like every other integer literal in an integer position (#8
+  // A3), so the author is not asked to write `u32(65536)` for a constant.
+  const fixed = typeKey(sig.arg) === 'u32' ? retargetIntLitCtx(arg, node.arguments[0]!, u32T) : arg
+  if (typeKey(fixed.type) !== typeKey(sig.arg)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} takes a ${typeKey(sig.arg)}; got ${typeKey(fixed.type)}. WGSL gives it one ` +
+        // "and GLSL ES 3.00 the same" is true of the ten pack/unpack rows this message was
+        // written for and FALSE of the packed 4x8 family (#152), which GLSL ES 3.00 has no
+        // form of at all — so the sentence names the target that actually has the overload.
+        (PACKED_4X8_IDS.has(id)
+          ? `overload, and GLSL ES 3.00 has no form of it at all.`
+          : `overload, and GLSL ES 3.00 the same.`),
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return { op: 'call', type: sig.result, fn: id, args: [fixed] }
+}
+
+/** The arity check of the bit builtins, which name themselves rather than the texture they
+ *  read, so the texture `arity` helper's message does not fit. */
+function arityPlain(
+  id: string,
+  args: readonly Expr[],
+  want: number,
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  if (args.length === want) return true
+  pushDiag(
+    diagnostics,
+    sourceFile,
+    node,
+    `${id} expects ${want} argument(s), got ${args.length}.`,
+    TS_CODES.ARITY_MISMATCH,
+  )
+  return false
 }
 
 /** The texture reads this surface spells (#8 A7). They are kept out of the generic intrinsic
@@ -820,8 +1187,9 @@ const TEXTURE_CALLS = new Set([
  *  a `read` one are both "no matching call" on Tint), and the value stored has to be the
  *  texel type the FORMAT decides — `rgba8uint` stores a `vec4u`, `rgba8unorm` a `vec4`.
  *
- *  The coordinate is left to the ordinary argument check: Tint takes a signed or an unsigned
- *  vector, so both `vec2i` and `vec2u` are written here as they are. */
+ *  The coordinate goes through `vecArg` like every other texture's (#145): its width is the
+ *  dim's and its element an `i32` or a `u32`, either of which Tint takes, so both `vec2i` and
+ *  `vec2u` are written here as they are. */
 function lowerStorageTextureCall(
   id: string,
   tex: Extract<ShaderType, { kind: 'storage-texture' }>,
@@ -834,8 +1202,41 @@ function lowerStorageTextureCall(
   const texel: ShaderType = { kind: 'vec', n: 4, elem: storageTexel(tex.format) }
   const shown = typeKey(tex)
   if (id === 'textureDimensions') {
+    // NO mip level here, unlike every sampled and depth texture. A storage texture has exactly
+    // one level, and WGSL gives its `textureDimensions` no level overload at all — measured on
+    // Tint: `no matching call to 'textureDimensions(texture_storage_2d<r32float, read>, u32)'`,
+    // against 33 candidates. So the extra argument is refused where it is written rather than
+    // emitted for Tint to reject.
+    if (args.length > 1) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureDimensions on a ${shown} takes the texture alone: a storage texture has one ` +
+          `mip level, so there is no level to ask for.`,
+        TS_CODES.ARITY_MISMATCH,
+      )
+      return undefined
+    }
     return arity(id, args, 1, node, sourceFile, diagnostics)
       ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
+      : undefined
+  }
+  if (id === 'textureNumLayers') {
+    // A storage ARRAY has layers, and answering "takes a sampled texture … has no sampler" was
+    // the wrong reason as well as the wrong answer (wgsl.txt:24360; measured accepted on Tint).
+    if (!isArray) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `textureNumLayers needs a texture_storage_2d_array; "${shown}" has no layers.`,
+        TS_CODES.TYPE_MISMATCH,
+      )
+      return undefined
+    }
+    return arity(id, args, 1, node, sourceFile, diagnostics)
+      ? { op: 'call', type: u32T, fn: 'textureNumLayersStorage', args: [...args] }
       : undefined
   }
   if (id === 'textureLoad') {
@@ -852,11 +1253,13 @@ function lowerStorageTextureCall(
       return undefined
     }
     if (!arity(id, args, isArray ? 3 : 2, node, sourceFile, diagnostics)) return undefined
+    if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
+      return undefined
     const out = [...args]
     // The layer of an array texture is an integer: a bare `0` would lower to `0.0`, which
     // Tint refuses ("no matching call"), so it is retyped like every other layer.
     if (isArray) {
-      const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
       if (!layer) return undefined
       out[2] = layer
     }
@@ -876,9 +1279,11 @@ function lowerStorageTextureCall(
       return undefined
     }
     if (!arity(id, args, isArray ? 4 : 3, node, sourceFile, diagnostics)) return undefined
+    if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
+      return undefined
     const out = [...args]
     if (isArray) {
-      const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
       if (!layer) return undefined
       out[2] = layer
     }
@@ -941,9 +1346,8 @@ function lowerDepthTextureCall(
   const shown = typeKey(tex)
   if (id === 'textureDimensions') {
     // A cube's size is the size of one face, two wide on both targets, so it keeps the 2d id.
-    return arity(id, args, 1, node, sourceFile, diagnostics)
-      ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
-      : undefined
+    const out = dimsArgs(id, args, node, sourceFile, diagnostics)
+    return out ? { op: 'call', type: vec2uT, fn: id, args: out } : undefined
   }
   if (id === 'textureNumLayers') {
     if (!isArray) {
@@ -983,17 +1387,23 @@ function lowerDepthTextureCall(
       return undefined
     const out = [...args]
     if (isArray) {
-      // The layer is an integer, as on a sampled array texture; the reference depth that
-      // follows it is an f32.
-      const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
+      // The layer is an integer, as on a sampled array texture.
+      const layer = intArg(id, out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
       if (!layer) return undefined
       out[3] = layer
     }
-    const ref = isArray ? 4 : 3
-    if (
-      !floatArg(`${id}'s reference depth`, out[ref]!, node.arguments[ref]!, sourceFile, diagnostics)
+    // …and the reference depth that follows it is an `f32` (wgsl.txt:24734).
+    const refIndex = isArray ? 4 : 3
+    const ref = floatArg(
+      id,
+      out[refIndex]!,
+      node.arguments[refIndex]!,
+      'depth_ref',
+      sourceFile,
+      diagnostics,
     )
-      return undefined
+    if (!ref) return undefined
+    out[refIndex] = ref
     // The cube form is its own id (roadmap 0.4 item 12): on GLSL the reference folds into a
     // vec4 after the vec3 direction, where the 2d form folds it into a vec3.
     const fn = isArray ? `${id}${suffix}` : tex.dim === 'cube' ? `${id}Cube` : id
@@ -1039,12 +1449,13 @@ function lowerTextureCall(
   args: readonly Expr[],
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
+  scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   // A gather takes its texture SECOND on a colour texture, after the component (roadmap 0.4
   // item 12), so it is routed before anything below reads args[0] as the texture.
   if (id === 'textureGather' || id === 'textureGatherCompare') {
-    return lowerGatherCall(id, args, node, sourceFile, diagnostics)
+    return lowerGatherCall(id, args, node, sourceFile, scope, diagnostics)
   }
   const tex = args[0]
   // A storage texture is read and written by texel coordinate (roadmap 0.4 item 10), so the
@@ -1121,16 +1532,18 @@ function lowerTextureCall(
     return undefined
   }
   switch (id) {
-    case 'textureDimensions':
-      if (!arity(id, args, 1, node, sourceFile, diagnostics)) return undefined
+    case 'textureDimensions': {
+      const out = dimsArgs(id, args, node, sourceFile, diagnostics)
+      if (!out) return undefined
       // A 3d texture's size is three wide, and its own id on GLSL (`uvec3` where the 2d wrapper
       // is `uvec2`); a cube's is the size of one face, two wide on both targets (item 12).
       // A 1d texture's size is ONE wide, a u32, and its own id for the same reason (item 12).
       if (tex.type.dim === '1d')
-        return { op: 'call', type: u32T, fn: 'textureDimensions1d', args: [...args] }
+        return { op: 'call', type: u32T, fn: 'textureDimensions1d', args: out }
       return tex.type.dim === '3d'
-        ? { op: 'call', type: vec3uT, fn: 'textureDimensions3d', args: [...args] }
-        : { op: 'call', type: vec2uT, fn: id, args: [...args] }
+        ? { op: 'call', type: vec3uT, fn: 'textureDimensions3d', args: out }
+        : { op: 'call', type: vec2uT, fn: id, args: out }
+    }
     case 'textureNumSamples':
       pushDiag(
         diagnostics,
@@ -1200,19 +1613,35 @@ function lowerTextureCall(
       )
         return undefined
       const fn = `${id}${suffix}`
-      // The LAYER is an integer; the mip LEVEL or BIAS of a sampled read is an f32.
-      // (`textureSampleLevel`'s level argument sits where the layer does on the non-array
-      // form, which is why the index is computed rather than fixed.)
+      // The LAYER is an integer; the mip LEVEL of a sampled read, and a bias on it, are `f32`
+      // (wgsl.txt:25081, 24615). (`textureSampleLevel`'s level argument sits where the layer
+      // does on the non-array form, which is why the index is computed rather than fixed.)
       const out = [...args]
       if (isArray) {
-        const layer = intArg(out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics)
+        const layer = intArg(
+          id,
+          out[3]!,
+          node.arguments[3]!,
+          i32T,
+          'layer',
+          sourceFile,
+          diagnostics,
+        )
         if (!layer) return undefined
         out[3] = layer
       }
       if (id === 'textureSampleLevel' || id === 'textureSampleBias') {
         const k = isArray ? 4 : 3
-        const what = id === 'textureSampleLevel' ? `${id}'s level` : `${id}'s bias`
-        if (!floatArg(what, out[k]!, node.arguments[k]!, sourceFile, diagnostics)) return undefined
+        const lod = floatArg(
+          id,
+          out[k]!,
+          node.arguments[k]!,
+          id === 'textureSampleBias' ? 'bias' : 'level',
+          sourceFile,
+          diagnostics,
+        )
+        if (!lod) return undefined
+        out[k] = lod
       }
       // The gradients have the coordinate's width, on both targets.
       if (id === 'textureSampleGrad') {
@@ -1247,22 +1676,20 @@ function lowerTextureCall(
       )
         return undefined
       // A 1d texture's coordinate is ONE integer (roadmap 0.4 item 12): a bare `3` lowers to an
-      // f32 on this surface, so it is retargeted like a layer, and an f32 expression is refused,
-      // where Tint would refuse the generated `textureLoad(t, 3.0, 0u)`.
+      // f32 on this surface, so it is retargeted like a layer. An f32 EXPRESSION is refused by
+      // `vecArg` above, in the same sentence this arm used to say it in, where Tint would
+      // refuse the generated `textureLoad(t, 3.0, 0u)`.
       if (tex.type.dim === '1d') {
-        const c = intArg(args[1]!, node.arguments[1]!, i32T, 'coordinate', sourceFile, diagnostics)
+        const c = intArg(
+          id,
+          args[1]!,
+          node.arguments[1]!,
+          i32T,
+          'coordinate',
+          sourceFile,
+          diagnostics,
+        )
         if (!c) return undefined
-        if (typeKey(c.type) !== 'i32' && typeKey(c.type) !== 'u32') {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            node.arguments[1]!,
-            `textureLoad on a ${shown} takes an integer coordinate, an i32 or a u32; got ` +
-              `${typeKey(c.type)}.`,
-            TS_CODES.TYPE_MISMATCH,
-          )
-          return undefined
-        }
         args = [args[0]!, c, ...args.slice(2)]
       }
       // Both the layer and the mip level are integers here. A bare number lowers to f32, and
@@ -1270,12 +1697,21 @@ function lowerTextureCall(
       // layerArg/levelArg (#1703), fixed the same way and with the same types.
       const out = [...args]
       if (isArray) {
-        const layer = intArg(out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics)
+        const layer = intArg(
+          id,
+          out[2]!,
+          node.arguments[2]!,
+          i32T,
+          'layer',
+          sourceFile,
+          diagnostics,
+        )
         if (!layer) return undefined
         out[2] = layer
       }
       const levelIndex = isArray ? 3 : 2
       const level = intArg(
+        id,
         out[levelIndex]!,
         node.arguments[levelIndex]!,
         u32T,
@@ -1285,7 +1721,20 @@ function lowerTextureCall(
       )
       if (!level) return undefined
       out[levelIndex] = level
-      return { op: 'call', type: texel, fn: isArray ? 'textureLoadArray' : id, args: out }
+      // An UNSIGNED coordinate takes a wrapping id: GLSL's `texelFetch` has no unsigned
+      // overload (measured), so the coordinate is wrapped in the signed constructor of the
+      // texture's own width. The signed ids are the ones every existing program already uses.
+      const unsignedCoord = out[1]!.type.kind === 'vec' && out[1]!.type.elem === 'u32'
+      const fn = isArray
+        ? unsignedCoord
+          ? 'textureLoadArrayU'
+          : 'textureLoadArray'
+        : unsignedCoord
+          ? tex.type.dim === '3d'
+            ? 'textureLoad3dU'
+            : 'textureLoadU'
+          : id
+      return { op: 'call', type: texel, fn, args: out }
     }
     default:
       return undefined
@@ -1323,6 +1772,7 @@ function lowerMultisampledCall(
         return undefined
       // The third argument is a SAMPLE INDEX, an integer like a level, retyped the same way.
       const sample = intArg(
+        id,
         args[2]!,
         node.arguments[2]!,
         u32T,
@@ -1372,6 +1822,19 @@ function arraySuffix(dim: string): '' | 'Array' | 'CubeArray' {
   return dim === '2d-array' ? 'Array' : dim === 'cube-array' ? 'CubeArray' : ''
 }
 
+/** The gather component folded to a literal: a written number, or a module `const` whose value
+ *  is a scalar. WGSL takes any const-expression (wgsl.txt:23916-23925); these two are the ones
+ *  this surface can prove. */
+function foldConstComponent(arg: Expr, scope: LoweringScope): Expr {
+  if (arg.op === 'constref') {
+    const binding = scope.resolve(arg.name)
+    if (binding?.kind === 'module' && typeof binding.constValue === 'number') {
+      return { op: 'lit', type: arg.type, value: binding.constValue }
+    }
+  }
+  return foldNumericLit(arg)
+}
+
 /** `textureGather(component, tex, smp, coords[, layer])` on a colour texture,
  *  `textureGather(tex, smp, coords[, layer])` on a depth texture, and
  *  `textureGatherCompare(tex, smp, coords[, layer], ref)` on a depth texture through a comparison
@@ -1390,6 +1853,7 @@ function lowerGatherCall(
   args: readonly Expr[],
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
+  scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
   const at = args.findIndex((a) => a.type.kind === 'texture' || a.type.kind === 'depth-texture')
@@ -1442,7 +1906,11 @@ function lowerGatherCall(
       )
       return undefined
     }
-    const lit = foldNumericLit(args[0]!)
+    // WGSL asks for a const-EXPRESSION here, not a literal (wgsl.txt:23916-23925): a module
+    // `const C = 1` used as the component is a program Tint accepts (measured), and this
+    // refused it for being "not written in the call". A module const's scalar value is on its
+    // binding, so folding one is a lookup.
+    const lit = foldConstComponent(args[0]!, scope)
     if (
       lit.op !== 'lit' ||
       typeof lit.value !== 'number' ||
@@ -1454,8 +1922,9 @@ function lowerGatherCall(
         diagnostics,
         sourceFile,
         node.arguments[0]!,
-        `textureGather's component must be a whole number from 0 to 3 written in the call ` +
-          `(0 is red, 3 is alpha); WGSL requires a constant there and refuses any other value.`,
+        `textureGather's component must be a whole number from 0 to 3 known at compile time ` +
+          `(0 is red, 3 is alpha): a literal, or a module const. WGSL requires a ` +
+          `const-expression there and refuses any other value.`,
         TS_CODES.TYPE_MISMATCH,
       )
       return undefined
@@ -1510,9 +1979,16 @@ function lowerGatherCall(
     return undefined
   if (isArray) {
     const k = at + 3
-    const layer = intArg(out[k]!, node.arguments[k]!, i32T, 'layer', sourceFile, diagnostics)
+    const layer = intArg(id, out[k]!, node.arguments[k]!, i32T, 'layer', sourceFile, diagnostics)
     if (!layer) return undefined
     out[k] = layer
+  }
+  // The reference depth of a gather-compare is an `f32`, like `textureSampleCompare`'s.
+  if (compare) {
+    const k = want - 1
+    const ref = floatArg(id, out[k]!, node.arguments[k]!, 'depth_ref', sourceFile, diagnostics)
+    if (!ref) return undefined
+    out[k] = ref
   }
   // One id per WGSL argument structure; a cube gathers by direction with the 2d id, since the
   // coordinate's width rides on the type, and the depth forms differ only in taking no component.
@@ -1533,17 +2009,36 @@ function lowerGatherCall(
   return { op: 'call', type, fn, args: out }
 }
 
+/** The element a texture argument carries, by the one name the messages use: the scalar of a
+ *  scalar, the element of a vector, and `f64` for both emulated-double kinds, which no texture
+ *  builtin has an overload for on either target. */
+function elemNameOf(t: ShaderType): string {
+  return t.kind === 'scalar'
+    ? t.scalar
+    : t.kind === 'vec'
+      ? t.elem
+      : t.kind === 'f64' || t.kind === 'vec64'
+        ? 'f64'
+        : typeKey(t)
+}
+
 /** The coordinate a texture is addressed by has the width its `dim` decides — a `vec2` on a 2d
  *  texture (and on the array, whose layer is a separate argument), a `vec3` DIRECTION on a cube
  *  and a `vec3` on a 3d texture — and the gradients of `textureSampleGrad` have the same width
  *  (roadmap 0.4 item 12). Both targets refuse the wrong width ("no matching call" on Tint, "no
  *  matching overloaded function" on a WebGL2 driver), so this says it first, at the argument.
  *
- *  Only the WIDTH is checked here. The element is `tsc`'s to check through the ambient lib, and
- *  an integer literal in a float coordinate is retargeted by the ordinary numeric path. */
+ *  The ELEMENT is checked here too (#145). It used to be left to `tsc` through the ambient lib,
+ *  and the compiler is not always reached through an editor: `textureSample(t, s, vec2i(0, 0))`
+ *  emitted `textureSample(t, s, vec2<i32>(0, 0))` and `textureLoad(t, vec2(0., 0.), 0)` emitted
+ *  a float coordinate, both of which Tint refuses ("no matching call"). A sampled read takes a
+ *  normalised `f32` coordinate (wgsl.txt:24435 and the `textureSample*` overloads); a texel
+ *  fetch — `textureLoad` and `textureStore`, sampled or storage — takes a whole texel, "C is
+ *  i32, or u32" (wgsl.txt:24129, 25342). A bare numeric LITERAL is exempt: it lowers to an f32
+ *  on this surface and the retarget below (`intArg`) gives it the type the call needs. */
 function vecArg(
   id: string,
-  tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' }>,
+  tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' | 'storage-texture' }>,
   arg: Expr,
   node: ts.Expression,
   what: 'coordinate' | 'gradient',
@@ -1553,50 +2048,114 @@ function vecArg(
   const want =
     tex.dim === '1d' ? 1 : tex.dim === '2d' || tex.dim === '2d-array' || tex.dim === '2d-ms' ? 2 : 3
   // A 1d texture (roadmap 0.4 item 12) is addressed by ONE number: an f32 to sample, an integer
-  // to fetch. Only the width is checked, as for the vectors.
-  if (want === 1 ? arg.type.kind === 'scalar' : arg.type.kind === 'vec' && arg.type.n === want)
-    return true
-  const shape =
-    want === 1
-      ? `single ${id === 'textureLoad' ? 'integer' : 'f32'} ${what}`
-      : (tex.dim === 'cube' || tex.dim === 'cube-array') && what === 'coordinate'
-        ? 'vec3 direction'
-        : `vec${want} ${what}`
+  // to fetch. An emulated double counts as the width it has — `f64` is a scalar and `vec64` a
+  // vector here — so a `vec2f64` coordinate on a 2d texture is answered by the ELEMENT check
+  // below, which is what is wrong with it, rather than by a width message about a width that
+  // is right.
+  const n =
+    arg.type.kind === 'vec' || arg.type.kind === 'vec64'
+      ? arg.type.n
+      : arg.type.kind === 'scalar' || arg.type.kind === 'f64'
+        ? 1
+        : 0
+  if (n !== want) {
+    const shape =
+      want === 1
+        ? `single ${id === 'textureLoad' ? 'integer' : 'f32'} ${what}`
+        : (tex.dim === 'cube' || tex.dim === 'cube-array') && what === 'coordinate'
+          ? 'vec3 direction'
+          : `vec${want} ${what}`
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
+      TS_CODES.TEXTURE_ARGUMENT,
+    )
+    return false
+  }
+  // A texel fetch is by whole texel, every other read by normalised coordinate; a gradient is
+  // a rate of change of the latter, so it is float whatever the call.
+  const wantInt = what === 'coordinate' && (id === 'textureLoad' || id === 'textureStore')
+  const elem = elemNameOf(arg.type)
+  const ok = wantInt ? elem === 'i32' || elem === 'u32' : elem === 'f32'
+  // A bare number in an INTEGER slot is retargeted, not refused: `textureLoad(t, 3, 0)` on a 1d
+  // texture is the form the surface spells, and `intArg` below turns the f32 lit into the i32
+  // the call takes. The exemption is only sound where that retarget follows. It used to test
+  // the FOLDED value and apply to the float slots too, where nothing retargets: `u32(2)` folded
+  // to a lit, skipped the check, and `textureSample(ramp, smp, u32(2))` emitted `2u` on a 1d
+  // texture — "no matching call" on Tint, with no diagnostic here. (`i32(2)` survived only
+  // because the writer spells an i32 lit bare, which WGSL reads as abstract-int.)
+  if (ok || (wantInt && isBareNumber(node))) return true
   pushDiag(
     diagnostics,
     sourceFile,
     node,
-    `${id} on a ${typeKey(tex)} takes a ${shape}; got ${typeKey(arg.type)}.`,
-    TS_CODES.TYPE_MISMATCH,
+    wantInt
+      ? `${id} on a ${typeKey(tex)} takes an integer ${what}, an i32 or a u32; got ` +
+          `${typeKey(arg.type)}.`
+      : `${id} on a ${typeKey(tex)} takes an f32 ${what}; got ${typeKey(arg.type)}.`,
+    TS_CODES.TEXTURE_ARGUMENT,
   )
   return false
 }
 
-/** A texture argument both targets take as a plain `f32` — a mip level, a sampling bias, the
- *  reference depth of a comparison — checked for the one type that reaches it looking like a
- *  float and is not one: an emulated double.
+/** Whether the author wrote a bare number here: a numeric literal, or one behind a unary sign.
  *
- *  An `f64` is a PAIR of f32 words after the fp64 pass, so there is no `textureSampleLevel`
- *  overload for it on either target. It used to be accepted here and refused by that pass as
- *  SD0041 at emit — a diagnostic with no source span, after the call the author wrote was
- *  gone. Said here, at the argument, with the narrow that makes it legal (#151 F64-06). The
- *  native scalars are `tsc`'s to check through the ambient lib, as everywhere else. */
+ *  This is the shape the retargets below act on, and it is asked of the SOURCE rather than of
+ *  the folded value because `foldNumericLit` also folds an explicit cast: `i32(0)` folds to the
+ *  literal 0, so retargeting on the folded value silently deleted a cast the author wrote and
+ *  emitted `0.0` for `textureSampleLevel(t, s, uv, i32(0))` — while refusing the same mistake
+ *  spelled `const l: i32 = 0`. A bare `0` has no type of its own on this surface and is the
+ *  call's to type; `i32(0)` says what it is, and is answered like any other i32. */
+function isBareNumber(node: ts.Expression): boolean {
+  const inner = ts.isPrefixUnaryExpression(node) ? node.operand : node
+  return ts.isNumericLiteral(inner)
+}
+
+/** The source the author wrote for an argument, for the "Write f32(l)." half of a refusal.
+ *  Normalised to one line and cut short, so a long expression cannot smear the message across
+ *  the terminal; the span already points at the argument itself. */
+function argText(node: ts.Expression, sourceFile: ts.SourceFile): string {
+  const text = node.getText(sourceFile).replace(/\s+/g, ' ').trim()
+  return text.length > 24 ? `${text.slice(0, 24).trimEnd()}…` : text
+}
+
+/** A `level`, `bias` or `depth_ref`: the texture arguments WGSL types `f32` (wgsl.txt:25081,
+ *  24615, 24734), where a layer and a mip level of a fetch are integers.
+ *
+ *  `intArg` below has always retargeted a whole-number literal, so `textureSampleLevel(t, s, uv,
+ *  0)` was never the bug. The bug was a VARIABLE: `const l: i32 = 2` reached the backend
+ *  untouched and emitted `textureSampleLevel(t, s, p.xy, 2)`, which Tint refuses. An integer
+ *  literal is still retargeted here; anything else has to be an f32 already.
+ *
+ *  That covers the EMULATED DOUBLE too, which #151 found separately: an `f64` is a pair of f32
+ *  words after the fp64 pass and no `textureSampleLevel` overload takes one on either target,
+ *  so it used to be accepted here and refused by that pass as a span-less SD0041 at emit, after
+ *  the call the author wrote was gone. It is not an `f32`, so it falls to the refusal below and
+ *  is named at the argument with the narrow that makes it legal. */
 function floatArg(
-  what: string,
+  id: string,
   arg: Expr,
   node: ts.Expression,
+  what: string,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): boolean {
-  if (arg.type.kind !== 'f64' && arg.type.kind !== 'vec64') return true
+): Expr | undefined {
+  const lit = foldNumericLit(arg)
+  // A literal already typed f32 is returned AS WRITTEN, not as the folded lit: folding a
+  // negated literal would rewrite `-1.0` and move the emit for no reason.
+  if (isBareNumber(node) && lit.op === 'lit' && typeof lit.value === 'number')
+    return typeKey(lit.type) === 'f32' ? arg : { op: 'lit', type: f32T, value: lit.value }
+  if (typeKey(arg.type) === 'f32') return arg
   pushDiag(
     diagnostics,
     sourceFile,
     node,
-    `${what} must be an f32; got ${typeKey(arg.type)}. Write f32(x).`,
-    TS_CODES.TYPE_MISMATCH,
+    `${id} ${what} must be an f32; got ${typeKey(arg.type)}. Write f32(${argText(node, sourceFile)}).`,
+    TS_CODES.TEXTURE_ARGUMENT,
   )
-  return false
+  return undefined
 }
 
 /** A layer or mip-level argument, retyped when it is a bare whole number and REPORTED when it
@@ -1612,8 +2171,14 @@ function floatArg(
  *  `textureLoad(t, c, -1)` and `textureSample(atlas, smp, uv, 1.5)` emitted with zero
  *  diagnostics, Tint refused the WGSL, and GLSL silently rounded — the exact divergence the
  *  EDSL's own layerArg/levelArg raise SD0015 for. Reported here, at the argument, with the
- *  divergence named. */
+ *  divergence named.
+ *
+ *  A non-literal is no longer waved through either (#145): `const l: f32 = 1.` as a layer
+ *  emitted `textureSampleLevel(t, s, p.xy, 1.0, 0.0)` and `textureLoad(t, c, si)` with an f32
+ *  `si` emitted a float sample index, both refused by Tint ("no matching call") and both
+ *  silently rounded by GLSL ES 3.00. */
 function intArg(
+  id: string,
   arg: Expr,
   node: ts.Expression,
   want: ShaderType,
@@ -1639,7 +2204,19 @@ function intArg(
   // A NEGATED literal is a unop, not a lit, and reached the backend as `-(1.0)`. Folded first
   // so the range check below sees the number the author wrote.
   const lit = foldNumericLit(arg)
-  if (lit.op !== 'lit' || typeof lit.value !== 'number') return arg
+  if (!isBareNumber(node) || lit.op !== 'lit' || typeof lit.value !== 'number') {
+    const key = typeKey(arg.type)
+    if (key === 'i32' || key === 'u32') return arg
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} ${what} must be an i32 or a u32; got ${key}. ` +
+        `Write ${typeKey(want)}(${argText(node, sourceFile)}).`,
+      TS_CODES.TEXTURE_ARGUMENT,
+    )
+    return undefined
+  }
   const v = lit.value
   // Negative is refused whatever the target type. A layer is typed i32 because that is the
   // overload WGSL's array sampling takes, not because -1 means anything: both it and a mip
@@ -1652,12 +2229,44 @@ function intArg(
       `A texture ${what} must be a whole number of 0 or more, got ${String(v)}. ` +
         `WGSL rejects a fractional or negative one and GLSL ES 3.00 silently rounds it, ` +
         `so the two targets would disagree.`,
-      TS_CODES.TYPE_MISMATCH,
+      TS_CODES.TEXTURE_ARGUMENT,
     )
     return undefined
   }
   if (typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32') return lit
   return { op: 'lit', type: want, value: v }
+}
+
+/** `textureDimensions(t)` or `textureDimensions(t, level)` (#147, wgsl.txt:23649). The level
+ *  is optional and is an INTEGER: WGSL types it `i32` or `u32`, and the GLSL column already
+ *  spells the 2-argument form as `textureSize(t, int(level))`, so nothing new is needed on
+ *  either target — the front end simply refused the second argument as an arity error.
+ *
+ *  Measured accepted on Tint (`textureDimensions(t, 0)` and with a `u32` variable) and on a
+ *  WebGL2 driver (`uvec2(textureSize(t, int(0)))`, and with a non-constant level).
+ *
+ *  Returns the arguments to emit, or undefined when it has reported. */
+function dimsArgs(
+  id: string,
+  args: readonly Expr[],
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr[] | undefined {
+  if (args.length === 1) return [...args]
+  if (args.length !== 2) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `${id} on a ${typeKey(args[0]!.type)} expects 1 argument(s), or 2 with an explicit mip ` +
+        `level, got ${args.length}.`,
+      TS_CODES.ARITY_MISMATCH,
+    )
+    return undefined
+  }
+  const level = intArg(id, args[1]!, node.arguments[1]!, u32T, 'mip level', sourceFile, diagnostics)
+  return level ? [args[0]!, level] : undefined
 }
 
 /** One arity check, with the message naming what the texture's own shape requires — an array

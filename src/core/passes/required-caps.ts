@@ -10,7 +10,7 @@
 import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js'
 import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js'
 import { collectFnRefs } from '../ir/collect-refs.js'
-import { TEXTURE_GATHER_IDS } from '../intrinsics.js'
+import { PACKED_4X8_IDS, TEXTURE_GATHER_IDS } from '../intrinsics.js'
 
 /** Capability DEPENDENCIES (X-GIS #1670) — declaring the key implies needing the values, so a
  *  host activating off `reflect().requiredFeatures` gets the whole set rather than the
@@ -27,6 +27,20 @@ const CAP_IMPLIES: Readonly<Partial<Record<Capability, readonly Capability[]>>> 
   float32Blend: ['floatRenderTarget'],
 }
 
+/** Whether the module CALLS one of the packed 4x8 integer builtins (#152), as opposed to
+ *  merely naming one: a module that declares its own `pack4xU8` keeps the call to its own
+ *  function, so the builtin is not reached and the capability is not needed.
+ *
+ *  Shared with reflection, which reports the WGSL language feature from the same fact. */
+export function usesPacked4x8(m: ModuleDecl): boolean {
+  const declared = new Set(m.funcs.map((f) => f.name))
+  for (const f of m.funcs) {
+    const refs = collectFnRefs(f)
+    for (const id of PACKED_4X8_IDS) if (refs.calls.has(id) && !declared.has(id)) return true
+  }
+  return false
+}
+
 /** The capabilities a module's emit requires. */
 export function requiredCaps(m: ModuleDecl): Capability[] {
   const caps = new Set<Capability>()
@@ -39,6 +53,13 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     // load/store, so the capability is what fails a module closed on that target rather than
     // letting it reach `glslType` and throw from inside the emit.
     if (b.type.kind === 'storage-texture') caps.add('storageTexture')
+    // `bgra8unorm` is the one storage format that is not core (#147). Measured on two Chromium
+    // builds: a device with nothing requested refuses the bind group layout, a device that
+    // requested `bgra8unorm-storage` builds it, and Tint compiles the module either way. So the
+    // capability is derived from the FORMAT, and `reflect().requiredFeatures` is where a host
+    // learns which feature to ask for.
+    if (b.type.kind === 'storage-texture' && b.type.format === 'bgra8unorm')
+      caps.add('bgra8unormStorage')
     // A 1d or a cube-array texture is WebGPU-only too (roadmap 0.4 item 12): GLSL ES 3.00 has
     // no `sampler1D` (a reserved word) and no `samplerCubeArray` (a WebGL2 driver refuses the
     // extension). The depth cube array rides the same capability as the colour one.
@@ -55,6 +76,15 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     const refs = collectFnRefs(f)
     for (const id of TEXTURE_GATHER_IDS) if (refs.calls.has(id)) caps.add('textureGather')
   }
+  // The packed 4x8 integer family is a capability of the CALLS too (#152): the values it reads
+  // are ordinary u32s and vectors, so nothing in the module's declarations says it. A call to a
+  // function the MODULE declares under one of those names is not one of them — the surface's
+  // additivity rule keeps such a call pointing at the author's function, so deriving the
+  // capability from the name alone would assert a feature the module never uses.
+  //
+  // Asked ONCE, outside the loop above: `usesPacked4x8` walks the whole module itself, so a
+  // call per function walked it N times over for one module-wide answer.
+  if (usesPacked4x8(m)) caps.add('packed4x8Dot')
   for (const f of m.funcs) {
     // stageOf reads structured `stage` first (X-GIS #763 S2) — a hand-built
     // `{ stage: 'compute' }` decl without attrs must NOT slip past the gate.
