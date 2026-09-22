@@ -298,7 +298,7 @@ describe('the pack and quantize rows say what the emitted code actually does', (
     // type, and a pack answers a `u32` of bytes, so `floatElemOf` returned `undefined` and the
     // node was dropped before `accuracyOf` was asked — four `target` rows, two of them older
     // than the 4x8 pair, describing a divergence the report could not report. Measured before
-    // the fix, this module listed `quantizeToF16` alone.
+    // the fix, this module reported an EMPTY list.
     const r = moduleOf(`"use typeshade";
 declare let out: storage<array<u32>>;
 @compute([1, 1, 1])
@@ -314,9 +314,32 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
       ['pack2x16unorm', 'f32', 'target'],
       ['pack2x16snorm', 'f32', 'target'],
     ])
-    // The argument's kind is read, not assumed: the float vector is the only float in sight,
-    // and an integer operation beside it is still not listed.
-    expect(r.determinism.every((e) => e.where.includes('cs'))).toBe(true)
+    // `every` on the list above would be vacuously true on an empty one, and `toEqual` already
+    // pins the whole list, so the claim worth adding here is the one the list cannot make: the
+    // INTEGER work beside the packs — the `u32` stores and the index arithmetic — is still not
+    // listed, which is what keeps this from being "report anything with a float argument".
+    expect(r.determinism.map((e) => e.op)).not.toContain('*')
+    expect(r.determinism.map((e) => e.op)).not.toContain('+')
+  })
+
+  // #175: the same "the result type hides the row" drop the packs just left behind, on the one
+  // operation where the pass cannot fix it. `accuracyOf` gives every `textureGather*` id the
+  // `filtered` row, and that row is about WHICH four texels the footprint selects — which is
+  // implementation-defined whatever the texture's element. But a gather on a `texture_2d<u32>`
+  // answers a `vec4<u32>`, and `DeterminismEntry.elem` is the public `'f32' | 'f64'`, so there
+  // is no float kind to report it under. Measured: the f32 texture lists the row, the u32 and
+  // i32 ones list nothing. Closing it means widening an exported union, which is a decision
+  // about the report's shape and not a fix inside this pass.
+  it.fails('#175: a gather on an integer texture is filtered too, and is not listed', () => {
+    const r = moduleOf(`"use typeshade";
+declare const tex: texture_2d<u32>;
+declare const smp: sampler;
+declare let out: storage<array<u32>>;
+@compute([1, 1, 1])
+export function cs(@builtin("global_invocation_id") gid: vec3u): void {
+  out[0] = textureGather(0, tex, smp, vec2(0.5, 0.5)).x;
+}`)
+    expect(r.determinism.map((e) => [e.op, e.kind])).toEqual([['textureGather', 'filtered']])
   })
 
   it('both 4x8 packs are target rows: a driver rounds the exact half to even', () => {
@@ -326,7 +349,10 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     // 2 and 3 — and a WGSL-only self-check, one shader computing both the builtin and
     // `floor(0.5 + 255 * e)`, disagrees with ITSELF on the same 34. So the driver rounds the
     // tie to even while the inline, and WGSL's own written rule, round it up. The CPU oracle
-    // sides with GLSL, which is the oracle/GPU equality `exact` is supposed to promise.
+    // sides with GLSL — it rounds the scale in f32, the way both targets do (see the oracle's
+    // own test) — so on those 34 it answers what a WebGL2 driver answers and not what a WGSL
+    // driver answers, which is exactly the oracle/GPU equality `exact` is supposed to promise
+    // and cannot here.
     //
     // The lesson is the const/runtime split: a constant argument is folded by the shader
     // compiler and answers its own way, so a measurement taken on literals says nothing about

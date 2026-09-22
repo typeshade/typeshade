@@ -241,18 +241,34 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   255 is exactly an odd half were passed to a WGSL driver's native builtin as CONSTANTS, and the
   driver, the new inline and the CPU oracle all answered half-up. Tint const-evaluates a literal
   argument and answers its own way, so that says nothing about the instruction a driver issues:
-  swept at RUNTIME over 511 inputs e = i/510, the driver and the inline part on 34 of them (i =
-  1 packs 0 on WGSL and 1 on GLSL, i = 5 packs 2 and 3), and a WGSL-only shader comparing the
-  builtin against `floor(0.5 + 255 * e)` in one dispatch disagrees with ITSELF on the same 34.
-  So `pack4x8unorm` stays a `target` row, beside `pack4x8snorm`, with the runtime sweep in its
-  note; only `ldexp` leaves the column. The same const/runtime split is what made
-  `ldexp(1.0, -149)` look like a subnormal. The `pack2x16*` rows stay too: those are native GLSL
-  builtins defined with `round()`, and no spelling of ours reaches them.
+  swept at RUNTIME over 511 inputs `e = f32(i) / 510`, the driver's builtin and the inline part
+  on 34 of them (i = 1 packs 0 on WGSL and 1 on GLSL, i = 5 packs 2 and 3). The sweep carries
+  the intermediates out losslessly, which settles the mechanism rather than guessing it: `e` and
+  the f32 product `clamp(e, 0, 1) * 255` come back BIT-IDENTICAL from the two targets, so
+  nothing upstream of the rounding differs; 66 of those products land exactly on k + 0.5, and on
+  the 34 whose k is even the builtin answers k — the even one — while both the GLSL inline and a
+  WGSL inline of the same formula answer k + 1. `pack4x8snorm` is the same picture and harder:
+  509 inputs, 244 exact halves, 122 partings, and at a product of -125.5 the builtin packs the
+  byte 130 (-126) against both inlines' 131 (-125). So both 4×8 packs stay `target` rows with
+  the sweep in their notes; only `ldexp` leaves the column. The same const/runtime split is what
+  made `ldexp(1.0, -149)` look like a subnormal. The `pack2x16*` rows stay too: those are native
+  GLSL builtins defined with `round()`, and no spelling of ours reaches them.
   And the four `pack` rows are REACHABLE now. The determinism walk takes a node's float kind
   from its RESULT type, and a pack answers a `u32` of bytes, so every one of them was dropped
-  before its accuracy row was consulted — a module calling all four listed none. A pack's float
-  kind is the one it READS, and the two `pack2x16*` rows had been dead the same way since the
-  report was written.
+  before its accuracy row was consulted — a module calling all four and nothing else reported an
+  EMPTY list. A pack's float kind is the one it READS, and the two `pack2x16*` rows had been
+  dead the same way since the report was written. One row of that shape is left and is filed
+  rather than fixed ([#175](https://github.com/typeshade/typeshade/issues/175)): a
+  `textureGather` on an INTEGER texture is `filtered` for the same footprint reason a float one
+  is, but `DeterminismEntry.elem` is the exported `'f32' | 'f64'` and an integer gather has no
+  float kind, so reporting it widens a public union. An `it.fails` pins it.
+- **The CPU oracle rounds a pack's scale in f32, the way both targets do.** `pack4x8unorm`,
+  `pack2x16unorm` and `pack2x16snorm` multiplied by the scale in f64 and rounded that. A GPU
+  multiplies in f32, so on a value whose f32 product lands exactly on k + 0.5 while its f64
+  product lands just under, the oracle rounded DOWN where both targets round up: measured
+  against the emitted GLSL inline over the 511 inputs `e = i/510`, the f64 form parted from it
+  on 127 of them, and at `e = 0.8098039031028748` the oracle packed 206 against both targets' 207. An oracle that agrees with NEITHER target is the one thing it may not be. `pack4x8snorm`
+  already had the `Math.fround` and documents the mechanism; its three siblings now match it.
   The `fma` comment claimed WGSL's is "a SINGLE rounding, atomic" in contrast to GLSL's
   `a * b + c`. Neither spec says that: WGSL §15.7.4.1 makes `fma` inherited from `x * y + z` and
   its note allows an ordinary multiply then an ordinary add, and GLSL ES 3.00 §4.5.1 allows the

@@ -10,7 +10,7 @@ import { compile } from './compile.js'
 import { compileTsSource } from './source-file.js'
 import { compileModule } from '../../core/oracle.js'
 import { compileModuleJs } from '../../core/cpu-codegen.js'
-import type { CpuValue } from '../../core/cpu-runtime.js'
+import { BUILTINS, type CpuValue } from '../../core/cpu-runtime.js'
 
 const U = `class U { k: u32; s: i32; v: vec2i; m: mat4; w: vec4 }
 declare const u: uniform<U>`
@@ -331,6 +331,33 @@ export function fs(@location(0) uv: vec2): vec4 {
     ])
     // The unorm twin for contrast: 1 -> 255, -1 clamps to 0.
     packs('pack4x8unorm(vec4(1., -1., 0., 1.))', 0xff0000ff)
+  })
+
+  it('rounds the pack scale in f32, which is where a GPU rounds it', () => {
+    // The oracle's job is to answer what a GPU answers, and a GPU multiplies in f32. These
+    // bodies multiplied in f64, so on a value whose f32 product lands exactly on k + 0.5 while
+    // the f64 product lands just under it, the oracle rounded DOWN and both targets rounded up
+    // — an oracle that agrees with neither target. `pack4x8snorm` already had the f32 round and
+    // documents the mechanism; its three siblings did not.
+    //
+    // The inputs below are exact f32 values. Measured against the emitted GLSL inline
+    // (`floor(0.5 + clamp(e, 0, 1) * 255.0)`, evaluated in f32) over the 511 inputs e = i/510,
+    // the f64 form parted from it on 127 of them.
+    const lowByte = (u: unknown): number => (u as number) & 0xff
+    expect(lowByte(BUILTINS.pack4x8unorm!([0.8098039031028748, 0, 0, 0]))).toBe(207)
+    expect(lowByte(BUILTINS.pack4x8unorm!([0.9196078181266785, 0, 0, 0]))).toBe(235)
+    // f32(0.8098039031028748) * 255 is exactly 206.5; in f64 it is 206.49999... — which is the
+    // whole difference, so the f64 spelling of the same expression gives 206.
+    expect(Math.round(0.8098039031028748 * 255) & 0xff).toBe(206)
+
+    // The 2x16 pair, on the same mechanism at their own scales. Each input is an exact f32
+    // whose f32 product with the scale is exactly k + 0.5 while its f64 product is just under,
+    // so the two spellings answer one apart and the assertion cannot pass on the f64 body.
+    const low16 = (u: unknown): number => (u as number) & 0xffff
+    expect(low16(BUILTINS.pack2x16unorm!([0.5000152587890625, 0]))).toBe(32769)
+    expect(Math.round(0.5000152587890625 * 65535)).toBe(32768)
+    expect(low16(BUILTINS.pack2x16snorm!([0.500030517578125, 0]))).toBe(16385)
+    expect(Math.round(0.500030517578125 * 32767)).toBe(16384)
   })
 
   it('bitcast reads the same 32 bits the other way, and round-trips', () => {

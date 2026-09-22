@@ -131,10 +131,10 @@ const HALF_NOTE =
   'GLSL ES 3.00 rounds the scaled value with round(), whose exact half goes in an implementation-chosen direction; WGSL takes floor(0.5 + x), so an input that lands on a half may pack one step apart'
 
 const UNORM_HALF_NOTE =
-  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 255 * clamp(e, 0, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to even; swept at runtime over 511 inputs e = i/510, the two parted on 34 of them (i = 1 packs 0 on WGSL and 1 on GLSL, i = 5 packs 2 and 3), and a WGSL-only self-check comparing the builtin against floor(0.5 + 255 * e) inside one shader disagrees with itself on the same 34'
+  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 255 * clamp(e, 0, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to EVEN; swept at runtime over 511 inputs e = f32(i) / 510, both e and the f32 product clamp(e, 0, 1) * 255 come back bit-identical from the two targets, so nothing upstream of the rounding differs; 66 of those products land exactly on k + 0.5, and on the 34 with an even k the builtin answers k while the GLSL inline AND a WGSL inline of the same formula answer k + 1 (i = 1 packs 0 against 1, i = 5 packs 2 against 3)'
 
 const SNORM_HALF_NOTE =
-  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 127 * clamp(e, -1, 1)), which is the rule WGSL states, while a WGSL driver may round the same tie to even; the two part on the values whose f32 product with 127 lands exactly on a half'
+  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 127 * clamp(e, -1, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to EVEN; swept at runtime over 509 inputs e = (f32(i) - 254) / 254, both e and the f32 product come back bit-identical from the two targets, 244 products land exactly on a half and 122 of them part — at a product of -125.5 the builtin packs the byte 130, which is -126, the even one, and both inlines pack 131, which is -125'
 
 const QUANTIZE_NOTE =
   'GLSL ES 3.00 has no such builtin and the backend spells it as packHalf2x16 then unpackHalf2x16, one component at a time; measured against a WGSL driver, the two part in three places — a value exactly halfway between two binary16 neighbours (the GLSL round trip rounds to nearest even, the driver moved), a magnitude above the largest finite binary16 (WGSL gives an infinity, the GLSL round trip a NaN), and a magnitude below the smallest normal one (the driver flushed it to zero, the GLSL round trip kept the subnormal)'
@@ -391,9 +391,15 @@ const F64_EMULATED: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%', 'flo
  *  means everywhere else. A pack takes a float vector and answers a word, so every one of these
  *  rows was unreachable: the walk asked the `u32` result for a float kind, got `undefined`, and
  *  dropped the node before `accuracyOf` was ever consulted. Measured on a module calling all
- *  four, the report listed `quantizeToF16` (an f32 result) and nothing else, so the four `target`
- *  rows this table carries — two of them older than the 4x8 pair — described a divergence the
- *  report could not report. The float kind that matters for a pack is the one it READS. */
+ *  four and nothing else, the report came back EMPTY, so the four `target` rows this table
+ *  carries — two of them older than the 4x8 pair — described a divergence the report could not
+ *  report. The float kind that matters for a pack is the one it READS.
+ *
+ *  `textureGather` on an integer texture is the one row still out of reach by this mechanism
+ *  and is NOT fixed here: its `filtered` row is about which four texels the footprint selects,
+ *  which is implementation-defined whatever the element, but the entry's `elem` is the public
+ *  `'f32' | 'f64'` and an integer gather has no float kind to report. See the `it.fails` in
+ *  `determinism.test.ts`. */
 const PACK_FLOAT_ARG: ReadonlySet<string> = new Set([
   'pack4x8unorm',
   'pack4x8snorm',

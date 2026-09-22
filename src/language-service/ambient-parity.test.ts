@@ -150,6 +150,36 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     FS('declare const U: uniform<{ m: mat4 }>', '  return U.m * vec4(uv, 0., 1.)'),
     'refuse',
   ],
+  // A gather is typed by the TEXTURE's element, on the array forms as much as the plain ones.
+  // Both array overloads declared the element parameter and returned a bare `vec4` anyway, so
+  // the editor reported "Argument of type 'vec4' is not assignable to parameter of type 'vec4u'"
+  // on a program the compiler lowers — the exact false positive this file exists to catch. The
+  // whole vector has to be passed somewhere a `vec4u` is required: the scalar brands are
+  // mutually assignable, so `gather(...).x` into a `u32` does not tell the two apart.
+  [
+    'gather on a non-array integer texture, whole vector',
+    FS(
+      'declare const t: texture_2d<u32>\ndeclare const smp: sampler\nfunction take(v: vec4u): u32 { return v.x }',
+      '  const n = take(textureGather(0, t, smp, uv))\n  return vec4(f32(n) * 0., 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'gather on an ARRAY integer texture, whole vector',
+    FS(
+      'declare const t: texture_2d_array<u32>\ndeclare const smp: sampler\nfunction take(v: vec4u): u32 { return v.x }',
+      '  const n = take(textureGather(0, t, smp, uv, 0))\n  return vec4(f32(n) * 0., 0., 0., 1.)',
+    ),
+    'accept',
+  ],
+  [
+    'gather on a cube-ARRAY integer texture, whole vector',
+    FS(
+      'declare const t: texture_cube_array<u32>\ndeclare const smp: sampler\nfunction take(v: vec4u): u32 { return v.x }',
+      '  const n = take(textureGather(0, t, smp, vec3(uv, 1.), 0))\n  return vec4(f32(n) * 0., 0., 0., 1.)',
+    ),
+    'accept',
+  ],
 ]
 
 describe('the ambient library declares what the compiler lowers, no wider and no narrower', () => {

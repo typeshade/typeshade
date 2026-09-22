@@ -737,9 +737,17 @@ export const BUILTINS: Record<string, Builtin> = {
   // itself (or the struct member holding it), and its length is the answer the GPU gives.
   // Computable, so it lives here and not among the GPU_STUBS below.
   arrayLength: (xs) => (xs as readonly CpuValue[]).length,
+  //
+  // The scale is rounded to f32 FIRST, for the reason the signed twin below spells out: a GPU
+  // multiplies in f32 and this oracle would otherwise multiply in f64. Measured, an f64 product
+  // parts from the emitted GLSL inline (`floor(0.5 + clamp(e, 0, 1) * 255.0)`, evaluated in f32)
+  // on 127 of the 511 inputs e = i/510 — at e = 0.8098039031028748 the f64 product is just under
+  // 206.5 and rounds to 206 where both targets answer 207. An oracle that agrees with NEITHER
+  // target is the one thing it may not be.
   pack4x8unorm: (v) => {
     const a = v as number[]
-    const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff
+    const q = (x: number): number =>
+      Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 255)) & 0xff
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
   },
   // The signed twin (#150, WGSL §17.10): ⌊0.5 + 127 × clamp(e, -1, 1)⌋, low 8 bits of the
@@ -788,9 +796,12 @@ export const BUILTINS: Record<string, Builtin> = {
     const n = (u as number) >>> 0
     return [f16BitsToF32(n & 0xffff), f16BitsToF32(n >>> 16)]
   },
+  // `Math.fround` on the scale for the same reason as the 4x8 pair: the product is an f32 on
+  // both targets and an f64 here without it.
   pack2x16unorm: (v) => {
     const a = v as number[]
-    const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 65535) & 0xffff
+    const q = (x: number): number =>
+      Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 65535)) & 0xffff
     return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0
   },
   unpack2x16unorm: (u) => {
@@ -799,7 +810,8 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   pack2x16snorm: (v) => {
     const a = v as number[]
-    const q = (x: number): number => Math.round(Math.max(-1, Math.min(1, x)) * 32767) & 0xffff
+    const q = (x: number): number =>
+      Math.round(Math.fround(Math.max(-1, Math.min(1, x)) * 32767)) & 0xffff
     return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0
   },
   unpack2x16snorm: (u) => {
