@@ -96,10 +96,10 @@ describe('#8 B1 — fn() infers void', () => {
   });
 
   it('the anonymous form infers void too', () => {
-    const h = fn({ x: f32T }, ({ x }) => {
+    const _fn = fn({ x: f32T }, ({ x }) => {
       Var('t', x.add(1));
     });
-    const _h: Exact<ReturnType<typeof h>, Node<'void'>> = true;
+    const _h: Exact<ReturnType<typeof _fn>, Node<'void'>> = true;
     expect(_h).toBe(true);
   });
 

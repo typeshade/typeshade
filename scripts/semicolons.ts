@@ -24,7 +24,8 @@
 //
 //               // format:semicolons skip — why these sources are written without `;`
 //
-// Host-side TypeScript is not touched: it keeps Prettier's `semi: false` (.prettierrc.json).
+// Host-side TypeScript is Prettier's (`semi: true`, .prettierrc.json); this script covers what
+// Prettier cannot parse or does not format. `bun run format` and `bun run format:check` run both.
 // An example file or a directive fence that does not parse is an error, not a skip: shader
 // source a reader copies out of the docs should parse.
 

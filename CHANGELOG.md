@@ -22,7 +22,14 @@ repository has been published to npm; **`0.1.0` will be the first release**.
   `src/compiler/ts/semicolons.test.ts` fails `bun run test` on a missing one, and also proves the
   compiler still reads source without them: every example with its `;` taken back out emits the
   same WGSL. The language is unchanged, and so is the emit: ASI is still ordinary TypeScript.
-  Prettier's `semi: false` still holds for host code; it no longer reformats Markdown fences.
+  Prettier no longer reformats Markdown fences.
+- **Prettier writes `;` everywhere else, and CI holds the format and a lint.** `.prettierrc.json`
+  moves to `semi: true` and the tree is reformatted with it (no hand edits; the emit is
+  byte-identical). ESLint comes in with `typescript-eslint`'s recommended set, the same base
+  vscode-typeshade uses, and a `_` prefix for bindings unused on purpose; the handful of
+  findings are fixed (two `as any` casts typed as `ConsoleMethod`, a `let` that is a `const`).
+  The CI `check` job runs `bun run lint` and `bun run format:check`, which now also runs the
+  shader-source pass, so neither kind of `;` can go missing again.
 
 - **The fp64 guard is read once per function, and its redundant multiplies are gone** (§39).
   Every float `df64_*` helper fetched the `_fp64` guard texel itself, so every helper CALL

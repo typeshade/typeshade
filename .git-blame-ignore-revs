@@ -1,0 +1,5 @@
+# `git blame` skips these commits: mechanical reformats with no change in behaviour.
+# Use it locally with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: Prettier writes `;` — `semi: true`, and the tree reformatted with it
+fb2a7aaf66618355ad70f11db6a4e412839c0db2

@@ -17,8 +17,10 @@
 // parser recovered from is not a boundary worth writing down. The decorator on a top-level
 // `export function` is a grammar check, not a parse error, so shader source parses cleanly.
 //
-// Host-side TypeScript in this repository keeps Prettier's `semi: false`; this pass is for
-// shader source only (see `scripts/semicolons.ts` for the files it covers).
+// Host-side TypeScript gets its `;` from Prettier (`semi: true`). Prettier cannot reach shader
+// source: it does not parse a decorated top-level function, so `*.shade.ts` is prettierignored,
+// and it does not format a string a test compiles. This pass covers those (see
+// `scripts/semicolons.ts` for the files).
 
 import ts from 'typescript';
 
