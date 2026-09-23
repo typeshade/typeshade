@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "fp64 Julia set (source twin)",
-  "blurb": "`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed lifted to full doubles beside it (§39), and the two halves lower to `df64_add` / `df64_mul` against plain f32 ops. The escape test reads an f32 |z|² on both halves: the double half narrows its words for it, since 48 bits move a value across 16 only from within an f32 rounding of it, and the f32 half carries its squares beside it, so no square is computed twice a trip.",
+  "blurb": "`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed lifted to full doubles beside it (§39), and the double half lowers to `df64_sqr` for each square, one `df64_mul` for `zx * zy` with its doubling an exact `* 2.0` on the two words, and `df64_add` / `df64_sub` around them, against plain f32 ops. The escape test reads an f32 |z|² on both halves: the double half narrows its words for it, since 48 bits move a value across 16 only from within an f32 rounding of it, and the f32 half carries its squares beside it, so no square is computed twice a trip. Both loops leave with a `break` at the first escaped z.",
   "renderable": true,
   "twinOf": "fp64-julia"
 }
@@ -71,15 +71,15 @@ export function fs_julia(vo: VsOut): vec4 {
 
   // |z|^2 of the last z the loop reached, CARRIED beside z: set from z0 before
   // the loop, refreshed after every step, read by the escape test, and after the
-  // loop already the |z|^2 the smooth colouring wants. The test is one compare,
-  // so a trip after escape costs that compare and the counter's own step.
+  // loop already the |z|^2 the smooth colouring wants. The test is one compare.
   //
-  // The test belongs in the loop condition, `j < 128 && m2 <= 16.0`, which exits
-  // where this skips. This surface does not accept it: a `for` is counted
-  // (surface §17, Rule 7.5 of docs/language-design.md), its condition is read
-  // as ONE comparison of the counter against a constant, and the conjunction is
-  // TS8006. The original could say it and spells what this file spells instead;
-  // `fp64-julia.ts` records what exiting would and would not save.
+  // The loop leaves at the first escaped z, with a `break` at the top of the
+  // trip, instead of running to 128 and skipping its body. The natural spelling
+  // is the loop condition, `j < 128 && m2 <= 16.0`, which this surface does not
+  // accept: a `for` is counted (surface §17, Rule 7.5 of docs/language-design.md),
+  // its condition is read as ONE comparison of the counter against a constant,
+  // and the conjunction is TS8006. A `break` is the same program in the counted
+  // form; `fp64-julia.ts` records what exiting does and does not save.
   let it = 0.
   let m2 = 0.
   if (vo.uv.x < 0.5 || u.fp64 < 0.5) {
@@ -97,15 +97,16 @@ export function fs_julia(vo: VsOut): vec4 {
     let y2 = zy * zy
     m2 = x2 + y2
     for (let j: u32 = 0; j < 128; j++) {
-      if (m2 <= 16.0) {
-        const nzx = x2 - y2 + -0.8
-        zy = zx * zy * 2.0 + 0.156
-        zx = nzx
-        it = it + 1.0
-        x2 = zx * zx
-        y2 = zy * zy
-        m2 = x2 + y2
+      if (m2 > 16.0) {
+        break
       }
+      const nzx = x2 - y2 + -0.8
+      zy = zx * zy * 2.0 + 0.156
+      zx = nzx
+      it = it + 1.0
+      x2 = zx * zx
+      y2 = zy * zy
+      m2 = x2 + y2
     }
   } else {
     // f64: the same loop, z0 keeps its extended-precision position. The
@@ -128,15 +129,16 @@ export function fs_julia(vo: VsOut): vec4 {
     const hy0 = f32(zy)
     m2 = hx0 * hx0 + hy0 * hy0
     for (let j: u32 = 0; j < 128; j++) {
-      if (m2 <= 16.0) {
-        const nzx = zx * zx - zy * zy + -0.8
-        zy = zx * zy * 2.0 + 0.156
-        zx = nzx
-        it = it + 1.0
-        const hx = f32(zx)
-        const hy = f32(zy)
-        m2 = hx * hx + hy * hy
+      if (m2 > 16.0) {
+        break
       }
+      const nzx = zx * zx - zy * zy + -0.8
+      zy = zx * zy * 2.0 + 0.156
+      zx = nzx
+      it = it + 1.0
+      const hx = f32(zx)
+      const hy = f32(zy)
+      m2 = hx * hx + hy * hy
     }
   }
 

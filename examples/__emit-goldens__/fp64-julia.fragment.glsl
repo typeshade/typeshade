@@ -104,15 +104,16 @@ void main() {
     float _v10 = (_v8 * _v8);
     _v6 = (_v9 + _v10);
     for (uint _v11 = 0u; (_v11 < 128u); _v11 = (_v11 + 1u)) {
-      if ((_v6 <= 16.0)) {
-        float _v12 = ((_v9 - _v10) + -0.8);
-        _v8 = (((_v7 * _v8) * 2.0) + 0.156);
-        _v7 = _v12;
-        _v5 = (_v5 + 1.0);
-        _v9 = (_v7 * _v7);
-        _v10 = (_v8 * _v8);
-        _v6 = (_v9 + _v10);
+      if ((_v6 > 16.0)) {
+        break;
       }
+      float _v12 = ((_v9 - _v10) + -0.8);
+      _v8 = (((_v7 * _v8) * 2.0) + 0.156);
+      _v7 = _v12;
+      _v5 = (_v5 + 1.0);
+      _v9 = (_v7 * _v7);
+      _v10 = (_v8 * _v8);
+      _v6 = (_v9 + _v10);
     }
   } else {
     vec2 _v13 = df64_add(_cse1, vec2(_v3, 0.0), _fp64_g);
@@ -121,15 +122,16 @@ void main() {
     float _v16 = df64_narrow(_v14);
     _v6 = ((_v15 * _v15) + (_v16 * _v16));
     for (uint _v17 = 0u; (_v17 < 128u); _v17 = (_v17 + 1u)) {
-      if ((_v6 <= 16.0)) {
-        vec2 _v18 = df64_add(df64_sub(df64_sqr(_v13, _fp64_g), df64_sqr(_v14, _fp64_g), _fp64_g), _licm0, _fp64_g);
-        _v14 = df64_add((df64_mul(_v13, _v14, _fp64_g) * 2.0), _licm1, _fp64_g);
-        _v13 = _v18;
-        _v5 = (_v5 + 1.0);
-        float _v19 = df64_narrow(_v13);
-        float _v20 = df64_narrow(_v14);
-        _v6 = ((_v19 * _v19) + (_v20 * _v20));
+      if ((_v6 > 16.0)) {
+        break;
       }
+      vec2 _v18 = df64_add(df64_sub(df64_sqr(_v13, _fp64_g), df64_sqr(_v14, _fp64_g), _fp64_g), _licm0, _fp64_g);
+      _v14 = df64_add((df64_mul(_v13, _v14, _fp64_g) * 2.0), _licm1, _fp64_g);
+      _v13 = _v18;
+      _v5 = (_v5 + 1.0);
+      float _v19 = df64_narrow(_v13);
+      float _v20 = df64_narrow(_v14);
+      _v6 = ((_v19 * _v19) + (_v20 * _v20));
     }
   }
   float _v21 = ((_v5 - log2(max(log2(max(_v6, 1.0001)), 0.0001))) + 1.0);

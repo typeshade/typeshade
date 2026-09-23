@@ -34,6 +34,7 @@ import {
   vec2f64T,
   If,
   Loop,
+  Break,
   Var,
   Let,
   u32,
@@ -82,24 +83,25 @@ const fsJulia = fn(
 
     // |z|² of the last z the loop reached, CARRIED beside z: set from z₀ before the loop,
     // refreshed after every step, read by the escape test, and after the loop already the
-    // |z|² the smooth colouring wants. The test is one compare, so a trip after escape costs
-    // that compare and the counter's own step. It used to recompute |z|² every trip, escaped
-    // or not, and on the right half in df64: two squares, a df64_add, a df64_le and three
-    // compares, a trip.
+    // |z|² the smooth colouring wants. The test is one compare. It used to recompute |z|² every
+    // trip, escaped or not, and on the right half in df64: two squares, a df64_add, a df64_le
+    // and three compares, a trip.
     //
-    // The test belongs in the loop condition, `j < ITER && m2 <= 16`, which EXITS where this
-    // SKIPS. This file can say it (`Loop(u32(0), (j) => j.lt(u32(ITER)).and(m2.le(16.0)), …)`
-    // lowers to that `for`, and Tint and WebGL2 accept it); the twin cannot. The source
-    // language's `for` is counted (surface §17, Rule 7.5 of docs/language-design.md), its
-    // condition is read as ONE comparison of the counter against a constant, and the
-    // conjunction is TS8006. A twin spells what its original spells, so both skip. Measured
-    // on the GPU-like evaluator (the fp64-lowered module at f32 precision) over 256×256
-    // samples a half, the exit shape gives the same `it`, m2 and colour bit for bit on both
-    // halves, and what it would save is small now that a skipped trip computes nothing. A
-    // wave runs until its LAST lane leaves: at 640×480, 831 of the right half's 2400 8×8
-    // pixel tiles have every lane escape before trip 128 at the default zoom (1272 at a
-    // 1e-10 span), and each would drop its remaining trips, which cost a u32 increment, two
-    // compares and a branch.
+    // The loop LEAVES at the first escaped z — `If(m2 > 16) Break()` at the top of the trip —
+    // instead of running to ITER and skipping its body. The natural spelling is the loop
+    // condition, `j < ITER && m2 <= 16`, and this file could write it; the twin cannot. The
+    // source language's `for` is counted (surface §17, Rule 7.5 of docs/language-design.md),
+    // its condition is ONE comparison of the counter against a constant, and the conjunction
+    // is TS8006. A `break` is the same program in the counted form, so both files spell that.
+    // It makes everything after the loop non-uniform in WGSL's analysis, and nothing after it
+    // needs uniform control flow (no sample, derivative or barrier), so Tint takes it.
+    //
+    // What it saves is bounded by the wave: a wave runs until its LAST lane leaves, so only a
+    // tile whose every lane has escaped drops its remaining trips. At 640×480, 831 of the right
+    // half's 2400 8×8 pixel tiles have every lane escape before trip 128 at the default zoom
+    // (1272 at a 1e-10 span), and each drops trips that cost a u32 increment, two compares and
+    // a branch. Measured on the GPU-like evaluator (the fp64-lowered module at f32 precision)
+    // over the full 640×480 frame, the exit gives the same colour bit for bit on both halves.
     const it = Var(f32(0))
     const m2 = Var(f32(0))
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
@@ -123,15 +125,16 @@ const fsJulia = fn(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(m2.le(16.0), () => {
-            const nzx = Let(x2.sub(y2).add(C_RE))
-            zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
-            zx.assign(nzx)
-            it.assign(it.add(1.0))
-            x2.assign(zx.mul(zx))
-            y2.assign(zy.mul(zy))
-            m2.assign(x2.add(y2))
+          If(m2.gt(16.0), () => {
+            Break()
           })
+          const nzx = Let(x2.sub(y2).add(C_RE))
+          zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
+          zx.assign(nzx)
+          it.assign(it.add(1.0))
+          x2.assign(zx.mul(zx))
+          y2.assign(zy.mul(zy))
+          m2.assign(x2.add(y2))
         },
       )
     }).else(() => {
@@ -172,15 +175,16 @@ const fsJulia = fn(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(m2.le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
-            zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
-            zx.assign(nzx)
-            it.assign(it.add(1.0))
-            const hx = Let(toF32(zx))
-            const hy = Let(toF32(zy))
-            m2.assign(hx.mul(hx).add(hy.mul(hy)))
+          If(m2.gt(16.0), () => {
+            Break()
           })
+          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
+          zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
+          zx.assign(nzx)
+          it.assign(it.add(1.0))
+          const hx = Let(toF32(zx))
+          const hy = Let(toF32(zy))
+          m2.assign(hx.mul(hx).add(hy.mul(hy)))
         },
       )
     })

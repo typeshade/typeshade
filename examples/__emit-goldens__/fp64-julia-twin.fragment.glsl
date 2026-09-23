@@ -104,15 +104,16 @@ void main() {
     float y2 = (zy * zy);
     m2 = (x2 + y2);
     for (uint j = 0u; (j < 128u); j = (j + 1u)) {
-      if ((m2 <= 16.0)) {
-        float nzx = ((x2 - y2) + -0.8);
-        zy = (((zx * zy) * 2.0) + 0.156);
-        zx = nzx;
-        it = (it + 1.0);
-        x2 = (zx * zx);
-        y2 = (zy * zy);
-        m2 = (x2 + y2);
+      if ((m2 > 16.0)) {
+        break;
       }
+      float nzx = ((x2 - y2) + -0.8);
+      zy = (((zx * zy) * 2.0) + 0.156);
+      zx = nzx;
+      it = (it + 1.0);
+      x2 = (zx * zx);
+      y2 = (zy * zy);
+      m2 = (x2 + y2);
     }
   } else {
     vec2 zx_1 = df64_add(_cse1, vec2(dx, 0.0), _fp64_g);
@@ -121,15 +122,16 @@ void main() {
     float hy0 = df64_narrow(zy_1);
     m2 = ((hx0 * hx0) + (hy0 * hy0));
     for (uint j_1 = 0u; (j_1 < 128u); j_1 = (j_1 + 1u)) {
-      if ((m2 <= 16.0)) {
-        vec2 nzx_1 = df64_add(df64_sub(df64_sqr(zx_1, _fp64_g), df64_sqr(zy_1, _fp64_g), _fp64_g), _licm0, _fp64_g);
-        zy_1 = df64_add((df64_mul(zx_1, zy_1, _fp64_g) * 2.0), _licm1, _fp64_g);
-        zx_1 = nzx_1;
-        it = (it + 1.0);
-        float hx = df64_narrow(zx_1);
-        float hy = df64_narrow(zy_1);
-        m2 = ((hx * hx) + (hy * hy));
+      if ((m2 > 16.0)) {
+        break;
       }
+      vec2 nzx_1 = df64_add(df64_sub(df64_sqr(zx_1, _fp64_g), df64_sqr(zy_1, _fp64_g), _fp64_g), _licm0, _fp64_g);
+      zy_1 = df64_add((df64_mul(zx_1, zy_1, _fp64_g) * 2.0), _licm1, _fp64_g);
+      zx_1 = nzx_1;
+      it = (it + 1.0);
+      float hx = df64_narrow(zx_1);
+      float hy = df64_narrow(zy_1);
+      m2 = ((hx * hx) + (hy * hy));
     }
   }
   float sn = ((it - log2(max(log2(max(m2, 1.0001)), 0.0001))) + 1.0);

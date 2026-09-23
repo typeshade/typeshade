@@ -47,15 +47,16 @@ fn fs_julia(vo: VsOut) -> @location(0) vec4<f32> {
     var y2: f32 = (zy * zy);
     m2 = (x2 + y2);
     for (var j: u32 = 0u; (j < 128u); j = (j + 1u)) {
-      if ((m2 <= 16.0)) {
-        let nzx = ((x2 - y2) + -0.8);
-        zy = (((zx * zy) * 2.0) + 0.156);
-        zx = nzx;
-        it = (it + 1.0);
-        x2 = (zx * zx);
-        y2 = (zy * zy);
-        m2 = (x2 + y2);
+      if ((m2 > 16.0)) {
+        break;
       }
+      let nzx = ((x2 - y2) + -0.8);
+      zy = (((zx * zy) * 2.0) + 0.156);
+      zx = nzx;
+      it = (it + 1.0);
+      x2 = (zx * zx);
+      y2 = (zy * zy);
+      m2 = (x2 + y2);
     }
   } else {
     var zx_1: vec2<f32> = df64_add(_cse1, vec2<f32>(dx, 0.0), _fp64_g);
@@ -64,15 +65,16 @@ fn fs_julia(vo: VsOut) -> @location(0) vec4<f32> {
     let hy0 = df64_narrow(zy_1);
     m2 = ((hx0 * hx0) + (hy0 * hy0));
     for (var j_1: u32 = 0u; (j_1 < 128u); j_1 = (j_1 + 1u)) {
-      if ((m2 <= 16.0)) {
-        let nzx_1 = df64_add(df64_sub(df64_sqr(zx_1, _fp64_g), df64_sqr(zy_1, _fp64_g), _fp64_g), _licm0, _fp64_g);
-        zy_1 = df64_add((df64_mul(zx_1, zy_1, _fp64_g) * 2.0), _licm1, _fp64_g);
-        zx_1 = nzx_1;
-        it = (it + 1.0);
-        let hx = df64_narrow(zx_1);
-        let hy = df64_narrow(zy_1);
-        m2 = ((hx * hx) + (hy * hy));
+      if ((m2 > 16.0)) {
+        break;
       }
+      let nzx_1 = df64_add(df64_sub(df64_sqr(zx_1, _fp64_g), df64_sqr(zy_1, _fp64_g), _fp64_g), _licm0, _fp64_g);
+      zy_1 = df64_add((df64_mul(zx_1, zy_1, _fp64_g) * 2.0), _licm1, _fp64_g);
+      zx_1 = nzx_1;
+      it = (it + 1.0);
+      let hx = df64_narrow(zx_1);
+      let hy = df64_narrow(zy_1);
+      m2 = ((hx * hx) + (hy * hy));
     }
   }
   let sn = ((it - log2(max(log2(max(m2, 1.0001)), 0.0001))) + 1.0);
