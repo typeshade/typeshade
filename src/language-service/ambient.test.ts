@@ -14,6 +14,7 @@ import {
   WGSL_BUILTIN_NAMES,
 } from './ambient.js';
 import { compile } from '../compiler/ts/compile.js';
+import { compileTsSource } from '../compiler/ts/source-file.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXAMPLES_DIR = join(HERE, '..', '..', 'examples');
@@ -1408,4 +1409,164 @@ export function f(m: mat4<f64>): mat4 {
     expect(compiler).toEqual(['TS8003 Argument 1 of "g" type mismatch.']);
     expect(editor.filter((d) => d.startsWith('typescript 2345:'))).toHaveLength(1);
   });
+});
+
+// ═══ An index and a swizzle, as each layer answers them (Rule 12.7) ═══
+//
+// Each row is a program and the two verdicts it gets: the TypeScript half of the editor, which
+// is the ambient library's own answer (read off the `typescript` diagnostics, because the
+// service shows the compiler's beside them), and `compileTsSource`. The verdicts are written out
+// rather than asked to agree, because two groups below are disagreements this tree records
+// instead of closing, and the day one of them closes this suite has to say so.
+describe('an index and a swizzle, as each layer answers them (Rule 12.7)', () => {
+  const layers = (body: string): { typescript: string[]; compiler: string[] } => {
+    const source = `"use typeshade";\n${body}\n`;
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', source);
+    return {
+      // The first line only: an overload failure goes on for a paragraph, and the line that
+      // names the mistake is the one that has to stay.
+      typescript: service
+        .getDiagnostics('a.ts')
+        .filter((d) => d.source === 'typescript')
+        .map((d) => `TS${d.code} ${d.message.split('\n')[0]!}`),
+      compiler: compileTsSource(source)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message}`),
+    };
+  };
+
+  const rows: readonly {
+    what: string;
+    body: string;
+    typescript: readonly string[];
+    compiler: readonly string[];
+  }[] = [
+    // BOTH ACCEPT. An f32 matrix and a native vector take a runtime index, as WGSL indexes them.
+    // Each row here was TS7053 in the editor on a program the compiler lowers: the matrix and
+    // vector types took numeric LITERAL keys only, so a lane of a column (`m[1][2]`) stopped
+    // there too once a square column became its vector (#233).
+    {
+      what: 'a runtime column index on a square matrix',
+      body: 'export function f(m: mat4, i: u32): vec4 { return m[i]; }',
+      typescript: [],
+      compiler: [],
+    },
+    {
+      what: 'a runtime column index on a non-square matrix',
+      body: 'export function f(m: mat2x3, i: i32): vec3 { return m[i]; }',
+      typescript: [],
+      compiler: [],
+    },
+    {
+      what: 'a loop counter as the column index, which TypeScript types number',
+      body:
+        'export function f(m: mat4): vec4 {\n' +
+        '  let s = vec4(0.);\n' +
+        '  for (let i = 0; i < 4; i++) {\n' +
+        '    s = s + m[i];\n' +
+        '  }\n' +
+        '  return s;\n' +
+        '}',
+      typescript: [],
+      compiler: [],
+    },
+    {
+      what: 'a lane of a column, by a constant and by a runtime index',
+      body: 'export function f(m: mat4, i: u32): f32 { return m[1][2] + m[i].y + m[i][i]; }',
+      typescript: [],
+      compiler: [],
+    },
+    {
+      what: 'a runtime index on a vector, read and written',
+      body:
+        'export function f(v: vec4, i: u32): vec4 {\n' +
+        '  let w = v;\n' +
+        '  w[i] = v[0];\n' +
+        '  return w;\n' +
+        '}',
+      typescript: [],
+      compiler: [],
+    },
+    // BOTH REFUSE. The compiler indexes a matrix of doubles by nothing at all, and a vector of
+    // doubles by a constant lane only, so neither takes a runtime index in the editor either.
+    {
+      what: 'a runtime column index on a matrix of doubles',
+      body: 'export function f(m: mat4<f64>, i: u32): f32 {\n  const c = m[i];\n  return 0.;\n}',
+      typescript: [
+        "TS7053 Element implicitly has an 'any' type because expression of type 'u32' can't be used to index type 'mat4<f64>'.",
+      ],
+      compiler: ['TS8003 Cannot index mat4x4<f64>.'],
+    },
+    {
+      what: 'a runtime lane index on a vector of doubles',
+      body: 'export function f(v: vec4f64, i: u32): f64 { return v[i]; }',
+      typescript: [
+        "TS7053 Element implicitly has an 'any' type because expression of type 'u32' can't be used to index type 'vec4f64'.",
+      ],
+      compiler: [
+        'TS8003 A vec4<f64> is indexed by a constant lane, since an emulated double is a pair of ' +
+          'hi/lo planes and a lane of it is a swizzle of both; write v.x, v.y or a whole-number index.',
+      ],
+    },
+    // ONLY THE COMPILER REFUSES. The index signature admits any number, as `array<T, N>`'s does,
+    // so an index past the end and an f32 index are the compiler's to refuse; the service shows
+    // its sentence, and plain `tsc` is silent. Surface §49 records it.
+    {
+      what: 'a constant column index past the last column',
+      body: 'export function f(m: mat4): vec4 { return m[4]; }',
+      typescript: [],
+      compiler: ['TS8016 Index 4 is out of range for length 4.'],
+    },
+    {
+      what: 'a constant lane index past the last lane',
+      body: 'export function f(v: vec4): f32 { return v[4]; }',
+      typescript: [],
+      compiler: ['TS8016 Index 4 is out of range for length 4.'],
+    },
+    {
+      what: 'an f32 column index',
+      body: 'export function f(m: mat4, j: f32): vec4 { return m[j]; }',
+      typescript: [],
+      compiler: ['TS8003 Index must be i32 or u32.'],
+    },
+    // ONLY THE EDITOR REFUSES, the false positive surface §49 and Appendix B record until #210
+    // lands: the library declares the single components and the prefix swizzles, while the
+    // compiler takes any one-to-four-letter pick from one set (`parseSwizzle`).
+    {
+      what: 'a swizzle in another order',
+      body: 'export function f(v: vec2): vec2 { return v.yx; }',
+      typescript: ["TS2339 Property 'yx' does not exist on type 'vec2'."],
+      compiler: [],
+    },
+    {
+      what: 'a three-letter swizzle that is not a prefix',
+      body: 'export function f(v: vec4): vec3 { return v.zyx; }',
+      typescript: ["TS2339 Property 'zyx' does not exist on type 'vec4'."],
+      compiler: [],
+    },
+    // And the swizzles on either side of that gap, which the two layers agree on.
+    {
+      what: 'a prefix swizzle of each set',
+      body:
+        'export function f(v: vec4): vec4 {\n' +
+        '  const a = vec4(v.xyz, v.a);\n' +
+        '  return vec4(v.rg, a.b, a.w);\n' +
+        '}',
+      typescript: [],
+      compiler: [],
+    },
+    {
+      what: 'a swizzle that mixes the two sets',
+      body: 'export function f(v: vec4): vec2 { return v.xg; }',
+      typescript: ["TS2339 Property 'xg' does not exist on type 'vec4'."],
+      compiler: ['TS8022 .xg mixes xyzw and rgba sets (WGSL forbids, e.g. ".xg").'],
+    },
+  ];
+
+  for (const row of rows) {
+    it(row.what, () => {
+      expect(layers(row.body)).toEqual({ typescript: row.typescript, compiler: row.compiler });
+    });
+  }
 });

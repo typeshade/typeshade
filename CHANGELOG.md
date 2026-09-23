@@ -1352,6 +1352,17 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The editor indexes a vector and an `f32` matrix by a runtime value** (Rule 12.7, surface
+  §49). `m[i]` on a `mat4` or a `mat2x3` with an `i: u32`, a `for` counter as the index, `v[i]`
+  and `v[0]` on a vector, and `m[0][1]` were `TS7053` in the language service on programs the
+  compiler lowers, because the ambient library gave both types numeric literal keys only, the
+  rule of an emulated double's constant lane. Both take an index signature now, as
+  `array<T, N>` does. A `mat4<f64>` still takes no runtime index in either layer. An index past
+  the end (`m[4]`) and an `f32` index are the compiler's to refuse (`TS8016`, `TS8003`), as on
+  an array, and no longer draw a `TS7053` beside its sentence. A swizzle outside the components
+  and the prefix swizzles (`v.yx`, `v.zyx`) is still `TS2339` in the editor. The README and the
+  ambient library called that a false negative; it is a false positive, recorded in surface §49
+  and Appendix B until #210 declares every swizzle.
 - **A comparison of two emulated-double vectors is a vector of bools** (Rule 7.1, §27, §39).
   `a < b` on two `vec3f64` was typed as one scalar `bool`, where every other vector comparison
   is the `vecN<bool>` of its width, as WGSL's typing table has it. So it was refused wherever a
