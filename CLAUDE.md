@@ -79,6 +79,24 @@ rules first, in the same pull request, and only then moves the surface. A name a
 write comes from WGSL, from ECMAScript as TypeScript spells it, or from the enumerated
 extension table in that document's §9; a compiler-internal helper never becomes one.
 
+## A test reads both halves
+
+A `"use typeshade"` program is read twice: by the compiler (`compile()`: its diagnostics, the
+WGSL and GLSL, the CPU oracle) and by the editor (the language service over the ambient library:
+its diagnostics, hover and completion). Rule 12.7 makes the two one vocabulary, and a test that
+reads one half passes while the other disagrees. A runtime-sized array's `.length` was a `u32` to
+the compiler and `number` to the editor, and no test failed.
+
+- A test of something an author can write, or of a refusal, asserts both halves on the same
+  source: `compile()`'s diagnostics (code and text, Rule 12.5) or its emit, and the language
+  service's `getDiagnostics`, plus `getHover` where the type is the point.
+  `src/language-service/ambient-parity.test.ts` is the shape for a program the two must agree on.
+- A front-end refusal that stands in for a Tint error (Rule 12.6) is measured against Tint once,
+  with its valid neighbours, so it neither misses what Tint refuses nor refuses what Tint accepts
+  (Rule 13.3).
+- When a bug reached `main` past the tests, its fix says in the pull request which half the tests
+  read, and adds the test for the half they missed next to the fix.
+
 ## Before pushing
 
 Run the gates `AGENTS.md#tests` lists that the change can reach. CI runs the same ones, and a
