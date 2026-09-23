@@ -68,7 +68,10 @@ function extendsName(node: ts.ClassExpression): ts.Identifier | undefined {
 /** The module-level `const X = <call>` an identifier names, which is the other half of the
  *  spelling the TypeScript handbook uses: `const Mixed = Positioned(Particle)`, then
  *  `class Body extends Mixed`. */
-function constBoundCall(name: ts.Identifier, sourceFile: ts.SourceFile): ts.CallExpression | undefined {
+function constBoundCall(
+  name: ts.Identifier,
+  sourceFile: ts.SourceFile,
+): ts.CallExpression | undefined {
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue
     for (const decl of stmt.declarationList.declarations) {
@@ -247,6 +250,9 @@ export function applyMixins(
 
 /** The name a class member is declared under, when it has a plain one. A constructor answers
  *  `constructor`, so a class writing its own drops the mixin's. */
+const isAccessorHalf = (member: ts.ClassElement): member is ts.AccessorDeclaration =>
+  ts.isGetAccessorDeclaration(member) || ts.isSetAccessorDeclaration(member)
+
 function memberKey(member: ts.ClassElement): string | undefined {
   if (ts.isConstructorDeclaration(member)) return 'constructor'
   if (member.name !== undefined && ts.isIdentifier(member.name)) return member.name.text
@@ -294,6 +300,12 @@ export function mixedMembers(
         continue
       }
       const held = winner.get(key)
+      // The getter and the setter of one property share its name and are one member, so the
+      // second half of a pair one body declares is kept beside the first (Rule 8.11).
+      if (held !== undefined && isAccessorHalf(held) && isAccessorHalf(member)) {
+        if (held.parent === member.parent) kept[i]!.push(member)
+        continue
+      }
       if (held !== undefined) {
         const a = writtenType(held, sourceFile)
         const b = writtenType(member, sourceFile)

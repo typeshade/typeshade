@@ -34,6 +34,12 @@ export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>
 
 const memo = new WeakMap<ModuleDecl, FnWrites>()
 
+/** The parameters of every function a table was computed over, keyed by the table itself, so a
+ *  per-function view that inherits the table ({@link inheritEffects}) can still translate a
+ *  callee's write through one of its own `inout` parameters into the argument passed there.
+ *  The view holds one function; the table, and so this, describes them all. */
+const paramsOf = new WeakMap<FnWrites, ReadonlyMap<string, FuncDecl['params']>>()
+
 const targetRoot = (e: Expr): Expr =>
   e.op === 'index' || e.op === 'member' ? targetRoot(e.base) : e
 
@@ -217,7 +223,45 @@ export function fnWrites(m: ModuleDecl): FnWrites {
     }
   }
   memo.set(m, writes)
+  paramsOf.set(writes, new Map(m.funcs.map((f) => [f.name, f.params])))
   return writes
+}
+
+/** The names one call writes, in its CALLER's words: what the callee writes of the module, the
+ *  root of each argument it writes through (`Random_gen(&rng)` writes `rng`, since the callee's
+ *  `self_` is that argument), and the location an atomic or `textureStore` writes. Empty for a
+ *  call that writes nothing, `atomicLoad` included, which reads. The callee's own word for an
+ *  `inout` parameter means nothing where the call stands and is never returned. */
+export function callWrites(x: Expr & { op: 'call' }, writes: FnWrites): ReadonlySet<string> {
+  const out = new Set<string>()
+  const params = paramsOf.get(writes)?.get(x.fn)
+  for (const name of writes.get(x.fn) ?? []) {
+    const at = params?.findIndex((p) => p.mode === 'inout' && p.name === name) ?? -1
+    if (at < 0) {
+      out.add(name)
+      continue
+    }
+    const arg = x.args[at]
+    const root = arg === undefined ? undefined : targetRoot(arg)
+    if (root !== undefined && (root.op === 'varref' || root.op === 'param')) out.add(root.name)
+  }
+  const root = atomicWriteRoot(x)
+  if (root !== undefined) out.add(root)
+  return out
+}
+
+/** Does evaluating `e` WRITE something: a call to a function that writes a module name or its
+ *  caller's value through an `inout` parameter, or an atomic or `textureStore` that writes a
+ *  location? Narrower than {@link exprHasEffect}, which also counts `atomicLoad` and the
+ *  barriers: a read and a fence order what is around them, and only a write leaves something
+ *  behind that dropping the expression would lose. */
+export function exprWrites(e: Expr, writes: FnWrites): boolean {
+  let found = false
+  eachExpr(e, (x) => {
+    if (found || x.op !== 'call') return
+    if ((writes.get(x.fn)?.size ?? 0) > 0 || atomicWriteRoot(x) !== undefined) found = true
+  })
+  return found
 }
 
 /** Does evaluating `e` do anything besides produce a value: a call to a function that writes
@@ -252,17 +296,19 @@ export function bodyHasEffectfulCall(body: readonly Stmt[], writes: FnWrites): b
   return found
 }
 
-/** The module names the calls inside one statement's own expressions write (not its nested
- *  blocks, which `collectMutatedRoots` recurses into itself). */
+/** The names the calls inside one statement's own expressions write (not its nested blocks,
+ *  which `collectMutatedRoots` recurses into itself), each as the caller knows it
+ *  ({@link callWrites}). Until the translation, a method that changes its object reported the
+ *  callee's `self_` here rather than the receiver, so `const before = p; p.bump()` let copy
+ *  propagation read `p` where `before` was written: the GPU saw the bumped value, the oracle the
+ *  one before it. */
 export function calleeWritesOf(s: Stmt, writes: FnWrites, out: Set<string>): void {
   eachStmtExpr(
     s,
     (e) => {
       eachExpr(e, (x) => {
         if (x.op !== 'call') return
-        for (const name of writes.get(x.fn) ?? []) out.add(name)
-        const root = atomicWriteRoot(x)
-        if (root !== undefined) out.add(root)
+        for (const name of callWrites(x, writes)) out.add(name)
       })
     },
     () => {},
