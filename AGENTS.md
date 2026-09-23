@@ -135,7 +135,8 @@ true is a set of steps with tools, each an industry practice, not a memory:
   pull request. It fails while a downstream file still names an export or file the pin removes.
   It also fails when a compiler `LINT.ThenChange(//typeshade.github.io/…)` or
   `//vscode-typeshade/…` target did not change with its block. They run `ifchange.ts` over their
-  own tree with `TYPESHADE_DOCS_ROOT`.
+  own tree with `TYPESHADE_DOCS_ROOT`, and their `.claude/settings.json` runs the same check as
+  a commit hook (`downstream-impact.ts --hook`).
 - **CI enforces it for everyone.** On a pull request, the `check` job runs
   `docs:impact --check` and `ifchange.ts`, and the traceability job runs `doorstop -C -e -F`.
   `.github/CODEOWNERS` puts the normative documents, `reqs/` and these tools under review.

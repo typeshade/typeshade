@@ -25,11 +25,13 @@
 //   bun vendor/typeshade/scripts/downstream-impact.ts --repo vscode-typeshade \
 //       --submodule vendor/typeshade --old <sha> [--new <sha>] [--base origin/main] \
 //       [--check] [--markdown]
-// `--old` defaults to the pin on `--base`, `--new` to the checked-out pin.
+// `--old` defaults to the pin on `--base`, `--new` to the checked-out pin. `--hook` is the Claude
+// Code commit hook (below).
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseBlocks, waiver, type Block } from './ifchange.js';
 import { surface } from './doc-impact.js';
 
@@ -248,6 +250,66 @@ export function renderFindings(findings: readonly Finding[], markdown: boolean):
   return out.join('\n');
 }
 
+// ─── the Claude Code hook ──────────────────────────────────────────────────────────────────
+//
+// A downstream repository registers this in its `.claude/settings.json` as a PreToolUse hook on
+// Bash, guarded on the file existing (a pin from before it has none):
+//
+//   [ ! -f vendor/typeshade/scripts/downstream-impact.ts ] ||
+//     bun vendor/typeshade/scripts/downstream-impact.ts --hook --repo vscode-typeshade \
+//       --submodule vendor/typeshade
+//
+// It does nothing unless the call is a `git commit`. Then, when the commit moves the pin (the
+// staged gitlink differs from HEAD's), it runs the check above over that move; and it runs
+// `ifchange.ts` over this repository's staged diff. It blocks the commit (exit 2, the report goes
+// to the agent) on a removed export or file still named here, and on an unmet ThenChange that
+// the message does not waive with a `NO_IFTTT=<reason>` line.
+
+function hook(repo: string, submodule: string): number {
+  let input: { tool_input?: { command?: string } };
+  try {
+    input = JSON.parse(readFileSync(0, 'utf8')) as typeof input;
+  } catch {
+    return 0;
+  }
+  const command = input.tool_input?.command ?? '';
+  if (!/(^|[;&|\s])git\s+(?:-C\s+\S+\s+)?commit\b/.test(command)) return 0;
+  const root = process.cwd();
+  let message = command;
+  const file = /(?:-F|--file)[=\s]+(\S+)/.exec(command)?.[1];
+  if (file && existsSync(file)) message += readFileSync(file, 'utf8');
+  const report: string[] = [];
+
+  const oldSha = tryRun(root, 'rev-parse', `HEAD:${submodule}`).trim();
+  const newSha = /^\d+ ([0-9a-f]{40}) /.exec(tryRun(root, 'ls-files', '-s', submodule))?.[1] ?? '';
+  if (oldSha && newSha && oldSha !== newSha) {
+    const { mustFix } = downstreamImpact({ root, repo, submodule, oldSha, newSha, base: 'HEAD' });
+    const binding = mustFix.filter((f) => f.kind === 'removed' || !waiver(message));
+    if (binding.length) {
+      report.push(
+        `${renderFindings(binding, false)}\n\nThis commit moves the compiler pin, and the lines above still ` +
+          'name what the new compiler removes. Update each one on this branch.',
+      );
+    }
+  }
+
+  const ifchange = spawnSync(
+    'bun',
+    [join(dirname(fileURLToPath(import.meta.url)), 'ifchange.ts'), '--staged'],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, TYPESHADE_DOCS_ROOT: root } },
+  );
+  if (!ifchange.error && ifchange.status !== 0 && !waiver(message)) {
+    report.push(
+      `${ifchange.stdout.trim()}\n\nChange each ThenChange target to match, or say why it needs no ` +
+        'change on a line of its own in the message: `NO_IFTTT=<reason>`.',
+    );
+  }
+
+  if (!report.length) return 0;
+  process.stderr.write(`${report.join('\n\n────────\n\n')}\n`);
+  return 2;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const arg = (name: string): string | undefined => {
@@ -258,6 +320,7 @@ if (import.meta.main) {
   const submodule = arg('--submodule') ?? 'vendor/typeshade';
   const base = arg('--base') ?? 'origin/main';
   const repo = arg('--repo');
+  if (repo && args.includes('--hook')) process.exit(hook(repo, submodule));
   if (!repo) {
     console.error(
       'usage: downstream-impact.ts --repo <name> [--submodule <path>] [--old <sha>] [--new <sha>] [--base <ref>]',
