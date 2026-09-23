@@ -16,7 +16,7 @@
 
 import type { CpuValue } from '../cpu-runtime.js';
 import type { FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js';
-import { stageOf, workgroupSizeOf } from '../ir/nodes.js';
+import { stageOf, workgroupShapeOf } from '../ir/nodes.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 import type { ShaderType } from '../ir/types.js';
 import { typeKey } from '../ir/types.js';
@@ -420,22 +420,19 @@ function deriveComputeIds(
   }
   const ids = gid as number[];
 
-  const size = [workgroupSizeOf(decl) ?? 64, 1, 1];
-  // `@compute([0])` reaches the front end, and dividing by it gives NaN ids that no one would
-  // read as wrong. Naming it is the only honest answer: a workgroup of no invocations has no
-  // invocation to debug.
-  if (size[0]! <= 0) {
+  const size = workgroupShapeOf(decl) ?? [64, 1, 1];
+  // A hand-built `@workgroup_size(0)` has no invocations, and dividing by it gives NaN ids
+  // that no one would read as wrong. Naming it is the only honest answer: a workgroup of no
+  // invocations has no invocation to debug.
+  if (size.some((n) => n <= 0)) {
     problems.push(
-      `${decl.name} is @compute([${size[0]}]), which has no invocations to derive an id from`,
+      `${decl.name} is @compute([${size.join(', ')}]), which has no invocations to derive an id from`,
     );
     return;
   }
   const local = ids.map((v, i) => ((v % size[i]!) + size[i]!) % size[i]!);
   const group = ids.map((v, i) => Math.floor(v / size[i]!));
-  // WGSL's own formula, `x + y*wx + z*wx*wy`. The y and z terms are dead while the backend
-  // carries the x axis only (`WORKGROUP_SHAPE` rejects a y or z other than 1, so both are 1
-  // and both terms vanish); they are written out because the formula is the specification's
-  // and a three-extent backend would otherwise have to rediscover it.
+  // WGSL's own formula, `x + y*wx + z*wx*wy`.
   const index = local[0]! + local[1]! * size[0]! + local[2]! * size[0]! * size[1]!;
   const derivation: Record<(typeof DERIVED)[number], CpuValue> = {
     workgroup_id: group,
