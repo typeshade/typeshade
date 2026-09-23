@@ -23,6 +23,7 @@ import { numericMismatch } from '../numeric.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import { refuseBareAtomic } from './atomics.js';
+import { isArrayMethod, otherArrayMethod } from './array-methods.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 
@@ -268,11 +269,15 @@ export function lowerPropertyAccess(
     return { op: 'lit', type: i32T, value: base.type.size };
   }
   if (JS_ARRAY_METHODS.has(prop)) {
+    // One of the five an array has is called; read as a value it is a function (Rule 8.18).
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `JS Array method ".${prop}" is not a shader op. Use sum/min/any/all/zip/fill.`,
+      base.type.kind === 'array' && isArrayMethod(prop)
+        ? `".${prop}" is a method of the array, and a shader has no function values: call it ` +
+            `where its value is needed, "${node.expression.getText(sourceFile)}.${prop}(…)".`
+        : otherArrayMethod(prop),
       TS_CODES.UNSUPPORTED,
     );
     return undefined;

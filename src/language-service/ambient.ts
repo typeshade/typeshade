@@ -777,27 +777,25 @@ declare const arrayTag: unique symbol
 // stays \`N\`, which is what still separates the sizes — a three-element list is not an
 // \`array<f32, 2>\` in the editor either.
 //
-// WHERE AN ARRAY MEMBER WILL GO. \`Pick<Array<T>, ArrayOps>\` is how this type takes its members
+// WHERE AN ARRAY MEMBER GOES. \`Pick<Array<T>, ArrayOps>\` is how this type takes its members
 // from the \`interface Array<T>\` at the bottom of this file, the way dom.d.ts picks from the
 // standard library: that interface is the standard-library declaration this file restates for a
 // \`lib: []\` program (design rule 2.1(b)), and \`ArrayOps\` names the members of it an author may
-// reach. \`ArrayOps\` is \`never\` today, and that is not a preference but what the minimal
-// \`interface Array<T>\` admits: it declares no methods, so \`ArrayOps = 'some'\` against it is
-// TS2344 ("Type '\"some\"' does not satisfy the constraint 'keyof T[]'") until \`some\`'s
-// signature is copied in from \`lib.es5.d.ts\`. Measured against the library's OWN diagnostics
-// under \`noLib\`: as shipped it reports none, \`ArrayOps = 'some'\` reports that TS2344, and
-// \`ArrayOps = 'length'\` (a member the interface does declare) reports none, which is the
-// mechanism working. So an array operation that becomes a METHOD
-// (#177) is declared on that one interface and named here, and \`ReadView\`'s function-type arm
-// carries it into a read binding's view unchanged. That is why the read view needs no array
-// declaration of its own: one interface is what gets updated.
+// reach. A name here must be a member the interface declares: \`ArrayOps = 'filter'\` against it
+// is TS2344 ("Type '\"filter\"' does not satisfy the constraint 'keyof T[]'"), measured against
+// the library's OWN diagnostics under \`noLib\`, which is the mechanism working. So an array
+// operation that becomes a METHOD (#177) is declared on that one interface and named here, and
+// \`ReadView\`'s function-type arm carries it into a read binding's view unchanged. That is why
+// the read view needs no array declaration of its own: one interface is what gets updated. The
+// five an array has (surface §63) are declared there with a \`this\` of \`array<T, N>\`, which is
+// how a member of \`Array<T>\` learns the size: \`map\` builds an \`array<U, N>\`.
 //
 // A MUTATING member must not simply ride that arm. The function arm copies a call signature
 // across without reading it, so \`src.fill(0.)\` would stay green on a read binding. When the
 // first mutating member lands, the read view takes that member's read-only signature or the
 // compiler refuses the call on a read binding; that decision belongs to #177 and not to this
 // declaration.
-type ArrayOps = never
+type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce'
 // Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
 // loop over the indices. The iterator's shape is written inline so it adds no global name.
 type array<T, N extends number = number> = Pick<Array<T>, ArrayOps> & { readonly [arrayTag]?: readonly [T, N]; readonly length: N } & {
@@ -1586,6 +1584,16 @@ interface Array<T> {
   [n: number]: T
   // A list literal is an \`Array\` here, and it has to stay assignable to an iterable \`array<T, N>\`.
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
+  // The five methods an array has (surface §63), as lib.es5.d.ts spells them, with two changes:
+  // \`this\` is the \`array<T, N>\` the call is on, so \`map\` builds an array of the same size, and
+  // \`index\` is an \`i32\`, the type an unannotated counter has (design rule 7.5). No \`thisArg\`:
+  // an arrow function reads the \`this\` around it already.
+  map<U, N extends number>(this: array<T, N>, callbackfn: (value: T, index: i32, array: array<T, N>) => U): array<U, N>
+  forEach<N extends number>(this: array<T, N>, callbackfn: (value: T, index: i32, array: array<T, N>) => void): void
+  some<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): bool
+  every<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): bool
+  reduce<N extends number>(this: array<T, N>, callbackfn: (previousValue: T, currentValue: T, currentIndex: i32, array: array<T, N>) => T): T
+  reduce<U, N extends number>(this: array<T, N>, callbackfn: (previousValue: U, currentValue: T, currentIndex: i32, array: array<T, N>) => U, initialValue: U): U
 }
 // What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself stays a host API: the
 // compiler refuses it as a value (TS8012), so declaring it here gives an author nothing to write.

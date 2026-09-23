@@ -31,9 +31,17 @@ fn Orbit_get_period(self_: Orbit) -> f32 {
   return (6.2831855 / self_.speed);
 }
 
+fn Orbit_get_span(self_: Orbit) -> f32 {
+  return (self_.radius * 2.0);
+}
+
+fn Orbit_set_span(self_: ptr<function, Orbit>, d: f32) {
+  (*self_).radius = (d * 0.5);
+}
+
 fn Orbit_at(self_: Orbit, t: f32) -> vec2<f32> {
   let a = (t * self_.speed);
-  return vec2<f32>((cos(a) * self_.radius), (sin(a) * self_.radius));
+  return (vec2<f32>(cos(a), sin(a)) * self_.radius);
 }
 
 fn Orbit_new() -> Orbit {
@@ -72,7 +80,8 @@ fn ring(p: vec2<f32>, r: f32) -> f32 {
 @fragment
 fn fs(v: VsOut) -> FsOut {
   let p = v.uv;
-  let orbit = Orbit_new();
+  var orbit: Orbit = Orbit_new();
+  Orbit_set_span(&orbit, 0.9);
   var rng: Rng = Rng_new();
   var glow: f32 = 0.0;
   for (var i: i32 = 0; (i < 5); i = (i + 1)) {
