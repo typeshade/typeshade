@@ -14,34 +14,32 @@ layout(std140) uniform Uniforms {
   float fp64;
 } u;
 
-uniform sampler2D _fp64;
-vec2 df64_twoSum(float a, float b) {
+uniform highp sampler2D _fp64;
+vec2 df64_twoSum(float a, float b, float _fp64_g) {
   float _v0 = (a + b);
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v1 = (((_v0 * _cse0) - a) * _cse0);
-  float _v2 = (((((a - ((_v0 - _v1) * _cse0)) * _cse0) * _cse0) * _cse0) + (b - _v1));
+  float _v1 = (((_v0 * _fp64_g) - a) * _fp64_g);
+  float _v2 = (((a - ((_v0 - _v1) * _fp64_g)) * _fp64_g) + (b - _v1));
   return vec2(_v0, _v2);
 }
 
-vec2 df64_quickTwoSum(float a, float b) {
-  float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  float _v0 = ((a + b) * _cse0);
-  float _v1 = (b - ((_v0 - a) * _cse0));
+vec2 df64_quickTwoSum(float a, float b, float _fp64_g) {
+  float _v0 = ((a + b) * _fp64_g);
+  float _v1 = (b - ((_v0 - a) * _fp64_g));
   return vec2(_v0, _v1);
 }
 
-vec2 df64_add(vec2 a, vec2 b) {
-  vec2 _v0 = df64_twoSum(a.x, b.x);
-  vec2 _v1 = df64_twoSum(a.y, b.y);
+vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
+  vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
+  vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
   _v0.y = (_v0.y + _v1.x);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   _v0.y = (_v0.y + _v1.y);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
   return _v0;
 }
 
-vec2 df64_sub(vec2 a, vec2 b) {
-  return df64_add(a, (-b));
+vec2 df64_sub(vec2 a, vec2 b, float _fp64_g) {
+  return df64_add(a, (-b), _fp64_g);
 }
 
 float df64_narrow(vec2 a) {
@@ -51,6 +49,7 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
+  float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
@@ -62,10 +61,10 @@ void main() {
   vec2 _cse2 = vec2(u.mark.hi.x, u.mark.lo.x);
   float _cse6 = uintBitsToFloat(floatBitsToUint(0.0));
   vec2 _cse3 = vec2(_cse6, _cse6);
-  float ex64 = df64_narrow(df64_sub(df64_add(_cse1, vec2(dx, 0.0)), df64_add(_cse2, _cse3)));
+  float ex64 = df64_narrow(df64_sub(df64_add(_cse1, vec2(dx, 0.0), _fp64_g), df64_add(_cse2, _cse3, _fp64_g), _fp64_g));
   vec2 _cse4 = vec2(u.center.hi.y, u.center.lo.y);
   vec2 _cse5 = vec2(u.mark.hi.y, u.mark.lo.y);
-  float ey64 = df64_narrow(df64_sub(df64_add(_cse4, vec2(dy, 0.0)), df64_add(_cse5, _cse3)));
+  float ey64 = df64_narrow(df64_sub(df64_add(_cse4, vec2(dy, 0.0), _fp64_g), df64_add(_cse5, _cse3, _fp64_g), _fp64_g));
   float ex32 = ((df64_narrow(_cse1) + dx) - df64_narrow(_cse2));
   float ey32 = ((df64_narrow(_cse4) + dy) - df64_narrow(_cse5));
   float ex = (isF32 ? ex32 : ex64);

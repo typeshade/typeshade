@@ -13,6 +13,30 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **The fp64 guard is read once per function, and its redundant multiplies are gone** (§39).
+  Every float `df64_*` helper fetched the `_fp64` guard texel itself, so every helper CALL
+  fetched it again: the `fp64-mandelbrot` escape loop read the texture up to 40 times per
+  iteration, every one inside the loop. The helpers now take the guard as a trailing
+  `_fp64_g: f32` parameter, the module's own functions pass the fetch, and after the optimizer
+  `hoistGuardFetch` reads it into one `let _fp64_g` at the top of each function, so that loop
+  reads it once per call of the function that holds it and never per iteration. The read moves
+  after the optimizer rather than into `fp64Lower` because a `let` there makes every df64 call
+  reference a local, and LICM, which hoists only what references none, would then leave a
+  loop-invariant `df64_mul(a, b)` inside its loop; the optimizer treats the fetch as a leaf
+  (`isCompound`) for the same reason, and the single read holds at `O0` too. A `var<private>`
+  guard was measured and rejected: Tint refuses an f64 comparison that decides a branch around
+  `textureSample` with the guard held there, and accepts it passed as a parameter. twoSum's
+  error term multiplied by the guard three times in a row, a chain carried over from luma.gl;
+  `guard(guard(x))` is `guard(x)`, so the scalar and vec twoSum and twoSqr are written with one,
+  and `foldGuardChain` folds any chain that reaches the pass. The force-inlined `a / b` kernel
+  is 408 arithmetic ops to 376, every removed op one of those multiplies (16 twoSums × 2). On
+  GLSL ES 3.00 the guard is declared `uniform highp sampler2D _fp64;`, since that spec defaults
+  `sampler2D` to lowp in both stages; a texture binding now honours `BindingDecl.precision` to
+  spell it. Only the fp64 goldens move, and with the guard rewrite normalised away all 50
+  WGSL and GLSL goldens are byte-identical to before. The docs now say what the ~48 bits rest
+  on: round-to-nearest-even `f32` `+ - *`, which is hardware practice, while GLSL ES 3.00
+  §4.5.1 leaves the rounding mode undefined and allows subnormal flush, and WGSL fixes no
+  rounding mode.
 - **`random` has a source, and the check that should have asked for one was reading the wrong
   thing** (§55, [#181](https://github.com/typeshade/typeshade/issues/181)). The free
   `declare function random(seed)` had no §9.3 row, no `TYPESHADE_EXTENSIONS` entry and no

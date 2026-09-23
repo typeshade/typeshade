@@ -16,7 +16,7 @@ import { validate } from './passes/validate.js'
 import { assertCaps, assertBuiltins } from './passes/required-caps.js'
 import { lowerModule } from './passes/match-lower.js'
 import { selectComposite } from './passes/select-composite.js'
-import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
+import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js'
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js'
 import { mapExpr, mapStmt } from './passes/opt/ir-transform.js'
 import { reflect, type Reflection } from './reflect.js'
@@ -389,7 +389,12 @@ export function lowerForBackend(
   // The target's own LOWERINGS, before EITHER optimizer tier: a lowering makes the module
   // the target accepts and cannot be skipped by asking for a different optimization level.
   const lowered = be.preOptimize === undefined ? pre : be.preOptimize(pre)
-  const optimized = level === undefined ? be.optimize(lowered) : optimizeAt(lowered, level)
+  // The fp64 guard is read once per function AFTER the optimizer (fp64-lower's "The guard"),
+  // so a df64 call over loop-invariant operands stays input-only while the optimizer runs.
+  // Identity for a module that never fetches the guard.
+  const optimized = hoistGuardFetch(
+    level === undefined ? be.optimize(lowered) : optimizeAt(lowered, level),
+  )
   // After every tier, so a target whose spelling needs a shape the IR does not carry gets it
   // whichever optimizer ran. Identity for a backend that declares none.
   return be.postLower === undefined ? optimized : be.postLower(optimized)
@@ -431,7 +436,10 @@ function lowerTimed(
     fp64Lower(lm, fp64Flavor ? { flavor: fp64Flavor } : undefined),
   )
   const pre = step('spellExterns', () => spellExterns(f64, be))
-  return step('optimize', () => (level === undefined ? be.optimize(pre) : optimizeAt(pre, level)))
+  const optimized = step('optimize', () =>
+    level === undefined ? be.optimize(pre) : optimizeAt(pre, level),
+  )
+  return step('hoistGuardFetch', () => hoistGuardFetch(optimized))
 }
 
 /** Resolve each `externref` to the spelling THIS target's host uses (X-GIS #1713).

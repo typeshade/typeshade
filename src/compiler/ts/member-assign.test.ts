@@ -525,7 +525,7 @@ describe('what ++ and -- step', () => {
       }
     `)
     expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('s = df64_add(s, vec2<f32>(1.0, 0.0));')
+    expect(r.wgsl).toContain('s = df64_add(s, vec2<f32>(1.0, 0.0), _fp64_g);')
   })
 
   it('still refuses the shapes that have no numeric step', () => {

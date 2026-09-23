@@ -3088,6 +3088,26 @@ through. `reflect()` reports it like any other binding, group and slot included,
 reflection lists and the guard is covered; a host that skipped it got a WebGPU validation error
 or, on WebGL2, a silently wrong picture.
 
+Each function that does `f64` arithmetic reads that texel once, into a `let` at the top of its
+body, and hands it to the emulation as a parameter, so a loop reads it before it starts and not
+on every iteration. It stays a runtime read: nothing in the emitted source says it is `1.0`, and
+a guard the compiler could see through would guard nothing. On GLSL ES 3.00 the texture is
+declared `uniform highp sampler2D _fp64;`. That specification gives `sampler2D` a default
+precision of `lowp` in both stages, and a texel fetch returns its sampler's precision; `1.0` is
+exact at `lowp`, so the qualifier changes no value today, and it is what keeps the read exact
+under a host preamble that lowers the default.
+
+**What the 48 bits rest on.** The pair keeps its extra bits only while every `f32` `+`, `-` and
+`*` inside the error-free transforms rounds to nearest, ties to even. Under any other rounding a
+two-sum or a split leaves an error term that is not the exact residual. That is hardware
+practice, not a promise either target's specification makes: GLSL ES 3.00 (§4.5.1) calls those
+three operations correctly rounded but leaves the rounding mode undefined and lets any
+operation flush a subnormal to zero, and WGSL fixes no rounding mode either (§38). Every
+shipping GPU rounds `f32` addition, subtraction and multiplication to nearest even, and the
+48-bit figure is stated on that basis. Where a driver flushes subnormals, a result smaller than
+about 2⁻¹⁰² keeps only its high word, because its low word is then below the smallest normal
+`f32`.
+
 ## 40. Matrices: every `matCxR`
 
 A matrix is `cols` columns of `rows` components, column-major, which is what both targets are.

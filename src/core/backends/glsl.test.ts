@@ -1243,7 +1243,7 @@ describe('glsl-es300 — per-stage emit scope (stage reachability)', () => {
   it('fragment GLSL still carries the df64 helpers, the _fp64 guard, and the UBO', () => {
     const fs = emitGlslModule(scopeMod, 'fragment')
     expect(fs).toContain('df64_add(')
-    expect(fs).toContain('uniform sampler2D _fp64;')
+    expect(fs).toContain('uniform highp sampler2D _fp64;')
     expect(fs).toMatch(/layout\(std140\) uniform ScopeU \{[\s\S]*\} su;/)
   })
 

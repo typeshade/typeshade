@@ -32,6 +32,17 @@
 // FMA-based twoProd is deliberately NOT used — WGSL fma()'s accuracy is
 // "inherited from x*y+z" (fusion not guaranteed).
 //
+// ── What the ~48 bits rest on ──
+// twoSum, quickTwoSum, the Veltkamp split and twoProd are exact only when f32
+// `+ - *` round to nearest, ties to even; under another rounding the error term
+// is not the exact residual. Neither target's spec promises that: GLSL ES 3.00
+// §4.5.1 calls the three correctly rounded but leaves the rounding mode UNDEFINED
+// and lets any operation flush a subnormal to 0, and WGSL fixes no rounding mode.
+// The accuracy this library claims rests on HARDWARE PRACTICE — every shipping
+// GPU rounds f32 add/sub/mul to nearest even — not on either spec. A flushed
+// subnormal costs the low word of a result below ~2^-102 (the word falls under
+// the smallest normal f32).
+//
 // These fns are injected into a module by fp64-lower (never listed by
 // authors); the `df64_` name prefix is reserved (SD0043). Their bodies are
 // ordinary IR, but the emit optimizer must keep the calls OPAQUE — fp64-lower
@@ -184,22 +195,37 @@ export function fp64Guard(at: { group: number; binding: number }): Fp64GuardHand
       name: FP64_GUARD_NAME,
       space: 'uniform',
       type: FP64_GUARD_TYPE,
+      // Declared `uniform highp sampler2D _fp64;` on GLSL: the stage default is lowp.
+      precision: 'highp',
     },
   }
 }
 
 /** The runtime-opaque 1.0 every helper body threads through its EFT terms —
  *  the `f64Guard` intrinsic (a texel fetch on the GPU, exactly 1 on the CPU
- *  oracle). One shared node; the emit CSE hoists a single fetch per body. */
+ *  oracle). It marks WHERE a guard goes, not where it is READ: fp64-lower replaces
+ *  every `one` in a helper with an `_fp64_g` parameter, and the texel is read once,
+ *  at the top of each function that calls a helper ("The guard" in fp64-lower).
+ *  Read in the helper, it was one fetch per helper CALL — eight per `acc * k + c`
+ *  in a loop, all of them inside the loop. */
 const one = f64GuardOne() as ReadonlyNode<'f32'>
 
 // ── Error-free transformation primitives ──
 
-/** Knuth two-sum: s + e == a + b exactly, no magnitude precondition. */
+/** Knuth two-sum: s + e == a + b exactly, no magnitude precondition.
+ *
+ *  Four guard multiplies, not the six luma.gl's form carries. Its error term is
+ *  `(a - (s - v) * ONE) * ONE * ONE * ONE`, and the last three multiply ONE value by ONE
+ *  opaque factor in a row: once a value is a product with the runtime-opaque ONE, no
+ *  compiler can prove it equal to anything it could fold, and multiplying it by the same
+ *  factor again proves nothing more. `guard(guard(x))` is `guard(x)`, which is the rule
+ *  {@link foldGuardChain} in fp64-lower enforces on every helper body, so a chain written
+ *  here by mistake is folded before it reaches a target. The two multiplies in `v` are NOT
+ *  a chain — the second guards `s * ONE - a`, a different value — and they stay. */
 const df64_twoSum = fn('df64_twoSum', { a: f32T, b: f32T }, (p) => {
   const s = Let(p.a.add(p.b))
   const v = Let(s.mul(one).sub(p.a).mul(one))
-  const e = Let(p.a.sub(s.sub(v).mul(one)).mul(one).mul(one).mul(one).add(p.b.sub(v)))
+  const e = Let(p.a.sub(s.sub(v).mul(one)).mul(one).add(p.b.sub(v)))
   return vec2(s, e)
 })
 
@@ -236,12 +262,15 @@ const df64_twoSqr = fn('df64_twoSqr', { a: f32T }, (p) => {
   const prod = Let(p.a.mul(p.a))
   const aS = Let(df64_split({ a: p.a }))
   const e = Let(
+    // One guard per error term. The form this mirrors wrote the cross term `* ONE * ONE` and
+    // the low-square term `* ONE * ONE * ONE`: chains of one factor, which guard nothing a
+    // single multiply does not (see df64_twoSum).
     aS.x
       .mul(aS.x)
       .sub(prod)
       .mul(one)
-      .add(aS.x.mul(aS.y).mul(2.0).mul(one).mul(one))
-      .add(aS.y.mul(aS.y).mul(one).mul(one).mul(one)),
+      .add(aS.x.mul(aS.y).mul(2.0).mul(one))
+      .add(aS.y.mul(aS.y).mul(one)),
   )
   return vec2(prod, e)
 })
@@ -637,7 +666,7 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     const [a, b] = [asV(raw.a), asV(raw.b)]
     const s = Let(a.add(b))
     const v = Let(s.mul(one).sub(a).mul(one))
-    const e = Let(a.sub(s.sub(v).mul(one)).mul(one).mul(one).mul(one).add(b.sub(v)))
+    const e = Let(a.sub(s.sub(v).mul(one)).mul(one).add(b.sub(v)))
     return pair(s, e)
   })
   const quickTwoSum = fn(`df64_v${n}_quickTwoSum`, { a: vT, b: vT }, (raw) => {
