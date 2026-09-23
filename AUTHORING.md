@@ -1575,6 +1575,21 @@ parameter reaches it; the pass never returns a zero derivative it did not derive
 function is checked against a central finite difference on the oracle, which is how to check
 one of your own.
 
+`valueAndGrad(m, fn, params)` is the host-side form: one call per point that returns the value
+and every requested derivative, compiled for the CPU. It is `grad` once per parameter, and once
+per lane of a vector parameter, whose entry is then the gradient vector. `module` on the
+returned function is the module with every derivative in it, for a GPU emit of the same
+functions.
+
+```ts
+import { module, fn, f32T, sin, valueAndGrad } from 'typeshade'
+
+const wave = fn('wave', { x: f32T, a: f32T, k: f32T }, ({ x, a, k }) => a.mul(sin(k.mul(x))))
+const w = valueAndGrad(module({ funcs: [wave] }), 'wave', ['a', 'k'])
+
+const { value, grad } = w(0.5, 2, 3) // value, grad.a, grad.k: one step of a fit
+```
+
 ## Diagnostics
 
 After this page you can read a coded error, branch your own code on the code it carries,

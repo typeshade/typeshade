@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (X
 This is not a version. A mirror consumer pins a SHA (X-GIS #1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 462 exports
+## `.` — 466 exports
 
 ```
 abs
@@ -425,6 +425,10 @@ UsesHandle
 validate
 validateVariantsWgsl
 ValidationError
+valueAndGrad
+ValueAndGrad
+ValueAndGradOptions
+ValueAndGradResult
 Var
 Variant
 variantFamily
@@ -882,7 +886,7 @@ TypeshadeTextSpan
 WGSL_BUILTIN_NAMES
 ```
 
-## Shapes — 570 definitions
+## Shapes — 574 definitions
 
 ```
 src/compiler/ts/compile.ts#CompileOptions  interface  { consoleSink?: ConsoleSink; deprecations?: boolean; fileName?: string }
@@ -1392,6 +1396,10 @@ src/core/sot.ts#resource  function  <T extends ShaderType>(name: string, type: T
 src/core/sot.ts#storageBuffer  function  { <H extends StructHandle>(name: string, element: H, at: { group: number; binding: number; access: "read"; }): StorageBuffer<ReturnType<H["of"]>>; <H extends StructHandle>(name: string, element: H, at: { group: number; binding: number; access: "read_write"; }): StorageBuffer<MutableView<ReturnType<H["of"]>>>; <T extends ShaderType>(name: string, element: T, at: { group: number; binding: number; access: "read"; }): StorageBuffer<ReadonlyNode<KeyOf<T>>>; <T extends ShaderType>(name: string, element: T, at: { group: number; binding: number; access: "read_write"; }): StorageBuffer<Node<KeyOf<T>>>; }
 src/core/sot.ts#structDecl  function  <F extends Record<string, ShaderType>, N extends string>(name: N, fields: F) => PlainStruct<F, N>
 src/core/sot.ts#uniformStruct  function  <F extends Record<string, UniformFieldSpec>>(typeName: string, at: { group: number; binding: number; as: string; }, fields: F) => UniformStruct<F>
+src/core/value-and-grad.ts#ValueAndGrad  type  ((...args: CpuValue[]) => ValueAndGradResult<P>) & { readonly module: ModuleDecl; readonly names: { readonly [K in P]: string | readonly string[]; }; }
+src/core/value-and-grad.ts#ValueAndGradOptions  interface  { precision?: CpuPrecision }
+src/core/value-and-grad.ts#ValueAndGradResult  interface  { grad: { readonly [K in P]: CpuValue; }; value: CpuValue }
+src/core/value-and-grad.ts#valueAndGrad  function  <P extends string>(m: ModuleDecl, fn: string, params: readonly P[], opts?: ValueAndGradOptions) => ValueAndGrad<P>
 src/core/variant-family.ts#AxisValues  type  { readonly [K in keyof A]: A[K][number]; }
 src/core/variant-family.ts#GuardDefines  type  { readonly [K in keyof A]: string | Readonly<Record<string, string>>; }
 src/core/variant-family.ts#Variant  interface  { axes: AxisValues<A>; key: string; module: ModuleDecl; reflection: Reflection }

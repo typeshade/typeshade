@@ -106,6 +106,12 @@ export { TypeShadeError, ShaderDslError } from './core/diagnostics/error.js'
 export { validate, ValidationError } from './core/passes/validate.js'
 export { type Diagnostic } from './core/passes/lint/engine.js'
 export { grad, type GradOptions, type GradResult } from './core/passes/grad.js'
+export {
+  valueAndGrad,
+  type ValueAndGrad,
+  type ValueAndGradOptions,
+  type ValueAndGradResult,
+} from './core/value-and-grad.js'
 export { composeModule, type ComposeOptions } from './core/passes/compose.js'
 export { renameVarrefsInFunc, rewriteExprsInFunc } from './core/passes/rename-varrefs.js'
 export { lowerModule } from './core/passes/match-lower.js'

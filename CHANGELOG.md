@@ -139,6 +139,15 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`valueAndGrad(m, fn, params)`: a function's value and its derivatives in one host call**
+  (roadmap 0.7 item 18). The caller-side form of `grad`, the shape JAX calls `value_and_grad`:
+  it runs `grad` once per parameter, once per lane of a vector parameter, compiles the result
+  with `compileModuleJs`, and returns `(…args) => { value, grad }`, with `grad.p` the gradient
+  vector for a vector `p`. The returned function carries `module`, with every derivative in it
+  for a GPU emit, and `names`. Written against the fitting loop a caller writes with `grad`
+  alone, which took five steps and an untyped `fns[name]` per derivative; the test fits a
+  wave's amplitude and frequency back to the values that made its samples.
+
 - **`grad(m, fn, param)` differentiates a function in forward mode** (roadmap 0.7 item 18). It
   is an IR → IR pass exported from `typeshade`: it adds `<fn>_d_<param>`, which takes `fn`'s
   arguments and returns the derivative of its result, and a `<g>_jvp` helper for each function
