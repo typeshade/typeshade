@@ -1320,3 +1320,92 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
     expect(tscErrors(STORE)).toEqual([]);
   });
 });
+
+// A square matrix's column was `never` in the editor, so `m[3].xyz`, a camera's translation, was
+// TS2339 ("Property 'xyz' does not exist on type 'never'") and `m[0] = vec4(1.)` was TS2322, on
+// programs the compiler accepts (design rule 12.7). The square aliases take their element as a
+// type argument, and resolved it with `T extends f64`. The scalar brands are optional
+// properties, so `f32 extends f64` is true: the default `mat4` read as a matrix of doubles, whose
+// column is `never` on purpose. The non-square aliases take no argument and were always clean.
+// Measured before the fix, every f32 case below was red in the editor; the f64 cases are what
+// the fix must leave where they were.
+describe('a square matrix column is its vector in the editor, as in the compiler', () => {
+  const bothLayers = (source: string): { compiler: string[]; editor: string[] } => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', source);
+    return {
+      compiler: compile(source)
+        .diagnostics.filter((d) => d.category === 'error')
+        .map((d) => `${d.code} ${d.message}`),
+      editor: service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
+    };
+  };
+  const program = (param: string, returns: string, body: string): string =>
+    `"use typeshade";\nexport function f(m: ${param}): ${returns} {\n${body}\n}\n`;
+
+  for (const n of [2, 3, 4] as const) {
+    // `xy` of a two-row column is the whole column, and still a swizzle the vector declares.
+    const [swizzle, swizzled] = n === 2 ? ['xy', 'vec2'] : ['xyz', 'vec3'];
+    for (const type of [`mat${n}`, `mat${n}x${n}`]) {
+      const cases: readonly (readonly [string, string])[] = [
+        ['a column read', program(type, 'f32', `  return m[${n - 1}].x;`)],
+        ['a column swizzle', program(type, swizzled, `  return m[${n - 1}].${swizzle};`)],
+        ['a column write', program(type, type, `  let c = m;\n  c[0] = vec${n}(1.);\n  return c;`)],
+      ];
+      for (const [what, source] of cases) {
+        it(`${what} on a ${type} is clean in both layers`, () => {
+          expect(bothLayers(source)).toEqual({ compiler: [], editor: [] });
+        });
+      }
+    }
+  }
+
+  // An explicit `<f64>` still resolves the element to `f64`. The compiler refuses to index a
+  // matrix of doubles, and the editor's column stays `never` for the same reason.
+  it('a column of a mat3<f64> is still refused, by the compiler and by the editor', () => {
+    expect(bothLayers(program('mat3<f64>', 'f64', '  return m[0].x;'))).toEqual({
+      compiler: ['TS8003 Cannot index mat3x3<f64>.'],
+      editor: [
+        'typeshade TS8003: Cannot index mat3x3<f64>.',
+        "typescript 2339: Property 'x' does not exist on type 'never'.",
+      ],
+    });
+  });
+
+  // What a square matrix of doubles does carry, `*` and `transpose` (surface §39), stays clean.
+  // `transpose` has overloads of its own for it: the f32 ones took a `mat4<f64>` only while
+  // `mat4` was itself a matrix of doubles.
+  for (const n of [2, 3, 4] as const) {
+    const type = `mat${n}<f64>`;
+    it(`transpose and both products on a ${type} are clean in both layers`, () => {
+      const source = `"use typeshade";
+export function t(m: ${type}): ${type} {
+  return transpose(m);
+}
+export function p(a: ${type}, b: ${type}): ${type} {
+  return a * b;
+}
+export function v(m: ${type}, x: vec${n}f64): vec${n}f64 {
+  return m * x;
+}
+`;
+      expect(bothLayers(source)).toEqual({ compiler: [], editor: [] });
+    });
+  }
+
+  // The fix makes the two elements two types. A `mat4<f64>` handed to a `mat4` parameter was
+  // clean in TypeScript, since both named one matrix of doubles. The compiler always refused it,
+  // and now the editor does too, as it does for a `vec3f64` handed to a `vec3`.
+  it('a mat4<f64> where a mat4 is declared is refused by both layers', () => {
+    const { compiler, editor } = bothLayers(`"use typeshade";
+function g(m: mat4): mat4 {
+  return m;
+}
+export function f(m: mat4<f64>): mat4 {
+  return g(m);
+}
+`);
+    expect(compiler).toEqual(['TS8003 Argument 1 of "g" type mismatch.']);
+    expect(editor.filter((d) => d.startsWith('typescript 2345:'))).toHaveLength(1);
+  });
+});
