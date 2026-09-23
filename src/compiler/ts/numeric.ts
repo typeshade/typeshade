@@ -166,6 +166,27 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
       `a vec64 takes a scalar only through + - * /.`
     );
   }
+  // A vector of doubles takes an f64 or an f32 scalar through + - * / (`broadcastResultType`)
+  // and nowhere else, so the fix is the splat the native vector's sentence below names: for
+  // either operand of a comparison, and for the scalar given to a vec64 that is declared,
+  // assigned or a field (`left` is the declared type there). The splat wraps the scalar in
+  // f64(): the constructor takes f64 components only, so `vec3f64(0.5)` and `vec3f64(t)` with
+  // an f32 `t` are TS8019, and f64() of an f64 is that value. No splat fixes a bitwise
+  // operator, which a vector of doubles has none of, or a vector given to a declared scalar.
+  const splatted = (t: ShaderType): boolean => isF64(t) || (isScalar(t) && t.scalar === 'f32');
+  const vec64 =
+    isVec64(left) && splatted(right) && op !== 'bitwise'
+      ? left
+      : isVec64(right) && splatted(left) && op === 'compare'
+        ? right
+        : undefined;
+  if (vec64 !== undefined) {
+    return (
+      `Type mismatch: cannot ${op} ${pair}. ` +
+      `A vector of doubles combines with a scalar only through + - * /; ` +
+      `splat the scalar with vec${vec64.n}f64(f64(x)) to get a vector.`
+    );
+  }
   const [vec, scalar] = isVec(left) ? [left, right] : [right, left];
   if (isVec(vec) && isScalar(scalar) && scalar.scalar in VEC_CTOR_SUFFIX) {
     const splat = `vec${vec.n}${VEC_CTOR_SUFFIX[vec.elem]}(x)`;

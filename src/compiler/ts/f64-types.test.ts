@@ -24,11 +24,18 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { fp64Lower } from '../../core/passes/fp64-lower.js';
 import { splitF64 } from '../../core/fp64/df64-lib.js';
 import { F64_SCALAR_TWINS, F64_VEC_TWINS } from '../../core/fp64/twins.js';
+import { TS_CODES } from './codes.js';
 
 const errorsOf = (src: string): string[] =>
   compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => d.message);
+
+/** The code and the text of each error, which a pin asserts together (Rule 12.5). */
+const codedErrorsOf = (src: string): string[] =>
+  compileTsSource(src)
+    .diagnostics.filter((d) => d.category === 'error')
+    .map((d) => `${d.code} ${d.message}`);
 
 const clean = (src: string): ReturnType<typeof compile> => {
   const r = compile(src);
@@ -307,19 +314,142 @@ export function k(a: vec${n}f64, b: vec${n}f64): vec${n}b {
     expect(errorsOf(program('vec3f64'))).toEqual(errorsOf(program('vec3')));
   });
 
-  it('still refuses a vec64 beside a scalar, another width or a vector of f32', () => {
-    // WGSL compares two vectors of one type and nothing else, and so does the fix.
+  it('refuses a vec64 beside a scalar, and names the splat that compiles', () => {
+    // WGSL compares two vectors of one type and nothing else, and so does the fix: a vector of
+    // doubles takes a scalar through + - * / only, as `vec3 < f32` says of a vector of f32. The
+    // sentence named no remedy. The splat it names wraps the scalar in f64(), because the
+    // constructor takes f64 components only: `vec3f64(0.5)` and `vec3f64(t)` are TS8019.
+    const refusal = (op: string, pair: string, n: number): string =>
+      `${TS_CODES.TYPE_MISMATCH} Type mismatch: cannot ${op} ${pair}. A vector of doubles ` +
+      `combines with a scalar only through + - * /; splat the scalar with vec${n}f64(f64(x)) ` +
+      `to get a vector.`;
+    for (const [params, ret, body, want] of [
+      ['a: vec3f64, b: f64', 'vec3b', 'return a < b;', refusal('compare', 'vec3<f64> and f64', 3)],
+      // The literal is lifted to f64 beside a vec64, so it reads as one.
+      ['a: vec3f64', 'vec3b', 'return a < 0.5;', refusal('compare', 'vec3<f64> and f64', 3)],
+      [
+        'a: vec3f64, t: f32',
+        'vec3b',
+        'return a === t;',
+        refusal('compare', 'vec3<f64> and f32', 3),
+      ],
+      ['a: vec3f64, b: f64', 'vec3b', 'return b >= a;', refusal('compare', 'f64 and vec3<f64>', 3)],
+      [
+        'a: vec2f64, b: f64',
+        'vec2b',
+        'return a !== b;',
+        refusal('compare', 'vec2<f64> and f64', 2),
+      ],
+      ['a: vec4f64, b: f64', 'vec4b', 'return a > b;', refusal('compare', 'vec4<f64> and f64', 4)],
+      // A declaration is refused in the same words, and takes the same splat.
+      [
+        'a: vec3f64, b: f64',
+        'vec3b',
+        'const v: vec3f64 = b; return a < a;',
+        refusal('let/const v', 'vec3<f64> and f64', 3),
+      ],
+    ] as const) {
+      expect(
+        codedErrorsOf(`"use typeshade";\nexport function k(${params}): ${ret} { ${body} }\n`),
+        body,
+      ).toEqual([want]);
+    }
+    // Each spelling named compiles, on both targets, and compares every lane with the scalar.
+    const r = clean(`"use typeshade";
+export function double(a: vec3f64, b: f64): vec3b { return a < vec3f64(f64(b)); }
+export function literal(a: vec3f64): vec3b { return a < vec3f64(f64(0.5)); }
+export function single(a: vec3f64, t: f32): vec3b { return a === vec3f64(f64(t)); }
+export function first(a: vec3f64, b: f64): vec3b { return vec3f64(f64(b)) >= a; }
+export function declared(a: vec3f64, b: f64): vec3b { const v: vec3f64 = vec3f64(f64(b)); return a < v; }
+`);
+    expect(r.wgsl).toBeDefined();
+    expect(r.glsl).toBeDefined();
+    const a = [0.25, 0.5, 0.75];
+    expect(r.eval('double', [a, 0.5])).toEqual([true, false, false]);
+    expect(r.eval('literal', [a])).toEqual([true, false, false]);
+    expect(r.eval('single', [a, 0.5])).toEqual([false, true, false]);
+    expect(r.eval('first', [a, 0.5])).toEqual([true, true, false]);
+    expect(r.eval('declared', [a, 0.5])).toEqual([true, false, false]);
+  });
+
+  it('still refuses a vec64 beside another width or a vector of f32, whose fix is no splat', () => {
     for (const [b, peer] of [
-      ['f64', 'f64'],
       ['vec2f64', 'vec2<f64>'],
       ['vec3', 'vec3<f32>'],
     ] as const) {
       expect(
-        errorsOf(
+        codedErrorsOf(
           `"use typeshade";\nexport function k(a: vec3f64, b: ${b}): vec3b { return a < b; }\n`,
         ),
-      ).toEqual([`Type mismatch: cannot compare vec3<f64> and ${peer}. Types must match.`]);
+      ).toEqual([
+        `${TS_CODES.TYPE_MISMATCH} Type mismatch: cannot compare vec3<f64> and ${peer}. Types must match.`,
+      ]);
     }
+    // Nor is the splat offered where it fixes nothing: a bitwise operator, which a vector of
+    // doubles has none of, and a vec64 given to a declared or assigned f64, where the scalar is
+    // the type the author asked for.
+    for (const [ret, body, want] of [
+      ['vec3f64', 'return a & b;', 'cannot bitwise vec3<f64> and f64'],
+      ['f64', 'const s: f64 = a; return b;', 'cannot let/const s f64 and vec3<f64>'],
+      ['f64', 'let s = b; s = a; return s;', 'cannot assign to f64 f64 and vec3<f64>'],
+    ] as const) {
+      expect(
+        codedErrorsOf(
+          `"use typeshade";\nexport function k(a: vec3f64, b: f64): ${ret} { ${body} }\n`,
+        ),
+        body,
+      ).toEqual([`${TS_CODES.TYPE_MISMATCH} Type mismatch: ${want}. Types must match.`]);
+    }
+  });
+
+  it('refuses a select of vec64 arms by a mask with the reason, not a count the arms meet', () => {
+    // The mask a comparison of two vec64s yields is the natural condition of a per-component
+    // select (§27), and the fp64 pass has no per-component pick over a DF64VecN's hi/lo planes:
+    // it picks a vector of doubles whole, by one bool. The refusal said the arms needed three
+    // components, which they had.
+    for (const n of [2, 3, 4]) {
+      expect(
+        codedErrorsOf(`"use typeshade";
+export function k(a: vec${n}f64, b: vec${n}f64): vec${n}f64 { return select(a, b, a < b); }
+`),
+        `vec${n}f64`,
+      ).toEqual([
+        `${TS_CODES.TYPE_MISMATCH} select with a vec${n}<bool> condition has no emulated-double ` +
+          `form; got vec${n}<f64> arms. The fp64 pass picks a vector of doubles whole, by one ` +
+          `bool — narrow the arms, select(vec${n}(a), vec${n}(b), m), or keep the doubles with ` +
+          `min(a, b) or max(a, b) where the pick is a componentwise minimum or maximum.`,
+      ]);
+    }
+    // A mask of another width is still the count refusal: the arms do not meet it either way.
+    expect(
+      codedErrorsOf(`"use typeshade";
+export function k(a: vec3f64, b: vec3f64, m: vec2b): vec3f64 { return select(a, b, m); }
+`),
+    ).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} select with a vec2<bool> condition picks per component and ` +
+        `needs 2-component arms; got vec3<f64>.`,
+    ]);
+  });
+
+  it('names only picks that compile, each the one the refused select meant', () => {
+    // select(a, b, a < b) takes b where a < b, which is the larger lane: max keeps it as a
+    // double and the narrowed pick as an f32. min is select(b, a, a < b). A pick by one bool is
+    // the one the pass has, the whole vector, through an `if` with a temporary.
+    const r = clean(`"use typeshade";
+export function narrowed(a: vec3f64, b: vec3f64): vec3 { return select(vec3(a), vec3(b), a < b); }
+export function larger(a: vec3f64, b: vec3f64): vec3f64 { return max(a, b); }
+export function smaller(a: vec3f64, b: vec3f64): vec3f64 { return min(a, b); }
+export function whole(a: vec3f64, b: vec3f64, c: bool): vec3f64 { return select(a, b, c); }
+`);
+    expect(r.wgsl).toBeDefined();
+    expect(r.glsl).toBeDefined();
+    const a = [1, 5, 3];
+    const b = [4, 2, 6];
+    expect(r.eval('narrowed', [a, b])).toEqual([4, 5, 6]);
+    expect(r.eval('larger', [a, b])).toEqual([4, 5, 6]);
+    expect(r.eval('smaller', [a, b])).toEqual([1, 2, 3]);
+    expect(r.eval('whole', [a, b, true])).toEqual(b);
+    expect(r.eval('whole', [a, b, false])).toEqual(a);
   });
 
   it('answers lane by lane on the double and after lowering, where only the lo word decides', () => {
