@@ -8,6 +8,7 @@ import type { FuncDecl, Stmt, StructDecl, StructField } from '../../core/ir/node
 import type { TsCompilerDiagnostic } from './source-file.js';
 import type { PrivateField, RestrictedField } from './structs.js';
 import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from './symbols.js';
+import type { FunctionShape } from './lower/function-types.js';
 
 /** Which fields of each struct are private, by struct and then by the member they are emitted
  *  as (Rule 8.12). */
@@ -86,13 +87,29 @@ export function privateFieldTableOf(
  *  (roadmap 0.3 item T10, #92). It hangs off the table instead of being threaded through every
  *  scope factory because it is the other half of the same thing: what this file's calls
  *  resolve against. A call to a name in here reports nothing — the declaration said why. */
-/** How one instance of a generic function is made (roadmap 0.3 item T9, #92). `argTypes` are
- *  the call's arguments as they lowered, which is what the type arguments are read off when the
- *  call site writes none. */
+/** How one instance of a generic function is made (roadmap 0.3 item T9, #92), or of a function
+ *  that takes a function (Rule 8.18). `argTypes` are the call's arguments as they lowered, which
+ *  is what the type arguments are read off when the call site writes none, with a hole where a
+ *  parameter takes a function; `scope` is the calling body's, which the functions a call hands
+ *  over are resolved in, an arrow function written there lifted out of, and what each captures
+ *  read from. */
 export type Instantiator = (
   name: string,
   node: ts.CallExpression,
-  argTypes: readonly ShaderType[],
+  argTypes: readonly (ShaderType | undefined)[],
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  scope: LoweringScope,
+) => FuncDecl | undefined;
+
+/** How an arrow function or a function expression written as an argument becomes a function of
+ *  the module (Rule 8.18): named after the body it is written in and `hint`, typed by `shape`
+ *  where it writes no types of its own, and taking what it captures there (Rule 8.17). */
+export type ArgumentLifter = (
+  node: ts.ArrowFunction | ts.FunctionExpression,
+  shape: FunctionShape,
+  hint: string,
+  scope: LoweringScope,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ) => FuncDecl | undefined;
@@ -107,9 +124,13 @@ export type Instantiator = (
 export interface FileFunctions {
   /** A call to a name in here reports nothing — its declaration already said why. */
   readonly refused: Set<string>;
-  /** The generic functions, under the emitted name a call resolves to. */
+  /** The generic functions, and those that take a function (Rule 8.18), under the emitted name
+   *  a call resolves to: each is made once per set of type and function arguments. */
   readonly generics: Set<string>;
   instantiate: Instantiator | undefined;
+  /** For each function in {@link generics} that takes a function, which parameters do. */
+  readonly fnParams: Map<string, ReadonlySet<number>>;
+  lift: ArgumentLifter | undefined;
   /** Each function's declarations as lowered so far, by the node that declares them (a `let`, a
    *  `const`, a parameter, and {@link THIS_CAPTURE} for its object), to the binding each made
    *  there. What a call to a local function passes for a variable the function captures (Rule
@@ -137,6 +158,8 @@ export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
     refused: new Set(),
     generics: new Set(),
     instantiate: undefined,
+    fnParams: new Map(),
+    lift: undefined,
     declared: new Map(),
     captures: new Map(),
   };
@@ -329,13 +352,32 @@ export class LoweringScope {
   instantiateGeneric(
     name: string,
     node: ts.CallExpression,
-    argTypes: readonly ShaderType[],
+    argTypes: readonly (ShaderType | undefined)[],
     sourceFile: ts.SourceFile,
     diagnostics: TsCompilerDiagnostic[],
   ): FuncDecl | undefined {
     const written = this.genericName(name);
     if (written === undefined) return undefined;
-    return this.fns.instantiate?.(written, node, argTypes, sourceFile, diagnostics);
+    return this.fns.instantiate?.(written, node, argTypes, sourceFile, diagnostics, this);
+  }
+
+  /** Which parameters of the function `name` take a function (Rule 8.18), or undefined when
+   *  none does: those arguments are resolved as functions rather than lowered as values. */
+  functionParamsOf(name: string): ReadonlySet<number> | undefined {
+    const written = this.genericName(name);
+    return written === undefined ? undefined : this.fns.fnParams.get(written);
+  }
+
+  /** The function an arrow function or a function expression written as an argument stands
+   *  for (Rule 8.18), lifted out of this body; undefined, having said why, when it cannot be. */
+  liftArgument(
+    node: ts.ArrowFunction | ts.FunctionExpression,
+    shape: FunctionShape,
+    hint: string,
+    sourceFile: ts.SourceFile,
+    diagnostics: TsCompilerDiagnostic[],
+  ): FuncDecl | undefined {
+    return this.fns.lift?.(node, shape, hint, this, sourceFile, diagnostics);
   }
 
   private genericName(name: string): string | undefined {

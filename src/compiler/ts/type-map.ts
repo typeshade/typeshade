@@ -406,6 +406,22 @@ function mapType(
     return undefined;
   }
 
+  // A function type anywhere but on a parameter of a function (Rule 8.18): a return, a field, a
+  // variable, an element. A parameter that takes one is read before its type is mapped
+  // (lower/function-types.ts), so what reaches here would be a value holding a function.
+  if (ts.isFunctionTypeNode(typeNode)) {
+    const text = typeNode.getText(sourceFile);
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      typeNode,
+      `"${text}" is a function type, and nothing a shader holds is a function: a function ` +
+        `takes one as a parameter, "f: ${text}", and a call hands it a function by its name ` +
+        `or as an arrow function written there (Rule 8.18).`,
+    );
+    return undefined;
+  }
+
   pushDiag(
     diagnostics,
     sourceFile,

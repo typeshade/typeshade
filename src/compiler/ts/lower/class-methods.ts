@@ -45,7 +45,7 @@ import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
-import { lowerUserCall } from './expression-misc.js';
+import { lowerGenericCall, lowerUserCall } from './expression-misc.js';
 import { lowerLValue } from './statement.js';
 import { parseParams, parseReturnType } from './function.js';
 import { recordParamDefaults } from './param-defaults.js';
@@ -1739,6 +1739,12 @@ export function lowerClassCall(
       if (scope.isNamespace(name)) {
         if (decl !== undefined)
           return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown });
+        // A generic member, or one that takes a function: made for this call (T9, #92; Rule
+        // 8.18).
+        const qualified = methodFnName(name, emittedMemberName(member));
+        if (scope.isGenericFunction(qualified)) {
+          return lowerGenericCall(node, qualified, shown, sourceFile, scope, diagnostics);
+        }
         pushDiag(diagnostics, sourceFile, callee, `"${name}" has no function "${member}".`);
         return undefined;
       }

@@ -294,7 +294,8 @@ function lowerIdentifier(
         node,
         `"${node.text}" is a function, and a shader has no function values: nothing at run ` +
           `time can hold one, return one or choose between two. Call it where its value is ` +
-          `needed, "${node.text}(...)".`,
+          `needed, "${node.text}(...)", or hand it to a parameter that takes a function ` +
+          `(Rule 8.18).`,
         TS_CODES.UNSUPPORTED,
       );
       return undefined;

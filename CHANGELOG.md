@@ -192,6 +192,28 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A function takes a function, and a call hands one over by its name or as an arrow function**
+  (Rule 8.18, new; surface §14). `f: (x: f32) => f32` was `TS8002 Unsupported type syntax`, and an
+  arrow function written as an argument `TS8099 Unsupported expression`. A function whose parameter
+  has a function type, written out or through a type alias, is now compiled once for each function
+  its calls hand it, as a generic function is once for each set of type arguments: `apply(sq, x)`
+  calls `apply_sq(x)`, in which `f(x)` is `sq(x)`. A call hands a function over by its name (a
+  module function, a local function, or a parameter of function type handed on) or as an arrow
+  function or a function expression written there, which is a local function of the calling body:
+  it takes its types from the parameter's type, may leave parameters off at the end, and reads and
+  writes the variables around it (Rule 8.17), which the copy takes and passes on,
+  `repeat3_run_body(&s, k)`. An arrow function whose type returns `void` runs an expression body
+  as a statement, `() => n += k`. The folds `any`, `all`, `none` and `zip` take an arrow function
+  the same way, and the one `zip` is handed returns what its body does; `sum`, `none` and `zip`
+  join the §9.3 extension table, and the editor's ambient declarations gain every array fold, each
+  of which it underlined before (TS2304, TS2554). A generic function a namespace declares can be
+  called by its qualified name, `N.pick(a, b)`, which was `"N" has no function "pick"`. A function
+  that does not fit, a choice made at run time, a parameter of function type on a method, a
+  constructor, a local function or an entry point, a function type anywhere else, and copies that
+  would never end are refused, each with the fix. `src/compiler/ts/higher-order.test.ts` holds WGSL,
+  GLSL ES 3.00 and every CPU path to one value for each form; `examples/higher-order.shade.ts`
+  joins the compile gate.
+
 - **A local function reads and writes the variables around it, as a TypeScript closure does**
   (Rule 8.17, new; Rule 8.8; surface §14). A local function that read a name from the body
   around it was `TS8099 "f" reads "k" from the function around it. … Pass "k" as a parameter.`,

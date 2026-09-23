@@ -120,6 +120,10 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
   array: 'array<f32, 2>(0., 1.)',
   fill: 'fill<f32, 2>(0.)',
   random: 'random(0.5)',
+  // The array folds (surface §27), whose function may be written in the call (Rule 8.18).
+  sum: 'sum(array<f32, 2>(0., 1.))',
+  none: 'none(array<f32, 2>(0., 1.), (x) => x > 2.)',
+  zip: 'zip(array<f32, 2>(0., 1.), array<f32, 2>(2., 3.), (a, b) => a * b)',
 };
 
 /** The forms that are written in a DECLARATION rather than in an expression. One program

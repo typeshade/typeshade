@@ -13,6 +13,7 @@ import { lowerScalarCast } from '../numeric.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
+import { captureArguments } from './local-functions.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import {
@@ -178,6 +179,9 @@ export function lowerUserCall(
      *  exists, to read the type arguments off them (T9, #92); lowering them again here would
      *  report every diagnostic in them twice. */
     readonly lowered?: readonly Expr[];
+    /** The written arguments `lowered` came from, when they are not all of the call's: a call
+     *  of a function that takes a function hands those over and lowers the rest (Rule 8.18). */
+    readonly written?: readonly ts.Expression[];
   } = {},
 ): Expr | undefined {
   const leading = opts.leading ?? [];
@@ -198,7 +202,7 @@ export function lowerUserCall(
     );
     return undefined;
   }
-  const written = node.arguments ?? [];
+  const written = opts.written ?? node.arguments ?? [];
   const args: Expr[] = [...leading];
   if (opts.lowered !== undefined) args.push(...opts.lowered);
   else {
@@ -309,4 +313,51 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
+}
+
+/** Lower a call to a generic function: lower its arguments, ask the file's lowering for the
+ *  instance those types name, then check the call against it the way any other call is checked
+ *  (roadmap 0.3 item T9, #92). The arguments are lowered ONCE and handed on, since lowering
+ *  them again inside `lowerUserCall` would report every diagnostic in them twice. */
+export function lowerGenericCall(
+  node: ts.CallExpression,
+  name: string,
+  /** How messages name the function: `N.pick` for the namespace's `N_pick`. */
+  shown: string,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  // An argument for a parameter that takes a function is the function it hands over, which
+  // the instantiation resolves; it is no value to lower (Rule 8.18).
+  const takesFunction = scope.functionParamsOf(name) ?? new Set<number>();
+  const lowered: Expr[] = [];
+  const written: ts.Expression[] = [];
+  const argTypes: (ShaderType | undefined)[] = [];
+  for (const [i, arg] of node.arguments.entries()) {
+    if (takesFunction.has(i)) {
+      argTypes.push(undefined);
+      continue;
+    }
+    // No contextual type: the parameter's is what the instantiation is about to decide. A bare
+    // integer literal therefore lowers as f32 and reads T as f32; `pick<i32>(…)` is how a call
+    // says otherwise.
+    const one = lowerExpression(arg, sourceFile, scope, diagnostics);
+    if (!one) return undefined;
+    lowered.push(one);
+    written.push(arg);
+    argTypes.push(one.type);
+  }
+  const decl = scope.instantiateGeneric(name, node, argTypes, sourceFile, diagnostics);
+  if (!decl) return undefined;
+  // What the functions it was handed capture, which the instance takes ahead of its own
+  // parameters (Rules 8.17, 8.18).
+  const leading = captureArguments(decl, shown, node, sourceFile, scope, diagnostics);
+  if (leading === undefined) return undefined;
+  return lowerUserCall(node, decl, sourceFile, scope, diagnostics, {
+    lowered,
+    shown,
+    ...(leading.length > 0 ? { leading } : {}),
+    ...(takesFunction.size > 0 ? { written } : {}),
+  });
 }

@@ -952,7 +952,51 @@ function lowerExpressionStatement(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Stmt | undefined {
-  const expr = node.expression;
+  return lowerExpressionAsStatement(node.expression, node, sourceFile, scope, diagnostics);
+}
+
+/** The expression body of an arrow function that returns nothing (`() => n += k`, `(x) =>
+ *  v.bump(x)`): the expression as a statement, whose value TypeScript drops, and a chain of
+ *  `return this` calls run as a statement's is (Rule 8.10). A body that only computes a value
+ *  is lowered for what it says and leaves nothing to run. */
+export function lowerVoidArrowBody(
+  body: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] {
+  const expr = unwrapParens(body) as ts.Expression;
+  const statement =
+    ts.isCallExpression(expr) ||
+    ts.isPrefixUnaryExpression(expr) ||
+    ts.isPostfixUnaryExpression(expr) ||
+    (ts.isBinaryExpression(expr) &&
+      expr.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      expr.operatorToken.kind <= ts.SyntaxKind.LastAssignment);
+  if (!statement) {
+    lowerExpression(expr, sourceFile, scope, diagnostics);
+    return [];
+  }
+  const out: Stmt[] = [];
+  if (ts.isCallExpression(expr) && expr.expression.kind !== ts.SyntaxKind.SuperKeyword) {
+    const prelude = lowerChainPrelude(expr, sourceFile, scope, diagnostics);
+    if (prelude === undefined) return [];
+    if (prelude !== 'not-a-chain') out.push(...prelude);
+  }
+  const lowered = lowerExpressionAsStatement(expr, body, sourceFile, scope, diagnostics);
+  if (lowered === undefined) return out;
+  out.push(withSpan(lowered, sourceFile, body));
+  return out;
+}
+
+/** `expr` as a statement standing alone, `node` the source a message about it points at. */
+function lowerExpressionAsStatement(
+  expr: ts.Expression,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
   // `discard;` — WGSL's fragment kill, which the IR already carries as its own statement and
   // both writers spell (`discard;` in WGSL, `discard;` in GLSL ES 3.00). It reads to the TS
   // parser as an expression statement naming `discard`, so it is caught here, before the

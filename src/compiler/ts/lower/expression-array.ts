@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
-import { typeKey } from '../../../core/ir/types.js';
+import { boolT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js';
@@ -12,6 +12,7 @@ import { lowerExpression } from './expression.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { captureArguments } from './local-functions.js';
+import type { FunctionShape } from './function-types.js';
 
 export function lowerArrayCtor(
   node: ts.CallExpression,
@@ -342,6 +343,20 @@ export function lowerArrayFold(
   // function captures (Rule 8.17).
   let leading: Expr[] = [];
   for (const arg of node.arguments) {
+    // An arrow function written as the callback (Rule 8.18): a local function of this body,
+    // typed by the arrays before it, `any(xs, (x) => x > k)`.
+    if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) {
+      const shape = foldCallbackShape(name, args);
+      if (shape !== undefined) {
+        const decl = scope.liftArgument(arg, shape, name, sourceFile, diagnostics);
+        if (decl === undefined) return undefined;
+        const captured = captureArguments(decl, name, arg, sourceFile, scope, diagnostics);
+        if (captured === undefined) return undefined;
+        predDecls.push(decl);
+        leading = captured;
+        continue;
+      }
+    }
     if (ts.isIdentifier(arg)) {
       const decl = scope.resolveCallee(arg.text);
       if (decl && intrinsicFirst(arg.text)) {
@@ -432,6 +447,29 @@ export function lowerArrayFold(
     return out;
   }
   return 'fallback';
+}
+
+/** What the function a fold is handed takes and returns, read off the arrays lowered ahead of
+ *  it: an element for a predicate, which answers a bool, and one of each for `zip`, whose
+ *  function's return is its own to say. Undefined for a fold that takes no function, or when
+ *  the arrays are not there yet. */
+function foldCallbackShape(name: string, arrays: readonly Expr[]): FunctionShape | undefined {
+  const elem = (e: Expr | undefined): ShaderType | undefined =>
+    e !== undefined && e.type.kind === 'array' ? e.type.elem : undefined;
+  if (name === 'any' || name === 'all' || name === 'none') {
+    const x = elem(arrays[0]);
+    return x === undefined
+      ? undefined
+      : { params: [x], ret: boolT, text: `(x: ${typeKey(x)}) => bool` };
+  }
+  if (name === 'zip') {
+    const a = elem(arrays[0]);
+    const b = elem(arrays[1]);
+    return a === undefined || b === undefined
+      ? undefined
+      : { params: [a, b], ret: undefined, text: `(a: ${typeKey(a)}, b: ${typeKey(b)}) => …` };
+  }
+  return undefined;
 }
 
 /** A builtin name a declaration does NOT win: every canonical math id and `mod`, except the

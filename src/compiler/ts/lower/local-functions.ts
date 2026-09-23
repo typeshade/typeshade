@@ -34,7 +34,17 @@ import {
 import { parseParams, parseReturnType } from './function.js';
 import type { Receiver } from './class-methods.js';
 import { closureUse, functionAround, type ClosureUse } from './closures.js';
+import { functionTypeOf } from './function-types.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
+
+/** Whether `decl` declares a function a body calls by name: a local function, or a parameter
+ *  of function type, whose name stands for the function a call handed over (Rule 8.18). */
+export function declaresFunction(decl: ts.Node): boolean {
+  if (ts.isVariableDeclaration(decl) || ts.isFunctionDeclaration(decl)) {
+    return localFunctionOf(decl) !== undefined;
+  }
+  return ts.isParameter(decl) && functionTypeOf(decl.type) !== undefined;
+}
 
 /** The spellings of a local function: a function written as a value, and a `function`
  *  declaration inside a body. */
@@ -256,7 +266,7 @@ export interface CaptureBinding {
 }
 
 /** The name a captured declaration is read under. */
-function capturedName(key: ts.Node): string {
+export function capturedName(key: ts.Node): string {
   const n = (key as { name?: ts.Node }).name;
   return n !== undefined && ts.isIdentifier(n) ? n.text : '?';
 }
@@ -271,10 +281,12 @@ export function liftCaptures(
   lifted: readonly Lifted[],
   callees: ReadonlyMap<string, FuncDecl>,
   file: FileFunctions,
+  /** In an instance of a function that takes a function (Rule 8.18), the function each such
+   *  parameter was handed, by the parameter's declaration: a local function that calls it
+   *  passes what it captures, so captures that too. */
+  handed: ReadonlyMap<ts.Node, FuncDecl> = new Map(),
 ): void {
-  const isLocalFunction = (d: ts.Node): boolean =>
-    (ts.isVariableDeclaration(d) || ts.isFunctionDeclaration(d)) &&
-    localFunctionOf(d) !== undefined;
+  const isLocalFunction = declaresFunction;
   // Each local function by its declaration, under the function whose body declares it: a body
   // a class inherits is lowered once per class, and so is every local function in it.
   const at = new Map<FuncDecl, Map<ts.Node, Lifted>>();
@@ -301,14 +313,23 @@ export function liftCaptures(
     for (const l of lifted) {
       const mine = keys.get(l)!;
       for (const g of uses.get(l)!.calls) {
-        const around = functionAround(g);
-        const owner = around === undefined ? undefined : l.around.get(around);
-        const callee = owner === undefined ? undefined : at.get(owner)?.get(g);
-        if (callee === undefined) continue;
-        for (const k of keys.get(callee)!) {
+        const target = handed.get(g);
+        let theirs: readonly CaptureKey[] | undefined;
+        if (target !== undefined) {
+          theirs = file.captures.get(target.name) ?? [];
+        } else {
+          const around = functionAround(g);
+          const owner = around === undefined ? undefined : l.around.get(around);
+          const callee = owner === undefined ? undefined : at.get(owner)?.get(g);
+          if (callee === undefined) continue;
+          theirs = keys.get(callee)!;
+        }
+        for (const k of theirs) {
           if (mine.includes(k)) continue;
           if (k === THIS_CAPTURE) {
-            if (l.self?.receiver === undefined) continue;
+            // A method's object handed on: through the method's own, or through what the
+            // instance around it was handed (Rule 8.18).
+            if (l.self?.receiver === undefined && handed.size === 0) continue;
             mine.unshift(k);
           } else {
             mine.push(k);
@@ -326,7 +347,10 @@ export function liftCaptures(
     taken.add('self_');
     const hidden: FuncDecl['params'][number][] = mine.map((k) => {
       if (k === THIS_CAPTURE) {
-        const r = l.self!.receiver!;
+        // Typed from the method around it, or, inside an instance that was handed a function
+        // that captures one, when the body declaring it is lowered (`captureBindings`).
+        const r = l.self?.receiver;
+        if (r === undefined) return { name: 'self_', type: voidT };
         return {
           name: 'self_',
           type: r.type,
@@ -358,6 +382,21 @@ export function captureBindings(
   let receiver: Receiver | undefined;
   for (const [i, k] of keys.entries()) {
     const param = l.fn.stub.params[i]!;
+    if (k === THIS_CAPTURE && l.self?.receiver === undefined) {
+      // Inside an instance of a function that takes a function (Rule 8.18): the object the
+      // function it was handed captures, which the instance holds and this one hands on.
+      const around = functionAround(l.fn.node);
+      const owner = around === undefined ? undefined : l.around.get(around);
+      const of = owner === undefined ? undefined : file.declared.get(owner)?.get(k);
+      if (of === undefined) return undefined;
+      (param as { type: ShaderType }).type = of.type;
+      captures.push({
+        key: k,
+        byName: false,
+        binding: { kind: 'param', name: 'self_', type: of.type, mutable: true },
+      });
+      continue;
+    }
     if (k === THIS_CAPTURE) {
       const self = l.self!;
       const r = self.receiver!;
@@ -380,7 +419,23 @@ export function captureBindings(
     }
     const around = functionAround(k);
     const declaring = around === undefined ? undefined : l.around.get(around);
-    const of = declaring === undefined ? undefined : file.declared.get(declaring)?.get(k);
+    if (declaring === undefined) {
+      // Not a variable of a function around this one: one a function handed to the instance
+      // around it captures (Rule 8.18), which that instance holds and this one only hands on,
+      // since no name in its body can reach it.
+      const here = functionAround(l.fn.node);
+      const owner = here === undefined ? undefined : l.around.get(here);
+      const held = owner === undefined ? undefined : file.declared.get(owner)?.get(k);
+      if (held === undefined) return undefined;
+      (param as { type: ShaderType }).type = held.type;
+      captures.push({
+        key: k,
+        byName: false,
+        binding: { kind: 'param', name: param.name, type: held.type, mutable: true },
+      });
+      continue;
+    }
+    const of = file.declared.get(declaring)?.get(k);
     if (of === undefined) return undefined;
     (param as { type: ShaderType }).type = of.type;
     const writable = param as { mode?: 'inout' };
@@ -453,14 +508,13 @@ export function captureArguments(
  *  back, so the caller must hold it by reference too. To a fixed point, since the chain of
  *  calls may be any length (Rule 8.17). */
 export function propagateCaptureRefs(
-  lifted: readonly Lifted[],
+  stubs: readonly FuncDecl[],
   callees: ReadonlyMap<string, FuncDecl>,
   file: FileFunctions,
 ): void {
   for (let grew = true; grew;) {
     grew = false;
-    for (const l of lifted) {
-      const stub = l.fn.stub;
+    for (const stub of stubs) {
       const count = file.captures.get(stub.name)?.length ?? 0;
       if (count === 0) continue;
       const hidden = new Map(stub.params.slice(0, count).map((p) => [p.name, p]));

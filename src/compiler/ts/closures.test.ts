@@ -608,7 +608,7 @@ export function run(k: f32): f32 {
 
   it('be a value: held, returned or chosen at run time', () => {
     const asValue = (name: string): string =>
-      `${TS_CODES.UNSUPPORTED} "${name}" is a function, and a shader has no function values: nothing at run time can hold one, return one or choose between two. Call it where its value is needed, "${name}(...)".`;
+      `${TS_CODES.UNSUPPORTED} "${name}" is a function, and a shader has no function values: nothing at run time can hold one, return one or choose between two. Call it where its value is needed, "${name}(...)", or hand it to a parameter that takes a function (Rule 8.18).`;
     expect(
       only(
         RUN(`export function run(k: f32): f32 {

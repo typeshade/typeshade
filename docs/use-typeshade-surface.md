@@ -252,7 +252,7 @@ entry may also return nothing, which is what a program that only writes to stora
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
 | JS `Array` / `filter` length change | IR + WGSL constraints |
-| A function held in a variable, returned, or chosen at run time | Neither target has a function value; a local function and a closure's variables are §14's, and every call of one is written where it is in scope (Rule 8.17) |
+| A function held in a variable, returned, or chosen at run time | Neither target has a function value; a local function and a closure's variables are §14's, and every call of one is written where it is in scope (Rule 8.17), as every function a call hands to a parameter of function type is named there (Rule 8.18) |
 | Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
 | Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check reads the calls as written, and a method call, an accessor and `new` as they lower, before the optimizer runs, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
 
@@ -1055,6 +1055,73 @@ since nothing at run time can hold a function.
 Three shapes of the declaration itself are refused too: an expression body with no return type,
 since there is nothing to infer it from here; a `let`, which would let the name point at another
 function; and a type written on the const rather than on the function itself.
+
+### A function that takes a function
+
+A parameter whose type is a function type, written out or through a type alias, takes a function
+(Rule 8.18). Neither target has a function value to take, and none is needed: every call names
+the function it hands over, so the function is compiled once for each function its calls hand
+it, as a generic function is once for each set of type arguments. In each copy a call of the
+parameter calls the function handed over:
+
+```ts
+"use typeshade";
+
+type Op = (a: f32, b: f32) => f32;
+
+function fold3(op: Op, a: f32, b: f32, c: f32): f32 {
+  return op(op(a, b), c);
+}
+
+function times(body: (i: i32) => void): void {
+  for (let i = 0; i < 4; i++) {
+    body(i);
+  }
+}
+
+function mul(a: f32, b: f32): f32 {
+  return a * b;
+}
+
+export function shade(k: f32): f32 {
+  let total = 0.;
+  times((i) => {                            // fn shade_body(total: ptr<function, f32>, k: f32, i: i32)
+    total += f32(i) * k;                    // times_shade_body(&total, k);
+  });
+  const xs = array<f32, 3>(1., 2., 3.);
+  const big = any(xs, (x) => x > k);        // shade_any(k, xs[0]) || …
+  return fold3(mul, 2., 3., 4.) +           // fold3_mul(2.0, 3.0, 4.0)
+    fold3((a, b) => a + b * k, 1., 2., 3.) + // fold3_shade_op(k, 1.0, 2.0, 3.0)
+    total + (big ? 1. : 0.);
+}
+
+@fragment
+export function fs(): vec4 {
+  return vec4(shade(0.5), 0., 0., 1.);
+}
+```
+
+A call hands a function over by its name, a local one included, or as an arrow function or a
+function expression written in the call. One written in the call is a local function of the body
+the call is in, so it reads and writes that body's variables as §14's local functions do, and the
+copy takes what it captures and passes it on: `total` above is written through a pointer from
+`shade_body`, by way of `times_shade_body`. It takes its parameters' types from the parameter's
+type, and its return type too, where it writes none; it may leave parameters off at the end, as
+TypeScript allows; and when the type returns `void`, an expression body runs as a statement, so
+`times(() => n += k)` adds. Inside the function that takes it, a parameter of function type is
+called, or handed on to another such parameter (`twice(f)` calling `apply(f, x)` makes
+`apply_…` for whatever `f` was).
+
+The folds take the same arguments: `any(xs, pred)`, `all`, `none` and `zip(xs, ys, f)` accept an
+arrow function, typed by the arrays, and one `zip` is handed returns what its body does.
+
+Refused, each with the reason: a function that does not fit the parameter's type (`"add" takes 2
+argument(s), and "(x: f32) => f32" passes 1`); an argument that would choose a function at run
+time (`c ? sq : cube`); a builtin or a generic function by its name, for which an arrow function
+that calls it is the fix; a parameter of function type on a method, a constructor, an accessor, a
+local function or an entry point, which have no copies to make; a function type anywhere else, a
+return, a field, a variable; and a function that hands itself a function it builds anew on every
+call, whose copies would never end.
 
 ### Triple-slash directives
 
@@ -2836,9 +2903,9 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   `>`, `>=`) on two bool vectors is TS8003 with the fix: `===`/`!==`, or `any`/`all`.
 - **`any(m)` and `all(m)`** reduce a vector of bools to one bool, the same builtins on both
   targets. Over an array they stay the folds, `any(xs, pred)` with `pred` a function the file
-  declares, a local one included, which hands each call what it captures (Rule 8.17; an arrow
-  function written in the call is `TS8099`); a scalar or a numeric vector is TS8003 naming both
-  shapes.
+  declares, a local one included, which hands each call what it captures (Rule 8.17), or an arrow
+  function written in the call (Rule 8.18, §14); a scalar or a numeric vector is TS8003 naming
+  both shapes.
 - **`select(f, t, m)`** with a vector-of-bools condition picks per component, and the arms are
   vectors of the mask's size (TS8003 otherwise). WGSL's `select` takes the mask as is; GLSL ES
   3.00 spells `mix(f, t, m)` for float vectors and a componentwise ternary through the vector's
