@@ -41,7 +41,7 @@ import {
 } from './param-defaults.js'
 import { lowerStatements } from './statement.js'
 import { lowerExpression } from './expression.js'
-import { retargetIntLitCtx } from '../lit-coerce.js'
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js'
 import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -1447,9 +1447,9 @@ function lowerArrowValue(
 ): Stmt[] {
   const lowered = lowerExpression(expr, sourceFile, scope, diagnostics, stub.ret)
   if (!lowered) return []
-  return [
-    withSpan({ s: 'return', expr: retargetIntLitCtx(lowered, expr, stub.ret) }, sourceFile, expr),
-  ]
+  const retargeted = retargetIntLitCtx(lowered, expr, stub.ret)
+  const ret = reportIntLitRange(retargeted, expr, stub.ret, sourceFile, diagnostics) ?? retargeted
+  return [withSpan({ s: 'return', expr: ret }, sourceFile, expr)]
 }
 
 /** Lower every default `stub`'s signature writes, in the module's scope (roadmap 0.3 item T7,

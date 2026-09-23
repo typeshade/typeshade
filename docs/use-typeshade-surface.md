@@ -746,7 +746,11 @@ Three edges of the rule, each of which the diagnostics still cover:
   function is `return 5u;`, but `return 2.5 + 0.5` is a type mismatch — every leaf of the
   arithmetic has to be an integer literal.
 - **The value has to fit.** `return -1` in a `u32` function, or `2147483648` in an `i32` one,
-  is left exactly as written and reported as the mismatch it always was.
+  is not retyped, and is reported at the literal as TS8003 *The value has to fit: -1 is outside
+  u32, which holds 0 to 4294967295 (§13).* The same sentence covers every declared position
+  above: a declaration, an assignment, a `for` init, a return, an argument, a struct field, a
+  vector constructor's element and a conditional's arm. An array element keeps §18's element
+  message, and a module `const` its own range message.
 - **A written number in a builtin call's FIRST argument takes an integer peer's kind (#57).**
   An intrinsic's result type is its first argument's, and until roadmap 0.2 item 9 that position
   was never retargeted, so `min(1, i)` with an `i32` `i` typed the call `f32` and emitted
@@ -1307,9 +1311,12 @@ means:
   `row * width + column`.
 - A spread and a hole are refused: `[...xs]` would need the size of `xs` at lowering time.
 
-The call form is not the same in one respect: `array<i32, 3>(1, 2, 3)` still lowers each
-argument on its own and emits `array<i32, 3>(1.0, 2.0, 3.0)`, which neither target accepts.
-That is a gap in the call site, not in the list, and #8's A3 did not close it.
+The call form types its arguments by the same rule and the same check, so
+`array<i32, 3>(1, 2, 3)` emits `array<i32, 3>(1, 2, 3)` (GLSL `int[3](1, 2, 3)`) and
+`array<u32, 2>(1, 2)` emits `array<u32, 2>(1u, 2u)`, exactly what the list form emits, and
+`array<u32, 2>(-1, 2)` is refused with the list's element message. `array(1, 2, 3)`, which
+states no element type, infers `array<f32, 3>`: nothing declares an integer there, so §13 gives
+each literal `f32`.
 
 
 ---
@@ -3901,11 +3908,15 @@ column stride is `AlignOf(vecR<f32>)` — 8 when the matrix has two rows and 16 
 and so would every field after it:
 
 ```
-wgslLayout: mat2x2 in std140 is not supported — WGSL gives a two-row matrix a column
-stride of 8 and GLSL std140 rounds every column to 16, so the two targets would disagree
-on this field and every field after it; carry it as mat2x4 (measured: both targets stride
-16) or as 2 vec2 fields
+TS8051 (error): "U.m" is in a uniform: mat2x2 in std140 is not supported — WGSL gives a
+two-row matrix a column stride of 8 and GLSL std140 rounds every column to 16, so the two
+targets would disagree on this field and every field after it; carry it as mat2x4
+(measured: both targets stride 16) or as 2 vec2 fields.
 ```
+
+The refusal is an error at the binding's declaration (Rule 4.8), so neither target is emitted,
+for a compute-only module as for a render one; `reflect()` and the fn() EDSL's `wgslLayout`
+throw the same sentence for a std140 layout.
 
 It is refused rather than silently padded because padding would make the WGSL a module emits
 disagree with the offsets `reflect()` reports for it, and keeping those two the same is the
@@ -4617,9 +4628,12 @@ fragment program; both stages are accepted.
 capabilities, so `emitGlslModule` throws `SD0030` naming it rather than emitting a varying a
 WebGL2 driver would reinterpret.
 
-**The author spelling for the rest: a string directive beside `"use typeshade"`.** The two
-extensions no use can derive — the ones whose surface is not one built-in value — are turned on
-by the file itself:
+**The author spelling for the rest: a string directive beside `"use typeshade"`.** An
+extension no use in the file derives is turned on by the file itself. `f16` is the one no use can
+derive, since its type is not on this surface yet (Rule 4.7). `subgroups` is derived by
+`subgroup_invocation_id` and `subgroup_size` (the table above), and the directive turns it on for
+a file that reads neither; the subgroup built-in functions (`subgroupAdd` and the rest) are not
+on this surface, so those two values are the only use there is to derive it from:
 
 ```ts
 "use typeshade"

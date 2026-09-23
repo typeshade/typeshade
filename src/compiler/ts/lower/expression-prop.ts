@@ -20,7 +20,7 @@ import {
 } from './class-access.js'
 import { parseSwizzle } from '../swizzle.js'
 import { numericMismatch } from '../numeric.js'
-import { retargetIntLitCtx } from '../lit-coerce.js'
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { refuseBareAtomic } from './atomics.js'
 import { makeDiagnostic } from '../diagnostic.js'
@@ -478,7 +478,12 @@ export function lowerObjectLiteral(
     // resolved first, which is why they sit on the same side of that decision.
     const named = byName.get(field.name)
     const namedNode = nodeByName.get(field.name)
-    const expr = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named
+    const retargeted = named && namedNode ? retargetIntLitCtx(named, namedNode, field.type) : named
+    const expr =
+      retargeted && namedNode
+        ? (reportIntLitRange(retargeted, namedNode, field.type, sourceFile, diagnostics) ??
+          retargeted)
+        : retargeted
     if (!expr) {
       pushDiag(
         diagnostics,

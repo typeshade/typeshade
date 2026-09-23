@@ -3,7 +3,6 @@
 // Shared by `hover.ts` (a documentation lookup) and `completions.ts` (an item's
 // `documentation` field), so the two never describe the same name two different ways.
 
-import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js'
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
 
@@ -58,6 +57,38 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   mat4x3: '4x3 matrix of `f32`, column-major: 4 columns of `vec3`.',
   mat4x4: '4x4 matrix of `f32` (or `f64` as `mat4x4<f64>`), column-major.',
   mat4: '4x4 matrix of `f32`, column-major, same type as `mat4x4`.',
+  sampler:
+    'A sampler: how a sampled texture is filtered and addressed when `textureSample` reads it. A resource with no type argument, declared bare as `declare const smp: sampler`.',
+  sampler_comparison:
+    'A comparison sampler: compares a reference depth against a depth texture in `textureSampleCompare`, the read a shadow map takes. Declared bare as `declare const shadowSmp: sampler_comparison`.',
+  texture_2d:
+    'A sampled 2D texture of `f32`, `i32` or `u32` texels, read with `textureLoad`, or filtered with `textureSample` when its texels are `f32`. A resource, declared as `declare const t: texture_2d<f32>`.',
+  texture_2d_array:
+    'An array of sampled 2D textures in one binding, picked by an integer layer after the coordinate. Declared as `declare const t: texture_2d_array<f32>`.',
+  texture_cube:
+    'A sampled cube texture, looked up by a `vec3` direction, as an environment map is. Declared as `declare const t: texture_cube<f32>`.',
+  texture_3d:
+    'A sampled 3D texture, looked up by a `vec3` coordinate, as a volume is. Declared as `declare const t: texture_3d<f32>`.',
+  texture_1d:
+    'A sampled 1D texture, looked up by one `f32` coordinate, as a colour ramp is. Declared as `declare const t: texture_1d<f32>`; GLSL ES 3.00 has no form for it, so it derives the `texture1d` capability and runs on WGSL only.',
+  texture_cube_array:
+    'An array of sampled cube textures in one binding, looked up by a direction and a layer. Declared as `declare const t: texture_cube_array<f32>`; GLSL ES 3.00 has no form for it, so it derives the `textureCubeArray` capability and runs on WGSL only.',
+  texture_multisampled_2d:
+    'A multisampled 2D texture, read one sample at a time with `textureLoad(t, coords, sampleIndex)` and never filtered. Declared as `declare const t: texture_multisampled_2d<f32>`; it derives the `msaaTextureLoad` capability, which GLSL ES 3.00 does not have.',
+  texture_depth_2d:
+    'A 2D depth texture, single-channel float, read with `textureSampleCompare` through a `sampler_comparison` or with `textureLoad`. Declared bare as `declare const shadowMap: texture_depth_2d`.',
+  texture_depth_2d_array:
+    'An array of 2D depth textures in one binding, picked by an integer layer, as shadow cascades are. Declared bare as `declare const t: texture_depth_2d_array`.',
+  texture_depth_cube:
+    'A cube depth texture, looked up by a `vec3` direction, the shadow map of a point light. Declared bare as `declare const t: texture_depth_cube`.',
+  texture_depth_cube_array:
+    'An array of cube depth textures in one binding, looked up by a direction and a layer. Declared bare as `declare const t: texture_depth_cube_array`; it derives the `textureCubeArray` capability, which GLSL ES 3.00 does not have.',
+  texture_depth_multisampled_2d:
+    'The depth attachment of a multisampled target, read one sample at a time with `textureLoad`. Declared bare as `declare const t: texture_depth_multisampled_2d`; it derives the `msaaTextureLoad` capability, which GLSL ES 3.00 does not have.',
+  texture_storage_2d:
+    'A 2D storage texture, read and written by texel coordinate with `textureLoad` and `textureStore`, with no sampler. Its format and access mode are its type arguments, as in `declare const dst: texture_storage_2d<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
+  texture_storage_2d_array:
+    'An array of 2D storage textures in one binding, read and written by texel coordinate and an integer layer. Declared with a format and an access mode, as in `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
 }
 
 /** One Markdown sentence per attribute name in `ATTRIBUTE_NAMES`. */
@@ -440,8 +471,9 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
     "The square root of 2, inlined as a compile-time `f32` literal (approximately 1.41421). The value matches JavaScript's `Math.SQRT2`.",
 }
 
-/** Every documented type name, asserted in `docs.test.ts` to equal `SUPPORTED_TYPE_NAMES`. */
-export const DOCUMENTED_TYPE_NAMES: readonly string[] = SUPPORTED_TYPE_NAMES
+/** Every documented type name: the rows of `TYPE_DOCS`, asserted in `docs.test.ts` to cover
+ *  every name in the compiler's `SUPPORTED_TYPE_NAMES`. */
+export const DOCUMENTED_TYPE_NAMES: readonly string[] = Object.keys(TYPE_DOCS)
 /** Every documented attribute name, asserted in `docs.test.ts` to equal `ATTRIBUTE_NAMES`. */
 export const DOCUMENTED_ATTRIBUTE_NAMES: readonly string[] = ATTRIBUTE_NAMES
 /** Every documented builtin name, asserted in `docs.test.ts` to equal `WGSL_BUILTIN_NAMES`. */

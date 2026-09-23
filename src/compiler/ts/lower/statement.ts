@@ -42,6 +42,7 @@ import {
 import {
   retargetDeclaredIntLit,
   retargetIntLitCtx,
+  reportIntLitRange,
   shiftAmountMessage,
   shiftAmountOutOfRange,
 } from '../lit-coerce.js'
@@ -170,7 +171,13 @@ function lowerStatementKind(
     if (!expr) return undefined
     // `return 0` takes the declared return type when that type is i32 or u32 (#8 A3).
     const ret = scope.returnType()
-    return { s: 'return', expr: ret ? retargetIntLitCtx(expr, node.expression, ret) : expr }
+    if (!ret) return { s: 'return', expr }
+    const retargeted = retargetIntLitCtx(expr, node.expression, ret)
+    return {
+      s: 'return',
+      expr:
+        reportIntLitRange(retargeted, node.expression, ret, sourceFile, diagnostics) ?? retargeted,
+    }
   }
   if (ts.isIfStatement(node)) return lowerIf(node, sourceFile, scope, diagnostics)
   if (ts.isForStatement(node)) return lowerFor(node, sourceFile, scope, diagnostics)
@@ -501,6 +508,7 @@ function lowerDeclarationKind(
       // before this item and still do — while `let j: i32 = 1.5` stays refused, since the
       // fallback takes an integral value only and the type check below catches the rest.
       init = retargetDeclaredIntLit(init, decl.initializer, annotated)
+      init = reportIntLitRange(init, decl.initializer, annotated, sourceFile, diagnostics) ?? init
     }
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
@@ -1074,6 +1082,7 @@ function lowerAssign(
   // `x = 2` takes the target's type when it is i32 or u32 (#8 A3); the compound form already
   // did through lowerAssignOp.
   value = retargetIntLitCtx(value, right, want)
+  value = reportIntLitRange(value, right, want, sourceFile, diagnostics) ?? value
   if (typeKey(want) !== typeKey(value.type)) {
     pushDiag(
       diagnostics,

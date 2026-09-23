@@ -34,6 +34,7 @@ import {
   isIntegerLiteralTree,
   retargetIntLit,
   retargetIntLitCtx,
+  reportIntLitRange,
 } from '../lit-coerce.js'
 import { spanOf } from '../span.js'
 import { lowerExpression } from './expression.js'
@@ -414,6 +415,8 @@ export function lowerCall(
     if (elem) {
       for (let i = 0; i < args.length; i++) {
         args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem)
+        args[i] =
+          reportIntLitRange(args[i]!, node.arguments[i]!, elem, sourceFile, diagnostics) ?? args[i]!
       }
     }
     if (args.length === 1 && isVectorCtorScalar(args[0]!.type, vc.elem)) {
