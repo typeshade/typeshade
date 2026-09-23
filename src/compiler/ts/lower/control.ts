@@ -5,7 +5,12 @@ import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import { irNameOf, readOnlyPhrase, writeRules } from '../context.js';
-import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js';
+import {
+  analyzeCountedFor,
+  boundWrittenIn,
+  foldConstNumber,
+  openLoopError,
+} from '../loop-bound.js';
 import { fitsTarget, isIntScalar } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { numericMismatch } from '../numeric.js';
@@ -28,7 +33,8 @@ export function lowerFor(
       diagnostics,
       sourceFile,
       node,
-      'for is missing an exit condition; infinite loops are not allowed.',
+      'for is missing an exit condition. A for loop is counted; a loop that ends at a break ' +
+        'is "while (true) { … }".',
       TS_CODES.LOOP_INFINITE,
     );
     return undefined;
@@ -38,7 +44,7 @@ export function lowerFor(
       diagnostics,
       sourceFile,
       node,
-      'for-init must be `let i: i32 = <const>`.',
+      'for-init must be `let i: i32 = <start>`.',
       TS_CODES.LOOP_INDUCTION,
     );
     return undefined;
@@ -56,7 +62,8 @@ export function lowerFor(
   scope.push();
   scope.enterLoop();
   try {
-    const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics);
+    const hint = counterTypeFromBound(node, node.initializer, sourceFile, scope);
+    const initStmt = lowerForInit(node.initializer, sourceFile, scope, diagnostics, hint);
     if (!initStmt) return undefined;
     // The `for` header's own two statements never pass through `lowerStatement`, so the
     // blanket stamp there does not reach them; give each the span of the clause it came from
@@ -82,24 +89,81 @@ export function lowerFor(
       pushDiag(diagnostics, sourceFile, node, counted.message, counted.code);
       return undefined;
     }
-    return {
-      s: 'for',
-      init: initStmt,
-      cond,
-      update,
-      body: lowerBody(node.statement, sourceFile, scope, diagnostics),
-    };
+    const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
+    // A runtime bound counts the loop only if the body leaves it alone (Rule 7.5).
+    const moved = boundWrittenIn(cond, initStmt.s === 'var' ? initStmt.name : '', scope, body);
+    if (moved !== undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.condition,
+        `for bound reads "${moved}", which the loop body writes, so it does not bound the ` +
+          `loop. Read it into a const before the loop, or write the loop as a while.`,
+        TS_CODES.LOOP_BOUND,
+      );
+      return undefined;
+    }
+    return { s: 'for', init: initStmt, cond, update, body };
   } finally {
     scope.exitLoop();
     scope.pop();
   }
 }
 
+/**
+ * The type an unannotated counter takes from the bound it is compared with (Rule 7.5).
+ *
+ * `for (let i = 0; i < data.length; i++)` is the loop a TypeScript author writes first, and
+ * `data.length` is a `u32`. An unannotated counter was always an `i32`, so the comparison was
+ * `TS8003 cannot compare i32 and u32`, a type the author never wrote. A counter whose initializer
+ * is a plain non-negative integer literal and whose bound is a `u32` is a `u32`, which is the one
+ * type the loop can have. Anything else keeps the `i32` default: an annotation, a negative or
+ * computed start, an `i32` or float bound.
+ *
+ * The bound is lowered once here into a scratch list, to read its type, and again where the
+ * condition is lowered, which reports its diagnostics. Lowering an expression declares nothing.
+ */
+function counterTypeFromBound(
+  node: ts.ForStatement,
+  list: ts.VariableDeclarationList,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+): ShaderType | undefined {
+  const decl = list.declarations[0];
+  if (!decl || list.declarations.length !== 1 || decl.type || !ts.isIdentifier(decl.name)) {
+    return undefined;
+  }
+  let start = decl.initializer;
+  while (start && ts.isParenthesizedExpression(start)) start = start.expression;
+  if (!start || !ts.isNumericLiteral(start) || !/^\d+$/.test(start.text)) return undefined;
+  let cond = node.condition;
+  while (cond && ts.isParenthesizedExpression(cond)) cond = cond.expression;
+  if (!cond || !ts.isBinaryExpression(cond) || !COMPARISONS.has(cond.operatorToken.kind)) {
+    return undefined;
+  }
+  const name = decl.name.text;
+  const isCounter = (e: ts.Expression): boolean => ts.isIdentifier(e) && e.text === name;
+  const bound = isCounter(cond.left) ? cond.right : isCounter(cond.right) ? cond.left : undefined;
+  if (!bound) return undefined;
+  const lowered = lowerExpression(bound, sourceFile, scope, []);
+  return lowered && typeKey(lowered.type) === 'u32' ? lowered.type : undefined;
+}
+
+const COMPARISONS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
+
 function lowerForInit(
   list: ts.VariableDeclarationList,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
+  hint: ShaderType | undefined,
 ): Stmt | undefined {
   const decl = list.declarations[0];
   if (!decl || list.declarations.length !== 1 || !ts.isIdentifier(decl.name)) {
@@ -143,10 +207,11 @@ function lowerForInit(
   // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
   // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
   // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
-  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T);
+  const counterType = annotated ?? hint ?? i32T;
+  init = retargetDeclaredIntLit(init, decl.initializer, counterType);
   // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk below would
   // otherwise add a second one about a start value the author has already been told about.
-  if (reportIntLitRange(init, decl.initializer, annotated ?? i32T, sourceFile, diagnostics)) {
+  if (reportIntLitRange(init, decl.initializer, counterType, sourceFile, diagnostics)) {
     return undefined;
   }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
@@ -196,7 +261,7 @@ export function lowerWhile(
 ): Stmt | undefined {
   const cond = lowerExpression(node.expression, sourceFile, scope, diagnostics);
   if (!cond) return undefined;
-  const err = loopConditionError(cond, scope);
+  const err = openLoopError(cond, scope, bodyHasExit(node.statement));
   if (err) {
     pushDiag(diagnostics, sourceFile, node, err.message, err.code);
     return undefined;
@@ -204,22 +269,40 @@ export function lowerWhile(
   scope.enterLoop();
   try {
     const body = lowerBody(node.statement, sourceFile, scope, diagnostics);
-    const i32 = cond.op === 'compare' ? cond.a.type : cond.type;
-    const w = { op: 'varref' as const, type: i32, name: '_w' };
+    // The IR has one loop statement, the `for`, so a `while` is a `for` whose counter nothing
+    // reads. The counter is an `i32` whatever the condition compares: it used to take the
+    // type of the condition's left operand, which made it an `f32` under `while (a < 4.)` and
+    // a `bool` under `while (true)`.
+    const w = { op: 'varref' as const, type: i32T, name: '_w' };
     return {
       s: 'for',
-      init: { s: 'var', name: '_w', type: i32, init: { op: 'lit', type: i32, value: 0 } },
+      init: { s: 'var', name: '_w', type: i32T, init: { op: 'lit', type: i32T, value: 0 } },
       cond,
       update: {
         s: 'assign',
         target: w,
-        expr: { op: 'binop', type: i32, bop: '+', a: w, b: { op: 'lit', type: i32, value: 1 } },
+        expr: { op: 'binop', type: i32T, bop: '+', a: w, b: { op: 'lit', type: i32T, value: 1 } },
       },
       body,
     };
   } finally {
     scope.exitLoop();
   }
+}
+
+/** Whether a `while` body can leave its loop: a `break` that belongs to it, or a `return`.
+ *  A `break` inside a nested loop or a `switch` leaves that statement instead, and a nested
+ *  function's `return` is its own; labels are refused (surface §17), so no `break` names an
+ *  outer loop. */
+function bodyHasExit(body: ts.Statement): boolean {
+  const walk = (n: ts.Node, ownsBreak: boolean): boolean => {
+    if (ts.isReturnStatement(n)) return true;
+    if (ts.isBreakStatement(n)) return ownsBreak && n.label === undefined;
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) return false;
+    const nested = ts.isIterationStatement(n, false) || ts.isSwitchStatement(n) ? false : ownsBreak;
+    return ts.forEachChild(n, (c) => walk(c, nested) || undefined) === true;
+  };
+  return walk(body, true);
 }
 
 export function lowerSwitch(
