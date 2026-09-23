@@ -11,7 +11,7 @@ import { parseSwizzle } from '../swizzle.js'
 import { lowerRandomHash } from '../random-hash.js'
 import { lowerScalarCast } from '../numeric.js'
 import { foldConstNumber } from '../loop-bound.js'
-import { retargetIntLitCtx } from '../lit-coerce.js'
+import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js'
 import { lowerExpression } from './expression.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { TS_CODES, type TsCode } from '../codes.js'
@@ -260,7 +260,10 @@ export function lowerUserCall(
   }
   for (let i = leading.length; i < supplied; i++) {
     // `g(1)` takes the parameter's type when it is i32 or u32 (#8 A3).
-    args[i] = retargetIntLitCtx(args[i]!, written[i - leading.length]!, decl.params[i]!.type)
+    const argNode = written[i - leading.length]!
+    const want = decl.params[i]!.type
+    args[i] = retargetIntLitCtx(args[i]!, argNode, want)
+    args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
       pushDiag(
         diagnostics,

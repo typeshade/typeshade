@@ -1909,8 +1909,9 @@ The bottom five rows are the ones nothing declares by hand. Writing
 `@builtin("clip_distances")`, `@builtin("primitive_index")` or `@blend_src(n)` derives the
 capability, because WGSL refuses each of those without the matching `enable`; a
 `"bgra8unorm"` storage texture and a call into the packed 4x8 family derive theirs from the
-binding and from the call. In a `"use typeshade"` file the two that no use can derive are
-spelled as a string directive beside `"use typeshade"`:
+binding and from the call. `f16`, which no use can derive, and `subgroups`, for a file that
+reads neither subgroup built-in value, are spelled as a string directive beside
+`"use typeshade"`:
 
 ```ts
 'use typeshade'
@@ -1973,7 +1974,7 @@ that is not core, and a device refuses the bind group layout unless it requested
 capability carries the requirement to the host). `enables` is typed to exclude every derived
 id, so naming one is a compile error.
 
-A capability is not the only thing a host may have to check. A WGSL *language* feature is a
+A capability is not the only thing a host may have to check. A WGSL _language_ feature is a
 property of the browser's shading-language implementation rather than of the device, so it is
 not requested at `requestDevice` at all. `reflect().requiredLanguageFeatures` lists the ones a
 module's source uses, for `navigator.gpu.wgslLanguageFeatures` to answer. The WGSL writer emits

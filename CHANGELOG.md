@@ -13,6 +13,17 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **A two-row matrix in a uniform is refused, as Rule 4.8 says** (§40). A `mat2x2`, `mat3x2`
+  or `mat4x2` (and `mat2`) in a uniform binding, directly or through a struct or an array, is
+  `TS8051` at the declaration with the remedy (`mat{C}x4`, or two `vec2` fields). It was a
+  `TS8015` warning that kept a WGSL whose layout disagreed with std140. Storage (std430) is
+  unaffected.
+- **An integer literal outside its declared type reports §13's sentence.** For
+  `const a: u32 = 4294967296` the compiler says
+  `TS8003 The value has to fit: 4294967296 is outside u32, which holds 0 to 4294967295 (§13).`
+  on the literal, in declarations, assignments, `for` inits, returns, arguments, struct fields,
+  vector constructors and conditional arms. It was an int/float mismatch the author never
+  wrote, and a refused `let` no longer leaves its name unbound.
 - **The fp64 guard is read once per function, and its redundant multiplies are gone** (§39).
   Every float `df64_*` helper fetched the `_fp64` guard texel itself, so every helper CALL
   fetched it again: the `fp64-mandelbrot` escape loop read the texture up to 40 times per
@@ -146,6 +157,10 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
   the compile gate's Tint, WebGL2 and render-pipeline legs, and renders on WebGPU (measured on
   Tint with SwiftShader). Writing it found what #203 (loop bounds) and #204 (multi-pass
   rendering) now ask to decide.
+- **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
+  `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
+  and the capability that keeps it off GLSL ES 3.00 where one does. `DOCUMENTED_TYPE_NAMES` is
+  the documented rows, and a test holds it to every name the compiler supports.
 
 - **Hover documents every matrix type, not only `mat4`** (Rule 12.7, surface §40). The language
   service's type table, which hover, completions and the reference pages read, had rows for
@@ -892,6 +907,15 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   reason alone, although only the fragment entry reads the variable. Measured on the compile
   gate's WebGL2: both stages compile and link. One golden moves, `class-syntax.fragment.glsl`,
   by the order of three lines.
+- **`array<i32, N>(…)` and `array<u32, N>(…)` emit integer literals** (§18). The call form
+  emitted `array<i32, 3>(1.0, 2.0, 3.0)`, which neither target accepts; it now types each
+  element the way the list form does, one helper for both, so `array<u32, 2>(-1, 2)` is refused
+  at the source.
+- **The documents and comments name what the class rules and the directives accept.** The
+  `TS8035` catalogue matches what #190 left refused, and surface §50 and AUTHORING.md no longer
+  call `subgroups` an extension no use can derive (the subgroup built-in values derive it).
+- **Test reasons cite roadmap rows by name, not line number**, and a test checks the cited row
+  exists; CI's actions run on Node 24 (`actions/checkout`, `actions/setup-node` v5).
 
 - **`capabilityMatrix` says `declarable: false` for all nine derived capabilities** (Rule 10.1,
   §50). `bgra8unormStorage` (#147, derived from a storage texture's format) and `packed4x8Dot`
