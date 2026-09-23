@@ -112,7 +112,9 @@ describe('the manifest npm publishes', () => {
     // types-only subpath, with `main`/`types` deduplicating against "."'s pair. A count that
     // does not add up means the reader dropped a subpath, and an arm reporting on a set it
     // silently shrank is the vacuous-pass failure this repository keeps writing arms against.
-    const expected = Object.values(PKG.exports).reduce((n, t) => n + (isTypesOnly(t) ? 1 : 2), 0)
+    const expected =
+      Object.values(PKG.exports).reduce((n, t) => n + (isTypesOnly(t) ? 1 : 2), 0) +
+      Object.keys(PKG.bin ?? {}).length
     expect(checked.length, 'verified the wrong number of paths — the check is not complete').toBe(
       expected,
     )
@@ -127,6 +129,23 @@ describe('the manifest npm publishes', () => {
   })
 
   it.skipIf(BUILT)('D3 — SKIPPED: no dist/ in this tree; run `bun run build` first', () => {})
+
+  // D6 — the `typeshade` command is published as the emitted JavaScript, by the same one rule
+  // as `exports`. In this tree the `bin` names the TypeScript source (`bun src/cli/bin.ts`
+  // runs it); a tarball whose `bin` still named a `.ts` file would hand `npx typeshade` to
+  // Node, which cannot load it. The shebang is checked on the SOURCE because `tsc` copies a
+  // first-line `#!` into the emit verbatim, and on the emit when there is one.
+  it('D6 — `bin` is derived to dist/ and the entry carries a Node shebang', () => {
+    const bin = PKG.bin ?? {}
+    expect(Object.keys(bin), 'package.json declares no `typeshade` command').toEqual(['typeshade'])
+    const derived = derivePublishManifest(PKG)['bin'] as Record<string, string>
+    expect(derived).toEqual({ typeshade: `${distStem(bin['typeshade']!)}.js` })
+    const source = readFileSync(join(PKG_DIR, bin['typeshade']!.slice(2)), 'utf8')
+    expect(source.split('\n')[0]).toBe('#!/usr/bin/env node')
+    const emitted = join(PKG_DIR, derived['typeshade']!.slice(2))
+    if (existsSync(emitted))
+      expect(readFileSync(emitted, 'utf8').split('\n')[0]).toBe('#!/usr/bin/env node')
+  })
 
   // D5 — the ambient lib on disk is what `SHADE_DTS` says, byte for byte. `ambient.ts` derives
   // its vocabulary from the compiler's own tables so the editor's view and the compiler's

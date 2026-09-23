@@ -41,6 +41,9 @@ export interface Manifest {
   readonly types?: string
   readonly exports: Readonly<Record<string, string>>
   readonly sideEffects?: readonly string[]
+  /** Command name → source entry (`./src/cli/bin.ts`). Rewritten by the same one rule as
+   *  `exports`, to the emitted `.js`, which keeps the source's `#!/usr/bin/env node` line. */
+  readonly bin?: Readonly<Record<string, string>>
   readonly [key: string]: unknown
 }
 
@@ -94,6 +97,15 @@ export function derivePublishManifest(pkg: Manifest): Record<string, unknown> {
     main: `${distStem(root)}.js`,
     types: `${distStem(root)}.d.ts`,
     exports,
+    // The command runs the emitted JavaScript under Node; the source `bin` is for this tree,
+    // where Bun runs the TypeScript directly.
+    ...(pkg.bin === undefined
+      ? {}
+      : {
+          bin: Object.fromEntries(
+            Object.entries(pkg.bin).map(([name, target]) => [name, `${distStem(target)}.js`]),
+          ),
+        }),
     // Both spellings of the same module. A bundler that resolves the consumer's import
     // through `exports` sees the dist path; one pointed at the shipped source (the tarball
     // carries src/ as well, for the declaration maps) sees the .ts path. Either way
@@ -114,6 +126,7 @@ export function verifyTargets(
   const paths = new Set<string>([derived['main'] as string, derived['types'] as string])
   for (const conditions of Object.values(exports))
     for (const p of Object.values(conditions)) paths.add(p)
+  for (const p of Object.values((derived['bin'] ?? {}) as Record<string, string>)) paths.add(p)
   return [...paths].sort().map((p) => ({ path: p, ok: existsSync(join(pkgDir, p.slice(2))) }))
 }
 

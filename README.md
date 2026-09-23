@@ -89,6 +89,34 @@ The same authoring model is used by the documentation and the compiler's officia
 
 Every `"use typeshade"` block in this README, `AUTHORING.md`, `docs/` and `examples/*.md` compiles with the current compiler; `src/compiler/ts/doc-snippets.test.ts` extracts them and fails the build on any error diagnostic. Grammar that the compiler does not accept yet stays in [`docs/use-typeshade-surface.md`](./docs/use-typeshade-surface.md), marked as a target, and is not copied here.
 
+## Checking shaders from the command line
+
+`typeshade check` reports what the editor reports for a `"use typeshade"` file, plus what the WGSL and GLSL backends report when `compile()` runs them, and exits non-zero on an error. It is the check to run in CI and the one to hand a coding agent: plain `tsc` over the same files reports errors the compiler does not have (next section), and a tool that reports errors on correct code gets correct code rewritten.
+
+```sh
+npx typeshade check src/                          # from the npm package
+bun vendor/typeshade/src/cli/bin.ts check src/    # from a submodule, which resolves to source
+```
+
+A directory is searched for `*.shade.ts` files, skipping `node_modules`, `dist` and `.git`; a file named on the command line is checked whatever its name. Each diagnostic prints with the line it points at:
+
+```text
+src/light.shade.ts:4:10 - error TS8003: Type mismatch: cannot + vec3<f32> and vec2<f32>. Vectors must have the same size.
+
+4   return base + glow * k
+           ~~~~~~~~~~~~~~~
+
+Found 1 error in 1 file (1 file checked).
+```
+
+`--format short` prints one line per diagnostic, and `--format json` prints the report as data: one-based lines and columns, the UTF-16 span, and `source`, `"typeshade"` or `"typescript"`, for the half that raised it. `--deprecations` adds the warnings `compile(source, { deprecations: true })` reports. The exit status is 0 when no error was found, 1 when one was, and 2 when the command could not run. Over the 73 `.shade.ts` examples it reports no error and 5 warnings, each a GLSL ES 3.00 shortfall `compile()` also reports as `TS8015`.
+
+What it inherits from the language service, it inherits whole:
+
+- **Each file is analysed on its own**, so a function imported from another shader file is `TS8004` ([#187](https://github.com/typeshade/typeshade/issues/187)).
+- **A mistake both halves see is reported by both**, as the editor shows it: an arity error is `TS2554` and `TS8019`, a write to a `const` is `TS2588` and `TS8005`.
+- **One false positive is left**: a local that holds vector arithmetic, declared without a type and then passed where a vector is expected, is `TS2345`, because TypeScript typed the local `number`. Write the type on the local: `const exposed: vec3 = color * exp2(ev)`.
+
 ## Type-checking `.shade.ts` with tsc
 
 The editor experience TypeShade supports is the language service (`typeshade/language-service`), which builds its own TypeScript program and knows which diagnostics to drop. For a project that wants plain `tsc` over its `.shade.ts` files as well, such as a Vite plugin build or a CI type-check, the package also ships the ambient declarations as a file:
@@ -103,10 +131,14 @@ The editor experience TypeShade supports is the language service (`typeshade/lan
     "strictPropertyInitialization": false,
     "strict": true,
     "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
   },
   "include": ["src/**/*.shade.ts"],
 }
 ```
+
+`module` and `moduleResolution` are required too: `typeshade/shade` is a subpath of the package's `exports` map, which TypeScript's default `node10` resolution does not read, so without them the lib is `TS2688` and every global it declares (`Array`, `Boolean`, ...) is `TS2318`. `bundler` is what the language service itself uses; `nodenext` resolves it as well.
 
 `lib: []` is required, not a preference. `typeshade/shade` declares its own `Array`, `Function`, `Object`, `Math` and `Pick` stand-ins because a `"use typeshade"` file is not a JavaScript program and must not see the JavaScript standard library. Loading both puts the two sets of declarations in the same program: measured on `hello.shade.ts` with the default lib, that is 19 errors, most of them reported _inside_ `lib.es5.d.ts` and `lib.dom.d.ts` (`Duplicate identifier 'Pick'`, `Cannot redeclare block-scoped variable 'Math'`, `Duplicate index signature for type 'number'`). Keep the shader sources in their own project and they do not meet.
 

@@ -192,6 +192,29 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`typeshade check`: the editor's answer and the backends', from the command line** (Rule
+  12.7, Rule 12.3). The package gains a `typeshade` command whose `check` reports, for every
+  `*.shade.ts` under the given paths, the language service's merged list (TypeScript over the
+  ambient lib, with the false positives it filters, and the TypeShade front end) together with
+  what `compile()` adds that the service never computes: a WGSL emitter that throws (`TS8015`,
+  an error) and a GLSL ES 3.00 shortfall on a render module (`TS8015`, a warning). It exits 0
+  with no error, 1 with one and 2 when it cannot run, and prints `tsc --pretty`'s layout
+  without colour (`--format text`), one line per diagnostic (`--format short`) or the report as
+  versioned JSON (`--format json`); `--deprecations` adds `TS8053`. Each file is analysed on its
+  own, so two `"use typeshade"` files with no import or export, which TypeScript reads as
+  scripts sharing one global scope, do not report each other's names. Measured over the 73
+  `.shade.ts` examples: no error and 5 warnings, each a GLSL shortfall `compile()` also reports,
+  where plain `tsc` configured as the README describes reports 542 errors on the same files,
+  none of them real. It is the check CI and a coding agent should run, since an agent treats a
+  compiler's errors as the truth and rewrites correct code to silence false ones. The npm
+  tarball runs `dist/src/cli/bin.js` under Node (`scripts/publish-manifest.ts` derives the `bin`
+  by the rule it applies to `exports`); this tree and a submodule run
+  `bun src/cli/bin.ts check <paths>`. What it inherits from the service it inherits whole: an
+  import from another shader file is `TS8004` (#187), a mistake both halves see is reported by
+  both, and a local holding vector arithmetic declared without a type is `TS2345` where it is
+  passed as a vector. The README's `tsc` configuration also gains the `module` and
+  `moduleResolution` it needed: without them `typeshade/shade` does not resolve (`TS2688`).
+
 - **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
   `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
   and the capability that keeps it off GLSL ES 3.00 where one does. `DOCUMENTED_TYPE_NAMES` is
