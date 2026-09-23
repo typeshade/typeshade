@@ -19,6 +19,8 @@ import { describe, expect, it } from 'vitest';
 import { compile } from '../../index.js';
 import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { startDebugSession } from '../../core/debug/session.js';
 import { fp64Lower } from '../../core/passes/fp64-lower.js';
 import { splitF64 } from '../../core/fp64/df64-lib.js';
 import { F64_SCALAR_TWINS, F64_VEC_TWINS } from '../../core/fp64/twins.js';
@@ -255,6 +257,127 @@ export function k(a: vec3f64, b: vec3f64): f64 {
         `"use typeshade"\nexport function k(m: mat4<f64>): mat4<f64> { return transpose(m) }\n`,
       ),
     ).toEqual([]);
+  });
+});
+
+// ── A comparison of two vec64s ──
+//
+// Every other vector comparison is the bool vector of its width (§27), and WGSL's typing table
+// says so (Rule 7.1). A comparison of two `vecNf64` was typed as one scalar bool instead, so it
+// was refused where a mask goes (a `vec3b` return, `.x`, a `vec3b` parameter) and accepted where
+// a bool goes, which reached WGSL as a `<` on two DF64Vec3 structs. §39 gives a vector of doubles
+// the six comparisons `f64` has, and the fp64 pass lowers them lane by lane.
+
+/** The six comparisons, each with a name for the function that makes it and the answer
+ *  JavaScript gives two doubles. */
+const COMPARISONS: readonly (readonly [string, string, (x: number, y: number) => boolean])[] = [
+  ['<', 'lt', (x, y) => x < y],
+  ['>', 'gt', (x, y) => x > y],
+  ['<=', 'le', (x, y) => x <= y],
+  ['>=', 'ge', (x, y) => x >= y],
+  ['===', 'eq', (x, y) => x === y],
+  ['!==', 'ne', (x, y) => x !== y],
+];
+
+describe('a comparison of two vec64s', () => {
+  it.each(COMPARISONS.map(([op]) => op))(
+    'types %s as the bool vector of its width, wherever a mask goes',
+    (op) => {
+      for (const n of [2, 3, 4]) {
+        // A mask return, a component, a mask argument, the reductions and the negation (§27).
+        expect(
+          errorsOf(`"use typeshade";
+function g(m: vec${n}b): bool { return all(m); }
+export function k(a: vec${n}f64, b: vec${n}f64): vec${n}b {
+  const c = a ${op} b;
+  if (c.x && g(a ${op} b) && any(c)) { return !c; }
+  return a ${op} b;
+}
+`),
+          `vec${n}f64 ${op} vec${n}f64`,
+        ).toEqual([]);
+      }
+    },
+  );
+
+  it('is refused where a bool goes, in the words a comparison of two vec3s gets', () => {
+    const program = (t: string): string =>
+      `"use typeshade";\nexport function k(a: ${t}, b: ${t}): f32 {\n  if (a < b) { return 1.; }\n  return 0.;\n}\n`;
+    expect(errorsOf(program('vec3f64'))).toEqual(['if condition must be bool, got vec3<bool>.']);
+    expect(errorsOf(program('vec3f64'))).toEqual(errorsOf(program('vec3')));
+  });
+
+  it('still refuses a vec64 beside a scalar, another width or a vector of f32', () => {
+    // WGSL compares two vectors of one type and nothing else, and so does the fix.
+    for (const [b, peer] of [
+      ['f64', 'f64'],
+      ['vec2f64', 'vec2<f64>'],
+      ['vec3', 'vec3<f32>'],
+    ] as const) {
+      expect(
+        errorsOf(
+          `"use typeshade";\nexport function k(a: vec3f64, b: ${b}): vec3b { return a < b; }\n`,
+        ),
+      ).toEqual([`Type mismatch: cannot compare vec3<f64> and ${peer}. Types must match.`]);
+    }
+  });
+
+  it('answers lane by lane on the double and after lowering, where only the lo word decides', () => {
+    // Lane 0 and lane 3 are pairs f32 cannot order: the hi words tie at 1e8 and at -1e8, and
+    // the lo word decides, once each way. Lane 1 the hi word decides; lane 2 is an exact tie.
+    const a = [1e8 + Math.fround(0.3), 2, 1e8 + 0.5, -1e8 + 0.25];
+    const b = [1e8 + Math.fround(0.4), 1, 1e8 + 0.5, -1e8 - 0.25];
+    expect(Math.fround(a[0]!)).toBe(Math.fround(b[0]!));
+    expect(Math.fround(a[3]!)).toBe(Math.fround(b[3]!));
+    const pack = (v: readonly number[]): { hi: number[]; lo: number[] } => {
+      const parts = v.map((x) => splitF64(x));
+      return { hi: parts.map((p) => p[0]), lo: parts.map((p) => p[1]) };
+    };
+    for (const n of [2, 3, 4]) {
+      const m = clean(
+        `"use typeshade";\n` +
+          COMPARISONS.map(
+            ([op, name]) =>
+              `export function ${name}(a: vec${n}f64, b: vec${n}f64): vec${n}b { return a ${op} b; }\n`,
+          ).join(''),
+      ).module;
+      // The double's answer on the three CPU paths (§27), and the lowered module's on a
+      // correctly rounding f32 machine, which is what the GPU runs: `oracle(fp64Lower(m))` is
+      // `oracle(m)`.
+      const double = compileModule(m);
+      const codegen = compileModuleJs(m);
+      const emulated = compileModule(fp64Lower(m), { precision: 'f32' });
+      const [x, y] = [a.slice(0, n), b.slice(0, n)];
+      for (const [op, name, js] of COMPARISONS) {
+        const want = x.map((xi, i) => js(xi, y[i]!));
+        const at = `vec${n}f64 ${op}`;
+        expect(double.fns[name]!(x, y), `${at} on the oracle`).toEqual(want);
+        expect(codegen.fns[name]!(x, y), `${at} in the codegen`).toEqual(want);
+        const stepper = startDebugSession(m, name, [x, y]);
+        stepper.continue();
+        expect(stepper.result, `${at} in the stepper`).toEqual(want);
+        expect(emulated.fns[name]!(pack(x), pack(y)), `${at} lowered`).toEqual(want);
+      }
+    }
+  });
+
+  it('emits one df64 comparator per lane on both targets, and no guard binding', () => {
+    const r = clean(`"use typeshade";
+class U { a: vec3f64; b: vec3f64; }
+declare const u: uniform<U>;
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const m = u.a < u.b;
+  return vec4(select(vec3(0.), vec3(1.), m), 1.);
+}
+`);
+    expect(r.wgsl).toContain('df64_v3_lt(u.a, u.b)');
+    expect(r.wgsl).toContain('fn df64_v3_lt(a: DF64Vec3, b: DF64Vec3) -> vec3<bool>');
+    expect(r.glsl?.fragment).toContain('bvec3 m = df64_v3_lt(u.a, u.b);');
+    expect(r.glsl?.fragment).toContain('bvec3 df64_v3_lt(DF64Vec3 a, DF64Vec3 b)');
+    // A comparison carries no error term, so it reads no guard and the host binds none.
+    expect(r.wgsl).not.toContain('_fp64');
+    expect(r.glsl?.fragment).not.toContain('_fp64');
   });
 });
 
