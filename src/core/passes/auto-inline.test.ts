@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { autoInline } from './auto-inline.js'
-import { module, fn, f32T, externFn, type ModuleDecl } from '../ir/index.js'
-import { emitModule } from '../backends/wgsl.js'
-import { compileModule } from '../oracle.js'
+import { describe, it, expect } from 'vitest';
+import { autoInline } from './auto-inline.js';
+import { module, fn, f32T, externFn, type ModuleDecl } from '../ir/index.js';
+import { emitModule } from '../backends/wgsl.js';
+import { compileModule } from '../oracle.js';
 
 // X-GIS #627 — cost-driven AUTO inlining over inlineFn. Inline a non-entry,
 // non-recursive, single-return helper iff it is single-call (strict win) or its
@@ -10,59 +10,59 @@ import { compileModule } from '../oracle.js'
 describe('autoInline — cost-driven function inlining (X-GIS #627)', () => {
   it('inlines a single-call helper and drops it', () => {
     const dbl = fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
-      b.ret(x.mul(2))
-    })
+      b.ret(x.mul(2));
+    });
     const m = module({
       funcs: [
         dbl,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(dbl({ x: y.add(1) }))
+          b.ret(dbl({ x: y.add(1) }));
         }),
       ],
-    })
-    const out = autoInline(m)
-    const wgsl = emitModule(out)
-    expect(wgsl).not.toMatch(/\bdbl\(/) // call site gone
-    expect(wgsl).not.toContain('fn dbl') // decl dropped
-    expect(compileModule(out).fns.caller(5)).toBe(compileModule(m).fns.caller(5))
-  })
+    });
+    const out = autoInline(m);
+    const wgsl = emitModule(out);
+    expect(wgsl).not.toMatch(/\bdbl\(/); // call site gone
+    expect(wgsl).not.toContain('fn dbl'); // decl dropped
+    expect(compileModule(out).fns.caller(5)).toBe(compileModule(m).fns.caller(5));
+  });
 
   it('inlines a leaf (identity) helper even at multiple call sites', () => {
     const id = fn('id', { x: f32T }, f32T, ({ x }, b) => {
-      b.ret(x)
-    })
+      b.ret(x);
+    });
     const m = module({
       funcs: [
         id,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(id({ x: y }).add(id({ x: y.mul(3) })))
+          b.ret(id({ x: y }).add(id({ x: y.mul(3) })));
         }),
       ],
-    })
-    const out = autoInline(m)
-    expect(emitModule(out)).not.toContain('fn id')
-    expect(compileModule(out).fns.caller(2)).toBe(compileModule(m).fns.caller(2)) // 2 + 6 = 8
-  })
+    });
+    const out = autoInline(m);
+    expect(emitModule(out)).not.toContain('fn id');
+    expect(compileModule(out).fns.caller(2)).toBe(compileModule(m).fns.caller(2)); // 2 + 6 = 8
+  });
 
   it('does NOT inline a multi-call non-leaf helper (the bloat guard)', () => {
     const poly = fn('poly', { x: f32T }, f32T, ({ x }, b) => {
-      b.ret(x.mul(x).add(x))
-    }) // cost > 1
+      b.ret(x.mul(x).add(x));
+    }); // cost > 1
     const m = module({
       funcs: [
         poly,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(poly({ x: y }).add(poly({ x: y.add(1) })))
+          b.ret(poly({ x: y }).add(poly({ x: y.add(1) })));
         }),
       ],
-    })
-    expect(emitModule(autoInline(m))).toContain('fn poly') // 2 call sites, non-leaf -> kept
-  })
+    });
+    expect(emitModule(autoInline(m))).toContain('fn poly'); // 2 call sites, non-leaf -> kept
+  });
 
   it('inlines a single-call helper INTO an entry point (entry is a caller, not a candidate)', () => {
     const dbl = fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
-      b.ret(x.mul(2))
-    })
+      b.ret(x.mul(2));
+    });
     const m = module({
       funcs: [
         dbl,
@@ -71,16 +71,16 @@ describe('autoInline — cost-driven function inlining (X-GIS #627)', () => {
           { x: f32T },
           f32T,
           ({ x }, b) => {
-            b.ret(dbl({ x }))
+            b.ret(dbl({ x }));
           },
           { stage: 'fragment', retAttr: '@location(0)' },
         ),
       ],
-    })
-    const wgsl = emitModule(autoInline(m))
-    expect(wgsl).toContain('fn main(')
-    expect(wgsl).not.toContain('fn dbl')
-  })
+    });
+    const wgsl = emitModule(autoInline(m));
+    expect(wgsl).toContain('fn main(');
+    expect(wgsl).not.toContain('fn dbl');
+  });
 
   it('never inlines an entry point itself', () => {
     const m = module({
@@ -90,32 +90,32 @@ describe('autoInline — cost-driven function inlining (X-GIS #627)', () => {
           { x: f32T },
           f32T,
           ({ x }, b) => {
-            b.ret(x.mul(2))
+            b.ret(x.mul(2));
           },
           { stage: 'fragment', retAttr: '@location(0)' },
         ),
       ],
-    })
-    expect(emitModule(autoInline(m))).toContain('fn main(')
-  })
+    });
+    expect(emitModule(autoInline(m))).toContain('fn main(');
+  });
 
   it('bails out when any fn contains a raw Stmt (raw may call a helper textually)', () => {
     const base = module({
       funcs: [
         fn('dbl', { x: f32T }, f32T, ({ x }, b) => {
-          b.ret(x.mul(2))
+          b.ret(x.mul(2));
         }),
       ],
-    })
+    });
     const withRaw: ModuleDecl = {
       ...base,
       funcs: [
         ...base.funcs,
         { name: 'rawfn', params: [], ret: f32T, body: [{ s: 'raw', wgsl: 'return dbl(1.0);' }] },
       ],
-    }
-    expect(emitModule(autoInline(withRaw))).toContain('fn dbl') // dbl called only in raw -> untouched
-  })
+    };
+    expect(emitModule(autoInline(withRaw))).toContain('fn dbl'); // dbl called only in raw -> untouched
+  });
 
   // Cutting this pass's opacity guard reddened NOTHING before this test existed —
   // autoInline is unwired (not in DEFAULT_PASSES), so the df64 library never
@@ -124,35 +124,35 @@ describe('autoInline — cost-driven function inlining (X-GIS #627)', () => {
   it('never inlines an `opaque` helper, however cheap it looks (X-GIS #1926)', () => {
     // A LEAF return — the single shape autoInline inlines at any call count. If
     // the guard is dropped, this one goes, which is what makes the arm sharp.
-    const leaf = (name: string) => fn(name, { x: f32T }, f32T, ({ x }, b) => b.ret(x))
-    const plain = leaf('alias_plain')
-    const opaque = Object.assign(leaf('alias_opaque'), { opaque: true })
+    const leaf = (name: string) => fn(name, { x: f32T }, f32T, ({ x }, b) => b.ret(x));
+    const plain = leaf('alias_plain');
+    const opaque = Object.assign(leaf('alias_opaque'), { opaque: true });
     const m = module({
       funcs: [
         plain,
         opaque,
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(plain({ x: y }).add(opaque({ x: y })))
+          b.ret(plain({ x: y }).add(opaque({ x: y })));
         }),
       ],
-    })
-    const wgsl = emitModule(autoInline(m))
-    expect(wgsl).not.toContain('fn alias_plain')
-    expect(wgsl).toContain('fn alias_opaque')
-  })
+    });
+    const wgsl = emitModule(autoInline(m));
+    expect(wgsl).not.toContain('fn alias_plain');
+    expect(wgsl).toContain('fn alias_opaque');
+  });
 
   it('leaves a recursive single-return fn alone', () => {
-    const recRef = externFn('rec', { x: f32T }, f32T)
+    const recRef = externFn('rec', { x: f32T }, f32T);
     const m = module({
       funcs: [
         fn('rec', { x: f32T }, f32T, ({ x }, _b) => recRef({ x }), {
           lintDisable: ['no-recursion'],
         }),
         fn('caller', { y: f32T }, f32T, ({ y }, b) => {
-          b.ret(recRef({ x: y }))
+          b.ret(recRef({ x: y }));
         }),
       ],
-    })
-    expect(emitModule(autoInline(m))).toContain('fn rec')
-  })
-})
+    });
+    expect(emitModule(autoInline(m))).toContain('fn rec');
+  });
+});

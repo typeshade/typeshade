@@ -1,82 +1,82 @@
-import { describe, it, expect } from 'vitest'
-import { INTRINSICS, spellIntrinsic } from './intrinsics.js'
+import { describe, it, expect } from 'vitest';
+import { INTRINSICS, spellIntrinsic } from './intrinsics.js';
 
 // #3a — the neutral registry is the spelling SoT; each backend maps the same
 // neutral id to its own spelling (the WGSL string is no longer the canonical id).
 describe('intrinsics — neutral registry (#3a)', () => {
   it('atan2: atan2 on wgsl, atan on glsl', () => {
-    expect(spellIntrinsic('wgsl', 'atan2', ['y', 'x'])).toBe('atan2(y, x)')
-    expect(spellIntrinsic('glsl', 'atan2', ['y', 'x'])).toBe('atan(y, x)')
-  })
+    expect(spellIntrinsic('wgsl', 'atan2', ['y', 'x'])).toBe('atan2(y, x)');
+    expect(spellIntrinsic('glsl', 'atan2', ['y', 'x'])).toBe('atan(y, x)');
+  });
 
   // X-GIS #839 — float `%` is trunc-mod on WGSL and integer-only in GLSL ES 3.00;
   // mod is the portable FLOOR-mod: inline x − y·⌊x/y⌋ on WGSL, native mod() on GLSL.
   it('mod: inline floor-mod on wgsl, mod() on glsl', () => {
-    expect(spellIntrinsic('wgsl', 'mod', ['x', 'y'])).toBe('(x - y * floor(x / y))')
-    expect(spellIntrinsic('glsl', 'mod', ['x', 'y'])).toBe('mod(x, y)')
-  })
+    expect(spellIntrinsic('wgsl', 'mod', ['x', 'y'])).toBe('(x - y * floor(x / y))');
+    expect(spellIntrinsic('glsl', 'mod', ['x', 'y'])).toBe('mod(x, y)');
+  });
 
   // X-GIS #846 — screen-space partial derivatives; WGSL and GLSL name them differently.
   it('dpdx/dpdy: dpdx/dpdy on wgsl, dFdx/dFdy on glsl', () => {
-    expect(spellIntrinsic('wgsl', 'dpdx', ['v'])).toBe('dpdx(v)')
-    expect(spellIntrinsic('glsl', 'dpdx', ['v'])).toBe('dFdx(v)')
-    expect(spellIntrinsic('wgsl', 'dpdy', ['v'])).toBe('dpdy(v)')
-    expect(spellIntrinsic('glsl', 'dpdy', ['v'])).toBe('dFdy(v)')
-  })
+    expect(spellIntrinsic('wgsl', 'dpdx', ['v'])).toBe('dpdx(v)');
+    expect(spellIntrinsic('glsl', 'dpdx', ['v'])).toBe('dFdx(v)');
+    expect(spellIntrinsic('wgsl', 'dpdy', ['v'])).toBe('dpdy(v)');
+    expect(spellIntrinsic('glsl', 'dpdy', ['v'])).toBe('dFdy(v)');
+  });
 
   it('bitcastU32: bitcast<u32> on wgsl, floatBitsToUint on glsl (no WGSL syntax in the id)', () => {
-    expect(spellIntrinsic('wgsl', 'bitcastU32', ['f'])).toBe('bitcast<u32>(f)')
-    expect(spellIntrinsic('glsl', 'bitcastU32', ['f'])).toBe('floatBitsToUint(f)')
-  })
+    expect(spellIntrinsic('wgsl', 'bitcastU32', ['f'])).toBe('bitcast<u32>(f)');
+    expect(spellIntrinsic('glsl', 'bitcastU32', ['f'])).toBe('floatBitsToUint(f)');
+  });
 
   it('scalar conversions: f32/i32/u32 cast on wgsl, float/int/uint on glsl', () => {
-    expect(spellIntrinsic('wgsl', 'f32', ['x'])).toBe('f32(x)')
-    expect(spellIntrinsic('glsl', 'f32', ['x'])).toBe('float(x)')
-    expect(spellIntrinsic('wgsl', 'i32', ['x'])).toBe('i32(x)')
-    expect(spellIntrinsic('glsl', 'i32', ['x'])).toBe('int(x)')
-    expect(spellIntrinsic('wgsl', 'u32', ['x'])).toBe('u32(x)')
-    expect(spellIntrinsic('glsl', 'u32', ['x'])).toBe('uint(x)')
-  })
+    expect(spellIntrinsic('wgsl', 'f32', ['x'])).toBe('f32(x)');
+    expect(spellIntrinsic('glsl', 'f32', ['x'])).toBe('float(x)');
+    expect(spellIntrinsic('wgsl', 'i32', ['x'])).toBe('i32(x)');
+    expect(spellIntrinsic('glsl', 'i32', ['x'])).toBe('int(x)');
+    expect(spellIntrinsic('wgsl', 'u32', ['x'])).toBe('u32(x)');
+    expect(spellIntrinsic('glsl', 'u32', ['x'])).toBe('uint(x)');
+  });
 
   it('select: WGSL select(f,t,c) vs GLSL ternary', () => {
-    expect(spellIntrinsic('wgsl', 'select', ['F', 'T', 'C'])).toBe('select(F, T, C)')
-    expect(spellIntrinsic('glsl', 'select', ['F', 'T', 'C'])).toBe('(C ? T : F)')
-  })
+    expect(spellIntrinsic('wgsl', 'select', ['F', 'T', 'C'])).toBe('select(F, T, C)');
+    expect(spellIntrinsic('glsl', 'select', ['F', 'T', 'C'])).toBe('(C ? T : F)');
+  });
 
   it('textureSample drops the sampler arg on glsl', () => {
     expect(spellIntrinsic('wgsl', 'textureSample', ['t', 's', 'uv'])).toBe(
       'textureSample(t, s, uv)',
-    )
-    expect(spellIntrinsic('glsl', 'textureSample', ['t', 's', 'uv'])).toBe('texture(t, uv)')
-  })
+    );
+    expect(spellIntrinsic('glsl', 'textureSample', ['t', 's', 'uv'])).toBe('texture(t, uv)');
+  });
 
   it('a non-registry name passes through identically (portable builtin / user fn)', () => {
-    expect(spellIntrinsic('wgsl', 'sin', ['x'])).toBe('sin(x)')
-    expect(spellIntrinsic('glsl', 'proj_mercator', ['a', 'b'])).toBe('proj_mercator(a, b)')
-  })
+    expect(spellIntrinsic('wgsl', 'sin', ['x'])).toBe('sin(x)');
+    expect(spellIntrinsic('glsl', 'proj_mercator', ['a', 'b'])).toBe('proj_mercator(a, b)');
+  });
 
   // GLSL texelFetch/textureSize REQUIRE an `int` lod; WGSL textureLoad passes a u32
   // level and textureDimensions(t) omits it. The glsl spelling supplies/casts to int;
   // the wgsl spelling stays untouched (WGSL byte-identity).
   it('textureLoad: WGSL unchanged; GLSL texelFetch wraps the lod in int()', () => {
-    expect(spellIntrinsic('wgsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe('textureLoad(t, c, lvl)')
+    expect(spellIntrinsic('wgsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe('textureLoad(t, c, lvl)');
     expect(spellIntrinsic('glsl', 'textureLoad', ['t', 'c', 'lvl'])).toBe(
       'texelFetch(t, c, int(lvl))',
-    )
-  })
+    );
+  });
 
   it('textureDimensions: WGSL unchanged; GLSL textureSize (int lod) wrapped in uvec2', () => {
-    expect(spellIntrinsic('wgsl', 'textureDimensions', ['t'])).toBe('textureDimensions(t)')
+    expect(spellIntrinsic('wgsl', 'textureDimensions', ['t'])).toBe('textureDimensions(t)');
     // GLSL textureSize returns a SIGNED ivec2; wrap in uvec2 so the type matches the
     // IR's vec2<u32> (else the optimizer's CSE hoist `uvec2 _cse = textureSize(…)` is a
     // GLSL int/uint compile error). 0 lod when absent.
-    expect(spellIntrinsic('glsl', 'textureDimensions', ['t'])).toBe('uvec2(textureSize(t, 0))')
+    expect(spellIntrinsic('glsl', 'textureDimensions', ['t'])).toBe('uvec2(textureSize(t, 0))');
     // explicit level form casts the given level to int.
     expect(spellIntrinsic('glsl', 'textureDimensions', ['t', 'lvl'])).toBe(
       'uvec2(textureSize(t, int(lvl)))',
-    )
-  })
-})
+    );
+  });
+});
 
 // ═══ P1-31 of #155 — every divergent spelling, as TEXT, from one literal table ═══
 //
@@ -104,7 +104,7 @@ describe('intrinsics — neutral registry (#3a)', () => {
 // divergent spelling there is: the template throws rather than emit something a driver would
 // take for a program.
 describe('every divergent spelling is asserted as text, not only as divergent', () => {
-  const ARGS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'] as const
+  const ARGS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'] as const;
 
   const EXPECTED: Readonly<
     Record<string, { readonly wgsl: string; readonly glsl: string | null }>
@@ -391,37 +391,37 @@ describe('every divergent spelling is asserted as text, not only as divergent', 
     unpack4xU8: { wgsl: 'unpack4xU8(a, b, c, d, e, f, g)', glsl: null },
     workgroupBarrier: { wgsl: 'workgroupBarrier()', glsl: null },
     workgroupUniformLoad: { wgsl: 'workgroupUniformLoad(&a)', glsl: null },
-  }
+  };
 
   const spell = (target: 'wgsl' | 'glsl', id: string): string | null => {
     try {
-      return spellIntrinsic(target, id, ARGS)
+      return spellIntrinsic(target, id, ARGS);
     } catch {
-      return null
+      return null;
     }
-  }
+  };
 
   it('describes every registry row, and no row that is gone', () => {
-    expect(Object.keys(EXPECTED).sort()).toEqual(Object.keys(INTRINSICS).sort())
-  })
+    expect(Object.keys(EXPECTED).sort()).toEqual(Object.keys(INTRINSICS).sort());
+  });
 
   it('spells each row exactly as the table says, on both targets', () => {
-    const wrong: string[] = []
+    const wrong: string[] = [];
     for (const [id, want] of Object.entries(EXPECTED)) {
-      const wgsl = spell('wgsl', id)
-      const glsl = spell('glsl', id)
-      if (wgsl !== want.wgsl) wrong.push(`${id} wgsl: ${String(wgsl)}`)
-      if (glsl !== want.glsl) wrong.push(`${id} glsl: ${String(glsl)}`)
+      const wgsl = spell('wgsl', id);
+      const glsl = spell('glsl', id);
+      if (wgsl !== want.wgsl) wrong.push(`${id} wgsl: ${String(wgsl)}`);
+      if (glsl !== want.glsl) wrong.push(`${id} glsl: ${String(glsl)}`);
     }
-    expect(wrong).toEqual([])
-  })
+    expect(wrong).toEqual([]);
+  });
 
   it('reads a table that actually holds the divergences it claims to', () => {
     // Non-vacuity: if `spell` swallowed everything into `null`, both arms above would pass on
     // a table of nulls. These three are the shapes the table exists for — a rename, an inline
     // expansion, and an id with no GLSL form.
-    expect(EXPECTED['dpdx']?.glsl).toBe('dFdx(a, b, c, d, e, f, g)')
-    expect(EXPECTED['saturate']?.glsl).toBe('clamp(a, 0.0, 1.0)')
-    expect(EXPECTED['textureStore']?.glsl).toBe(null)
-  })
-})
+    expect(EXPECTED['dpdx']?.glsl).toBe('dFdx(a, b, c, d, e, f, g)');
+    expect(EXPECTED['saturate']?.glsl).toBe('clamp(a, 0.0, 1.0)');
+    expect(EXPECTED['textureStore']?.glsl).toBe(null);
+  });
+});

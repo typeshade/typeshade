@@ -21,8 +21,8 @@ import {
   builtin,
   location,
   uniformStruct,
-} from '../src/index.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import type { ShaderExample } from './_shared.js';
 
 // Uniform block — std140-laid-out by reflect(). `top`/`bottom` are the two gradient
 // endpoints; `mix_bias` shifts the blend up or down.
@@ -34,13 +34,13 @@ const U = uniformStruct(
     bottom: vec4fT,
     mix_bias: f32T,
   },
-)
+);
 
 // Vertex → fragment interface struct.
 const VsOut = ioStruct('VsOut', {
   pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
-})
+});
 
 // Oversized fullscreen triangle (3 verts, NDC −1..3) — covers the screen from a single
 // non-indexed draw with no vertex buffer.
@@ -48,19 +48,19 @@ const vsFull = fn(
   'vs_full',
   { idx: builtin('vertex_index', u32T) },
   (p) => {
-    const pos = vec2(-1, -1)
+    const pos = vec2(-1, -1);
     If(p.idx.eq(1), () => {
-      pos.assign(vec2(3, -1))
+      pos.assign(vec2(3, -1));
     }).elif(p.idx.eq(2), () => {
-      pos.assign(vec2(-1, 3))
-    })
+      pos.assign(vec2(-1, 3));
+    });
     return VsOut.construct({
       pos: vec4(pos, 0, 1),
       uv: vec2(pos.x.add(1).mul(0.5), pos.y.add(1).mul(0.5)),
-    })
+    });
   },
   { stage: 'vertex' },
-)
+);
 
 // Fragment — vertical gradient between the two uniform colours, biased. `vo` (not `in`,
 // a GLSL reserved word) is the fragment input.
@@ -68,18 +68,18 @@ const fsGradient = fn(
   'fs_gradient',
   { vo: VsOut },
   (p) => {
-    const t = p.vo.uv.y.add(U.field.mix_bias)
-    const rgb = mix(U.field.bottom.rgb, U.field.top.rgb, t)
-    return vec4(rgb, f32(1))
+    const t = p.vo.uv.y.add(U.field.mix_bias);
+    const rgb = mix(U.field.bottom.rgb, U.field.top.rgb, t);
+    return vec4(rgb, f32(1));
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 const gradientModule = module({
   structs: [U.struct, VsOut.decl],
   bindings: [U.binding],
   funcs: [vsFull, fsGradient],
-})
+});
 
 export const gradient: ShaderExample = {
   id: 'gradient',
@@ -95,4 +95,4 @@ export const gradient: ShaderExample = {
     bottom: { kind: 'const', value: [0.02, 0.03, 0.09, 1] }, // near-black
     mix_bias: { kind: 'slider', label: 'Mix bias', min: -0.5, max: 0.5, step: 0.01, value: 0 },
   },
-}
+};

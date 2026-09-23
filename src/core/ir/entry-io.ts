@@ -18,35 +18,35 @@
 // Deliberately NOT in the `core/ir` barrel: it is an internal read helper, not
 // authoring surface. `reflect()` publishes its result as `EntryInfo.io`.
 
-import type { FuncDecl, StructDecl, StructField } from './nodes.js'
-import type { ShaderType } from './types.js'
+import type { FuncDecl, StructDecl, StructField } from './nodes.js';
+import type { ShaderType } from './types.js';
 
-const LOCATION_RE = /@location\((\d+)\)/
-const BUILTIN_RE = /@builtin\((\w+)\)/
-const INTERPOLATE_RE = /@interpolate\((\w+)\)/
+const LOCATION_RE = /@location\((\d+)\)/;
+const BUILTIN_RE = /@builtin\((\w+)\)/;
+const INTERPOLATE_RE = /@interpolate\((\w+)\)/;
 
 /** The IO attribute of one stage-interface field: exactly one of `location`/`builtin`
  *  (a WGSL field carries one or the other), plus `interpolate` which only ever rides
  *  along with a `location`. */
 export interface IoAttr {
-  location?: number
-  builtin?: string
-  interpolate?: string
+  location?: number;
+  builtin?: string;
+  interpolate?: string;
 }
 
 /** String fallback ONLY (X-GIS #740 R3): sot-authored fields carry structured
  *  location/builtin — read those via {@link ioAttrOf}. This regex path survives
  *  solely for hand-built FuncDecl literals and bare `retAttr` strings. */
 export function parseIoAttrString(attr: string | undefined): IoAttr {
-  if (!attr) return {}
-  const loc = attr.match(LOCATION_RE)
+  if (!attr) return {};
+  const loc = attr.match(LOCATION_RE);
   if (loc) {
-    const interp = attr.match(INTERPOLATE_RE)
-    return { location: Number(loc[1]), ...(interp ? { interpolate: interp[1] } : {}) }
+    const interp = attr.match(INTERPOLATE_RE);
+    return { location: Number(loc[1]), ...(interp ? { interpolate: interp[1] } : {}) };
   }
-  const b = attr.match(BUILTIN_RE)
-  if (b) return { builtin: b[1] }
-  return {}
+  const b = attr.match(BUILTIN_RE);
+  if (b) return { builtin: b[1] };
+  return {};
 }
 
 /** Structured-first IO attr read (X-GIS #740 R3). `interpolate` rides along (X-GIS #763 P4)
@@ -55,21 +55,21 @@ export function parseIoAttrString(attr: string | undefined): IoAttr {
 export function ioAttrOf(
   src:
     | {
-        readonly location?: number
-        readonly builtin?: string
-        readonly interpolate?: string
-        readonly attr?: string
+        readonly location?: number;
+        readonly builtin?: string;
+        readonly interpolate?: string;
+        readonly attr?: string;
       }
     | undefined,
 ): IoAttr {
-  if (!src) return {}
+  if (!src) return {};
   if (src.location !== undefined)
     return {
       location: src.location,
       ...(src.interpolate !== undefined ? { interpolate: src.interpolate } : {}),
-    }
-  if (src.builtin !== undefined) return { builtin: src.builtin }
-  return parseIoAttrString(src.attr)
+    };
+  if (src.builtin !== undefined) return { builtin: src.builtin };
+  return parseIoAttrString(src.attr);
 }
 
 /** The IO attribute of a BARE (non-struct) stage return — `-> @location(0) vec4<f32>`,
@@ -77,7 +77,7 @@ export function ioAttrOf(
  *  exactly this read), `retAttr`'s spelling second, which is the only source for the
  *  LOCATION half: the IR has no `retLocation` twin. */
 export function retIoAttrOf(f: Pick<FuncDecl, 'retAttr' | 'retBuiltin'>): IoAttr {
-  return f.retBuiltin !== undefined ? { builtin: f.retBuiltin } : parseIoAttrString(f.retAttr)
+  return f.retBuiltin !== undefined ? { builtin: f.retBuiltin } : parseIoAttrString(f.retAttr);
 }
 
 /** One field of a stage interface, still carrying its `ShaderType` (a caller that wants
@@ -85,11 +85,11 @@ export function retIoAttrOf(f: Pick<FuncDecl, 'retAttr' | 'retBuiltin'>): IoAttr
  *  param's name, a flattened struct field's name, or `_ret` for a bare non-struct
  *  return (the name the GLSL backend gives that same output). */
 export interface IoField extends IoAttr {
-  name: string
-  type: ShaderType
+  name: string;
+  type: ShaderType;
 }
 
-const fieldOf = (f: StructField): IoField => ({ name: f.name, type: f.type, ...ioAttrOf(f) })
+const fieldOf = (f: StructField): IoField => ({ name: f.name, type: f.type, ...ioAttrOf(f) });
 
 /** Flatten ONE side of an entry signature — a param, or a return — to the stage-interface
  *  fields it contributes. A struct is flattened to its fields (that IS the interface: WGSL
@@ -106,12 +106,12 @@ export function ioFieldsOf(
   fallbackName: string,
   structs: ReadonlyMap<string, StructDecl>,
 ): IoField[] {
-  if (t.kind === 'void') return []
+  if (t.kind === 'void') return [];
   if (t.kind === 'struct') {
-    const s = structs.get(t.name)
-    if (s) return s.fields.map(fieldOf)
+    const s = structs.get(t.name);
+    if (s) return s.fields.map(fieldOf);
   }
-  return [{ name: fallbackName, type: t, ...attr }]
+  return [{ name: fallbackName, type: t, ...attr }];
 }
 
 /** The full stage interface of an entry point: every `@location`/`@builtin` field its
@@ -125,5 +125,5 @@ export function entryIo(
   return {
     inputs: f.params.flatMap((p) => ioFieldsOf(p.type, ioAttrOf(p), p.name, structs)),
     outputs: ioFieldsOf(f.ret, retIoAttrOf(f), '_ret', structs),
-  }
+  };
 }

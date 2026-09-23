@@ -14,8 +14,8 @@
 // Not exported from the package: it exists for this repository's own suites, beside
 // `strip-spans.ts` and `random-ir.ts`.
 
-import type { FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js'
-import type { SourceSpan } from '../ir/span.js'
+import type { FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
+import type { SourceSpan } from '../ir/span.js';
 
 /** A copy of `m` in which every statement and function carries a span.
  *
@@ -27,21 +27,21 @@ import type { SourceSpan } from '../ir/span.js'
  *  @internal
  */
 export function stampSpans(m: ModuleDecl, file = 'hand-built.shade.ts'): ModuleDecl {
-  let line = 0
+  let line = 0;
   const span = (): SourceSpan => {
-    const l = line++
-    return { file, start: l * 40, length: 20, line: l, character: 0, endLine: l, endCharacter: 20 }
-  }
+    const l = line++;
+    return { file, start: l * 40, length: 20, line: l, character: 0, endLine: l, endCharacter: 20 };
+  };
   const stmt = (s: Stmt): Stmt => {
     // The span goes on FIRST, so the line numbers run in the order the statements are written
     // rather than in the order the nested bodies happen to be rebuilt.
-    const stamped = { ...s, span: span() } as Stmt
+    const stamped = { ...s, span: span() } as Stmt;
     if (stamped.s === 'if') {
       return {
         ...stamped,
         arms: stamped.arms.map((a) => ({ ...a, body: a.body.map(stmt) })),
         ...(stamped.elseBody ? { elseBody: stamped.elseBody.map(stmt) } : {}),
-      }
+      };
     }
     if (stamped.s === 'for') {
       return {
@@ -49,17 +49,17 @@ export function stampSpans(m: ModuleDecl, file = 'hand-built.shade.ts'): ModuleD
         init: stmt(stamped.init),
         update: stmt(stamped.update),
         body: stamped.body.map(stmt),
-      }
+      };
     }
     if (stamped.s === 'switch') {
       return {
         ...stamped,
         cases: stamped.cases.map((c) => ({ ...c, body: c.body.map(stmt) })),
         ...(stamped.defaultBody ? { defaultBody: stamped.defaultBody.map(stmt) } : {}),
-      }
+      };
     }
-    return stamped
-  }
-  const func = (f: FuncDecl): FuncDecl => ({ ...f, span: span(), body: f.body.map(stmt) })
-  return { ...m, funcs: m.funcs.map(func) }
+    return stamped;
+  };
+  const func = (f: FuncDecl): FuncDecl => ({ ...f, span: span(), body: f.body.map(stmt) });
+  return { ...m, funcs: m.funcs.map(func) };
 }

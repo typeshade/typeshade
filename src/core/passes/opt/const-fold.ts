@@ -16,11 +16,11 @@
 // `select` whose cond folded to a bool literal → the chosen branch. These expose
 // the dead branches that dead-branch.ts then removes.
 
-import type { Expr, ModuleDecl } from '../../ir/index.js'
-import { boolT } from '../../ir/index.js'
-import { mapModuleExprs } from './ir-transform.js'
-import { foldIntLit, intElemOf, wrapInt } from './expr-utils.js'
-import { BUILTINS } from '../../cpu-runtime.js'
+import type { Expr, ModuleDecl } from '../../ir/index.js';
+import { boolT } from '../../ir/index.js';
+import { mapModuleExprs } from './ir-transform.js';
+import { foldIntLit, intElemOf, wrapInt } from './expr-utils.js';
+import { BUILTINS } from '../../cpu-runtime.js';
 
 /** The builtins with one correct answer, folded over scalar literals (issue #73). Each of
  *  these is exact on every target, so the value JS computes is the value the GPU computes,
@@ -54,7 +54,7 @@ const EXACT_BUILTINS: ReadonlySet<string> = new Set([
   'saturate',
   'fract',
   'step',
-])
+]);
 
 /** An INTEGER conversion of an integer literal, folded to the literal the target holds (#154).
  *
@@ -77,20 +77,20 @@ const EXACT_BUILTINS: ReadonlySet<string> = new Set([
  *  out-of-range float conversion is where the two targets genuinely differ, and the front end
  *  refuses that one rather than picking a winner. */
 function foldIntConvert(e: Extract<Expr, { op: 'call' }>): Expr | undefined {
-  if (e.declRef !== undefined || (e.fn !== 'i32' && e.fn !== 'u32')) return undefined
-  const to = intElemOf(e.type)
-  if (to === undefined || e.args.length !== 1) return undefined
-  const arg = e.args[0]!
-  if (arg.op !== 'lit' || typeof arg.value !== 'number') return undefined
-  const from = intElemOf(arg.type)
-  if (from === undefined) return undefined
-  return { op: 'lit', type: e.type, value: wrapInt(arg.value, to) }
+  if (e.declRef !== undefined || (e.fn !== 'i32' && e.fn !== 'u32')) return undefined;
+  const to = intElemOf(e.type);
+  if (to === undefined || e.args.length !== 1) return undefined;
+  const arg = e.args[0]!;
+  if (arg.op !== 'lit' || typeof arg.value !== 'number') return undefined;
+  const from = intElemOf(arg.type);
+  if (from === undefined) return undefined;
+  return { op: 'lit', type: e.type, value: wrapInt(arg.value, to) };
 }
 
 function foldNode(e: Expr): Expr {
   if (e.op === 'call') {
-    const converted = foldIntConvert(e)
-    if (converted) return converted
+    const converted = foldIntConvert(e);
+    if (converted) return converted;
   }
   if (
     e.op === 'call' &&
@@ -101,11 +101,11 @@ function foldNode(e: Expr): Expr {
     e.args.length > 0 &&
     e.args.every((a) => a.op === 'lit' && typeof a.value === 'number')
   ) {
-    const f = BUILTINS[e.fn]
-    const v = f ? f(...e.args.map((a) => (a as { value: number }).value)) : undefined
+    const f = BUILTINS[e.fn];
+    const v = f ? f(...e.args.map((a) => (a as { value: number }).value)) : undefined;
     if (typeof v === 'number' && Number.isFinite(v)) {
-      const int = intElemOf(e.type)
-      return { op: 'lit', type: e.type, value: int === undefined ? v : wrapInt(v, int) }
+      const int = intElemOf(e.type);
+      return { op: 'lit', type: e.type, value: int === undefined ? v : wrapInt(v, int) };
     }
   }
   if (
@@ -116,39 +116,39 @@ function foldNode(e: Expr): Expr {
     typeof e.b.value === 'number'
   ) {
     const a = e.a.value,
-      b = e.b.value
-    const int = intElemOf(e.type)
+      b = e.b.value;
+    const int = intElemOf(e.type);
     if (int !== undefined) {
-      const iv = foldIntLit(e.bop, a, b, int)
-      return iv === undefined ? e : { op: 'lit', type: e.type, value: iv }
+      const iv = foldIntLit(e.bop, a, b, int);
+      return iv === undefined ? e : { op: 'lit', type: e.type, value: iv };
     }
-    let v: number | undefined
+    let v: number | undefined;
     switch (e.bop) {
       case '+':
-        v = a + b
-        break
+        v = a + b;
+        break;
       case '-':
-        v = a - b
-        break
+        v = a - b;
+        break;
       case '*':
-        v = a * b
-        break
+        v = a * b;
+        break;
       case '/':
-        v = b !== 0 ? a / b : undefined
-        break
+        v = b !== 0 ? a / b : undefined;
+        break;
       default:
-        v = undefined // % / & | ^ << >> — float: left alone (see foldIntLit for integers)
+        v = undefined; // % / & | ^ << >> — float: left alone (see foldIntLit for integers)
     }
-    if (v !== undefined) return { op: 'lit', type: e.type, value: v }
+    if (v !== undefined) return { op: 'lit', type: e.type, value: v };
   }
   if (e.op === 'unop' && e.a.op === 'lit' && typeof e.a.value === 'number') {
-    const int = intElemOf(e.type)
+    const int = intElemOf(e.type);
     // -INT_MIN wraps back to INT_MIN, and -(u32) is the two's-complement negation.
     return {
       op: 'lit',
       type: e.type,
       value: int === undefined ? -e.a.value : wrapInt(-e.a.value, int),
-    }
+    };
   }
   // compare(lit, lit) -> bool lit. == / != fround f32 operands (matching the
   // oracle, oracle.ts:208); ordering stays f64 (the stricter mirror for thresholds).
@@ -159,31 +159,31 @@ function foldNode(e: Expr): Expr {
     typeof e.a.value === 'number' &&
     typeof e.b.value === 'number'
   ) {
-    const f32 = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32'
+    const f32 = e.a.type.kind === 'scalar' && e.a.type.scalar === 'f32';
     const a = e.a.value,
-      b = e.b.value
-    let v: boolean
+      b = e.b.value;
+    let v: boolean;
     switch (e.cop) {
       case '<':
-        v = a < b
-        break
+        v = a < b;
+        break;
       case '>':
-        v = a > b
-        break
+        v = a > b;
+        break;
       case '<=':
-        v = a <= b
-        break
+        v = a <= b;
+        break;
       case '>=':
-        v = a >= b
-        break
+        v = a >= b;
+        break;
       case '==':
-        v = f32 ? Math.fround(a) === Math.fround(b) : a === b
-        break
+        v = f32 ? Math.fround(a) === Math.fround(b) : a === b;
+        break;
       case '!=':
-        v = f32 ? Math.fround(a) !== Math.fround(b) : a !== b
-        break
+        v = f32 ? Math.fround(a) !== Math.fround(b) : a !== b;
+        break;
     }
-    return { op: 'lit', type: boolT, value: v }
+    return { op: 'lit', type: boolT, value: v };
   }
   // logical(lit bool, lit bool) -> bool lit. Both operands are literals here, so
   // there is nothing to short-circuit.
@@ -194,19 +194,19 @@ function foldNode(e: Expr): Expr {
     typeof e.a.value === 'boolean' &&
     typeof e.b.value === 'boolean'
   ) {
-    const v = e.lop === '&&' ? e.a.value && e.b.value : e.a.value || e.b.value
-    return { op: 'lit', type: boolT, value: v }
+    const v = e.lop === '&&' ? e.a.value && e.b.value : e.a.value || e.b.value;
+    return { op: 'lit', type: boolT, value: v };
   }
   // select(lit cond, t, f) -> t | f (the dead arm is dropped).
   if (e.op === 'select' && e.cond.op === 'lit' && typeof e.cond.value === 'boolean') {
-    return e.cond.value ? e.ifTrue : e.ifFalse
+    return e.cond.value ? e.ifTrue : e.ifFalse;
   }
-  return e
+  return e;
 }
 
 /** Fold literal-operand arithmetic throughout a module. Pure (module -> module).
  *  Raw-Stmt fns are skipped (X-GIS #763 P1) — f64 pre-folding around a raw splice
  *  double-rounds vs the GPU's stepwise f32. */
 export function constFold(m: ModuleDecl): ModuleDecl {
-  return mapModuleExprs(m, foldNode, { skipRawBodies: true })
+  return mapModuleExprs(m, foldNode, { skipRawBodies: true });
 }

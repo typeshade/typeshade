@@ -182,12 +182,12 @@ class Map {
 and:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class Tile {
   // TypeScript syntax with TypeShade GPU semantics: a struct the GPU lays out
-  origin: vec2
-  zoom: f32
+  origin: vec2;
+  zoom: f32;
 }
 ```
 
@@ -359,11 +359,11 @@ A `"use typeshade"` source file is a TypeShade program.
 For example:
 
 ```ts
-"use typeshade"
+"use typeshade";
 
 class Particle {
-  position: vec3
-  velocity: vec3
+  position: vec3;
+  velocity: vec3;
 }
 
 @compute([64, 1, 1])

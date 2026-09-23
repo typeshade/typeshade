@@ -43,41 +43,41 @@ import {
   textureSample,
   textureSampleLevel,
   textureLoad,
-} from '../src/index.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import type { ShaderExample } from './_shared.js';
 
 // One binding for the whole atlas — the layer is an argument, not a bind-group switch.
-const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 0 })
-const atlasSampler = resource('atlas_sampler', samplerT, { group: 0, binding: 1 })
+const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 0 });
+const atlasSampler = resource('atlas_sampler', samplerT, { group: 0, binding: 1 });
 
 // Which layer holds what. Plain numbers: a `number` layer lifts to an i32 literal
 // (WGSL's array_index is i32/u32 — an f32 `0.0` there is a type error).
-const LAYER_BASE = 0
-const LAYER_DETAIL = 1
+const LAYER_BASE = 0;
+const LAYER_DETAIL = 1;
 
 const VsOut = ioStruct('VsOut', {
   pos: builtin('position', vec4fT),
   uv: location(0, vec2fT),
-})
+});
 
 // Oversized fullscreen triangle (3 verts, NDC −1..3) — no vertex buffer.
 const vsFull = fn(
   'vs_full',
   { idx: builtin('vertex_index', u32T) },
   (p) => {
-    const pos = vec2(-1, -1)
+    const pos = vec2(-1, -1);
     If(p.idx.eq(1), () => {
-      pos.assign(vec2(3, -1))
+      pos.assign(vec2(3, -1));
     }).elif(p.idx.eq(2), () => {
-      pos.assign(vec2(-1, 3))
-    })
+      pos.assign(vec2(-1, 3));
+    });
     return VsOut.construct({
       pos: vec4(pos, 0, 1),
       uv: vec2(pos.x.add(1).mul(0.5), pos.y.add(1).mul(0.5)),
-    })
+    });
   },
   { stage: 'vertex' },
-)
+);
 
 // Fragment — cross-fade the base layer (implicit LOD) into a coarse mip of the detail
 // layer (explicit LOD), tinted by an unfiltered corner texel of the base layer.
@@ -85,19 +85,19 @@ const fsAtlas = fn(
   'fs_atlas',
   { vo: VsOut },
   (p) => {
-    const base = textureSample(atlas.node, atlasSampler.node, p.vo.uv, LAYER_BASE)
-    const detail = textureSampleLevel(atlas.node, atlasSampler.node, p.vo.uv, LAYER_DETAIL, 2)
-    const corner = textureLoad(atlas.node, vec2i(0, 0), LAYER_BASE, u32(0))
-    return vec4(mix(base.rgb, detail.rgb, p.vo.uv.x).mul(corner.a), f32(1))
+    const base = textureSample(atlas.node, atlasSampler.node, p.vo.uv, LAYER_BASE);
+    const detail = textureSampleLevel(atlas.node, atlasSampler.node, p.vo.uv, LAYER_DETAIL, 2);
+    const corner = textureLoad(atlas.node, vec2i(0, 0), LAYER_BASE, u32(0));
+    return vec4(mix(base.rgb, detail.rgb, p.vo.uv.x).mul(corner.a), f32(1));
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 const textureArrayModule = module({
   structs: [VsOut.decl],
   bindings: [atlas.binding, atlasSampler.binding],
   funcs: [vsFull, fsAtlas],
-})
+});
 
 export const textureArrayLod: ShaderExample = {
   id: 'texture-array-lod',
@@ -108,4 +108,4 @@ export const textureArrayLod: ShaderExample = {
   file: 'texture-array-lod.ts',
   module: textureArrayModule,
   renderable: false,
-}
+};

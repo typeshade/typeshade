@@ -30,8 +30,8 @@ import {
   type ScalarKey,
   type BindingDecl,
   type AddressSpace,
-} from './ir/index.js'
-import { dslError } from './diagnostics/error.js'
+} from './ir/index.js';
+import { dslError } from './diagnostics/error.js';
 
 /** The handle {@link constDecl} returns: a module-level constant and its typed reference,
  *  declared together so the name is written once.
@@ -40,9 +40,9 @@ import { dslError } from './diagnostics/error.js'
  */
 export interface ConstHandle<T extends ShaderType> {
   /** The constant's declaration, for `module({ consts })` or `module({ uses })`. */
-  readonly decl: ConstDecl
+  readonly decl: ConstDecl;
   /** The typed reference to read the constant through at call sites. */
-  readonly node: ReadonlyNode<KeyOf<T>>
+  readonly node: ReadonlyNode<KeyOf<T>>;
 }
 /** Declare a module-level scalar constant together with its typed reference in one call. WGSL
  *  emits `values.wgsl` as the literal, in the same spelling a hand-written `ConstDecl` uses
@@ -81,7 +81,7 @@ export function constDecl<T extends ShaderType>(
   return {
     decl: { name, type, wgslValue: values.wgsl, cpuValue: values.cpu },
     node: constRef(name, type),
-  }
+  };
 }
 
 /** One struct field or entry-point parameter carrying a stage attribute. It is the return
@@ -99,15 +99,15 @@ export function constDecl<T extends ShaderType>(
  */
 export interface FieldSpec<T extends ShaderType = ShaderType> {
   /** The field's shader type. */
-  readonly type: T
+  readonly type: T;
   /** The attribute as WGSL text. The structured fields below are what the backends read. */
-  readonly attr: string
+  readonly attr: string;
   /** The `@location(n)` slot, when the field is location-attributed. */
-  readonly location?: number
+  readonly location?: number;
   /** The `@builtin(name)` id, when the field is builtin-attributed. */
-  readonly builtin?: string
+  readonly builtin?: string;
   /** The `@interpolate(mode)` mode, when one was given. */
-  readonly interpolate?: string
+  readonly interpolate?: string;
 }
 
 /** Every `@builtin(<name>)` id WGSL defines. The builtin vocabulary is WGSL's, and each
@@ -144,7 +144,7 @@ export type WgslBuiltinName =
   | 'num_workgroups'
   | 'subgroup_invocation_id'
   | 'subgroup_size'
-  | 'clip_distances'
+  | 'clip_distances';
 
 /** Every {@link WgslBuiltinName} value as a runtime array. The type above is a type-only union
  *  with no runtime witness, so a caller that needs the vocabulary at runtime — the compiler
@@ -172,7 +172,7 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
   'subgroup_invocation_id',
   'subgroup_size',
   'clip_distances',
-]
+];
 
 /** Attribute a field or an entry-point parameter with a `@builtin(<name>)`, the value the
  *  pipeline supplies to the shader. The same helper serves an
@@ -237,20 +237,20 @@ export const WGSL_BUILTIN_NAMES: readonly WgslBuiltinName[] = [
  */
 export function builtin<N extends FixedTypeBuiltinName>(
   name: N,
-): FieldSpec<(typeof WGSL_BUILTIN_TYPES)[N]>
-export function builtin<T extends ShaderType>(name: WgslBuiltinName, type: T): FieldSpec<T>
+): FieldSpec<(typeof WGSL_BUILTIN_TYPES)[N]>;
+export function builtin<T extends ShaderType>(name: WgslBuiltinName, type: T): FieldSpec<T>;
 export function builtin(name: WgslBuiltinName, type?: ShaderType): FieldSpec<ShaderType> {
   // #8 B5 — the token is the builtin's own type whenever WGSL fixes one, so the one-argument
   // call is not a shorthand: it is the only spelling that cannot disagree with the spec.
-  const resolved = type ?? WGSL_BUILTIN_TYPES[name as FixedTypeBuiltinName]
+  const resolved = type ?? WGSL_BUILTIN_TYPES[name as FixedTypeBuiltinName];
   if (resolved === undefined) {
     // Unreachable from typed code — `clip_distances` is not in FixedTypeBuiltinName, so tsc
     // requires its token. This is the backstop for an untyped (JavaScript) caller.
     throw new TypeError(
       `typeshade: builtin('${name}') supplies no single type — pass the type token, as in builtin('${name}', arrayT(f32T, 4))`,
-    )
+    );
   }
-  return { type: resolved, attr: `@builtin(${name})`, builtin: name }
+  return { type: resolved, attr: `@builtin(${name})`, builtin: name };
 }
 
 /** The type each `@builtin(<name>)` supplies, for every id WGSL gives ONE fixed type. Read it
@@ -286,7 +286,7 @@ export const WGSL_BUILTIN_TYPES = {
   num_workgroups: vec3uT,
   subgroup_invocation_id: u32T,
   subgroup_size: u32T,
-} as const satisfies Partial<Record<WgslBuiltinName, ShaderType>>
+} as const satisfies Partial<Record<WgslBuiltinName, ShaderType>>;
 
 /** The {@link WgslBuiltinName} ids whose type WGSL fixes — every id except `clip_distances`,
  *  whose `array<f32, N>` length the author picks. A {@link builtin} call naming one of these
@@ -294,7 +294,7 @@ export const WGSL_BUILTIN_TYPES = {
  *
  *  Exported from `typeshade`.
  */
-export type FixedTypeBuiltinName = keyof typeof WGSL_BUILTIN_TYPES
+export type FixedTypeBuiltinName = keyof typeof WGSL_BUILTIN_TYPES;
 
 /** Attribute a field or an entry-point parameter with `@location(<n>)`, a slot the
  *  pipeline or the previous stage supplies, with an optional `@interpolate(<mode>)`. The same
@@ -323,7 +323,7 @@ export const location = <T extends ShaderType>(
   attr: `@location(${n})${interpolate ? ` @interpolate(${interpolate})` : ''}`,
   location: n,
   ...(interpolate !== undefined ? { interpolate } : {}),
-})
+});
 
 /** The handle {@link ioStruct} returns: a struct that crosses a stage boundary (a vertex
  *  output, a fragment input, a compute IO record), whose fields carry `@builtin` or
@@ -337,10 +337,10 @@ export const location = <T extends ShaderType>(
  */
 export interface IoStruct<F extends Record<string, FieldSpec>, N extends string = string> {
   /** The struct declaration, for `module({ structs })`. */
-  readonly decl: StructDecl
+  readonly decl: StructDecl;
   /** The struct's `ShaderType`, carrying the name as a literal so every value built from this
    *  handle has the exact `struct:${N}` key {@link typeKey} produces. */
-  readonly type: { readonly kind: 'struct'; readonly name: N }
+  readonly type: { readonly kind: 'struct'; readonly name: N };
   /** Typed field access on a value of this struct: `VsOut.of(node).uv` is the same member
    *  read as `member(node, 'uv', <its type>)`, with the field name and type checked. The
    *  view's write capability follows the base: a mutable base (a `Var`) gives `Node` fields,
@@ -348,24 +348,24 @@ export interface IoStruct<F extends Record<string, FieldSpec>, N extends string 
    *  fields. `.$` is the raw struct value. A field spread in conditionally
    *  (`...(cond ? { pick } : {})`) is typed as present, so optional output fields stay plain. */
   of(node: Node): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
-    readonly $: ReadonlyNode<`struct:${N}`>
-  }
+    readonly $: ReadonlyNode<`struct:${N}`>;
+  };
   of(node: ReadonlyNode): {
-    readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>>
+    readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>>;
   } & {
-    readonly $: ReadonlyNode<`struct:${N}`>
-  }
+    readonly $: ReadonlyNode<`struct:${N}`>;
+  };
   /** Declare a `var` of this struct and return its typed field proxy in one step:
    *  `const o = VsOut.var()`. Assign fields with `o.uv.assign(...)` and return or forward the
    *  raw value with `o.$`. `name` pins the emitted WGSL identifier. */
   var(name?: string): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
-    readonly $: ReadonlyNode<`struct:${N}`>
-  }
+    readonly $: ReadonlyNode<`struct:${N}`>;
+  };
   /** Build a value of this struct in one expression, keyed by field name. Values are placed
    *  in field-declaration order, and a missing or wrong field is a `tsc` error. */
   construct(values: {
-    readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>>
-  }): Node<`struct:${N}`>
+    readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>>;
+  }): Node<`struct:${N}`>;
 }
 
 /** Declare a struct that crosses a stage boundary, a vertex output, a fragment input, a
@@ -424,7 +424,7 @@ export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
       builtin: spec.builtin,
       interpolate: spec.interpolate,
     })),
-  }
+  };
   return {
     decl,
     type: structT(name),
@@ -433,40 +433,40 @@ export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
         get: (_t, prop) => {
           // Symbols are protocol probes (NODE_BRAND X-GIS #763 D1, Symbol.toPrimitive,
           // inspection) — never authored fields. Answer undefined, don't throw.
-          if (typeof prop !== 'string') return undefined
-          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13)
+          if (typeof prop !== 'string') return undefined;
+          if (prop === 'then' || prop === 'toJSON') return undefined; // protocol probes (X-GIS #763 X13)
           // `$` = the raw struct-value Node (X-GIS #740 R6): lets a field proxy be
           // FORWARDED — fn call factories unwrap it, so `helper(p.input)` works
           // when p.input arrived as a typed handle param. Not a WGSL identifier,
           // so it can never shadow a real field.
-          if (prop === '$') return node
+          if (prop === '$') return node;
           // Duck-type as the raw node for value positions (X-GIS #763 X14): `return o`
           // / `Return(o)` read `.expr`/`.type` — they used to die at LOAD with a
           // misleading "no field 'expr'". A declared field of that name wins.
-          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop]
-          const spec = fields[prop as string]
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop];
+          const spec = fields[prop as string];
           if (spec === undefined)
-            throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`)
-          return member(node, prop as string, spec.type)
+            throw new Error(`sot: ioStruct '${name}' has no field '${String(prop)}'`);
+          return member(node, prop as string, spec.type);
         },
         // The empty proxy TARGET has no keys, so without this trap `'$' in proxy`
         // is false and the call-factory unwrap misses — the proxy then gets
         // misparsed as a named-args bag ("has no field 'input'" at module load).
         has: (_t, prop) => prop === '$' || (typeof prop === 'string' && prop in fields),
       }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
-        readonly $: ReadonlyNode<`struct:${N}`>
-      }
+        readonly $: ReadonlyNode<`struct:${N}`>;
+      };
     },
     var(varName?: string) {
-      return this.of(varName !== undefined ? Var(varName, this.type) : Var(this.type))
+      return this.of(varName !== undefined ? Var(varName, this.type) : Var(this.type));
     },
     construct(values: Record<string, ReadonlyNode>) {
       return construct(
         structT(name),
         decl.fields.map((f) => values[f.name]),
-      )
+      );
     },
-  }
+  };
 }
 
 /** The handle {@link structDecl} returns: a struct declared for something other than a
@@ -480,34 +480,34 @@ export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
  */
 export interface PlainStruct<F extends Record<string, ShaderType>, N extends string = string> {
   /** The struct declaration, for `module({ structs })`. */
-  readonly decl: StructDecl
+  readonly decl: StructDecl;
   /** The struct's `ShaderType`, carrying the name as a literal so every value built from this
    *  handle has the exact `struct:${N}` key {@link typeKey} produces. */
-  readonly type: { readonly kind: 'struct'; readonly name: N }
+  readonly type: { readonly kind: 'struct'; readonly name: N };
   /** Typed field access on a struct value you hold as a raw node: `Seg.of(someNode).p0`.
    *  A storage-buffer element does not need it, because `buf.at(i)` already returns this
    *  proxy. The view's write capability follows the base: a mutable base gives `Node` fields,
    *  a read-only base gives `ReadonlyNode` fields. `.$` is the raw struct value, which can be
    *  passed on to a function that takes the struct. */
   of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & {
-    readonly $: ReadonlyNode<`struct:${N}`>
-  }
+    readonly $: ReadonlyNode<`struct:${N}`>;
+  };
   of(node: ReadonlyNode): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> } & {
-    readonly $: ReadonlyNode<`struct:${N}`>
-  }
+    readonly $: ReadonlyNode<`struct:${N}`>;
+  };
   /** Positional field access: `Seg.get(node, 'p0')` is the same read as `Seg.of(node).p0`,
    *  with a wrong field name a `tsc` error. It suits a call site that reads many fields
    *  through one shorthand (`const g = Seg.get`). It is a read accessor and returns
    *  `ReadonlyNode`. */
-  get<K extends keyof F & string>(node: ReadonlyNode, field: K): ReadonlyNode<KeyOf<F[K]>>
+  get<K extends keyof F & string>(node: ReadonlyNode, field: K): ReadonlyNode<KeyOf<F[K]>>;
   /** Declare a `var` of this struct and return its typed, mutable field proxy, as
    *  `IoStruct.var` does. */
   var(name?: string): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & {
-    readonly $: ReadonlyNode<`struct:${N}`>
-  }
+    readonly $: ReadonlyNode<`struct:${N}`>;
+  };
   /** Build a value of this struct in one expression, keyed by field name and placed in
    *  declaration order, as `IoStruct.construct` does. */
-  construct(values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> }): Node<`struct:${N}`>
+  construct(values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> }): Node<`struct:${N}`>;
 }
 
 /** Declare a plain struct: one that never crosses a stage boundary. That is a storage-buffer
@@ -556,42 +556,42 @@ export function structDecl<F extends Record<string, ShaderType>, N extends strin
   const decl: StructDecl = {
     name,
     fields: Object.entries(fields).map(([n, type]) => ({ name: n, type })),
-  }
-  const type = structT(name)
+  };
+  const type = structT(name);
   return {
     decl,
     type,
     get<K extends keyof F & string>(node: ReadonlyNode, field: K): ReadonlyNode<KeyOf<F[K]>> {
-      return member(node, field, fields[field])
+      return member(node, field, fields[field]);
     },
     var(varName?: string) {
-      return this.of(varName !== undefined ? Var(varName, this.type) : Var(this.type))
+      return this.of(varName !== undefined ? Var(varName, this.type) : Var(this.type));
     },
     construct(values: Record<string, ReadonlyNode>) {
       return construct(
         structT(name),
         decl.fields.map((f) => values[f.name]),
-      )
+      );
     },
     of(node: ReadonlyNode) {
       return new Proxy({} as Record<string, Node>, {
         get: (_t, prop) => {
-          if (typeof prop !== 'string') return undefined // symbol probes (X-GIS #763 D1) — never fields
-          if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13)
-          if (prop === '$') return node // raw struct-value Node (X-GIS #740 R6, forwardable)
-          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop] // X-GIS #763 X14
-          const t = fields[prop as string]
+          if (typeof prop !== 'string') return undefined; // symbol probes (X-GIS #763 D1) — never fields
+          if (prop === 'then' || prop === 'toJSON') return undefined; // protocol probes (X-GIS #763 X13)
+          if (prop === '$') return node; // raw struct-value Node (X-GIS #740 R6, forwardable)
+          if ((prop === 'expr' || prop === 'type') && !(prop in fields)) return node[prop]; // X-GIS #763 X14
+          const t = fields[prop as string];
           if (t === undefined)
-            throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`)
-          return member(node, prop as string, t)
+            throw new Error(`sot: structDecl '${name}' has no field '${String(prop)}'`);
+          return member(node, prop as string, t);
         },
         // `'$' in proxy` must be true for the call-factory unwrap (empty target).
         has: (_t, prop) => prop === '$' || (typeof prop === 'string' && prop in fields),
       }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & {
-        readonly $: ReadonlyNode<`struct:${N}`>
-      }
+        readonly $: ReadonlyNode<`struct:${N}`>;
+      };
     },
-  }
+  };
 }
 
 /** A fixed-size `array<Element, N>` uniform field whose element is a struct handle:
@@ -603,9 +603,9 @@ export function structDecl<F extends Record<string, ShaderType>, N extends strin
  */
 export interface HandleArray<H extends StructHandle> {
   /** The element's struct handle. */
-  readonly element: H
+  readonly element: H;
   /** The array length. */
-  readonly count: number
+  readonly count: number;
 }
 /** A fixed-size array uniform field with a plain element type: `dash_array: arrayOf(vec4fT, 2)`.
  *  The field proxy exposes `.at(i)`, which returns the typed element read.
@@ -614,11 +614,11 @@ export interface HandleArray<H extends StructHandle> {
  */
 export interface TypeArray<T extends ShaderType> {
   /** The element's shader type. */
-  readonly elemType: T
+  readonly elemType: T;
   /** The array length. */
-  readonly count: number
+  readonly count: number;
 }
-type UniformFieldSpec = ShaderType | HandleArray<StructHandle> | TypeArray<ShaderType>
+type UniformFieldSpec = ShaderType | HandleArray<StructHandle> | TypeArray<ShaderType>;
 
 /** Declare a fixed-length array field inside a {@link uniformStruct} field map. The array is
  *  always `array<T, N>` with a declared `count`. A runtime-length `array<T>` is a top-level
@@ -644,21 +644,21 @@ type UniformFieldSpec = ShaderType | HandleArray<StructHandle> | TypeArray<Shade
  *  const d0 = U.field.dash_array.at(0) // ReadonlyNode<'vec4<f32>'>
  *  ```
  */
-export function arrayOf<H extends StructHandle>(element: H, count: number): HandleArray<H>
-export function arrayOf<T extends ShaderType>(element: T, count: number): TypeArray<T>
+export function arrayOf<H extends StructHandle>(element: H, count: number): HandleArray<H>;
+export function arrayOf<T extends ShaderType>(element: T, count: number): TypeArray<T>;
 export function arrayOf(
   element: StructHandle | ShaderType,
   count: number,
 ): HandleArray<StructHandle> | TypeArray<ShaderType> {
   return typeof element === 'object' && 'of' in element
     ? { element: element as StructHandle, count }
-    : { elemType: element as ShaderType, count }
+    : { elemType: element as ShaderType, count };
 }
 
 const isHandleArray = (v: UniformFieldSpec): v is HandleArray<StructHandle> =>
-  typeof v === 'object' && 'element' in v && 'count' in v
+  typeof v === 'object' && 'element' in v && 'count' in v;
 const isTypeArray = (v: UniformFieldSpec): v is TypeArray<ShaderType> =>
-  typeof v === 'object' && 'elemType' in v && 'count' in v
+  typeof v === 'object' && 'elemType' in v && 'count' in v;
 
 /** Uniform fields are READ-ONLY in WGSL — the field proxy hands out `ReadonlyNode`
  *  (X-GIS #763 G2): `U.field.opacity.assign(…)` is a tsc error, not a naga rejection.
@@ -670,7 +670,7 @@ type UniformFieldNode<V> =
       ? { at(i: ReadonlyNode<ScalarKey> | number): ReadonlyNode<KeyOf<T>> }
       : V extends ShaderType
         ? ReadonlyNode<KeyOf<V>>
-        : never
+        : never;
 
 /** The handle {@link uniformStruct} returns: a struct and its binding declared together.
  *  `.struct` (also spelled `.decl`) is for `module({ structs })`, `.binding` for
@@ -689,18 +689,18 @@ type UniformFieldNode<V> =
  */
 export interface UniformStruct<F extends Record<string, UniformFieldSpec>> {
   /** The struct declaration, for `module({ structs })`. */
-  readonly struct: StructDecl
+  readonly struct: StructDecl;
   /** The same declaration as `struct`, under the name every other handle in this module
    *  uses, so `structs: [U.decl, VsOut.decl]` reads uniformly. */
-  readonly decl: StructDecl
+  readonly decl: StructDecl;
   /** The struct's `ShaderType`. */
-  readonly type: ShaderType
+  readonly type: ShaderType;
   /** The binding declaration, for `module({ bindings })`. */
-  readonly binding: BindingDecl
+  readonly binding: BindingDecl;
   /** The raw binding access node, for a hand-built `member(...)` read. */
-  readonly node: Node
+  readonly node: Node;
   /** Typed, read-only field access. A field declared with {@link arrayOf} exposes `.at(i)`. */
-  readonly field: { readonly [K in keyof F]: UniformFieldNode<F[K]> }
+  readonly field: { readonly [K in keyof F]: UniformFieldNode<F[K]> };
 }
 
 /** Declare a uniform-buffer struct together with its binding, from one field map. The struct,
@@ -756,13 +756,13 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
       ? arrayT(v.element.type, v.count)
       : isTypeArray(v)
         ? arrayT(v.elemType, v.count)
-        : v
+        : v;
   const struct: StructDecl = {
     name: typeName,
     fields: Object.entries(fields).map(([n, v]) => ({ name: n, type: fieldType(v) })),
-  }
-  const type = structT(typeName)
-  const node = bindingRef(at.as, type)
+  };
+  const type = structT(typeName);
+  const node = bindingRef(at.as, type);
   return {
     struct,
     decl: struct,
@@ -771,29 +771,29 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
     node,
     field: new Proxy({} as Record<string, unknown>, {
       get: (_t, prop) => {
-        if (typeof prop !== 'string') return undefined // symbol probes (X-GIS #763 D1) — never fields
-        if (prop === 'then' || prop === 'toJSON') return undefined // protocol probes (X-GIS #763 X13) — await/JSON.stringify must not throw
-        const v = fields[prop as string]
+        if (typeof prop !== 'string') return undefined; // symbol probes (X-GIS #763 D1) — never fields
+        if (prop === 'then' || prop === 'toJSON') return undefined; // protocol probes (X-GIS #763 X13) — await/JSON.stringify must not throw
+        const v = fields[prop as string];
         if (v === undefined)
-          throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`)
+          throw new Error(`sot: uniformStruct '${typeName}' has no field '${String(prop)}'`);
         if (isHandleArray(v)) {
-          const arrNode = member(node, prop as string, arrayT(v.element.type, v.count))
+          const arrNode = member(node, prop as string, arrayT(v.element.type, v.count));
           return {
             at: (i: ReadonlyNode<ScalarKey> | number) =>
               v.element.of(arrNode.at(i, v.element.type)),
-          }
+          };
         }
         if (isTypeArray(v)) {
-          const arrNode = member(node, prop as string, arrayT(v.elemType, v.count))
-          return { at: (i: ReadonlyNode<ScalarKey> | number) => arrNode.at(i, v.elemType) }
+          const arrNode = member(node, prop as string, arrayT(v.elemType, v.count));
+          return { at: (i: ReadonlyNode<ScalarKey> | number) => arrNode.at(i, v.elemType) };
         }
-        return member(node, prop as string, v)
+        return member(node, prop as string, v);
       },
       // `in`/spread feature-detection must see the declared fields (X-GIS #763 X13 —
       // the sibling proxies got this trap in R6; this one was the gap).
       has: (_t, prop) => typeof prop === 'string' && prop in fields,
     }) as { readonly [K in keyof F]: UniformFieldNode<F[K]> },
-  }
+  };
 }
 
 /** A single-binding handle: a `BindingDecl` for `module({ bindings })` plus a typed access
@@ -808,9 +808,9 @@ export function uniformStruct<F extends Record<string, UniformFieldSpec>>(
  */
 export interface Resource<T extends ShaderType = ShaderType> {
   /** The binding declaration, for `module({ bindings })`. */
-  readonly binding: BindingDecl
+  readonly binding: BindingDecl;
   /** The typed access node, keyed by the declared type `T`. */
-  readonly node: Node<KeyOf<T>>
+  readonly node: Node<KeyOf<T>>;
 }
 
 /** Declare a bound resource that is not a struct: a texture or a sampler. The binding
@@ -853,7 +853,7 @@ export function resource<T extends ShaderType>(
   return {
     binding: { group: at.group, binding: at.binding, name, space: at.space ?? 'uniform', type },
     node: bindingRef(name, type),
-  }
+  };
 }
 
 /** Declare a host-owned uniform: one scalar, vector or matrix value the host supplies,
@@ -903,7 +903,7 @@ export function hostUniform<T extends ShaderType>(
   opts?: { precision?: 'highp' | 'mediump' | 'lowp' },
 ): Resource<T> {
   if (type.kind === 'struct' || type.kind === 'array')
-    throw dslError('SD0016', `hostUniform '${name}': ${type.kind} — use hostBlock for a struct`)
+    throw dslError('SD0016', `hostUniform '${name}': ${type.kind} — use hostBlock for a struct`);
   return {
     binding: {
       group: at.group,
@@ -915,7 +915,7 @@ export function hostUniform<T extends ShaderType>(
       ...(opts?.precision ? { precision: opts.precision } : {}),
     },
     node: bindingRef(name, type),
-  }
+  };
 }
 
 /** Declare a host-owned uniform block: a whole struct of values the host supplies, from one
@@ -975,15 +975,15 @@ export function hostBlock<F extends Record<string, UniformFieldSpec>>(
   fields: F,
   opts?: { glsl?: 'std140-block' | 'loose'; precision?: 'highp' | 'mediump' | 'lowp' },
 ): UniformStruct<F> {
-  const base = uniformStruct(typeName, at, fields)
-  const glsl = opts?.glsl ?? 'std140-block'
+  const base = uniformStruct(typeName, at, fields);
+  const glsl = opts?.glsl ?? 'std140-block';
   if (glsl === 'loose')
     for (const f of base.struct.fields)
       if (f.type.kind !== 'scalar' && f.type.kind !== 'vec' && f.type.kind !== 'mat')
         throw dslError(
           'SD0016',
           `hostBlock '${typeName}' member '${f.name}': ${f.type.kind} cannot be a loose uniform`,
-        )
+        );
   return {
     ...base,
     binding: {
@@ -992,7 +992,7 @@ export function hostBlock<F extends Record<string, UniformFieldSpec>>(
       glsl,
       ...(opts?.precision ? { precision: opts.precision } : {}),
     },
-  }
+  };
 }
 
 /** The handle {@link storageBuffer} returns: a bound runtime-length `array<Element>` storage
@@ -1004,23 +1004,23 @@ export function hostBlock<F extends Record<string, UniformFieldSpec>>(
  */
 export interface StorageBuffer<A> {
   /** The binding declaration, for `module({ bindings })`. */
-  readonly binding: BindingDecl
+  readonly binding: BindingDecl;
   /** The raw binding access node for the whole array. */
-  readonly node: Node
+  readonly node: Node;
   /** The element struct's declaration, when the element was a struct handle, so that
    *  `module({ uses: [buf] })` registers the element struct too. */
-  readonly elementDecl?: StructDecl
+  readonly elementDecl?: StructDecl;
   /** Read element `i`: the typed field proxy for a struct element, the element node for a
    *  scalar or vector element. */
-  at(i: ReadonlyNode<ScalarKey> | number): A
+  at(i: ReadonlyNode<ScalarKey> | number): A;
 }
 
 /** A struct ELEMENT handle (structDecl / ioStruct) — has a `.type` and a typed `.of(node)` proxy. */
 type StructHandle = {
-  readonly type: ShaderType
-  readonly decl?: StructDecl
-  of(node: ReadonlyNode): object
-}
+  readonly type: ShaderType;
+  readonly decl?: StructDecl;
+  of(node: ReadonlyNode): object;
+};
 
 /** A storage buffer binding declared from its ELEMENT (a struct handle or a scalar type) in one place;
  *  derives the binding decl (space 'storage' + access), the access node, AND `.at(i)` element access. */
@@ -1028,8 +1028,8 @@ type StructHandle = {
  *  `read_write` storage buffer. Homomorphic, so field optionality/readonly are kept;
  *  the raw `$` node stays ReadonlyNode (writes go through fields, not the whole value). */
 type MutableView<V> = {
-  [K in keyof V]: K extends '$' ? V[K] : V[K] extends ReadonlyNode<infer T> ? Node<T> : V[K]
-}
+  [K in keyof V]: K extends '$' ? V[K] : V[K] extends ReadonlyNode<infer T> ? Node<T> : V[K];
+};
 
 // The element view's WRITE capability follows the declared ACCESS (X-GIS #763 G2):
 // `access: 'read'` hands out read views (`buf.at(i).p0.assign(…)` is a tsc error —
@@ -1093,31 +1093,31 @@ export function storageBuffer<H extends StructHandle>(
   name: string,
   element: H,
   at: { group: number; binding: number; access: 'read' },
-): StorageBuffer<ReturnType<H['of']>>
+): StorageBuffer<ReturnType<H['of']>>;
 export function storageBuffer<H extends StructHandle>(
   name: string,
   element: H,
   at: { group: number; binding: number; access: 'read_write' },
-): StorageBuffer<MutableView<ReturnType<H['of']>>>
+): StorageBuffer<MutableView<ReturnType<H['of']>>>;
 export function storageBuffer<T extends ShaderType>(
   name: string,
   element: T,
   at: { group: number; binding: number; access: 'read' },
-): StorageBuffer<ReadonlyNode<KeyOf<T>>>
+): StorageBuffer<ReadonlyNode<KeyOf<T>>>;
 export function storageBuffer<T extends ShaderType>(
   name: string,
   element: T,
   at: { group: number; binding: number; access: 'read_write' },
-): StorageBuffer<Node<KeyOf<T>>>
+): StorageBuffer<Node<KeyOf<T>>>;
 export function storageBuffer(
   name: string,
   element: StructHandle | ShaderType,
   at: { group: number; binding: number; access: 'read' | 'read_write' },
 ): StorageBuffer<unknown> {
-  const handle = typeof element === 'object' && 'of' in element ? element : undefined
-  const elemType = handle ? handle.type : (element as ShaderType)
-  const arr = arrayT(elemType)
-  const node = bindingRef(name, arr)
+  const handle = typeof element === 'object' && 'of' in element ? element : undefined;
+  const elemType = handle ? handle.type : (element as ShaderType);
+  const arr = arrayT(elemType);
+  const node = bindingRef(name, arr);
   return {
     binding: {
       group: at.group,
@@ -1130,5 +1130,5 @@ export function storageBuffer(
     node,
     ...(handle?.decl !== undefined ? { elementDecl: handle.decl } : {}),
     at: (i) => (handle ? handle.of(node.at(i, elemType)) : node.at(i, elemType)),
-  }
+  };
 }

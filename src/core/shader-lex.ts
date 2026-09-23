@@ -16,15 +16,15 @@
 // token. A newline is ordinary whitespace EXCEPT around GLSL preprocessor
 // directives, which must own their line; those lex as one `directive` token.
 
-export type TokenKind = 'word' | 'number' | 'punct' | 'comment' | 'directive'
+export type TokenKind = 'word' | 'number' | 'punct' | 'comment' | 'directive';
 
 export interface Token {
-  readonly kind: TokenKind
-  readonly text: string
+  readonly kind: TokenKind;
+  readonly text: string;
   /** Offset of the token's first character in the source it was lexed from. */
-  readonly start: number
+  readonly start: number;
   /** Offset one past its last character. */
-  readonly end: number
+  readonly end: number;
 }
 
 /** Multi-character tokens, longest first — maximal munch scans this in order.
@@ -54,11 +54,11 @@ const MULTI = [
   '&=',
   '|=',
   '^=',
-]
+];
 
-const isDigit = (c: string): boolean => c >= '0' && c <= '9'
+const isDigit = (c: string): boolean => c >= '0' && c <= '9';
 const isWordChar = (c: string): boolean =>
-  c === '_' || isDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+  c === '_' || isDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 
 /** Lex the single token starting at `i` (which must not be whitespace).
  *  A number munches every following word char, `.`, and a sign directly after
@@ -72,38 +72,38 @@ export function lexAt(src: string, i: number): Token {
     text,
     start: i,
     end: i + text.length,
-  })
-  const c = src[i]!
+  });
+  const c = src[i]!;
 
   if (src.startsWith('//', i)) {
-    const nl = src.indexOf('\n', i)
-    return tok('comment', src.slice(i, nl === -1 ? src.length : nl))
+    const nl = src.indexOf('\n', i);
+    return tok('comment', src.slice(i, nl === -1 ? src.length : nl));
   }
   if (src.startsWith('/*', i)) {
-    const end = src.indexOf('*/', i + 2)
-    return tok('comment', src.slice(i, end === -1 ? src.length : end + 2))
+    const end = src.indexOf('*/', i + 2);
+    return tok('comment', src.slice(i, end === -1 ? src.length : end + 2));
   }
 
   if (isDigit(c) || (c === '.' && isDigit(src[i + 1] ?? ''))) {
-    let j = i
+    let j = i;
     while (j < src.length) {
-      const ch = src[j]!
-      const prev = src[j - 1]
-      if (isWordChar(ch) || ch === '.') j++
-      else if ((ch === '+' || ch === '-') && (prev === 'e' || prev === 'E' || prev === 'p')) j++
-      else break
+      const ch = src[j]!;
+      const prev = src[j - 1];
+      if (isWordChar(ch) || ch === '.') j++;
+      else if ((ch === '+' || ch === '-') && (prev === 'e' || prev === 'E' || prev === 'p')) j++;
+      else break;
     }
-    return tok('number', src.slice(i, j))
+    return tok('number', src.slice(i, j));
   }
 
   if (isWordChar(c)) {
-    let j = i
-    while (j < src.length && isWordChar(src[j]!)) j++
-    return tok('word', src.slice(i, j))
+    let j = i;
+    while (j < src.length && isWordChar(src[j]!)) j++;
+    return tok('word', src.slice(i, j));
   }
 
-  for (const op of MULTI) if (src.startsWith(op, i)) return tok('punct', op)
-  return tok('punct', c)
+  for (const op of MULTI) if (src.startsWith(op, i)) return tok('punct', op);
+  return tok('punct', c);
 }
 
 /** Tokenize a whole shader. Comments are dropped; a `#` at the start of a
@@ -111,35 +111,35 @@ export function lexAt(src: string, i: number): Token {
  *  `text` is normalised (trailing `//` comment stripped, whitespace runs
  *  collapsed) while `start`/`end` still span the raw line. */
 export function lexShader(src: string): Token[] {
-  const out: Token[] = []
-  let i = 0
-  let atLineStart = true
+  const out: Token[] = [];
+  let i = 0;
+  let atLineStart = true;
   while (i < src.length) {
-    const c = src[i]!
+    const c = src[i]!;
     if (c === '\n') {
-      atLineStart = true
-      i++
-      continue
+      atLineStart = true;
+      i++;
+      continue;
     }
     if (c === ' ' || c === '\t' || c === '\r') {
-      i++
-      continue
+      i++;
+      continue;
     }
     if (c === '#' && atLineStart) {
-      const nl = src.indexOf('\n', i)
-      const raw = src.slice(i, nl === -1 ? src.length : nl)
-      const cut = raw.indexOf('//')
-      const text = (cut === -1 ? raw : raw.slice(0, cut)).trim().replace(/\s+/g, ' ')
-      out.push({ kind: 'directive', text, start: i, end: i + raw.length })
-      i += raw.length
-      continue
+      const nl = src.indexOf('\n', i);
+      const raw = src.slice(i, nl === -1 ? src.length : nl);
+      const cut = raw.indexOf('//');
+      const text = (cut === -1 ? raw : raw.slice(0, cut)).trim().replace(/\s+/g, ' ');
+      out.push({ kind: 'directive', text, start: i, end: i + raw.length });
+      i += raw.length;
+      continue;
     }
-    atLineStart = false
-    const tok = lexAt(src, i)
-    i = tok.end
-    if (tok.kind !== 'comment') out.push(tok)
+    atLineStart = false;
+    const tok = lexAt(src, i);
+    i = tok.end;
+    if (tok.kind !== 'comment') out.push(tok);
   }
-  return out
+  return out;
 }
 
 /** True when `a` and `b` may NOT be written adjacently: re-lex the join and see
@@ -147,5 +147,5 @@ export function lexShader(src: string): Token[] {
  *  (`return x`), number/word (`1.0 f32`), and every operator pair that has a
  *  longer form (`- -`, `/ /`, `<< =`, `> =`). */
 export function needsSpace(a: string, b: string): boolean {
-  return lexAt(a + b, 0).text.length !== a.length
+  return lexAt(a + b, 0).text.length !== a.length;
 }

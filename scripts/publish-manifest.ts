@@ -27,24 +27,24 @@
 // subpath whose build output is missing fails the verification below by name. That is the
 // drift S5 objected to, closed rather than re-opened in a new file.
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-export const PKG_DIR = resolve(HERE, '..')
+const HERE = dirname(fileURLToPath(import.meta.url));
+export const PKG_DIR = resolve(HERE, '..');
 
 export interface Manifest {
-  readonly name: string
-  readonly version: string
-  readonly main?: string
-  readonly types?: string
-  readonly exports: Readonly<Record<string, string>>
-  readonly sideEffects?: readonly string[]
+  readonly name: string;
+  readonly version: string;
+  readonly main?: string;
+  readonly types?: string;
+  readonly exports: Readonly<Record<string, string>>;
+  readonly sideEffects?: readonly string[];
   /** Command name → source entry (`./src/cli/bin.ts`). Rewritten by the same one rule as
    *  `exports`, to the emitted `.js`, which keeps the source's `#!/usr/bin/env node` line. */
-  readonly bin?: Readonly<Record<string, string>>
-  readonly [key: string]: unknown
+  readonly bin?: Readonly<Record<string, string>>;
+  readonly [key: string]: unknown;
 }
 
 /** True for a subpath whose target is ALREADY a built declaration file — `./shade`, the
@@ -54,7 +54,7 @@ export interface Manifest {
  *  source path, and it is recognised BY that shape rather than by name, so a second generated
  *  .d.ts subpath needs no edit here either. */
 export function isTypesOnly(target: string): boolean {
-  return target.startsWith('./dist/') && target.endsWith('.d.ts')
+  return target.startsWith('./dist/') && target.endsWith('.d.ts');
 }
 
 /** The one rule. `./src/core/ir/index.ts` → `./dist/src/core/ir/index` — the caller appends
@@ -67,8 +67,8 @@ export function distStem(target: string): string {
       `exports target ${JSON.stringify(target)} is not a "./<path>.ts" source path. The ` +
         'published manifest is derived from the source map by one rule; a target of another ' +
         'shape has no derivation and must be given one here, deliberately.',
-    )
-  return `./dist/${target.slice(2, -'.ts'.length)}`
+    );
+  return `./dist/${target.slice(2, -'.ts'.length)}`;
 }
 
 /** A conditional export for one subpath. `types` FIRST — TypeScript resolves conditions in
@@ -80,18 +80,18 @@ function subpathExport(target: string): Record<string, string> {
   // Types-only: `types` and nothing else, deliberately. Giving it an `import`/`default` would
   // advertise `import 'typeshade/shade'` as a thing a consumer can write, and it is not — the
   // file is a `.d.ts` with no runtime half. Resolution failing there is the correct answer.
-  if (isTypesOnly(target)) return { types: target }
-  const stem = distStem(target)
-  return { types: `${stem}.d.ts`, import: `${stem}.js`, default: `${stem}.js` }
+  if (isTypesOnly(target)) return { types: target };
+  const stem = distStem(target);
+  return { types: `${stem}.d.ts`, import: `${stem}.js`, default: `${stem}.js` };
 }
 
 /** The manifest as it should look inside the tarball. Pure: it reads nothing from disk. */
 export function derivePublishManifest(pkg: Manifest): Record<string, unknown> {
-  const root = pkg.exports['.']
-  if (root === undefined) throw new Error('`exports` has no "." subpath to derive `main` from')
-  const exports: Record<string, Record<string, string>> = {}
+  const root = pkg.exports['.'];
+  if (root === undefined) throw new Error('`exports` has no "." subpath to derive `main` from');
+  const exports: Record<string, Record<string, string>> = {};
   for (const [subpath, target] of Object.entries(pkg.exports))
-    exports[subpath] = subpathExport(target)
+    exports[subpath] = subpathExport(target);
   return {
     ...pkg,
     main: `${distStem(root)}.js`,
@@ -114,7 +114,7 @@ export function derivePublishManifest(pkg: Manifest): Record<string, unknown> {
     sideEffects: (pkg.sideEffects ?? []).flatMap((entry) =>
       entry.endsWith('.ts') ? [`${distStem(entry)}.js`, entry] : [entry],
     ),
-  }
+  };
 }
 
 /** Every file the derived manifest promises, and whether the build produced it. */
@@ -122,50 +122,50 @@ export function verifyTargets(
   derived: Record<string, unknown>,
   pkgDir: string = PKG_DIR,
 ): { readonly path: string; readonly ok: boolean }[] {
-  const exports = derived['exports'] as Record<string, Record<string, string>>
-  const paths = new Set<string>([derived['main'] as string, derived['types'] as string])
+  const exports = derived['exports'] as Record<string, Record<string, string>>;
+  const paths = new Set<string>([derived['main'] as string, derived['types'] as string]);
   for (const conditions of Object.values(exports))
-    for (const p of Object.values(conditions)) paths.add(p)
-  for (const p of Object.values((derived['bin'] ?? {}) as Record<string, string>)) paths.add(p)
-  return [...paths].sort().map((p) => ({ path: p, ok: existsSync(join(pkgDir, p.slice(2))) }))
+    for (const p of Object.values(conditions)) paths.add(p);
+  for (const p of Object.values((derived['bin'] ?? {}) as Record<string, string>)) paths.add(p);
+  return [...paths].sort().map((p) => ({ path: p, ok: existsSync(join(pkgDir, p.slice(2))) }));
 }
 
 function main(argv: readonly string[]): number {
-  const write = argv.includes('--write')
-  const manifestPath = join(PKG_DIR, 'package.json')
-  const pkg = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest
-  const derived = derivePublishManifest(pkg)
-  const checked = verifyTargets(derived)
-  const missing = checked.filter((c) => !c.ok)
+  const write = argv.includes('--write');
+  const manifestPath = join(PKG_DIR, 'package.json');
+  const pkg = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest;
+  const derived = derivePublishManifest(pkg);
+  const checked = verifyTargets(derived);
+  const missing = checked.filter((c) => !c.ok);
 
-  for (const c of checked) console.error(`${c.ok ? 'ok   ' : 'MISS '} ${c.path}`)
+  for (const c of checked) console.error(`${c.ok ? 'ok   ' : 'MISS '} ${c.path}`);
   console.error(
     `${checked.length - missing.length}/${checked.length} entry-point files present in dist/`,
-  )
+  );
   if (missing.length > 0) {
     console.error(
       `\n${missing.length} file(s) the published exports map promises do not exist. Run ` +
         '`bun run build` first; if they are still missing, the emit layout and this ' +
         'derivation disagree and one of the two is wrong — do not publish.',
-    )
-    return 1
+    );
+    return 1;
   }
 
-  const text = `${JSON.stringify(derived, null, 2)}\n`
+  const text = `${JSON.stringify(derived, null, 2)}\n`;
   if (!write) {
-    process.stdout.write(text)
+    process.stdout.write(text);
     console.error(
       '\n(preview only — nothing written. Re-run with --write to replace package.json.)',
-    )
-    return 0
+    );
+    return 0;
   }
-  writeFileSync(manifestPath, text)
+  writeFileSync(manifestPath, text);
   console.error(
     '\npackage.json is now PUBLISH-SHAPED: its exports resolve to dist/, not src/. The ' +
       'working tree is modified — restore it with `git checkout -- package.json`. Intended ' +
       'for the ephemeral checkout the publish workflow runs in.',
-  )
-  return 0
+  );
+  return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(main(process.argv.slice(2)))
+if (import.meta.url === `file://${process.argv[1]}`) process.exit(main(process.argv.slice(2)));

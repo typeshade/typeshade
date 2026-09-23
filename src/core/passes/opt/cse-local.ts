@@ -26,7 +26,7 @@
 // Bit-exact (pure dedup — no float arithmetic is changed), so no f32 differential gate
 // is needed; pinned by oracle value-equality like the sibling fn-top `cse`.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js';
 import {
   keyOf,
   isCompound,
@@ -38,13 +38,19 @@ import {
   refsLocal,
   isWorthHoisting,
   mapStmtValue,
-} from './expr-utils.js'
-import { bodyHasEffectfulCall, fnReads, fnWrites, type FnReads, type FnWrites } from '../effects.js'
+} from './expr-utils.js';
+import {
+  bodyHasEffectfulCall,
+  fnReads,
+  fnWrites,
+  type FnReads,
+  type FnWrites,
+} from '../effects.js';
 
 interface Tally {
-  counts: Map<string, number>
-  condKeys: Set<string> // keys with ≥1 conditionally-evaluated occurrence
-  exemplar: Map<string, Expr>
+  counts: Map<string, number>;
+  condKeys: Set<string>; // keys with ≥1 conditionally-evaluated occurrence
+  exemplar: Map<string, Expr>;
 }
 
 // Walk `e`, tallying compound + worth-hoisting + LOCAL-touching subexprs, propagating a
@@ -58,47 +64,47 @@ function tally(
   reads: FnReads,
 ): void {
   if (isCompound(e) && isWorthHoisting(e, loadRoots) && refsLocal(e, localSet, reads)) {
-    const k = keyOf(e)
-    t.counts.set(k, (t.counts.get(k) ?? 0) + 1)
-    if (cond) t.condKeys.add(k)
-    if (!t.exemplar.has(k)) t.exemplar.set(k, e)
+    const k = keyOf(e);
+    t.counts.set(k, (t.counts.get(k) ?? 0) + 1);
+    if (cond) t.condKeys.add(k);
+    if (!t.exemplar.has(k)) t.exemplar.set(k, e);
   }
   switch (e.op) {
     case 'logical':
-      tally(e.a, cond, localSet, t, loadRoots, reads)
-      tally(e.b, true, localSet, t, loadRoots, reads)
-      break // RHS short-circuits
+      tally(e.a, cond, localSet, t, loadRoots, reads);
+      tally(e.b, true, localSet, t, loadRoots, reads);
+      break; // RHS short-circuits
     case 'select':
-      tally(e.cond, cond, localSet, t, loadRoots, reads)
-      tally(e.ifTrue, true, localSet, t, loadRoots, reads)
-      tally(e.ifFalse, true, localSet, t, loadRoots, reads)
-      break
+      tally(e.cond, cond, localSet, t, loadRoots, reads);
+      tally(e.ifTrue, true, localSet, t, loadRoots, reads);
+      tally(e.ifFalse, true, localSet, t, loadRoots, reads);
+      break;
     case 'matchExpr':
-      tally(e.scrutinee, cond, localSet, t, loadRoots, reads)
-      for (const [, v] of e.cases) tally(v, true, localSet, t, loadRoots, reads)
-      tally(e.default, true, localSet, t, loadRoots, reads)
-      break
+      tally(e.scrutinee, cond, localSet, t, loadRoots, reads);
+      for (const [, v] of e.cases) tally(v, true, localSet, t, loadRoots, reads);
+      tally(e.default, true, localSet, t, loadRoots, reads);
+      break;
     case 'binop':
     case 'compare':
-      tally(e.a, cond, localSet, t, loadRoots, reads)
-      tally(e.b, cond, localSet, t, loadRoots, reads)
-      break
+      tally(e.a, cond, localSet, t, loadRoots, reads);
+      tally(e.b, cond, localSet, t, loadRoots, reads);
+      break;
     case 'unop':
-      tally(e.a, cond, localSet, t, loadRoots, reads)
-      break
+      tally(e.a, cond, localSet, t, loadRoots, reads);
+      break;
     case 'call':
     case 'construct':
-      for (const a of e.args) tally(a, cond, localSet, t, loadRoots, reads)
-      break
+      for (const a of e.args) tally(a, cond, localSet, t, loadRoots, reads);
+      break;
     case 'member':
-      tally(e.base, cond, localSet, t, loadRoots, reads)
-      break
+      tally(e.base, cond, localSet, t, loadRoots, reads);
+      break;
     case 'index':
-      tally(e.base, cond, localSet, t, loadRoots, reads)
-      tally(e.idx, cond, localSet, t, loadRoots, reads)
-      break
+      tally(e.base, cond, localSet, t, loadRoots, reads);
+      tally(e.idx, cond, localSet, t, loadRoots, reads);
+      break;
     default:
-      break // leaf
+      break; // leaf
   }
 }
 
@@ -123,18 +129,18 @@ function tally(
 function valueExprs(s: Stmt): readonly Expr[] {
   switch (s.s) {
     case 'let':
-      return [s.expr]
+      return [s.expr];
     case 'var':
-      return s.init !== undefined ? [s.init] : []
+      return s.init !== undefined ? [s.init] : [];
     case 'assign':
     case 'assignOp':
-      return [s.expr] // NOT the lvalue target
+      return [s.expr]; // NOT the lvalue target
     case 'return':
-      return s.expr !== undefined ? [s.expr] : []
+      return s.expr !== undefined ? [s.expr] : [];
     case 'if':
-      return s.arms.length > 0 ? [s.arms[0]!.cond] : []
+      return s.arms.length > 0 ? [s.arms[0]!.cond] : [];
     default:
-      return []
+      return [];
   }
 }
 
@@ -146,42 +152,42 @@ function hoistInStatement(
   loadRoots: ReadonlySet<string>,
   reads: FnReads,
 ): { lets: Stmt[]; stmt: Stmt } {
-  const exprs = valueExprs(s)
-  if (exprs.length === 0) return { lets: [], stmt: s }
+  const exprs = valueExprs(s);
+  if (exprs.length === 0) return { lets: [], stmt: s };
 
-  const t: Tally = { counts: new Map(), condKeys: new Set(), exemplar: new Map() }
-  for (const e of exprs) tally(e, false, localSet, t, loadRoots, reads)
+  const t: Tally = { counts: new Map(), condKeys: new Set(), exemplar: new Map() };
+  for (const e of exprs) tally(e, false, localSet, t, loadRoots, reads);
 
-  const repeated = [...t.counts].filter(([k, n]) => n >= 2 && !t.condKeys.has(k)).map(([k]) => k)
-  if (repeated.length === 0) return { lets: [], stmt: s }
+  const repeated = [...t.counts].filter(([k, n]) => n >= 2 && !t.condKeys.has(k)).map(([k]) => k);
+  if (repeated.length === 0) return { lets: [], stmt: s };
 
   // Keep only the MAXIMAL repeats (outermost): hoisting `normalize(p)` subsumes its inner
   // `p`, so a single temp covers the whole shared value (mirrors cse.ts).
-  const repSet = new Set(repeated)
-  const nested = new Set<string>()
+  const repSet = new Set(repeated);
+  const nested = new Set<string>();
   for (const k of repeated) {
     eachExpr(t.exemplar.get(k)!, (sub) => {
-      if (sub === t.exemplar.get(k)) return
-      const sk = keyOf(sub)
-      if (repSet.has(sk)) nested.add(sk)
-    })
+      if (sub === t.exemplar.get(k)) return;
+      const sk = keyOf(sub);
+      if (repSet.has(sk)) nested.add(sk);
+    });
   }
-  const maximal = repeated.filter((k) => !nested.has(k))
-  if (maximal.length === 0) return { lets: [], stmt: s }
+  const maximal = repeated.filter((k) => !nested.has(k));
+  if (maximal.length === 0) return { lets: [], stmt: s };
 
-  const temp = new Map<string, string>()
-  const lets: Stmt[] = []
+  const temp = new Map<string, string>();
+  const lets: Stmt[] = [];
   for (const k of maximal) {
-    const name = `_lc${next.n++}`
-    temp.set(k, name)
-    lets.push({ s: 'let', name, expr: t.exemplar.get(k)! })
+    const name = `_lc${next.n++}`;
+    temp.set(k, name);
+    lets.push({ s: 'let', name, expr: t.exemplar.get(k)! });
   }
   const replace = (e: Expr): Expr => {
-    const nm = temp.get(keyOf(e))
-    if (nm !== undefined) return { op: 'varref', type: e.type, name: nm }
-    return mapChildren(e, replace)
-  }
-  return { lets, stmt: mapStmtValue(s, replace) }
+    const nm = temp.get(keyOf(e));
+    if (nm !== undefined) return { op: 'varref', type: e.type, name: nm };
+    return mapChildren(e, replace);
+  };
+  return { lets, stmt: mapStmtValue(s, replace) };
 }
 
 // Process a statement list: recurse into nested blocks FIRST (so inner statements get
@@ -193,13 +199,13 @@ function processBody(
   loadRoots: ReadonlySet<string>,
   reads: FnReads,
 ): Stmt[] {
-  const out: Stmt[] = []
+  const out: Stmt[] = [];
   for (const s of body) {
-    const rec = recurseBlocks(s, localSet, next, loadRoots, reads)
-    const { lets, stmt } = hoistInStatement(rec, localSet, next, loadRoots, reads)
-    out.push(...lets, stmt)
+    const rec = recurseBlocks(s, localSet, next, loadRoots, reads);
+    const { lets, stmt } = hoistInStatement(rec, localSet, next, loadRoots, reads);
+    out.push(...lets, stmt);
   }
-  return out
+  return out;
 }
 
 // Rebuild a control-flow statement with its nested bodies processed; simple statements
@@ -222,9 +228,9 @@ function recurseBlocks(
         elseBody: s.elseBody
           ? processBody(s.elseBody, localSet, next, loadRoots, reads)
           : undefined,
-      }
+      };
     case 'for':
-      return { ...s, body: processBody(s.body, localSet, next, loadRoots, reads) }
+      return { ...s, body: processBody(s.body, localSet, next, loadRoots, reads) };
     case 'switch':
       return {
         ...s,
@@ -235,9 +241,9 @@ function recurseBlocks(
         defaultBody: s.defaultBody
           ? processBody(s.defaultBody, localSet, next, loadRoots, reads)
           : undefined,
-      }
+      };
     default:
-      return s
+      return s;
   }
 }
 
@@ -247,32 +253,32 @@ function cseLocalFn(
   writes: FnWrites,
   reads: FnReads,
 ): FuncDecl {
-  if (bodyHasRaw(f.body)) return f // raw WGSL is opaque
+  if (bodyHasRaw(f.body)) return f; // raw WGSL is opaque
   // A call that writes a binding is not a repeat to hoist (issue #47).
-  if (bodyHasEffectfulCall(f.body, writes)) return f
+  if (bodyHasEffectfulCall(f.body, writes)) return f;
   // "local" = every binding name AND every mutated root — exactly the set the fn-top cse
   // refuses to hoist. Targeting these makes this pass the complement of that one; `reads`
   // keeps it so for a call whose callee reads a mutated module name, which cse now refuses.
-  const localSet = new Set<string>()
-  collectLocals(f.body, localSet)
-  collectMutatedRoots(f.body, localSet, writes)
+  const localSet = new Set<string>();
+  collectLocals(f.body, localSet);
+  collectMutatedRoots(f.body, localSet, writes);
   // Seed the temp counter past any existing `_lcN` so a second fixpoint pass cannot
   // redeclare `_lc0` (cse-local runs repeatedly inside fixpoint).
-  let base = 0
+  let base = 0;
   for (const n of localSet) {
-    const mm = /^_lc(\d+)$/.exec(n)
-    if (mm) base = Math.max(base, Number(mm[1]) + 1)
+    const mm = /^_lc(\d+)$/.exec(n);
+    if (mm) base = Math.max(base, Number(mm[1]) + 1);
   }
-  const next = { n: base }
-  return { ...f, body: processBody(f.body, localSet, next, loadRoots, reads) }
+  const next = { n: base };
+  return { ...f, body: processBody(f.body, localSet, next, loadRoots, reads) };
 }
 
 /** Hoist statement-local repeated subexpressions to a `let` before their statement.
  *  Pure (module → module); complements the fn-top `cse`. */
 export function cseLocal(m: ModuleDecl): ModuleDecl {
   // Indexing one of these is a memory load, not free addressing (X-GIS #1886).
-  const loadRoots = new Set(m.bindings.map((b) => b.name))
-  const writes = fnWrites(m)
-  const reads = fnReads(m)
-  return { ...m, funcs: m.funcs.map((f) => cseLocalFn(f, loadRoots, writes, reads)) }
+  const loadRoots = new Set(m.bindings.map((b) => b.name));
+  const writes = fnWrites(m);
+  const reads = fnReads(m);
+  return { ...m, funcs: m.funcs.map((f) => cseLocalFn(f, loadRoots, writes, reads)) };
 }

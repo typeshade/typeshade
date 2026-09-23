@@ -1,23 +1,23 @@
-import type { LintRule } from '../engine.js'
-import type { FuncDecl, StructDecl, StructField } from '../../../ir/nodes.js'
-import { typeKey, type ShaderType } from '../../../ir/types.js'
-import { canonicalInterpolation, emittedInterpolation } from '../../varying-interpolate.js'
+import type { LintRule } from '../engine.js';
+import type { FuncDecl, StructDecl, StructField } from '../../../ir/nodes.js';
+import { typeKey, type ShaderType } from '../../../ir/types.js';
+import { canonicalInterpolation, emittedInterpolation } from '../../varying-interpolate.js';
 
 /** One `@location(n)` slot as a stage declares it. */
 interface Varying {
-  readonly location: number
-  readonly type: ShaderType
-  readonly interpolate?: string
+  readonly location: number;
+  readonly type: ShaderType;
+  readonly interpolate?: string;
   /** The name the varying is EMITTED under: a struct field's name, or a bare parameter's. */
-  readonly name: string
-  readonly where: string
+  readonly name: string;
+  readonly where: string;
 }
 
 /** One slot that does not line up, with the fragment entry it was read into so a front end
  *  can point the diagnostic at that declaration. */
 export interface InterstageMismatch {
-  readonly fragment: string
-  readonly message: string
+  readonly fragment: string;
+  readonly message: string;
 }
 
 /** The varyings a struct declares, or the single one a bare `@location` parameter is. */
@@ -36,14 +36,14 @@ function varyings(
         name: own.name,
         where,
       },
-    ]
+    ];
   }
-  if (type.kind !== 'struct') return []
-  const s = structs.find((x) => x.name === type.name)
-  if (!s) return []
-  const out: Varying[] = []
+  if (type.kind !== 'struct') return [];
+  const s = structs.find((x) => x.name === type.name);
+  if (!s) return [];
+  const out: Varying[] = [];
   for (const f of s.fields as readonly StructField[]) {
-    if (f.location === undefined) continue
+    if (f.location === undefined) continue;
     out.push({
       location: f.location,
       // The EMITTED interpolation, not the authored one: an integer varying takes `flat` on
@@ -53,13 +53,13 @@ function varyings(
       interpolate: emittedInterpolation(f),
       name: f.name,
       where: `${s.name}.${f.name}`,
-    })
+    });
   }
-  return out
+  return out;
 }
 
 const shown = (i: string | undefined): string =>
-  i === undefined ? 'no @interpolate' : `@interpolate(${i})`
+  i === undefined ? 'no @interpolate' : `@interpolate(${i})`;
 
 /** Every interstage slot that does not line up between the module's one vertex entry and its
  *  one fragment entry.
@@ -84,34 +84,34 @@ export function interstageMismatches(
   structs: readonly StructDecl[],
   funcs: readonly FuncDecl[],
 ): InterstageMismatch[] {
-  const vs = funcs.filter((f) => f.stage === 'vertex')
-  const fs = funcs.filter((f) => f.stage === 'fragment')
-  if (vs.length !== 1 || fs.length !== 1) return []
-  const vertex = vs[0]!
-  const fragment = fs[0]!
+  const vs = funcs.filter((f) => f.stage === 'vertex');
+  const fs = funcs.filter((f) => f.stage === 'fragment');
+  if (vs.length !== 1 || fs.length !== 1) return [];
+  const vertex = vs[0]!;
+  const fragment = fs[0]!;
   // A vertex entry's bare (non-struct) return is `@builtin(position)`, never a varying, so
   // only its struct return can carry one.
-  const outAt = new Map<number, Varying>()
+  const outAt = new Map<number, Varying>();
   for (const v of varyings(structs, vertex.ret, { name: '' }, `${vertex.name}'s return`)) {
-    outAt.set(v.location, v)
+    outAt.set(v.location, v);
   }
-  const found: InterstageMismatch[] = []
-  const say = (message: string): void => void found.push({ fragment: fragment.name, message })
+  const found: InterstageMismatch[] = [];
+  const say = (message: string): void => void found.push({ fragment: fragment.name, message });
   for (const p of fragment.params) {
     for (const want of varyings(structs, p.type, p, `${fragment.name}'s parameter "${p.name}"`)) {
-      const have = outAt.get(want.location)
-      const slot = `@location(${String(want.location)})`
+      const have = outAt.get(want.location);
+      const slot = `@location(${String(want.location)})`;
       if (have === undefined) {
-        say(`${want.where} reads ${slot}, which "${vertex.name}" does not produce.`)
-        continue
+        say(`${want.where} reads ${slot}, which "${vertex.name}" does not produce.`);
+        continue;
       }
       if (typeKey(have.type) !== typeKey(want.type)) {
         say(
           `${slot} leaves "${vertex.name}" as ${typeKey(have.type)} (${have.where}) and ` +
             `enters "${fragment.name}" as ${typeKey(want.type)} (${want.where}); ` +
             `an interstage slot is one type on both sides.`,
-        )
-        continue
+        );
+        continue;
       }
       // GLSL ES 3.00 links a varying by NAME, not by slot: this writer emits no explicit
       // location for one, so two names at one `@location` are `FRAGMENT varying texCoord does
@@ -124,8 +124,8 @@ export function interstageMismatches(
           `${slot} leaves "${vertex.name}" as "${have.name}" (${have.where}) and enters ` +
             `"${fragment.name}" as "${want.name}" (${want.where}); GLSL ES 3.00 links a ` +
             `varying by name, so the two sides of a slot carry one name.`,
-        )
-        continue
+        );
+        continue;
       }
       // Compared in WGSL's own canonical form, so the several spellings of one interpolation
       // are one answer: `flat` is `flat, first`, and no attribute at all is
@@ -135,11 +135,11 @@ export function interstageMismatches(
           `${slot} leaves "${vertex.name}" with ${shown(have.interpolate)} (${have.where}) and ` +
             `enters "${fragment.name}" with ${shown(want.interpolate)} (${want.where}); ` +
             `an interstage slot is interpolated one way on both sides.`,
-        )
+        );
       }
     }
   }
-  return found
+  return found;
 }
 
 /** A vertex output and the fragment input that reads it must agree, slot for slot (§53).
@@ -158,8 +158,8 @@ export const interstageIo: LintRule = {
   create: (ctx) => ({
     Module(m) {
       for (const f of interstageMismatches(m.structs, m.funcs)) {
-        ctx.report(`interstage IO: ${f.message}`, { code: 'SD0020' })
+        ctx.report(`interstage IO: ${f.message}`, { code: 'SD0020' });
       }
     },
   }),
-}
+};

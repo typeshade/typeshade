@@ -11,23 +11,23 @@
 // N times and would pass over a broken ladder), and the key-collision throw must fire —
 // that throw is what turns AUTHORING.md §11's identity rule from prose into a gate.
 
-import { describe, it, expect } from 'vitest'
-import { externVar, fn, module, vec4, vec4fT, f32T } from './ir/index.js'
-import { builtin, ioStruct } from './sot.js'
-import { emitGlslFragment } from './backends/glsl.js'
-import { isSemanticallyEqual, semanticDiff } from './semantic-diff.js'
-import { selectGuardedArm, variantFamily } from './variant-family.js'
+import { describe, it, expect } from 'vitest';
+import { externVar, fn, module, vec4, vec4fT, f32T } from './ir/index.js';
+import { builtin, ioStruct } from './sot.js';
+import { emitGlslFragment } from './backends/glsl.js';
+import { isSemanticallyEqual, semanticDiff } from './semantic-diff.js';
+import { selectGuardedArm, variantFamily } from './variant-family.js';
 
-const FsOut = ioStruct('VfOut', { pos: builtin('position', vec4fT) })
+const FsOut = ioStruct('VfOut', { pos: builtin('position', vec4fT) });
 
 /** Two axes, exactly the shape the consumer described: a boolean (terrain on/off) and an
  *  enumerated drape mode. Each point builds a genuinely different program. */
 const family = variantFamily({
   axes: { terrain: [false, true], drape: ['ground', 'absolute'] } as const,
   build: ({ terrain, drape }) => {
-    const lift = terrain ? 1.5 : 0.0
-    const bias = drape === 'absolute' ? 10.0 : 0.0
-    const elevate = fn('elevate', { t: f32T }, (p) => p.t.mul(lift).add(bias))
+    const lift = terrain ? 1.5 : 0.0;
+    const bias = drape === 'absolute' ? 10.0 : 0.0;
+    const elevate = fn('elevate', { t: f32T }, (p) => p.t.mul(lift).add(bias));
     return module({
       uses: [FsOut],
       funcs: [
@@ -41,34 +41,34 @@ const family = variantFamily({
           stage: 'vertex',
         }),
       ],
-    })
+    });
   },
   key: ({ terrain, drape }) => `${terrain ? 't' : 'f'}:${drape}`,
-})
+});
 
 const DEFINES = {
   terrain: 'TERRAIN3D',
   drape: { ground: 'DRAPE_GROUND', absolute: 'DRAPE_ABSOLUTE' },
-} as const
+} as const;
 
 describe('variantFamily — the matrix', () => {
   it('enumerates the cartesian product, first axis slowest', () => {
-    expect(family.keys).toEqual(['f:ground', 'f:absolute', 't:ground', 't:absolute'])
-  })
+    expect(family.keys).toEqual(['f:ground', 'f:absolute', 't:ground', 't:absolute']);
+  });
 
   it('every variant carries its OWN reflection and module', () => {
     for (const v of family.variants) {
-      expect(v.reflection.entries.map((e) => e.name)).toEqual(['vs_v'])
-      expect(family.get(v.key)?.module).toBe(v.module)
+      expect(v.reflection.entries.map((e) => e.name)).toEqual(['vs_v']);
+      expect(family.get(v.key)?.module).toBe(v.module);
     }
-    expect(family.get('nope')).toBeUndefined()
-  })
+    expect(family.get('nope')).toBeUndefined();
+  });
 
   it('the variants are genuinely DIFFERENT programs', () => {
     // Otherwise every arm assertion below would be trivially satisfiable.
-    const [a, , , d] = family.variants
-    expect(isSemanticallyEqual(semanticDiff(a!.module, d!.module))).toBe(false)
-  })
+    const [a, , , d] = family.variants;
+    expect(isSemanticallyEqual(semanticDiff(a!.module, d!.module))).toBe(false);
+  });
 
   it('a key that does not name every axis is a collision, and throws', () => {
     // AUTHORING.md §11's identity rule, as a gate rather than prose. `ids.ts:64-70`
@@ -79,78 +79,78 @@ describe('variantFamily — the matrix', () => {
         build: () => module({ uses: [FsOut], funcs: [] }),
         key: ({ drape }) => `${drape}`, // terrain omitted
       }),
-    ).toThrow(/key collision/)
-  })
+    ).toThrow(/key collision/);
+  });
 
   it('an axis with no values is rejected rather than silently emptying the matrix', () => {
     expect(() =>
       variantFamily({ axes: { a: [] }, build: () => module({ funcs: [] }), key: () => 'k' }),
-    ).toThrow(/declares no values/)
-  })
-})
+    ).toThrow(/declares no values/);
+  });
+});
 
 describe('variantFamily.emit — preprocessor-free, one source per key', () => {
   it('WGSL: N distinct sources, none containing a preprocessor directive', () => {
-    const out = family.emit('wgsl')
-    expect([...out.keys()]).toEqual(family.keys)
+    const out = family.emit('wgsl');
+    expect([...out.keys()]).toEqual(family.keys);
     for (const src of out.values()) {
-      expect(src).not.toContain('#if')
-      expect(src).not.toContain('#define')
+      expect(src).not.toContain('#if');
+      expect(src).not.toContain('#define');
     }
-    expect(new Set(out.values()).size).toBe(family.keys.length)
-  })
+    expect(new Set(out.values()).size).toBe(family.keys.length);
+  });
 
   it('GLSL: each source is a whole stage, header included', () => {
     for (const src of family.emit('glsl-es300', { stage: 'vertex' }).values()) {
-      expect(src.startsWith('#version 300 es')).toBe(true)
-      expect(src).not.toContain('#if')
+      expect(src.startsWith('#version 300 es')).toBe(true);
+      expect(src).not.toContain('#if');
     }
-  })
-})
+  });
+});
 
 describe('variantFamily.emitGuarded — a GENERATED ladder, provably equal to the variants', () => {
-  const guarded = family.emitGuarded(DEFINES, { stage: 'vertex' })
+  const guarded = family.emitGuarded(DEFINES, { stage: 'vertex' });
 
   /** The macros a host would define for one point in the space. */
   const definesFor = (axes: (typeof family.variants)[number]['axes']): string[] => [
     ...(axes.terrain ? ['TERRAIN3D'] : []),
     DEFINES.drape[axes.drape],
-  ]
+  ];
 
   it('carries ONE preamble and one closed ladder', () => {
-    expect(guarded.startsWith('#version 300 es')).toBe(true)
-    expect((guarded.match(/^#version/gm) ?? []).length).toBe(1)
-    expect((guarded.match(/^#if /gm) ?? []).length).toBe(1)
-    expect((guarded.match(/^#elif /gm) ?? []).length).toBe(family.keys.length - 1)
-    expect((guarded.match(/^#endif/gm) ?? []).length).toBe(1)
-  })
+    expect(guarded.startsWith('#version 300 es')).toBe(true);
+    expect((guarded.match(/^#version/gm) ?? []).length).toBe(1);
+    expect((guarded.match(/^#if /gm) ?? []).length).toBe(1);
+    expect((guarded.match(/^#elif /gm) ?? []).length).toBe(family.keys.length - 1);
+    expect((guarded.match(/^#endif/gm) ?? []).length).toBe(1);
+  });
 
   it('EVERY arm is byte-identical to that variant standalone', () => {
     for (const v of family.variants) {
-      const arm = selectGuardedArm(guarded, definesFor(v.axes))
+      const arm = selectGuardedArm(guarded, definesFor(v.axes));
       const standalone = emitGlslFragment(v.module, 'vertex', { entryPoints: true }).source.replace(
         /\n$/,
         '',
-      )
-      expect(arm, `arm '${v.key}' diverged from its standalone emit`).toBe(standalone)
+      );
+      expect(arm, `arm '${v.key}' diverged from its standalone emit`).toBe(standalone);
     }
-  })
+  });
 
   it('selectGuardedArm really SELECTS — different defines, different arm', () => {
     // Non-vacuity for the sweep above: if this returned the same text regardless, the
     // byte-identity assertions would be comparing one arm against N variants and would
     // fail loudly — but if it returned the FIRST arm always, three of them would fail and
     // one would pass, which is a confusing signal. Pin the discrimination directly.
-    const armA = selectGuardedArm(guarded, ['DRAPE_GROUND'])
-    const armB = selectGuardedArm(guarded, ['TERRAIN3D', 'DRAPE_ABSOLUTE'])
-    expect(armA).toBeTruthy()
-    expect(armB).toBeTruthy()
-    expect(armA).not.toBe(armB)
-  })
+    const armA = selectGuardedArm(guarded, ['DRAPE_GROUND']);
+    const armB = selectGuardedArm(guarded, ['TERRAIN3D', 'DRAPE_ABSOLUTE']);
+    expect(armA).toBeTruthy();
+    expect(armB).toBeTruthy();
+    expect(armA).not.toBe(armB);
+  });
 
   it('no arm matches when the host defines nothing the ladder names', () => {
-    expect(selectGuardedArm(guarded, ['SOMETHING_ELSE'])).toBeUndefined()
-  })
+    expect(selectGuardedArm(guarded, ['SOMETHING_ELSE'])).toBeUndefined();
+  });
 
   it('fails closed when two variants need different preambles', () => {
     // `#version` must lead the file, so one guarded source can carry only one preamble.
@@ -167,18 +167,18 @@ describe('variantFamily.emitGuarded — a GENERATED ladder, provably equal to th
           ...(wide ? { enables: ['multiview' as const] } : {}),
         }),
       key: ({ wide }) => (wide ? 'w' : 'n'),
-    })
+    });
     expect(() => divergent.emitGuarded({ wide: 'WIDE' }, { stage: 'vertex' })).toThrow(
       /different[\s\S]*preamble/,
-    )
-  })
+    );
+  });
 
   it('a non-boolean axis given a single define name is rejected', () => {
     expect(() =>
       family.emitGuarded({ terrain: 'TERRAIN3D', drape: 'DRAPE' } as never, { stage: 'vertex' }),
-    ).toThrow(/non-boolean value/)
-  })
-})
+    ).toThrow(/non-boolean value/);
+  });
+});
 
 // ── the ladder as an INCLUDE ─────────────────────────────────────────────────
 //
@@ -193,9 +193,9 @@ describe('variantFamily.emitGuardedFragment — the ladder, composable (X-GIS #1
   // union — first-arm-only and last-arm-only both fail the assertions below. (A fixture
   // whose distinguishing name sits in arm 0 would let a first-arm-only implementation pass;
   // that is the shape this fixture was rewritten to exclude.)
-  const terrainDelta = externVar('terrain.terrain_delta', f32T)
-  const flatHelper = fn('flat_lift', { t: f32T }, (p) => p.t.mul(0.5))
-  const terrainHelper = fn('terrain_lift', { t: f32T }, (p) => p.t.mul(terrainDelta.node))
+  const terrainDelta = externVar('terrain.terrain_delta', f32T);
+  const flatHelper = fn('flat_lift', { t: f32T }, (p) => p.t.mul(0.5));
+  const terrainHelper = fn('terrain_lift', { t: f32T }, (p) => p.t.mul(terrainDelta.node));
   const composable = variantFamily({
     axes: { terrain: [false, true] } as const,
     build: ({ terrain }) =>
@@ -209,58 +209,58 @@ describe('variantFamily.emitGuardedFragment — the ladder, composable (X-GIS #1
         ],
       }),
     key: ({ terrain }) => (terrain ? 't' : 'f'),
-  })
-  const DEF = { terrain: 'TERRAIN3D' } as const
-  const frag = composable.emitGuardedFragment(DEF)
+  });
+  const DEF = { terrain: 'TERRAIN3D' } as const;
+  const frag = composable.emitGuardedFragment(DEF);
 
   it('the source is a bare ladder — no #version, no precision line to strip', () => {
-    expect(frag.source).not.toContain('#version')
-    expect(frag.source).not.toMatch(/^precision /m)
-    expect(frag.source.startsWith('#if ')).toBe(true)
-    expect((frag.source.match(/^#endif/gm) ?? []).length).toBe(1)
-  })
+    expect(frag.source).not.toContain('#version');
+    expect(frag.source).not.toMatch(/^precision /m);
+    expect(frag.source.startsWith('#if ')).toBe(true);
+    expect((frag.source.match(/^#endif/gm) ?? []).length).toBe(1);
+  });
 
   it('the preamble comes back as DATA, the way emitGlslFragment returns it', () => {
-    expect(frag.preamble).toContain('#version 300 es')
-  })
+    expect(frag.preamble).toContain('#version 300 es');
+  });
 
   it('preamble + source reproduces emitGuarded BYTE for byte', () => {
     // The composability is only worth anything if it is the same artifact: a consumer that
     // wants the whole stage must not get a second, subtly different lowering.
-    expect([...frag.preamble, '', frag.source].join('\n')).toBe(composable.emitGuarded(DEF))
-  })
+    expect([...frag.preamble, '', frag.source].join('\n')).toBe(composable.emitGuarded(DEF));
+  });
 
   it('every arm is still byte-identical to that variant standalone', () => {
     for (const v of composable.variants) {
-      const arm = selectGuardedArm(frag.source, v.axes.terrain ? ['TERRAIN3D'] : [])
+      const arm = selectGuardedArm(frag.source, v.axes.terrain ? ['TERRAIN3D'] : []);
       expect(arm).toBe(
         emitGlslFragment(v.module, undefined, { entryPoints: true }).source.replace(/\n$/, ''),
-      )
+      );
     }
-  })
+  });
 
   it('declares is the UNION across arms — the host must collide with none of them', () => {
-    expect(frag.declares.functions).toContain('overlayFrameFactor')
-    expect(frag.declares.functions).toContain('flat_lift')
-    expect(frag.declares.functions).toContain('terrain_lift')
+    expect(frag.declares.functions).toContain('overlayFrameFactor');
+    expect(frag.declares.functions).toContain('flat_lift');
+    expect(frag.declares.functions).toContain('terrain_lift');
     // Non-vacuity, checked rather than asserted by construction: NO single arm's manifest
     // carries both names, so neither a first-arm nor a last-arm implementation can pass.
     const perArm = composable.variants.map(
       (v) => emitGlslFragment(v.module, undefined, { entryPoints: true }).declares.functions,
-    )
+    );
     expect(perArm.every((fns) => !fns.includes('flat_lift') || !fns.includes('terrain_lift'))).toBe(
       true,
-    )
-  })
+    );
+  });
 
   it('requires is the UNION across arms — the prelude must satisfy whichever it selects', () => {
     // `terrain.terrain_delta` is referenced by the terrain arm alone. A composer that
     // checked only the first arm would pass a prelude that cannot link the other one.
-    expect(frag.requires).toContain('terrain.terrain_delta')
+    expect(frag.requires).toContain('terrain.terrain_delta');
     expect(
       emitGlslFragment(composable.get('f')!.module, undefined, { entryPoints: true }).requires,
-    ).not.toContain('terrain.terrain_delta')
-  })
+    ).not.toContain('terrain.terrain_delta');
+  });
 
   it('fails closed on a preamble disagreement, exactly as emitGuarded does', () => {
     const divergent = variantFamily({
@@ -274,9 +274,9 @@ describe('variantFamily.emitGuardedFragment — the ladder, composable (X-GIS #1
           ...(wide ? { enables: ['multiview' as const] } : {}),
         }),
       key: ({ wide }) => (wide ? 'w' : 'n'),
-    })
+    });
     expect(() => divergent.emitGuardedFragment({ wide: 'WIDE' }, { stage: 'vertex' })).toThrow(
       /different[\s\S]*preamble/,
-    )
-  })
-})
+    );
+  });
+});

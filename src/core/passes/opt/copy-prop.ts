@@ -11,21 +11,21 @@
 // for const-prop: `collectLets` (expr-utils.ts) owns the flat per-function map,
 // `mapModuleExprsPerFunc` (ir-transform.ts) owns the raw-Stmt skip.
 
-import type { Expr, ModuleDecl } from '../../ir/index.js'
-import { mapModuleExprsPerFunc } from './ir-transform.js'
-import { collectLets, collectMutatedRoots } from './expr-utils.js'
-import { fnWrites } from '../effects.js'
+import type { Expr, ModuleDecl } from '../../ir/index.js';
+import { mapModuleExprsPerFunc } from './ir-transform.js';
+import { collectLets, collectMutatedRoots } from './expr-utils.js';
+import { fnWrites } from '../effects.js';
 
 /** A "copy" RHS = a leaf reference with no computation: param / varref / constref. */
 function isCopySource(e: Expr): e is Extract<Expr, { op: 'param' | 'varref' | 'constref' }> {
-  return e.op === 'param' || e.op === 'varref' || e.op === 'constref'
+  return e.op === 'param' || e.op === 'varref' || e.op === 'constref';
 }
 
 /** Propagate bare copy bindings (let y = x) into their uses. Pure (module -> module). */
 export function copyProp(m: ModuleDecl): ModuleDecl {
   return mapModuleExprsPerFunc(m, (f) => {
-    const mutated = new Set<string>()
-    collectMutatedRoots(f.body, mutated, fnWrites(m))
+    const mutated = new Set<string>();
+    collectMutatedRoots(f.body, mutated, fnWrites(m));
     const copies = collectLets(
       f.body,
       (name, e): e is Extract<Expr, { op: 'param' | 'varref' | 'constref' }> =>
@@ -33,8 +33,8 @@ export function copyProp(m: ModuleDecl): ModuleDecl {
         !mutated.has(name) &&
         // a constref is immutable; a param/varref source must itself never be reassigned
         (e.op === 'constref' || !mutated.has(e.name)),
-    )
-    if (copies.size === 0) return undefined
-    return (e) => (e.op === 'varref' && copies.has(e.name) ? copies.get(e.name)! : e)
-  })
+    );
+    if (copies.size === 0) return undefined;
+    return (e) => (e.op === 'varref' && copies.has(e.name) ? copies.get(e.name)! : e);
+  });
 }

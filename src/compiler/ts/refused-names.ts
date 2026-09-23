@@ -18,19 +18,19 @@
 // file's top level, where order does not matter. A name declared in a sibling block, or read
 // before its declaration in the same block, is not found, and stays "Unknown identifier".
 
-import ts from 'typescript'
-import type { TsCompilerDiagnostic } from './source-file.js'
+import ts from 'typescript';
+import type { TsCompilerDiagnostic } from './source-file.js';
 
 /** A half-open `[start, end)` UTF-16 range in the file. */
 interface Range {
-  readonly start: number
-  readonly end: number
+  readonly start: number;
+  readonly end: number;
 }
 
 const rangeOf = (node: ts.Node, sourceFile: ts.SourceFile): Range => ({
   start: node.getStart(sourceFile),
   end: node.getEnd(),
-})
+});
 
 /** The range of the statement that declares `name` among `statements`, when one does. With
  *  `before` set, only a statement that ends before it counts (a block's `let` and `const` are
@@ -42,13 +42,13 @@ function declaringStatement(
   before?: number,
 ): Range | undefined {
   for (const s of statements) {
-    if (before !== undefined && s.getEnd() > before) continue
-    if (!ts.isVariableStatement(s)) continue
+    if (before !== undefined && s.getEnd() > before) continue;
+    if (!ts.isVariableStatement(s)) continue;
     for (const d of s.declarationList.declarations) {
-      if (ts.isIdentifier(d.name) && d.name.text === name) return rangeOf(s, sourceFile)
+      if (ts.isIdentifier(d.name) && d.name.text === name) return rangeOf(s, sourceFile);
     }
   }
-  return undefined
+  return undefined;
 }
 
 function declaringList(
@@ -56,11 +56,11 @@ function declaringList(
   name: string,
   sourceFile: ts.SourceFile,
 ): Range | undefined {
-  if (list === undefined || !ts.isVariableDeclarationList(list)) return undefined
+  if (list === undefined || !ts.isVariableDeclarationList(list)) return undefined;
   for (const d of list.declarations) {
-    if (ts.isIdentifier(d.name) && d.name.text === name) return rangeOf(list, sourceFile)
+    if (ts.isIdentifier(d.name) && d.name.text === name) return rangeOf(list, sourceFile);
   }
-  return undefined
+  return undefined;
 }
 
 /** The declaration of `name` visible at `use`, innermost scope first. */
@@ -69,22 +69,22 @@ function visibleDeclaration(
   name: string,
   sourceFile: ts.SourceFile,
 ): Range | undefined {
-  const at = use.getStart(sourceFile)
+  const at = use.getStart(sourceFile);
   for (let p: ts.Node | undefined = use.parent; p !== undefined; p = p.parent) {
-    let found: Range | undefined
+    let found: Range | undefined;
     if (ts.isBlock(p) || ts.isModuleBlock(p) || ts.isCaseClause(p) || ts.isDefaultClause(p)) {
-      found = declaringStatement(p.statements, name, sourceFile, at)
+      found = declaringStatement(p.statements, name, sourceFile, at);
     } else if (ts.isForStatement(p) || ts.isForOfStatement(p) || ts.isForInStatement(p)) {
-      found = declaringList(p.initializer, name, sourceFile)
+      found = declaringList(p.initializer, name, sourceFile);
     } else if (ts.isFunctionLike(p)) {
-      const param = p.parameters.find((q) => ts.isIdentifier(q.name) && q.name.text === name)
-      if (param !== undefined) found = rangeOf(param, sourceFile)
+      const param = p.parameters.find((q) => ts.isIdentifier(q.name) && q.name.text === name);
+      if (param !== undefined) found = rangeOf(param, sourceFile);
     } else if (ts.isSourceFile(p)) {
-      found = declaringStatement(p.statements, name, sourceFile)
+      found = declaringStatement(p.statements, name, sourceFile);
     }
-    if (found !== undefined) return found
+    if (found !== undefined) return found;
   }
-  return undefined
+  return undefined;
 }
 
 const hasErrorWithin = (
@@ -98,7 +98,7 @@ const hasErrorWithin = (
       d.fileName === sourceFile.fileName &&
       d.start >= range.start &&
       d.start + d.length <= range.end,
-  )
+  );
 
 /**
  * Whether a report that `name` (read at `use`) is unknown would only repeat a diagnostic that
@@ -112,7 +112,7 @@ export function unknownNameAlreadyReported(
   sourceFile: ts.SourceFile,
   diagnostics: readonly TsCompilerDiagnostic[],
 ): boolean {
-  if (hasErrorWithin(rangeOf(use, sourceFile), sourceFile, diagnostics)) return true
-  const declaration = visibleDeclaration(use, name, sourceFile)
-  return declaration !== undefined && hasErrorWithin(declaration, sourceFile, diagnostics)
+  if (hasErrorWithin(rangeOf(use, sourceFile), sourceFile, diagnostics)) return true;
+  const declaration = visibleDeclaration(use, name, sourceFile);
+  return declaration !== undefined && hasErrorWithin(declaration, sourceFile, diagnostics);
 }

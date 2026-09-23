@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { fn, module, f32, f32T, vec2, vec2fT, when, ifExpr, condExpr } from './index.js'
-import { emitModule } from '../backends/wgsl.js'
+import { describe, it, expect } from 'vitest';
+import { fn, module, f32, f32T, vec2, vec2fT, when, ifExpr, condExpr } from './index.js';
+import { emitModule } from '../backends/wgsl.js';
 
 describe('when — unified condition dispatch', () => {
   it('2-arm: emits an if/else chain (not select) and is byte-identical to the deprecated ifExpr', () => {
@@ -16,9 +16,9 @@ describe('when — unified condition dispatch', () => {
           ),
         ],
       }),
-    )
-    expect(w).toContain('if')
-    expect(w).not.toContain('select(')
+    );
+    expect(w).toContain('if');
+    expect(w).not.toContain('select(');
     const old = emitModule(
       module({
         funcs: [
@@ -32,9 +32,9 @@ describe('when — unified condition dispatch', () => {
           ),
         ],
       }),
-    )
-    expect(w).toBe(old)
-  })
+    );
+    expect(w).toBe(old);
+  });
 
   it('N-arm: byte-identical to the deprecated condExpr', () => {
     const w = emitModule(
@@ -51,7 +51,7 @@ describe('when — unified condition dispatch', () => {
           ),
         ],
       }),
-    )
+    );
     const old = emitModule(
       module({
         funcs: [
@@ -67,8 +67,8 @@ describe('when — unified condition dispatch', () => {
           ),
         ],
       }),
-    )
-    expect(w).toBe(old)
-    expect(w).toContain('else if')
-  })
-})
+    );
+    expect(w).toBe(old);
+    expect(w).toContain('else if');
+  });
+});

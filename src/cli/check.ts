@@ -21,71 +21,71 @@
 // data back (`run.ts` is the command, `bin.ts` the Node host), which is what lets the whole
 // check be tested in memory and keeps `src/` free of host types.
 
-import { compile } from '../compiler/ts/compile.js'
-import { TS_CODES } from '../compiler/ts/codes.js'
-import type { TsCompilerDiagnostic } from '../compiler/ts/source-file.js'
-import { createTypeshadeLanguageService } from '../language-service/service.js'
-import type { TypeshadeDiagnostic } from '../language-service/types.js'
+import { compile } from '../compiler/ts/compile.js';
+import { TS_CODES } from '../compiler/ts/codes.js';
+import type { TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
+import { createTypeshadeLanguageService } from '../language-service/service.js';
+import type { TypeshadeDiagnostic } from '../language-service/types.js';
 
 /** One file to check. */
 export interface CheckDocument {
   /** The name the file is reported under: a path relative to the working directory. */
-  readonly path: string
+  readonly path: string;
   /** The document's identity inside the language service, and the name its imports resolve
    *  against: an absolute path when the host has one, otherwise `path` itself. */
-  readonly uri: string
-  readonly text: string
+  readonly uri: string;
+  readonly text: string;
 }
 
 /** How one check is set up. */
 export interface CheckOptions {
   /** Reads an imported file the caller did not hand in, by the uri an import resolves to.
    *  Omitted, an import of a file outside the checked set is reported as unresolved. */
-  readonly readDocument?: (uri: string) => string | undefined
+  readonly readDocument?: (uri: string) => string | undefined;
   /** Also report the deprecation warnings `compile({ deprecations: true })` reports (§13). */
-  readonly deprecations?: boolean
+  readonly deprecations?: boolean;
 }
 
 /** One diagnostic as the command reports it: one-based lines and columns, as `tsc` and
  *  `TsCompilerDiagnostic` print them, and the UTF-16 span they are derived from. */
 export interface CheckDiagnostic {
-  readonly file: string
-  readonly line: number
-  readonly column: number
-  readonly endLine: number
-  readonly endColumn: number
+  readonly file: string;
+  readonly line: number;
+  readonly column: number;
+  readonly endLine: number;
+  readonly endColumn: number;
   /** UTF-16 offset of the span's start in the file. */
-  readonly offset: number
+  readonly offset: number;
   /** Length of the span in UTF-16 code units. */
-  readonly length: number
-  readonly severity: 'error' | 'warning' | 'info'
+  readonly length: number;
+  readonly severity: 'error' | 'warning' | 'info';
   /** `TS8003` for a TypeShade diagnostic, `TS2322` for a TypeScript one. */
-  readonly code: string
+  readonly code: string;
   /** Which half of the pipeline raised it: the TypeShade compiler, or TypeScript's checker over
    *  the ambient lib. */
-  readonly source: 'typeshade' | 'typescript'
-  readonly message: string
+  readonly source: 'typeshade' | 'typescript';
+  readonly message: string;
 }
 
 /** Everything one check found, in file order and, within a file, in document order. */
 export interface CheckReport {
-  readonly files: readonly string[]
-  readonly diagnostics: readonly CheckDiagnostic[]
-  readonly errors: number
-  readonly warnings: number
+  readonly files: readonly string[];
+  readonly diagnostics: readonly CheckDiagnostic[];
+  readonly errors: number;
+  readonly warnings: number;
 }
 
 /** Lines and columns of `offset` in `text`, one-based. */
 function lineColumnAt(text: string, offset: number): { line: number; column: number } {
-  let line = 1
-  let lineStart = 0
+  let line = 1;
+  let lineStart = 0;
   for (let i = 0; i < offset && i < text.length; i++) {
     if (text.charCodeAt(i) === 10) {
-      line++
-      lineStart = i + 1
+      line++;
+      lineStart = i + 1;
     }
   }
-  return { line, column: offset - lineStart + 1 }
+  return { line, column: offset - lineStart + 1 };
 }
 
 function fromService(doc: CheckDocument, d: TypeshadeDiagnostic): CheckDiagnostic {
@@ -101,12 +101,12 @@ function fromService(doc: CheckDocument, d: TypeshadeDiagnostic): CheckDiagnosti
     code: typeof d.code === 'number' ? `TS${d.code}` : d.code,
     source: d.source,
     message: d.message,
-  }
+  };
 }
 
 function fromCompiler(doc: CheckDocument, d: TsCompilerDiagnostic): CheckDiagnostic {
-  const start = lineColumnAt(doc.text, d.start)
-  const end = lineColumnAt(doc.text, d.start + d.length)
+  const start = lineColumnAt(doc.text, d.start);
+  const end = lineColumnAt(doc.text, d.start + d.length);
   return {
     file: doc.path,
     line: start.line,
@@ -119,11 +119,11 @@ function fromCompiler(doc: CheckDocument, d: TsCompilerDiagnostic): CheckDiagnos
     code: d.code ?? TS_CODES.UNSUPPORTED,
     source: 'typeshade',
     message: d.message,
-  }
+  };
 }
 
 const sameReport = (a: CheckDiagnostic, b: CheckDiagnostic): boolean =>
-  a.code === b.code && a.offset === b.offset && a.length === b.length
+  a.code === b.code && a.offset === b.offset && a.length === b.length;
 
 /**
  * Checks every document and returns what was found.
@@ -140,31 +140,31 @@ export function checkDocuments(
 ): CheckReport {
   const service = createTypeshadeLanguageService(
     options.readDocument === undefined ? {} : { readDocument: options.readDocument },
-  )
-  const diagnostics: CheckDiagnostic[] = []
+  );
+  const diagnostics: CheckDiagnostic[] = [];
   for (const doc of docs) {
-    service.openDocument(doc.uri, doc.text)
-    const found = service.getDiagnostics(doc.uri).map((d) => fromService(doc, d))
-    service.closeDocument(doc.uri)
+    service.openDocument(doc.uri, doc.text);
+    const found = service.getDiagnostics(doc.uri).map((d) => fromService(doc, d));
+    service.closeDocument(doc.uri);
     // The compiler's own run adds what the service does not compute: the backends' verdict and
     // the opt-in deprecations. A parse error is already here as TypeScript's own `TS1005`-style
     // row, which the service keeps in place of the compiler's `TS8030` copy of it.
     const compiled = compile(doc.text, {
       fileName: doc.path,
       ...(options.deprecations === true ? { deprecations: true } : {}),
-    })
+    });
     for (const d of compiled.diagnostics) {
-      if (d.code === TS_CODES.SYNTAX) continue
-      const row = fromCompiler(doc, d)
-      if (!found.some((f) => sameReport(f, row))) found.push(row)
+      if (d.code === TS_CODES.SYNTAX) continue;
+      const row = fromCompiler(doc, d);
+      if (!found.some((f) => sameReport(f, row))) found.push(row);
     }
-    found.sort((a, b) => a.offset - b.offset || a.length - b.length)
-    diagnostics.push(...found)
+    found.sort((a, b) => a.offset - b.offset || a.length - b.length);
+    diagnostics.push(...found);
   }
   return {
     files: docs.map((d) => d.path),
     diagnostics,
     errors: diagnostics.filter((d) => d.severity === 'error').length,
     warnings: diagnostics.filter((d) => d.severity === 'warning').length,
-  }
+  };
 }
