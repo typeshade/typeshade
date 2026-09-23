@@ -270,7 +270,8 @@ export function checkLoweredRecursion(
           sourceFile,
           edge.span,
           nodeOf.get(name),
-          `Recursive call: ${renderCycle(cycle.map((n) => shownOf.get(n) ?? n))}. WGSL has no call stack, so a function must not take part in a call cycle.`,
+          `Recursive call: ${renderCycle(cycle.map((n) => shownOf.get(n) ?? n))}. ` +
+            `WGSL has no call stack, so a function must not take part in a call cycle.`,
           TS_CODES.RECURSION,
         ),
       )

@@ -2541,6 +2541,12 @@ TS8035  "C.bump" changes its object, and "c" is a const whose value may be one s
 Until this, every write through a `const` was refused, with `let` as the fix: `"Ship.drift"
 changes its object, and "ship" is declared with const; declare it with let.`
 
+What holds for that refusal holds for every struct local, `let` as well as `const`: a struct is a
+value here, so `const w = v` and `let w = v` copy it, where TypeScript hands `w` the object `v`
+holds. A write through one name after the copy is not seen through the other:
+`const v = new V(); const w = v; v.bump(); w.x` is 0 here and 1 in TypeScript. Write through one
+name, or copy after the last write.
+
 ### A field that holds a function
 
 `focus = (d: f32): f32 => d * this.gain` is how TypeScript code often writes a method, to keep

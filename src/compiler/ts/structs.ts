@@ -1455,13 +1455,17 @@ function functionFieldRefusal(
   if (isStaticMember(member)) {
     return {
       at: member,
-      message: `A static field holding a function is a static method: write "static ${memberName}(...) { ... }".`,
+      message:
+        `A static field holding a function is a static method: write ` +
+        `"static ${memberName}(...) { ... }".`,
     }
   }
   if ((fn.typeParameters?.length ?? 0) > 0) {
     return {
       at: fn,
-      message: `"${shown}" takes type parameters, and a method does not; write it as a generic function of the module.`,
+      message:
+        `"${shown}" takes type parameters, and a method does not; write it as a generic ` +
+        `function of the module.`,
     }
   }
   // The sentence a method of the same shape gets.
@@ -1474,7 +1478,9 @@ function functionFieldRefusal(
   if (!ts.isBlock(fn.body) && fn.type === undefined) {
     return {
       at: fn,
-      message: `"${shown}" returns a value straight away, so it needs a return type: write "(x: f32): f32 => ...".`,
+      message:
+        `"${shown}" returns a value straight away, so it needs a return type: write ` +
+        `"(x: f32): f32 => ...".`,
     }
   }
   return undefined
@@ -1490,13 +1496,16 @@ function methodOfField(
   const setParent = (node: ts.Node, parent: ts.Node): void => {
     ;(node as { parent: ts.Node }).parent = parent
   }
+  // Only the nodes made here are given a parent. The author's own keep theirs: the language
+  // service hands the compiler the tree TypeScript's checker binds, whose name lookup walks up
+  // those pointers, and a body moved under a method the binder never saw loses its
+  // parameters (TS2304 "Cannot find name 'p'" on every read of one).
   let body: ts.Block
   if (ts.isBlock(fn.body)) body = fn.body
   else {
     const ret = ts.setTextRange(ts.factory.createReturnStatement(fn.body), fn.body)
     body = ts.setTextRange(ts.factory.createBlock([ret], true), fn.body)
     setParent(ret, body)
-    setParent(fn.body, ret)
   }
   const modifiers = (ts.getModifiers(member) ?? []).filter(
     (m) =>
@@ -1524,8 +1533,7 @@ function methodOfField(
     member,
   )
   setParent(method, member.parent)
-  // The body reads as the method's own, as a method's body does, for every walk up from it.
-  setParent(body, method)
+  if (body !== fn.body) setParent(body, method)
   return method
 }
 

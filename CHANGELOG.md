@@ -245,7 +245,9 @@ no fields`), a field written without a type was dropped from the struct with not
   write through it, for `new`, an object literal, an array literal and a type's constructor, and
   a `const` nothing writes through stays WGSL's `let`; one that copies another name's value is
   refused as before, now saying why (TypeScript would change the object both names hold) and
-  naming both fixes. A field that holds
+  naming both fixes. That a struct local is a value, `let` or `const`, so `const w = v` copies
+  where TypeScript shares the object, was so before and is recorded now, in Rule 7.2's table
+  and §26. A field that holds
   an arrow function or a function expression is the method it is written as:
   `focus = (d: f32): f32 => d * this.gain` is `fn Lens_focus(self_: Lens, d: f32) -> f32`, and
   `this` is the object. A static one, type parameters, `async`, a generator and an expression
