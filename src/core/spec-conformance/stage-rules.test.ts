@@ -159,7 +159,7 @@ const VERTEX_GAPS: Readonly<Record<string, string>> = {};
  *  vertex entry. Each is now REFUSED, which the arm below asserts id by id; they were the
  *  measurement that emptied `VERTEX_GAPS` above, so they stay as the positive rule. */
 const atomicVertex = (call: string, yieldsValue: boolean): string => `"use typeshade"
-declare let hist: storage<array<atomic<u32>>>
+declare const hist: storage<array<atomic<u32>>, "read_write">
 class Clip {
   @builtin("position") pos: vec4;
 }

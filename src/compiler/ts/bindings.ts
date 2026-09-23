@@ -1,3 +1,4 @@
+// Implements: Rule 6.1, Rule 6.2 (docs/language-design.md; traced in reqs/).
 // Top-level resource declarations.
 //   const scale = uniform<f32>()
 //   declare const camera: uniform<Camera>

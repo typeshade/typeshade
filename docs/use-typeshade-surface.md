@@ -115,9 +115,6 @@ TS2542 and `camera.fov = 1.` is TS2540 as they are typed, before `compile()` is 
 copied out of a read array, `length(p.offset)`, `.length` on a read array and a method on a
 class-typed read binding all behave exactly as before. §49 has the row for row.
 
-The last row is not enforced yet: `declare let x: uniform<T>` compiles as a read-only uniform
-binding with no diagnostic (the language design rules' Appendix B, Rule 6.1).
-
 Duplicate `@group @binding` is an error.
 
 Sketch form still exists and occupies the same slot sequence, and takes the access mode in the
@@ -145,7 +142,7 @@ Product code should use `declare`. Mixing `declare` and call form in one file sh
 
 Only the `const` half of the sketch form still compiles. Since a top-level `let` became a module
 variable (§24), `let xs = storage<f32>()` is read as one as well and draws `TS8004 Unknown
-function "storage<f32>()"`; write `declare let xs: storage<f32>`.
+function "storage<f32>()"`; write `declare const xs: storage<f32, "read_write">`.
 
 `var` is not a resource declaration.
 
@@ -1500,7 +1497,7 @@ length, a parameter, an `override`: any integer expression the body does not wri
 "use typeshade";
 
 declare const verts: storage<array<vec3f>>;
-declare let hits: storage<array<u32>>;
+declare const hits: storage<array<u32>, "read_write">;
 
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u): void {

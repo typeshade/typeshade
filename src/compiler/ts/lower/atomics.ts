@@ -1,3 +1,4 @@
+// Implements: Rule 6.2, an atomic builtin on a read binding (docs/language-design.md; traced in reqs/).
 // === Atomics in "use typeshade" (roadmap 0.2 item 4) ===
 //
 // `atomic<u32>` and `atomic<i32>` are LOCATIONS in storage memory, not values: WGSL forbids

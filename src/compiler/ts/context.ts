@@ -1,3 +1,4 @@
+// Implements: Rule 6.2, the remedy a read-only resource names (docs/language-design.md; traced in reqs/).
 // === Lowering context / symbol table ===
 
 import type ts from 'typescript';

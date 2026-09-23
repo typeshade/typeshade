@@ -1,3 +1,4 @@
+// Verifies: Rule 6.2 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { STORAGE_BUFFER_ACCESS } from './bindings.js';

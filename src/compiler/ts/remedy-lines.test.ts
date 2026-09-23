@@ -1,3 +1,4 @@
+// Verifies: Rule 6.2 (docs/language-design.md; traced in reqs/).
 // ═══ A refusal that names a line names a line that compiles ═══
 //
 // WHAT THIS IS FOR. Most of this surface's refusals end with a line to write: `Write "declare
@@ -711,9 +712,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'structs.ts',
-      sites: 2,
+      sites: 4,
       lines: 0,
-      note: 'quotes a member as a method (`name(...) { ... }`), a shape with an ellipsis in it',
+      note: 'quotes a member shape: a field annotation (`name: T`, `name: T = ...`), a `this.name` access, or a static method (`static name(...) { ... }`)',
     },
     {
       file: 'lower/expression-prop.ts',
@@ -722,16 +723,34 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'quotes `name: ...`, the property shape a shorthand should be written as',
     },
     {
-      file: 'lower/local-functions.ts',
-      sites: 1,
+      file: 'lower/statement.ts',
+      sites: 4,
       lines: 0,
-      note: 'quotes `(x: f32): f32 => ...`, an arrow shape with its body elided',
+      note: 'the destructuring refusal quotes two EXAMPLE lines (`const x = v.x`) that name no declaration in the program; the do-while refusal quotes a `while (c) { … }` shape; the other two say a body cannot `write "this"`, which is prose and names nothing to write',
     },
     {
-      file: 'lower/statement.ts',
+      file: 'lower/class-access.ts',
+      sites: 3,
+      lines: 0,
+      note: 'quotes the member access to write instead (`Base.x`, `this.x`), an expression and not a declaration',
+    },
+    {
+      file: 'lower/class-methods.ts',
       sites: 1,
       lines: 0,
-      note: 'the destructuring refusal quotes two EXAMPLE lines (`const x = v.x`) that name no declaration in the program',
+      note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open',
+    },
+    {
+      file: 'lower/function-types.ts',
+      sites: 1,
+      lines: 0,
+      note: 'quotes a parameter annotation, `p: f32`, not a declaration',
+    },
+    {
+      file: 'integer-literal-deprecation.ts',
+      sites: 1,
+      lines: 0,
+      note: "quotes the initializer to write, `name = 1.`, which completes the author's own declaration rather than replacing it",
     },
   ];
 

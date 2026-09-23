@@ -242,7 +242,7 @@ describe('the read table', () => {
 // same to `ld()` wrapping one; and O2 emitted `k` with no call to `sync()`, the helper holding
 // the kernel's only `workgroupBarrier()`.
 const WG = `"use typeshade";
-declare let out: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
 let flag: workgroup<f32>;
 let tile: workgroup<array<f32, 8>>;
 function ld(): f32 {
@@ -320,8 +320,8 @@ export function k(@builtin("local_invocation_id") lid: vec3u): void {
 
   it('dce keeps an unread binding whose initialiser has an effect', () => {
     const m = compile(`"use typeshade";
-declare let cnt: storage<atomic<u32>>;
-declare let out: storage<array<u32>>;
+declare const cnt: storage<atomic<u32>, "read_write">;
+declare const out: storage<array<u32>, "read_write">;
 let flag: workgroup<f32>;
 @compute([4, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {

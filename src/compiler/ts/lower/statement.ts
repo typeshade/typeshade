@@ -7,7 +7,14 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { isF64, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { LoweringScope, irNameOf, readOnlyPhrase, writableRemedy, writeRules, type Binding } from '../context.js';
+import {
+  LoweringScope,
+  irNameOf,
+  readOnlyPhrase,
+  writableRemedy,
+  writeRules,
+  type Binding,
+} from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { parseSwizzle } from '../swizzle.js';
 import { staticThisClass } from '../class-names.js';
@@ -1791,7 +1798,7 @@ function checkRootMutable(
       through && rules.kind === 'local' && isComposite(rules.type)
         ? constCopyWrite(rootName)
         : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(rules.kind)}.` +
-          writableRemedy(rules, sourceFile),
+            writableRemedy(rules, sourceFile),
       TS_CODES.CONST_ASSIGN,
     );
     return false;

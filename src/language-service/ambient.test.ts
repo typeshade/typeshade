@@ -1,4 +1,4 @@
-// Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 12.7, Rule 6.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
