@@ -4,6 +4,7 @@ import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { FOREIGN_NAMES } from '../compiler/ts/foreign-names.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import type { TypeshadeDiagnostic, TypeshadeSeverity, TypeshadeTextSpan } from './types.js';
@@ -992,8 +993,9 @@ interface SameMistake {
  * (Rule 12.7); it is written in the surface's words and names the remedy (Rule 12.1), where
  * TypeScript's spells a brand's internals (`'{ readonly [vecTag]: readonly ["f32", 3]; }'`);
  * and it is the authority on what combines with what, as it already is for TS2365. TS2552 is
- * the one exception: TypeScript's "Did you mean" is the remedy for an unknown name, and the
- * compiler's sentence does not name one yet.
+ * the one exception: TypeScript's "Did you mean" is the remedy for a misspelled name, and the
+ * compiler's sentence does not name one yet. A GLSL or HLSL name is not a misspelling, and its
+ * compiler sentence does name the remedy, so for one of those the compiler's is kept too.
  */
 const SAME_MISTAKE: readonly SameMistake[] = [
   {
@@ -1008,7 +1010,8 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     keep: 'typescript',
     reason:
       "An unknown name TypeScript has a spelling fix for (`clmap`: Did you mean 'clamp'?), " +
-      'which the compiler sentence does not name.',
+      'which the compiler sentence does not name. Not for a GLSL or HLSL name, whose compiler ' +
+      "sentence names TypeShade's spelling (`isForeignNameAt`).",
   },
   {
     typescript: 2339,
@@ -1208,6 +1211,17 @@ function isKnockOn(
 }
 
 /**
+ * Whether `span` covers a GLSL or HLSL name (`FOREIGN_NAMES`). TS2552's spelling suggestion is
+ * kept for a typo because the compiler's sentence has none, but for a foreign name the
+ * compiler's sentence names TypeShade's spelling, and TypeScript's nearest name is a guess by
+ * letters that can mean something else: `fmod` is "Did you mean 'mod'?", and `mod` floors where
+ * `fmod` truncates (#218).
+ */
+function isForeignNameAt(sourceFile: ts.SourceFile, span: TypeshadeTextSpan): boolean {
+  return Object.hasOwn(FOREIGN_NAMES, sourceFile.text.slice(span.start, spanEnd(span)));
+}
+
+/**
  * The merged list for one document: `typescript` (already filtered by
  * `TS_DIAGNOSTIC_FILTERS`) and `typeshade`, with one diagnostic per mistake (Rule 12.4). Two
  * rules drop a report, and each only ever drops an ERROR that another error already covers:
@@ -1244,7 +1258,7 @@ export function mergeDiagnostics(
         pair.typeshade.has(String(error.code)) && sameMistakeSpans(context, diagnostic, error),
     );
     if (twin === undefined) return true;
-    if (pair.keep === 'typeshade') return false;
+    if (pair.keep === 'typeshade' || isForeignNameAt(sourceFile, diagnostic.span)) return false;
     droppedTypeshade.add(twin);
     return true;
   });

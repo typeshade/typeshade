@@ -43,6 +43,7 @@ import { makeDiagnostic } from './diagnostic.js';
 import { boundTypeArgument } from './generics.js';
 import { genericStructName, isGenericClass } from './generic-structs.js';
 import { TS_CODES, type TsCode } from './codes.js';
+import { foreignNameRemedy } from './foreign-names.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -352,7 +353,9 @@ function mapType(
       diagnostics,
       sourceFile,
       typeNode,
-      `Unknown type "${name}". Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`,
+      `Unknown type "${name}". ${
+        foreignNameRemedy(name) ?? `Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`
+      }`,
     );
     return undefined;
   }

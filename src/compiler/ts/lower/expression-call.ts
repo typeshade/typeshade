@@ -56,6 +56,7 @@ import {
 import { makeDiagnostic } from '../diagnostic.js';
 import { HOST_GLOBALS } from '../semantic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { foreignNameRemedy } from '../foreign-names.js';
 import { checkMathArgs, mathTakesElem } from './math-args.js';
 import { isConsoleMethod } from '../../../core/console.js';
 
@@ -519,11 +520,18 @@ export function lowerCall(
     // declaration already said why it names no callee, and "Unknown function" on top of that
     // is both a second complaint about one mistake and untrue (roadmap 0.3 item T10, #92).
     if (ts.isIdentifier(callee) && scope.declarationRefused(callee.text)) return undefined;
+    // The callee's name, as `TS8002` and `TS8022` quote theirs, and not the whole call. For a
+    // GLSL or HLSL name the remedy is TypeShade's spelling (`lerp` is `mix`), which "declare
+    // it in this file" is not (#218).
+    const name = callee.getText(sourceFile);
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `Unknown function "${node.getText(sourceFile)}". Declare it in this file, or import it from another shader module.`,
+      `Unknown function "${name}". ${
+        foreignNameRemedy(name) ??
+        'Declare it in this file, or import it from another shader module.'
+      }`,
       TS_CODES.UNKNOWN_FN,
     );
     return undefined;

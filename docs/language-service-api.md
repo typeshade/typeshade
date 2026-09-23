@@ -342,7 +342,11 @@ two rules, and only ever an error that another error already covers:
   `compile()` and the build report, it names the remedy in the surface's words (Rule 12.1),
   where TypeScript's spells a brand's internals, and it is already the authority on what
   combines (TS2365 above). TS2552 is the one pair that keeps TypeScript's side, since its "Did
-  you mean 'clamp'?" is the remedy for an unknown name and the compiler's sentence has none.
+  you mean 'clamp'?" is the remedy for a misspelled name and the compiler's sentence has none.
+  A GLSL or HLSL name (`FOREIGN_NAMES`, #218) is not a misspelling: its compiler sentence names
+  TypeShade's spelling, and TypeScript's nearest name is a guess by letters (`fmod` draws "Did
+  you mean 'mod'?", and `mod` floors where `fmod` truncates), so for one of those the
+  compiler's sentence is kept.
 - **TypeScript's own knock-on.** When TypeScript fails to resolve a call (TS2769, TS2345,
   TS2554), it still types the call from a signature that did not match, and the place the
   value reaches reports again: `return max(v, w)` with a `vec2` `w` added a TS2322 on the

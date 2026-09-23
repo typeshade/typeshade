@@ -18,6 +18,7 @@ import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from '
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { fallsIntoABody } from '../fallthrough.js';
+import { withForeignRemedy } from '../foreign-names.js';
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -481,7 +482,10 @@ export function lowerUpdate(
             diagnostics,
             sourceFile,
             expr,
-            `Cannot assign to unknown name "${targetExpr.text}".`,
+            withForeignRemedy(
+              `Cannot assign to unknown name "${targetExpr.text}".`,
+              targetExpr.text,
+            ),
             TS_CODES.UNKNOWN_NAME,
           );
         }

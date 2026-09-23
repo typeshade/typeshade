@@ -50,6 +50,7 @@ import { withSpan } from '../span.js';
 import { foldNumericLit } from '../lit-coerce.js';
 import { foldConstNumber, foldConstComponents, foldConstValue } from '../loop-bound.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { withForeignRemedy } from '../foreign-names.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -1313,7 +1314,9 @@ export function lowerLValue(
       diagnostics,
       sourceFile,
       node,
-      `Cannot assign to unknown name "${node.text}".`,
+      // `gl_Position = …` is how a GLSL vertex shader ends; here it is a field of the entry's
+      // return, which is what the remedy says (#218).
+      withForeignRemedy(`Cannot assign to unknown name "${node.text}".`, node.text),
       // UNKNOWN_NAME, not ASSIGN_TARGET: the name does not resolve, which is what every
       // other unresolved-identifier site in the lowerer reports (expression.ts, the property
       // and call lowerers). ASSIGN_TARGET is about the SHAPE of the target — "must be an
@@ -1444,7 +1447,7 @@ function checkRootWritable(
       node,
       rootName === 'this'
         ? '"this" names a method\'s object; a static function and a top-level function have none.'
-        : `Cannot assign to unknown name "${rootName}".`,
+        : withForeignRemedy(`Cannot assign to unknown name "${rootName}".`, rootName),
       // The same code as the bare-identifier arm above, for the same sentence: the root of a
       // chain that names nothing is an unresolved identifier, not a target of the wrong shape.
       TS_CODES.UNKNOWN_NAME,

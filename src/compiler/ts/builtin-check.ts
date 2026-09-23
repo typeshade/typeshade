@@ -16,6 +16,7 @@ import { typeKey, type ShaderType } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
+import { foreignNameRemedy } from './foreign-names.js';
 import { isIntegerVarying } from '../../core/passes/varying-interpolate.js';
 
 /** The pipeline stage a `@builtin(...)` id is being checked against. */
@@ -246,8 +247,9 @@ export function checkBuiltinName(
  *  and — for the extension-gated ids — per the WGSL built-in value table (§50). Every id in
  *  {@link WGSL_BUILTIN_NAMES} has a row now: `clip_distances` used to be absent and therefore
  *  unconstrained, which let `@builtin("clip_distances")` sit on a fragment INPUT with zero
- *  diagnostics and die at Tint. */
-const BUILTIN_STAGE_RULES: Readonly<
+ *  diagnostics and die at Tint. Exported for `foreign-names.test.ts`, which holds the direction
+ *  a GLSL or HLSL built-in value's remedy names to this table. */
+export const BUILTIN_STAGE_RULES: Readonly<
   Record<string, readonly { readonly stage: BuiltinStage; readonly direction: BuiltinDirection }[]>
 > = {
   vertex_index: [{ stage: 'vertex', direction: 'input' }],
@@ -445,10 +447,16 @@ export function checkAttributeName(
   if (name === undefined) return;
   if (ATTRIBUTE_NAMES.includes(name)) return;
   if (RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)) return;
+  // An HLSL or GLSL attribute (`@numthreads`) names TypeShade's own (#218) before any
+  // spelling-distance guess, which for a foreign name would point at an unrelated attribute.
+  const foreign = foreignNameRemedy(name);
   const suggestion = suggestAttributeName(name);
-  const hint = suggestion
-    ? ` Did you mean "@${suggestion}"?`
-    : ` Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`;
+  const hint =
+    foreign !== undefined
+      ? ` ${foreign}`
+      : suggestion
+        ? ` Did you mean "@${suggestion}"?`
+        : ` Supported attributes: ${ATTRIBUTE_NAMES.map((n) => `@${n}`).join(', ')}.`;
   diagnostics.push(
     makeDiagnostic(
       sourceFile,

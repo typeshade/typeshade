@@ -514,7 +514,7 @@ The check closes over the call graph, and `discard()` is not a call the surface 
 
 - Rationale: WGSL's `discard` is a statement of the fragment stage; TypeScript has no statement to borrow, so the ambient library declares `discard` as a constant of type `void` (§9.3, family 5) and the compiler lowers an expression statement that is exactly that identifier to the statement, with the stage rule kept.
 - Derives from: [Discard Statement](https://gpuweb.github.io/gpuweb/wgsl/#discard-statement) ("must only be used in a fragment shader stage"); surface §10; `declare const discard: void` in `src/language-service/ambient.ts`.
-- Enforced by: `src/compiler/ts/builtins.test.ts` (`discard`: lowers to the discard statement, emits it on both targets); `TS8099` names the entry, or the helper and the entry, on the wrong stage; `discard()` is `TS8004 Unknown function "discard()"`.
+- Enforced by: `src/compiler/ts/builtins.test.ts` (`discard`: lowers to the discard statement, emits it on both targets); `TS8099` names the entry, or the helper and the entry, on the wrong stage; `discard()` is `TS8004 Unknown function "discard"`.
 
 **Rule 7.8.** The refusals of surface §28 (a union of two GPU types, a string type, a nullable, a mixed tuple, a rest tuple, `symbol`, an intersection of carriers, `instanceof`, `in`) must apply to expressions as they do to types, each in one sentence.
 
@@ -918,7 +918,7 @@ A _diagnostic_ is one message the compiler reports for the author's benefit, wit
 
 - Rationale: an author reads it against the line they wrote, and a third sentence is where the remedy gets lost.
 - Derives from: [Diagnostics](https://gpuweb.github.io/gpuweb/wgsl/#diagnostics); surface §7 and §28 ("one mistake reads as one sentence"); the pinned sentences of the refusal tests under `src/compiler/ts/` (`TS8031 Recursive call: "a" -> "b" -> "a". WGSL has no call stack, so a function must not take part in a call cycle.`), which have that shape.
-- Enforced by: every refusal test asserts the code and the message text (Rule 12.5).
+- Enforced by: every refusal test asserts the code and the message text (Rule 12.5). A GLSL or HLSL name the compiler refuses names TypeShade's spelling as its remedy rather than "declare it in this file" (`lerp` is `mix`, `gl_FragCoord` a `@builtin("position")` parameter), from `FOREIGN_NAMES` in `src/compiler/ts/foreign-names.ts`, in `src/compiler/ts/foreign-names.test.ts` (#218); no name is added (Rules 2.1 and 9.6), and the table's targets are checked against the ambient library (Rule 12.7).
 
 **Rule 12.2.** A code must be `TS8` followed by a sequential number in the order codes were added, or a number from a block handed to a parallel branch (Rule 3.7), whose unused numbers stay a gap.
 `TS8099` is the catch-all for a site that does not yet deserve its own code, and a refusal that has a reason must leave it.

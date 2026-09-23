@@ -393,7 +393,7 @@ export function fs(): vec4 {
   return vec4(nowhere(1.), 0., 0., 1.);
 }
 `)[0],
-    ).toContain('Unknown function "nowhere(1.)"');
+    ).toContain('Unknown function "nowhere"');
   });
 
   it('a name refused inside one body is still unknown when called from another', () => {
@@ -408,7 +408,7 @@ export function fs(): vec4 {
   return vec4(other(), 0., 0., 1.);
 }
 `);
-    expect(errs.join('\n')).toContain('Unknown function "scale(1.)"');
+    expect(errs.join('\n')).toContain('Unknown function "scale"');
   });
 });
 
@@ -491,7 +491,7 @@ export function f(x: f32): vec3 {
   return y;
 }
 `,
-      'Unknown function "nope(x)"',
+      'Unknown function "nope"',
     );
   });
 
@@ -518,7 +518,7 @@ export function f(x: f32): f32 {
 }
 `),
     ).toEqual([
-      'Unknown function "nope(x)". Declare it in this file, or import it from another shader module.',
+      'Unknown function "nope". Declare it in this file, or import it from another shader module.',
       'Unknown identifier "y".',
     ]);
   });
@@ -534,7 +534,7 @@ export function f(x: f32): f32 {
 `),
     ).toEqual([
       'Unknown identifier "w".',
-      'Unknown function "nope(x)". Declare it in this file, or import it from another shader module.',
+      'Unknown function "nope". Declare it in this file, or import it from another shader module.',
     ]);
   });
 

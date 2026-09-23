@@ -981,6 +981,28 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   outside the block that refused it, read before its declaration, or declared nowhere is still
   `TS8022`. Appendix B's Rule 12.4 row is removed.
 
+- **A GLSL or HLSL name is refused with TypeShade's spelling as the remedy** (#218, Rule 12.1).
+  Models, and authors coming from those languages, write the names they know, and the
+  compiler refuses them, which is right, but the second sentence pointed the wrong way: for
+  `lerp(a, b, 0.5)` it was "Declare it in this file, or import it from another shader module."
+  The refusal now names TypeShade's spelling, for the 112 names of the table:
+
+  ```text
+  TS8004 Unknown function "lerp". HLSL's lerp is mix here.
+  TS8002 Unknown type "float3". HLSL's float3 is vec3 here.
+  TS8022 Unknown identifier "gl_FragCoord". GLSL's gl_FragCoord is a parameter here: @builtin("position") pos: vec4.
+  ```
+
+  The same holds for `gl_Position = …` and `@numthreads`. `fmod` names the `%` operator and
+  says that `mod` floors, since TypeScript's own guess for it, "Did you mean 'mod'?", is the
+  one spelling that compiles and answers differently for a negative operand; the editor now
+  shows the compiler's sentence in its place. `TS8004` quotes the callee's name rather than the
+  whole call, for every unknown function. The table is the MCP server's from
+  typeshade/vscode-typeshade, moved into the compiler (`src/compiler/ts/foreign-names.ts`) with
+  the two invariants its tests held: every target is a name TypeShade has, and no source is
+  one. No name is added: accepting `lerp` as a second spelling of `mix` is what Rules 2.1 and
+  9.6 exclude, and an alias for `fmod` would change what a program means.
+
 - **One mistake reads as one diagnostic in the editor and in `typeshade check`** (Rule 12.4). A
   mistake both halves see was reported by both: `y = 2.` on a `const` as TypeScript's TS2588 and
   the compiler's `TS8005`, `g(x)` one argument short as TS2554 and `TS8019`, `colr` as TS2304

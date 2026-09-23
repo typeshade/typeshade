@@ -29,6 +29,7 @@ import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { withForeignRemedy } from '../foreign-names.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 
 const ARITH: Readonly<Record<number, BinOp>> = {
@@ -287,11 +288,13 @@ function lowerIdentifier(
     // A name whose declaration was refused, or one an error already covers, says nothing
     // more: the refusal is the one diagnostic for the one mistake (Rule 12.4, #171).
     if (unknownNameAlreadyReported(node, node.text, sourceFile, diagnostics)) return undefined;
+    // A GLSL or HLSL built-in value (`gl_FragCoord`) is a parameter or a return field here,
+    // which is the remedy the sentence names (#218); any other name has no remedy to name.
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `Unknown identifier "${node.text}".`,
+      withForeignRemedy(`Unknown identifier "${node.text}".`, node.text),
       TS_CODES.UNKNOWN_NAME,
     );
     return undefined;
