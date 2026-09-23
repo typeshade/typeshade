@@ -50,6 +50,21 @@ const errorsOf = (src: string) =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 
+/** The language service's diagnostics on the same source, as `code message` (Rule 12.7). */
+const editorSays = (src: string): string[] => {
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.shade.ts', src);
+  return service.getDiagnostics('a.shade.ts').map((d) => `${String(d.code)} ${d.message}`);
+};
+
+/** {@link errorsOf}, after asserting the editor says the same on the same source, so each pin
+ *  proposal 0008 §4 adds reads both halves. */
+const errorsInBoth = (src: string): string[] => {
+  const said = errorsOf(src);
+  expect(editorSays(src)).toEqual(said);
+  return said;
+};
+
 const HEAD = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 `;
@@ -333,18 +348,22 @@ export function fs(): vec4 {
     const lid = `${HEAD}@compute([64, 1, 1])
 export function k(@builtin("local_invocation_id") lid: vec3u): void {
 `;
-    expect(errorsOf(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n}\n`)).toEqual([
+    expect(errorsInBoth(`${lid}  if (lid.x > 2) { return; }\n  workgroupBarrier();\n}\n`)).toEqual([
       `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached after a return taken under "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it above the return, or return on a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`,
     ]);
-    expect(errorsOf(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n}\n`)).toEqual([]);
+    expect(errorsInBoth(`${lid}  workgroupBarrier();\n  if (lid.x > 2) { return; }\n}\n`)).toEqual(
+      [],
+    );
     const inLoop = `${TS_CODES.UNIFORMITY} workgroupBarrier() is reached in a loop whose condition reads "lid" (@builtin(local_invocation_id)), and every invocation of the workgroup has to reach it: one that does not is a workgroup that waits forever. Move it out of the loop, or bound the loop by a value the whole workgroup shares (a uniform, a module const, @builtin("workgroup_id")).`;
     expect(
-      errorsOf(
+      errorsInBoth(
         `${lid}  let i: u32 = lid.x;\n  while (i < 8) {\n    workgroupBarrier();\n    i++;\n  }\n}\n`,
       ),
     ).toEqual([inLoop]);
     expect(
-      errorsOf(`${lid}  for (let i: u32 = 0; i < lid.x; i++) {\n    workgroupBarrier();\n  }\n}\n`),
+      errorsInBoth(
+        `${lid}  for (let i: u32 = 0; i < lid.x; i++) {\n    workgroupBarrier();\n  }\n}\n`,
+      ),
     ).toEqual([inLoop]);
   });
 
@@ -388,11 +407,6 @@ describe("textureBarrier and workgroupUniformLoad carry a barrier's rules", () =
     compileTsSource(src)
       .diagnostics.filter((d) => d.category === 'error')
       .map((d) => d.message);
-  /** The same with each code in front, for the pins that assert both (Rule 12.5). */
-  const codedErrorsOf = (src: string): string[] =>
-    compileTsSource(src)
-      .diagnostics.filter((d) => d.category === 'error')
-      .map((d) => `${d.code} ${d.message}`);
 
   const CS = (decls: string, body: string): string => `"use typeshade"
 declare const o: storage<array<u32>, "read_write">
@@ -470,7 +484,7 @@ export function fs(): vec4 {
     // from §54's walk: `o` is a read_write storage buffer, which Tint reads as non-uniform,
     // and it answers "'workgroupUniformLoad' must only be called from uniform control flow".
     expect(
-      codedErrorsOf(
+      errorsInBoth(
         CS('let w: workgroup<u32>', '  if (o[0] === 1) {\n    o[1] = workgroupUniformLoad(w)\n  }'),
       ),
     ).toEqual([
@@ -535,6 +549,7 @@ ${body}
   ])('takes workgroupUniformLoad under %s, which the whole workgroup shares', (_what, body) => {
     const r = compile(load(body));
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(editorSays(load(body))).toEqual([]);
     expect(r.wgsl).toContain('workgroupUniformLoad(&w)');
   });
 
@@ -576,6 +591,7 @@ ${body}
   ])('takes workgroupUniformLoad %s', (_what, body, helpers) => {
     const r = compile(load(body, helpers));
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(editorSays(load(body, helpers))).toEqual([]);
     expect(r.wgsl).toContain('workgroupUniformLoad(&w)');
   });
 
@@ -692,7 +708,7 @@ ${body}
       ),
     ],
   ])('refuses workgroupUniformLoad %s', (_what, src, want) => {
-    expect(codedErrorsOf(src)).toEqual([want]);
+    expect(errorsInBoth(src)).toEqual([want]);
   });
 
   it('fails closed on GLSL ES 3.00, which has neither', () => {
@@ -709,16 +725,10 @@ ${body}
 // Proposal 0008 §4 on the editor's side (Rule 12.7): the language service runs the same walk,
 // so a refusal reads the same in both, and a program that compiles is clean in both.
 describe('a jump and workgroupUniformLoad read the same in the editor', () => {
-  const both = (src: string): { compiled: string[]; editor: string[] } => {
-    const service = createTypeshadeLanguageService();
-    service.openDocument('a.shade.ts', src);
-    return {
-      compiled: compileTsSource(src)
-        .diagnostics.filter((d) => d.category === 'error')
-        .map((d) => `${d.code} ${d.message}`),
-      editor: service.getDiagnostics('a.shade.ts').map((d) => `${String(d.code)} ${d.message}`),
-    };
-  };
+  const both = (src: string): { compiled: string[]; editor: string[] } => ({
+    compiled: errorsOf(src),
+    editor: editorSays(src),
+  });
   const kernel = (body: string): string => `"use typeshade";
 declare const o: storage<array<u32>, "read_write">;
 let w: workgroup<u32>;

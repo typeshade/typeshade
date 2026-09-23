@@ -26,6 +26,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { compileTsSource } from '../../compiler/ts/source-file.js';
 import { TS_CODES } from '../../compiler/ts/codes.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { uniformityViolations } from './uniformity.js';
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { boolT, f32T, u32T, vec2fT, vec3uT, vec4fT, voidT } from '../ir/types.js';
@@ -47,14 +48,27 @@ const frag = (
 ${body}
 }`;
 
-const errorsOf = (source: string) =>
-  compileTsSource(`"use typeshade"\n${source}`)
+/** The language service's diagnostics on the same source, as `code message`. Each helper below
+ *  asserts the editor says what the compiler says, so every pin here reads both halves (Rule
+ *  12.7). */
+const editorSays = (source: string): string[] => {
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.shade.ts', `"use typeshade"\n${source}`);
+  return service.getDiagnostics('a.shade.ts').map((d) => `${String(d.code)} ${d.message}`);
+};
+
+const errorsOf = (source: string) => {
+  const said = compileTsSource(`"use typeshade"\n${source}`)
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code ?? ''} ${d.message}`);
+  expect(editorSays(source)).toEqual(said);
+  return said;
+};
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
   expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  expect(editorSays(source)).toEqual([]);
   return c;
 }
 
