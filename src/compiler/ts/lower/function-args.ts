@@ -18,7 +18,7 @@ import { THIS_CAPTURE, fileFunctionsOf, type CaptureKey, type LoweringScope } fr
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { closureUse } from './closures.js';
-import { declaresFunction } from './local-functions.js';
+import { captureArguments, declaresFunction } from './local-functions.js';
 import { misfit, type FunctionShape } from './function-types.js';
 
 function push(
@@ -114,6 +114,12 @@ export function functionArgument(
         );
         return undefined;
       }
+      // What it captures is read where the call runs it (Rule 8.17), and what it returns, when
+      // it writes no return type, is its body's to say (Rule 8.19).
+      if (captureArguments(decl, x.text, x, sourceFile, scope, diagnostics) === undefined) {
+        return undefined;
+      }
+      if (!scope.calleeReady(decl, x, sourceFile, diagnostics)) return undefined;
       const captured = fileFunctionsOf(scope.calleeTable()).captures.get(decl.name)?.length ?? 0;
       const own = decl.params.slice(captured).map((p) => p.type);
       const why = misfit(own, decl.ret, shape);

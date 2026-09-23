@@ -63,6 +63,8 @@ export interface LocalFunction {
   readonly ownerName: string;
   /** The declaration, to anchor a diagnostic and to know which statement to drop. */
   readonly decl: LocalFunctionDecl;
+  /** Whether it writes no return type, which its body then says (Rule 8.19). */
+  readonly infers: boolean;
 }
 
 /** The emitted name of a local function: `fs_f` for `f` inside `fs`, and `f` at the top level,
@@ -130,18 +132,6 @@ export function collectLocalFunctions(
       refuse();
       continue;
     }
-    if (ts.isArrowFunction(node) && !ts.isBlock(node.body) && !node.type) {
-      push(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${local}" returns a value straight away, so it needs a return type: write ` +
-          `"(x: f32): f32 => ...".`,
-        TS_CODES.FUNCTION_SHAPE,
-      );
-      refuse();
-      continue;
-    }
     if (node.asteriskToken || node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)) {
       push(
         diagnostics,
@@ -161,15 +151,8 @@ export function collectLocalFunctions(
       refuse();
       continue;
     }
-    const ret = parseReturnType(
-      node.type,
-      shown,
-      node,
-      sourceFile,
-      diagnostics,
-      structs,
-      undefined,
-    );
+    // With no return type written, the body says it (Rule 8.19): `void` until it is lowered.
+    const ret = parseReturnType(node.type, sourceFile, diagnostics, structs, undefined);
     if (!ret) {
       refuse();
       continue;
@@ -177,7 +160,7 @@ export function collectLocalFunctions(
     const stub: FuncDecl = { name, params, ret, body: [] };
     (stub as { span?: unknown }).span = spanOf(sourceFile, node);
     (stub as { nameSpan?: unknown }).nameSpan = spanOf(sourceFile, decl.name);
-    out.push({ node, stub, localName: local, ownerName, decl });
+    out.push({ node, stub, localName: local, ownerName, decl, infers: node.type === undefined });
   }
   return out;
 }

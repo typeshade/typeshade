@@ -1052,9 +1052,9 @@ declared yet, since TypeScript throws there (`"f" reads "y", which is not declar
 "f" is called`); and a function named as a value rather than called (`const g = f`, `return f`),
 since nothing at run time can hold a function.
 
-Three shapes of the declaration itself are refused too: an expression body with no return type,
-since there is nothing to infer it from here; a `let`, which would let the name point at another
-function; and a type written on the const rather than on the function itself.
+Two shapes of the declaration itself are refused too: a `let`, which would let the name point at
+another function, and a type written on the const rather than on the function itself. A return
+type it leaves off, its body says, as for any function (below).
 
 ### A function that takes a function
 
@@ -1122,6 +1122,63 @@ that calls it is the fix; a parameter of function type on a method, a constructo
 local function or an entry point, which have no copies to make; a function type anywhere else, a
 return, a field, a variable; and a function that hands itself a function it builds anew on every
 call, whose copies would never end.
+
+### A return type left off is the body's to say
+
+A function that writes no return type returns what its body does, as TypeScript infers it (Rule
+8.19): a function of the file or of a namespace, a local function, a generic function's instance,
+a method, a getter and a field that holds a function all take the type of their first `return`
+with a value, and one with none returns nothing. The `return`s after the first are typed against
+it as against a written type, so `return 0` after `return u32(7)` is a `u32`. A call that needs
+the type before the body's turn lowers that body first, so a function may be called above its
+declaration:
+
+```ts
+"use typeshade";
+
+class Rng {
+  seed: u32 = u32(1);
+  next() {
+    this.seed = this.seed * u32(1664525) + u32(1013904223);
+    return f32(this.seed >> u32(8)) / 16777216.;
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let rng = new Rng();
+  const jitter = (k: f32) => (rng.next() - 0.5) * k;
+  return vec4(glow(uv) + jitter(0.1), 0., 0., 1.);
+}
+
+function glow(p: vec2) {
+  return 0.1 / length(p);
+}
+```
+
+```wgsl
+fn Rng_next(self_: ptr<function, Rng>) -> f32 { … }
+fn glow(p: vec2<f32>) -> f32 { … }
+fn fs_jitter(rng: ptr<function, Rng>, k: f32) -> f32 { … }
+```
+
+An arrow function whose body is an expression returns its value, but an assignment, `++`, `--`
+or a call of a function that returns nothing runs as a statement and the function returns
+nothing: `const inc = () => n += k` adds, where TypeScript would also return the new `n` (Rule
+7.2). A method whose every `return` is `return this` returns its object, so a chain goes on from
+it (§26). `return g()`, where `g` returns nothing, calls `g` and returns nothing, in any function.
+
+In the editor, TypeScript types an operator on a vector as `number`, as it does for a `const` that
+holds one (`docs/language-service-api.md`), so a function whose return is `v * 2.` is `number`
+there and a caller that reads `.x` off it is underlined: write its return type, `: vec2`, which is
+the one the compiler infers anyway. A return of a call, a constructor or a field keeps its type.
+
+Refused, each with the reason: a function whose type waits on itself, which is a call cycle and
+refused as one (§4); `return`s of two types (`Function "f" returns f32 at its first "return" and
+vec2<f32> at another`); a bare `return` beside one with a value; a default parameter value that
+calls such a function, since every default is lowered before any body; and a setter's value with
+no type beside a getter with none, since no call says what it takes. An entry point writes its
+return type, which is its output (§3).
 
 ### Triple-slash directives
 
@@ -2713,12 +2770,14 @@ fn Lens_blur(self_: Lens, d: f32) -> f32 {
 }
 ```
 
+With no return type written, it returns what its body does (Rule 8.19, §14): `focus = (d: f32) =>
+d * this.gain` is the same method, and an expression body that is an assignment, `hit = (d: f32)
+=> this.hp -= d`, runs as a statement.
+
 Refused, with the fix: a static field that holds a function, since an arrow there binds `this` to
 the class that declares it where a static method binds the class a call names (Rule 8.13), so it
-is written as the static method; type parameters; an `async` or generator function; and an
-expression body with no return type, which has nothing to infer one from here, as a local
-function's has not (§4). Until this, every such field was `A field holding a function is a
-method: write "focus(...) { ... }".`
+is written as the static method; type parameters; and an `async` or generator function. Until
+this, every such field was `A field holding a function is a method: write "focus(...) { ... }".`
 
 A class that extends keeps the kind each member has above it, as TypeScript requires: a field
 that holds a function may stand where a method was, and a method may not stand where such a field

@@ -192,6 +192,26 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A function that writes no return type returns what its body does, as TypeScript infers it**
+  (Rule 8.19, new; Rules 7.2 and 8.16; surface §14 and §26). A helper with no annotation was
+  `void` beside a `TS8021` "defaulting to void" warning, so one that returned a value was a type
+  mismatch at every call; a local arrow function with an expression body was `"f" returns a
+value straight away, so it needs a return type`, a getter with none `The getter "C.y" needs a
+return type`, and a field that holds a function with an expression body refused the same way.
+  A function of the file or of a namespace, a local function, each instance of a generic
+  function and of a function that takes a function, a method, a getter and a field that holds a
+  function now take the type of their first `return` with a value, and the ones after it are
+  typed against it as against a written type. A call that needs the type before the body's turn
+  lowers that body first, so a function may be called above its declaration and from another
+  file. An arrow function whose expression body is an assignment, `++`, `--` or a call of a
+  function that returns nothing runs it as a statement; a method whose every `return` is
+  `return this` chains as one written `this` does. A call cycle, whose type would wait on
+  itself, is refused as one, once, with its path; so are returns of two types, a bare `return`
+  beside a value, a default parameter value that calls such a function, and a setter with no
+  type beside a getter with none. The warning is gone. `src/compiler/ts/return-inference.test.ts`
+  holds WGSL, GLSL ES 3.00 and every CPU path to one value for each form and each form to the
+  program that writes its types; `examples/inferred-returns.shade.ts` joins the compile gate.
+
 - **A function takes a function, and a call hands one over by its name or as an arrow function**
   (Rule 8.18, new; surface §14). `f: (x: f32) => f32` was `TS8002 Unsupported type syntax`, and an
   arrow function written as an argument `TS8099 Unsupported expression`. A function whose parameter
@@ -1037,6 +1057,11 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **`return g()` where `g` returns nothing calls `g` and returns nothing** (Rule 8.19). In a
+  function written `: void`, it emitted `return g();`, which WGSL refuses: a call of a function
+  with no return type is no value to return. It is `g(); return;` now, in any function. A field
+  that holds a function written `: void` whose body is an assignment, `hit = (d: f32): void =>
+this.hp -= d`, was `TS8099 Unsupported binary operator`; it runs the assignment.
 - **The CPU paths hand a function a copy of an aggregate it takes by value, as both GPU targets
   do.** A JavaScript vector, matrix, array or struct is the caller's own object, so a function
   that wrote what its caller passed changed its by-value parameter too: `a.add(a)`, with `add`

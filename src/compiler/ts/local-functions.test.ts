@@ -137,7 +137,7 @@ export function fs(@location(0) uv: vec2): vec4 {
 });
 
 describe('what a local function may not do', () => {
-  it('leave its return type off an expression body, or be a let', () => {
+  it("be a let (its return type, left off, is its body's to say: Rule 8.19)", () => {
     expect(
       errorsOf(`"use typeshade";
 @fragment
@@ -145,10 +145,8 @@ export function fs(): vec4 {
   const f = (x: f32) => x * 2.;
   return vec4(f(3.), 0., 0., 1.);
 }
-`)[0],
-    ).toBe(
-      `${TS_CODES.FUNCTION_SHAPE} "f" returns a value straight away, so it needs a return type: write "(x: f32): f32 => ...".`,
-    );
+`),
+    ).toEqual([]);
     expect(
       errorsOf(`"use typeshade";
 @fragment

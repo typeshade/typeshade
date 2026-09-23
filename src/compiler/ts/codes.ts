@@ -36,7 +36,7 @@ export const TS_CODES = {
   ARITY_MISMATCH: 'TS8019',
   /** A function declaration or parameter shape TypeShade does not support (missing name or body, optional/rest/destructured parameter). */
   FUNCTION_SHAPE: 'TS8020',
-  /** A `return` shape problem: bare `return` where a value is required, or a function with no return type annotation. */
+  /** A `return` shape problem: bare `return` where a value is required, or an entry function with no return type annotation that returns a value. */
   RETURN_SHAPE: 'TS8021',
   /** Reference to a name TypeShade cannot resolve (identifier, struct field, or struct shape) that is not a function call (`UNKNOWN_FN`) or a type name (`UNKNOWN_TYPE`). */
   UNKNOWN_NAME: 'TS8022',

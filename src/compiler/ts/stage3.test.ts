@@ -234,16 +234,14 @@ describe('entry function missing a return type annotation but returning a value 
     expect(d!.message).toContain('no return type annotation');
   });
 
-  it('stays a warning for an ordinary helper function with no return annotation', () => {
+  it('is silent for an ordinary helper function with no return annotation (Rule 8.19)', () => {
     const r = diag(`
       "use typeshade";
       export function helper() {
         const x = 1.;
       }
     `);
-    const d = r.diagnostics.find((d) => d.code === TS_CODES.RETURN_SHAPE);
-    expect(d, 'expected a RETURN_SHAPE diagnostic').toBeDefined();
-    expect(d!.category).toBe('warning');
+    expect(r.diagnostics.filter((d) => d.code === TS_CODES.RETURN_SHAPE)).toEqual([]);
   });
 
   it('is silent for an entry function with no return annotation that truly returns nothing', () => {

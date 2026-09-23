@@ -1482,15 +1482,25 @@ function functionFieldRefusal(
   ) {
     return { at: fn, message: `"${shown}" is a plain method or nothing: no async, no generator.` };
   }
-  if (!ts.isBlock(fn.body) && fn.type === undefined) {
-    return {
-      at: fn,
-      message:
-        `"${shown}" returns a value straight away, so it needs a return type: write ` +
-        `"(x: f32): f32 => ...".`,
-    };
-  }
   return undefined;
+}
+
+/** Whether an arrow function's expression body is an assignment, `++` or `--`: a statement
+ *  whose value is not what the function is for. */
+function runsAsStatement(body: ts.Expression): boolean {
+  let e = body;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (ts.isPostfixUnaryExpression(e)) return true;
+  if (ts.isPrefixUnaryExpression(e)) {
+    return (
+      e.operator === ts.SyntaxKind.PlusPlusToken || e.operator === ts.SyntaxKind.MinusMinusToken
+    );
+  }
+  return (
+    ts.isBinaryExpression(e) &&
+    e.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    e.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+  );
 }
 
 /** The method a field that holds a function is: the field's name and modifiers, the function's
@@ -1510,9 +1520,16 @@ function methodOfField(
   let body: ts.Block;
   if (ts.isBlock(fn.body)) body = fn.body;
   else {
-    const ret = ts.setTextRange(ts.factory.createReturnStatement(fn.body), fn.body);
-    body = ts.setTextRange(ts.factory.createBlock([ret], true), fn.body);
-    setParent(ret, body);
+    // An assignment, `++` or `--` in a function that returns nothing, or says nothing it
+    // returns, is run as a statement (Rules 8.18, 8.19); any other expression is returned.
+    const stmt =
+      (fn.type === undefined || fn.type.kind === ts.SyntaxKind.VoidKeyword) &&
+      runsAsStatement(fn.body)
+        ? ts.factory.createExpressionStatement(fn.body)
+        : ts.factory.createReturnStatement(fn.body);
+    ts.setTextRange(stmt, fn.body);
+    body = ts.setTextRange(ts.factory.createBlock([stmt], true), fn.body);
+    setParent(stmt, body);
   }
   const modifiers = (ts.getModifiers(member) ?? []).filter(
     (m) =>

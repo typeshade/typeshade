@@ -253,9 +253,9 @@ export function run(): f32 { return new Sq(3.).describe() }${TAIL}`;
     ).toBe(
       `${M} "C.y" has a setter and no getter, so there is nothing for this assignment to read. Declare "get y()" beside the setter, or assign it with "=".`,
     );
-    expect(only(C('  get y() { return this.x }'))).toBe(
-      `${TS_CODES.UNKNOWN_TYPE} The getter "C.y" needs a return type: write "get y(): T".`,
-    );
+    // A getter that writes no type says it in its body (Rule 8.19); a setter's value, whose
+    // type no call can say, takes the getter's written one or its own.
+    expect(errorsOf(C('  get y() { return this.x }'))).toEqual([]);
     expect(only(C('  set y(v) { this.x = v }'))).toBe(
       `${TS_CODES.UNKNOWN_TYPE} The setter "C.y" needs a type for "v": write "set y(v: T)", or give the getter a return type.`,
     );
@@ -1394,9 +1394,8 @@ describe('a field that holds a function (Rule 8.16)', () => {
     expect(only(C('f = <T>(v: T): T => v'))).toBe(
       `${M} "A.f" takes type parameters, and a method does not; write it as a generic function of the module.`,
     );
-    expect(only(C('f = () => this.x'))).toBe(
-      `${M} "A.f" returns a value straight away, so it needs a return type: write "(x: f32): f32 => ...".`,
-    );
+    // An expression body with no return type returns its value, whose type it is (Rule 8.19).
+    expect(errorsOf(C('f = () => this.x'))).toEqual([]);
     // The sentence a method of the same shape gets, beside the one its `Promise` gets.
     expect(errorsOf(C('f = async (): Promise<f32> => 1.'))).toContain(
       `${M} "A.f" is a plain method or nothing: no async, no generator.`,

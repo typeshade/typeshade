@@ -410,6 +410,8 @@ export function lowerAccessorRead(
   ) {
     return undefined;
   }
+  // A getter that writes no return type says it in its body, lowered first (Rule 8.19).
+  if (!scope.calleeReady(getter.decl, node, sourceFile, diagnostics)) return undefined;
   if (isStatic) return callOf(getter.decl, [], sourceFile, node);
   // A getter that changes its object (a cache it fills) takes the object by reference, as a
   // method that does would (§26), so the object has to be a place it may write.
@@ -446,6 +448,7 @@ export function destructuredGetter(
     );
     return undefined;
   }
+  if (!scope.calleeReady(getter.decl, at, sourceFile, diagnostics)) return undefined;
   return callOf(getter.decl, [base], sourceFile, at);
 }
 
@@ -567,6 +570,7 @@ export function lowerSuperAccessorRead(
   ) {
     return undefined;
   }
+  if (!scope.calleeReady(getter, node, sourceFile, diagnostics)) return undefined;
   return callOf(getter, recv === undefined ? [] : [recv], sourceFile, node);
 }
 
@@ -608,6 +612,9 @@ function superAccessorTarget(
   }
   const self = recv?.type.kind === 'struct' ? recv.type.name : undefined;
   const on = recv === undefined ? [] : [recv];
+  if (getter !== undefined && !scope.calleeReady(getter, node, sourceFile, diagnostics)) {
+    return undefined;
+  }
   for (const half of [setter, getter]) {
     const cf = half === undefined ? undefined : classFunctionOf(half);
     if (
@@ -779,6 +786,7 @@ export function lowerAccessorTarget(
       );
       return undefined;
     }
+    if (!scope.calleeReady(get.decl, node, sourceFile, diagnostics)) return undefined;
     read = callOf(get.decl, getArgs, sourceFile, node);
   }
   return {

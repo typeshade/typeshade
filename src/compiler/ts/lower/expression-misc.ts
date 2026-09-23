@@ -202,6 +202,9 @@ export function lowerUserCall(
     );
     return undefined;
   }
+  // A function that writes no return type says it in its body, which is lowered now if it has
+  // not been yet (Rule 8.19); a call back into a body still being lowered closes a cycle.
+  if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
   const written = opts.written ?? node.arguments ?? [];
   const args: Expr[] = [...leading];
   if (opts.lowered !== undefined) args.push(...opts.lowered);

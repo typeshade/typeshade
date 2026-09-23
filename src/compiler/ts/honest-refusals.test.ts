@@ -377,12 +377,12 @@ export function fs(): vec4 {
 @fragment
 export function fs(): vec4 {
   const k: f32 = 2.;
-  const scale = (x: f32) => x * k;
+  let scale = (x: f32): f32 => x * k;
   return vec4(scale(1.), 0., 0., 1.);
 }
 `);
     expect(errs).toHaveLength(1);
-    expect(errs[0]).toContain('"scale" returns a value straight away, so it needs a return type');
+    expect(errs[0]).toContain('"scale" is a function, so it is declared with const');
   });
 
   it('a call to a name nothing declares still says so', () => {

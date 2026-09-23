@@ -170,9 +170,23 @@ function lowerStatementKind(
       scope.returnType(),
     );
     if (!expr) return undefined;
+    // `return g()` where `g` returns nothing calls it and returns nothing, as TypeScript does;
+    // neither target has a value for it to hand back.
+    if (typeKey(expr.type) === 'void' && expr.op === 'call') {
+      return [withSpan({ s: 'call', expr }, sourceFile, node), { s: 'return' }];
+    }
     // `return 0` takes the declared return type when that type is i32 or u32 (#8 A3).
     const ret = scope.returnType();
-    if (!ret) return { s: 'return', expr };
+    if (!ret) {
+      // In a function that writes no return type, the first `return` with a value says it, and
+      // the ones after it are typed against it as against a written one (Rule 8.19).
+      const into = scope.inferredReturn();
+      if (into !== undefined) {
+        (into as { ret: ShaderType }).ret = expr.type;
+        scope.setReturnType(expr.type);
+      }
+      return { s: 'return', expr };
+    }
     const retargeted = retargetIntLitCtx(expr, node.expression, ret);
     return {
       s: 'return',

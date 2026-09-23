@@ -145,6 +145,8 @@ export interface ClassFunction {
   /** A method whose every `return` is `return this`, typed as its class: it hands back its own
    *  object, so a chain `v.setX(1.).setY(2.)` continues on `v` (Rule 8.10). */
   readonly returnsThis?: true;
+  /** A method or a getter that writes no return type, which its body says (Rule 8.19). */
+  readonly infers?: true;
 }
 
 /** The emitted name of a method or a static function: `Ray_at`. */
@@ -870,7 +872,8 @@ function inheritedBinding(
 }
 
 /** A method's parameters and return type. A return written `this` is the class's own struct:
- *  the method hands back its object, a copy of it here, since a struct is a value. */
+ *  the method hands back its object, a copy of it here, since a struct is a value. One written
+ *  nowhere is the body's to say (Rule 8.19): `infers`, and `void` until the body is lowered. */
 function methodSignature(
   method: MemberFunction,
   shown: string,
@@ -879,24 +882,16 @@ function methodSignature(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
-): { params: FuncDecl['params'][number][]; ret: ShaderType } | undefined {
+): { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true } | undefined {
   const params = parseParams(method.parameters, sourceFile, diagnostics, structs, undefined, {
     owner: shown,
     forbidSelf: !isStatic,
   });
   if (!params) return undefined;
   if (method.type?.kind === ts.SyntaxKind.ThisType) return { params, ret: selfT };
-  const ret = parseReturnType(
-    method.type,
-    shown,
-    method,
-    sourceFile,
-    diagnostics,
-    structs,
-    undefined,
-  );
+  const ret = parseReturnType(method.type, sourceFile, diagnostics, structs, undefined);
   if (!ret) return undefined;
-  return { params, ret };
+  return method.type === undefined ? { params, ret, infers: true } : { params, ret };
 }
 
 /** The other half of the accessor `node` declares, in the same class body, or `undefined`. */
@@ -924,7 +919,7 @@ function accessorSignature(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
-): { params: FuncDecl['params'][number][]; ret: ShaderType } | undefined {
+): { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true } | undefined {
   const pair = otherHalf(node);
   const written = writtenMemberName(node.name) ?? 'x';
   const pairType = (): ShaderType | undefined => {
@@ -938,25 +933,11 @@ function accessorSignature(
     if (node.type === undefined) {
       const inferred = pairType();
       if (inferred !== undefined) return { params: [], ret: inferred };
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.name,
-        `The getter "${shown}" needs a return type: write "get ${written}(): T".`,
-        TS_CODES.UNKNOWN_TYPE,
-      );
-      return undefined;
+      // Neither half writes the property's type: the getter's body says it (Rule 8.19).
+      return { params: [], ret: voidT, infers: true };
     }
     if (node.type.kind === ts.SyntaxKind.ThisType) return { params: [], ret: selfT };
-    const ret = parseReturnType(
-      node.type,
-      shown,
-      node,
-      sourceFile,
-      diagnostics,
-      structs,
-      undefined,
-    );
+    const ret = parseReturnType(node.type, sourceFile, diagnostics, structs, undefined);
     return ret === undefined ? undefined : { params: [], ret };
   }
   const value = node.parameters[0];
@@ -1113,10 +1094,16 @@ export function collectClassFunctions(
         // class that inherits it, `this` is that class (Rule 8.13), so `Derived.make()` builds and
         // returns a `Derived`, as TypeScript does at run time where its type says `Base`.
         const declaresOwnClass = typeKey(signature.ret) === typeKey(structT(body.declaredIn));
+        // One that writes no return type and whose every `return` is `return this` returns its
+        // object, as one written `this` does; any other says its type in its body (Rule 8.19).
+        const thisReturning =
+          signature.infers === true && half === undefined && !isStatic && returnsThis(method.body);
+        const infers = signature.infers === true && !thisReturning;
         const ret =
-          declaresOwnClass &&
-          ((half === undefined && !isStatic && returnsThis(method.body)) ||
-            (isStatic && body.declaredIn !== name && returnsBuiltThis(method)))
+          thisReturning ||
+          (declaresOwnClass &&
+            ((half === undefined && !isStatic && returnsThis(method.body)) ||
+              (isStatic && body.declaredIn !== name && returnsBuiltThis(method))))
             ? selfT
             : signature.ret;
         // A method that changes its object takes it BY REFERENCE: `mode: 'inout'` on the
@@ -1171,6 +1158,7 @@ export function collectClassFunctions(
           typeKey(ret) === typeKey(selfT)
             ? { returnsThis: true as const }
             : {}),
+          ...(infers ? { infers: true as const } : {}),
         };
         registry.set(stub, cf);
         if (
@@ -1817,7 +1805,9 @@ export function lowerClassCall(
     // A method that changes its object and returns a value is a value like any call (§26):
     // `const x = rng.next()`, `vec2(rng.next(), rng.next())`. Its receiver is still the place
     // it writes, and `sequence.ts` puts the call in source order among what is around it. One
-    // that returns nothing has no value to give.
+    // that returns nothing has no value to give; one that writes no return type says which in
+    // its body, lowered first (Rule 8.19).
+    if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
     if (typeKey(cf.stub.ret) === 'void') {
       pushDiag(
         diagnostics,

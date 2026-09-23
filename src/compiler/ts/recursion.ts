@@ -215,6 +215,14 @@ export function checkRecursion(
   for (const n of nodes) if (colour.get(n.name) === WHITE) visit(n.name);
 }
 
+/** Every call `nodes` write, as `caller callee` by graph key: the hops {@link checkRecursion}
+ *  follows. A cycle every hop of which is here is that check's to name. */
+export function writtenHops(nodes: readonly RecursionNode[]): Set<string> {
+  const written = new Set<string>();
+  for (const n of nodes) for (const e of edgesOf(n)) written.add(`${n.name} ${e.to}`);
+  return written;
+}
+
 /**
  * Report the call cycles only the lowered bodies show (Rule 8.4): one that runs through a call
  * on a value (`this.g(n)`, `o.m()`), a getter, a setter or `new`, none of which names a function
@@ -235,8 +243,7 @@ export function checkLoweredRecursion(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
-  const written = new Set<string>();
-  for (const n of nodes) for (const e of edgesOf(n)) written.add(`${n.name} ${e.to}`);
+  const written = writtenHops(nodes);
   const outgoing = new Map<string, { to: string; span: SourceSpan | undefined }[]>();
   for (const f of funcs) {
     const calls: { to: string; span: SourceSpan | undefined }[] = [];

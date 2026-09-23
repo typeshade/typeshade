@@ -114,6 +114,18 @@ export type ArgumentLifter = (
   diagnostics: TsCompilerDiagnostic[],
 ) => FuncDecl | undefined;
 
+/** Whether a call of `decl` at `at` can be lowered now (Rule 8.19). A function that writes no
+ *  return type says it in its body, so the first call that needs it before the body's turn
+ *  lowers that body first. False, having said why or leaving it to the check that will, when
+ *  the call closes a cycle through a body still being lowered, or the body said nothing it
+ *  returns because it did not lower. */
+export type BodyFiller = (
+  decl: FuncDecl,
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+) => boolean;
+
 /** What a file's lowering knows about its own functions, beyond the callee table itself: the
  *  names it could not lower (T10, #92) and the generic ones, with the hook that makes an
  *  instance of one (T9, #92).
@@ -131,6 +143,9 @@ export interface FileFunctions {
   /** For each function in {@link generics} that takes a function, which parameters do. */
   readonly fnParams: Map<string, ReadonlySet<number>>;
   lift: ArgumentLifter | undefined;
+  /** Lowers the body of a function whose return type the body says, when a call needs it
+   *  first (Rule 8.19); undefined where every function writes its return type. */
+  ensure: BodyFiller | undefined;
   /** Each function's declarations as lowered so far, by the node that declares them (a `let`, a
    *  `const`, a parameter, and {@link THIS_CAPTURE} for its object), to the binding each made
    *  there. What a call to a local function passes for a variable the function captures (Rule
@@ -160,6 +175,7 @@ export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
     instantiate: undefined,
     fnParams: new Map(),
     lift: undefined,
+    ensure: undefined,
     declared: new Map(),
     captures: new Map(),
   };
@@ -324,6 +340,7 @@ export class LoweringScope {
   private branchDepth = 0;
   private stage: 'vertex' | 'fragment' | 'compute' | undefined;
   private retType: ShaderType | undefined;
+  private inferInto: FuncDecl | undefined;
   private switchDepth = 0;
 
   constructor(callees?: Map<string, FuncDecl>, symbols?: DeclaredSymbolSink) {
@@ -378,6 +395,18 @@ export class LoweringScope {
     diagnostics: TsCompilerDiagnostic[],
   ): FuncDecl | undefined {
     return this.fns.lift?.(node, shape, hint, this, sourceFile, diagnostics);
+  }
+
+  /** Whether the call of `decl` at `at` can be lowered now: a function whose body says its
+   *  return type has that body lowered first (Rule 8.19). False, having said why or leaving it
+   *  to the recursion check, for a call back into a body still being lowered. */
+  calleeReady(
+    decl: FuncDecl,
+    at: ts.Node,
+    sourceFile: ts.SourceFile,
+    diagnostics: TsCompilerDiagnostic[],
+  ): boolean {
+    return this.fns.ensure?.(decl, at, sourceFile, diagnostics) ?? true;
   }
 
   private genericName(name: string): string | undefined {
@@ -470,15 +499,26 @@ export class LoweringScope {
   /** The declared return type of the function whose body is being lowered, so a `return` can
    *  be checked and typed against it: `return 0` takes it (#8 A3) and `return { … }` takes the
    *  struct it names (#8 A11). Undefined outside a function body — at module-constant
-   *  collection, for instance. INSIDE one it is always set, `parseSignature` supplying `voidT`
-   *  for a function with no annotation, which is the distinction that decides whether a bare
-   *  `return 0` is retyped. */
+   *  collection, for instance — and, in a function that writes no return type, until its first
+   *  `return` with a value says it (Rule 8.19, {@link setInferredReturn}). */
   setReturnType(t: ShaderType | undefined): void {
     this.retType = t;
   }
 
   returnType(): ShaderType | undefined {
     return this.retType;
+  }
+
+  /** For a function that writes no return type (Rule 8.19), the stub whose return type its
+   *  first `return` with a value says: the later ones are then typed against it, as against a
+   *  written one. The return type stays undefined until that `return`. */
+  setInferredReturn(stub: FuncDecl | undefined): void {
+    this.inferInto = stub;
+    if (stub !== undefined) this.retType = undefined;
+  }
+
+  inferredReturn(): FuncDecl | undefined {
+    return this.inferInto;
   }
 
   enterSwitch(): void {

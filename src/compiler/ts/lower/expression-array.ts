@@ -379,6 +379,8 @@ export function lowerArrayFold(
       if (decl) {
         const captured = captureArguments(decl, arg.text, arg, sourceFile, scope, diagnostics);
         if (captured === undefined) return undefined;
+        // What it returns, which its body says when it writes no return type (Rule 8.19).
+        if (!scope.calleeReady(decl, arg, sourceFile, diagnostics)) return undefined;
         predDecls.push(decl);
         leading = captured;
         continue;
