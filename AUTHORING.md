@@ -1935,9 +1935,9 @@ capabilityMatrix([wgslBackend, glslEs300Backend])
 //      declarable: true }]
 ```
 
-The result has one row per capability, in a fixed order, including the seven a module's
-shape derives and never declares (`storageBuffer` through `textureGather`), which come back
-with `declarable: false`.
+The result has one row per capability, eighteen in a fixed order, including the nine a
+module's shape derives and never declares (`storageBuffer` through `textureGather`, then
+`bgra8unormStorage` and `packed4x8Dot`), which come back with `declarable: false`.
 
 Two notes before you trust a row.
 

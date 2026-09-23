@@ -519,7 +519,7 @@ export function lowerCall(
       diagnostics,
       sourceFile,
       node,
-      `Unknown function "${node.getText(sourceFile)}". Function calls (Phase 6) need a visible callee.`,
+      `Unknown function "${node.getText(sourceFile)}". Declare it in this file, or import it from another shader module.`,
       TS_CODES.UNKNOWN_FN,
     )
     return undefined
