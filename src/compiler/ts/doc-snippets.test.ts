@@ -6,8 +6,10 @@
 // on a field is not applied", TS8010). The repository's front page therefore opened with a
 // shader that does not compile. Nothing in the suite read the docs, so nothing said so.
 //
-// WHAT IS COMPILED. Every ```ts / ```typescript fence in README.md and docs/*.md that
-// declares itself a TypeShade compilation unit:
+// WHAT IS COMPILED. Every ```ts / ```typescript fence in README.md, AUTHORING.md,
+// docs/*.md and examples/*.md that declares itself a TypeShade compilation unit. AUTHORING.md
+// is the user guide typeshade.dev renders section by section, so a sample there that stopped
+// compiling is on the website too:
 //
 //   single   the first code line is the `"use typeshade"` directive → compileTsSource
 //   multi    `// name.ts` headers split the block into several files, each with the
@@ -39,13 +41,13 @@ import { USE_TYPESHADE } from './directive.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
-const DOC_FILES = [
-  'README.md',
-  ...readdirSync(join(ROOT, 'docs'))
+const markdownIn = (dir: string): string[] =>
+  readdirSync(join(ROOT, dir))
     .filter((f) => f.endsWith('.md'))
     .sort()
-    .map((f) => `docs/${f}`),
-]
+    .map((f) => `${dir}/${f}`)
+
+const DOC_FILES = ['README.md', 'AUTHORING.md', ...markdownIn('docs'), ...markdownIn('examples')]
 
 /** A fenced TypeScript block, located by the doc file and the 1-based line its code starts on. */
 interface Fence {
