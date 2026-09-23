@@ -374,17 +374,17 @@ export function fs(): vec4 {
     expect(errs.join('\n')).not.toContain('Unsupported return type');
   });
 
-  it('a capturing local function does not also say the call has no callee', () => {
+  it('a refused local function does not also say the call has no callee', () => {
     const errs = errorsOf(`"use typeshade";
 @fragment
 export function fs(): vec4 {
   const k: f32 = 2.;
-  const scale = (x: f32): f32 => x * k;
+  let scale = (x: f32): f32 => x * k;
   return vec4(scale(1.), 0., 0., 1.);
 }
 `);
     expect(errs).toHaveLength(1);
-    expect(errs[0]).toContain('reads "k" from the function around it');
+    expect(errs[0]).toContain('"scale" is a function, so it is declared with const');
   });
 
   it('a call to a name nothing declares still says so', () => {

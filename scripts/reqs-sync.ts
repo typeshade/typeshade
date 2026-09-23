@@ -128,7 +128,10 @@ export function verifyTags(files = trackedFiles()): Map<string, Set<string>> {
     )
       continue;
     const text = read(f);
-    for (const m of text.matchAll(/(?:Verifies|Implements):((?:\s*,?\s*Rule \d+\.\d+)+)/g)) {
+    // A tag may wrap onto the next comment line (`// Rule 8.11, …`).
+    for (const m of text.matchAll(
+      /(?:Verifies|Implements):((?:\s*,?\s*(?:\/\/|#)?\s*Rule \d+\.\d+)+)/g,
+    )) {
       for (const r of m[1]!.matchAll(/Rule (\d+\.\d+)/g)) {
         if (!out.has(r[1]!)) out.set(r[1]!, new Set());
         out.get(r[1]!)!.add(f);
@@ -336,7 +339,11 @@ export function parseFront(yaml: string): Record<string, unknown> {
   return out;
 }
 
-const q = (s: string): string => `'${s.replace(/'/g, "''")}'`;
+/** A YAML string as Doorstop writes it: plain when YAML reads it back as the same string. */
+const q = (s: string): string =>
+  /^[A-Za-z][\w./§ -]*[\w§.]$/.test(s) && !/^(true|false|null|yes|no|on|off)$/i.test(s)
+    ? s
+    : `'${s.replace(/'/g, "''")}'`;
 
 /** An item as Doorstop writes it: sorted keys, YAML front matter, the text after a blank line. */
 function itemFile(front: [string, string][], text: string): string {
@@ -345,6 +352,9 @@ function itemFile(front: [string, string][], text: string): string {
 }
 
 const stamp = (s: string | null | undefined): string => (s ? s : 'null');
+
+/** A level as Doorstop writes it: bare, unless YAML would read it as another number (`8.10`). */
+const level = (n: string): string => (/\.\d*0$/.test(n) ? q(n) : n);
 
 export function render(): Map<string, string> {
   const rules = buildRules();
@@ -373,7 +383,7 @@ export function render(): Map<string, string> {
         [
           ['active', 'true'],
           ['derived', 'false'],
-          ['level', q(r.number)],
+          ['level', level(r.number)],
           ['links', '[]'],
           ['normative', 'true'],
           ['ref', "''"],
@@ -402,7 +412,7 @@ export function render(): Map<string, string> {
         [
           ['active', 'true'],
           ['derived', 'false'],
-          ['level', q(String(s.section))],
+          ['level', level(String(s.section))],
           ['links', links],
           ['normative', 'true'],
           ['ref', "''"],

@@ -124,18 +124,15 @@ describe('a derivative under a branch the invocations do not share', () => {
   }`),
       )[0],
     ).toContain('textureSample() is reached under');
-    // A `for` CONDITION cannot be non-uniform in this surface: §17 requires a constant bound,
-    // so `for (let i = 0; f32(i) < v.uv.x; i++)` is `TS8006 for exit must compare "i" to a
-    // constant bound`, which is the stricter rule and fires first. The walk classifies a loop
-    // condition anyway, because an EDSL-assembled module is under no such rule — and because a
-    // loop body that is uniform is the shape a reduction with a barrier in it needs.
+    // A `for` bound may be a runtime value (Rule 7.5, #203), so a loop whose trip count differs
+    // between invocations is authorable, and a sample in its body is under that divergence.
     expect(
       errorsOf(
         frag(`  let acc: vec4 = vec4(0., 0., 0., 1.)
-  for (let i = 0; f32(i) < v.uv.x; i++) { acc = textureSample(t, s, v.uv) }
+  for (let i: i32 = 0; i < i32(v.uv.x * 4.); i++) { acc = textureSample(t, s, v.uv) }
   return acc`),
       )[0],
-    ).toContain('constant bound');
+    ).toContain('textureSample() is reached under');
   });
 
   it('makes everything after a non-uniform `return` non-uniform, and nothing after a discard', () => {

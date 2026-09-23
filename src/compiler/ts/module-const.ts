@@ -24,6 +24,7 @@ import { localFunctionOf } from './lower/local-functions.js';
 import { isMixinApplication } from './mixins.js';
 import {
   emittedMemberName,
+  holdsFunction,
   isStaticMember,
   shadowedStaticFields,
   writtenMemberName,
@@ -190,6 +191,8 @@ export function collectModuleConsts(
       const shadowed = shadowedStaticFields(stmt);
       for (const member of stmt.members) {
         if (!ts.isPropertyDeclaration(member) || !isStaticMember(member)) continue;
+        // A static field that holds a function is a static method, and structs.ts says so.
+        if (holdsFunction(member)) continue;
         if (shadowed.has(member)) continue;
         // `static #SCALE = 2.` is the constant `Cls_SCALE`: a private name is emitted without
         // its `#`, and only the class's own body may read it (Rule 8.12).

@@ -299,7 +299,9 @@ describe('shapes a WGSL struct has no form for', () => {
         }
         ${USED}
       `),
-    ).toBe('Data type "Bad" cannot have methods.');
+    ).toBe(
+      '"Bad" declares a method, so it is a contract a class implements and not a value a shader holds: take the class that implements it, or a type parameter it constrains, "<T extends Bad>(v: T)".',
+    );
   });
 
   it('rejects a call signature with its own message', () => {

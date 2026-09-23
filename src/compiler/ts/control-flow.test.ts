@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
+import { typeKey } from '../../core/ir/types.js';
 
 describe('ternary / index / for / while', () => {
   it('lowers cond ? a : b to select', () => {
@@ -38,7 +39,10 @@ describe('ternary / index / for / while', () => {
         return acc;
       }
     `);
-    expect(r.diagnostics.some((d) => /constant bound|not allowed/.test(d.message))).toBe(true);
+    // A runtime bound is a counted loop (Rule 7.5, #203): the header is emitted as written.
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const loop = r.funcs[0]!.body.find((s) => s.s === 'for');
+    expect(loop?.s === 'for' && loop.cond.op === 'compare' && loop.cond.b.op).toBe('param');
   });
 
   it('lowers while to a for with the same condition', () => {
@@ -52,7 +56,12 @@ describe('ternary / index / for / while', () => {
         return i;
       }
     `);
-    expect(r.diagnostics.some((d) => /constant|not allowed|while/.test(d.message))).toBe(true);
+    // An open loop (Rule 7.5): the condition is kept, and the counter the IR's one loop form
+    // needs is an i32 whatever the condition compares.
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const loop = r.funcs[0]!.body.find((s) => s.s === 'for');
+    expect(loop?.s === 'for' && loop.cond.op === 'compare' && loop.cond.b.op).toBe('param');
+    expect(loop?.s === 'for' && loop.init.s === 'var' && typeKey(loop.init.type)).toBe('i32');
   });
 
   it('rejects break outside a loop', () => {

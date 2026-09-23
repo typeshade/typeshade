@@ -44,21 +44,22 @@ describe('#46 — a runtime-sized storage array reads its length from the buffer
     expect(r.wgsl).toContain('if ((gid.x >= arrayLength(&src))) {');
   });
 
-  it('a for loop still cannot take it as its bound: §17 wants a constant', () => {
+  it('bounds a for loop, emitted as arrayLength (Rule 7.5, #203)', () => {
     // Before #50 this emitted `(i < 0)`, a loop body that never ran, with zero diagnostics.
-    // The length is a runtime value now, and the `for` rule refuses a runtime bound by name.
+    // Then the length was a runtime value and the `for` rule refused it; a runtime bound is
+    // now a counted loop, and the length reaches the header as the buffer's own.
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
 declare let dst: storage<array<f32>>;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
-  for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = src[gid.x]; }
+  for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = dst[gid.x] + src[i]; }
 }
 `);
-    const errors = r.diagnostics.filter((d) => d.category === 'error');
-    expect(errors).toHaveLength(1);
-    expect(errors[0]?.code).toBe(TS_CODES.LOOP_BOUND);
-    expect(r.wgsl).toBeUndefined();
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    // licm reads the length once, ahead of the loop, since nothing in the body resizes it.
+    expect(r.wgsl).toContain('let _licm0 = arrayLength(&src);');
+    expect(r.wgsl).toContain('for (var i: u32 = 0u; (i < _licm0); i = (i + 1u)) {');
   });
 
   it('a storage array read WITHOUT .length still compiles and emits', () => {

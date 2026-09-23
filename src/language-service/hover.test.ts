@@ -282,10 +282,9 @@ describe('getHover: an ambient name this document declares nothing of', () => {
 });
 
 describe('getHover: a function with no return annotation', () => {
-  // `parseSignature` defaults an unannotated return to `void` and warns (TS8021), so the IR
-  // function really is void and the hover says so, where TypeScript used to infer `f32` from
-  // the body. The two disagree on purpose: the hover shows what was lowered, and the warning on
-  // the same declaration is the thing that asks the author to annotate.
+  // The body says the return type (Rule 8.19), as TypeScript infers it: the hover shows the type
+  // the front end lowered, which is TypeScript's, and nothing warns. It said `void`, beside a
+  // TS8021 "defaulting to void" warning, before the rule.
   const source = [
     '"use typeshade";',
     'export function helperNoRet(a: f32) {',
@@ -293,13 +292,15 @@ describe('getHover: a function with no return annotation', () => {
     '}',
   ].join('\n');
 
-  it('hovers as the void the front end gave it, alongside its TS8021 warning', () => {
+  it('hovers as the type its body returns, with no warning', () => {
     const service = createTypeshadeLanguageService();
     service.openDocument('v.ts', source);
     const offset = source.indexOf('helperNoRet') + 3;
     const hover = service.getHover('v.ts', service.positionAt('v.ts', offset));
-    expect(hover?.contents).toContain('function helperNoRet(a: f32): void');
-    expect(service.getDiagnostics('v.ts').some((d) => d.code === TS_CODES.RETURN_SHAPE)).toBe(true);
+    expect(hover?.contents).toContain('function helperNoRet(a: f32): f32');
+    expect(service.getDiagnostics('v.ts').some((d) => d.code === TS_CODES.RETURN_SHAPE)).toBe(
+      false,
+    );
   });
 });
 

@@ -27,6 +27,7 @@ import {
   ruleUid,
   stale,
   surfUid,
+  verifyTags,
 } from '../scripts/reqs-sync.js';
 
 const design = readFileSync(join(ROOT, 'docs/language-design.md'), 'utf8');
@@ -80,6 +81,12 @@ describe('sanity: the tree reads the whole document', () => {
       evidence: ['.github/workflows/ci.yml'],
       ref: '',
     });
+  });
+
+  it('reads a tag that wraps onto the next comment line', () => {
+    expect(verifyTags(['examples/shade-examples.test.ts']).get('11.4')).toEqual(
+      new Set(['examples/shade-examples.test.ts']),
+    );
   });
 
   it('models what Doorstop can see', () => {
