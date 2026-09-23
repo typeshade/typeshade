@@ -729,3 +729,23 @@ export function fs(): vec4 {
     ).toEqual([]);
   });
 });
+
+describe('a parameter that takes a function, named after a builtin (Rule 9.5)', () => {
+  it('is the function the call handed over, not the builtin', () => {
+    const src = RUN(`function sixteen(step: (i: i32) => void): void {
+  for (let i = 0; i < 16; i++) {
+    step(i);
+  }
+}
+export function run(k: f32): f32 {
+  let s = 0.;
+  sixteen((i) => {
+    s += f32(i) * k;
+  });
+  return s;
+}`);
+    // WGSL's `step(edge, x)` takes two arguments, and was what `step(i)` reached.
+    expect(run(src)).toBe(240);
+    expect(compile(src).wgsl).toContain('fn sixteen_run_step(s: ptr<function, f32>, k: f32) {');
+  });
+});

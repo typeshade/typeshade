@@ -17,7 +17,7 @@
 // - a method, a getter and each instance of a generic function say theirs the same way.
 //
 // Each returns a constructor or a scalar, which the editor's TypeScript types as the compiler
-// does; it types a product of vectors `number` (surface §14).
+// does; it types a product of vectors `number` (surface §14, #162).
 
 class VsOut {
   @builtin("position") pos: vec4;

@@ -11,7 +11,8 @@ import { USER_FIRST_BUILTINS, isCanonicalMathFn } from '../math-alias.js';
 import { lowerExpression } from './expression.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { captureArguments } from './local-functions.js';
+import { captureArguments, declaresFunction } from './local-functions.js';
+import { declarationOf, functionAround } from './closures.js';
 import type { FunctionShape } from './function-types.js';
 
 export function lowerArrayCtor(
@@ -359,7 +360,14 @@ export function lowerArrayFold(
     }
     if (ts.isIdentifier(arg)) {
       const decl = scope.resolveCallee(arg.text);
-      if (decl && intrinsicFirst(arg.text)) {
+      // A local function or a parameter that takes a function, which the body declares, is
+      // what its name means there, whatever builtin shares it (Rule 9.5).
+      const declared = declarationOf(arg);
+      const local =
+        declared !== undefined &&
+        functionAround(declared) !== undefined &&
+        declaresFunction(declared);
+      if (decl && !local && intrinsicFirst(arg.text)) {
         // The precedence `lowerCall` applies, applied here too: a name that was a builtin
         // before #8 A6 stays the intrinsic even when the file declares a function of that
         // name, so a fold cannot hand the declaration to `unrollZip` and stamp a `declRef` on

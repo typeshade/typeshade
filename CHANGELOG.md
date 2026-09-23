@@ -1072,6 +1072,15 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A local function or a parameter that takes a function is what its name means, whatever
+  builtin shares it** (Rule 9.5). `step(i)` on a parameter `step: (i: i32) => void` reached
+  WGSL's two-argument `step` and was `TS8019 step expects 2 argument(s), got 1`, and a local
+  `const log = (x: f32): f32 => x * 100.` called as `log(2.)` computed WGSL's `log`, 0.693
+  where TypeScript computes 200, with nothing said. A name a body declares now wins over every
+  builtin, as TypeScript's lookup finds it first, a fold's callback included; a function of the
+  module keeps the precedence Rule 9.5 records. An arrow function whose body is a barrier,
+  `const sync = () => workgroupBarrier()`, runs it, where it was `TS8034 … is a statement with
+no value`.
 - **`return g()` where `g` returns nothing calls `g` and returns nothing** (Rule 8.19). In a
   function written `: void`, it emitted `return g();`, which WGSL refuses: a call of a function
   with no return type is no value to return. It is `g(); return;` now, in any function. A field

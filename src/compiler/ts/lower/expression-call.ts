@@ -54,7 +54,8 @@ import {
   lowerUserCall,
   mathResultType,
 } from './expression-misc.js';
-import { captureArguments } from './local-functions.js';
+import { captureArguments, declaresFunction } from './local-functions.js';
+import { declarationOf, functionAround } from './closures.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { HOST_GLOBALS } from '../semantic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -227,6 +228,33 @@ export function lowerCall(
     }
   } else if (ts.isIdentifier(callee)) {
     const name = callee.text;
+    // A local function, or a parameter that takes a function, is a name the body declares, and
+    // TypeScript's lookup finds it before any global: it wins over a builtin of its name (Rule
+    // 9.5). `step(i)` on a parameter `step` calls the function handed over, not WGSL's `step`.
+    const declared = declarationOf(callee);
+    const local =
+      declared !== undefined &&
+      functionAround(declared) !== undefined &&
+      declaresFunction(declared) &&
+      scope.localFunctions()?.has(name) === true
+        ? scope.resolveCallee(name)
+        : undefined;
+    // One refused where it is declared said why there.
+    if (local === undefined && declared !== undefined && scope.declarationRefused(name)) {
+      return undefined;
+    }
+    if (local !== undefined) {
+      const leading = captureArguments(local, name, node, sourceFile, scope, diagnostics);
+      if (leading === undefined) return undefined;
+      return lowerUserCall(
+        node,
+        local,
+        sourceFile,
+        scope,
+        diagnostics,
+        leading.length > 0 ? { leading, shown: name } : {},
+      );
+    }
     if (name === 'array') return lowerArrayCtor(node, sourceFile, scope, diagnostics);
     if (name === 'fill') return lowerFill(node, sourceFile, scope, diagnostics);
     if (

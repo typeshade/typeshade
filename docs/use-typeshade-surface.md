@@ -482,7 +482,11 @@ A function the file declares wins over any name in the table above, and over `bo
 `f64`: those names meant the author's function before they were builtins, and an addition
 does not change what a program means. The builtins that came earlier (`min`, `max`, `mix`,
 `clamp`, `pow`, `f32` …) keep their precedence, for the same reason pointing the other way:
-a program that resolves to one today must keep resolving to it.
+a program that resolves to one today must keep resolving to it. That precedence is a function
+of the module's: a name a body declares, a local function (§14) or a parameter that takes a
+function, wins over every builtin, as TypeScript's lookup finds it first. `step(i)` on a parameter
+`step` calls the function the call handed over, and a local `const mix = …` is the one `mix(…)`
+calls, where both reached WGSL's builtin before.
 
 `discard` kills the fragment:
 
@@ -1169,7 +1173,7 @@ nothing: `const inc = () => n += k` adds, where TypeScript would also return the
 it (§26). `return g()`, where `g` returns nothing, calls `g` and returns nothing, in any function.
 
 In the editor, TypeScript types an operator on a vector as `number`, as it does for a `const` that
-holds one (`docs/language-service-api.md`), so a function whose return is `v * 2.` is `number`
+holds one (`docs/language-service-api.md`, [#162](https://github.com/typeshade/typeshade/issues/162)), so a function whose return is `v * 2.` is `number`
 there and a caller that reads `.x` off it is underlined: write its return type, `: vec2`, which is
 the one the compiler infers anyway. A return of a call, a constructor or a field keeps its type.
 

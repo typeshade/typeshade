@@ -662,3 +662,51 @@ describe('examples/closures.shade.ts', () => {
     expect(at([0, -0.75])).toEqual([1, 1, 1, 1]);
   });
 });
+
+describe('a local function named after a builtin is the one its name means (Rule 9.5)', () => {
+  it('the body declares it, so its calls reach it, as TypeScript looks the name up', () => {
+    const src = RUN(`export function run(k: f32): f32 {
+  const log = (x: f32): f32 => x * 100.;
+  function mix(a: f32, b: f32): f32 {
+    return a + b;
+  }
+  return log(k) + mix(k, 1.);
+}`);
+    // WGSL's `log(2.)` is 0.693 and its `mix` takes three arguments.
+    expect(run(src)).toBe(203);
+    const r = compile(src);
+    expect(r.wgsl).toContain('(run_log(k) + run_mix(k, 1.0))');
+    expect(r.glsl!.fragment).toContain('float run_log(float x) {');
+  });
+
+  it('a fold is handed it by its name', () => {
+    expect(
+      run(
+        RUN(`export function run(k: f32): f32 {
+  const step = (x: f32): bool => x > k;
+  const xs = array<f32, 3>(1., 3., 5.);
+  return any(xs, step) ? 1. : 0.;
+}`),
+      ),
+    ).toBe(1);
+  });
+
+  it('a function of the module keeps the precedence Rule 9.5 records, and a block hides nothing outside it', () => {
+    // `log` of the module is WGSL's `log` at its calls; the local `sign` is declared in a block
+    // the call is outside of, so the call is WGSL's `sign`.
+    expect(
+      run(
+        RUN(`function log(x: f32): f32 {
+  return x * 100.;
+}
+export function run(k: f32): f32 {
+  if (k > 100.) {
+    const sign = (x: f32): f32 => x * 10.;
+    return sign(k);
+  }
+  return log(1.) + sign(-k);
+}`),
+      ),
+    ).toBe(-1);
+  });
+});

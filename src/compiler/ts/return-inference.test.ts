@@ -624,3 +624,20 @@ export function fs(): vec4 {
     ).toEqual([]);
   });
 });
+
+describe('an arrow function whose body is a barrier', () => {
+  it('runs it as a statement and returns nothing', () => {
+    const r = compile(`"use typeshade";
+declare let buf: storage<array<f32>>;
+@compute([64])
+export function cs(@builtin("local_invocation_index") li: u32) {
+  const sync = () => workgroupBarrier();
+  buf[li] = 1.;
+  sync();
+  buf[li] = buf[li] + 1.;
+}
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn cs_sync() {\n  workgroupBarrier();\n}');
+  });
+});

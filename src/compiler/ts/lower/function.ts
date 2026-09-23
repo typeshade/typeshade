@@ -62,7 +62,7 @@ import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 import { lowerExpression } from './expression.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
-import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js';
+import { ATOMIC_INTRINSICS, isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -2067,7 +2067,9 @@ function callsVoidFunction(
   const callee = skipParens(call.expression);
   if (!ts.isIdentifier(callee)) return false;
   const decl = scope.resolveCallee(callee.text);
-  if (decl === undefined || !scope.calleeReady(decl, call, sourceFile, diagnostics)) return false;
+  // A barrier is a statement and nothing else (§25), where no function of the file takes its name.
+  if (decl === undefined) return isBarrierIntrinsic(callee.text);
+  if (!scope.calleeReady(decl, call, sourceFile, diagnostics)) return false;
   return typeKey(decl.ret) === 'void';
 }
 

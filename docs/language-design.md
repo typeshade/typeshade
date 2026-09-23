@@ -787,11 +787,13 @@ A name of the f64 family, which has no WGSL signature, must take the signatures 
 - Enforced by: `surface-names.test.ts` and `src/compiler/ts/math-expand.test.ts`.
 
 **Rule 9.5.** A function the file declares must win over a builtin of the same name, as a module-scope declaration hides a predeclared object in WGSL.
-The builtins that predate the rule (those not in `USER_FIRST_BUILTINS`: `clamp`, `pow`, `f32`, and the rest of the original set) keep their precedence over a declared function, which is a recorded divergence from WGSL in the direction of Rule 4.2.
+The builtins that predate the rule (those not in `USER_FIRST_BUILTINS`: `clamp`, `pow`, `f32`, and the rest of the original set) keep their precedence over a function of the module, which is a recorded divergence from WGSL in the direction of Rule 4.2.
+A name a function's body declares, a local function (Rule 8.17) or a parameter that takes a function (Rule 8.18), must win over every builtin, as TypeScript's lookup finds it before any global.
 
 - Rationale: a program that meant the author's function before a builtin existed must keep meaning it, and a program that meant the builtin before the rule existed must keep meaning that.
-- Derives from: [Declaration and Scope](https://gpuweb.github.io/gpuweb/wgsl/#declaration-and-scope) (the example "Shadowing predeclared objects") for the first clause; surface §10 and `USER_FIRST_BUILTINS` in `math-alias.ts` for the second, which WGSL does not have.
-- Enforced by: `src/compiler/ts/builtins.test.ts`.
+  No program calling a name its own body declares meant a builtin: `step(i)` on a parameter `step`, and a local `const mix = …` called as `mix(…)`, reached WGSL's builtin before, a wrong arity or a silently different value, where TypeScript calls the author's function.
+- Derives from: [Declaration and Scope](https://gpuweb.github.io/gpuweb/wgsl/#declaration-and-scope) (the example "Shadowing predeclared objects") for the first clause; surface §10 and `USER_FIRST_BUILTINS` in `math-alias.ts` for the second, which WGSL does not have; ECMAScript [ResolveBinding](https://tc39.es/ecma262/#sec-resolvebinding) (the innermost environment first) for the third.
+- Enforced by: `src/compiler/ts/builtins.test.ts`; `src/compiler/ts/closures.test.ts` and `src/compiler/ts/higher-order.test.ts` for a local function and a parameter.
 
 A declared function named after a GLSL ES 3.00 keyword or type name (`bool`) is renamed by the GLSL writer (`bool_`), whose rename #103 widened to every module-scope name, so it compiles on both targets.
 One named after a GLSL ES 3.00 builtin function (`exp2`), which no reserved-word list carries, is emitted as written, refused by ANGLE, and accepted by Tint.
