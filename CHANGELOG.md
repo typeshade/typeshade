@@ -1149,6 +1149,16 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The four noise twins hash their lattice exactly** (#184). `domain-warp`, `ocean`,
+  `kaleidoscope` and `starfield` hashed a lattice point with `fract(sin(dot(p, k)) * 43758.5453)`
+  on both surfaces. WGSL bounds `sin` only to 2^-11 on [-π, π], and the multiply puts that
+  error above the fraction, so the GPU need not reproduce the oracle's value. Each now uses an
+  integer hash, lowbias32 with xxHash's primes, keeping its top 24 bits and scaling them by
+  `2^-24` rather than dividing, because WGSL lets `/` round. Nothing in the hash may differ by
+  driver. `examples/lattice-hash.test.ts` pins that with the determinism report, and checks the
+  oracle and the generated CPU code against a JavaScript reference bit for bit, negative
+  lattice points included. The twins still reflect identically to their originals. The emit
+  goldens of the eight files moved.
 - **A hex literal with an `e` in it is an integer** (#182, Rule 5.1). `x * 0x9e3779b9` on a
   `u32` was `TS8003`, because the classifier took any `e` or `E` in a literal's text for a
   decimal exponent, prefix or not. `0xE` was the smallest case. Every standard hash constant
