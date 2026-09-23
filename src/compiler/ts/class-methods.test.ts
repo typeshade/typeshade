@@ -184,9 +184,25 @@ describe('class members: what is refused, and what the fix is', () => {
   }
   const M = TS_CODES.CLASS_MEMBER
 
-  it('a method that changes its object may not also return a value', () => {
-    expect(only(C('  bump(): f32 { this.x = this.x + 1.\n    return this.x }'))).toBe(
-      `${M} A method that changes its object returns nothing (§26): declare this method void and call it on its own line, or keep this one reading and return the new value.`,
+  it('a body called through super cannot write its object', () => {
+    // Every method that writes `this` takes it by reference, whatever it returns (§26), so the
+    // one body left with a read-only object is the base's, lowered again for `super.bump()`.
+    // Until a method that changes its object could return a value, this said "A method that
+    // changes its object returns nothing" here too, on a `void` method, which was no help.
+    expect(
+      only(`"use typeshade"
+class A {
+  x: f32
+  bump(): void { this.x = this.x + 1. }
+}
+class B extends A {
+  bump(): void {
+    super.bump()
+    this.x = this.x * 2.
+  }
+}${TAIL}`),
+    ).toBe(
+      `${M} "super.bump" runs the base's body on an object it can only read, so the body cannot write "this" (§26). Move the write into a method no class overrides and call that on "this" instead.`,
     )
   })
 
@@ -465,5 +481,79 @@ export function fs(@location(0) uv: vec2): vec4 {
         `"use typeshade"\nclass D {\n  x: f32\n  f(self_in: f32): void { this.x = self_in }\n}${TAIL}`,
       ),
     ).toEqual([])
+  })
+
+  // The shape a generator has, as reported: `gen()` advances the state and returns the draw.
+  // It was TS8035 "A method that changes its object returns nothing" at `this.seed = …`, a
+  // rule the reference made moot: the object comes back through its pointer, not the return.
+  // The draw keeps the top 24 bits so it is exact in f32, and the three CPU paths can be held
+  // to equality.
+  const RANDOM = `"use typeshade"
+class Random {
+  seed: u32
+  gen(): f32 {
+    this.seed = this.seed * 747796405 + 2891336453
+    return f32(this.seed >> 8) / 16777216.
+  }
+}
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let rng = new Random()
+  rng.seed = u32(uv.x * 1000.)
+  const a = rng.gen()
+  const b = rng.gen()
+  return vec4(a, b, 0., 1.)
+}
+`
+  /** `gen`'s step on the host, in u32 arithmetic. */
+  const step = (s: number): number => (Math.imul(s, 747796405) + 2891336453) >>> 0
+
+  it('may return a value: the draw a generator makes, with its state advanced', () => {
+    const r = compile(RANDOM)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain(
+      'fn Random_gen(self_: ptr<function, Random>) -> f32 {\n  (*self_).seed = (((*self_).seed * 747796405u) + 2891336453u);\n  return (f32(((*self_).seed >> 8u)) * 5.960464477539063e-8);\n}',
+    )
+    expect(r.wgsl).toContain('  let a = Random_gen(&rng);\n  let b = Random_gen(&rng);')
+    const g = r.glsl!.fragment
+    expect(g).toContain('float Random_gen(inout Random self_) {')
+    expect(g).toContain('  float a = Random_gen(rng);\n  float b = Random_gen(rng);')
+    // Seeded at 500: two steps, each draw the state it left behind.
+    const first = step(500)
+    const draw = (s: number): number => (s >>> 8) / 16777216
+    const expected = [draw(first), draw(step(first)), 0, 1]
+    expect(r.eval('fs', [[0.5, 0]])).toEqual(expected)
+    expect(compileModuleJs(r.module).fns['fs']!([0.5, 0])).toEqual(expected)
+    const s = startDebugSession(r.module, 'fs', [[0.5, 0]])
+    s.continue()
+    expect(s.result).toEqual(expected)
+  })
+
+  it('one that returns a value takes the receivers a void one does, wherever it is called', () => {
+    const Gen = `"use typeshade"\nclass Gen {\n  s: u32\n  next(): u32 {\n    this.s = this.s + 1\n    return this.s\n  }\n}\n`
+    const only = (src: string) => {
+      const errors = errorsOf(src)
+      expect(errors, src).toHaveLength(1)
+      return errors[0]!
+    }
+    const M = TS_CODES.CLASS_MEMBER
+    expect(
+      only(`${Gen}function g(): u32 { const r: Gen = { s: 1 }\n  return r.next() }${TAIL}`),
+    ).toBe(
+      `${M} "Gen.next" changes its object, and "r" is declared with const; declare it with let.`,
+    )
+    expect(only(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toBe(
+      `${M} "Gen.next" changes its object, and "r" is a parameter, which a function cannot write; copy it into a let first.`,
+    )
+    expect(only(`${Gen}function g(): u32 { return new Gen().next() }${TAIL}`)).toBe(
+      `${M} "Gen.next" changes its object, and this one is a value that is dropped; keep it in a let and call the method on that.`,
+    )
+    // On its own line the value is dropped and the write kept.
+    const r = compile(
+      `${Gen}@fragment\nexport function fs(): vec4 {\n  let r: Gen = { s: 1 }\n  r.next()\n  return vec4(f32(r.next()), 0., 0., 1.)\n}\n`,
+    )
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain('  Gen_next(&r);\n')
+    expect(r.eval('fs', [])).toEqual([3, 0, 0, 1])
   })
 })

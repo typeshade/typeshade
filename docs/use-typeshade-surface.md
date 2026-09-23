@@ -303,7 +303,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, inside an `if` or `switch` body, or used as a value (§25) |
-| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A getter or setter, a static field, an arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, or used as a value (§26) |
+| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A getter or setter, a static field, an arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, one that returns nothing used as a value, or a write to `this` in a base's body called through `super` (§26) |
+| A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
 ---
@@ -1349,13 +1350,19 @@ statement is refused (TS8099) with the two ways out, assign the value or remove 
 
 **A call that writes a binding is the one impure expression the IR has**, and the optimizer
 knows it. The effect table (`src/core/passes/effects.ts`) names the bindings each function
-writes, itself or through the functions it calls. Dead-code elimination keeps a `call`
-statement exactly when its call has an effect. Common-subexpression elimination, value
+writes, itself or through the functions it calls, and a write through a method's object as the
+caller's receiver (§26). Dead-code elimination keeps a `call` statement exactly when its call
+has an effect, and a `let` nobody reads whose initializer writes becomes the call statement it
+amounts to: `const unused = next()` still calls `next`. Common-subexpression elimination, value
 numbering and loop-invariant motion leave a function that makes an effectful call alone, and
 a read of a binding some callee writes is never shared across the call: two `bump(i)` in a
-row stay two, and a `dst[i]` read after them is a second read. The linear inliner does not
-lift a helper whose prelude holds a call statement, since splicing it ahead of the `if` that
-guarded the call site would run the effect on a path that never called.
+row stay two, and a `dst[i]` read after them is a second read; nor is a copy taken before a
+method changes its object, `const before = p` ahead of `p.bump()`. A struct assembled field by
+field is not folded into a constructor when a field's value writes, since the constructor would
+evaluate the fields in declaration order rather than the order they were assigned. The linear
+inliner does not lift a helper whose prelude holds a call statement, since splicing it ahead of
+the `if` that guarded the call site would run the effect on a path that never called. Such a
+call inside a larger expression is put in source order before any of this runs (§26, Rule 7.9).
 
 **What this does not cover.** The portable compute tier (§ the `portable` kernel shape) refuses
 a call statement anywhere in the entry's reach: its single store is a plain assignment written
@@ -1847,11 +1854,75 @@ void Particle_step(inout Particle self_, float dt) {
 The receiver has to be a place a function may write: a `let` local, a module variable, a storage
 element, or `this` inside a constructor or another changing method. Which methods change their
 object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
-`++`/`--` on one), and one that calls such a method on `this`. Such a method returns nothing;
-one that returns a value reads its object only, and a write to `this` inside it is TS8035 with
-that rule. The effect table (§19) counts a write through a reference as it counts any other, and
-names it as the CALLER knows it: `ps[gid.x].step(dt)` writes `ps`, because `step` writes its
-receiver and the receiver is reached through `ps`.
+`++`/`--` on one), and one that calls such a method on `this`. The effect table (§19) counts a
+write through a reference as it counts any other, and names it as the CALLER knows it:
+`ps[gid.x].step(dt)` writes `ps`, because `step` writes its receiver and the receiver is reached
+through `ps`.
+
+**It may return a value** (Rule 8.10), as any method may. A random-number generator is the
+shape: `next()` advances the state and returns the draw. The reference is what carries the object
+back, so the return is free, and the emitted function is WGSL's own idiom for a generator,
+`fn Rng_next(self_: ptr<function, Rng>) -> f32`, and GLSL ES 3.00's, `float Rng_next(inout Rng
+self_)`. On its own line the value is dropped and the write kept; anywhere a value goes, it is
+one.
+
+```ts
+"use typeshade"
+class Rng {
+  state: u32
+  next(): f32 {
+    this.state = this.state * 747796405 + 2891336453
+    return f32(this.state >> 8) / 16777216.
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  let rng: Rng = { state: u32(uv.x * 1000.) }
+  const grain = vec2(rng.next(), rng.next())
+  const spark = uv.y > 0.5 ? rng.next() : 0.
+  return vec4(grain, spark, 1.)
+}
+```
+
+```wgsl
+fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  var rng: Rng = Rng(u32((uv.x * 1000.0)));
+  let _seq0 = Rng_next(&rng);
+  let _seq1 = Rng_next(&rng);
+  let grain = vec2<f32>(_seq0, _seq1);
+  var _seq2: f32;
+  if ((uv.y > 0.5)) {
+    _seq2 = Rng_next(&rng);
+  } else {
+    _seq2 = 0.0;
+  }
+  let spark = _seq2;
+  return vec4<f32>(grain, spark, 1.0);
+}
+```
+
+**A call that writes runs in source order** (Rule 7.9). TypeScript evaluates `vec2(rng.next(),
+rng.next())` left to right, and so does WGSL; GLSL ES 3.00 fixes that order for a call's
+arguments and leaves it open for an operator's operands (§5.11). So a call that writes, inside a
+larger expression, is bound to a `let` of its own ahead of the statement, in the order the source
+evaluates it, and the statement reads the temporary: the two draws above are two lets, first to
+last, on both targets. An operand evaluated before such a call that reads what the call changes
+is bound ahead of it, so `rng.state + rng.next()` adds the state from before the draw. A call
+TypeScript runs conditionally keeps its condition: an arm of `?:` is an `if` rather than WGSL's
+`select`, which would evaluate both arms, and the right operand of `&&` or `||` is an `if` on the
+left one. A call that is the whole of its statement (`const a = rng.next()`, the value of an
+assignment or a `return`, a condition, a selector, a call statement) stays where it is. This is
+the same for a helper that writes a storage binding or a module variable and for an atomic, which
+could write from inside an expression before any of this (§19, §23, §24). A `while` condition
+runs on every iteration, so nothing
+in it can move ahead of the loop: a call that writes may be one side of its comparison,
+`while (rng.next() < 0.9)`, and anything deeper is TS8006 with the remedy.
+`examples/rng-method.shade.ts` is the gate's evidence, on Tint and on a real WebGL2 driver.
+
+It returned nothing while the struct itself was what came back, and until this a method that
+wrote `this` and returned a value was TS8035 at the write, "A method that changes its object
+returns nothing (§26)".
 
 **One WGSL function per address space.** The address space is part of a WGSL pointer's type:
 `ptr<function, T>` and `ptr<storage, T, read_write>` are different types, and a function
@@ -1881,8 +1952,10 @@ module `const`), a field holding an arrow function (a method), a decorator on a 
 entry is a top-level function), an `async`, generator or `abstract` method, two constructors
 or two methods of one name (no overloads), a call of a method on the class or of a static
 function on a value, a member the class does not have, a field called as a method, a method
-that changes its object called on a `const`, a parameter or a value that is dropped, or used
-as a value, and a parameter named `self_`. A class with only static functions
+that changes its object called on a `const`, a parameter or a value that is dropped, one that
+returns nothing used as a value, a write to `this` in a base's body called through `super`
+(which reads its object only; move the write into a method no class overrides), and a
+parameter named `self_`. A class with only static functions
 and no fields is not a struct (TS8010): write them as functions. `extends` is a struct's base
 since roadmap item T5. A `new` on anything but a class the file declares stays TS8013, and
 says which of the four reasons it is.

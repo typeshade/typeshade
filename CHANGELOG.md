@@ -13,6 +13,23 @@ repository has been published to npm; **`0.1.0` will be the first release**.
 
 ### Changed
 
+- **A call that writes, inside a larger expression, runs in source order** (Rule 7.9, §26). A
+  front-end pass, `src/compiler/ts/sequence.ts`, binds each such call (a method that changes its
+  object, a helper that writes a module variable or a storage binding, an atomic) to a `let` of
+  its own ahead of its statement, in the order TypeScript and WGSL evaluate it, and binds ahead
+  of it an operand evaluated before it that reads what it writes: `vec2(rng.next(), rng.next())`
+  is `let _seq0 = Rng_next(&rng); let _seq1 = Rng_next(&rng);` and a `vec2` of the two, and
+  `rng.state + rng.next()` adds the state from before the draw. An arm of `?:` and the right
+  operand of `&&` or `||` that hold one become an `if`, so the call runs only when it is chosen,
+  where WGSL's `select` evaluated both arms. A call that is the whole of its statement is left
+  where it is, and so is every registered example: no golden moved. What it fixes, measured
+  before it: GLSL ES 3.00 leaves the order of an operator's operands open (§5.11); the algebraic
+  pass folded `rng.bits() - rng.bits()` to `0u` and dropped both calls; GLSL's float `%` spelled
+  a call in its operand twice; and `xs[c.n] = c.bump()` stored into different elements on the two
+  targets, which evaluate the target first, and on the three CPU paths, which evaluated the value
+  first. A `while` condition runs on every iteration, so it may hold such a call only as one side
+  of its comparison, `while (rng.next() < 0.9)`; anywhere deeper is `TS8006` with the remedy.
+  The rule is new in `docs/language-design.md`, with Rule 7.2's table naming the lowering.
 - **`random` has a source, and the check that should have asked for one was reading the wrong
   thing** (§55, [#181](https://github.com/typeshade/typeshade/issues/181)). The free
   `declare function random(seed)` had no §9.3 row, no `TYPESHADE_EXTENSIONS` entry and no
@@ -98,6 +115,22 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **A method that changes its object may return a value** (§26, Rule 8.10). A generator's
+  `gen(): f32` that assigns `this.seed = …` and returns the draw was `TS8035 A method that
+changes its object returns nothing (§26)` at the assignment: the rule of the protocol that
+  returned the struct itself for the caller to store back. Since such a method takes its object
+  by reference, the return is free, and it is WGSL's own idiom for a generator:
+  `fn Random_gen(self_: ptr<function, Random>) -> f32` and `float Random_gen(inout Random
+self_)`, with `const a = rng.gen()` emitting `let a = Random_gen(&rng);` and `float a =
+Random_gen(rng);`. Called on its own line the value is dropped and the write kept. The
+  receiver rules are the `void` method's, in any position: a `const`, a parameter or a value
+  nothing holds is refused with the fix, and one that returns nothing still has no value to
+  give. A write to `this` is now refused only in a base's body called through `super`, which
+  reads its object only, and the message says that and names the `super` call, where it used to
+  tell a `void` method to be `void`. `examples/rng-method.shade.ts` draws inside a `vec3(...)`
+  and in an arm of `?:`; it compiles on Tint and links on a WebGL2 driver, and the CPU oracle,
+  the codegen and the debugger agree on the generator in `class-methods.test.ts`. Rule 8.10 is
+  new in `docs/language-design.md`, and Rule 8.8 says the object is not an authored parameter.
 - **Each `.shade.ts` example registers itself** (#65). Every example used to be registered by
   appending an object literal to one hand-ordered array in `examples/_shade.ts`, so two branches
   that each added an example added adjacent lines to the same region and git could not tell the
@@ -784,6 +817,19 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **The optimizer keeps what a call writes, and the debugger copies what it stores** (§19,
+  §26). Each of these made the emitted shader, or the stepper, disagree with the CPU oracle:
+  dead-code elimination dropped an unread `let` whole, write and all, so `const unused = next()`
+  on a helper that bumps a module variable vanished from both emits while the oracle, which runs
+  no optimizer, ran it (it now keeps the call as a statement); the effect table named a method's
+  write by the callee's own `self_` instead of the receiver, so copy propagation read `p` where
+  `const before = p` was written before `p.bump()`, and the GPU returned the bumped value where
+  the oracle returned the one before; the struct-constructor fold turned `o.b = rng.next();
+o.a = rng.next(); return o` into a constructor that evaluates its fields in declaration order,
+  swapping the two draws, and now leaves a run with a call that has an effect as written; and the
+  debug stepper bound an aggregate at `let`, `var` and assignment by reference, where the oracle
+  and the codegen copy it as both targets do, so `before` showed the bumped value while stepping.
+  Each is pinned in `src/compiler/ts/sequence.test.ts`, which fails with the fix taken out.
 - **A product of two matrices of one non-square shape is refused at the operator**
   ([#169](https://github.com/typeshade/typeshade/issues/169)). WGSL's matrix product cancels
   the shared dimension, `matKxR * matCxK -> matCxR`, so the left operand's columns must equal

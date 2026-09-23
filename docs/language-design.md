@@ -472,6 +472,7 @@ A _counted loop_ is a loop whose trip count the compiler can compute from a cons
 | `[a, b]` in a typed position           | `array<T, 2>(a, b)`                                                       | surface §18 and §28                                                                                                 |
 | `{ field: value }` in a typed position | a struct constructor                                                      | surface §16                                                                                                         |
 | `obj.method()`                         | `Cls_method(obj, …)`, dispatched statically                               | surface §26                                                                                                         |
+| a call that writes, in an expression   | a `let` ahead of it, in source order; an `if` for `?:`, `&&` and `\|\|`   | Rule 7.9; surface §26                                                                                               |
 
 - Rationale: a TypeScript reader expects the TypeScript meaning, so every place the two languages differ has to be written down where the reader will look.
 - Derives from: the rows above.
@@ -515,6 +516,18 @@ The check closes over the call graph, and `discard()` is not a call the surface 
 - Rationale: see Rule 4.5.
 - Derives from: surface §28.
 - Enforced by: `src/compiler/ts/honest-refusals.test.ts`.
+
+**Rule 7.9.** An expression must be evaluated left to right, as TypeScript and WGSL both evaluate it, and a call that writes (its object, a module variable, a storage binding, an atomic location) inside a larger expression must take effect in that order on every target.
+The compiler binds each such call to a temporary ahead of its statement, in source order, and binds ahead of the call an operand evaluated before it that reads what it writes; a call TypeScript evaluates conditionally, in an arm of `?:` or the right operand of `&&` or `||`, keeps its condition as an `if`.
+A loop condition runs on every iteration, so it may hold such a call only as one side of its comparison.
+
+- Rationale: GLSL ES 3.00 leaves the order of an operator's operands open, and a scalar `?:` lowers to WGSL's `select`, which evaluates both arms, so the one order every target keeps is the order the compiler writes out; the passes that fold and repeat expressions then see no call that writes inside one.
+- Derives from:
+  - [Program Order Within an Invocation](https://gpuweb.github.io/gpuweb/wgsl/#program-order) ("The order of evaluation for operands of an expression is left-to-right in WGSL. For example, foo() + bar() must evaluate foo() before bar().");
+  - [Function Calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls) ("Function call argument values are evaluated. The relative order of evaluation is left-to-right.");
+  - GLSL ES 3.00 §5.11, which relaxes C++'s rules and fixes no order for an operator's operands, §6.1.1 ("All arguments are evaluated at call time, exactly once, in order, from left to right"), and §5.8 ("Expressions on the left of an assignment are evaluated before expressions on the right of the assignment");
+  - surface §19 and §26.
+- Enforced by: `src/compiler/ts/sequence.ts` (`sequenceEffects`), pinned by `src/compiler/ts/sequence.test.ts`, which holds the CPU oracle, the codegen and the debugger to the source order; `TS8006 LOOP_BOUND` for a loop condition that holds a call that writes anywhere but as one side of its comparison (`A while condition runs "rng.next()" on every iteration, and a call that writes can stand there only as one side of the comparison. …`); `examples/rng-method.shade.ts` in the compile gate.
 
 ## 8. Functions and entry points
 
@@ -586,6 +599,7 @@ The atomic builtins may be used in the compute and fragment stages, and must not
   - surface §3's three bullets on the payload of `@compute`, under the entry example, which state the default of 64, the `y` and `z` restriction, and the refused object form.
 
 **Rule 8.8.** A parameter must be passed by value; there must be no pointers and no reference parameters.
+The object of a method that changes its object is not a parameter an author writes, and Rule 8.10 governs it.
 
 - Rationale: whether a parameter is a reference is a language decision the roadmap places after 1.0.
 - Derives from: `docs/roadmap.md` After 1.0 ("pointers and reference parameters"); [Function Calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls).
@@ -596,6 +610,14 @@ The atomic builtins may be used in the compute and fragment stages, and must not
 - Rationale: a WGSL struct is one layout and a WGSL function has one overload, so the only meaning a generic or a method can have is the monomorphised one.
 - Derives from: [Functions](https://gpuweb.github.io/gpuweb/wgsl/#functions) ("each user-defined function only has one overload"); surface §26, §30, §32 (design #92).
 - Enforced by: `TS8035 CLASS_MEMBER` and `examples/generic-class.shade.ts`.
+
+**Rule 8.10.** A method that writes its object (assigns to `this` or to a field, a component or an element of it, applies `++` or `--` to one, or calls such a method on `this`) must take the object by reference, and may return a value like any other method.
+Its receiver must be a place a function may write: a `let` local, a module variable, a storage element, or `this` inside a constructor or another such method.
+A receiver that is a parameter, a `const`, or a value nothing holds must be refused with the remedy, as must a call of such a method that returns nothing where a value is expected, and a write to `this` in a body called through `super`, which reads its object only.
+
+- Rationale: WGSL takes a place as a pointer and GLSL ES 3.00 as an `inout` parameter, and either leaves the return free for a value, so a generator's `next()` can advance its state and return the draw as TypeScript's own method does; the rule that such a method returns nothing belonged to the protocol that returned the struct itself, which the reference replaced.
+- Derives from: [Reference and Pointer Types](https://gpuweb.github.io/gpuweb/wgsl/#ref-ptr-types); [Function Calls](https://gpuweb.github.io/gpuweb/wgsl/#function-calls); GLSL ES 3.00 §6.1.1 ("Evaluation of an inout parameter results in both a value and an l-value"); surface §26 (design #86 step 2).
+- Enforced by: `TS8035 CLASS_MEMBER` for each refusal (`"Gen.next" changes its object, and "r" is declared with const; declare it with let.`), pinned by `src/compiler/ts/class-methods.test.ts`, which also holds the three CPU paths to one value for a method that changes its object and returns one; `src/compiler/ts/inout-params.test.ts`; `examples/orbit-inout.shade.ts`, `examples/particle-step.shade.ts` and `examples/rng-method.shade.ts` in the compile gate.
 
 ## 9. Built-in functions and the TypeShade extensions
 

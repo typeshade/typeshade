@@ -10,13 +10,16 @@
 // targets spell every one of these as written, and the IR is unchanged: the oracle, the codegen
 // and the debug stepper see functions.
 //
-// A method that assigns to `this` (step 2 of #86) takes and returns the struct: `Ray_advance(
-// self_in: Ray, t: f32) -> Ray` starts with `var self_ = self_in`, runs the body on that local
-// and returns it, and the call statement `r.advance(2.)` lowers to `r = Ray_advance(r, 2.)`.
-// The receiver has to be a place a function may write (a `let` local, a module variable, a
-// storage element); a `const`, a parameter or a temporary is refused with the fix. Such a
-// method returns nothing, so its caller can write the object back; one that returns a value
-// reads its object only.
+// A method that assigns to `this` (step 2 of #86) takes its object BY REFERENCE: `inout` on
+// GLSL ES 3.00, a pointer on WGSL, `fn Ray_advance(self_: ptr<function, Ray>, t: f32)`, and
+// the call `r.advance(2.)` passes the receiver itself, `Ray_advance(&r, 2.0)`. The receiver has
+// to be a place a function may write (a `let` local, a module variable, a storage element); a
+// `const`, a parameter or a temporary is refused with the fix. Such a method may return a
+// value like any other (§26, Rule 8.10), since the reference leaves the return free: a
+// generator's `next()` advances its state and returns the draw, `fn Rng_next(self_:
+// ptr<function, Rng>) -> f32`. It returned nothing while it took the struct and returned THAT,
+// which is what the caller stored back. A call of one inside a larger expression is put in
+// source order by `sequence.ts` (Rule 7.9).
 //
 // The object's name in the emitted function is `self_`, not `self`: Tint refuses `self`, which
 // is on WGSL's reserved-word list (as `this` is), and GLSL ES 3.00 takes either.
@@ -43,9 +46,9 @@ import { recordParamDefaults } from './param-defaults.js'
 
 /** What `this` is while a member's body is lowered: the struct type; whether it is the
  *  read-only first parameter of a method (`param`), the local a constructor builds from the
- *  zero struct (`ctor`), or the local a method that changes its object copies its parameter
- *  into and returns (`copy`); the field initializers a constructor assigns first; and how
- *  messages name the member. */
+ *  zero struct (`ctor`), or the parameter a method that changes its object writes through
+ *  (`inout`); the field initializers a constructor assigns first; and how messages name the
+ *  member. */
 export interface Receiver {
   readonly type: ShaderType
   readonly mode: 'param' | 'ctor' | 'inout'
@@ -72,13 +75,10 @@ export interface ClassFunction {
   readonly shown: string
   readonly node: ts.MethodDeclaration | ts.ConstructorDeclaration | undefined
   readonly receiver: Receiver | undefined
-  /** A method that changes its object: it takes and returns the struct, and a call of it is
-   *  a statement that writes the receiver back. */
+  /** A method that changes its object: it takes the struct by reference, so its receiver has
+   *  to be a place a function may write. It may return a value (§26). */
   readonly mutates: boolean
 }
-
-/** The name the struct arrives under in a method that changes its object; the body works on
- *  `self_`, a copy of it. */
 
 /** The emitted name of a method or a static function: `Ray_at`. */
 export const methodFnName = (struct: string, member: string): string => `${struct}_${member}`
@@ -529,11 +529,11 @@ export function collectClassFunctions(
         )
         if (!ret) continue
         // A method that changes its object takes it BY REFERENCE: `mode: 'inout'` on the
-        // receiver, which GLSL ES 3.00 spells `inout Particle self_` and WGSL as a pointer. It
-        // has to return nothing itself; one that returns a value keeps its object read-only, and
-        // a write inside it is refused where it stands (statement.ts). A body reached through
-        // `super` is read-only: it has no receiver of its own to write through.
-        const writes = !isStatic && !isSuperBody && mutating.has(member) && typeKey(ret) === 'void'
+        // receiver, which GLSL ES 3.00 spells `inout Particle self_` and WGSL as a pointer. What
+        // it returns is its own business (§26): the reference, not the return, carries the
+        // object back. A body reached through `super` is read-only: it has no receiver of its
+        // own to write through, and a write inside it is refused where it stands (statement.ts).
+        const writes = !isStatic && !isSuperBody && mutating.has(member)
         const stub: FuncDecl = {
           name: body.fnName,
           params: isStatic
@@ -990,41 +990,37 @@ export function lowerClassCall(
     return undefined
   }
   if (cf.mutates) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `"${shown}" changes its object and returns nothing; call it on its own line.`,
-    )
-    return undefined
+    // A method that changes its object and returns a value is a value like any call (§26):
+    // `const x = rng.next()`, `vec2(rng.next(), rng.next())`. Its receiver is still the place
+    // it writes, and `sequence.ts` puts the call in source order among what is around it. One
+    // that returns nothing has no value to give.
+    if (typeKey(cf.stub.ret) === 'void') {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `"${shown}" changes its object and returns nothing; call it on its own line.`,
+      )
+      return undefined
+    }
+    const target = mutatingReceiver(node, obj, shown, sourceFile, scope, diagnostics)
+    if (!target) return undefined
+    return lowerUserCall(node, decl!, sourceFile, scope, diagnostics, { shown, leading: [target] })
   }
   return lowerUserCall(node, decl!, sourceFile, scope, diagnostics, { shown, leading: [recv] })
 }
 
-/** A call statement of a method that changes its object, `r.advance(2.)`: the receiver is
- *  lowered as a place and written back, `r = Ray_advance(r, 2.0)`. Returns the marker for any
- *  other call statement, which takes the ordinary path. A receiver that is not a place a
- *  function may write (a `const`, a parameter, a value that is dropped) is refused with the
- *  fix. */
-export function lowerMutatingCall(
+/** The receiver of a method that changes its object, lowered as the place the method writes
+ *  through, or `undefined` having said why it is not one: a parameter, a `const`, or a value
+ *  nothing holds (a call's result, a `new`), which the method would change and then drop. */
+function mutatingReceiver(
   node: ts.CallExpression,
+  obj: ts.Expression,
+  shown: string,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-): Stmt | undefined | 'not-a-mutating-call' {
-  const callee = node.expression
-  if (!ts.isPropertyAccessExpression(callee)) return 'not-a-mutating-call'
-  const obj = callee.expression
-  const member = callee.name.text
-  // The receiver's type, read without reporting: a receiver that does not lower, or is not a
-  // struct, takes the ordinary path and gets its diagnostics there.
-  const peek = lowerExpression(obj, sourceFile, scope, [])
-  if (!peek || peek.type.kind !== 'struct') return 'not-a-mutating-call'
-  const name = peek.type.name
-  const decl = scope.resolveCallee(methodFnName(name, member))
-  const cf = decl === undefined ? undefined : classFunctionOf(decl)
-  if (cf === undefined || !cf.mutates) return 'not-a-mutating-call'
-  const shown = cf.shown
+): Expr | undefined {
   const bare = unparen(obj)
   if (ts.isIdentifier(bare)) {
     const b = scope.resolve(bare.text)
@@ -1059,7 +1055,34 @@ export function lowerMutatingCall(
     )
     return undefined
   }
-  const target = lowerLValue(obj, sourceFile, scope, diagnostics)
+  return lowerLValue(obj, sourceFile, scope, diagnostics)
+}
+
+/** A call statement of a method that changes its object, `r.advance(2.)`: the receiver is
+ *  lowered as the place the method writes through, `Ray_advance(&r, 2.0)`, and a value the
+ *  method returns is dropped. Returns the marker for any other call statement, which takes the
+ *  ordinary path. A receiver that is not a place a function may write (a `const`, a parameter,
+ *  a value that is dropped) is refused with the fix. */
+export function lowerMutatingCall(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined | 'not-a-mutating-call' {
+  const callee = node.expression
+  if (!ts.isPropertyAccessExpression(callee)) return 'not-a-mutating-call'
+  const obj = callee.expression
+  const member = callee.name.text
+  // The receiver's type, read without reporting: a receiver that does not lower, or is not a
+  // struct, takes the ordinary path and gets its diagnostics there.
+  const peek = lowerExpression(obj, sourceFile, scope, [])
+  if (!peek || peek.type.kind !== 'struct') return 'not-a-mutating-call'
+  const name = peek.type.name
+  const decl = scope.resolveCallee(methodFnName(name, member))
+  const cf = decl === undefined ? undefined : classFunctionOf(decl)
+  if (cf === undefined || !cf.mutates) return 'not-a-mutating-call'
+  const shown = cf.shown
+  const target = mutatingReceiver(node, obj, shown, sourceFile, scope, diagnostics)
   if (!target) return undefined
   const call = lowerUserCall(node, decl!, sourceFile, scope, diagnostics, {
     shown,

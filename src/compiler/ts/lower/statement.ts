@@ -10,7 +10,7 @@ import { mapTsTypeToShaderType } from '../type-map.js'
 import { parseSwizzle } from '../swizzle.js'
 import { refuseAtomicDeclaration } from './atomics.js'
 import { lowerBarrierStatement } from './barriers.js'
-import { lowerMutatingCall } from './class-methods.js'
+import { classFunctionOf, lowerMutatingCall } from './class-methods.js'
 import { lowerUserCall } from './expression-misc.js'
 import { localFunctionOf } from './local-functions.js'
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js'
@@ -816,8 +816,9 @@ function lowerExpressionStatement(
       )
       return barrier ? { s: 'call', expr: barrier } : undefined
     }
-    // A method that changes its object, `r.advance(2.)`, is a statement that writes the
-    // receiver back (§26); anything else takes the ordinary call path.
+    // A method that changes its object, `r.advance(2.)`, is a call that writes through its
+    // receiver, and a value it returns is dropped here (§26); anything else takes the ordinary
+    // call path.
     const mutating = lowerMutatingCall(expr, sourceFile, scope, diagnostics)
     if (mutating !== 'not-a-mutating-call') return mutating
     const call = lowerCall(expr, sourceFile, scope, diagnostics)
@@ -1295,14 +1296,24 @@ function checkRootWritable(
     return false
   }
   if (binding.kind === 'param' && rootName === 'this') {
-    // A method that changes its object returns nothing, so its caller can write the object
-    // back (§26); in a method that returns a value the object is its read-only parameter.
+    // Every method that writes `this` takes it by reference (§26), whatever it returns, so
+    // the object is a read-only parameter only in a body reached through `super`: the base's
+    // body lowered once more against this class, with no receiver of its own to write
+    // through. The write is inside the BASE's method, so the message names the `super` call
+    // that brought it here. This read "A method that changes its object returns nothing"
+    // until a method that changes its object could return a value.
+    const owner = scope.owner()
+    const shown = owner === undefined ? undefined : classFunctionOf(owner)?.shown
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `A method that changes its object returns nothing (§26): declare this method void and ` +
-        `call it on its own line, or keep this one reading and return the new value.`,
+      shown?.startsWith('super.')
+        ? `"${shown}" runs the base's body on an object it can only read, so the body cannot ` +
+            `write "this" (§26). Move the write into a method no class overrides and call that ` +
+            `on "this" instead.`
+        : `${shown === undefined ? 'This body' : `"${shown}"`} reads its object only, so it ` +
+            `cannot write "this" (§26).`,
       TS_CODES.CLASS_MEMBER,
     )
     return false

@@ -14,6 +14,7 @@ import type {
 import { emitModule } from '../../core/backends/wgsl.js'
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js'
 import { lowerSourceFunctions } from './lower/function.js'
+import { sequenceEffects } from './sequence.js'
 import { analyzeSemantics } from './semantic.js'
 import { collectModuleConsts } from './module-const.js'
 import { collectBindings } from './bindings.js'
@@ -247,6 +248,21 @@ export function compileTsSource(
     symbols,
     overrides,
     vars,
+  )
+  // A call that writes, inside a larger expression, in the order the source evaluates it
+  // (Rule 7.9, §26). After every function is lowered, since what a helper writes is read off its
+  // body, and before anything reads the bodies, so every backend runs the one order.
+  sequenceEffects(
+    {
+      consts: [...consts],
+      structs: emittedStructDecls(structs),
+      bindings: [...bindings],
+      funcs,
+      overrides: [...overrides],
+      vars: [...vars],
+    },
+    sourceFile,
+    diagnostics,
   )
   // The interstage pair, once every entry is lowered: a `@location` a fragment reads must be
   // produced by the vertex entry with the same type and the same interpolation (§53). The
