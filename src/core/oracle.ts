@@ -71,7 +71,7 @@ import {
   matMulShaped,
 } from './cpu-runtime.js';
 import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
-import type { ConsoleSink } from './console.js';
+import type { ConsoleMethod, ConsoleSink } from './console.js';
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js';
 
 // Preserve the historical `typeshade` oracle surface: the value-model
@@ -235,7 +235,8 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       const args = e.args.map((a) => evalExpr(a, env, ctx));
       if (e.declRef === undefined && e.fn.startsWith('console.')) {
         const method = e.fn.slice('console.'.length);
-        if (ctx.consoleSink) ctx.consoleSink({ method: method as any, args, span: e.span });
+        if (ctx.consoleSink)
+          ctx.consoleSink({ method: method as ConsoleMethod, args, span: e.span });
         return undefined as unknown as CpuValue;
       }
       // f32→u32/i32 SATURATES per WGSL (integer sources keep wrapping — see

@@ -30,8 +30,8 @@ describe('#8 B6 — constExpr().node', () => {
   });
 
   it('carries the declared type, so the fn handle takes the right key', () => {
-    const bg = fn('bg', {}, () => SKY.node);
-    const _k: Exact<ReturnType<typeof bg>, Node<'vec4<f32>'>> = true;
+    const _bg = fn('bg', {}, () => SKY.node);
+    const _k: Exact<ReturnType<typeof _bg>, Node<'vec4<f32>'>> = true;
     expect(_k).toBe(true);
   });
 

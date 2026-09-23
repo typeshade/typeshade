@@ -171,8 +171,8 @@ export function box(
 
   it('refuses a workgroup whose invocations do not all reach the barrier', () => {
     const src = REDUCE.replace(
-      '  tile[lid.x] = src[gid.x]\n',
-      '  if (lid.x > 60) {\n    return\n  }\n  tile[lid.x] = src[gid.x]\n',
+      '  tile[lid.x] = src[gid.x];\n',
+      '  if (lid.x > 60) {\n    return;\n  }\n  tile[lid.x] = src[gid.x];\n',
     );
     const r = compile(src);
     // The front end catches this one at the line now (§54): a `return` under a condition the

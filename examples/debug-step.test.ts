@@ -104,24 +104,24 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
 
   it('stops on each statement of vs, in the order they are written', () => {
     expect(walk(module, src, 'vs', [1])).toEqual([
-      'let x = -0.8',
-      'let y = -0.8',
-      'if (i === 1) {\n    x = 0.8\n  }',
-      'x = 0.8',
-      'if (i === 2) {\n    x = 0.\n    y = 0.8\n  }',
-      'return { pos: vec4(x, y, 0., 1.) }',
+      'let x = -0.8;',
+      'let y = -0.8;',
+      'if (i === 1) {\n    x = 0.8;\n  }',
+      'x = 0.8;',
+      'if (i === 2) {\n    x = 0.;\n    y = 0.8;\n  }',
+      'return { pos: vec4(x, y, 0., 1.) };',
     ]);
   });
 
   it('takes the other branch for another invocation, and skips neither if', () => {
     expect(walk(module, src, 'vs', [2])).toEqual([
-      'let x = -0.8',
-      'let y = -0.8',
-      'if (i === 1) {\n    x = 0.8\n  }',
-      'if (i === 2) {\n    x = 0.\n    y = 0.8\n  }',
-      'x = 0.',
-      'y = 0.8',
-      'return { pos: vec4(x, y, 0., 1.) }',
+      'let x = -0.8;',
+      'let y = -0.8;',
+      'if (i === 1) {\n    x = 0.8;\n  }',
+      'if (i === 2) {\n    x = 0.;\n    y = 0.8;\n  }',
+      'x = 0.;',
+      'y = 0.8;',
+      'return { pos: vec4(x, y, 0., 1.) };',
     ]);
   });
 
@@ -131,7 +131,7 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
     expect(s.pause!.frames[0]!.locals.get('x')).toBe(-0.8);
     s.stepOver(); // now on `if (i === 1)`
     s.stepOver(); // the branch is taken, so now on `x = 0.8` inside it
-    expect(textAt(src, s.pause!.span!)).toBe('x = 0.8');
+    expect(textAt(src, s.pause!.span!)).toBe('x = 0.8;');
     expect(s.pause!.frames[0]!.locals.get('x')).toBe(-0.8);
     s.stepOver(); // now on `if (i === 2)`, with the assignment done
     expect(s.pause!.frames[0]!.locals.get('x')).toBe(0.8);
@@ -139,11 +139,11 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
   });
 
   it('a breakpoint on the line the author would click stops there', () => {
-    const line = src.split('\n').findIndex((l) => l.trim() === 'y = 0.8');
+    const line = src.split('\n').findIndex((l) => l.trim() === 'y = 0.8;');
     const s = startDebugSession(module, 'vs', [2], { breakpoints: [{ line }] });
     const hit = s.continue();
     expect(hit!.reason).toBe('breakpoint');
-    expect(textAt(src, hit!.span!)).toBe('y = 0.8');
+    expect(textAt(src, hit!.span!)).toBe('y = 0.8;');
     expect(hit!.frames[0]!.locals.get('x')).toBe(0);
   });
 
@@ -156,7 +156,7 @@ describe('hello.shade.ts — stepping a vertex entry', () => {
   });
 
   it('the fragment entry steps too, and its one statement is its return', () => {
-    expect(walk(module, src, 'fs', [])).toEqual(['return { color: vec4(1., 0., 0., 1.) }']);
+    expect(walk(module, src, 'fs', [])).toEqual(['return { color: vec4(1., 0., 0., 1.) };']);
   });
 });
 
@@ -178,17 +178,17 @@ describe('compute-reduction-twin.shade.ts — stepping one compute invocation', 
       precision: 'f64',
     });
     expect(trace.slice(0, 6)).toEqual([
-      'const idx = gid.x',
-      'if (idx >= params.x) {\n    return\n  }',
-      'const base = idx * 8',
-      'let sum = 0.',
-      'for (let j: u32 = 0; j < 8; j++) {\n    sum = sum + input[base + j]\n  }',
+      'const idx = gid.x;',
+      'if (idx >= params.x) {\n    return;\n  }',
+      'const base = idx * 8;',
+      'let sum = 0.;',
+      'for (let j: u32 = 0; j < 8; j++) {\n    sum = sum + input[base + j];\n  }',
       'let j: u32 = 0',
     ]);
     // Eight folds and eight updates, then the store.
-    expect(trace.filter((t) => t === 'sum = sum + input[base + j]')).toHaveLength(8);
+    expect(trace.filter((t) => t === 'sum = sum + input[base + j];')).toHaveLength(8);
     expect(trace.filter((t) => t === 'j++')).toHaveLength(8);
-    expect(trace.at(-1)).toBe('output[idx] = sum');
+    expect(trace.at(-1)).toBe('output[idx] = sum;');
   });
 
   it('the storage write it steps through is the one the oracle makes', () => {
@@ -209,9 +209,9 @@ describe('compute-reduction-twin.shade.ts — stepping one compute invocation', 
       precision: 'f64',
     });
     expect(trace).toEqual([
-      'const idx = gid.x',
-      'if (idx >= params.x) {\n    return\n  }',
-      'return',
+      'const idx = gid.x;',
+      'if (idx >= params.x) {\n    return;\n  }',
+      'return;',
     ]);
     expect(out).toEqual([0]);
   });
@@ -225,7 +225,7 @@ describe('compute-reduction-twin.shade.ts — stepping one compute invocation', 
     const seen: Array<[CpuValue, CpuValue]> = [];
     let p: DebugPause | undefined = s.pause;
     while (p) {
-      if (textAt(src, p.span!) === 'sum = sum + input[base + j]') {
+      if (textAt(src, p.span!) === 'sum = sum + input[base + j];') {
         seen.push([p.frames[0]!.locals.get('j')!, p.frames[0]!.locals.get('sum')!]);
       }
       p = s.stepIn();

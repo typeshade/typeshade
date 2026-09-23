@@ -99,8 +99,8 @@ describe('#8 B5 — builtin(name)', () => {
     // motivated this change. Narrowing it would retype sources that compile today.
     const spec = builtin('vertex_index', f32T);
     expect(spec.type).toBe(f32T);
-    const g = fn('g', { p: builtin('position', vec4fT) }, f32T, ({ p }) => p.x);
-    const _k: Exact<ReturnType<typeof g>, Node<'f32'>> = true;
+    const _g = fn('g', { p: builtin('position', vec4fT) }, f32T, ({ p }) => p.x);
+    const _k: Exact<ReturnType<typeof _g>, Node<'f32'>> = true;
     expect(_k).toBe(true);
   });
 });
