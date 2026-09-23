@@ -2429,6 +2429,7 @@ compiler's, with TypeScript's report of the same `new` merged into it:
 | `new Date()`, and nothing declares `Date` | `TS8022`: `Date` is an unknown name, as it is in any other position |
 | `new vec3f(1., 2., 3.)`, `new f32(1)` | `TS8035`: a WGSL constructor is called without `new`, `vec3f(1., 2., 3.)` |
 | `new sampler()`, `new texture_2d<f32>()` | `TS8035`: it is a type, not a value, and WGSL gives it no constructor |
+| `new Array(4)`, `new Number(1)` | `TS8035`: it is a type the library declares for TypeScript's own use, not a value |
 | `new F()` on a function, `new Math.sin(1.)` | `TS8035`: `F` is a function, which is called without `new`, `F()` |
 | `new E()` on an enum | `TS8035`: an enum's values are its members, `E.A` |
 | `new c()` on a local or a parameter, `new PI()`, `new E.A()`, `new N()` on a namespace, `new T()` on a type parameter | `TS8035`: it is a value, a namespace or a type parameter, and not a class |

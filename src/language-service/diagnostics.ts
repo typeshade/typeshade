@@ -1204,6 +1204,18 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     reason: 'An unknown name: a value, a function or a type, `Date` among them.',
   },
   {
+    typescript: 2583,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason:
+      'The same for a name of a later ECMAScript library (`Map`, `Promise`), which TypeScript ' +
+      'offers to find there, and which a shader does not have either.',
+  },
+  {
+    typescript: 2584,
+    typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
+    reason: 'The same for a name of the DOM (`document`).',
+  },
+  {
     typescript: 2552,
     typeshade: new Set(['TS8022', 'TS8004', 'TS8002']),
     reason:
@@ -1353,22 +1365,17 @@ function callOf(
   return argumentAt(context, span)?.call ?? calleeCallAt(context, span);
 }
 
-/** The `new` whose target is exactly `span`, parentheses aside: `new Date()` for `Date`. */
-function newWithTarget(
+/** The `new` a compiler diagnostic covers whole, `new Date()`, when it covers one. */
+function newCovering(
   context: DiagnosticFilterContext,
   span: TypeshadeTextSpan,
 ): ts.NewExpression | undefined {
   for (
     let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, span.start);
-    node !== undefined;
+    node !== undefined && node.getStart(context.sourceFile) === span.start;
     node = node.parent
   ) {
-    if (node.getStart(context.sourceFile) !== span.start) return undefined;
-    if (node.getEnd() === span.start + span.length) {
-      let at: ts.Node = node;
-      while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
-      return ts.isNewExpression(at.parent) && at.parent.expression === at ? at.parent : undefined;
-    }
+    if (ts.isNewExpression(node) && node.getEnd() === spanEnd(span)) return node;
   }
   return undefined;
 }
@@ -1390,18 +1397,21 @@ function newWithTarget(
  * inside the span of a first: a misspelled argument inside a call the compiler refuses whole.
  *
  * A `new` is refused whole by the compiler, once for the file, for what its target is, where
- * TypeScript reports the target itself (`Date` in `new Date()`, TS2304; `E` in `new E()`,
- * TS2351): TypeScript's span is then exactly the target of the `new` the compiler's covers.
+ * TypeScript reports the target or a name in it (`Date` in `new Date()`, TS2304; `E` in
+ * `new E()`, TS2351; `Foo` in `new Math.Foo()`, TS2339): TypeScript's span then lies inside the
+ * target of the `new` the compiler's covers.
  */
 function sameMistakeSpans(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
   error: TypeshadeDiagnostic,
 ): boolean {
-  const built = newWithTarget(context, diagnostic.span);
-  if (built !== undefined) {
-    const whole = spanOfNode(built, context.sourceFile);
-    if (whole.start === error.span.start && whole.length === error.span.length) return true;
+  const built = newCovering(context, error.span);
+  if (
+    built !== undefined &&
+    within(diagnostic.span, spanOfNode(built.expression, context.sourceFile))
+  ) {
+    return true;
   }
   if (typeof diagnostic.code === 'number' && CALL_CODES.has(diagnostic.code)) {
     const call = callOf(context, diagnostic.span);

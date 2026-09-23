@@ -117,9 +117,10 @@ export const TS_CODES = {
    *  the `new` is written, an `abstract` class, `new this()` outside a static member, and a
    *  target that resolves to something other than a class — a WGSL constructor or cast
    *  (`new vec3f()`), a type alias of one (`type S = vec3`), a WGSL type with no constructor
-   *  (`new sampler()`), a function (`Math.sin` and an imported one included), an enum or one of
-   *  its members, a namespace, `Math` or `console`, an interface or type alias, a type
-   *  parameter, a mixin applied to a class, or a value (`PI` included). A target nothing
+   *  (`new sampler()`) or one the library declares for TypeScript (`new Array(4)`), a function
+   *  (`Math.sin` and an imported one included), an enum or one of its members, a namespace,
+   *  `Math` or `console`, an interface or type alias, a type parameter, a mixin applied to a
+   *  class, or a value (`PI` included). A target nothing
    *  declares, and a member the object before it does not have (`new Math.Foo()`), is
    *  `UNKNOWN_NAME`. A getter or setter missing its type is `UNKNOWN_TYPE`, a `readonly` field
    *  written outside the constructor `CONST_ASSIGN`. */

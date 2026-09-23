@@ -340,7 +340,12 @@ describe('the editor says the one sentence the compiler says', () => {
   it('a name nothing declares, and a new of anything but a class', () => {
     for (const [head, line] of [
       ['', 'Date.now()'],
+      ['', 'Map'],
+      ['', 'document'],
       ['', 'new Date()'],
+      ['', 'new Intl.NumberFormat()'],
+      ['', 'new Math.Foo()'],
+      ['', 'new Array(4)'],
       ['', 'fetch("x")'],
       ['', 'new vec3f(1.)'],
       ['function F(): f32 {\n  return 1.;\n}\n', 'new F()'],

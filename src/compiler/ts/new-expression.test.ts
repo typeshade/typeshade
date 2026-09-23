@@ -344,7 +344,7 @@ namespace N {
       errorsOf(
         file(
           `class C {\n  x: f32\n  constructor(...a: f32[]) {\n    this.x = 1.\n  }\n}\n`,
-          `  const c = new C()\n  return vec4(1.)`,
+          `  const c = new C()\n  return vec4(c.x)`,
         ),
       ),
     ).toEqual([`${TS_CODES.FUNCTION_SHAPE} Rest parameter "a" is not supported.`]);

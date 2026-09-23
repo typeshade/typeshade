@@ -64,10 +64,15 @@ function declaringList(
   return list.declarations.some((d) => binds(d.name, name)) ? list : undefined;
 }
 
-/** The name an import binds as `name`: an import is a declaration of the file's top level, and a
- *  multi-file program refuses one that names no function where it is written. */
-function importing(statements: readonly ts.Statement[], name: string): ts.Node | undefined {
+/** The class or the import that declares `name` among `statements`: a `new` reads a class, whose
+ *  constructor may be refused where it is written, and an import is a declaration of the file's
+ *  top level, which a multi-file program refuses when it names no function. */
+function declaringClassOrImport(
+  statements: readonly ts.Statement[],
+  name: string,
+): ts.Node | undefined {
   for (const s of statements) {
+    if (ts.isClassDeclaration(s) && s.name?.text === name) return s;
     const bindings = ts.isImportDeclaration(s) ? s.importClause?.namedBindings : undefined;
     if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
     const hit = bindings.elements.find((el) => el.name.text === name);
@@ -77,7 +82,7 @@ function importing(statements: readonly ts.Statement[], name: string): ts.Node |
 }
 
 /** The declaration of `name` visible at `use`, innermost scope first: the statement or loop
- *  header that declares it, the parameter, or the import. */
+ *  header that declares it, the parameter, the class, or the import. */
 function visibleDeclaration(
   use: ts.Node,
   name: string,
@@ -87,13 +92,14 @@ function visibleDeclaration(
   for (let p: ts.Node | undefined = use.parent; p !== undefined; p = p.parent) {
     let found: ts.Node | undefined;
     if (ts.isBlock(p) || ts.isModuleBlock(p) || ts.isCaseClause(p) || ts.isDefaultClause(p)) {
-      found = declaringStatement(p.statements, name, at);
+      found =
+        declaringStatement(p.statements, name, at) ?? declaringClassOrImport(p.statements, name);
     } else if (ts.isForStatement(p) || ts.isForOfStatement(p) || ts.isForInStatement(p)) {
       found = declaringList(p.initializer, name);
     } else if (ts.isFunctionLike(p)) {
       found = p.parameters.find((q) => binds(q.name, name));
     } else if (ts.isSourceFile(p)) {
-      found = declaringStatement(p.statements, name) ?? importing(p.statements, name);
+      found = declaringStatement(p.statements, name) ?? declaringClassOrImport(p.statements, name);
     }
     if (found !== undefined) return found;
   }

@@ -17,7 +17,12 @@
 
 import ts from 'typescript';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { HANDLE_TYPE_NAMES, lookupTypeName, mapTsTypeToShaderType } from '../type-map.js';
+import {
+  HANDLE_TYPE_NAMES,
+  LIBRARY_TYPE_NAMES,
+  lookupTypeName,
+  mapTsTypeToShaderType,
+} from '../type-map.js';
 import {
   USER_FIRST_BUILTINS,
   isCanonicalMathFn,
@@ -320,6 +325,11 @@ function undeclared(
   }
   if (NO_CONSTRUCTOR.has(name)) {
     return refused(`"${name}" is a type, not a value, and WGSL gives it no constructor.`);
+  }
+  if (LIBRARY_TYPE_NAMES.has(name)) {
+    return refused(
+      `"${name}" is a type, not a value: the library declares it for TypeScript's own use.`,
+    );
   }
   if (
     isCanonicalMathFn(name) ||

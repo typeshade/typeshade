@@ -333,8 +333,8 @@ past the second sentence, and a coding agent fixes both. `mergeDiagnostics` drop
 two rules, and only ever an error that another error already covers:
 
 - **The same mistake.** A TypeScript error and a compiler error that its table pairs by code
-  (TS2304, TS2552, TS2448 and TS2454 with the unknown-name codes `TS8022`, `TS8004` and
-  `TS8002`; TS2339 and TS2551 with `TS8022` and `TS8035`; TS2353 and TS2561 with `TS8010`;
+  (TS2304, TS2583, TS2584, TS2552, TS2448 and TS2454 with the unknown-name codes `TS8022`,
+  `TS8004` and `TS8002`, `Map` and `document` among them; TS2339 and TS2551 with `TS8022` and `TS8035`; TS2353 and TS2561 with `TS8010`;
   TS2694 and TS2749 with `TS8002`; TS2349 with `TS8004`; TS7009, TS2351, TS2693 and TS2511
   with `TS8035`, a `new` of a function, a value, a type or an `abstract` class;
   TS2588 and TS2540 with `TS8005`;
@@ -344,7 +344,7 @@ two rules, and only ever an error that another error already covers:
   to the whole call for a code about a call, since TypeScript reports a failed overload on the
   callee (`max`) and the compiler on the argument at fault (`w`), and to the whole `new` for a
   code about its target, since the compiler refuses a `new` whole (`TS8022` on `new Date()`)
-  and TypeScript names the target (TS2304 on `Date`). The compiler's report is
+  and TypeScript names the target or a name in it (TS2304 on `Date`). The compiler's report is
   kept, always: it is what `compile()` and the build report, it names the remedy in the
   surface's words (Rule 12.1), where TypeScript's spells a brand's internals, and it is already
   the authority on what combines (TS2365 above). That holds for a misspelled name too. The

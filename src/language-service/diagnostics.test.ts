@@ -534,6 +534,9 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
       'typeshade TS8002',
     ],
     'a name nothing declares, Date (TS2304)': [fn('  return Date.now()'), 'typeshade TS8022'],
+    // A name of a later ECMAScript library or of the DOM, which a shader has no more than `Date`.
+    'a name of a later library (TS2583)': [fn('  const m = Map\n  return x'), 'typeshade TS8022'],
+    'a name of the DOM (TS2584)': [fn('  const d = document\n  return x'), 'typeshade TS8022'],
     // A `new` is refused whole, and TypeScript names its target (proposal 0008 §2).
     'a new of a name nothing declares (TS2304)': [
       fn('  const d = new Date()\n  return x'),
