@@ -1285,17 +1285,25 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   refusal of the pattern; a refused declaration is found through a destructuring pattern now,
   as through a plain name.
 
-- **A local declared with no type from vector arithmetic draws no TypeScript false positive.**
-  `const lit = albedo * d` is the `number` the arithmetic is typed, to TypeScript, and the
-  `vec3` it is, to the compiler, so every use of `lit` reported what the arithmetic itself is
-  filtered for: TS2345 and TS2769 at a call (`normalize(lit)`, `dot(n, lit)`, `mix(n, lit, t)`),
-  TS2322 at an assignment or a return, and TS2339 at a swizzle (`lit.xy`). The only way to quiet
-  them was to annotate the local by hand. The language service now reads the type the front end
-  gave each declared name (`CompileTsSourceResult.symbols`), and a name whose brand its
-  declaration's arithmetic dropped counts as that arithmetic, with the compiler's shape; a
-  swizzle of it, or of arithmetic in place (`(n * 2.).xy`), is left to the compiler's own swizzle
-  check (`TS8022`). A name the compiler types as a scalar, or a vector of the wrong shape for the
-  parameter, still reports. `typeshade check` and the editor both read the merged list.
+- **A local declared from a refused one says nothing more either** (Rule 12.4, #171).
+  `const u = t * 2.` after a refused `const t = a * b` binds no `u`, since its read of `t` is one
+  of the reads kept quiet, so `return u` read `Unknown identifier "u"` beside the one mistake in
+  `t`. A declaration that reads a name whose own declaration was refused is now refused with it,
+  and says nothing more.
+
+- **A comparison, a bitwise or shift operator, a power or a unary operator on a vector draws no
+  TypeScript error** (Rule 12.7). TypeScript types `a < b` on two vectors as a `boolean`, and
+  `a & b`, `a << b`, `a ** b`, `~a` and `!m` as a `number` or a `boolean`, where the compiler has
+  a mask, an integer vector or a vector of floats. On programs the compiler accepts,
+  `return a < b` in a function that returns a `vec3b` was TS2322, `(a < b).x` was TS2339, and
+  `select(a, b, (a < b) & (b > a))` was TS2447 and TS2345. The filters that drop arithmetic's
+  false positives now read the operator table the projection reads (`ERASING_OPERATORS`), a
+  comparison's shape being the `bool` vector of its operands' width, and a local declared from
+  such an operation is written into like one declared from arithmetic. A comparison of vectors of
+  two sizes, or of a vector and a scalar, is one diagnostic, the compiler's `TS8003`: TypeScript's
+  TS2365 and TS2367 are paired with it. The uses of a local whose operation the compiler
+  refused, which has no type to write in, draw nothing beside the compiler's report either. `&`,
+  `|` and `^` on two scalar booleans, which the compiler takes too, still draw TS2447.
 
 - **A `case` that runs on into the next one is refused** (Rule 7.3, #202). WGSL's `switch` has
   no fall-through, so the lowering ended every clause where its statements ended, and a body
@@ -1318,8 +1326,10 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   `number`. The TypeScript program now reads each open document with the front end's type
   written in (`const uv: vec2 = …`), and every answer maps back to the text as written:
   diagnostics, hover, completion, references, rename, semantic tokens and `positionAt`. Only
-  an unannotated `const` or `let` whose initializer does arithmetic and whose type is a vector
-  or an `f32` matrix is written into. Plain `tsc` is unchanged: the README now lists the TS2339
+  an unannotated `const` or `let`, a local or a module constant, is written into, when its
+  initializer applies an operator TypeScript types as a `number` or a `boolean` and its type
+  is a vector (of `f32`, `i32`, `u32`, `bool` or emulated doubles) or a matrix (of `f32` or
+  `f64`). Plain `tsc` is unchanged: the README now lists the TS2339
   it reports on a swizzle of such a local among the documented classes. The plasma and ray-cast
   journeys drop their annotations, and the gate's editor check passes on them as written.
 

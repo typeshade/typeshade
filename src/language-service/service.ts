@@ -266,7 +266,7 @@ export function createTypeshadeLanguageServiceWith(
     const entry = entryOf(uri, sourceFile);
     entry.diagnostics ??= mergeDiagnostics(
       sourceFile,
-      getTypeScriptDiagnostics(languageService, sourceFile, uri, entry.analysis),
+      getTypeScriptDiagnostics(languageService, sourceFile, uri),
       getTypeshadeDiagnostics(entry.analysis, sourceFile, uri),
       options.merge === false ? undefined : entry.analysis,
       languageService.getProgram()?.getTypeChecker(),

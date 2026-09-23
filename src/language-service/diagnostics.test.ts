@@ -1,3 +1,5 @@
+// Verifies: Rule 12.4 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { analyzeSourceFile, createTypeshadeLanguageServiceWith } from './service.js';
@@ -359,8 +361,8 @@ describe('GPU_BRAND_TAGS is exactly what SHADE_DTS brands vectors and matrices w
 // A local declared with no type from vector arithmetic is the `number` the arithmetic is typed,
 // to TypeScript, and the `vec3` it is, to the compiler. Every use of it then drew the false
 // positive the arithmetic itself is filtered for, at each call, assignment, return and swizzle
-// below, and the only way to quiet them was to annotate the local by hand. The filters now read the type
-// the front end gave the name (`CompileTsSourceResult.symbols`).
+// below, and the only way to quiet them was to annotate the local by hand. The program the
+// service builds reads the document with the compiler's type written in (`projection.ts`, #162).
 describe('a name declared with no type from vector arithmetic draws no TypeScript diagnostic', () => {
   const USES = `"use typeshade";
 export function shade(n: vec3, l: vec3, albedo: vec3, d: f32): vec3 {
@@ -391,27 +393,25 @@ export function shade(n: vec3, l: vec3, albedo: vec3, d: f32): vec3 {
     expect(diagnosticsOf(USES).filter((x) => x.severity === 'error')).toEqual([]);
   });
 
-  // The filters compare shapes, and the shape of such a name is spelled from the compiler's
-  // type while a parameter's is read off the ambient brand; this is the test that the two
-  // spellings agree, for every vector and matrix type there is arithmetic on.
-  const ARITHMETIC_TYPES = [
-    ...VECTOR_AND_MATRIX_NAMES.filter((name) => !/^vec\db$/.test(name)),
-    'mat2<f64>',
-    'mat3<f64>',
-    'mat4<f64>',
-  ];
-  for (const type of ARITHMETIC_TYPES) {
-    it(`carries its shape into a parameter of type ${type}`, () => {
+  // The projection spells the compiler's type in the ambient library's words (`ambientSpelling`),
+  // and a parameter's type is the ambient declaration itself; this is the test that the
+  // spelling names that declaration, for every vector and matrix type there is an operation on:
+  // arithmetic, and `&` on a mask.
+  const OPERATED_TYPES = [...VECTOR_AND_MATRIX_NAMES, 'mat2<f64>', 'mat3<f64>', 'mat4<f64>'];
+  for (const type of OPERATED_TYPES) {
+    it(`carries its type into a parameter of type ${type}`, () => {
+      const operation = /^vec\db$/.test(type) ? 'a & a' : 'a + a';
       const source = `"use typeshade"
 function g(v: ${type}): ${type} {
   return v
 }
 export function f(a: ${type}): ${type} {
-  const x = a + a
+  const x = ${operation}
   return g(x)
 }
 `;
       expect(typeScriptDiagnosticsOf(source), source).toEqual([]);
+      expect(diagnosticsOf(source), source).toEqual([]);
     });
   }
 
@@ -437,6 +437,53 @@ export function f(a: ${type}): ${type} {
     // No brand was lost here, so TypeScript's own member check stands.
     const source = entry('  const p = a.w\n');
     expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2339:']);
+  });
+});
+
+// Arithmetic is not the only operation TypeScript types without the vector: a comparison is a
+// `boolean` to it, and the bitwise and shift operators, `**`, `~` and `!` are a `number` or a
+// `boolean`, where the compiler has a mask, an integer vector or a vector of floats. Each of
+// these compiles, and each drew a TypeScript error where its value was used, from the one
+// operator table the projection reads too (`ERASING_OPERATORS`).
+describe('an operation other than arithmetic loses a vector type the same way', () => {
+  const cases: Readonly<Record<string, string>> = {
+    'a comparison returned as a mask':
+      'export function f(a: vec3, b: vec3): vec3b {\n  return a < b\n}',
+    'a comparison handed to a mask parameter':
+      'function g(m: vec3b): bool {\n  return any(m)\n}\nexport function f(a: vec3, b: vec3): bool {\n  return g(a < b)\n}',
+    'a comparison assigned to a mask':
+      'export function f(a: vec3, b: vec3): vec3b {\n  let m = vec3b(false)\n  m = a < b\n  return m\n}',
+    'a component of a comparison':
+      'export function f(a: vec3, b: vec3): bool {\n  return (a < b).x\n}',
+    'strict equality of two vectors':
+      'export function f(a: vec3, b: vec3): vec3b {\n  return a === b\n}',
+    'a comparison of two products':
+      'function g(m: vec3b): bool {\n  return all(m)\n}\nexport function f(a: vec3, b: vec3): bool {\n  return g((a * 2.) < (b * 2.))\n}',
+    'two masks combined':
+      'export function f(a: vec3, b: vec3): vec3b {\n  return (a < b) & (b > a)\n}',
+    'two masks combined as the condition of select':
+      'export function f(a: vec3, b: vec3): vec3 {\n  return select(a, b, (a < b) & (b > a))\n}',
+    'a logical not of a mask': 'export function f(c: vec3b): vec3b {\n  return !c\n}',
+    'a bitwise and': 'export function f(a: vec3u, b: vec3u): vec3u {\n  return a & b\n}',
+    'a shift': 'export function f(a: vec3u, b: vec3u): vec3u {\n  return a << b\n}',
+    'a complement': 'export function f(a: vec3u): vec3u {\n  return ~a\n}',
+    'a power': 'export function f(a: vec3, b: vec3): vec3 {\n  return a ** b\n}',
+    'a matrix times a scaled vector':
+      'function g(p: vec4): vec4 {\n  return p\n}\nexport function f(m: mat4, c: vec4): vec4 {\n  return g(m * (c * 2.))\n}',
+  };
+  for (const [name, body] of Object.entries(cases)) {
+    it(`${name}: no diagnostic at all`, () => {
+      const source = `"use typeshade"\n${body}\n`;
+      expect(typeScriptDiagnosticsOf(source), source).toEqual([]);
+      expect(diagnosticsOf(source), source).toEqual([]);
+    });
+  }
+
+  it('keeps TS2447 for a bitwise operator on two scalar booleans', () => {
+    // A mask is a vector to the compiler; two scalar booleans are not, and the rule is about
+    // masks only.
+    const source = entry('  const k = (s < 1.) & (s > 0.)\n');
+    expect(typeScriptDiagnosticsOf(source).map((x) => x.slice(0, 7))).toEqual(['TS2447:']);
   });
 });
 
@@ -547,6 +594,33 @@ describe('one mistake reads as one diagnostic across the two halves (Rule 12.4)'
     'a name read above its declaration (TS2448)': [
       fn('  const z = q * 2.\n  const q = x\n  return z'),
       'typeshade TS8022',
+    ],
+    // TypeScript refuses the comparison, and the `boolean` it types it then fails the return.
+    'a comparison of vectors of two sizes (TS2365, TS2322)': [
+      fn('  return v < w', 'v: vec3, w: vec2', 'vec3b'),
+      'typeshade TS8003',
+    ],
+    'a comparison of a vector and a scalar (TS2365, TS2322)': [
+      fn('  return v < x', 'v: vec3, x: f32', 'vec3b'),
+      'typeshade TS8003',
+    ],
+    'strict equality of vectors of two sizes (TS2367, TS2322)': [
+      fn('  return v === w', 'v: vec3, w: vec2', 'vec3b'),
+      'typeshade TS8003',
+    ],
+    'a logical not of a vector of floats (TS2322)': [
+      fn('  return !v', 'v: vec3', 'vec3b'),
+      'typeshade TS8003',
+    ],
+    // The compiler refuses the product, so the projection has no type to write into `t`, and
+    // TypeScript's `number` for it reached the swizzle and the return.
+    'the uses of a local whose product the compiler refused (TS2339, TS2322)': [
+      fn('  const t = v * w\n  const u = t * 2.\n  return u.x + t.y', 'v: vec3, w: vec2'),
+      'typeshade TS8003',
+    ],
+    'a matrix of doubles scaled by a double (TS2322)': [
+      fn('  const t = m * f64(2.)\n  return t', 'm: mat3<f64>', 'mat3<f64>'),
+      'typeshade TS8003',
     ],
   };
   for (const [name, [body, only]] of Object.entries(cases)) {

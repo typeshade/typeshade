@@ -3281,7 +3281,10 @@ adds that it "requires a TypeShade type annotation", which it has; a return no l
 "Unsupported return type"; a call to a function this file declares and could not lower no
 longer says "Unknown function", which was untrue — the function is there, and its declaration
 already said why. A call to a name nothing declares still says so, and names the function it
-is spelled like (§7).
+is spelled like (§7). A local whose declaration was refused, or that is declared from one that
+was, says nothing more where it is read, assigned or written through (#171): after a refused
+`const t = a * b`, `const u = t * 2.` binds no `u` either, and `return u` is not an unknown
+identifier.
 
 ## 29. The mixin pattern
 

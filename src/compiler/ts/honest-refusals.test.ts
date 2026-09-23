@@ -416,9 +416,10 @@ export function fs(): vec4 {
 
 // #171: a refused DECLARATION binds no name, and every later read of the name used to add a
 // `TS8022 Unknown identifier` to the one refusal, naming a symbol the author did declare. The
-// report is dropped only when an error stands inside the declaration the name resolves to, so
-// each row below is one mistake and one sentence, and the last three are the reports that must
-// survive: a name out of scope, a name read before its declaration, a name nobody declared.
+// report is dropped only when an error stands inside the declaration the name resolves to, or
+// inside a declaration that one reads, so each row below is one mistake and one sentence, and
+// the last three are the reports that must survive: a name out of scope, a name read before its
+// declaration, a name nobody declared.
 describe('a refused declaration is the one diagnostic for its name (Rule 12.4, #171)', () => {
   const one = (src: string, message: string) => {
     const errs = errorsOf(src);
@@ -455,6 +456,22 @@ export function f(x: f32): f32 {
 export function f(a: vec3, b: vec2): vec3 {
   const c = a + b;
   return c * 2.;
+}
+`,
+      'Vectors must have the same size.',
+    );
+  });
+
+  it('a local declared from a refused one', () => {
+    // `u` reads `t`, whose product was refused, so `u` is not lowered either and binds no name;
+    // the one mistake is still the product, and `return u` is not an unknown identifier.
+    one(
+      `"use typeshade";
+export function f(a: vec3, b: vec2): vec3 {
+  const t = a * b;
+  const u = t * 2.;
+  const w = u + t;
+  return w;
 }
 `,
       'Vectors must have the same size.',

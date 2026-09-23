@@ -10,10 +10,19 @@
 // and every answer the service gives maps back to the document the author wrote (#162).
 //
 // Only a declaration TypeScript would get wrong is written into: a `const` or `let` with no
-// annotation, whose initializer does arithmetic, and whose front-end type is a vector or a
-// matrix TypeScript can spell. Everything else is served as written. An insertion never spans a
-// line break, so the two texts have the same lines and differ only in the columns after an
-// insertion on its own line.
+// annotation, a local or a module const, whose initializer applies an operator TypeScript types
+// as a `number` or a `boolean` (arithmetic, a bitwise operator, a comparison, a unary one), and
+// whose front-end type is a vector or a matrix: `const c = a < b` on two `vec3` is a `vec3b`,
+// and `const w = v * f64(2.)` a `vec3f64`. Everything else is served as written. An insertion
+// never spans a line break, so the two texts have the same lines and differ only in the columns
+// after an insertion on its own line.
+//
+// This is the one place a lost vector type is restored, and it restores it for every answer the
+// service gives, hover and completion as much as diagnostics. The diagnostics filters read no
+// type from the front end: what they judge is an operation used in place (`return a < b`), and
+// a name declared from one that the projection could not type, because the compiler refused the
+// declaration, is judged as that operation (`diagnostics.ts`). Both read one operator table,
+// `ERASING_OPERATORS`, so the two cannot disagree about which operation loses a vector's type.
 
 import ts from 'typescript';
 import type { ShaderType } from '../core/ir/types.js';
@@ -27,36 +36,98 @@ export interface Insertion {
   readonly text: string;
 }
 
-const ARITHMETIC: ReadonlySet<ts.SyntaxKind> = new Set([
-  ts.SyntaxKind.PlusToken,
-  ts.SyntaxKind.MinusToken,
-  ts.SyntaxKind.AsteriskToken,
-  ts.SyntaxKind.SlashToken,
-  ts.SyntaxKind.PercentToken,
+/** What the front end makes of a vector or matrix operand of an operator in
+ *  `ERASING_OPERATORS`: a value of the operands' own shape, or, for a comparison, the `bool`
+ *  vector of their width. */
+export type ErasedResult = 'shape' | 'bool';
+
+/**
+ * The binary operators TypeScript types as a `number` or a `boolean` whatever their operands,
+ * which on a vector or a matrix erases its type: the arithmetic (`+ - * / % **`), the bitwise
+ * and shift operators, their compound assignments, and the comparisons. The front end gives each
+ * a vector, or a matrix for matrix arithmetic, and a comparison of two vectors the `bool` vector
+ * of their width. `&&` and `||` are not among them: TypeScript types those as an operand's own
+ * type, and the front end takes them on a scalar `bool` only.
+ *
+ * One table, read twice: here, to find a declaration whose type TypeScript cannot infer, and by
+ * the diagnostics filter (`diagnostics.ts`), to recognize the report such an operation draws
+ * where its value is used in place.
+ */
+export const ERASING_OPERATORS: ReadonlyMap<ts.SyntaxKind, ErasedResult> = new Map([
+  [ts.SyntaxKind.PlusToken, 'shape'],
+  [ts.SyntaxKind.MinusToken, 'shape'],
+  [ts.SyntaxKind.AsteriskToken, 'shape'],
+  [ts.SyntaxKind.SlashToken, 'shape'],
+  [ts.SyntaxKind.PercentToken, 'shape'],
+  [ts.SyntaxKind.AsteriskAsteriskToken, 'shape'],
+  [ts.SyntaxKind.AmpersandToken, 'shape'],
+  [ts.SyntaxKind.BarToken, 'shape'],
+  [ts.SyntaxKind.CaretToken, 'shape'],
+  [ts.SyntaxKind.LessThanLessThanToken, 'shape'],
+  [ts.SyntaxKind.GreaterThanGreaterThanToken, 'shape'],
+  [ts.SyntaxKind.PlusEqualsToken, 'shape'],
+  [ts.SyntaxKind.MinusEqualsToken, 'shape'],
+  [ts.SyntaxKind.AsteriskEqualsToken, 'shape'],
+  [ts.SyntaxKind.SlashEqualsToken, 'shape'],
+  [ts.SyntaxKind.PercentEqualsToken, 'shape'],
+  [ts.SyntaxKind.AsteriskAsteriskEqualsToken, 'shape'],
+  [ts.SyntaxKind.AmpersandEqualsToken, 'shape'],
+  [ts.SyntaxKind.BarEqualsToken, 'shape'],
+  [ts.SyntaxKind.CaretEqualsToken, 'shape'],
+  [ts.SyntaxKind.LessThanLessThanEqualsToken, 'shape'],
+  [ts.SyntaxKind.GreaterThanGreaterThanEqualsToken, 'shape'],
+  [ts.SyntaxKind.LessThanToken, 'bool'],
+  [ts.SyntaxKind.LessThanEqualsToken, 'bool'],
+  [ts.SyntaxKind.GreaterThanToken, 'bool'],
+  [ts.SyntaxKind.GreaterThanEqualsToken, 'bool'],
+  [ts.SyntaxKind.EqualsEqualsEqualsToken, 'bool'],
+  [ts.SyntaxKind.ExclamationEqualsEqualsToken, 'bool'],
 ]);
 
-/** Whether `node` does arithmetic anywhere inside it: the only way TypeScript turns a vector
- *  into a `number`. A call, a swizzle or a constructor keeps its declared type. */
-function hasArithmetic(node: ts.Node): boolean {
-  if (ts.isBinaryExpression(node) && ARITHMETIC.has(node.operatorToken.kind)) return true;
-  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) return true;
-  return ts.forEachChild(node, (child) => (hasArithmetic(child) ? true : undefined)) === true;
+/** The unary operators that erase a vector's type the same way, each keeping its operand's
+ *  shape: negation, the identity `+`, bitwise not, logical not, and the increments. */
+export const ERASING_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.MinusToken,
+  ts.SyntaxKind.PlusToken,
+  ts.SyntaxKind.TildeToken,
+  ts.SyntaxKind.ExclamationToken,
+  ts.SyntaxKind.PlusPlusToken,
+  ts.SyntaxKind.MinusMinusToken,
+]);
+
+/** Whether `node` applies such an operator anywhere inside it: the only way TypeScript turns a
+ *  vector into a `number` or a `boolean`. A call, a swizzle or a constructor keeps its type. */
+function hasOperator(node: ts.Node): boolean {
+  if (ts.isBinaryExpression(node) && ERASING_OPERATORS.has(node.operatorToken.kind)) return true;
+  if (
+    (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+    ERASING_UNARY_OPERATORS.has(node.operator)
+  ) {
+    return true;
+  }
+  return ts.forEachChild(node, (child) => (hasOperator(child) ? true : undefined)) === true;
 }
 
-/** How the ambient library spells `type`, or undefined when it has no spelling this pass
- *  writes: only the `f32`, `i32` and `u32` vectors and the `f32` matrices. */
+/** How the ambient library spells `type`, or undefined when it is not a vector or a matrix:
+ *  the `f32`, `i32`, `u32` and `bool` vectors, the emulated-double ones, and the matrices, whose
+ *  `f64` form is a square one's type argument. */
 export function ambientSpelling(type: ShaderType): string | undefined {
   if (type.kind === 'vec') {
-    const suffix = { f32: '', i32: 'i', u32: 'u' }[type.elem as string];
+    const suffix = { f32: '', i32: 'i', u32: 'u', bool: 'b' }[type.elem as string];
     return suffix === undefined ? undefined : `vec${type.n}${suffix}`;
   }
-  if (type.kind === 'mat' && type.elem === 'f32') return `mat${type.cols}x${type.rows}`;
+  if (type.kind === 'vec64') return `vec${type.n}f64`;
+  if (type.kind === 'mat') {
+    const name = `mat${type.cols}x${type.rows}`;
+    return type.elem === 'f64' ? `${name}<f64>` : name;
+  }
   return undefined;
 }
 
 /**
- * The insertions for `text`: a `: <type>` after the name of every unannotated local whose
- * initializer does arithmetic and whose front-end type is a vector or a matrix. Reads the front
+ * The insertions for `text`: a `: <type>` after the name of every unannotated local or module
+ * const whose initializer applies an operator TypeScript types as a `number` or a `boolean`,
+ * and whose front-end type is a vector or a matrix. Reads the front
  * end's own record of what it declared, so the type written in is the type the compiler uses.
  * A document the front end cannot read, or one without the directive, gets none.
  */
@@ -74,7 +145,8 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
   if (!analysis.hasDirective) return [];
   const byNameStart = new Map<number, ShaderType>();
   for (const symbol of analysis.symbols) {
-    if (symbol.kind === 'local') byNameStart.set(symbol.start, symbol.type);
+    if (symbol.kind === 'local' || symbol.kind === 'const')
+      byNameStart.set(symbol.start, symbol.type);
   }
   const out: Insertion[] = [];
   for (const name of candidates(analysis.sourceFile)) {
@@ -86,7 +158,7 @@ export function planInsertions(text: string, fileName: string): Insertion[] {
 }
 
 /** The name of every declaration TypeScript may type wrongly: a `const` or `let` with no
- *  annotation, outside a `for` header, whose initializer does arithmetic. */
+ *  annotation, outside a `for` header, whose initializer applies such an operator. */
 function candidates(sourceFile: ts.SourceFile): ts.Identifier[] {
   const out: ts.Identifier[] = [];
   const visit = (node: ts.Node): void => {
@@ -96,7 +168,7 @@ function candidates(sourceFile: ts.SourceFile): ts.Identifier[] {
       node.type === undefined &&
       node.initializer !== undefined &&
       !ts.isForStatement(node.parent.parent) &&
-      hasArithmetic(node.initializer)
+      hasOperator(node.initializer)
     ) {
       out.push(node.name);
     }

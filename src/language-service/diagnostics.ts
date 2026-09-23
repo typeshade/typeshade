@@ -2,10 +2,10 @@
 
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
-import type { ShaderType } from '../core/ir/types.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
+import { ERASING_OPERATORS, ERASING_UNARY_OPERATORS } from './projection.js';
 import type { TypeshadeDiagnostic, TypeshadeSeverity, TypeshadeTextSpan } from './types.js';
 
 /**
@@ -40,11 +40,6 @@ type DiagnosticSpan = Pick<ts.Diagnostic, 'start' | 'length'>;
 interface DiagnosticFilterContext {
   readonly sourceFile: ts.SourceFile;
   readonly checker: ts.TypeChecker | undefined;
-  /** The type the front end gave each name it declared in this file, by the UTF-16 offset of
-   * the declared name (`CompileTsSourceResult.symbols`). Empty when the service has no
-   * analysis to hand, and then `lostBrandShape` answers `undefined` for every name, so a
-   * missing table, like a missing checker, can only ever show more diagnostics. */
-  readonly declaredTypes: ReadonlyMap<number, ShaderType>;
 }
 
 /**
@@ -166,55 +161,44 @@ function binaryExpressionSpanning(
   return undefined;
 }
 
-/** `+ - * / %` and their compound-assignment forms: the operators a vector or matrix operand
- * makes TypeScript give up on, and so the only ones `hasGpuArithmetic` accepts as the reason a
- * `number` turned up where a vector belongs. */
-const ARITHMETIC_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
-  ts.SyntaxKind.PlusToken,
-  ts.SyntaxKind.MinusToken,
-  ts.SyntaxKind.AsteriskToken,
-  ts.SyntaxKind.SlashToken,
-  ts.SyntaxKind.PercentToken,
-  ts.SyntaxKind.PlusEqualsToken,
-  ts.SyntaxKind.MinusEqualsToken,
-  ts.SyntaxKind.AsteriskEqualsToken,
-  ts.SyntaxKind.SlashEqualsToken,
-  ts.SyntaxKind.PercentEqualsToken,
-]);
-
-/** The unary forms of the same arithmetic: `-v`, `+v`, `v++`, `v--`. */
-const ARITHMETIC_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
-  ts.SyntaxKind.PlusToken,
-  ts.SyntaxKind.MinusToken,
-  ts.SyntaxKind.PlusPlusToken,
-  ts.SyntaxKind.MinusMinusToken,
-]);
+/**
+ * Whether `expression` is a vector or a matrix: to TypeScript (`isGpuExpression`), or to the
+ * compiler through an operation whose type TypeScript erased to a `number` or a `boolean`
+ * (`gpuArithmeticShape`), such as `(a < b)` in `(a < b) & m` or `(n * 2.)` in `(n * 2.) * m`.
+ * What an operator makes of such an operand is the compiler's to say, as it is for a branded
+ * one.
+ */
+function isGpuValue(context: DiagnosticFilterContext, expression: ts.Expression): boolean {
+  return (
+    isGpuExpression(context, expression) || gpuArithmeticShape(context, expression) !== undefined
+  );
+}
 
 /**
  * TS2362 points at the LEFT operand of an arithmetic operation whose type is not numeric, so
- * this drops it only when that operand is an ambient vector or matrix. `v * s`, `c.rgb * 0.5`,
- * `vec4(0.) * Math.PI`, `m * v` and `v *= 2.` are the arithmetic "use typeshade" is written in
- * and no ambient declaration can type them: a branded object type is not a `number`, and
- * un-branding the vectors to please this check would take every real vector check with it
- * (issue #21). Deciding per operand rather than "either operand is a vector" is what keeps
- * `v * "x"` red, through the TS2363 on the string.
+ * this drops it only when that operand is a vector or a matrix (`isGpuValue`). `v * s`,
+ * `c.rgb * 0.5`, `vec4(0.) * Math.PI`, `m * v` and `v *= 2.` are the arithmetic "use typeshade"
+ * is written in and no ambient declaration can type them: a branded object type is not a
+ * `number`, and un-branding the vectors to please this check would take every real vector check
+ * with it (issue #21). Deciding per operand rather than "either operand is a vector" is what
+ * keeps `v * "x"` red, through the TS2363 on the string.
  */
 function isGpuLeftOperand(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
   const binary = binaryExpressionAt(context, diagnostic);
   if (binary === undefined) return false;
   const pos = diagnostic.start ?? 0;
   if (pos < binary.left.getStart() || pos >= binary.operatorToken.getStart()) return false;
-  return isGpuExpression(context, binary.left);
+  return isGpuValue(context, binary.left);
 }
 
 /** TS2363 is TS2362 for the RIGHT operand (`m * v`'s vector, `2. * v`), and filtered the same
- * way: only when the operand the code points at is itself an ambient vector or matrix. */
+ * way: only when the operand the code points at is itself a vector or a matrix. */
 function isGpuRightOperand(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
   const binary = binaryExpressionAt(context, diagnostic);
   if (binary === undefined) return false;
   const pos = diagnostic.start ?? 0;
   if (pos < binary.right.getStart() || pos >= binary.right.getEnd()) return false;
-  return isGpuExpression(context, binary.right);
+  return isGpuValue(context, binary.right);
 }
 
 /**
@@ -223,45 +207,135 @@ function isGpuRightOperand(context: DiagnosticFilterContext, diagnostic: ts.Diag
  * what makes it the known false positive. `vec3(1.) + vec2(1.)` is dropped here too, and is not
  * thereby unreported: the compiler's own TYPE_MISMATCH (`TS8003`, "Vectors must have the same
  * size") is the authority on what combines with what, and leaving both would show the editor
- * two messages for one mistake. The operator has to be arithmetic as well: TS2365 is raised for
- * other operators too, and this rule claims only the arithmetic false positive, so a vector
- * operand alone is never reason enough to drop one. The operation asked about is the one the
- * code SPANS (see `binaryExpressionSpanning`), not the nearest one enclosing its start offset,
- * which for a left-nested product is a different operation entirely.
+ * two messages for one mistake. The operator has to be one the front end gives the operands'
+ * own shape (`ERASING_OPERATORS`), arithmetic or bitwise: a comparison draws TS2365 only when
+ * its operands really do not compare, a vector with a vector of another size or with a scalar,
+ * which the compiler reports as well, so that TS2365 is not a false positive but the same
+ * mistake, and the merge keeps the compiler's (`SAME_MISTAKE`). The operation asked about is
+ * the one the code SPANS (see `binaryExpressionSpanning`), not the nearest one enclosing its
+ * start offset, which for a left-nested product is a different operation entirely.
  */
 function isGpuBinaryOperand(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
   const binary = binaryExpressionSpanning(context, diagnostic);
   if (binary === undefined) return false;
-  if (!ARITHMETIC_OPERATORS.has(binary.operatorToken.kind)) return false;
-  return isGpuExpression(context, binary.left) || isGpuExpression(context, binary.right);
+  if (ERASING_OPERATORS.get(binary.operatorToken.kind) !== 'shape') return false;
+  return isGpuValue(context, binary.left) || isGpuValue(context, binary.right);
+}
+
+/** The operators TypeScript refuses on two booleans with TS2447, suggesting `&&`, `||` or
+ *  `!==` in their place. */
+const BOOLEAN_BITWISE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.BarToken,
+  ts.SyntaxKind.CaretToken,
+  ts.SyntaxKind.AmpersandEqualsToken,
+  ts.SyntaxKind.BarEqualsToken,
+  ts.SyntaxKind.CaretEqualsToken,
+]);
+
+/**
+ * TS2447 ("The '&' operator is not allowed for boolean types"), on two masks: `(a < b) & (c < d)`.
+ * A comparison of two vectors is the `bool` vector of their width to the compiler and a
+ * `boolean` to TypeScript, which refuses a bitwise operator on two booleans. On `vecN<bool>`,
+ * `&`, `|` and `^` are WGSL's componentwise and, or and xor, and the `&&` and `||` TypeScript
+ * suggests instead take a scalar `bool` only. Dropped when either operand is a vector
+ * (`isGpuValue`); the compiler reports two masks of different widths itself. On two scalar
+ * booleans the code stands.
+ */
+function isGpuMaskOperation(context: DiagnosticFilterContext, diagnostic: ts.Diagnostic): boolean {
+  const binary = binaryExpressionSpanning(context, diagnostic);
+  if (binary === undefined || !BOOLEAN_BITWISE_OPERATORS.has(binary.operatorToken.kind)) {
+    return false;
+  }
+  return isGpuValue(context, binary.left) || isGpuValue(context, binary.right);
+}
+
+/** The operation a name stands for (`erasedNameOf`), with the declarations already read through
+ *  to reach it. */
+interface ErasedName {
+  readonly operation: ts.Expression;
+  readonly expanding: ReadonlySet<ts.Node>;
 }
 
 /**
- * Whether `node` does arithmetic on an ambient vector or matrix anywhere inside it. The whole
- * subtree is searched because the `number` such an operation produces spreads: in
- * `normalize(a * 2.)` the argument is already a `number` when the call's return type is
- * inferred, so the node TS2322 is reported on can sit several levels above the operation that
- * caused it. A name whose declaration's arithmetic lost the brand (`lostBrandShape`) carries
- * that arithmetic with it, so `normalize(lit)` answers as `normalize(albedo * d)` does.
+ * The operation a NAME stands for, when TypeScript typed the name from an operation that erased
+ * a vector's type and nothing wrote the type back in: the name's declaration is a `const` or
+ * `let` of this file with no type annotation, whose initializer is itself such an operation
+ * (`const t = m * s`, `const c = a < b`), so TypeScript typed it the `number` or `boolean` the
+ * operation's own report is filtered for.
+ *
+ * In the program the service builds, the projection has written the type into every such
+ * declaration the compiler gave a vector or a matrix (`projection.ts`), so a declaration left
+ * without one is, in practice, one the compiler REFUSED: it has reported the operation, and
+ * every TypeScript report about the name is that `number` again. The name is judged as the
+ * operation would be in its place, `return t` as `return m * s`, so the compiler's report
+ * stands alone, the way `refused-names.ts` has the compiler itself say nothing more about a
+ * name whose declaration it refused. A name TypeScript typed from anything else (a call, a
+ * swizzle, a literal) is judged by TypeScript's own type.
+ *
+ * `expanding` holds the declarations already read through, so names declared from each other
+ * (`const a = b * 2.` and `const b = a * 2.`) end the walk.
  */
-function hasGpuArithmetic(context: DiagnosticFilterContext, node: ts.Node): boolean {
-  if (ts.isIdentifier(node)) return lostBrandShape(context, node) !== undefined;
+function erasedNameOf(
+  context: DiagnosticFilterContext,
+  name: ts.Identifier,
+  expanding: ReadonlySet<ts.Node>,
+): ErasedName | undefined {
+  const declaration = context.checker?.getSymbolAtLocation(name)?.valueDeclaration;
+  if (
+    declaration === undefined ||
+    !ts.isVariableDeclaration(declaration) ||
+    declaration.type !== undefined ||
+    declaration.initializer === undefined ||
+    declaration.getSourceFile() !== context.sourceFile ||
+    expanding.has(declaration)
+  ) {
+    return undefined;
+  }
+  const operation = unparenthesized(declaration.initializer);
+  const erasing =
+    (ts.isBinaryExpression(operation) && ERASING_OPERATORS.has(operation.operatorToken.kind)) ||
+    ((ts.isPrefixUnaryExpression(operation) || ts.isPostfixUnaryExpression(operation)) &&
+      ERASING_UNARY_OPERATORS.has(operation.operator));
+  return erasing ? { operation, expanding: new Set([...expanding, declaration]) } : undefined;
+}
+
+/**
+ * Whether `node` applies an operator that erases a vector's type (`ERASING_OPERATORS`,
+ * `ERASING_UNARY_OPERATORS`) to an ambient vector or matrix anywhere inside it: arithmetic, a
+ * bitwise or shift operator, a comparison, or a unary one. The whole subtree is searched because
+ * the `number` or `boolean` such an operation produces spreads: in `normalize(a * 2.)` the
+ * argument is already a `number` when the call's return type is inferred, so the node TS2322 is
+ * reported on can sit several levels above the operation that caused it. A name declared from
+ * such an operation with no type written in stands for it (`erasedNameOf`).
+ */
+function hasGpuArithmetic(
+  context: DiagnosticFilterContext,
+  node: ts.Node,
+  expanding: ReadonlySet<ts.Node> = new Set(),
+): boolean {
+  if (ts.isIdentifier(node)) {
+    const erased = erasedNameOf(context, node, expanding);
+    return erased !== undefined && hasGpuArithmetic(context, erased.operation, erased.expanding);
+  }
   if (
     ts.isBinaryExpression(node) &&
-    ARITHMETIC_OPERATORS.has(node.operatorToken.kind) &&
+    ERASING_OPERATORS.has(node.operatorToken.kind) &&
     (isGpuExpression(context, node.left) || isGpuExpression(context, node.right))
   ) {
     return true;
   }
   if (
     (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
-    ARITHMETIC_UNARY_OPERATORS.has(node.operator) &&
+    ERASING_UNARY_OPERATORS.has(node.operator) &&
     isGpuExpression(context, node.operand)
   ) {
     return true;
   }
   return (
-    ts.forEachChild(node, (child) => (hasGpuArithmetic(context, child) ? true : undefined)) ?? false
+    ts.forEachChild(node, (child) =>
+      hasGpuArithmetic(context, child, expanding) ? true : undefined,
+    ) ?? false
   );
 }
 
@@ -344,10 +418,11 @@ function isFieldLiteralOfClass(
 /**
  * TS2322 ("Type 'number' is not assignable to type 'vec3'") in a position that wants a vector
  * or matrix. Dropped only when the TARGET is an ambient vector or matrix and the value either
- * is one too or contains vector or matrix arithmetic, because arithmetic is the only thing that
- * makes the checker wrong here: `v * s` is typed `number`, so the `vec3` return annotation, the
- * `vec3` local, the `vec3` field or the `vec3` assignment target it flows into reports a
- * mismatch the compiler accepts. `let n: f32 = v` therefore keeps its TS2322: a scalar target is
+ * is one too or applies an operation that erases a vector's type (`hasGpuArithmetic`), because
+ * such an operation is the only thing that makes the checker wrong here: `v * s` is typed
+ * `number` and `a < b` `boolean`, so the `vec3` or `vec3b` return annotation, local, field or
+ * assignment target it flows into reports a mismatch the compiler accepts. The annotation the
+ * projection writes into a declaration from one (`const c = a < b`) is such a target. `let n: f32 = v` therefore keeps its TS2322: a scalar target is
  * a `number` to TypeScript, so nothing about that mismatch is the brand's doing. When target and
  * value are both vectors of the wrong shapes for each other, the compiler's own TYPE_MISMATCH
  * is the message the editor shows, as it is for TS2365.
@@ -466,31 +541,43 @@ function parameterTypesAt(
 }
 
 /**
- * Whether the parameter `position` lands on is INFERRED from the call's own arguments, that is,
- * whether the signature declares it as one of its own type parameters (`dot<T extends Numeric>`,
- * `hypot<T>(...args: T[])`). Such a position has no fixed type to compare against: it is
- * whatever the checker inferred from the arguments, so one argument's type decides the type
- * every other argument is then checked against.
+ * The type parameter the parameter `position` lands on, when that parameter is INFERRED from the
+ * call's own arguments, that is, when the signature declares it as one of its own type
+ * parameters (`dot<T extends Numeric>`, `hypot<T>(...args: T[])`); `undefined` for a parameter
+ * of a fixed type. Such a position has no fixed type to compare against: it is whatever the
+ * checker inferred from the arguments, so one argument's type decides the type every other
+ * argument in a position of the same type parameter is then checked against. A position of a
+ * fixed type beside them (`select`'s `cond`) takes no part in that.
  */
-function isInferredParameter(
+function inferredParameterOf(
   checker: ts.TypeChecker,
   position: ArgumentPosition,
   signature: ts.Signature,
-): boolean {
+): ts.Type | undefined {
   const declaration = signature.getDeclaration() as ts.SignatureDeclaration | undefined;
-  if (declaration === undefined) return false;
+  if (declaration === undefined) return undefined;
   const parameters = declaration.parameters;
   const last = parameters[parameters.length - 1];
   const parameter =
     parameters[position.index] ??
     (last !== undefined && last.dotDotDotToken !== undefined ? last : undefined);
   const declared = parameter?.type;
-  if (declared === undefined) return false;
+  if (declared === undefined) return undefined;
   const node =
     parameter.dotDotDotToken !== undefined && ts.isArrayTypeNode(declared)
       ? declared.elementType
       : declared;
-  return (checker.getTypeAtLocation(node).flags & ts.TypeFlags.TypeParameter) !== 0;
+  const type = checker.getTypeAtLocation(node);
+  return (type.flags & ts.TypeFlags.TypeParameter) !== 0 ? type : undefined;
+}
+
+/** Whether the parameter `position` lands on is inferred (`inferredParameterOf`). */
+function isInferredParameter(
+  checker: ts.TypeChecker,
+  position: ArgumentPosition,
+  signature: ts.Signature,
+): boolean {
+  return inferredParameterOf(checker, position, signature) !== undefined;
 }
 
 /**
@@ -525,9 +612,7 @@ function gpuShapeKeysOfType(
 }
 
 /** The one brand shape `expression`'s own type carries, or `undefined` when it carries none (a
- * `number`, an `f32`, the `number` a product is typed) or more than one. A name whose brand its
- * declaration's arithmetic dropped answers with the shape the front end gave it
- * (`lostBrandShape`), so a local stands in for its initializer wherever a shape is asked. */
+ * `number`, an `f32`, the `number` a product is typed) or more than one. */
 function gpuShapeOfExpression(
   context: DiagnosticFilterContext,
   expression: ts.Expression,
@@ -535,8 +620,7 @@ function gpuShapeOfExpression(
   const checker = context.checker;
   if (checker === undefined) return undefined;
   const keys = gpuShapeKeysOfType(checker, checker.getTypeAtLocation(expression), expression);
-  if (keys.size > 0) return keys.size === 1 ? [...keys][0] : undefined;
-  return lostBrandShape(context, expression);
+  return keys.size === 1 ? [...keys][0] : undefined;
 }
 
 /** `expression` with any parentheses around it taken off: `(lit)` is the name `lit`. */
@@ -544,64 +628,6 @@ function unparenthesized(expression: ts.Expression): ts.Expression {
   let inner = expression;
   while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
   return inner;
-}
-
-/**
- * The brand shape key (`gpuShapeKeysOfType`'s spelling) the ambient declaration of `type`
- * carries: `vecTag:readonly ["f32", 3]` for a `vec3<f32>`, `vec64Tag:3` for a `vec3f64`,
- * `matTag:readonly ["f32", 4, 4]` for a `mat4x4<f32>`. `undefined` for every type that is not a
- * vector or a matrix. `diagnostics.test.ts` measures each spelling against the ambient lib's own
- * brand, so the two cannot drift apart without a failing test.
- */
-function shapeKeyOfShaderType(type: ShaderType): string | undefined {
-  switch (type.kind) {
-    case 'vec':
-      return `vecTag:readonly ["${type.elem}", ${String(type.n)}]`;
-    case 'vec64':
-      return `vec64Tag:${String(type.n)}`;
-    case 'mat':
-      return `matTag:readonly ["${type.elem}", ${String(type.cols)}, ${String(type.rows)}]`;
-    default:
-      return undefined;
-  }
-}
-
-/**
- * The brand shape a NAME lost: the front end typed its declaration a vector or a matrix, and
- * TypeScript typed it without the brand. A local or module constant declared with no type from
- * vector arithmetic is the case (`const lit = albedo * d`): TypeScript infers the `number` the
- * arithmetic is typed, so every use of `lit` repeats the false positive the arithmetic itself
- * is filtered for, at a call (TS2345, TS2769), an assignment or return (TS2322) and a swizzle
- * (TS2339), where the compiler has the local as the `vec3` it is. `normalize(n * 2.)` loses it
- * the same way through the type parameter the `number` argument settles. Without this, the one
- * way to quiet those reports was to annotate every such local by hand.
- *
- * Only a name declared with no type annotation qualifies, since an annotation is exactly what
- * TypeScript keeps; and only when TypeScript's own type for it carries no brand, so a name
- * whose brand survived is always measured by TypeScript's type. The front end's type is read
- * off `declaredTypes`, by the declared name's own offset, so the answer is the compiler's.
- */
-function lostBrandShape(
-  context: DiagnosticFilterContext,
-  expression: ts.Expression,
-): string | undefined {
-  const checker = context.checker;
-  if (checker === undefined) return undefined;
-  const name = unparenthesized(expression);
-  if (!ts.isIdentifier(name)) return undefined;
-  const declaration = checker.getSymbolAtLocation(name)?.valueDeclaration;
-  if (
-    declaration === undefined ||
-    !ts.isVariableDeclaration(declaration) ||
-    declaration.type !== undefined ||
-    !ts.isIdentifier(declaration.name) ||
-    declaration.getSourceFile() !== context.sourceFile
-  ) {
-    return undefined;
-  }
-  const type = context.declaredTypes.get(declaration.name.getStart(context.sourceFile));
-  if (type === undefined || isGpuBrandedType(checker.getTypeAtLocation(name))) return undefined;
-  return shapeKeyOfShaderType(type);
 }
 
 /** `matTag:` keys, so `gpuArithmeticShape` can tell a matrix operand from a vector one. */
@@ -619,39 +645,71 @@ function gpuOperationShape(
   return left;
 }
 
+/** A vector's shape key, either brand, with its width captured: `vecTag:readonly ["f32", 3]`
+ *  or `vec64Tag:3`. */
+const VECTOR_SHAPE = /^(?:vecTag:readonly \["\w+", (\d)\]|vec64Tag:(\d))$/;
+
+/** The shape a comparison makes of operands of `shape`: the `bool` vector of their width, as
+ *  `gpuShapeKeysOfType` reads it off a `vec3b`. `undefined` for a matrix, which compares to
+ *  nothing. */
+function comparisonShape(shape: string): string | undefined {
+  const match = VECTOR_SHAPE.exec(shape);
+  const n = match?.[1] ?? match?.[2];
+  return n === undefined ? undefined : `vecTag:readonly ["bool", ${n}]`;
+}
+
 /**
- * The shape the vector or matrix arithmetic inside `node` would have produced if the brand had
+ * The shape the vector or matrix operation inside `node` would have produced if its type had
  * survived it: what `hasGpuArithmetic` finds, answered with a shape instead of a yes. The walk
  * takes the OUTERMOST such operation, because that is the value the call receives:
  * `u.tint.rgb * (vo.uv.y * u.gain)` is a `vec3`, decided by its own operands, not by the scalar
- * product nested in its right-hand side.
+ * product nested in its right-hand side. An operand is measured the same way, so `m * (c * 2.)`
+ * is the vector a matrix times a vector makes, and `(a * 2.) < b` the `bool` vector a comparison
+ * does.
  */
-function gpuArithmeticShape(context: DiagnosticFilterContext, node: ts.Node): string | undefined {
-  if (ts.isIdentifier(node)) return lostBrandShape(context, node);
-  if (ts.isBinaryExpression(node) && ARITHMETIC_OPERATORS.has(node.operatorToken.kind)) {
-    const shape = gpuOperationShape(
-      gpuShapeOfExpression(context, node.left),
-      gpuShapeOfExpression(context, node.right),
-    );
-    if (shape !== undefined) return shape;
+function gpuArithmeticShape(
+  context: DiagnosticFilterContext,
+  node: ts.Node,
+  expanding: ReadonlySet<ts.Node> = new Set(),
+): string | undefined {
+  if (ts.isIdentifier(node)) {
+    const erased = erasedNameOf(context, node, expanding);
+    return erased === undefined
+      ? undefined
+      : gpuValueShape(context, erased.operation, erased.expanding);
+  }
+  // An operand's own shape already searched the operand, so an operation whose operands have
+  // none has none, and the walk does not go down it a second time.
+  if (ts.isBinaryExpression(node)) {
+    const result = ERASING_OPERATORS.get(node.operatorToken.kind);
+    if (result !== undefined) {
+      const shape = gpuOperationShape(
+        gpuValueShape(context, node.left, expanding),
+        gpuValueShape(context, node.right, expanding),
+      );
+      return shape !== undefined && result === 'bool' ? comparisonShape(shape) : shape;
+    }
   }
   if (
     (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
-    ARITHMETIC_UNARY_OPERATORS.has(node.operator)
+    ERASING_UNARY_OPERATORS.has(node.operator)
   ) {
-    const shape = gpuShapeOfExpression(context, node.operand);
-    if (shape !== undefined) return shape;
+    return gpuValueShape(context, node.operand, expanding);
   }
-  return ts.forEachChild(node, (child) => gpuArithmeticShape(context, child));
+  return ts.forEachChild(node, (child) => gpuArithmeticShape(context, child, expanding));
 }
 
-/** The shape a value would have if arithmetic kept the brand: its own, or the one the
- * arithmetic inside it produced. `undefined` for a value that is not about vectors at all. */
+/** The shape a value would have if the operations inside it kept a vector's type: its own, or
+ * the one the operation inside it produced. `undefined` for a value that is not about vectors
+ * at all. */
 function gpuValueShape(
   context: DiagnosticFilterContext,
   expression: ts.Expression,
+  expanding: ReadonlySet<ts.Node> = new Set(),
 ): string | undefined {
-  return gpuShapeOfExpression(context, expression) ?? gpuArithmeticShape(context, expression);
+  return (
+    gpuShapeOfExpression(context, expression) ?? gpuArithmeticShape(context, expression, expanding)
+  );
 }
 
 /** Every brand shape the parameter at `position` accepts, across the signatures
@@ -676,11 +734,14 @@ function parameterShapesAt(
  * this check `cross(a * 2., b)` with a `vec2` `b` goes completely silent, and the front end has
  * no argument check for the ambient math functions to speak in TypeScript's place.
  *
- * A sibling in an INFERRED position is measured against `shape`, since a type parameter is one
- * type for the whole call and `shape` is what this argument settles it to; one in a fixed
- * position is measured against the shapes its own parameter declares. A sibling that carries no
- * shape at all (a literal, an `f32`, a string) is left alone: it is not this rule's business,
- * and TypeScript reports it on its own once the arithmetic stops hiding it.
+ * A sibling in an INFERRED position is measured against the shape its type parameter settles
+ * to, since a type parameter is one type for the whole call: `shape`, when this argument sits in
+ * a position of the same type parameter, and otherwise the first sibling's shape in one. A
+ * sibling in a fixed position is measured against the shapes its own parameter declares, so in
+ * `select(a, b, (a < b) & m)` the two values settle `T` between them and the mask is measured
+ * against `cond`. A sibling that carries no shape at all (a literal, an `f32`, a string) is left
+ * alone: it is not this rule's business, and TypeScript reports it on its own once the
+ * arithmetic stops hiding it.
  */
 function otherArgumentsFit(
   context: DiagnosticFilterContext,
@@ -689,13 +750,21 @@ function otherArgumentsFit(
   resolved: ts.Signature | undefined,
   shape: string,
 ): boolean {
+  const settled = new Map<ts.Type, string>();
+  const own = resolved === undefined ? undefined : inferredParameterOf(checker, position, resolved);
+  if (own !== undefined) settled.set(own, shape);
   return position.call.arguments.every((argument, index) => {
     if (index === position.index) return true;
     const other = gpuValueShape(context, argument);
     if (other === undefined) return true;
     const at: ArgumentPosition = { call: position.call, index, argument };
-    if (resolved !== undefined && isInferredParameter(checker, at, resolved))
-      return other === shape;
+    const parameter =
+      resolved === undefined ? undefined : inferredParameterOf(checker, at, resolved);
+    if (parameter !== undefined) {
+      const expected = settled.get(parameter) ?? other;
+      settled.set(parameter, expected);
+      return other === expected;
+    }
     const declared = parameterShapesAt(checker, at, resolved);
     return declared.size === 0 || declared.has(other);
   });
@@ -790,16 +859,17 @@ function overloadFitsRestoredShapes(
   ) {
     return false;
   }
-  let inferred: string | undefined;
+  const settled = new Map<ts.Type, string>();
   for (let index = 0; index < call.arguments.length; index++) {
     const argument = call.arguments[index]!;
     const parameter = parameterTypeOfSignature(checker, overload, index, call);
     if (parameter === undefined) return false;
     const shape = gpuValueShape(context, argument) ?? SCALAR_SHAPE;
     const position: ArgumentPosition = { call, index, argument };
-    if (isInferredParameter(checker, position, overload)) {
-      if (inferred !== undefined && inferred !== shape) return false;
-      inferred = shape;
+    const inferred = inferredParameterOf(checker, position, overload);
+    if (inferred !== undefined) {
+      if ((settled.get(inferred) ?? shape) !== shape) return false;
+      settled.set(inferred, shape);
       continue;
     }
     const declared = gpuShapeKeysOfType(checker, parameter, call);
@@ -889,12 +959,12 @@ function isGpuArithmeticOverloadCall(
 }
 
 /**
- * TS2339 ("Property 'xy' does not exist on type 'number'"): a member read on a vector whose
- * brand arithmetic dropped, in place (`(n * 2.).xy`) or through a name declared with no type
- * (`lit.x` after `const lit = albedo * d`). TypeScript has no vector there to find the member
- * on. The front end checks every swizzle itself and names what is wrong with a bad one
- * (`TS8022 .w out of range on vec3<f32>`), so it is the authority here, as `TS8003` is for
- * TS2365: the whole family of this code on such a value is dropped, and a real mistake is
+ * TS2339 ("Property 'xy' does not exist on type 'number'"): a member read on a vector whose type
+ * an operation erased, in place (`(n * 2.).xy`, `(a < b).x`) or through a name declared from
+ * one that the projection could not type (`erasedNameOf`). TypeScript has no vector there to
+ * find the member on. The front end checks every swizzle itself and names what is wrong with a
+ * bad one (`TS8022 .w out of range on vec3<f32>`), so it is the authority here, as `TS8003` is
+ * for TS2365: the whole family of this code on such a value is dropped, and a real mistake is
  * reported once, by the compiler.
  *
  * A value TypeScript still types as a vector keeps its TS2339, and so does a matrix, which has
@@ -906,13 +976,15 @@ function isLostBrandMember(context: DiagnosticFilterContext, diagnostic: ts.Diag
   while (node !== undefined && !ts.isPropertyAccessExpression(node)) node = node.parent;
   if (node === undefined || node.name.getStart(context.sourceFile) !== pos) return false;
   const object = node.expression;
-  // A lost brand shows as the `number` the arithmetic is typed (or the `any` of an erroneous
-  // one). An object TypeScript types as anything else, a struct included, is measured by
-  // TypeScript's own member check.
+  // An erased type shows as the `number` arithmetic is typed, the `boolean` a comparison is, or
+  // the `any` of an erroneous operation. An object TypeScript types as anything else, a struct
+  // included, is measured by TypeScript's own member check.
   const checker = context.checker;
   if (checker === undefined) return false;
   const flags = checker.getTypeAtLocation(object).flags;
-  if ((flags & (ts.TypeFlags.NumberLike | ts.TypeFlags.Any)) === 0) return false;
+  if ((flags & (ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.Any)) === 0) {
+    return false;
+  }
   const shape = gpuValueShape(context, object);
   return shape !== undefined && !shape.startsWith(MATRIX_SHAPE_PREFIX);
 }
@@ -935,7 +1007,8 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       '`v *= 2.`. The ambient lib brands those types so a `vec3` and a `vec2` stay distinct, ' +
       'and a branded object type is not a `number` to this check, which no compiler option ' +
       'relaxes. Dropped only when the operand this code points at is one of those branded ' +
-      'types, so `1 * "x"` and the string in `v * "x"` stay red. Issue #21, design doc §6.',
+      'types, or an operation on one whose type TypeScript erased (`(a < b)` in `(a < b) * m`), ' +
+      'so `1 * "x"` and the string in `v * "x"` stay red. Issue #21, design doc §6.',
     when: isGpuLeftOperand,
   },
   {
@@ -947,19 +1020,32 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
     code: 2365,
     reason:
       'The same arithmetic seen from the operator instead of from one operand (`a + b` on two ' +
-      'vectors reports this, not TS2362). Dropped when the operator is arithmetic and either ' +
-      "operand is a branded vector or matrix; the compiler's own TYPE_MISMATCH stays the " +
-      'authority on which shapes combine, so a real `vec3(1.) + vec2(1.)` is reported once, by ' +
-      '`TS8003`, instead of twice. TS2365 from any other operator is left alone.',
+      'vectors reports this, not TS2362). Dropped when the operator is arithmetic or bitwise ' +
+      "and either operand is a branded vector or matrix; the compiler's own TYPE_MISMATCH " +
+      'stays the authority on which shapes combine, so a real `vec3(1.) + vec2(1.)` is ' +
+      'reported once, by `TS8003`, instead of twice. A comparison draws this code only when its ' +
+      'operands really do not compare, which the compiler reports too, so that one is a ' +
+      "mistake, not a false positive, and the merge keeps the compiler's report of it.",
     when: isGpuBinaryOperand,
+  },
+  {
+    code: 2447,
+    reason:
+      '`&`, `|` or `^` on two masks, `(a < b) & (c < d)`: a comparison of vectors is a `bool` ' +
+      'vector to the compiler and a `boolean` to TypeScript, which refuses a bitwise operator ' +
+      "on two booleans. On `vecN<bool>` the three are WGSL's componentwise and, or and xor, and " +
+      'the `&&` and `||` suggested instead take a scalar `bool` only. Dropped when either ' +
+      'operand is a vector to the compiler; on two scalar booleans the code stands.',
+    when: isGpuMaskOperation,
   },
   {
     code: 2322,
     reason:
-      'The knock-on of the three above: vector arithmetic is typed `number`, so the `vec3` ' +
-      'return, local, field or assignment target it flows into looks unassignable. Dropped ' +
-      'only when the target is a branded vector or matrix AND the value is one too or does ' +
-      'vector or matrix arithmetic, so `let n: f32 = v` (a scalar target) still reports.',
+      'The knock-on of the three above: an operation on a vector is typed `number`, and a ' +
+      'comparison `boolean`, so the `vec3` or `vec3b` return, local, field or assignment ' +
+      'target it flows into looks unassignable. Dropped only when the target is a branded ' +
+      'vector or matrix AND the value is one too or applies such an operation to one ' +
+      '(`ERASING_OPERATORS`), so `let n: f32 = v` (a scalar target) still reports.',
     when: isGpuArithmeticAssignment,
   },
   {
@@ -1008,12 +1094,12 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 2339,
     reason:
-      'A swizzle of a vector whose brand arithmetic dropped, in place (`(n * 2.).xy`) or ' +
-      'through a name declared with no type (`lit.x` after `const lit = albedo * d`, which ' +
-      'TypeScript types `number` and the compiler `vec3`). The front end checks every swizzle ' +
-      'and names a bad one (`TS8022 .w out of range on vec3<f32>`), so it is the authority ' +
-      'and a real mistake is reported once. A value TypeScript still types as a vector keeps ' +
-      'this code, and so does a matrix.',
+      'A swizzle of a vector whose type an operation erased, in place (`(n * 2.).xy`, ' +
+      '`(a < b).x`) or through a name declared from one that the projection could not type, ' +
+      'because the compiler refused the declaration. The front end checks every swizzle and ' +
+      'names a bad one (`TS8022 .w out of range on vec3<f32>`), so it is the authority and a ' +
+      'real mistake is reported once. A value TypeScript still types as a vector keeps this ' +
+      'code, and so does a matrix.',
     when: isLostBrandMember,
   },
 ];
@@ -1134,6 +1220,20 @@ const SAME_MISTAKE: readonly SameMistake[] = [
     typescript: 2322,
     typeshade: new Set(['TS8003']),
     reason: 'A value of the wrong type, assigned or declared.',
+  },
+  {
+    typescript: 2365,
+    typeshade: new Set(['TS8003']),
+    reason:
+      'Operands that do not combine: a comparison of two vectors of different sizes, or of a ' +
+      'vector and a scalar, which TypeScript reports as an operator it cannot apply.',
+  },
+  {
+    typescript: 2367,
+    typeshade: new Set(['TS8003']),
+    reason:
+      'The same at `===` and `!==`, which TypeScript reports as a comparison of two types that ' +
+      'have no overlap.',
   },
   {
     typescript: 2345,
@@ -1315,7 +1415,7 @@ export function mergeDiagnostics(
   if (analysis === undefined || analysis.sourceFile.text !== sourceFile.text) {
     return [...typescript, ...typeshade];
   }
-  const context: DiagnosticFilterContext = { sourceFile, checker, declaredTypes: new Map() };
+  const context: DiagnosticFilterContext = { sourceFile, checker };
   const compilerErrors = typeshade.filter((d) => d.severity === 'error');
   const keptTypescript = typescript.filter((diagnostic) => {
     if (diagnostic.severity !== 'error') return true;
@@ -1369,28 +1469,20 @@ function toTypeshadeDiagnostic(
  * mapped to `TypeshadeDiagnostic` with `source: 'typescript'`, with `TS_DIAGNOSTIC_FILTERS`
  * applied (§6). `uri` is the document's uri, threaded through for the returned diagnostics'
  * `uri` field (`sourceFile.fileName` inside the language service's program is the same value,
- * but naming it explicitly keeps this function agnostic to that detail). `analysis` is the
- * front end's analysis of the same `sourceFile`; the filters read the types it gave the names
- * the file declares (`lostBrandShape`), and without it they judge from TypeScript alone.
+ * but naming it explicitly keeps this function agnostic to that detail).
  */
 export function getTypeScriptDiagnostics(
   languageService: ts.LanguageService,
   sourceFile: ts.SourceFile,
   uri: string,
-  analysis?: CompileTsSourceResult,
 ): TypeshadeDiagnostic[] {
   const raw = [
     ...languageService.getSyntacticDiagnostics(uri),
     ...languageService.getSemanticDiagnostics(uri),
   ];
-  const declaredTypes = new Map<number, ShaderType>();
-  if (analysis !== undefined && analysis.sourceFile.text === sourceFile.text) {
-    for (const symbol of analysis.symbols) declaredTypes.set(symbol.start, symbol.type);
-  }
   const context: DiagnosticFilterContext = {
     sourceFile,
     checker: languageService.getProgram()?.getTypeChecker(),
-    declaredTypes,
   };
   return raw
     .filter((d) => !isFiltered(context, d))
