@@ -111,11 +111,16 @@ const storageBufferAccessUnion = COMPILER_STORAGE_BUFFER_ACCESS.map((w) => `'${w
 /** The nine \`matCxR\` aliases plus the \`matN\` shorthand for a square one, each taking the
  * element as an optional type argument — the same names `type-map.ts` maps and
  * `expression-call.ts` builds, generated from one pair of loops so the three cannot drift.
- * Only a SQUARE matrix takes `f64`: the fp64 pass has one df64 body per dimension. */
+ * Only a SQUARE matrix takes `f64`: the fp64 pass has one df64 body per dimension.
+ *
+ * The element is keyed on `keyof` for the reason `VecElemOf` is: the scalar brands are
+ * optional properties, so `f32 extends f64` is true. Written as `T extends f64`, the default
+ * `mat4` resolved to an `'f64'` element, its column to `never`, and `m[3].xyz` was TS2339 on a
+ * program the compiler accepts. */
 const MAT_ARITIES = [2, 3, 4] as const;
 const matTypeAliases = MAT_ARITIES.flatMap((cols) =>
   MAT_ARITIES.flatMap((rows) => {
-    const elem = cols === rows ? "T extends f64 ? 'f64' : 'f32'" : "'f32'";
+    const elem = cols === rows ? "typeof f64Tag extends keyof T ? 'f64' : 'f32'" : "'f32'";
     const param = cols === rows ? '<T extends f32 | f64 = f32>' : '';
     const body = `Mat<${elem}, ${cols}, ${rows}>`;
     const lines = [`type mat${cols}x${rows}${param} = ${body}`];
@@ -386,11 +391,19 @@ const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   // Roadmap 0.2 item 8: the shapes the generated "same type in, same type out" pair misses.
   // transpose(matCxR) -> matRxC on every shape (wgsl.txt:23397); determinant is square-only
   // (wgsl.txt:21842), so the non-square shapes get no overload and `tsc` says so first.
-  transpose: MAT_ARITIES.flatMap((cols) =>
-    MAT_ARITIES.map(
-      (rows) => `declare function transpose(m: mat${cols}x${rows}): mat${rows}x${cols}`,
+  // A square matrix of doubles transposes too, since the fp64 pass has a transpose body per
+  // dimension (surface §39), so it gets its own overload. Its determinant is refused (TS8036),
+  // so it gets none.
+  transpose: [
+    ...MAT_ARITIES.flatMap((cols) =>
+      MAT_ARITIES.map(
+        (rows) => `declare function transpose(m: mat${cols}x${rows}): mat${rows}x${cols}`,
+      ),
     ),
-  ).join('\n'),
+    ...MAT_ARITIES.map(
+      (n) => `declare function transpose(m: mat${n}x${n}<f64>): mat${n}x${n}<f64>`,
+    ),
+  ].join('\n'),
   determinant: MAT_ARITIES.map((n) => `declare function determinant(m: mat${n}x${n}): number`).join(
     '\n',
   ),
