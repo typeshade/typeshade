@@ -1149,6 +1149,19 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
 
 ### Fixed
 
+- **A loop can write the array whose length bounds it** (Rule 7.5). This loop over a
+  runtime-sized storage array was `TS8006`, "for bound reads xs, which the loop body writes":
+
+  ```ts
+  for (let i = 0; i < xs.length; i++) { xs[i] = f32(i); }
+  ```
+
+  That is the loop the rule is written around, and the most common one over data. The bound
+  check treated a write to an element as a write to the name, and `xs.length` lowers to
+  `arrayLength(xs)`, which reads the name. A runtime array's length is fixed when the host binds
+  the buffer, so the check no longer looks inside `arrayLength`. A bound that reads an element,
+  or a field beside the array, is still refused when the body writes it.
+
 - **The four noise twins hash their lattice exactly** (#184). `domain-warp`, `ocean`,
   `kaleidoscope` and `starfield` hashed a lattice point with `fract(sin(dot(p, k)) * 43758.5453)`
   on both surfaces. WGSL bounds `sin` only to 2^-11 on [-π, π], and the multiply puts that

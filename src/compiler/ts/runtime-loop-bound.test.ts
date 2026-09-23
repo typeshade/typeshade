@@ -253,6 +253,57 @@ export function main(@builtin("local_invocation_index") lid: u32): void {
     ).toEqual([]);
   });
 
+  // A runtime-sized array's length is fixed when the host binds the buffer, so a body that writes
+  // the array's elements does not move a bound that reads its length. This is the loop Rule 7.5
+  // is written around, and it was refused as one whose body writes its bound.
+  it('writes the array it counts over, whose length the body cannot move', () => {
+    const kernel = (body: string): string => `"use typeshade";
+interface Field { scale: f32; data: array<f32> }
+declare let xs: storage<array<f32>>;
+declare let field: storage<Field>;
+@compute([64])
+export function main(@builtin("global_invocation_id") gid: vec3u): void {
+  ${body}
+}
+`;
+    for (const body of [
+      'for (let i = 0; i < xs.length; i++) { xs[i] = f32(i); }',
+      'for (let i = 0; i < xs.length; i++) { xs[i] *= 2.; }',
+      'for (let i: u32 = 0; i < xs.length / 2; i++) { xs[i * 2] = 0.; }',
+      'for (let i = 0; i < field.data.length; i++) { field.data[i] = field.scale; }',
+    ]) {
+      expect(errorsOf(kernel(body)), body).toEqual([]);
+    }
+    // Reading an ELEMENT is still reading what the body writes.
+    expect(
+      errorsOf(kernel('for (let i: u32 = 0; i < u32(xs[0]); i++) { xs[0] = 0.; }')).map(
+        (d) => d.code,
+      ),
+    ).toEqual(['TS8006']);
+    // So is a field beside the array in the same binding.
+    expect(
+      errorsOf(kernel('for (let i: i32 = 0; i < i32(field.scale); i++) { field.scale = 0.; }')).map(
+        (d) => d.code,
+      ),
+    ).toEqual(['TS8006']);
+  });
+
+  // A fixed array's `.length` is a literal before the check sees it, so this one never tripped;
+  // it is here to hold the CPU result of writing the array a loop counts over.
+  it('counts over a fixed array it writes, on both CPU engines', () => {
+    const r = compile(`"use typeshade";
+export function f(k: f32): f32 {
+  let xs: array<f32, 4> = array<f32, 4>(1., 2., 3., 4.);
+  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * k; }
+  return xs[0] + xs[1] + xs[2] + xs[3];
+}
+`);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    for (const make of [compileModule, compileModuleJs]) {
+      expect(make(r.module).fns['f']!(2), make.name).toBe(20);
+    }
+  });
+
   it('counts a long loop, and a nest whose product passes 256, as ordinary loops', () => {
     const r = compile(`"use typeshade";
       export function f(): f32 {
