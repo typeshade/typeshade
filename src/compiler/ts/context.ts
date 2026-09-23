@@ -263,18 +263,20 @@ export function readOnlyPhrase(kind: BindingKind): string {
   }
 }
 
-/** How a refusal spells a binding's value type back to the author. {@link typeKey} is the
- *  COMPILER's key and is NOT a spelling: it writes a struct as `struct:Params`, an array with
- *  no space after the comma, and a vector or a non-square matrix with a type argument the
- *  ambient library does not declare (`vec4<f32>`, `mat2x3<f32>`). A remedy quoting any of
- *  those goes red the moment the author pastes it — measured, `declare const a:
- *  storage<array<vec4<f32>>, "read_write">` is TS2315 "Type 'vec4' is not generic" in the
- *  editor while the compiler is clean.
+/** How a diagnostic spells a type back to the author: every message that names a type names it
+ *  through this (Rule 12.1, Rule 12.7). {@link typeKey} is the COMPILER's key and is NOT a
+ *  spelling: it writes a struct as `struct:Params`, an array with no space after the comma, and
+ *  a vector or a non-square matrix with a type argument the ambient library does not declare
+ *  (`vec4<f32>`, `mat2x3<f32>`). A remedy quoting any of those goes red the moment the author
+ *  pastes it — measured, `declare const a: storage<array<vec4<f32>>, "read_write">` is TS2315
+ *  "Type 'vec4' is not generic" in the editor while the compiler is clean — and a message
+ *  naming one names a type the editor says does not exist.
  *
  *  So this spells the type in the SOURCE language, and every name it can produce comes from
  *  {@link authorTypeName}, the inverse of the very table `type-map.ts` parses a declaration
  *  with. A type spelled from its parts is composed here: a struct is its name, an array is
- *  `array<E>` or `array<E, N>` with a space after the comma, an atomic is `atomic<u32>`.
+ *  `array<E>` or `array<E, N>` with a space after the comma, an atomic is `atomic<u32>`, a
+ *  storage texture takes its format and access as the string literals the author writes.
  *  `remedy-lines.test.ts` pastes every remedy back into its own program and is what keeps
  *  this honest.
  */
@@ -290,11 +292,15 @@ export function authorTypeText(t: ShaderType): string {
     // name rather than a nested `ShaderType`, so it is composed here and not looked up.
     case 'atomic':
       return `atomic<${t.elem}>`;
+    case 'storage-texture': {
+      const name = t.dim === '2d-array' ? 'texture_storage_2d_array' : 'texture_storage_2d';
+      return `${name}<"${t.format}", "${t.access}">`;
+    }
     default:
       // A SQUARE `f64` matrix is the one shape with no row in the parse table (it goes through
       // the generic `matN<f64>` arm), and `typeKey` already writes what an author writes for
-      // it, `mat3x3<f64>`. Every other type without a name of its own is a handle, which is
-      // never a storage binding's value type.
+      // it, `mat3x3<f64>`. Every other type without a name of its own is a sampled or depth
+      // texture, a sampler or `void`, which `typeKey` writes as the author does.
       return authorTypeName(t) ?? typeKey(t);
   }
 }

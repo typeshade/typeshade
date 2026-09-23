@@ -238,7 +238,7 @@ describe('override constants', () => {
   it('refuses a non-scalar type, a non-literal default, a let, and a write', () => {
     expect(
       diagnose('const v: override<vec3> = 1.\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('override "v" must be f32, i32, u32 or bool, not vec3<f32>.');
+    ).toBe('override "v" must be f32, i32, u32 or bool, not vec3.');
     expect(
       diagnose(
         'const k: f32 = 2.\nconst q: override<f32> = k\nexport function f(): f32 {\n  return q;\n}',

@@ -23,7 +23,7 @@ import type { Expr, ModuleVarDecl, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { structT, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { LoweringScope } from './context.js';
+import { LoweringScope, authorTypeText } from './context.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { mapTsTypeToShaderType, RETIRED_VAR_WRAPPER, retiredWrapperMessage } from './type-map.js';
@@ -308,7 +308,7 @@ function lowerWrapped(
     name,
     space,
     type,
-    `a ${word}<${typeKey(type)}>`,
+    `a ${word}<${authorTypeText(type)}>`,
     asPrivate,
     sourceFile,
     scope,
@@ -394,7 +394,7 @@ function lowerPlain(
       name,
       'private',
       type,
-      typeKey(type),
+      authorTypeText(type),
       undefined,
       sourceFile,
       scope,
@@ -430,7 +430,7 @@ function lowerPlain(
     name,
     'private',
     init.type,
-    typeKey(init.type),
+    authorTypeText(init.type),
     undefined,
     sourceFile,
     scope,
@@ -491,7 +491,7 @@ function finish(
       diag(
         sourceFile,
         decl.initializer,
-        `"${name}" is declared ${typeKey(type)} but its initializer is ${typeKey(init.type)}.`,
+        `"${name}" is declared ${authorTypeText(type)} but its initializer is ${authorTypeText(init.type)}.`,
       ),
     );
     return undefined;

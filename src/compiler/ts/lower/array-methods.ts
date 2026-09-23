@@ -25,7 +25,7 @@ import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, typeKey, u32T, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { THIS_CAPTURE, type CaptureKey, type LoweringScope } from '../context.js';
+import { THIS_CAPTURE, authorTypeText, type CaptureKey, type LoweringScope } from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { lowerScalarCast } from '../numeric.js';
@@ -67,13 +67,6 @@ function push(
 ): undefined {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
   return undefined;
-}
-
-/** A type as an author writes it: `array<f32, 4>`, where the IR's key is `array<f32,4>`. */
-function typeText(t: ShaderType): string {
-  return t.kind === 'array'
-    ? `array<${typeText(t.elem)}${t.size === undefined ? '' : `, ${String(t.size)}`}>`
-    : typeKey(t);
 }
 
 /** `e` without the parentheses around it. */
@@ -159,7 +152,7 @@ export function lowerArrayMethod(
       diagnostics,
       sourceFile,
       callee.name,
-      `"${recvText}" is a ${typeText(recv.type)}, and ".${method}" is a method of an array.`,
+      `"${recvText}" is a ${authorTypeText(recv.type)}, and ".${method}" is a method of an array.`,
       TS_CODES.TYPE_MISMATCH,
     );
   }
@@ -265,8 +258,8 @@ export function lowerArrayMethod(
           diagnostics,
           sourceFile,
           init,
-          `"${shown}" starts from "${init.getText(sourceFile)}", a ${typeText(initExpr.type)}, ` +
-            `and its function takes a ${typeText(acc)} for the running value.`,
+          `"${shown}" starts from "${init.getText(sourceFile)}", a ${authorTypeText(initExpr.type)}, ` +
+            `and its function takes a ${authorTypeText(acc)} for the running value.`,
           TS_CODES.TYPE_MISMATCH,
         );
       }
@@ -286,8 +279,8 @@ export function lowerArrayMethod(
   const text = (n: number): string =>
     `(${full
       .slice(0, n)
-      .map((t, i) => `${names[i]!}: ${typeText(t)}`)
-      .join(', ')}) => ${ret === undefined ? '…' : typeText(ret)}`;
+      .map((t, i) => `${names[i]!}: ${authorTypeText(t)}`)
+      .join(', ')}) => ${ret === undefined ? '…' : authorTypeText(ret)}`;
   const shapeOf = (n: number): FunctionShape => ({
     params: full.slice(0, n),
     ret,

@@ -124,7 +124,7 @@ describe('vector against scalar broadcast', () => {
 
   it('diagnoses a non-integer literal against an integer vector instead of truncating', () => {
     const m = diagnose('v * 2.5', 'v: vec3u', 'vec3u');
-    expect(m).toMatch(/vec3<u32> and f32/);
+    expect(m).toMatch(/vec3u and f32/);
     expect(m).toMatch(/own element type/);
     expect(m).toMatch(/u32\(x\)/);
     // vec3(v) does not compile (there is no element-converting constructor, #8 A8), so the
@@ -217,7 +217,7 @@ describe('compound assignment with a vector target', () => {
         let w = v; w *= 2.5; return w;
       }
     `);
-    expect(r.diagnostics.some((d) => /vec3<u32> and f32/.test(d.message))).toBe(true);
+    expect(r.diagnostics.some((d) => /vec3u and f32/.test(d.message))).toBe(true);
   });
 
   it('rejects a vector value on a scalar target and says why', () => {
@@ -229,10 +229,10 @@ describe('compound assignment with a vector target', () => {
     `);
     expect(r.diagnostics.length).toBe(1);
     const m = r.diagnostics[0]!.message;
-    expect(m).toMatch(/Type mismatch: cannot \+= f32 and vec3<f32>/);
+    expect(m).toMatch(/Type mismatch: cannot \+= f32 and vec3\./);
     // The op is one of + - * / %, so the message must not claim it is the operator that is
     // wrong; it is the vector result that the scalar target cannot hold.
-    expect(m).toMatch(/result would be vec3<f32>/);
+    expect(m).toMatch(/result would be vec3,/);
     expect(m).not.toMatch(/only through/);
   });
 
@@ -243,7 +243,7 @@ describe('compound assignment with a vector target', () => {
         let w = v; w = s; return w;
       }
     `);
-    expect(r.diagnostics.some((d) => /assign to vec3<f32>/.test(d.message))).toBe(true);
+    expect(r.diagnostics.some((d) => /assign to vec3 vec3 and f32\./.test(d.message))).toBe(true);
     expect(r.diagnostics[0]!.message).toMatch(/vec3\(x\)/);
     const ok = compileTsSource(`
       "use typeshade";
@@ -308,7 +308,7 @@ describe('compound assignment with a vec64 target', () => {
       }
     `);
     expect(r.diagnostics.length).toBe(1);
-    expect(r.diagnostics[0]!.message).toMatch(/cannot %= vec3<f64> and f32/);
+    expect(r.diagnostics[0]!.message).toMatch(/cannot %= vec3f64 and f32/);
     expect(r.diagnostics[0]!.message).toMatch(/% has no f64 emulation/);
   });
 });
@@ -316,7 +316,7 @@ describe('compound assignment with a vec64 target', () => {
 describe('mismatch diagnostics for vectors', () => {
   it('names the scalar cast for vec3<f32> * u32 and no constructor that does not compile', () => {
     const m = diagnose('v * n', 'v: vec3, n: u32', 'vec3');
-    expect(m).toMatch(/cannot \* vec3<f32> and u32/);
+    expect(m).toMatch(/cannot \* vec3 and u32/);
     expect(m).toMatch(/A vector takes a scalar of its own element type/);
     expect(m).toMatch(/f32\(x\)/);
     // vec3u(v) is rejected by the vector constructor (#8 A8), so it must not be suggested.
@@ -326,13 +326,13 @@ describe('mismatch diagnostics for vectors', () => {
 
   it('says vectors must have the same size for vec2 * vec3', () => {
     const m = diagnose('a * b', 'a: vec2, b: vec3', 'vec3');
-    expect(m).toMatch(/vec2<f32> and vec3<f32>/);
+    expect(m).toMatch(/vec2 and vec3\./);
     expect(m).toMatch(/same size/);
   });
 
   it('names the per-component cast for vec3 + vec3u', () => {
     const m = diagnose('a + b', 'a: vec3, b: vec3u', 'vec3');
-    expect(m).toMatch(/vec3<f32> and vec3<u32>/);
+    expect(m).toMatch(/ vec3 and vec3u\./);
     expect(m).toMatch(/same element type/);
     expect(m).toMatch(/a \+ vec3\(f32\(b\.x\), f32\(b\.y\), f32\(b\.z\)\)/);
     expect(m).not.toMatch(/vec3u\(/);
@@ -355,7 +355,7 @@ describe('mismatch diagnostics for vectors', () => {
 
   it('says % has no f64 emulation for vec3<f64> % f32', () => {
     const m = diagnose('v % s', 'v: vec3d, s: f32', 'vec3d');
-    expect(m).toMatch(/cannot % vec3<f64> and f32/);
+    expect(m).toMatch(/cannot % vec3f64 and f32/);
     expect(m).toMatch(/% has no f64 emulation/);
     expect(m).not.toMatch(/Types must match\./);
   });
@@ -374,7 +374,7 @@ describe('mismatch diagnostics for vectors', () => {
       export function f(v: vec3u, s: f32): vec3u { return v * s; }
     `);
     expect(r.diagnostics.length).toBe(1);
-    expect(r.diagnostics[0]!.message).toMatch(/vec3<u32> and f32/);
+    expect(r.diagnostics[0]!.message).toMatch(/vec3u and f32/);
   });
 });
 

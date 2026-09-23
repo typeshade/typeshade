@@ -215,26 +215,26 @@ export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 describe('the coordinate has the width the dim decides, and this says so first', () => {
   it('refuses a vec2 on a cube, naming the direction', () => {
     expect(errorsOf(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
-      'textureSample on a texture_cube<f32> takes a vec3 direction; got vec2<f32>.',
+      'textureSample on a texture_cube<f32> takes a vec3 direction; got vec2.',
     ]);
   });
 
   it('refuses a vec3 on a 2d texture', () => {
     expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, dir, 0.)`))).toEqual([
-      'textureSampleLevel on a texture_2d<f32> takes a vec2 coordinate; got vec3<f32>.',
+      'textureSampleLevel on a texture_2d<f32> takes a vec2 coordinate; got vec3.',
     ]);
   });
 
   it('refuses a vec2i fetch on a 3d texture', () => {
     expect(errorsOf(fragment(`  return textureLoad(lut, vec2i(0, 0), 0)`))).toEqual([
-      'textureLoad on a texture_3d<f32> takes a vec3 coordinate; got vec2<i32>.',
+      'textureLoad on a texture_3d<f32> takes a vec3 coordinate; got vec2i.',
     ]);
   });
 
   it('refuses a gradient of the wrong width', () => {
     expect(
       errorsOf(fragment(`  return textureSampleGrad(env, smp, dir, vec2(0.), vec2(0.))`)),
-    ).toEqual(['textureSampleGrad on a texture_cube<f32> takes a vec3 gradient; got vec2<f32>.']);
+    ).toEqual(['textureSampleGrad on a texture_cube<f32> takes a vec3 gradient; got vec2.']);
   });
 
   it('refuses a coordinate of the right width and the wrong element kind', () => {
@@ -243,13 +243,13 @@ describe('the coordinate has the width the dim decides, and this says so first',
     // float fetch coordinate — both "no matching call" on Tint. A sampled read is by
     // normalised f32 coordinate, a texel fetch by whole texel (wgsl.txt:24435, 24129).
     expect(errorsOf(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
-      'textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<i32>.',
+      'textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2i.',
     ]);
     expect(errorsOf(fragment(`  return textureLoad(atlas, vec2(0., 0.), 0)`))).toEqual([
-      'textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2<f32>.',
+      'textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2.',
     ]);
     expect(errorsOf(fragment(`  return textureSample(env, smp, vec3i(0, 0, 1))`))).toEqual([
-      'textureSample on a texture_cube<f32> takes an f32 coordinate; got vec3<i32>.',
+      'textureSample on a texture_cube<f32> takes an f32 coordinate; got vec3i.',
     ]);
     // A u32 fetch coordinate is the other integer WGSL takes, and stays as written.
     expect(errorsOf(fragment(`  return textureLoad(atlas, vec2u(u32(0), u32(0)), 0)`))).toEqual([]);
@@ -378,7 +378,7 @@ declare const ms: texture_multisampled_2d<f32>`,
         fragment(`  const c = vec2f64(f64(0.), f64(0.))
   return textureSample(atlas, smp, c)`),
       ),
-    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<f64>.']);
+    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2f64.']);
   });
 
   it('cuts a long argument short rather than smearing the message', () => {
@@ -411,15 +411,15 @@ declare const ms: texture_multisampled_2d<f32>`,
 
     // 1. The coordinate's WIDTH against the texture's dim.
     expect(coded(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
-      'TS8041 textureSample on a texture_cube<f32> takes a vec3 direction; got vec2<f32>.',
+      'TS8041 textureSample on a texture_cube<f32> takes a vec3 direction; got vec2.',
     ]);
     // 2. The coordinate's ELEMENT kind: normalised reads are f32, a texel fetch is an integer.
     expect(coded(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
-      'TS8041 textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<i32>.',
+      'TS8041 textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2i.',
     ]);
     expect(coded(fragment(`  return textureLoad(atlas, p.xy, 0)`))).toEqual([
       'TS8041 textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; ' +
-        'got vec2<f32>.',
+        'got vec2.',
     ]);
     // 3. An f32 scalar slot — level, bias, depth_ref.
     expect(
@@ -492,9 +492,7 @@ declare const shadowSmp: sampler_comparison`;
       errorsOf(
         fragment(`  return vec4(textureSampleCompare(pointShadow, shadowSmp, p.xy, 0.5))`, D),
       ),
-    ).toEqual([
-      'textureSampleCompare on a texture_depth_cube takes a vec3 direction; got vec2<f32>.',
-    ]);
+    ).toEqual(['textureSampleCompare on a texture_depth_cube takes a vec3 direction; got vec2.']);
     expect(errorsOf(fragment(`  return vec4(f32(textureNumLayers(pointShadow)))`, D))).toEqual([
       'textureNumLayers needs a texture_depth_2d_array or a texture_depth_cube_array; a texture_depth_cube has six faces, not layers.',
     ]);

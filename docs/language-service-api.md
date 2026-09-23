@@ -428,7 +428,14 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   the compiler lowers it to a storage store, so the `readonly` this type first carried made
   TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
   on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
-  assignable in the source language, so `out.length = 2` keeps its TS2540.
+  assignable in the source language, so `out.length = 2` keeps its TS2540. `length` is the size
+  `N` of a sized array and `u32` on a runtime-sized one, the type the compiler reads it as
+  (surface §20), so `src.length * 0.5` hovers the `u32` the compiler then refuses.
+- WGSL's phony assignment `_ = f(x)` (surface §19, §52) names `_`, which no source of the
+  surface declares (`surface-names.test.ts`), so TypeScript reports TS2304 on it. The service
+  drops that TS2304 on the `_` of a statement the compiler lowers as the phony assignment (the
+  `_ = …` a statement is made of, or the body of an arrow that returns nothing) and nowhere
+  else; the compiler then says whether the right-hand side is a call it can drop.
 
 ### Vector and matrix arithmetic (issue #21)
 

@@ -7,7 +7,7 @@ import type { ConstDecl, Expr, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { i32T, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { LoweringScope } from './context.js';
+import { LoweringScope, authorTypeText } from './context.js';
 import type { DeclaredSymbolSink } from './symbols.js';
 import { mapTsTypeToShaderType } from './type-map.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
@@ -377,7 +377,7 @@ function valueExprConst(
       makeDiagnostic(
         sourceFile,
         decl,
-        `Module const "${name}" is declared ${typeKey(annotated)} but its value is ${typeKey(init.type)}.`,
+        `Module const "${name}" is declared ${authorTypeText(annotated)} but its value is ${authorTypeText(init.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );
@@ -407,7 +407,7 @@ function valueExprConst(
         sourceFile,
         decl,
         `Module const "${name}" must be a foldable scalar (literal or const expression), ` +
-          `or a whole vector or array built from them; ${typeKey(type)} is neither.`,
+          `or a whole vector or array built from them; ${authorTypeText(type)} is neither.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );
@@ -524,7 +524,7 @@ function lowerOne(
       makeDiagnostic(
         sourceFile,
         decl,
-        `Module const "${name}" is ${k}, but its initializer is ${typeKey(init.type)}. Cast it, e.g. ${k}(...), or change the annotation.`,
+        `Module const "${name}" is ${k}, but its initializer is ${authorTypeText(init.type)}. Cast it, e.g. ${k}(...), or change the annotation.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );

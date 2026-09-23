@@ -4,7 +4,7 @@ import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, f32T, f64T, i32T, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import { resolveMathExpand } from '../math-alias.js';
 import { expandMath } from '../math-expand.js';
 import { parseSwizzle } from '../swizzle.js';
@@ -155,7 +155,7 @@ export function lowerRandomCall(
       diagnostics,
       sourceFile,
       node,
-      `random(seed) seed must be f32, vec2, or vec3; got ${typeKey(seed.type)}.`,
+      `random(seed) seed must be f32, vec2, or vec3; got ${authorTypeText(seed.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;

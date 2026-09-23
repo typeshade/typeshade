@@ -3,7 +3,7 @@ import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import { fillArray, noneOf, unrollMinMax, unrollPred, unrollSum, unrollZip } from '../array-ops.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { foldNumericLit, isIntScalar, retargetDeclaredIntLit } from '../lit-coerce.js';
@@ -105,9 +105,9 @@ function inferredArrayCtor(
       diagnostics,
       sourceFile,
       node.arguments[odd]!,
-      `array(...) infers one element type from its elements; element 0 is ${typeKey(elem)} ` +
-        `and element ${odd} is ${typeKey(args[odd]!.type)}. Cast the odd one, or write the ` +
-        `type out: array<${typeKey(elem)}, ${args.length}>(...).`,
+      `array(...) infers one element type from its elements; element 0 is ${authorTypeText(elem)} ` +
+        `and element ${odd} is ${authorTypeText(args[odd]!.type)}. Cast the odd one, or write the ` +
+        `type out: array<${authorTypeText(elem)}, ${args.length}>(...).`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -137,7 +137,7 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `An array literal needs a declared array type, got ${typeKey(target)}.`,
+      `An array literal needs a declared array type, got ${authorTypeText(target)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -154,7 +154,7 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `array<${typeKey(target.elem)}, ${target.size ?? node.elements.length}> is an array of arrays, which GLSL ES 3.00 does not have. Flatten it: one array<${typeKey(target.elem.elem)}, N> indexed by row * width + column.`,
+      `array<${authorTypeText(target.elem)}, ${target.size ?? node.elements.length}> is an array of arrays, which GLSL ES 3.00 does not have. Flatten it: one array<${authorTypeText(target.elem.elem)}, N> indexed by row * width + column.`,
       TS_CODES.UNSUPPORTED,
     );
     return undefined;
@@ -164,7 +164,7 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `A list needs a fixed size to fill: write the size, e.g. array<${typeKey(target.elem)}, ${node.elements.length}>.`,
+      `A list needs a fixed size to fill: write the size, e.g. array<${authorTypeText(target.elem)}, ${node.elements.length}>.`,
       TS_CODES.UNKNOWN_TYPE,
     );
     return undefined;
@@ -188,7 +188,7 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `array<${typeKey(target.elem)}, ${target.size}> takes ${target.size} element(s), got ${node.elements.length}.`,
+      `array<${authorTypeText(target.elem)}, ${target.size}> takes ${target.size} element(s), got ${node.elements.length}.`,
       TS_CODES.ARITY_MISMATCH,
     );
     return undefined;
@@ -204,7 +204,7 @@ export function lowerArrayLiteral(
         diagnostics,
         sourceFile,
         element,
-        `array<${typeKey(target.elem)}, ${target.size}> element ${i} must be ${typeKey(target.elem)}, and a list is not one.`,
+        `array<${authorTypeText(target.elem)}, ${target.size}> element ${i} must be ${authorTypeText(target.elem)}, and a list is not one.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -257,11 +257,16 @@ function typeArrayElement(
     }
   }
   if (typeKey(out.type) !== typeKey(elem)) {
+    // A cast converts a number or a vector of them; a struct, an array or a matrix has none to
+    // name, so the sentence stops at the reason.
+    const castable = (t: ShaderType): boolean =>
+      t.kind === 'scalar' || t.kind === 'vec' || t.kind === 'f64' || t.kind === 'vec64';
+    const cast = castable(elem) && castable(out.type) ? '; cast it' : '';
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `array<${typeKey(elem)}${size === undefined ? '' : `, ${size}`}> element ${i} must be ${typeKey(elem)}, got ${typeKey(out.type)}. There is no implicit conversion; cast it.`,
+      `array<${authorTypeText(elem)}${size === undefined ? '' : `, ${size}`}> element ${i} must be ${authorTypeText(elem)}, got ${authorTypeText(out.type)}. There is no implicit conversion${cast}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -470,14 +475,18 @@ function foldCallbackShape(name: string, arrays: readonly Expr[]): FunctionShape
     const x = elem(arrays[0]);
     return x === undefined
       ? undefined
-      : { params: [x], ret: boolT, text: `(x: ${typeKey(x)}) => bool` };
+      : { params: [x], ret: boolT, text: `(x: ${authorTypeText(x)}) => bool` };
   }
   if (name === 'zip') {
     const a = elem(arrays[0]);
     const b = elem(arrays[1]);
     return a === undefined || b === undefined
       ? undefined
-      : { params: [a, b], ret: undefined, text: `(a: ${typeKey(a)}, b: ${typeKey(b)}) => …` };
+      : {
+          params: [a, b],
+          ret: undefined,
+          text: `(a: ${authorTypeText(a)}, b: ${authorTypeText(b)}) => …`,
+        };
   }
   return undefined;
 }

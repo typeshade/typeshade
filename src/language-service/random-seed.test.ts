@@ -93,7 +93,7 @@ describe('a seed the compiler refuses', () => {
   it('a vec4 seed is the shape a required brand gives: TypeScript speaks too', () => {
     const verdict = measure(seeded('vec4'));
     expect(verdict.compiler).toEqual([
-      'TS8003 random(seed) seed must be f32, vec2, or vec3; got vec4<f32>.',
+      'TS8003 random(seed) seed must be f32, vec2, or vec3; got vec4.',
     ]);
     expect(verdict.typescript).toEqual(['TS2345']);
     expect(verdict.editor[1]).toContain(

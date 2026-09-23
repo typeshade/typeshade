@@ -1093,7 +1093,11 @@ A _diagnostic_ is one message the compiler reports for the author's benefit, wit
 
 - Rationale: an editor that accepts what the compiler refuses, or the reverse, is a second surface.
 - Derives from: the head of `src/language-service/ambient.ts`; #157 for the remaining gaps.
-- Enforced by: `src/language-service/ambient.test.ts` (among it `accepts an unsigned coordinate on textureLoad and textureStore`, the `vec2u` coordinate WGSL and the compiler take) and `surface-names.test.ts`.
+- Enforced by:
+  - `src/language-service/ambient.test.ts` (among it `accepts an unsigned coordinate on textureLoad and textureStore`, the `vec2u` coordinate WGSL and the compiler take) and `surface-names.test.ts`;
+  - `src/language-service/hover.test.ts` (`an array's length is the type the compiler reads`): a runtime-sized storage array's `length` is the `u32` the compiler reads from the buffer, and a sized one's is its literal size;
+  - `src/language-service/diagnostics.test.ts` (`the _ of a phony assignment is the compiler's to judge`): `_ = max(a, 1.)` is clean in the editor, as it compiles, and `_ = a + 1.` reads as the compiler's one refusal;
+  - `src/compiler/ts/type-spelling.test.ts`: a message names a type as the author writes it (`B`, `vec3u`, `mat3x3`, `array<vec3u, 4>`), through `authorTypeText`, and never by the compiler's key (`struct:B`, `vec3<u32>`), and each such spelling is a type the editor reads.
 
 ## 13. Change control
 

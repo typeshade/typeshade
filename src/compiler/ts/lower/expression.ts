@@ -6,7 +6,7 @@ import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { irNameOf, type LoweringScope } from '../context.js';
+import { authorTypeText, irNameOf, type LoweringScope } from '../context.js';
 import { resolveLangConst } from '../math-alias.js';
 import { foldConstComponents, foldConstNumber } from '../loop-bound.js';
 import {
@@ -103,7 +103,7 @@ function lowerTypeClaim(
       sourceFile,
       node,
       `"${keyword}" states a type, it does not convert: "${node.getText(sourceFile)}" is ` +
-        `${typeKey(lowered.type)}, not ${typeNode.getText(sourceFile)}. Write ` +
+        `${authorTypeText(lowered.type)}, not ${typeNode.getText(sourceFile)}. Write ` +
         `${typeNode.getText(sourceFile)}(...) to convert, or drop the "${keyword}".`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -380,7 +380,7 @@ function lowerPrefixUnary(
         diagnostics,
         sourceFile,
         node,
-        `Unary "-" is not defined on ${typeKey(operand.type)}; WGSL has no negation for an ` +
+        `Unary "-" is not defined on ${authorTypeText(operand.type)}; WGSL has no negation for an ` +
           `unsigned integer. Write ${zero} - x to wrap, or ${signed} to change kind first.`,
         TS_CODES.TYPE_MISMATCH,
       );
@@ -398,7 +398,7 @@ function lowerPrefixUnary(
         diagnostics,
         sourceFile,
         node,
-        `Unary "+" requires a numeric operand, got ${typeKey(operand.type)}.`,
+        `Unary "+" requires a numeric operand, got ${authorTypeText(operand.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -414,7 +414,7 @@ function lowerPrefixUnary(
         diagnostics,
         sourceFile,
         node,
-        `Unary "~" requires an i32 or u32 operand, got ${typeKey(operand.type)}.`,
+        `Unary "~" requires an i32 or u32 operand, got ${authorTypeText(operand.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -448,7 +448,7 @@ function lowerPrefixUnary(
         diagnostics,
         sourceFile,
         node,
-        `Unary "!" requires a bool operand, got ${typeKey(operand.type)}.`,
+        `Unary "!" requires a bool operand, got ${authorTypeText(operand.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;
@@ -544,7 +544,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Cannot ${arith} ${typeKey(left.type)}: a matrix has + - and * on both targets and no ` +
+        `Cannot ${arith} ${authorTypeText(left.type)}: a matrix has + - and * on both targets and no ` +
           `${arith}. Divide the columns, or multiply by the inverse you computed.`,
         TS_CODES.TYPE_MISMATCH,
       );
@@ -572,7 +572,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Type mismatch: cannot * ${typeKey(left.type)} and ${typeKey(right.type)}. WGSL's ` +
+        `Type mismatch: cannot * ${authorTypeText(left.type)} and ${authorTypeText(right.type)}. WGSL's ` +
           `matrix product is matKxR * matCxK -> matCxR: the left operand's ` +
           `${String(left.type.cols)} columns must meet the right operand's ` +
           `${String(right.type.rows)} rows.${meets}`,
@@ -589,7 +589,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Cannot % ${typeKey(left.type)}: the emulated double has no remainder — the fp64 ` +
+        `Cannot % ${authorTypeText(left.type)}: the emulated double has no remainder — the fp64 ` +
           `pass has a df64 body for + - * / and the comparisons only. Narrow first, e.g. ` +
           `${isF64(left.type) ? 'f32(x) % f32(y)' : `vec${(left.type as { n: number }).n}(v) % vec${(left.type as { n: number }).n}(w)`}.`,
         TS_CODES.TYPE_MISMATCH,
@@ -610,7 +610,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Type mismatch: cannot ** ${typeKey(left.type)} and ${typeKey(right.type)}. ` +
+        `Type mismatch: cannot ** ${authorTypeText(left.type)} and ${authorTypeText(right.type)}. ` +
           '** is pow(a, b), which takes two values of one type; ' +
           'splat the exponent, e.g. v ** vec3(2.).',
         TS_CODES.TYPE_MISMATCH,
@@ -622,7 +622,7 @@ function lowerBinary(
         diagnostics,
         sourceFile,
         node,
-        `Cannot ** ${typeKey(left.type)}. ** is pow(a, b), which WGSL and GLSL ES 3.00 define ` +
+        `Cannot ** ${authorTypeText(left.type)}. ** is pow(a, b), which WGSL and GLSL ES 3.00 define ` +
           'for f32 only; cast first, e.g. f32(a) ** f32(b).',
         TS_CODES.TYPE_MISMATCH,
       );
@@ -675,7 +675,7 @@ function lowerBinary(
           diagnostics,
           sourceFile,
           node.right,
-          `Bitwise "${bit}" needs an i32 or u32 shift amount, got ${typeKey(right.type)}.`,
+          `Bitwise "${bit}" needs an i32 or u32 shift amount, got ${authorTypeText(right.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -686,7 +686,7 @@ function lowerBinary(
           diagnostics,
           sourceFile,
           node.left,
-          `Bitwise "${bit}" needs an i32 or u32 target, got ${typeKey(left.type)}.`,
+          `Bitwise "${bit}" needs an i32 or u32 target, got ${authorTypeText(left.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -701,8 +701,8 @@ function lowerBinary(
           diagnostics,
           sourceFile,
           node,
-          `Bitwise "${bit}" shifts ${typeKey(left.type)} by ${typeKey(right.type)}: a shift amount ` +
-            `has the width of its target. Splat it, e.g. ${typeKey(left.type)} << vec${String(lanes)}u(n).`,
+          `Bitwise "${bit}" shifts ${authorTypeText(left.type)} by ${authorTypeText(right.type)}: a shift amount ` +
+            `has the width of its target. Splat it, e.g. ${authorTypeText(left.type)} << vec${String(lanes)}u(n).`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;
@@ -772,7 +772,7 @@ function lowerBinary(
           diagnostics,
           sourceFile,
           node,
-          `"${cmp}" has no meaning on ${typeKey(left.type)}: compare bool vectors with === or !==, or reduce them with any() or all().`,
+          `"${cmp}" has no meaning on ${authorTypeText(left.type)}: compare bool vectors with === or !==, or reduce them with any() or all().`,
           TS_CODES.TYPE_MISMATCH,
         );
         return undefined;

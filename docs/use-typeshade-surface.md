@@ -1768,6 +1768,13 @@ legal), and the optimizer drops it as the nothing it computes. **A value that is
 may not**: `vec3(1., 2., 3.)`, a `select`, an array fold build a value and drop it, and the
 statement is refused (TS8099) with the two ways out, assign the value or remove the line.
 
+**`_ = f(x)` says the drop in WGSL's words** (§52) and lowers to the same `call` statement; a
+right-hand side that is not a call is refused (TS8099), as the bare statement is. The editor
+takes it as the compiler does. `_` is not a name the ambient library declares, since no source
+of the surface gives it one, so the language service drops TypeScript's `TS2304` ("Cannot find
+name '_'") on the `_` of that statement and nowhere else: `_ = max(a, 1.)` is clean, `_ = a + 1.`
+reads as the compiler's one refusal, and a `_` read as a value keeps the `TS2304`.
+
 **A call that writes a binding is the one impure expression the IR has**, and the optimizer
 knows it. The effect table (`src/core/passes/effects.ts`) names the bindings each function
 writes, itself or through the functions it calls, and a write through a method's object as the
@@ -1829,6 +1836,11 @@ local `array<f32>` or a parameter typed `array<f32>` was already invalid GPU cod
 "runtime-sized arrays can only be used in the <storage> address space"), and `.length` or
 `arrayLength` on one is refused (TS8032) with the one fix that works: give the type a size,
 `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
+
+**The editor gives it the same type.** The ambient `array<T, N>` declares `length` as its size
+`N` when it has one and as `u32` when it has none, so the hover over `src.length` reads
+`(property) length: u32`, the type `src.length * 0.5` is then refused for (TS8003), and a sized
+array's hover keeps its literal, `length: 4`.
 
 **The CPU oracle** reads the bound buffer's length, so `compile().eval` and the debug stepper
 agree with the GPU. **GLSL ES 3.00 has no form**: it has no storage buffer and no runtime-sized
@@ -5581,7 +5593,8 @@ past it. One function raises it, so the three sites cannot drift apart again.
   the **line** is accepted: a pure call whose result is dropped is then removed outright by the
   optimizer, and one that writes emits as the bare call `g(1.0);`, since WGSL takes a user
   function's dropped result without the phony — which `emit.ts` reserves for a `@must_use`
-  builtin.
+  builtin. The editor reads the line as the compiler does and draws no `TS2304` on its `_`
+  (§19).
 - A decimal literal past the f32 range is refused. `1e40` reached the writer, which printed
   `1e+40` — a value no f32 holds, so the shader ran on a number nobody wrote.
 

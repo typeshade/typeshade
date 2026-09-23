@@ -358,11 +358,11 @@ export function fs(): vec4 {
     // compiles `float(vec3)` and silently takes `.x`. The two targets do not merely differ on
     // a corner — they disagree about whether the program exists.
     expect(diagnose('f32(v)', 'v: vec3', 'f32')).toBe(
-      'f32() takes a scalar; got vec3<f32>. A vector is converted component-wise by its own ' +
+      'f32() takes a scalar; got vec3. A vector is converted component-wise by its own ' +
         'constructor, e.g. vec3(v).',
     );
     expect(diagnose('u32(v)', 'v: vec2i', 'u32')).toBe(
-      'u32() takes a scalar; got vec2<i32>. A vector is converted component-wise by its own ' +
+      'u32() takes a scalar; got vec2i. A vector is converted component-wise by its own ' +
         'constructor, e.g. vec2u(v).',
     );
     // The emulated double is a scalar here: `f32(f64(x))` is the narrowing the surface spells.

@@ -160,7 +160,7 @@ export function f(v: vec3): f32 { let s = 0; for (const c of v) { s += c; } retu
       {
         code: 'TS8003',
         message:
-          'for-of iterates an array; this is a vec3<f32>. Index it with a counted for, or write ' +
+          'for-of iterates an array; this is a vec3. Index it with a counted for, or write ' +
           'the value into an array<T, N>.',
       },
     ]);

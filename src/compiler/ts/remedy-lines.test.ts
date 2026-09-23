@@ -560,24 +560,21 @@ describe('a refusal names no line when it could not make the line good', () => {
       read: 'declare const mnd: storage<mat2x3<f64>>',
       writable: 'declare const mnd: storage<mat2x3<f64>, "read_write">',
       body: 'mnd[0] = vec3f64(f64(1.), f64(2.), f64(3.))',
-      says: [
-        'TS8027 mat2x3<f64> has no emulated-double form',
-        'TS8003 Cannot index struct:mat2x3.',
-      ],
+      says: ['TS8027 mat2x3<f64> has no emulated-double form', 'TS8003 Cannot index mat2x3.'],
     },
     {
       what: 'an array of an unknown element type, recovered',
       read: 'declare const vh: storage<array<vec2h>>',
       writable: 'declare const vh: storage<array<vec2h>, "read_write">',
       body: 'vh[0] = vec2h(1., 2.)',
-      says: ['TS8002 Unknown type "vec2h"', 'TS8003 Cannot index struct:array.'],
+      says: ['TS8002 Unknown type "vec2h"', 'TS8003 Cannot index array.'],
     },
     {
       what: 'a lane of an emulated-double vector, which is a read on either mode',
       read: 'declare const dv: storage<array<vec2f64>>',
       writable: 'declare const dv: storage<array<vec2f64>, "read_write">',
       body: 'dv[0].x = f64(1.)',
-      says: ['TS8018 Cannot assign to the lane ".x" of a vec2<f64>'],
+      says: ['TS8018 Cannot assign to the lane ".x" of a vec2f64'],
     },
     {
       what: 'a multi-component swizzle, which WGSL writes one component at a time',

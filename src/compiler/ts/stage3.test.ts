@@ -269,7 +269,7 @@ describe('entry function missing a return type annotation but returning a value 
     `);
     const d = r.diagnostics.find((d) => d.code === TS_CODES.RETURN_SHAPE && d.category === 'error');
     expect(d, 'expected an error-level RETURN_SHAPE diagnostic').toBeDefined();
-    expect(d!.message).toContain('vec4<f32>');
+    expect(d!.message).toContain('inferred type vec4)');
     expect(d!.message).toContain('no return type annotation');
   });
 

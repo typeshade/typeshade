@@ -9,6 +9,7 @@ import { isF64, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js'
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
+  authorTypeText,
   irNameOf,
   readOnlyPhrase,
   writableRemedy,
@@ -1162,7 +1163,7 @@ function lowerAssign(
       diagnostics,
       sourceFile,
       right,
-      numericMismatch(`assign to ${typeKey(want)}`, want, value.type),
+      numericMismatch(`assign to ${authorTypeText(want)}`, want, value.type),
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -1225,7 +1226,7 @@ function lowerBitwiseAssignOpTo(
       diagnostics,
       sourceFile,
       left,
-      `Bitwise "${bop}=" needs an i32 or u32 target, got ${k}.`,
+      `Bitwise "${bop}=" needs an i32 or u32 target, got ${authorTypeText(target.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -1279,7 +1280,7 @@ function lowerBitwiseAssignOpTo(
       sourceFile,
       right,
       isShift
-        ? `Bitwise "${bop}=" needs an i32 or u32 shift amount, got ${typeKey(value.type)}.`
+        ? `Bitwise "${bop}=" needs an i32 or u32 shift amount, got ${authorTypeText(value.type)}.`
         : numericMismatch(`${bop}=`, target.type, value.type),
       TS_CODES.TYPE_MISMATCH,
     );
@@ -1361,8 +1362,8 @@ function lowerAssignOpTo(
     if (!broadcast || typeKey(broadcast) !== typeKey(target.type)) {
       const message =
         broadcast !== undefined
-          ? `Type mismatch: cannot ${bop}= ${typeKey(target.type)} and ${typeKey(value.type)}. ` +
-            `The result would be ${typeKey(broadcast)}, which does not fit the ${typeKey(target.type)} ` +
+          ? `Type mismatch: cannot ${bop}= ${authorTypeText(target.type)} and ${authorTypeText(value.type)}. ` +
+            `The result would be ${authorTypeText(broadcast)}, which does not fit the ${authorTypeText(target.type)} ` +
             `target; assign it to a vector, or reduce the vector to a scalar first.`
           : numericMismatch(`${bop}=`, target.type, value.type);
       pushDiag(diagnostics, sourceFile, right, message, TS_CODES.TYPE_MISMATCH);
@@ -1391,7 +1392,7 @@ function lowerAssignOpTo(
         diagnostics,
         sourceFile,
         right,
-        `Type mismatch: cannot *= ${typeKey(target.type)} and ${typeKey(value.type)}. WGSL's ` +
+        `Type mismatch: cannot *= ${authorTypeText(target.type)} and ${authorTypeText(value.type)}. WGSL's ` +
           `matrix product is matKxR * matCxK -> matCxR: the target's ` +
           `${String(target.type.cols)} columns must meet the right operand's ` +
           `${String(value.type.rows)} rows, and the product must keep the target's own shape.`,
@@ -1409,7 +1410,7 @@ function lowerAssignOpTo(
       diagnostics,
       sourceFile,
       right,
-      `Cannot ${bop}= ${typeKey(target.type)}: a matrix has + - and * on both targets and no ` +
+      `Cannot ${bop}= ${authorTypeText(target.type)}: a matrix has + - and * on both targets and no ` +
         `${bop}. Divide the columns, or multiply by the inverse you computed.`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -1425,7 +1426,7 @@ function lowerAssignOpTo(
       diagnostics,
       sourceFile,
       right,
-      `Cannot %= ${typeKey(target.type)}: the emulated double has no remainder — the fp64 ` +
+      `Cannot %= ${authorTypeText(target.type)}: the emulated double has no remainder — the fp64 ` +
         `pass has a df64 body for + - * / and the comparisons only.`,
       TS_CODES.TYPE_MISMATCH,
     );
@@ -1831,7 +1832,7 @@ function refuseVec64LaneWrite(
     diagnostics,
     sourceFile,
     node,
-    `Cannot assign to ${what} of a ${typeKey(base)}: an emulated-double vector is a pair of ` +
+    `Cannot assign to ${what} of a ${authorTypeText(base)}: an emulated-double vector is a pair of ` +
       `hi/lo planes after lowering, so a lane of it is a read, not a place. Rebuild the ` +
       `vector instead, e.g. v = vec${(base as { n: number }).n}f64(x, …).`,
     TS_CODES.ASSIGN_TARGET,
@@ -1885,7 +1886,7 @@ function lowerMemberLValue(
       sourceFile,
       node,
       `Cannot assign to the swizzle ".${target.field}" — WGSL writes one component at a time. ` +
-        `Assign each component (e.g. v.x = …; v.y = …), or build a whole ${typeKey(base)} and assign that.`,
+        `Assign each component (e.g. v.x = …; v.y = …), or build a whole ${authorTypeText(base)} and assign that.`,
       TS_CODES.ASSIGN_TARGET,
     );
     return undefined;
@@ -1913,7 +1914,7 @@ function lowerIf(
       diagnostics,
       sourceFile,
       node.expression,
-      `if condition must be bool, got ${typeKey(cond.type)}.`,
+      `if condition must be bool, got ${authorTypeText(cond.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;

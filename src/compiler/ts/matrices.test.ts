@@ -146,7 +146,7 @@ export function g(x: mat2x3, y: mat3x2): mat3x3 { return x * y; }
 export function a(m: mat2x3, v: vec3): vec3 { return m * v; }
 `);
     expect(bad).toHaveLength(1);
-    expect(bad[0]).toContain('mat2x3<f32>');
+    expect(bad[0]).toContain('mat2x3 and vec3.');
   });
 
   it('the shared dimension cancels, and the CPU proves the orientation', () => {
@@ -173,7 +173,7 @@ export function mul(a: mat3x2, b: mat2x3): mat2x2 { return a * b; }
         `"use typeshade"\nexport function f(a: ${name}, b: ${name}): ${name} { return a * b }\n`,
       );
       expect(errors, name).toHaveLength(1);
-      expect(errors[0], name).toContain(`${name}<f32> and ${name}<f32>`);
+      expect(errors[0], name).toContain(`${name} and ${name}.`);
       expect(errors[0], name).toContain('matKxR * matCxK -> matCxR');
     }
     // Two matrices of one SQUARE shape still multiply, which is what the pair above cannot.

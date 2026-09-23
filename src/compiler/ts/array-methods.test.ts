@@ -414,7 +414,7 @@ describe('what an array method refuses, each with the fix (Rule 8.18)', () => {
       `${F.UNSUPPORTED} ".map" is a method of the array, and a shader has no function values: call it where its value is needed, "xs.map(…)".`,
     );
     expect(only(XS('const v = vec3(1.);\n  return v.some((c) => c > 0.) ? 1. : 0.;'))).toBe(
-      `${F.TYPE_MISMATCH} "v" is a vec3<f32>, and ".some" is a method of an array.`,
+      `${F.TYPE_MISMATCH} "v" is a vec3, and ".some" is a method of an array.`,
     );
   });
 
@@ -429,7 +429,7 @@ describe('what an array method refuses, each with the fix (Rule 8.18)', () => {
       `${F.ARITY_MISMATCH} "xs.reduce" takes a function and the value to start from, and this call passes 3 arguments.`,
     );
     expect(only(XS('return xs.reduce((a: f32, x) => a + x, vec2(0.));'))).toBe(
-      `${F.TYPE_MISMATCH} "xs.reduce" starts from "vec2(0.)", a vec2<f32>, and its function takes a f32 for the running value.`,
+      `${F.TYPE_MISMATCH} "xs.reduce" starts from "vec2(0.)", a vec2, and its function takes a f32 for the running value.`,
     );
   });
 

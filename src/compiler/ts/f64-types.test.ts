@@ -199,7 +199,7 @@ describe('every builtin it has no twin for', () => {
       `"use typeshade"\nexport function k(a: vec3f64): vec3f64 { return ceil(a) }\n`,
     );
     expect(errors).toEqual([
-      'ceil has no emulated-double form; got vec3<f64>. On a vector of doubles the pass ' +
+      'ceil has no emulated-double form; got vec3f64. On a vector of doubles the pass ' +
         'lowers abs, cos, distance, dot, floor, fract, length, max, min, mix, normalize, ' +
         'round and sin — narrow first, e.g. ceil(vec3(v)).',
     ]);
@@ -302,7 +302,7 @@ export function k(s: f64, t: f32): f64 {
       const errors = errorsOf(`"use typeshade"\n${body}\n`);
       expect(errors, body).toHaveLength(1);
       expect(errors[0], body).toMatch(
-        /^Cannot % (f64|vec3<f64>): the emulated double has no remainder/,
+        /^Cannot % (f64|vec3f64): the emulated double has no remainder/,
       );
     }
     const compound = errorsOf(
@@ -466,7 +466,7 @@ export function k(a: f64, b: f64, c: f64): f64 {
     expect(
       errorsOf(`"use typeshade"\nexport function k(a: vec3f64, i: i32): f64 { return a[i] }\n`),
     ).toEqual([
-      'A vec3<f64> is indexed by a constant lane, since an emulated double is a pair of ' +
+      'A vec3f64 is indexed by a constant lane, since an emulated double is a pair of ' +
         'hi/lo planes and a lane of it is a swizzle of both; write v.x, v.y or a whole-number ' +
         'index.',
     ]);
@@ -538,7 +538,7 @@ export function fs(@location(0) uv: vec2): C {
   return { color: textureSample(t, s, c) }
 }
 `),
-    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2<f64>.']);
+    ).toEqual(['textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2f64.']);
   });
 });
 

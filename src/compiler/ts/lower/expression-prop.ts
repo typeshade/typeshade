@@ -3,7 +3,7 @@ import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js';
 import { emittedMemberName, isPrivateName } from '../class-names.js';
 import { classFunctionOf, methodFnName } from './class-methods.js';
@@ -105,7 +105,7 @@ export function arrayLengthOf(
       diagnostics,
       sourceFile,
       node,
-      `arrayLength takes a runtime-sized storage array, not a ${typeKey(base.type)}.`,
+      `arrayLength takes a runtime-sized storage array, not a ${authorTypeText(base.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -304,7 +304,7 @@ export function lowerPropertyAccess(
         hidden !== undefined && hidden.written === prop
           ? `"${prop}" is private to "${owner}", and this code is outside its class body. Reach ` +
               `it through a member "${owner}" declares without the "#".`
-          : `Unknown field "${prop}" on ${typeKey(base.type)}.`,
+          : `Unknown field "${prop}" on ${authorTypeText(base.type)}.`,
         hidden !== undefined ? TS_CODES.CLASS_MEMBER : TS_CODES.UNKNOWN_NAME,
       );
       return undefined;
@@ -557,7 +557,7 @@ function lowerSpreadInto(
       diagnostics,
       sourceFile,
       prop,
-      `"..." spreads the fields of a struct, and ${typeKey(value.type)} has none. Write the ` +
+      `"..." spreads the fields of a struct, and ${authorTypeText(value.type)} has none. Write the ` +
         `components by name.`,
       TS_CODES.UNSUPPORTED,
     );

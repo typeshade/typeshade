@@ -14,6 +14,7 @@ import ts from 'typescript';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { typeKey, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
+import { authorTypeText } from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
@@ -122,7 +123,7 @@ export function misfit(
   }
   for (const [i, t] of params.entries()) {
     if (typeKey(t) !== typeKey(shape.params[i]!)) {
-      return `takes ${typeKey(t)} for argument ${String(i + 1)}, where "${shape.text}" passes ${typeKey(shape.params[i]!)}`;
+      return `takes ${authorTypeText(t)} for argument ${String(i + 1)}, where "${shape.text}" passes ${authorTypeText(shape.params[i]!)}`;
     }
   }
   if (
@@ -130,7 +131,7 @@ export function misfit(
     typeKey(shape.ret) !== 'void' &&
     typeKey(ret) !== typeKey(shape.ret)
   ) {
-    return `returns ${typeKey(ret)}, where "${shape.text}" returns ${typeKey(shape.ret)}`;
+    return `returns ${authorTypeText(ret)}, where "${shape.text}" returns ${authorTypeText(shape.ret)}`;
   }
   return undefined;
 }

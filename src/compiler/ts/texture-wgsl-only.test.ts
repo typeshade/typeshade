@@ -143,7 +143,7 @@ describe('texture_1d: one number in, a texel out', () => {
 
   it('refuses a vec2 coordinate, an f32 fetch coordinate, a bias, a gradient and textureNumLayers, each in one sentence', () => {
     expect(errorsOf(fragment(`  return textureSample(ramp, smp, p.xy)`))).toEqual([
-      'textureSample on a texture_1d<f32> takes a single f32 coordinate; got vec2<f32>.',
+      'textureSample on a texture_1d<f32> takes a single f32 coordinate; got vec2.',
     ]);
     // A bare `3` is retargeted to an i32 (the test above); an f32 EXPRESSION is refused where
     // Tint would refuse the generated `textureLoad(t, 3.0, 0u)`.
@@ -229,7 +229,7 @@ describe('texture_cube_array: a cube with a layer', () => {
       'textureLoad has no cube form on either target: a texture_cube_array<f32> is looked up by direction, so read it with textureSample or textureSampleLevel.',
     ]);
     expect(errorsOf(fragment(`  return textureSample(envs, smp, p.xy, 0)`))).toEqual([
-      'textureSample on a texture_cube_array<f32> takes a vec3 direction; got vec2<f32>.',
+      'textureSample on a texture_cube_array<f32> takes a vec3 direction; got vec2.',
     ]);
   });
 

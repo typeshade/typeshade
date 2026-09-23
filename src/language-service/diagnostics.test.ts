@@ -376,3 +376,50 @@ describe('a field that holds a function draws no TypeScript diagnostic (Rule 8.1
     });
   }
 });
+
+// WGSL's phony assignment `_ = f(x)` compiles (surface §19, §52), and the editor said TS2304
+// "Cannot find name '_'" on every one of them, so a program the compiler accepts was red and the
+// one it refuses read as two diagnostics (Rule 12.4, Rule 12.7). `_` is not a name the ambient
+// library can declare (no WGSL, ECMAScript or §9.3 source gives it, `surface-names.test.ts`), so
+// the editor drops TS2304 on the `_` of the statement the compiler reads as phony, and nowhere
+// else.
+describe("the _ of a phony assignment is the compiler's to judge (Rule 12.7)", () => {
+  const said = (body: string): string[] =>
+    diagnosticsOf(`"use typeshade"\n${body}\n`).map((d) => `${d.source} ${d.code}: ${d.message}`);
+
+  it('_ = max(a, 1.) is clean, as it compiles', () => {
+    expect(said('export function f(a: f32): f32 { _ = max(a, 1.); return a; }')).toEqual([]);
+  });
+
+  it('the phony statement inside a block, a loop and an arrow that returns nothing is clean', () => {
+    expect(
+      said(
+        [
+          'function g(x: f32): f32 { return x * 2.; }',
+          'export function f(a: f32): f32 {',
+          '  if (a > 0.) { _ = sqrt(a); }',
+          '  for (let i = 0; i < 3; i++) { _ = g(a); }',
+          '  const h = (x: f32) => _ = max(x, 1.);',
+          '  h(a);',
+          '  return a;',
+          '}',
+        ].join('\n'),
+      ),
+    ).toEqual([]);
+  });
+
+  it("_ = a + 1. keeps the compiler's one refusal and no TS2304", () => {
+    expect(said('export function f(a: f32): f32 { _ = a + 1.; return a; }')).toEqual([
+      'typeshade TS8099: "_ = ..." drops the result of a call. "a + 1." is not one, so there is nothing to drop; remove the line.',
+    ]);
+  });
+
+  it('a `_` read as a value, or written by any other operator, keeps TS2304', () => {
+    expect(said('export function f(a: f32): f32 { const y = _; return a; }')).toContain(
+      "typescript 2304: Cannot find name '_'.",
+    );
+    expect(said('export function f(a: f32): f32 { _ += 1.; return a; }')).toContain(
+      "typescript 2304: Cannot find name '_'.",
+    );
+  });
+});

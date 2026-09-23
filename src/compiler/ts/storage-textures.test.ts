@@ -114,7 +114,7 @@ describe('the binding', () => {
         ),
       ),
     ).toEqual([
-      'textureLoad on a texture_storage_2d<r32float, read> takes a vec2 coordinate; got vec3<i32>.',
+      'textureLoad on a texture_storage_2d<"r32float", "read"> takes a vec2 coordinate; got vec3i.',
     ]);
     expect(
       errorsOf(
@@ -124,7 +124,7 @@ describe('the binding', () => {
         ),
       ),
     ).toEqual([
-      'textureStore on a texture_storage_2d<rgba8unorm, write> takes a vec2 coordinate; got vec3<i32>.',
+      'textureStore on a texture_storage_2d<"rgba8unorm", "write"> takes a vec2 coordinate; got vec3i.',
     ]);
     expect(
       errorsOf(
@@ -134,7 +134,7 @@ describe('the binding', () => {
         ),
       ),
     ).toEqual([
-      'textureStore on a texture_storage_2d<rgba8unorm, write> takes an integer coordinate, an i32 or a u32; got vec2<f32>.',
+      'textureStore on a texture_storage_2d<"rgba8unorm", "write"> takes an integer coordinate, an i32 or a u32; got vec2.',
     ]);
     // A vec2u is the other integer coordinate WGSL takes, and is written as it is.
     expect(
@@ -200,7 +200,7 @@ ${body}
         ),
       ),
     ).toEqual([
-      'textureNumLayers needs a texture_storage_2d_array; "texture_storage_2d<r32float, read>" has no layers.',
+      'textureNumLayers needs a texture_storage_2d_array; "texture_storage_2d<"r32float", "read">" has no layers.',
     ]);
   });
 
@@ -300,7 +300,7 @@ ${body}
         ),
       ),
     ).toEqual([
-      'textureDimensions on a texture_storage_2d<r32float, read> takes the texture alone: a ' +
+      'textureDimensions on a texture_storage_2d<"r32float", "read"> takes the texture alone: a ' +
         'storage texture has one mip level, so there is no level to ask for.',
     ]);
     expect(
@@ -416,7 +416,7 @@ describe('what the format decides', () => {
         `  textureStore(ids, vec2i(0, 0), vec4(1.))`,
       ),
     );
-    expect(errors[0]).toContain('stores a vec4<u32>; got vec4<f32>');
+    expect(errors[0]).toContain('stores a vec4u; got vec4');
     expect(errors[0]).toContain('a "…uint" format stores a vec4u');
   });
 });
@@ -607,7 +607,7 @@ export function vs(@builtin("vertex_index") i: u32): Clip {
     // The wrong-width call is also why `v` never binds, so the cascade is asserted too rather
     // than filtered out: a reader should see that one mistake yields exactly these two.
     expect(errorsOf(WRONG_WIDTH)).toEqual([
-      'textureLoad on a texture_storage_2d<r32float, read_write> takes a vec2 coordinate; got vec3<i32>.',
+      'textureLoad on a texture_storage_2d<"r32float", "read_write"> takes a vec2 coordinate; got vec3i.',
       'Unknown identifier "v".',
     ]);
     expect(compile(WRONG_WIDTH).wgsl).toBeUndefined();

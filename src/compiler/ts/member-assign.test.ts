@@ -164,7 +164,7 @@ describe('component assignment', () => {
           return p.a;
         }
       `),
-    ).toBe('Cannot apply -- to struct:P: -- steps a numeric scalar (f32, i32, u32, f64).');
+    ).toBe('Cannot apply -- to P: -- steps a numeric scalar (f32, i32, u32, f64).');
   });
 });
 
@@ -337,7 +337,7 @@ describe('rejections', () => {
     `;
     expect(diagnose(src)).toBe(
       'Cannot assign to the swizzle ".xy" — WGSL writes one component at a time. ' +
-        'Assign each component (e.g. v.x = …; v.y = …), or build a whole vec3<f32> and assign that.',
+        'Assign each component (e.g. v.x = …; v.y = …), or build a whole vec3 and assign that.',
     );
     expect(code(src)).toBe('TS8018');
   });
@@ -460,7 +460,7 @@ describe('rejections', () => {
           return p.a;
         }
       `),
-    ).toBe('Unknown field "c" on struct:P.');
+    ).toBe('Unknown field "c" on P.');
   });
 
   it('rejects a component out of range on the target vector', () => {
@@ -472,7 +472,7 @@ describe('rejections', () => {
           return v;
         }
       `),
-    ).toBe('.z out of range on vec2<f32>.');
+    ).toBe('.z out of range on vec2.');
   });
 });
 
@@ -563,7 +563,7 @@ describe('what ++ and -- step', () => {
     expect(
       diagnose('export function f(): vec3 {\n  let v = vec3(1., 2., 3.);\n  v++;\n  return v;\n}'),
     ).toBe(
-      'Cannot apply ++ to vec3<f32>: a vector has no literal to step by. Write the addition out, e.g. v = v + vec3(1., 1., 1.).',
+      'Cannot apply ++ to vec3: a vector has no literal to step by. Write the addition out, e.g. v = v + vec3(1., 1., 1.).',
     );
     expect(
       diagnose(`
@@ -574,7 +574,7 @@ describe('what ++ and -- step', () => {
         }
       `),
     ).toBe(
-      'Cannot apply ++ to vec3<f64>: a vector has no literal to step by. Write the addition out.',
+      'Cannot apply ++ to vec3f64: a vector has no literal to step by. Write the addition out.',
     );
   });
 

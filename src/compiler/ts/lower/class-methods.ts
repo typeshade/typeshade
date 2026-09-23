@@ -32,6 +32,7 @@ import { boolT, f32T, i32T, structT, typeKey, u32T, voidT } from '../../../core/
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { CollectedStruct, FieldInit } from '../structs.js';
 import {
+  authorTypeText,
   irNameOf,
   readOnlyPhrase,
   writableRemedy,
@@ -1432,7 +1433,7 @@ function initAssigns(
         diagnostics,
         sourceFile,
         f.init,
-        `Field "${f.name}" is ${typeKey(f.type)} but its initializer is ${typeKey(init.type)}.`,
+        `Field "${f.name}" is ${authorTypeText(f.type)} but its initializer is ${authorTypeText(init.type)}.`,
         TS_CODES.TYPE_MISMATCH,
       );
       continue;

@@ -5,6 +5,7 @@ import type { BinOp, CmpOp, Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { arrayT, boolT, i32T, typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { authorTypeText } from './context.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES, type TsCode } from './codes.js';
 
@@ -112,7 +113,7 @@ function pairArrays(
         err(
           sourceFile,
           node,
-          `Broadcast scalar must be ${typeKey(la.elem)}.`,
+          `Broadcast scalar must be ${authorTypeText(la.elem)}.`,
           TS_CODES.TYPE_MISMATCH,
         ),
       );
@@ -129,7 +130,7 @@ function pairArrays(
       err(
         sourceFile,
         node,
-        `Broadcast scalar must be ${typeKey(ra.elem)}.`,
+        `Broadcast scalar must be ${authorTypeText(ra.elem)}.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );
@@ -336,7 +337,12 @@ function lane(
   }
   if (typeKey(expr.type) !== typeKey(elem)) {
     diagnostics.push(
-      err(sourceFile, node, `${label} must be ${typeKey(elem)} or array.`, TS_CODES.TYPE_MISMATCH),
+      err(
+        sourceFile,
+        node,
+        `${label} must be ${authorTypeText(elem)} or array.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
     );
     return undefined;
   }

@@ -13,6 +13,7 @@ import type { OverrideDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { typeKey } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { authorTypeText } from './context.js';
 import { mapTsTypeToShaderType } from './type-map.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { TS_CODES } from './codes.js';
@@ -112,7 +113,11 @@ function lowerOne(
     // WGSL's own rule: an override is a scalar. A vector or a struct has no `override`
     // spelling to emit, and GLSL's `#define` stand-in has nothing to substitute either.
     diagnostics.push(
-      diag(sourceFile, decl, `override "${name}" must be f32, i32, u32 or bool, not ${k}.`),
+      diag(
+        sourceFile,
+        decl,
+        `override "${name}" must be f32, i32, u32 or bool, not ${authorTypeText(type)}.`,
+      ),
     );
     return undefined;
   }

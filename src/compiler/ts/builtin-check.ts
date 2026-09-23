@@ -14,6 +14,7 @@ import {
 } from '../../core/sot.js';
 import { typeKey, type ShaderType } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { authorTypeText } from './context.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { isIntegerVarying } from '../../core/passes/varying-interpolate.js';
@@ -311,7 +312,7 @@ export function checkLocationType(
       makeDiagnostic(
         sourceFile,
         node,
-        `"${name}" is "${typeKey(type)}" at a @location, so its interpolation is "flat"; ` +
+        `"${name}" is "${authorTypeText(type)}" at a @location, so its interpolation is "flat"; ` +
           `@interpolate(${interpolate}) is not one an integer has. Drop the attribute — it is ` +
           `derived from the type — or send an f32.`,
         TS_CODES.TYPE_MISMATCH,
@@ -333,7 +334,7 @@ export function checkLocationType(
     makeDiagnostic(
       sourceFile,
       node,
-      `"${name}" is at a @location and is "${typeKey(type)}"; a value passed between stages ` +
+      `"${name}" is at a @location and is "${authorTypeText(type)}"; a value passed between stages ` +
         `is a numeric scalar or a numeric vector. ` +
         (typeKey(type) === 'bool' || (type.kind === 'vec' && type.elem === 'bool')
           ? 'Send a u32 and compare it.'
@@ -368,7 +369,7 @@ export function checkBuiltinType(
         makeDiagnostic(
           sourceFile,
           node,
-          `Builtin "${name}" is "${typeKey(fixed)}"; this declares it "${typeKey(type)}".`,
+          `Builtin "${name}" is "${authorTypeText(fixed)}"; this declares it "${authorTypeText(type)}".`,
           TS_CODES.TYPE_MISMATCH,
         ),
       );
@@ -376,7 +377,7 @@ export function checkBuiltinType(
     return;
   }
   if (name !== 'clip_distances') return;
-  const shown = typeKey(type);
+  const shown = authorTypeText(type);
   const ok =
     type.kind === 'array' &&
     type.elem.kind === 'scalar' &&

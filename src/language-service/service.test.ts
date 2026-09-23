@@ -267,7 +267,7 @@ describe('getDiagnostics: Stage 3 TypeShade checks (design doc §10 step 5)', ()
       .find((d) => d.source === 'typeshade' && d.code === 'TS8021');
     expect(d, 'expected a TS8021 (RETURN_SHAPE) diagnostic').toBeDefined();
     expect(d!.severity).toBe('error');
-    expect(d!.message).toContain('vec4<f32>');
+    expect(d!.message).toContain('inferred type vec4)');
   });
 
   // `mat2<f32>` used to be the TS8027 sample here. Every `matCxR` is a type since #149, so

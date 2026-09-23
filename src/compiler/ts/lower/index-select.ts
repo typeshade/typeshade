@@ -3,7 +3,7 @@ import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f64T, i32T, typeKey } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
+import { authorTypeText, type LoweringScope } from '../context.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { retargetIntLit } from '../lit-coerce.js';
@@ -37,7 +37,7 @@ export function lowerIndex(
         diagnostics,
         sourceFile,
         node,
-        `A ${typeKey(base.type)} is indexed by a constant lane, since an emulated double is a ` +
+        `A ${authorTypeText(base.type)} is indexed by a constant lane, since an emulated double is a ` +
           `pair of hi/lo planes and a lane of it is a swizzle of both; write v.x, v.y or a ` +
           `whole-number index.`,
         TS_CODES.TYPE_MISMATCH,
@@ -63,7 +63,7 @@ export function lowerIndex(
       diagnostics,
       sourceFile,
       node,
-      `Cannot index ${typeKey(base.type)}.`,
+      `Cannot index ${authorTypeText(base.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;
@@ -118,7 +118,7 @@ export function lowerSelect(
       diagnostics,
       sourceFile,
       node,
-      `Ternary arm type mismatch: ${typeKey(ifTrue.type)} vs ${typeKey(ifFalse.type)}.`,
+      `Ternary arm type mismatch: ${authorTypeText(ifTrue.type)} vs ${authorTypeText(ifFalse.type)}.`,
       TS_CODES.TYPE_MISMATCH,
     );
     return undefined;

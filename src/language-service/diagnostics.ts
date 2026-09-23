@@ -768,6 +768,40 @@ function isGpuArithmeticOverloadCall(
     .some((overload) => overloadFitsRestoredShapes(context, checker, call, overload));
 }
 
+/**
+ * Whether TS2304 ("Cannot find name '_'") is on the `_` of a phony assignment, `_ = f(x)`, in a
+ * place the compiler lowers it as one (surface §19, §52): the `_ = …` a statement is made of, or
+ * the body of an arrow that returns nothing (no annotation, or `void`), whose body the compiler
+ * runs as that statement. The shape is the one `lowerExpressionAsStatement` reads, so a
+ * right-hand side that is not a call keeps the compiler's own sentence, and a `_` anywhere else
+ * (`const y = _`, `_ += 1.`, `(_ = f(x));`) keeps this code.
+ */
+function isPhonyAssignmentTarget(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const target = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  if (!ts.isIdentifier(target) || target.text !== '_') return false;
+  const assignment = target.parent;
+  if (
+    assignment === undefined ||
+    !ts.isBinaryExpression(assignment) ||
+    assignment.left !== target ||
+    assignment.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+  ) {
+    return false;
+  }
+  if (ts.isExpressionStatement(assignment.parent)) return true;
+  let body: ts.Node = assignment;
+  while (ts.isParenthesizedExpression(body.parent)) body = body.parent;
+  const arrow = body.parent;
+  return (
+    ts.isArrowFunction(arrow) &&
+    arrow.body === body &&
+    (arrow.type === undefined || arrow.type.kind === ts.SyntaxKind.VoidKeyword)
+  );
+}
+
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
@@ -846,6 +880,17 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
       'failed and the callee one when a later argument did (`max(a, b * 2.)` reports on ' +
       '`max`). Issue #43, and the twins corpus measurement in design doc §6.',
     when: isGpuArithmeticOverloadCall,
+  },
+  {
+    code: 2304,
+    reason:
+      "`_ = f(x)` is WGSL's phony assignment, which the compiler lowers as the call with its " +
+      'result dropped (surface §19, §52), and `_` names no value for the ambient library to ' +
+      'declare: it is not a WGSL, ECMAScript or §9.3 name (`surface-names.test.ts`), and ' +
+      'Rule 3.2 refuses it as an author name. Dropped only on the `_` of the statement form ' +
+      "the compiler reads as phony, so `_ = a + 1.` keeps the compiler's one refusal and a `_` " +
+      'read as a value keeps this code.',
+    when: isPhonyAssignmentTarget,
   },
 ];
 

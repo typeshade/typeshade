@@ -118,7 +118,7 @@ describe('an extension-gated built-in value derives its enable, its host feature
     );
     expect(d.code).toBe(TS_CODES.TYPE_MISMATCH);
     expect(d.message).toBe(
-      'Builtin "clip_distances" is "array<f32,9>"; WGSL gives it array<f32, N> with N from 1 to 8.',
+      'Builtin "clip_distances" is "array<f32, 9>"; WGSL gives it array<f32, N> with N from 1 to 8.',
     );
   });
 
@@ -128,7 +128,7 @@ describe('an extension-gated built-in value derives its enable, its host feature
 @vertex export function vs(): VsOut { let o = new VsOut(); o.p = vec4(0.); return o }`,
     );
     expect(d.code).toBe(TS_CODES.TYPE_MISMATCH);
-    expect(d.message).toContain('is "vec4<f32>"');
+    expect(d.message).toContain('is "vec4"');
   });
 
   it('accepts the subgroup pair on a fragment entry, not compute alone', () => {
