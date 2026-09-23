@@ -22,6 +22,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -34,6 +35,13 @@ function diagnose(source: string): { code?: string; message: string } {
   const first = r.diagnostics.find((d) => d.category === 'error');
   expect(first, 'expected a diagnostic, got none').toBeDefined();
   return { code: first!.code, message: first!.message };
+}
+
+/** The editor's diagnostics on the same source, as `[source, code, message]`. */
+function editor(source: string): (string | number)[][] {
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.ts', `"use typeshade"\n${source}`);
+  return service.getDiagnostics('a.ts').map((d) => [d.source, d.code, d.message]);
 }
 
 /** Both CPU engines, which have separate tables and only agree when both are right. */
@@ -311,10 +319,14 @@ export function g(x: f32): f32 { dst[0] = x; return x }
 // Rule 7.1: the lowering checked that two operands have ONE type and stopped there, so two
 // operands of one type and of a kind WGSL has no such operator for reached Tint. Each row below
 // compiled on main with no diagnostic and was measured as Tint's `no matching overload`
-// (`operator + (A, A)`, `operator < (bool, bool)`, `operator & (f32, f32)`, `operator ==
-// (mat3x3<f32>, mat3x3<f32>)`, `operator - (DF64Mat3)`, `operator += (DF64Mat3, DF64Mat3)`),
-// or, for `+`/`-` on a matrix of doubles and `&` on a double, as a span-less `TS8015` from the
-// fp64 pass. Now each is one `TS8003` on the line, naming the operator and the type as written.
+// (`operator + (A, A)`, `operator < (bool, bool)`, `operator & (A, A)`, `operator ==
+// (mat3x3<f32>, mat3x3<f32>)`, `operator - (DF64Mat3)`, `operator += (DF64Mat3, DF64Mat3)`,
+// `operator + (texture_2d<f32>, texture_2d<f32>)`), or, for `+`/`-` and `&` on a matrix of
+// doubles, as a span-less `TS8015` from the fp64 pass. Now each is one `TS8003` on the line,
+// naming the operator and the type as written, and the editor shows that one sentence alone:
+// TypeScript's TS2365, TS2362, TS2363 or TS2447 on the same operator, and the TS2322 its
+// `number` result draws, give way to it (Rule 12.4). A float under `& | ^` is `lowerBinary`'s
+// own refusal, pinned in `ts-syntax.test.ts`.
 describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () => {
   const A = 'class A { x: f32 = 0; }\n';
   it.each([
@@ -376,21 +388,36 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       "Cannot ^ bool: WGSL's ^ takes integers, not a bool. Write a !== b, which is the same.",
     ],
     [
-      '& on two floats',
-      'export function k(a: f32, b: f32): f32 { return a & b }',
-      "Cannot & f32: WGSL's & takes integers and bools, not a float. Convert it first, e.g. " +
-        'u32(a).',
+      '& on two class instances',
+      `${A}export function k(a: A, b: A): A { return a & b }`,
+      "Cannot & A: WGSL's & takes integers and bools, not a struct.",
     ],
     [
-      '| on two float vectors',
-      'export function k(a: vec3, b: vec3): vec3 { return a | b }',
-      "Cannot | vec3: WGSL's | takes integers and bools, not a float. Convert it first, e.g. " +
-        'vec3u(a).',
+      '| on two matrices',
+      'export function k(m: mat3, n: mat3): mat3 { return m | n }',
+      "Cannot | mat3x3: WGSL's | takes integers and bools, not a matrix.",
     ],
     [
-      '^ on two doubles',
-      'export function k(a: f64, b: f64): f64 { return a ^ b }',
-      "Cannot ^ f64: WGSL's ^ takes integers, not a float. Convert it first, e.g. u32(f32(a)).",
+      '^ on two arrays',
+      'export function k(a: array<f32, 2>, b: array<f32, 2>): array<f32, 2> { return a ^ b }',
+      "Cannot ^ array<f32, 2>: WGSL's ^ takes integers, not an array.",
+    ],
+    [
+      '^ on two vectors of bools',
+      'export function k(a: vec3b, b: vec3b): vec3b { return a ^ b }',
+      "Cannot ^ vec3b: WGSL's ^ takes integers, not a vector of bools. Write a !== b, which is " +
+        'the same.',
+    ],
+    [
+      '& on two matrices of doubles',
+      'export function k(m: mat3<f64>, n: mat3<f64>): mat3<f64> { return m & n }',
+      "Cannot & mat3x3<f64>: WGSL's & takes integers and bools, not a matrix.",
+    ],
+    [
+      '< on two arrays',
+      'export function k(a: array<f32, 2>, b: array<f32, 2>): bool { return a < b }',
+      'Cannot < array<f32, 2>: WGSL orders numbers and vectors of numbers, not an array. ' +
+        'Compare one of its elements.',
     ],
     [
       '=== on two matrices',
@@ -422,6 +449,28 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       'Cannot === sampler: WGSL compares scalars and vectors, not a texture or a sampler.',
     ],
     [
+      '+ on two textures',
+      'declare const t: texture_2d<f32>\n' +
+        '@fragment export function fs(): vec4 { return textureLoad(t + t, vec2i(0), 0) }',
+      'Cannot + texture_2d<f32>: WGSL has no arithmetic on a texture or a sampler.',
+    ],
+    [
+      // Refused by type, as a local the optimizer would drop is: written into a read, it is
+      // Tint's `no matching overload for 'operator * (sampler, sampler)'`.
+      '* on two samplers',
+      'declare const s: sampler\n' +
+        'export function k(): f32 { const u = s * s; return 0. }\n' +
+        '@fragment export function fs(): vec4 { return vec4(k()) }',
+      'Cannot * sampler: WGSL has no arithmetic on a texture or a sampler.',
+    ],
+    [
+      '< on two samplers',
+      'declare const s: sampler\n' +
+        'export function k(): bool { return s < s }\n' +
+        '@fragment export function fs(): vec4 { return vec4(select(0., 1., k())) }',
+      'Cannot < sampler: WGSL orders numbers and vectors of numbers, not a texture or a sampler.',
+    ],
+    [
       'unary - on a bool',
       'export function k(b: bool): bool { return -b }',
       'Unary "-" is not defined on bool; WGSL has no negation for a bool. Write !x for its ' +
@@ -445,6 +494,14 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       'Unary "-" is not defined on mat4x4<f64>; WGSL has no negation for a matrix.',
     ],
     [
+      'unary - on a texture',
+      'declare const t: texture_2d<f32>\n' +
+        'export function k(): f32 { const u = -t; return 0. }\n' +
+        '@fragment export function fs(): vec4 { return vec4(k()) }',
+      'Unary "-" is not defined on texture_2d<f32>; WGSL has no negation for a texture or a ' +
+        'sampler.',
+    ],
+    [
       'unary - on a class instance',
       `${A}export function k(a: A): A { return -a }`,
       'Unary "-" is not defined on A; WGSL has no negation for a struct. Negate its fields one ' +
@@ -460,6 +517,18 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       '+= on a class instance',
       `${A}export function k(b: A): A { let a = b; a += b; return a }`,
       'Cannot += A: WGSL has no arithmetic on a struct. Write it field by field.',
+    ],
+    [
+      '+= on a struct field',
+      `${A}class O { i: A = new A(); j: A = new A(); }
+export function k(): f32 { let o = new O(); o.i += o.j; return o.i.x }`,
+      'Cannot += A: WGSL has no arithmetic on a struct. Write it field by field.',
+    ],
+    [
+      '*= on a bool',
+      'export function k(a: bool, b: bool): bool { let c = a; c *= b; return c }',
+      'Cannot *= bool: WGSL has no arithmetic on a bool. Convert it to a number first, e.g. ' +
+        'u32(a).',
     ],
     [
       '-= on a vector of bools',
@@ -484,6 +553,49 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
     expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
       [TS_CODES.TYPE_MISMATCH, message],
     ]);
+    expect(editor(source)).toEqual([['typeshade', TS_CODES.TYPE_MISMATCH, message]]);
+  });
+
+  it('shows the editor one diagnostic for + on two class instances, where TypeScript had TS2365', () => {
+    // TypeScript's `Operator '+' cannot be applied to types 'A' and 'A'` was the only
+    // diagnostic before the compiler refused the operator; it gives way to the compiler's.
+    expect(
+      editor(
+        `${A}export function k(): f32 { const a = new A(); const b = new A(); return (a + b).x }`,
+      ),
+    ).toEqual([
+      [
+        'typeshade',
+        TS_CODES.TYPE_MISMATCH,
+        'Cannot + A: WGSL has no arithmetic on a struct. Write it field by field.',
+      ],
+    ]);
+  });
+
+  it('keeps & | ^ on two whole numbers the front end folds, as bit flags', () => {
+    // `const A = 1` is an f32 by Rule 5.1's default, and a module constant and a `case` label
+    // fold `A | B` to the number (surface §12), so these reach neither target as an operator.
+    const source = `const A = 1
+const B = 2
+const AB = A | B
+const MASK = 1 | 4
+const F: u32 = 1 | 2
+const C = A ^ B
+const M = 0xff ^ 0x0f
+export function k(x: i32, u: u32): f32 {
+  switch (x) {
+    case 1 | 2: return f32(AB + MASK + C + M)
+    case A & B: return 2.
+    default: return f32(u & F)
+  }
+}`;
+    const c = compiled(source);
+    expect(c.wgsl).toContain('const AB: f32 = 3.0;');
+    expect(c.wgsl).toContain('const F: u32 = 3u;');
+    expect(c.wgsl).toContain('const M: f32 = 240.0;');
+    expect(c.wgsl).toContain('case 3: {');
+    expect(c.wgsl).toContain('case 0: {');
+    expect(editor(source)).toEqual([]);
   });
 
   it('keeps every operator WGSL and the fp64 pass have, with the WGSL it had', () => {
@@ -505,9 +617,6 @@ export function d(p: mat3<f64>, q: mat3<f64>, s: f64): f64 { const r = p * q; re
 export function b(a: bool, c: bool): u32 { return u32(a) + u32(c) }
 export function v(a: vec3b): vec3u { return vec3u(a) }
 export function x(a: bool, c: bool): bool { return a !== c }
-export function f(a: f32, c: f32): u32 { return u32(a) & u32(c) }
-export function g(a: vec3, c: vec3): vec3u { return vec3u(a) & vec3u(c) }
-export function h(a: f64, c: f64): u32 { return u32(f32(a)) ^ u32(f32(c)) }
 export function e(m: mat3, n: mat3): bool { return all(m[0] === n[0]) }
 export function o(m: mat3): mat3 { return m * -1. }
 export function p(m: mat3<f64>, n: mat3<f64>): mat3<f64> { let q = m; q = q * n; return q }`);

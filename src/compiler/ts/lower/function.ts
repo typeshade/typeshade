@@ -1937,7 +1937,7 @@ export function parseParams(
   const paramLocations = new Map<number, string>();
   const fnName = opts.fnName ?? opts.owner ?? 'this entry';
   for (const p of parameters) {
-    for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d);
+    for (const d of decoratorsOf(p)) checkAttributeName(diagnostics, sourceFile, d, 'a parameter');
     if (!ts.isIdentifier(p.name)) {
       pushDiag(
         diagnostics,
@@ -2972,7 +2972,7 @@ function parseStage(
   let stage: FuncDecl['stage'] | undefined;
   let workgroupShape: WorkgroupShape | undefined;
   for (const d of decos) {
-    checkAttributeName(diagnostics, sourceFile, d);
+    checkAttributeName(diagnostics, sourceFile, d, 'a function');
     const text = d.getText(sourceFile);
     if (/^@vertex\b/.test(text)) stage = 'vertex';
     else if (/^@fragment\b/.test(text)) stage = 'fragment';

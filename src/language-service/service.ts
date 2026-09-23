@@ -253,7 +253,7 @@ export function createTypeshadeLanguageServiceWith(
   function diagnosticsOf(uri: string, sourceFile: ts.SourceFile): readonly TypeshadeDiagnostic[] {
     const entry = entryOf(uri, sourceFile);
     entry.diagnostics ??= [
-      ...getTypeScriptDiagnostics(languageService, sourceFile, uri),
+      ...getTypeScriptDiagnostics(languageService, sourceFile, uri, entry.analysis.diagnostics),
       ...getTypeshadeDiagnostics(entry.analysis, sourceFile, uri),
     ].sort(byDocumentOrder);
     return entry.diagnostics;

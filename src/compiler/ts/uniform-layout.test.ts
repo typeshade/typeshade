@@ -26,6 +26,7 @@ import { TS_CODES } from './codes.js';
 import { reflect } from '../../core/reflect.js';
 import { padUniformArrays } from '../../core/passes/uniform-layout.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -422,6 +423,32 @@ let seen: vec3b = vec3b(false)
 }`);
     expect(c.wgsl).toContain('b: vec3<u32>,');
     expect(c.wgsl).toContain('var<private> seen: vec3<bool>');
+  });
+
+  it('shows the editor the vector-of-bools refusal once, as the compiler says it', () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument(
+      'a.ts',
+      `"use typeshade";
+class U { a: f32; b: vec3b; }
+declare const U_: uniform<U>;
+declare const xs: storage<array<vec2b>>;
+@fragment export function fs(): vec4 { return vec4(U_.a); }`,
+    );
+    expect(service.getDiagnostics('a.ts').map((d) => [d.source, d.code, d.message])).toEqual([
+      [
+        'typeshade',
+        TS_CODES.LAYOUT,
+        '"U.b" is a vec3b; a uniform binding holds no bool, alone or in a vector ' +
+          "(WGSL's host-shareable rule). Use vec3u.",
+      ],
+      [
+        'typeshade',
+        TS_CODES.LAYOUT,
+        '"xs[]" is a vec2b; a storage binding holds no bool, alone or in a vector ' +
+          "(WGSL's host-shareable rule). Use vec2u.",
+      ],
+    ]);
   });
 });
 

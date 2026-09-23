@@ -18,8 +18,9 @@
 // An emulated double follows the fp64 pass (surface §39): `f64` and `vecN<f64>` are numbers
 // here, and a matrix of doubles takes `*` alone, whose compound form the pass does not lower
 // either. What a caller already refuses with a sentence of its own is left to it: `/` and `%`
-// on any matrix, `%` on a double, an ordering on a vector of bools, `-` on a `u32`, and a
-// shift, whose operands `lowerBinary` reads by element.
+// on any matrix, `%` on a double, an ordering on a vector of bools, `-` on a `u32`, a float
+// under `& | ^` (which `lowerBinary` keeps for two whole numbers the front end folds, `1 | 2`),
+// and a shift, whose operands `lowerBinary` reads by element.
 
 import type ts from 'typescript';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -70,15 +71,6 @@ function kindOf(t: ShaderType): string | undefined {
   }
 }
 
-/** The one-type conversion to u32 an author writes for `t`: `u32(x)` on a scalar, `vec3u(x)` on
- *  a vector, through `f32` first for an emulated double, which narrows to f32 before anything
- *  else (the scalar casts' own sentence). */
-function toUnsigned(t: ShaderType, x: string): string {
-  if (t.kind === 'f64') return `u32(f32(${x}))`;
-  if (t.kind === 'vec64') return `vec${String(t.n)}u(vec${String(t.n)}(${x}))`;
-  return t.kind === 'vec' ? `vec${String(t.n)}u(${x})` : `u32(${x})`;
-}
-
 /** The f32 matrix of `t`'s shape, as an author writes it. */
 function f32Matrix(t: Extract<ShaderType, { kind: 'mat' }>): string {
   return authorTypeText({ kind: 'mat', cols: t.cols, rows: t.rows, elem: 'f32' });
@@ -118,7 +110,7 @@ function operatorKindRefusal(op: string, t: ShaderType, compound = false): strin
         t.kind === 'scalar'
           ? ' Convert it to a number first, e.g. u32(a).'
           : t.kind === 'vec'
-            ? ` Convert it to numbers first, e.g. ${toUnsigned(t, 'a')}.`
+            ? ` Convert it to numbers first, e.g. vec${String(t.n)}u(a).`
             : t.kind === 'struct'
               ? ' Write it field by field.'
               : t.kind === 'array'
@@ -161,8 +153,9 @@ function operatorKindRefusal(op: string, t: ShaderType, compound = false): strin
       return `${cannot}: WGSL compares scalars and vectors, not ${kind}.${remedy}`;
     }
     case 'bitwise': {
-      const elem = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
-      if (elem === 'i32' || elem === 'u32') return undefined;
+      // A number here is an integer, or two f32 whole numbers the front end folds, which
+      // `lowerBinary` keeps; any other float it has refused already.
+      if (kind === undefined) return undefined;
       // `&` and `|` on a bool are WGSL's non-short-circuiting logical operators; `^` is not.
       if (kind === 'a bool' || kind === 'a vector of bools') {
         return op === '^'
@@ -171,9 +164,6 @@ function operatorKindRefusal(op: string, t: ShaderType, compound = false): strin
       }
       const takes =
         op === '^' ? `WGSL's ^ takes integers` : `WGSL's ${op} takes integers and bools`;
-      if (kind === undefined) {
-        return `${cannot}: ${takes}, not a float. Convert it first, e.g. ${toUnsigned(t, 'a')}.`;
-      }
       return `${cannot}: ${takes}, not ${kind}.`;
     }
   }

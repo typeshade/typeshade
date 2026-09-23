@@ -766,8 +766,9 @@ function lowerBinary(
       );
       return undefined;
     }
-    // `&` and `|` take integers and bools, `^` integers alone; two floats have one type and
-    // reached Tint as `operator & (f32, f32)` (Rule 7.1).
+    // `&` and `|` take integers and bools, `^` integers alone: two bools under `^`, and two
+    // structs, arrays or matrices under any of them, have one type and reached Tint as `no
+    // matching overload` (Rule 7.1).
     if (refuseOperatorKind(bit, left.type, node, sourceFile, diagnostics)) return undefined;
     return { op: 'binop', type: left.type, bop: bit, a: left, b: right };
   }

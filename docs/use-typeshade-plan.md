@@ -200,9 +200,9 @@ obj.position; v.x; v.xyz; a[i];
 **Status:** done (`structs.ts`, `lower/expression-prop.ts`, `lower/index-select.ts`,
 `vertex-layout.ts`; `structs.test.ts`, `camera-uniform.test.ts`, `vsout.test.ts`).
 Class fields carry `@location` / `@builtin` / `@interpolate` / `@invariant` / `@blend_src`;
-field `@align` is a deliberate error (`TS8010`) rather than a silent no-op, and `@size` /
-`@offset` / `@ignore` are `TS8028` ("Unknown attribute") — see `docs/use-typeshade-surface.md`
-§2 and §53.
+field `@align` is a deliberate error (`TS8010`) rather than a silent no-op, `@size` is `TS8028`
+named as WGSL's attribute that is not applied (§51), and `@offset` / `@ignore` are `TS8028`
+("Unknown attribute") — see `docs/use-typeshade-surface.md` §2, §51 and §53.
 
 ### Phase 9 — Control Flow ✅
 

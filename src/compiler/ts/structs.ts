@@ -372,7 +372,7 @@ export function collectStructs(
         });
         for (const d of stmt.modifiers ?? []) {
           if (!ts.isDecorator(d)) continue;
-          checkAttributeName(diagnostics, sourceFile, d);
+          checkAttributeName(diagnostics, sourceFile, d, 'a class');
           const text = d.getText(sourceFile);
           if (/@std140/.test(text) || /@align/.test(text)) {
             diagnostics.push(
@@ -689,7 +689,7 @@ export function collectStructs(
           }
           for (const d of member.modifiers ?? []) {
             if (!ts.isDecorator(d)) continue;
-            checkAttributeName(diagnostics, sourceFile, d);
+            checkAttributeName(diagnostics, sourceFile, d, 'a struct field');
             const text = d.getText(sourceFile);
             if (/@align/.test(text)) {
               diagnostics.push(diag(sourceFile, d, `@align on a field is not applied.`));

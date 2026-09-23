@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
+import { takesNoDecorator } from '../compiler/ts/builtin-check.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import type { TypeshadeDiagnostic, TypeshadeSeverity } from './types.js';
@@ -25,15 +26,17 @@ interface DiagnosticFilterRule {
 
 /**
  * What a rule may consult about the document one diagnostic came from: the parsed source file,
- * and the program's type checker for the rules that decide from an expression's TYPE rather
- * than from the syntax alone (the vector and matrix arithmetic rules below). `checker` is
- * `undefined` only when the language service holds no program; a rule that cannot prove an
- * occurrence is the known false positive then leaves the diagnostic alone, so a missing
- * checker can only ever show more diagnostics, never hide one.
+ * the program's type checker for the rules that decide from an expression's TYPE rather
+ * than from the syntax alone (the vector and matrix arithmetic rules below), and the compiler's
+ * own diagnostics on the same document, for the rules that give way to a refusal the compiler
+ * makes of the same mistake. `checker` is `undefined` only when the language service holds no
+ * program; a rule that cannot prove an occurrence is the known false positive then leaves the
+ * diagnostic alone, so a missing checker can only ever show more diagnostics, never hide one.
  */
 interface DiagnosticFilterContext {
   readonly sourceFile: ts.SourceFile;
   readonly checker: ts.TypeChecker | undefined;
+  readonly compiler: readonly TsCompilerDiagnostic[];
 }
 
 /**
@@ -79,25 +82,128 @@ function isDecoratorOnTopLevelFunction(
 }
 
 /**
- * TS1206 on a decorator of a top-level variable statement (`@group(2) declare const u:
- * uniform<U>`, `@id(7) declare const k: override<f32>`, `@bogus const K: f32 = 1.`). The compiler
- * refuses every such decorator itself, as `TS8028` on the decorator with the sentence that says
- * what the attribute is and where its intent goes (`checkDeclarationDecorators`), so TypeScript's
- * "Decorators are not valid here" on the same statement would be a second diagnostic for the one
- * mistake (Rule 12.4).
+ * TS1206 on a decorator of a declaration that takes none (`takesNoDecorator`): a variable
+ * statement at any depth (`@group(2) declare const u: uniform<U>`, `@id(7) declare const k:
+ * override<f32>`, `@bogus const K: f32 = 1.`), an enum, an interface, a type alias or a
+ * namespace. The compiler refuses every such decorator itself, as `TS8028` on the decorator
+ * with the sentence that says what the attribute is and where its intent goes
+ * (`checkDeclarationDecorators`), so TypeScript's "Decorators are not valid here" on the same
+ * decorator would be a second diagnostic for the one mistake (Rule 12.4).
  */
-function isDecoratorOnTopLevelDeclaration(
+function isDecoratorOnDeclaration(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
 ): boolean {
   let node: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
   while (node !== undefined && !ts.isDecorator(node)) node = node.parent;
   const decorated = node?.parent;
+  return decorated !== undefined && takesNoDecorator(decorated);
+}
+
+/** Whether the compiler reported one of `codes` on exactly `node`'s span. */
+function compilerReportsAt(
+  context: DiagnosticFilterContext,
+  node: ts.Node,
+  codes: readonly string[],
+): boolean {
+  const start = node.getStart(context.sourceFile);
+  const length = node.getEnd() - start;
+  return context.compiler.some(
+    (d) =>
+      d.code !== undefined && codes.includes(d.code) && d.start === start && d.length === length,
+  );
+}
+
+/**
+ * TS2304 ("Cannot find name 'size'"), or TS2552 with a "Did you mean", on the name of a
+ * decorator the compiler refuses on the same decorator. A class and its fields take decorators
+ * in TypeScript, so it resolves the name, and a name the ambient library does not declare
+ * (`@size`, `@group`, `@align`, a misspelled `@locaton`) is not found; the compiler's `TS8028`
+ * (`TS8010` for a field's `@align`) says what the name is and what to write instead, so
+ * TypeScript's would be a second diagnostic for the one mistake (Rule 12.4).
+ */
+function isNameOfDecoratorTheCompilerRefuses(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  const name = nodeAtPosition(context.sourceFile, diagnostic.start ?? 0);
+  if (!ts.isIdentifier(name)) return false;
+  const call = ts.isCallExpression(name.parent) && name.parent.expression === name;
+  const decorator = call ? name.parent.parent : name.parent;
   return (
-    decorated !== undefined &&
-    ts.isVariableStatement(decorated) &&
-    decorated.parent !== undefined &&
-    ts.isSourceFile(decorated.parent)
+    decorator !== undefined &&
+    ts.isDecorator(decorator) &&
+    compilerReportsAt(context, decorator, [TS_CODES.ATTRIBUTE_NAME, TS_CODES.STRUCT_FIELD])
+  );
+}
+
+/** Whether the compiler reported a `TS8003` on exactly `node`'s span. */
+function compilerRefusesAt(context: DiagnosticFilterContext, node: ts.Node): boolean {
+  return compilerReportsAt(context, node, [TS_CODES.TYPE_MISMATCH]);
+}
+
+/** Whether the compiler refused `operation` with a `TS8003`: on the operation itself, or on an
+ *  operand of a compound assignment or a shift, where it reports the target, the amount and a
+ *  compound form's mismatch. An operand of any other operator is refused for itself, not for
+ *  the operator. */
+function compilerRefusesOperation(
+  context: DiagnosticFilterContext,
+  operation: ts.BinaryExpression | ts.PrefixUnaryExpression,
+): boolean {
+  if (compilerRefusesAt(context, operation)) return true;
+  if (!ts.isBinaryExpression(operation)) return false;
+  const op = operation.operatorToken.kind;
+  const atOperand =
+    (op >= ts.SyntaxKind.FirstCompoundAssignment && op <= ts.SyntaxKind.LastCompoundAssignment) ||
+    op === ts.SyntaxKind.LessThanLessThanToken ||
+    op === ts.SyntaxKind.GreaterThanGreaterThanToken;
+  return (
+    atOperand &&
+    (compilerRefusesAt(context, operation.left) || compilerRefusesAt(context, operation.right))
+  );
+}
+
+/**
+ * TypeScript's account of an operator it has no overload for, on an operation the compiler
+ * refuses with a `TS8003` of its own: TS2365 (`Operator '+' cannot be applied to types 'A' and
+ * 'A'`) and TS2447 (`^` on two booleans) on the operation, TS2362 and TS2363 on one of its
+ * operands. `a + b` on two class instances, `a * b` on two bools and `a & b` on two structs
+ * are one mistake, which the compiler's sentence names by WGSL's operator table (Rule 7.1);
+ * TypeScript's would be a second diagnostic for it (Rule 12.4). An operation the compiler
+ * accepts, or refuses with another code (a string operand's `TS8099`), keeps TypeScript's.
+ */
+function isOperatorTheCompilerRefuses(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  if (diagnostic.code === 2365 || diagnostic.code === 2447) {
+    const binary = binaryExpressionSpanning(context, diagnostic);
+    return binary !== undefined && compilerRefusesOperation(context, binary);
+  }
+  const binary = binaryExpressionAt(context, diagnostic);
+  if (binary === undefined) return false;
+  const operand = diagnostic.code === 2362 ? binary.left : binary.right;
+  const pos = diagnostic.start ?? 0;
+  if (pos < operand.getStart() || pos >= operand.getEnd()) return false;
+  return compilerRefusesOperation(context, binary);
+}
+
+/**
+ * TS2322 on the value of an operation the compiler refuses with a `TS8003`: TypeScript types
+ * `a * b` or `-a` a `number` whatever the operands are, so `return a * b` in a function that
+ * returns a `bool` is unassignable to it only because of the operator the compiler already
+ * refuses. The operation has to be the whole value, parentheses aside.
+ */
+function isValueOfOperationTheCompilerRefuses(
+  context: DiagnosticFilterContext,
+  diagnostic: ts.Diagnostic,
+): boolean {
+  let value = assignedExpressionAt(context, diagnostic);
+  while (value !== undefined && ts.isParenthesizedExpression(value)) value = value.expression;
+  return (
+    value !== undefined &&
+    (ts.isBinaryExpression(value) || ts.isPrefixUnaryExpression(value)) &&
+    compilerRefusesOperation(context, value)
   );
 }
 
@@ -791,6 +897,14 @@ function isGpuArithmeticOverloadCall(
     .some((overload) => overloadFitsRestoredShapes(context, checker, call, overload));
 }
 
+/** The reason shared by the four codes TypeScript refuses an operator with, on an operation the
+ *  compiler refuses too. */
+const OPERATOR_REFUSED =
+  'An operator WGSL has no overload for (`a + b` on two structs, `a * b` or `a ^ b` on two ' +
+  'bools, `a & b` on two structs), on an operation the compiler refuses as TS8003 by ' +
+  "WGSL's operator table (Rule 7.1): TypeScript's refusal of the same operator would say it " +
+  'twice (Rule 12.4). An operation the compiler accepts, or refuses with another code, keeps it.';
+
 const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
@@ -805,10 +919,39 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
   {
     code: 1206,
     reason:
-      'A decorator on a top-level declaration (a binding, an override, a module constant or ' +
-      'variable) is refused by the compiler as TS8028, with a sentence naming the attribute; ' +
-      "TypeScript's own refusal of the same decorator would say it twice (Rule 12.4).",
-    when: isDecoratorOnTopLevelDeclaration,
+      'A decorator on a declaration that takes none (a binding, an override, a constant or ' +
+      'variable at any depth, an enum, an interface, a type alias or a namespace) is refused ' +
+      "by the compiler as TS8028, with a sentence naming the attribute; TypeScript's own " +
+      'refusal of the same decorator would say it twice (Rule 12.4).',
+    when: isDecoratorOnDeclaration,
+  },
+  {
+    code: 2304,
+    reason:
+      'A decorator on a class or a field that the ambient library does not declare (`@size`, ' +
+      '`@group`, a misspelled attribute) is refused by the compiler on the same decorator, as ' +
+      "TS8028 with a sentence naming the attribute; TypeScript's unresolved name would say it " +
+      'twice (Rule 12.4).',
+    when: isNameOfDecoratorTheCompilerRefuses,
+  },
+  {
+    code: 2552,
+    reason:
+      'TS2304 with a "Did you mean" (`@locaton` for `@location`), filtered the same way: the ' +
+      "compiler's TS8028 on the same decorator names the attribute it is close to.",
+    when: isNameOfDecoratorTheCompilerRefuses,
+  },
+  { code: 2365, reason: OPERATOR_REFUSED, when: isOperatorTheCompilerRefuses },
+  { code: 2447, reason: OPERATOR_REFUSED, when: isOperatorTheCompilerRefuses },
+  { code: 2362, reason: OPERATOR_REFUSED, when: isOperatorTheCompilerRefuses },
+  { code: 2363, reason: OPERATOR_REFUSED, when: isOperatorTheCompilerRefuses },
+  {
+    code: 2322,
+    reason:
+      'The knock-on of the rule above: TypeScript types the refused operation a `number`, so ' +
+      'the `bool` return or local it flows into looks unassignable. Dropped only when the whole ' +
+      'value is an operation the compiler refuses as TS8003.',
+    when: isValueOfOperationTheCompilerRefuses,
   },
   {
     code: 2362,
@@ -925,12 +1068,15 @@ function toTypeshadeDiagnostic(
  * mapped to `TypeshadeDiagnostic` with `source: 'typescript'`, with `TS_DIAGNOSTIC_FILTERS`
  * applied (§6). `uri` is the document's uri, threaded through for the returned diagnostics'
  * `uri` field (`sourceFile.fileName` inside the language service's program is the same value,
- * but naming it explicitly keeps this function agnostic to that detail).
+ * but naming it explicitly keeps this function agnostic to that detail). `compiler` is the
+ * front end's diagnostics on the same document, which the rules that give way to a compiler
+ * refusal read.
  */
 export function getTypeScriptDiagnostics(
   languageService: ts.LanguageService,
   sourceFile: ts.SourceFile,
   uri: string,
+  compiler: readonly TsCompilerDiagnostic[],
 ): TypeshadeDiagnostic[] {
   const raw = [
     ...languageService.getSyntacticDiagnostics(uri),
@@ -939,6 +1085,7 @@ export function getTypeScriptDiagnostics(
   const context: DiagnosticFilterContext = {
     sourceFile,
     checker: languageService.getProgram()?.getTypeChecker(),
+    compiler,
   };
   return raw
     .filter((d) => !isFiltered(context, d))

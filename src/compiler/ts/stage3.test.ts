@@ -12,12 +12,29 @@ import { fileURLToPath } from 'node:url';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
-import { ATTRIBUTE_NAMES, WGSL_ATTRIBUTES_ELSEWHERE } from './builtin-check.js';
+import {
+  ATTRIBUTE_NAMES,
+  WGSL_ATTRIBUTES_ELSEWHERE,
+  WGSL_MEMBER_ATTRIBUTES,
+} from './builtin-check.js';
 import { reflect } from '../../core/reflect.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 function diag(source: string) {
   return compileTsSource(source);
 }
+
+/** The editor's diagnostics on the same source, as `[source, code, message]`. */
+function editor(source: string): (string | number)[][] {
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.ts', source);
+  return service.getDiagnostics('a.ts').map((d) => [d.source, d.code, d.message]);
+}
+
+/** Why a written `@group` or `@binding` is not applied, whichever form declares the binding. */
+const SLOT =
+  "is WGSL's attribute, and is not applied: reflect() reports the group and slot each binding " +
+  'gets. Remove it, and read the slot from reflect() on the host.';
 
 describe('builtin name allow-list (BUILTIN_NAME)', () => {
   it('rejects a typo\'d builtin with a "Did you mean" suggestion', () => {
@@ -490,21 +507,64 @@ function f(): f32 { return 1. }
     [
       '@group on a parameter',
       `@fragment export function fs(@group(0) @location(0) c: f32): vec4 { return vec4(c) }`,
-      '"@group" is WGSL\'s attribute, and is not applied: the compiler numbers a binding by its ' +
-        'place in the file, and reflect() reports its group and slot. Remove it, and read the ' +
-        'slot from reflect() on the host.',
+      `"@group" ${SLOT}`,
+    ],
+    [
+      '@binding on a field',
+      `class S { @binding(1) x: f32 }
+declare const u: uniform<S>
+@fragment export function fs(): vec4 { return vec4(u.x) }`,
+      `"@binding" ${SLOT}`,
+    ],
+    [
+      '@subgroup_size on a compute entry',
+      `@compute([64])
+@subgroup_size(32)
+export function cs(): void { }`,
+      '"@subgroup_size" is WGSL\'s attribute, and is not applied: a compute entry runs at the ' +
+        'subgroup size the device chooses. Remove it.',
+    ],
+    // `@size` and `@align` mark a struct member in WGSL; anywhere else they are named as the
+    // field's, not with the field's sentence.
+    [
+      '@size on a parameter',
+      `@fragment export function fs(@size(4) @location(0) c: f32): vec4 { return vec4(c) }`,
+      '"@size" is WGSL\'s attribute for a struct field, not a parameter. Remove it.',
+    ],
+    [
+      '@size on a class',
+      `@size(16) class S { x: f32 }
+declare const u: uniform<S>
+@fragment export function fs(): vec4 { return vec4(u.x) }`,
+      '"@size" is WGSL\'s attribute for a struct field, not a class. Remove it.',
+    ],
+    [
+      '@align on a function',
+      `@align(16)
+function f(): f32 { return 1. }
+@fragment export function fs(): vec4 { return vec4(f()) }`,
+      '"@align" is WGSL\'s attribute for a struct field, not a function. Remove it.',
+    ],
+    [
+      '@align on a parameter',
+      `@fragment export function fs(@align(16) @location(0) c: f32): vec4 { return vec4(c) }`,
+      '"@align" is WGSL\'s attribute for a struct field, not a parameter. Remove it.',
     ],
   ])("names %s as WGSL's, with where its intent goes", (_what, source, message) => {
     const r = compileTsSource(`"use typeshade"\n${source}`);
     expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual([
       [TS_CODES.ATTRIBUTE_NAME, message],
     ]);
+    expect(editor(`"use typeshade"\n${source}`)).toEqual([
+      ['typeshade', TS_CODES.ATTRIBUTE_NAME, message],
+    ]);
   });
 
   it("holds the attributes it answers to WGSL's list", () => {
-    // Every WGSL attribute is one the compiler reads or one with a sentence of its own, except
-    // `@const`, a keyword TypeScript does not parse as a decorator. A name WGSL adds shows up
-    // here first, rather than as a false "Unknown attribute".
+    // Every WGSL attribute is one the compiler reads or one with a sentence of its own (a struct
+    // member's, `@size` and `@align`, by where it is written), except `@const`, a keyword
+    // TypeScript does not parse as a decorator. A name WGSL adds shows up here first, rather
+    // than as a false "Unknown attribute".
     const fixture = join(
       dirname(fileURLToPath(import.meta.url)),
       '..',
@@ -517,21 +577,19 @@ function f(): f32 { return 1. }
     const wgsl = (JSON.parse(readFileSync(fixture, 'utf8')) as { attributes: { names: string[] } })
       .attributes.names;
     expect(wgsl.length).toBeGreaterThan(10);
-    const answered = new Set([...ATTRIBUTE_NAMES, ...WGSL_ATTRIBUTES_ELSEWHERE.keys(), 'const']);
+    const elsewhere = [...WGSL_ATTRIBUTES_ELSEWHERE.keys(), ...WGSL_MEMBER_ATTRIBUTES];
+    const answered = new Set([...ATTRIBUTE_NAMES, ...elsewhere, 'const']);
     expect(wgsl.filter((n) => !answered.has(n))).toEqual([]);
-    expect([...WGSL_ATTRIBUTES_ELSEWHERE.keys()].filter((n) => !wgsl.includes(n))).toEqual([]);
+    expect(elsewhere.filter((n) => !wgsl.includes(n))).toEqual([]);
   });
 });
 
-// Rule 6.7: a decorator outside the list is refused. On a top-level declaration TypeScript
+// Rule 6.7: a decorator outside the list is refused. On a declaration that takes none (a
+// variable statement at any depth, an enum, an interface, a type alias, a namespace) TypeScript
 // parses one and its own checker refuses it (TS1206), which compile() never runs, so the
 // decorator vanished: `@group(2) @binding(5)` was emitted at group 0, binding 0, and `@id(7)`
-// and `@bogus` were dropped without a word.
-describe('a decorator on a top-level declaration (Rule 6.7)', () => {
-  const SLOT =
-    "is WGSL's attribute, and is not applied: the compiler numbers a binding by its place in " +
-    'the file, and reflect() reports its group and slot. Remove it, and read the slot from ' +
-    'reflect() on the host.';
+// and `@bogus` were dropped without a word. The editor shows the compiler's sentence alone.
+describe('a decorator on a declaration (Rule 6.7)', () => {
   it.each([
     [
       '@group and @binding on a uniform',
@@ -581,15 +639,93 @@ declare const s: sampler
       ],
     ],
     [
+      "an entry function's attribute on a module constant",
+      `@vertex const K: f32 = 1.
+@fragment export function fs(): vec4 { return vec4(K) }`,
+      ['"@vertex" does not apply to a declaration: it marks an entry function. Remove it.'],
+    ],
+    [
       'a decorator that is not a name',
       `@a.b const K: f32 = 1.
 @fragment export function fs(): vec4 { return vec4(K) }`,
       ['"@a.b" is not applied: a declaration takes no decorator. Remove it.'],
     ],
+    [
+      '@std140 on a module constant',
+      `@std140 const K: f32 = 1.
+@fragment export function fs(): vec4 { return vec4(K) }`,
+      ['"@std140" is not applied: a declaration takes no decorator. Remove it.'],
+    ],
+    [
+      '@align and @size on module constants',
+      `@align(16) const K: f32 = 1.
+@size(8) const J: f32 = 1.
+@fragment export function fs(): vec4 { return vec4(K + J) }`,
+      [
+        '"@align" is WGSL\'s attribute for a struct field, not a declaration. Remove it.',
+        '"@size" is WGSL\'s attribute for a struct field, not a declaration. Remove it.',
+      ],
+    ],
+    [
+      // The call form names its own slot, which reflect() reports as it does any other.
+      '@group and @binding on a call-form binding',
+      `@group(1) @binding(2) const a = uniform<f32>(1, 2)
+@fragment export function fs(): vec4 { return vec4(a) }`,
+      [`"@group" ${SLOT}`, `"@binding" ${SLOT}`],
+    ],
+    [
+      '@group on a namespace constant',
+      `namespace N { @group(1) export const K: f32 = 1.; }
+@fragment export function fs(): vec4 { return vec4(N.K) }`,
+      [`"@group" ${SLOT}`],
+    ],
+    [
+      'an unknown name on a local constant',
+      `@fragment export function fs(): vec4 { @bogus const k = 1.; return vec4(k) }`,
+      [
+        'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+      ],
+    ],
+    [
+      'an unknown name on an enum',
+      `@bogus enum Mode { A, B }
+@fragment export function fs(): vec4 { return vec4(f32(Mode.B)) }`,
+      [
+        'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+      ],
+    ],
+    [
+      '@binding on an interface',
+      `@binding(2) interface U { a: f32; }
+declare const u: uniform<U>
+@fragment export function fs(): vec4 { return vec4(u.a) }`,
+      [`"@binding" ${SLOT}`],
+    ],
+    [
+      '@size on a type alias',
+      `@size(4) type T = { a: f32 };
+declare const u: uniform<T>
+@fragment export function fs(): vec4 { return vec4(u.a) }`,
+      ['"@size" is WGSL\'s attribute for a struct field, not a declaration. Remove it.'],
+    ],
+    [
+      'an unknown name on a namespace',
+      `@bogus namespace N { export const K: f32 = 1.; }
+@fragment export function fs(): vec4 { return vec4(N.K) }`,
+      [
+        'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
+          '@builtin, @location, @interpolate, @invariant, @blend_src, @diagnostic.',
+      ],
+    ],
   ])('refuses %s', (_what, source, messages) => {
     const r = compileTsSource(`"use typeshade"\n${source}`);
     expect(r.diagnostics.map((d) => [d.code, d.message])).toEqual(
       messages.map((m) => [TS_CODES.ATTRIBUTE_NAME, m]),
+    );
+    expect(editor(`"use typeshade"\n${source}`)).toEqual(
+      messages.map((m) => ['typeshade', TS_CODES.ATTRIBUTE_NAME, m]),
     );
   });
 
@@ -608,13 +744,24 @@ declare const s: sampler
   });
 
   it('leaves the declarations without one as they were', () => {
-    const c = compile(`"use typeshade";
+    const source = `"use typeshade";
 class U { a: f32; }
+interface V { b: f32; }
+type W = { c: f32 };
+enum Mode { A, B }
+namespace N { export const J: f32 = 2.; }
 declare const u: uniform<U>;
+declare const v: uniform<V>;
+declare const w: uniform<W>;
 declare const k: override<f32>;
 const K: f32 = 1.;
-@fragment export function fs(): vec4 { return vec4(u.a + k + K); }`);
+@fragment export function fs(): vec4 {
+  const l = f32(Mode.B) + N.J + v.b + w.c;
+  return vec4(u.a + k + K + l);
+}`;
+    const c = compile(source);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(editor(source)).toEqual([]);
     expect(c.wgsl).toContain('@group(0) @binding(0) var<uniform> u: U;');
     expect(c.wgsl).toContain('override k: f32 = 0.0;');
   });

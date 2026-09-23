@@ -335,10 +335,10 @@ export function analyzeSemantics(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
+  // A decorator on a binding, an override, a constant, a variable, an enum, an interface, a
+  // type alias or a namespace (Rule 6.7), beside whatever else the declaration is refused for.
+  checkDeclarationDecorators(diagnostics, sourceFile);
   for (const stmt of sourceFile.statements) {
-    // A decorator on a binding, an override, a constant or a module variable (Rule 6.7), beside
-    // whatever else the statement is refused for.
-    if (ts.isVariableStatement(stmt)) checkDeclarationDecorators(diagnostics, sourceFile, stmt);
     if (ts.isExpressionStatement(stmt)) {
       const e = stmt.expression;
       if (ts.isStringLiteral(e) && (e.text === 'use typeshade' || e.text === 'use strict'))

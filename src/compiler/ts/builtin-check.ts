@@ -122,26 +122,36 @@ export function hasInvariantDecorator(decorators: readonly ts.Decorator[]): bool
 /**
  * Attribute names the compiler recognizes but always rejects with their own dedicated message
  * (`structs.ts`'s `"... on a class is not applied"` / `"@align on a field is not applied"`), so
- * {@link checkAttributeName} must not also call them "unknown" — that would read as two
+ * {@link checkAttributeName} must not also call them "unknown" there — that would read as two
  * contradictory diagnostics on the same decorator.
  */
 const RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES: readonly string[] = ['std140', 'align'];
 
-/** Why a binding's `@group` and `@binding` are not the author's (Rule 6.1): the slot is the
- *  declaration's place in the file, and the host reads it back. */
+/** Where a decorator is written, as a refusal names the place. */
+export type AttributeSite =
+  'a struct field' | 'a class' | 'a function' | 'a parameter' | 'a declaration';
+
+/** Why a binding's `@group` and `@binding` are not the author's (Rule 6.1): whichever form
+ *  declares the binding, the host reads its slot back from `reflect()`. */
 const BINDING_SLOT_REASON =
-  "is WGSL's attribute, and is not applied: the compiler numbers a binding by its place in " +
-  'the file, and reflect() reports its group and slot. Remove it, and read the slot from ' +
-  'reflect() on the host.';
+  "is WGSL's attribute, and is not applied: reflect() reports the group and slot each " +
+  'binding gets. Remove it, and read the slot from reflect() on the host.';
+
+/**
+ * WGSL's attributes of a struct member (Rule 2.1), which the layout engine does not read
+ * (surface §51). On a field, `@size` has its sentence in {@link WGSL_ATTRIBUTES_ELSEWHERE} and
+ * `@align` its own in `structs.ts`; anywhere else, each is named as the struct field's.
+ */
+export const WGSL_MEMBER_ATTRIBUTES: readonly string[] = ['size', 'align'];
 
 /**
  * WGSL's own attributes (Rule 2.1) that a `"use typeshade"` program does not write as a
  * decorator, each with the sentence that says where its intent goes instead. They are WGSL's,
  * so calling one "Unknown attribute" would be false; {@link checkAttributeName} and
  * {@link checkDeclarationDecorators} answer with these. The rest of WGSL's attribute list is
- * {@link ATTRIBUTE_NAMES}, except `@const`, which TypeScript does not parse as a decorator (it
- * is a keyword), and which WGSL keeps for its own built-in functions anyway; `stage3.test.ts`
- * holds the two lists to the fixture's.
+ * {@link ATTRIBUTE_NAMES}, `@align` ({@link WGSL_MEMBER_ATTRIBUTES}), and `@const`, which
+ * TypeScript does not parse as a decorator (it is a keyword), and which WGSL keeps for its own
+ * built-in functions anyway; `stage3.test.ts` holds the lists to the fixture's.
  */
 export const WGSL_ATTRIBUTES_ELSEWHERE: ReadonlyMap<string, string> = new Map(
   Object.entries({
@@ -151,9 +161,6 @@ export const WGSL_ATTRIBUTES_ELSEWHERE: ReadonlyMap<string, string> = new Map(
     size:
       '"@size" is WGSL\'s attribute, and is not applied: a field takes the size WGSL\'s layout ' +
       'gives its type, which reflect() reports. Add a field where you need padding.',
-    align:
-      '"@align" is WGSL\'s attribute, and is not applied: a field takes the alignment WGSL\'s ' +
-      'layout gives its type, which reflect() reports.',
     group: `"@group" ${BINDING_SLOT_REASON}`,
     binding: `"@binding" ${BINDING_SLOT_REASON}`,
     id:
@@ -485,30 +492,46 @@ export function checkBuiltinStage(
  * name itself. Without this, a misspelled attribute (`@vertx`, `@framgent`, `@bogus`) is silent
  * from both the compiler and the language service: TypeScript never resolves a decorator on an
  * invalid target, so there is no TS2304, and nothing else names the typo — the function or
- * field just silently stops being an entry point or an I/O field. A name in
- * {@link RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES} (`@std140`, `@align`) is left alone: those
- * already get their own "not applied" diagnostic elsewhere, and calling them "unknown" too
- * would contradict it. A decorator shape this front end never produces (its expression is
- * neither a bare identifier nor an identifier call) is left alone as well — nothing here can
- * name it usefully.
+ * field just silently stops being an entry point or an I/O field. `site` is where the decorator
+ * is written, which the sentence for a struct member's attribute names. `@std140` is left
+ * alone, and `@align` on a class or a field: `structs.ts` says those are not applied, and
+ * calling them "unknown" too would contradict it. A decorator shape this front end never
+ * produces (its expression is neither a bare identifier nor an identifier call) is left alone
+ * as well — nothing here can name it usefully.
  */
 export function checkAttributeName(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   decorator: ts.Decorator,
+  site: AttributeSite,
 ): void {
   const name = attributeNameOf(decorator);
   if (name === undefined) return;
   if (ATTRIBUTE_NAMES.includes(name)) return;
-  if (RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)) return;
+  if (
+    RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name) &&
+    (name === 'std140' || site === 'a class' || site === 'a struct field')
+  ) {
+    return;
+  }
   diagnostics.push(
     makeDiagnostic(
       sourceFile,
       decorator,
-      WGSL_ATTRIBUTES_ELSEWHERE.get(name) ?? unknownAttribute(name),
+      wgslAttributeSentence(name, site) ?? unknownAttribute(name),
       TS_CODES.ATTRIBUTE_NAME,
     ),
   );
+}
+
+/** The sentence for WGSL's own attribute `name` written at `site`, or `undefined` for a name
+ *  that is not one of {@link WGSL_ATTRIBUTES_ELSEWHERE} or {@link WGSL_MEMBER_ATTRIBUTES}. A
+ *  struct member's attribute anywhere but on a field is named as the field's. */
+function wgslAttributeSentence(name: string, site: AttributeSite): string | undefined {
+  if (WGSL_MEMBER_ATTRIBUTES.includes(name) && site !== 'a struct field') {
+    return `"@${name}" is WGSL's attribute for a struct field, not ${site}. Remove it.`;
+  }
+  return WGSL_ATTRIBUTES_ELSEWHERE.get(name);
 }
 
 /** The sentence for a decorator name neither `"use typeshade"` nor WGSL has, with the closest
@@ -522,31 +545,67 @@ function unknownAttribute(name: string): string {
 }
 
 /**
- * Refuses every decorator on a top-level variable statement (Rule 6.7): a binding of any kind,
- * an override, a module constant or a module variable. TypeScript parses one there and its own
- * checker refuses it (TS1206), which `compile()` never runs, so the decorator vanished: `@group(2)
- * @binding(5) declare const u: uniform<U>` was emitted at group 0, binding 0, and `@id(7)` on an
- * override and `@bogus` on a constant were dropped with no word. Each decorator is answered by
- * what it is: WGSL's own with {@link WGSL_ATTRIBUTES_ELSEWHERE}, one `"use typeshade"` reads with
- * where it belongs, and any other name with the unknown-attribute sentence. The language
- * service drops its TS1206 on the same decorator, so the editor says it once (Rule 12.4).
+ * Whether `node` is a declaration that takes no decorator: a variable statement at any depth (a
+ * binding of any kind, an override, a module, namespace or local `const` or `let`), an enum,
+ * an interface, a type alias or a namespace. TypeScript refuses a decorator on each (TS1206),
+ * and nothing in the compiler reads one there. {@link checkDeclarationDecorators} refuses it as
+ * `TS8028`, and the language service drops its TS1206 on exactly these, so the two agree on
+ * where (Rule 12.7).
+ */
+export function takesNoDecorator(
+  node: ts.Node,
+): node is
+  | ts.VariableStatement
+  | ts.EnumDeclaration
+  | ts.InterfaceDeclaration
+  | ts.TypeAliasDeclaration
+  | ts.ModuleDeclaration {
+  return (
+    ts.isVariableStatement(node) ||
+    ts.isEnumDeclaration(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    ts.isModuleDeclaration(node)
+  );
+}
+
+/**
+ * Refuses every decorator on a declaration that takes none ({@link takesNoDecorator}), anywhere
+ * in `sourceFile` (Rule 6.7). TypeScript parses one there and its own checker refuses it
+ * (TS1206), which `compile()` never runs, so the decorator vanished: `@group(2) @binding(5)
+ * declare const u: uniform<U>` was emitted at group 0, binding 0, and `@id(7)` on an override
+ * and `@bogus` on a constant were dropped with no word. Each decorator is answered by what it
+ * is: WGSL's own with {@link WGSL_ATTRIBUTES_ELSEWHERE}, a struct member's as the field's, one
+ * `"use typeshade"` reads with where it belongs, and any other name with the unknown-attribute
+ * sentence. The language service drops its TS1206 on the same decorator, so the editor says it
+ * once (Rule 12.4).
  */
 export function checkDeclarationDecorators(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
-  statement: ts.VariableStatement,
 ): void {
-  for (const d of statement.modifiers ?? []) {
-    if (!ts.isDecorator(d)) continue;
-    const name = attributeNameOf(d);
-    const elsewhere = name === undefined ? undefined : WGSL_ATTRIBUTES_ELSEWHERE.get(name);
-    const message =
-      name === undefined || RECOGNIZED_BUT_UNAPPLIED_ATTRIBUTE_NAMES.includes(name)
-        ? (elsewhere ??
-          `"${d.getText(sourceFile)}" is not applied: a declaration takes no decorator. Remove it.`)
-        : ATTRIBUTE_NAMES.includes(name)
-          ? `"@${name}" does not apply to a declaration: it marks ${ATTRIBUTE_TARGET[name]}. Remove it.`
-          : (elsewhere ?? unknownAttribute(name));
-    diagnostics.push(makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME));
-  }
+  const visit = (node: ts.Node): void => {
+    if (takesNoDecorator(node)) {
+      for (const d of node.modifiers ?? []) {
+        if (ts.isDecorator(d)) diagnostics.push(declarationDecoratorRefusal(sourceFile, d));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+}
+
+/** The `TS8028` for decorator `d` on a declaration that takes none. */
+function declarationDecoratorRefusal(
+  sourceFile: ts.SourceFile,
+  d: ts.Decorator,
+): TsCompilerDiagnostic {
+  const name = attributeNameOf(d);
+  const message =
+    name === undefined || name === 'std140'
+      ? `"${d.getText(sourceFile)}" is not applied: a declaration takes no decorator. Remove it.`
+      : ATTRIBUTE_NAMES.includes(name)
+        ? `"@${name}" does not apply to a declaration: it marks ${ATTRIBUTE_TARGET[name]}. Remove it.`
+        : (wgslAttributeSentence(name, 'a declaration') ?? unknownAttribute(name));
+  return makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME);
 }

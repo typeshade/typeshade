@@ -139,10 +139,11 @@ describe('getDiagnostics: a broken program', () => {
     expect(ts1206).toEqual([]);
   });
 
-  // A decorator on a top-level declaration is the compiler's TS8028 now (Rule 6.7), with the
-  // sentence that says what the attribute is, so TypeScript's TS1206 "Decorators are not valid
-  // here" on the same decorator would be the one mistake said twice (Rule 12.4).
-  it('says a decorator on a top-level declaration once, as the compiler does', () => {
+  // A decorator on a declaration that takes none is the compiler's TS8028 now (Rule 6.7), with
+  // the sentence that says what the attribute is, so TypeScript's TS1206 "Decorators are not
+  // valid here" on the same decorator would be the one mistake said twice (Rule 12.4). That
+  // holds at any depth: a namespace's constant and a function's local are declarations too.
+  it('says a decorator on a declaration once, as the compiler does', () => {
     const service = createTypeshadeLanguageService();
     const text =
       '"use typeshade";\n' +
@@ -150,8 +151,9 @@ describe('getDiagnostics: a broken program', () => {
       '@group(2) @binding(5) declare const u: uniform<U>;\n' +
       '@id(7) declare const k: override<f32>;\n' +
       '@bogus const K: f32 = 1.;\n' +
+      'namespace N { @group(1) export const J: f32 = 1.; }\n' +
       '@fragment\n' +
-      'export function fs(): vec4 { return vec4(u.a + k + K); }\n';
+      'export function fs(): vec4 { @bogus const l = 1.; return vec4(u.a + k + K + N.J + l); }\n';
     service.openDocument('decorated.ts', text);
     const diagnostics = service.getDiagnostics('decorated.ts');
     expect(
@@ -165,6 +167,51 @@ describe('getDiagnostics: a broken program', () => {
       ['typeshade', 'TS8028', '@binding(5)'],
       ['typeshade', 'TS8028', '@id(7)'],
       ['typeshade', 'TS8028', '@bogus'],
+      ['typeshade', 'TS8028', '@group(1)'],
+      ['typeshade', 'TS8028', '@bogus'],
+    ]);
+  });
+
+  // A class and its fields take decorators in TypeScript, so `@size` there is TypeScript's
+  // TS2304 "Cannot find name 'size'" as well as the compiler's TS8028 on the same decorator.
+  it("says a WGSL attribute on a field once, without TypeScript's unresolved name", () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class S { @size(16) x: f32; @align(16) y: f32; @locaton(0) z: f32 }\n' +
+      'declare const u: uniform<S>;\n' +
+      '@fragment\n' +
+      'export function fs(): vec4 { return vec4(u.x + u.y + u.z); }\n';
+    service.openDocument('field.ts', text);
+    expect(
+      service
+        .getDiagnostics('field.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8028', '@size(16)'],
+      ['typeshade', 'TS8010', '@align(16)'],
+      ['typeshade', 'TS8028', '@locaton(0)'],
+    ]);
+  });
+
+  // `a + b` on two class instances was TypeScript's TS2365 alone before the compiler refused
+  // the operator (Rule 7.1); now the compiler's TS8003 says it, and TypeScript's gives way, as
+  // do TS2362 and TS2363 on two bools and the TS2322 their `number` result draws (Rule 12.4).
+  it('says an operator WGSL has no overload for once, as the compiler does', () => {
+    const service = createTypeshadeLanguageService();
+    const text =
+      '"use typeshade";\n' +
+      'class A { x: f32 = 0.; }\n' +
+      'export function k(): f32 { const a = new A(); const b = new A(); return (a + b).x; }\n' +
+      'export function m(p: bool, q: bool): bool { return p * q; }\n';
+    service.openDocument('operators.ts', text);
+    expect(
+      service
+        .getDiagnostics('operators.ts')
+        .map((d) => [d.source, d.code, text.slice(d.span.start, d.span.start + d.span.length)]),
+    ).toEqual([
+      ['typeshade', 'TS8003', 'a + b'],
+      ['typeshade', 'TS8003', 'p * q'],
     ]);
   });
 });

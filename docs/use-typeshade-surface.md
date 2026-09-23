@@ -118,8 +118,11 @@ class-typed read binding all behave exactly as before. §49 has the row for row.
 A decorator on a declaration is refused, `TS8028`, because nothing reads one there:
 `@group(2) @binding(5) declare const u: uniform<U>` does not move the slot, which is the source
 order above and which `reflect()` hands the host, and the sentence says so:
-`"@group" is WGSL's attribute, and is not applied: the compiler numbers a binding by its place in the file, and reflect() reports its group and slot. Remove it, and read the slot from reflect() on the host.`
+`"@group" is WGSL's attribute, and is not applied: reflect() reports the group and slot each binding gets. Remove it, and read the slot from reflect() on the host.`
 `@id(7)` on an override is refused the same way, since the host sets an override by its name.
+
+Two bindings on one group and slot are an error that names both; only the call form below can
+name its slot.
 
 Sketch form still exists and occupies the same slot sequence, and takes the access mode in the
 same place:
@@ -341,7 +344,7 @@ entry may also return nothing, which is what a program that only writes to stora
 
 | Idea | Why not |
 |------|--------|
-| `@uniform const scale` | A resource is spelled by its type, `declare const scale: uniform<f32>` (§1). TypeScript parses a decorator on a `const` and refuses it itself (TS1206); the compiler refuses every decorator on a top-level declaration as `TS8028` (§7) |
+| `@uniform const scale` | A resource is spelled by its type, `declare const scale: uniform<f32>` (§1). TypeScript parses a decorator on a `const` and refuses it itself (TS1206); the compiler refuses every decorator on a declaration as `TS8028` (§7) |
 | `class Scene { @compute paint() {} }` | `this` is not a GPU instance |
 | Static class as bind group | Extra ban list; emit `.d.ts` instead |
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
@@ -403,7 +406,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
 | assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a multi-component swizzle `v.xy` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | two resources share `@binding` | name both |
-| a decorator on a top-level declaration: a binding, an override, a module `const` or `let` | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since the slot is the source order and `reflect()` reports it (§1); `@id` is not applied, since the host sets an override by its name; a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206 |
+| a decorator on a declaration: a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias or a namespace | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since `reflect()` reports the group and slot each binding gets (§1); `@id` is not applied, since the host sets an override by its name; `@size` and `@align` are named as a struct field's (§51); a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206 |
+| `@size` on a function, a parameter or a class, `@align` on a function or a parameter | `TS8028`, `"@align" is WGSL's attribute for a struct field, not a function. Remove it.` On a field, and `@align` on a class, they keep their own sentences (§51) |
 | builtin parameter on an incompatible stage | stage mismatch |
 | `@compute` method on a class | entries are top-level functions |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
@@ -5437,10 +5441,11 @@ from reading as a blanket ban on lists.
 
 **`@size` and `@align` are still not author attributes.** `@align` on a field is `TS8010`, and
 `@size` is `TS8028`, whose sentence names it as WGSL's attribute and says it is not applied: a
-field takes the size WGSL's layout gives its type, which `reflect()` reports. Applying them would mean teaching the layout engine
-`reflect()` shares with the GLSL writer to read them, and an attribute the emit honoured while
-reflection ignored it is the very disagreement this section closes. They stay refused until
-both halves move together.
+field takes the size WGSL's layout gives its type, which `reflect()` reports. Written anywhere
+but a field, each is named as a struct field's attribute (§7). Applying them would mean
+teaching the layout engine `reflect()` shares with the GLSL writer to read them, and an
+attribute the emit honoured while reflection ignored it is the very disagreement this section
+closes. They stay refused until both halves move together.
 
 **Four shapes a struct used to hide.** The type map sees a field's type; it does not see which
 address space the field ends up in, so these reached the backend as text a driver refuses:
