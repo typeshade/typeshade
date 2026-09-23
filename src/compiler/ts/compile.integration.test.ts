@@ -194,6 +194,10 @@ describe('compileTsSource integration', () => {
         return vec2f64(a, b);
       }
     `);
-    expect(result.diagnostics.some((d) => /element type mismatch/i.test(d.message))).toBe(true);
+    // The f32 component is the mistake, and f64() of it is the remedy (Rule 12.1, Rule 12.5).
+    expect(result.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
+      `${TS_CODES.TYPE_MISMATCH} vec2f64 takes f64 components; got f32. ` +
+        `Widen each f32 component first, e.g. vec2f64(f64(x), f64(y)).`,
+    ]);
   });
 });
