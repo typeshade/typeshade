@@ -145,6 +145,7 @@ The documentation is at [typeshade.dev](https://typeshade.dev/), in English and 
 - [API reference](https://typeshade.dev/api/), public compiler APIs
 - [Verification](https://typeshade.dev/guide/checks/), compiler and output checks
 - [Compiler internals](https://typeshade.dev/guide/internals/), implementation-facing compiler documentation
+- [The developer experience](docs/dx.md), what TypeShade asks of a TypeScript developer and the bar it is measured against
 - [Roadmap to 1.0.0](docs/roadmap.md), the order of work and the two rules that decide what is in it
 - [Runtime architecture](docs/runtime-architecture.md), the proposed boundary between the compiler, host runtime and GPU backends
 
