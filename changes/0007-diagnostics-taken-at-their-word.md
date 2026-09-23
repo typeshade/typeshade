@@ -1,7 +1,7 @@
 ---
 id: '0007'
 title: A mistake reads as one diagnostic that names its fix, a program that compiles draws no editor error, and a case body cannot fall through
-status: accepted
+status: implemented
 rules:
 - '7.3'
 - '7.7'

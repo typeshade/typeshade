@@ -4,7 +4,12 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, i32T, structT, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
-import { resolveMathConst, resolveMathExpand, resolveMathFn } from '../math-alias.js';
+import {
+  MATH_MEMBER_NAMES,
+  resolveMathConst,
+  resolveMathExpand,
+  resolveMathFn,
+} from '../math-alias.js';
 import { emittedMemberName, isPrivateName } from '../class-names.js';
 import { classFunctionOf, methodFnName } from './class-methods.js';
 import {
@@ -26,6 +31,7 @@ import { refuseBareAtomic } from './atomics.js';
 import { isArrayMethod, otherArrayMethod } from './array-methods.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { enumMemberNames, staticMemberNames, unknownNameSentence } from '../unknown-names.js';
 
 const JS_ARRAY_METHODS = new Set([
   'map',
@@ -166,8 +172,8 @@ export function lowerPropertyAccess(
     pushDiag(
       diagnostics,
       sourceFile,
-      node,
-      `"Math.${prop}" is not a TypeShade alias.`,
+      node.name,
+      unknownNameSentence(`"Math.${prop}" is not a TypeShade alias.`, prop, [MATH_MEMBER_NAMES]),
       TS_CODES.UNKNOWN_NAME,
     );
     return undefined;
@@ -234,10 +240,12 @@ export function lowerPropertyAccess(
       pushDiag(
         diagnostics,
         sourceFile,
-        node,
+        asFunction ? node : node.name,
         asFunction
           ? `"${owner}.${prop}" is a function; call it: ${owner}.${prop}(...).`
-          : `"${owner}" has no static field "${prop}".`,
+          : unknownNameSentence(`"${owner}" has no static field "${prop}".`, prop, [
+              [owner, ...scope.ancestorsOf(owner)].flatMap((c) => staticMemberNames(c, sourceFile)),
+            ]),
         TS_CODES.UNKNOWN_NAME,
       );
       return undefined;
@@ -246,8 +254,10 @@ export function lowerPropertyAccess(
       pushDiag(
         diagnostics,
         sourceFile,
-        node,
-        `"${owner}" has no member "${prop}".`,
+        node.name,
+        unknownNameSentence(`"${owner}" has no member "${prop}".`, prop, [
+          enumMemberNames(owner, sourceFile),
+        ]),
         TS_CODES.UNKNOWN_NAME,
       );
       return undefined;
@@ -300,11 +310,14 @@ export function lowerPropertyAccess(
       pushDiag(
         diagnostics,
         sourceFile,
-        node,
+        hidden !== undefined ? node : node.name,
         hidden !== undefined && hidden.written === prop
           ? `"${prop}" is private to "${owner}", and this code is outside its class body. Reach ` +
               `it through a member "${owner}" declares without the "#".`
-          : `Unknown field "${prop}" on ${typeKey(base.type)}.`,
+          : // On the member, as TypeScript's TS2339 is, with the field it is spelled like.
+            unknownNameSentence(`Unknown field "${prop}" on ${base.type.name}.`, prop, [
+              publicFieldNames(base.type.name, scope),
+            ]),
         hidden !== undefined ? TS_CODES.CLASS_MEMBER : TS_CODES.UNKNOWN_NAME,
       );
       return undefined;
@@ -386,7 +399,7 @@ export function lowerObjectLiteral(
       }
       // The value IS the name, so it joins the list like any other — the struct is resolved
       // before any of them is lowered.
-      props.push({ name: prop.name.text, value: prop.name });
+      props.push({ name: prop.name.text, value: prop.name, key: prop.name });
       continue;
     }
     if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) {
@@ -399,7 +412,7 @@ export function lowerObjectLiteral(
       );
       return undefined;
     }
-    props.push({ name: prop.name.text, value: prop.initializer });
+    props.push({ name: prop.name.text, value: prop.initializer, key: prop.name });
   }
   const names = props.map((p) => p.name);
   const declared = contextual?.kind === 'struct' ? scope.structByName(contextual.name) : undefined;
@@ -452,11 +465,14 @@ export function lowerObjectLiteral(
         );
         return undefined;
       }
+      // On the field's name, as TypeScript's TS2353 is, with the field it is spelled like.
       pushDiag(
         diagnostics,
         sourceFile,
-        node,
-        `Struct ${match.name} has no field "${p.name}".`,
+        p.key,
+        unknownNameSentence(`Struct ${match.name} has no field "${p.name}".`, p.name, [
+          match.fields.map((f) => f.name),
+        ]),
         TS_CODES.STRUCT_FIELD,
       );
       return undefined;
@@ -516,8 +532,16 @@ export function lowerObjectLiteral(
 
 /** One field of an object literal: written, and lowered once the field's type is known, or
  *  brought in by a spread and already the read it stands for. */
+/** The fields of `struct` code outside its class body may name, which are what a misspelled
+ *  field is measured against: its public ones (Rule 8.12). */
+export function publicFieldNames(struct: string, scope: LoweringScope): string[] {
+  return (scope.structByName(struct)?.fields ?? [])
+    .filter((f) => scope.privateField(struct, f.name) === undefined)
+    .map((f) => f.name);
+}
+
 type LiteralProp =
-  | { readonly name: string; readonly value: ts.Expression }
+  | { readonly name: string; readonly value: ts.Expression; readonly key: ts.Node }
   | { readonly name: string; readonly ready: Expr; readonly at: ts.Node };
 
 /** True when reading `e` again costs nothing and runs nothing: a name, a parameter, a module

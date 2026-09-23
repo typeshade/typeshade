@@ -28,6 +28,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import { THIS_CAPTURE, type CaptureKey, type LoweringScope } from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { namesInScope, unknownNameRemedy } from '../unknown-names.js';
 import { lowerScalarCast } from '../numeric.js';
 import { retargetDeclaredIntLit } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
@@ -488,15 +489,21 @@ function namedFunction(
   if (decl === undefined) {
     // A declaration that was refused already said why.
     if (scope.declarationRefused(x.text)) return undefined;
+    // A name nothing declares is an unknown name like any other, so its remedy comes first
+    // (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name, or the function it is spelled
+    // like. With neither, the sentence says how to hand one over.
+    const remedy = unknownNameRemedy(x.text, namesInScope(x, 'callee'));
     const message = scope.isGenericFunction(x.text)
       ? `"${x.text}" is generic, and which of its instances to hand to "${shown}" is written ` +
         `nowhere; write an arrow function that calls it here: "(…) => ${x.text}(…)".`
       : scope.resolve(x.text) !== undefined
         ? `"${x.text}" is a value, and "${shown}" takes a function: hand one over by its name, ` +
           `or write it here as an arrow function.`
-        : `"${x.text}" is no function this file declares, and "${shown}" takes one: hand over ` +
-          `one the file declares, or write an arrow function that calls it here, ` +
-          `"(…) => ${x.text}(…)".`;
+        : remedy !== undefined
+          ? `"${x.text}" is no function this file declares, and "${shown}" takes one. ${remedy}`
+          : `"${x.text}" is no function this file declares, and "${shown}" takes one: hand over ` +
+            `one the file declares, or write an arrow function that calls it here, ` +
+            `"(…) => ${x.text}(…)".`;
     return push(diagnostics, sourceFile, x, message, TS_CODES.TYPE_MISMATCH);
   }
   if (decl.stage !== undefined) {
