@@ -3,13 +3,13 @@
 // Shared by `hover.ts` (a documentation lookup) and `completions.ts` (an item's
 // `documentation` field), so the two never describe the same name two different ways.
 
-import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js'
-import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js'
-import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js'
+import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
+import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
+import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 
 // Re-export these tables so `ambient.ts` can import from `docs.ts` without an import cycle.
-export const ATTRIBUTE_NAMES = COMPILER_ATTRIBUTE_NAMES
-export const WGSL_BUILTIN_NAMES = SOT_WGSL_BUILTIN_NAMES
+export const ATTRIBUTE_NAMES = COMPILER_ATTRIBUTE_NAMES;
+export const WGSL_BUILTIN_NAMES = SOT_WGSL_BUILTIN_NAMES;
 
 /** One Markdown sentence per GPU type name in `SUPPORTED_TYPE_NAMES`. */
 export const TYPE_DOCS: Readonly<Record<string, string>> = {
@@ -58,7 +58,7 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   mat4x3: '4x3 matrix of `f32`, column-major: 4 columns of `vec3`.',
   mat4x4: '4x4 matrix of `f32` (or `f64` as `mat4x4<f64>`), column-major.',
   mat4: '4x4 matrix of `f32`, column-major, same type as `mat4x4`.',
-}
+};
 
 /** One Markdown sentence per attribute name in `ATTRIBUTE_NAMES`. */
 export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
@@ -77,7 +77,7 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
     'Which of the two colours a dual-source blend mixes this fragment output is: `@blend_src(0)` and `@blend_src(1)`, both at `@location(0)`. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
   diagnostic:
     'Sets the severity of a WGSL diagnostic rule for the whole module, as in `@diagnostic("off", "derivative_uniformity")` on an entry. Written on the entry, emitted as the module-scope `diagnostic(off, derivative_uniformity);`, because WGSL\'s function attribute does not reach the functions the entry calls. One rule is analysed here: `derivative_uniformity`.',
-}
+};
 
 /** One Markdown sentence per `@builtin(...)` id in `WGSL_BUILTIN_NAMES`. */
 export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
@@ -100,7 +100,7 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
   subgroup_size: 'The number of invocations in the current subgroup.',
   clip_distances:
     "Per-vertex clip distances against the pipeline's enabled user clip planes: a vertex output of `array<f32, N>` with N from 1 to 8. Needs `enable clip_distances;`, which the use derives.",
-}
+};
 
 /** One Markdown sentence per builtin function: free math functions, expansions, casts, vector
  * constructors, array, fill, uniform, storage, and random. Shared by `hover.ts` and `completions.ts`. */
@@ -378,7 +378,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
     'Declares a storage binding of type T; use `declare const name: storage<T>` for read-only or `declare let name: storage<T>` for read-write access.',
   random:
     'Returns an `f32` in the range [0, 1) hashed from an `f32`, `vec2` or `vec3` seed, emitted as `fract(sin(dot(seed, k)) * 43758.5453123)`. One seed is one value in the IR and NOT on a GPU: WGSL bounds `sin` to 2^-11 absolute error on [-PI, PI] and not at all outside it, which is where this hash lives, so the driver decides the answer (surface section 55 has the measurements; #181 replaces the hash with an exact integer one). There is no unseeded form: `Math.random()` without a seed does not compile.',
-}
+};
 
 /** One Markdown sentence per language constant: the mathematical constants PI, TAU, E, LN2, LN10,
  * LOG2E, and LOG10E. Shared by `hover.ts` and `completions.ts`. */
@@ -394,7 +394,7 @@ export const CONSTANT_DOCS: Readonly<Record<string, string>> = {
     "The base-2 logarithm of e, inlined as a compile-time `f32` literal (approximately 1.44270). The value matches JavaScript's `Math.LOG2E`.",
   LOG10E:
     "The base-10 logarithm of e, inlined as a compile-time `f32` literal (approximately 0.43429). The value matches JavaScript's `Math.LOG10E`.",
-}
+};
 
 /** Documentation for `Math` object members: functions aliasing free functions (fround, random)
  * and readonly constants (E, LN10, LN2, LOG10E, LOG2E, PI, SQRT1_2, SQRT2). */
@@ -438,17 +438,17 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
     "The square root of 1/2, inlined as a compile-time `f32` literal (approximately 0.70711). The value matches JavaScript's `Math.SQRT1_2`.",
   SQRT2:
     "The square root of 2, inlined as a compile-time `f32` literal (approximately 1.41421). The value matches JavaScript's `Math.SQRT2`.",
-}
+};
 
 /** Every documented type name, asserted in `docs.test.ts` to equal `SUPPORTED_TYPE_NAMES`. */
-export const DOCUMENTED_TYPE_NAMES: readonly string[] = SUPPORTED_TYPE_NAMES
+export const DOCUMENTED_TYPE_NAMES: readonly string[] = SUPPORTED_TYPE_NAMES;
 /** Every documented attribute name, asserted in `docs.test.ts` to equal `ATTRIBUTE_NAMES`. */
-export const DOCUMENTED_ATTRIBUTE_NAMES: readonly string[] = ATTRIBUTE_NAMES
+export const DOCUMENTED_ATTRIBUTE_NAMES: readonly string[] = ATTRIBUTE_NAMES;
 /** Every documented builtin name, asserted in `docs.test.ts` to equal `WGSL_BUILTIN_NAMES`. */
-export const DOCUMENTED_BUILTIN_NAMES: readonly string[] = WGSL_BUILTIN_NAMES
+export const DOCUMENTED_BUILTIN_NAMES: readonly string[] = WGSL_BUILTIN_NAMES;
 /** Every documented function name, asserted in `docs.test.ts` to equal the declared function names in `SHADE_DTS`. */
-export const DOCUMENTED_FUNCTION_NAMES = Object.keys(FUNCTION_DOCS)
+export const DOCUMENTED_FUNCTION_NAMES = Object.keys(FUNCTION_DOCS);
 /** Every documented constant name, asserted in `docs.test.ts` to equal the language constant names. */
-export const DOCUMENTED_CONSTANT_NAMES = Object.keys(CONSTANT_DOCS)
+export const DOCUMENTED_CONSTANT_NAMES = Object.keys(CONSTANT_DOCS);
 /** Every documented Math member name, asserted in `docs.test.ts` to match the MathObject members in `SHADE_DTS`. */
-export const DOCUMENTED_MATH_MEMBER_NAMES = Object.keys(MATH_MEMBER_DOCS)
+export const DOCUMENTED_MATH_MEMBER_NAMES = Object.keys(MATH_MEMBER_DOCS);

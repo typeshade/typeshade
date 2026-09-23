@@ -19,31 +19,31 @@ import {
   mix,
   f32,
   f32T,
-} from '../src/index.js'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
-const U = fullscreenUniforms({ bands: f32T })
+} from '../src/index.js';
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
+const U = fullscreenUniforms({ bands: f32T });
 
 // 5-stop sequential ramp (light yellow → deep red), a classic choropleth legend.
 const ramp = fn('ramp', { x: f32T }, ({ x }) => {
-  const c0 = vec3(0.99, 0.95, 0.74)
-  const c1 = vec3(0.99, 0.8, 0.45)
-  const c2 = vec3(0.96, 0.5, 0.24)
-  const c3 = vec3(0.84, 0.19, 0.15)
-  const c4 = vec3(0.5, 0.0, 0.05)
-  const a = mix(c0, c1, smoothstep(0, 0.25, x))
-  const b = mix(a, c2, smoothstep(0.25, 0.5, x))
-  const d = mix(b, c3, smoothstep(0.5, 0.75, x))
-  return mix(d, c4, smoothstep(0.75, 1, x))
-})
+  const c0 = vec3(0.99, 0.95, 0.74);
+  const c1 = vec3(0.99, 0.8, 0.45);
+  const c2 = vec3(0.96, 0.5, 0.24);
+  const c3 = vec3(0.84, 0.19, 0.15);
+  const c4 = vec3(0.5, 0.0, 0.05);
+  const a = mix(c0, c1, smoothstep(0, 0.25, x));
+  const b = mix(a, c2, smoothstep(0.25, 0.5, x));
+  const d = mix(b, c3, smoothstep(0.5, 0.75, x));
+  return mix(d, c4, smoothstep(0.75, 1, x));
+});
 
 const fs = fn(
   'fs',
   { vo: VsOut },
   ({ vo }) => {
-    const uv = vo.uv
-    const t = U.field.time
-    const bands = U.field.bands
+    const uv = vo.uv;
+    const t = U.field.time;
+    const bands = U.field.bands;
 
     // Animated data field in [0,1].
     const val = clamp(
@@ -53,28 +53,28 @@ const fs = fn(
         .add(sin(uv.y.mul(6.2832).sub(t.mul(0.35))).mul(0.2)),
       0,
       1,
-    )
+    );
 
-    const col = ramp({ x: val })
+    const col = ramp({ x: val });
 
     // Contour isolines at evenly spaced value levels, screen-constant width via fwidth.
-    const e = fract(val.mul(bands))
-    const dd = min(e, f32(1).sub(e))
-    const lineMask = f32(1).sub(smoothstep(0, fwidth(val.mul(bands)).mul(1.2), dd))
-    const enabled = smoothstep(0.5, 1.5, bands) // disables the overlay when bands ≈ 0
-    const contour = clamp(lineMask.mul(enabled), 0, 1)
+    const e = fract(val.mul(bands));
+    const dd = min(e, f32(1).sub(e));
+    const lineMask = f32(1).sub(smoothstep(0, fwidth(val.mul(bands)).mul(1.2), dd));
+    const enabled = smoothstep(0.5, 1.5, bands); // disables the overlay when bands ≈ 0
+    const contour = clamp(lineMask.mul(enabled), 0, 1);
 
-    return vec4(mix(col, col.mul(0.2), contour), 1)
+    return vec4(mix(col, col.mul(0.2), contour), 1);
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // `ramp` is called via its handle in `fs`, so module() collects it transitively — funcs lists only the entry points.
 const colorRampModule = module({
   structs: [U.struct, VsOut.decl],
   bindings: [U.binding],
   funcs: [vs, fs],
-})
+});
 
 export const colorRamp: ShaderExample = {
   id: 'color-ramp',
@@ -90,4 +90,4 @@ export const colorRamp: ShaderExample = {
     resolution: { kind: 'resolution' },
     bands: { kind: 'slider', label: 'Contour bands', min: 0, max: 12, step: 1, value: 6 },
   },
-}
+};

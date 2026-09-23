@@ -18,29 +18,29 @@
 // The independent authority above this is _emit-obfuscate-gate.spec.ts, which draws
 // the plain and obfuscated emits on real Tint + ANGLE and compares the pixels.
 
-import { describe, it, expect } from 'vitest'
-import { examples } from './index.js'
-import { isSemanticallyEqual, semanticDiff } from '../src/index.js'
-import { mangleModule } from '../src/core/passes/mangle.js'
-import { inlineLinearAll } from '../src/core/passes/inline-linear.js'
-import { inline } from '../src/emit-prod.js'
+import { describe, it, expect } from 'vitest';
+import { examples } from './index.js';
+import { isSemanticallyEqual, semanticDiff } from '../src/index.js';
+import { mangleModule } from '../src/core/passes/mangle.js';
+import { inlineLinearAll } from '../src/core/passes/inline-linear.js';
+import { inline } from '../src/emit-prod.js';
 
 // Registry-growth guard, mirroring emit-goldens.test.ts: a shrinking registry must not
 // silently reduce the sweep to nothing.
-const MIN_EXAMPLES = 10
+const MIN_EXAMPLES = 10;
 
 describe('semanticDiff over the example corpus', () => {
   it(`the registry is populated (>= ${MIN_EXAMPLES} examples)`, () => {
-    expect(examples.length).toBeGreaterThanOrEqual(MIN_EXAMPLES)
-  })
+    expect(examples.length).toBeGreaterThanOrEqual(MIN_EXAMPLES);
+  });
 
   it('mangling every example changes nothing semanticDiff reports', () => {
-    const offenders: string[] = []
-    let renamed = 0
+    const offenders: string[] = [];
+    let renamed = 0;
     for (const ex of examples) {
-      const { module: mangled, renames } = mangleModule(ex.module)
-      if (renames.size > 0) renamed++
-      const d = semanticDiff(ex.module, mangled)
+      const { module: mangled, renames } = mangleModule(ex.module);
+      if (renames.size > 0) renamed++;
+      const d = semanticDiff(ex.module, mangled);
       if (!isSemanticallyEqual(d))
         offenders.push(
           `${ex.id}:\n` +
@@ -48,40 +48,40 @@ describe('semanticDiff over the example corpus', () => {
               .filter((k) => d[k].length > 0)
               .map((k) => `  ${k}: ${d[k].slice(0, 4).join(' | ')}`)
               .join('\n'),
-        )
+        );
     }
-    expect(offenders.join('\n\n')).toBe('')
+    expect(offenders.join('\n\n')).toBe('');
     // mangleModule returns the module UNCHANGED when nothing is renameable, and bails
     // to identity on a `raw` body — so the sweep above is only meaningful for the
     // examples it actually renamed. Most of the corpus declares helpers.
-    expect(renamed).toBeGreaterThanOrEqual(Math.ceil(examples.length / 2))
-  })
+    expect(renamed).toBeGreaterThanOrEqual(Math.ceil(examples.length / 2));
+  });
 
   it('declaring inline() explains the dev↔inlined diff on every example (X-GIS #1806)', () => {
-    const offenders: string[] = []
-    let rewritten = 0
-    let explained = 0
+    const offenders: string[] = [];
+    let rewritten = 0;
+    let explained = 0;
     for (const ex of examples) {
-      const prod = inlineLinearAll(ex.module)
-      if (prod !== ex.module) rewritten++
-      const d = semanticDiff(ex.module, prod, { transforms: [inline()] })
-      explained += d.explained.length
-      if (!isSemanticallyEqual(d)) offenders.push(ex.id)
+      const prod = inlineLinearAll(ex.module);
+      if (prod !== ex.module) rewritten++;
+      const d = semanticDiff(ex.module, prod, { transforms: [inline()] });
+      explained += d.explained.length;
+      if (!isSemanticallyEqual(d)) offenders.push(ex.id);
     }
-    expect(offenders).toEqual([])
+    expect(offenders).toEqual([]);
     // inlineLinearAll returns the module UNCHANGED when nothing is inlinable (or a
     // `raw` body bails it out) — the sweep only carries information where it fired.
-    expect(rewritten).toBeGreaterThan(0)
-    expect(explained).toBeGreaterThan(0)
-  })
+    expect(rewritten).toBeGreaterThan(0);
+    expect(explained).toBeGreaterThan(0);
+  });
 
   it('two DIFFERENT examples always differ (the sweep above is not vacuously green)', () => {
-    const same: string[] = []
+    const same: string[] = [];
     for (let i = 1; i < examples.length; i++) {
-      const a = examples[i - 1]!
-      const b = examples[i]!
-      if (isSemanticallyEqual(semanticDiff(a.module, b.module))) same.push(`${a.id} ≡ ${b.id}`)
+      const a = examples[i - 1]!;
+      const b = examples[i]!;
+      if (isSemanticallyEqual(semanticDiff(a.module, b.module))) same.push(`${a.id} ≡ ${b.id}`);
     }
-    expect(same).toEqual([])
-  })
-})
+    expect(same).toEqual([]);
+  });
+});

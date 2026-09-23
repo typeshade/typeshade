@@ -14,10 +14,10 @@
 // Files without the directive are ordinary TypeScript and are ignored by
 // the TypeShade source compiler.
 
-import ts from 'typescript'
+import ts from 'typescript';
 
 /** The exact string the directive must carry. */
-export const USE_TYPESHADE = 'use typeshade'
+export const USE_TYPESHADE = 'use typeshade';
 
 /**
  * Returns true when `node` is a top-level `"use typeshade";` statement.
@@ -26,10 +26,10 @@ export const USE_TYPESHADE = 'use typeshade'
  * template literals or concatenated expressions.
  */
 export function isUseTypeshadeDirective(node: ts.Node): boolean {
-  if (!ts.isExpressionStatement(node)) return false
-  const expr = node.expression
-  if (!ts.isStringLiteral(expr)) return false
-  return expr.text === USE_TYPESHADE
+  if (!ts.isExpressionStatement(node)) return false;
+  const expr = node.expression;
+  if (!ts.isStringLiteral(expr)) return false;
+  return expr.text === USE_TYPESHADE;
 }
 
 /**
@@ -43,15 +43,15 @@ export function findUseTypeshadeDirective(
 ): ts.ExpressionStatement | undefined {
   for (const stmt of sourceFile.statements) {
     if (isUseTypeshadeDirective(stmt)) {
-      return stmt as ts.ExpressionStatement
+      return stmt as ts.ExpressionStatement;
     }
   }
-  return undefined
+  return undefined;
 }
 
 /**
  * True when the SourceFile contains at least one top-level `"use typeshade";`.
  */
 export function hasUseTypeshadeDirective(sourceFile: ts.SourceFile): boolean {
-  return findUseTypeshadeDirective(sourceFile) !== undefined
+  return findUseTypeshadeDirective(sourceFile) !== undefined;
 }

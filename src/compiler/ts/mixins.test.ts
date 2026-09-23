@@ -18,20 +18,20 @@
 // constraint. `ambient.test.ts` is what checks the spelling against `tsc`, through
 // `examples/mixin-surface.shade.ts`.
 
-import { describe, expect, it } from 'vitest'
-import { compile } from './compile.js'
-import { compileTsSource } from './source-file.js'
+import { describe, expect, it } from 'vitest';
+import { compile } from './compile.js';
+import { compileTsSource } from './source-file.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => d.message)
+    .map((d) => d.message);
 
 const FS = `@fragment
 export function fs(): vec4 {
   return vec4(1.)
 }
-`
+`;
 
 describe('a mixin is a function that returns a class, run when the file is compiled', () => {
   it('splices its fields behind the base and ahead of the class that applied it', () => {
@@ -55,16 +55,14 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos, b.faded() + b.mass);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain(
-      'struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}',
-    )
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
     // The mixin's method is the applying class's, named for it: there is no
     // `Aged(Particle)` for a function to belong to.
-    expect(r.wgsl).toContain('fn Body_faded(self_: Body) -> f32 {')
-    expect(r.wgsl).not.toContain('fn Aged')
-  })
+    expect(r.wgsl).toContain('fn Body_faded(self_: Body) -> f32 {');
+    expect(r.wgsl).not.toContain('fn Aged');
+  });
 
   it('chains, innermost first', () => {
     const r = compile(`"use typeshade";
@@ -89,12 +87,12 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos.x, b.age, f32(b.tag), b.mass);
 }
-`)
-    expect(r.diagnostics).toEqual([])
+`);
+    expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
       'struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  tag: u32,\n  mass: f32,\n}',
-    )
-  })
+    );
+  });
 
   it('takes no base at all, which is a mixin that only adds', () => {
     const r = compile(`"use typeshade";
@@ -111,10 +109,10 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(f32(b.tag), b.mass, 0., 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('struct Body {\n  tag: u32,\n  mass: f32,\n}')
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('struct Body {\n  tag: u32,\n  mass: f32,\n}');
+  });
 
   it('is applied through a const, the spelling the TypeScript handbook uses', () => {
     const r = compile(`"use typeshade";
@@ -135,12 +133,12 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos.x, b.age, b.mass, 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}')
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
     // The const holds a class, not a value: it is no module constant.
-    expect(r.wgsl).not.toContain('AgedParticle')
-  })
+    expect(r.wgsl).not.toContain('AgedParticle');
+  });
 
   it('reads the mixin wherever it is written, above or below its use', () => {
     const r = compile(`"use typeshade";
@@ -160,11 +158,11 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos.x, b.age, b.mass, 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}')
-  })
-})
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
+  });
+});
 
 describe('what a mixin may carry', () => {
   it('a constructor, including one that calls super over a base that has one', () => {
@@ -190,11 +188,11 @@ export function fs(): vec4 {
   const b = new Body(vec3(1.), 0.5);
   return vec4(b.pos, b.age);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('fn Body_new(p: vec3<f32>, a: f32) -> Body {')
-    expect(r.wgsl).toContain('let _sup = Particle_new(p);')
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn Body_new(p: vec3<f32>, a: f32) -> Body {');
+    expect(r.wgsl).toContain('let _sup = Particle_new(p);');
+  });
 
   it('a static function, which belongs to the applying class', () => {
     const r = compile(`"use typeshade";
@@ -215,10 +213,10 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(b.pos, Body.unit() + b.k);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('fn Body_unit() -> f32 {')
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn Body_unit() -> f32 {');
+  });
 
   it('a field with a decorator, which reaches entry I/O as any other field does', () => {
     const r = compile(`"use typeshade";
@@ -238,11 +236,11 @@ export function vs(): Varyings {
 export function fs(v: Varyings): vec4 {
   return vec4(v.uv, 0., 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('@location(0) uv: vec2<f32>,')
-    expect(r.wgsl).toContain('@builtin(position) pos: vec4<f32>,')
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('@location(0) uv: vec2<f32>,');
+    expect(r.wgsl).toContain('@builtin(position) pos: vec4<f32>,');
+  });
 
   it('a method reading a field of the base it was mixed over', () => {
     const r = compile(`"use typeshade";
@@ -265,10 +263,10 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(b.faded(), b.mass);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('return (self_.pos * (1.0 - self_.age));')
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('return (self_.pos * (1.0 - self_.age));');
+  });
 
   it('applies over an abstract base, whose abstract method the class supplies', () => {
     const r = compile(`"use typeshade";
@@ -292,11 +290,11 @@ export function fs(): vec4 {
   const d = new Disc();
   return vec4(d.area(), d.k, d.s, 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('struct Disc {\n  k: f32,\n  s: f32,\n  r: f32,\n}')
-  })
-})
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('struct Disc {\n  k: f32,\n  s: f32,\n  r: f32,\n}');
+  });
+});
 
 describe('a name declared twice in the chain is an override, closest to the value winning', () => {
   it('the applying class overrides a mixin method, silently', () => {
@@ -323,10 +321,10 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(b.faded(), b.mass, 0., 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('fn Body_faded(self_: Body) -> f32 {\n  return 0.5;\n}')
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn Body_faded(self_: Body) -> f32 {\n  return 0.5;\n}');
+  });
 
   it('an outer mixin overrides an inner one', () => {
     const r = compile(`"use typeshade";
@@ -354,10 +352,10 @@ export function fs(): vec4 {
   const b = new Body();
   return vec4(b.pick(), b.v, 0., 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl).toContain('fn Body_pick(self_: Body) -> f32 {\n  return 2.0;\n}')
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl).toContain('fn Body_pick(self_: Body) -> f32 {\n  return 2.0;\n}');
+  });
 
   it('says so when two mixins give one field two types', () => {
     // The one collision that is not an override but a change of layout: picking either
@@ -384,10 +382,10 @@ ${FS}`),
     ).toEqual([
       '"Body" gets the field "v" twice through its mixins, written "f32" in one and "vec3" ' +
         'in another. One of them decides the layout, and picking either silently would ' +
-        'change what the other\'s code reads. Give them one type, or two names.',
-    ])
-  })
-})
+        "change what the other's code reads. Give them one type, or two names.",
+    ]);
+  });
+});
 
 describe('what a mixin is not, each in one sentence', () => {
   it('a function whose body is more than one return of a class', () => {
@@ -409,8 +407,8 @@ ${FS}`),
     ).toEqual([
       '"Aged" is applied as a mixin by "Body", so its body has to be one "return class … ' +
         '{ … }". There is no run time here for anything else in it to happen in.',
-    ])
-  })
+    ]);
+  });
 
   it('a call to a function this file does not declare', () => {
     expect(
@@ -422,8 +420,8 @@ class Body extends Nowhere(Particle) {
   mass: f32
 }
 ${FS}`)[0],
-    ).toContain('this file declares no function "Nowhere"')
-  })
+    ).toContain('this file declares no function "Nowhere"');
+  });
 
   it('a mixin applied to itself', () => {
     expect(
@@ -437,8 +435,8 @@ class Body extends Aged(Aged(Aged)) {
   mass: f32
 }
 ${FS}`)[0],
-    ).toContain('Mixin "Aged" is applied to itself')
-  })
+    ).toContain('Mixin "Aged" is applied to itself');
+  });
 
   it('a base passed to a mixin that has nowhere to put it', () => {
     expect(
@@ -455,8 +453,8 @@ class Body extends Tagged(Particle) {
   mass: f32
 }
 ${FS}`)[0],
-    ).toContain('so the base would go nowhere')
-  })
+    ).toContain('so the base would go nowhere');
+  });
 
   it('a mixin that extends its parameter and is given nothing', () => {
     expect(
@@ -470,8 +468,8 @@ class Body extends Aged() {
   mass: f32
 }
 ${FS}`)[0],
-    ).toContain('so it needs the base to extend')
-  })
+    ).toContain('so it needs the base to extend');
+  });
 
   it('a base that is neither a name nor a call, which never reaches the mixin evaluation', () => {
     expect(
@@ -483,6 +481,6 @@ ${FS}`)[0],
     ).toBe(
       '"Body" extends an expression. A base has to be a declared class or interface here, or ' +
         'a mixin: a call to a function of this file whose body is one "return class … { … }".',
-    )
-  })
-})
+    );
+  });
+});

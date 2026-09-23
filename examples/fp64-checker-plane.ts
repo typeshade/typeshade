@@ -32,9 +32,9 @@ import {
   vec2f64T,
   Let,
   uniformStruct,
-} from '../src/index.js'
-import { VsOut, vs } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import { VsOut, vs } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
 
 const U = uniformStruct(
   'Uniforms',
@@ -45,61 +45,61 @@ const U = uniformStruct(
     zoom_exp: f32T, // view span = 10^-zoom_exp world units (negative = zoom out)
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
   },
-)
+);
 
 const fsChecker = fn(
   'fs_checker',
   { vo: VsOut },
   (p) => {
-    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()))
-    const half = Let(p.vo.uv.x.mul(2.0))
-    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)))
-    const dx = Let(sx.sub(0.5).mul(span))
+    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()));
+    const half = Let(p.vo.uv.x.mul(2.0));
+    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)));
+    const dx = Let(sx.sub(0.5).mul(span));
     const dy = Let(
       p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
-    )
+    );
 
-    const isF32 = Let(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)))
+    const isF32 = Let(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)));
     // f64 path — floor/fract in extended precision; only RESULTS narrow
     // (cell parity is 0/0.5 exactly; the in-cell fraction is sub-unit).
-    const px = Let(U.field.center.x.add(toF64(dx)))
-    const py = Let(U.field.center.y.add(toF64(dy)))
-    const par64 = Let(toF32(fract(floor(px).add(floor(py)).mul(0.5))))
-    const fx64 = Let(toF32(fract(px)))
-    const fy64 = Let(toF32(fract(py)))
+    const px = Let(U.field.center.x.add(toF64(dx)));
+    const py = Let(U.field.center.y.add(toF64(dy)));
+    const par64 = Let(toF32(fract(floor(px).add(floor(py)).mul(0.5))));
+    const fx64 = Let(toF32(fract(px)));
+    const fy64 = Let(toF32(fract(py)));
     // f32 twin — SAME formulas, world coordinate narrowed first: at 1e8 the
     // coordinate moves in 8-cell steps, so parity NEVER flips (always even)
     // and the fraction is identically 0 — the half renders flat.
-    const px32 = Let(toF32(U.field.center.x).add(dx))
-    const py32 = Let(toF32(U.field.center.y).add(dy))
-    const par32 = Let(fract(floor(px32).add(floor(py32)).mul(0.5)))
-    const fx32 = Let(fract(px32))
-    const fy32 = Let(fract(py32))
+    const px32 = Let(toF32(U.field.center.x).add(dx));
+    const py32 = Let(toF32(U.field.center.y).add(dy));
+    const par32 = Let(fract(floor(px32).add(floor(py32)).mul(0.5)));
+    const fx32 = Let(fract(px32));
+    const fy32 = Let(fract(py32));
 
-    const par = Let(isF32.select(par32, par64))
-    const fx = Let(isF32.select(fx32, fx64))
-    const fy = Let(isF32.select(fy32, fy64))
+    const par = Let(isF32.select(par32, par64));
+    const fx = Let(isF32.select(fx32, fx64));
+    const fy = Let(isF32.select(fy32, fy64));
 
     // Two-tone slate/ivory checker + anti-aliased cell borders. The AA width
     // comes from the analytic pixel size in WORLD units (span / half-width in
     // px) — fwidth(fract(x)) would spike across the cell seam itself.
-    const chk = Let(step(0.25, par))
-    const edge = Let(min(min(fx, f32(1).sub(fx)), min(fy, f32(1).sub(fy))))
-    const pixw = Let(span.div(U.field.resolution.x.mul(0.5)))
-    const line = Let(smoothstep(f32(0), pixw.mul(1.5).add(1e-9), edge))
-    const ivory = vec3(0.93, 0.9, 0.82)
-    const slate = vec3(0.23, 0.29, 0.36)
-    const rgb = mix(ivory, slate, chk).mul(mix(f32(0.35), f32(1.0), line))
-    return vec4(rgb, f32(1))
+    const chk = Let(step(0.25, par));
+    const edge = Let(min(min(fx, f32(1).sub(fx)), min(fy, f32(1).sub(fy))));
+    const pixw = Let(span.div(U.field.resolution.x.mul(0.5)));
+    const line = Let(smoothstep(f32(0), pixw.mul(1.5).add(1e-9), edge));
+    const ivory = vec3(0.93, 0.9, 0.82);
+    const slate = vec3(0.23, 0.29, 0.36);
+    const rgb = mix(ivory, slate, chk).mul(mix(f32(0.35), f32(1.0), line));
+    return vec4(rgb, f32(1));
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // `_fp64` guard lands at (group 0, binding 1) automatically.
 const fp64CheckerPlaneModule = module({
   funcs: [vs, fsChecker],
   uses: [U, VsOut],
-})
+});
 
 export const fp64CheckerPlane: ShaderExample = {
   id: 'fp64-checker-plane',
@@ -138,4 +138,4 @@ export const fp64CheckerPlane: ShaderExample = {
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
-}
+};

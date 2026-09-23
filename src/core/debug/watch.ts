@@ -33,12 +33,12 @@
 // that stub. That is the right way round: a watch that could reach past the language would be
 // answering a question the shader could not have asked.
 
-import type { CpuValue } from '../cpu-runtime.js'
-import type { Expr, ModuleDecl, StructDecl } from '../ir/nodes.js'
-import { eachExpr } from '../ir/visit.js'
-import type { ShaderType } from '../ir/types.js'
-import { typeKey } from '../ir/types.js'
-import { compileTsSource } from '../../compiler/ts/source-file.js'
+import type { CpuValue } from '../cpu-runtime.js';
+import type { Expr, ModuleDecl, StructDecl } from '../ir/nodes.js';
+import { eachExpr } from '../ir/visit.js';
+import type { ShaderType } from '../ir/types.js';
+import { typeKey } from '../ir/types.js';
+import { compileTsSource } from '../../compiler/ts/source-file.js';
 
 /** The watch text did not compile, or referred to something the snippet could not be given.
  *
@@ -47,11 +47,11 @@ import { compileTsSource } from '../../compiler/ts/source-file.js'
 export class DebugWatchError extends Error {
   /** One sentence per problem, as the front end worded it. The front end's own diagnostics,
    *  unedited: a watch's type error should read exactly as it reads in the editor. */
-  readonly problems: readonly string[]
+  readonly problems: readonly string[];
   constructor(expression: string, problems: readonly string[]) {
-    super(`typeshade/debug: cannot evaluate watch "${expression}": ${problems.join('; ')}`)
-    this.name = 'DebugWatchError'
-    this.problems = problems
+    super(`typeshade/debug: cannot evaluate watch "${expression}": ${problems.join('; ')}`);
+    this.name = 'DebugWatchError';
+    this.problems = problems;
   }
 }
 
@@ -63,12 +63,12 @@ export interface CompiledWatch {
   /** The lowered expression, over the scope's names. Its `call` nodes name their callee, so
    *  the interpreter resolves them against the running module rather than the snippet's
    *  stubs. */
-  readonly expr: Expr
+  readonly expr: Expr;
   /** What the compiler decided the expression's type is, which is what a watch box needs in
    *  order to render the value as `vec3f(…)` rather than as three loose numbers. */
-  readonly type: ShaderType
+  readonly type: ShaderType;
   /** The scope names the expression actually reads, so a caller can bind only those. */
-  readonly reads: readonly string[]
+  readonly reads: readonly string[];
 }
 
 /** The source-language spelling of a type, or `undefined` when it has none.
@@ -84,28 +84,28 @@ export interface CompiledWatch {
 function sourceTypeName(t: ShaderType): string | undefined {
   switch (t.kind) {
     case 'scalar':
-      return t.scalar
+      return t.scalar;
     case 'f64':
-      return 'f64'
+      return 'f64';
     case 'vec':
-      return `vec${t.n}${t.elem === 'f32' ? 'f' : t.elem === 'i32' ? 'i' : 'u'}`
+      return `vec${t.n}${t.elem === 'f32' ? 'f' : t.elem === 'i32' ? 'i' : 'u'}`;
     case 'vec64':
-      return `vec${t.n}f64`
+      return `vec${t.n}f64`;
     case 'mat':
       // Every matCxR has a source spelling since #149, so a watch can name any of them; the
       // f64 matrices have no author-facing column type and stay out.
-      return t.elem === 'f32' ? `mat${t.cols}x${t.rows}` : undefined
+      return t.elem === 'f32' ? `mat${t.cols}x${t.rows}` : undefined;
     case 'struct':
-      return t.name
+      return t.name;
     case 'array': {
       // A runtime-sized array has no parameter spelling, which is the honest answer: its
       // length is a property of the buffer the host bound, not of the type.
-      if (t.size === undefined) return undefined
-      const elem = sourceTypeName(t.elem)
-      return elem === undefined ? undefined : `array<${elem}, ${t.size}>`
+      if (t.size === undefined) return undefined;
+      const elem = sourceTypeName(t.elem);
+      return elem === undefined ? undefined : `array<${elem}, ${t.size}>`;
     }
     default:
-      return undefined
+      return undefined;
   }
 }
 
@@ -119,9 +119,9 @@ function sourceTypeName(t: ShaderType): string | undefined {
 function zeroLiteral(t: ShaderType): string | undefined {
   switch (t.kind) {
     case 'scalar':
-      return t.scalar === 'bool' ? 'false' : t.scalar === 'f32' ? '0.' : '0'
+      return t.scalar === 'bool' ? 'false' : t.scalar === 'f32' ? '0.' : '0';
     case 'f64':
-      return '0.'
+      return '0.';
     case 'vec': {
       // Integer vectors are spellable since #30 (A6 A3, "an integer literal takes the type its
       // context declares"): `vec3u(0, 0, 0)` used to fail because a bare `0` was an f32 literal
@@ -129,36 +129,36 @@ function zeroLiteral(t: ShaderType): string | undefined {
       // constructor it sits in, so the only thing this still has to get right is which zero to
       // write. A helper returning `vec3u` was being dropped from the snippet before, which a
       // watch calling it saw as the front end's "Unknown function".
-      const zero = t.elem === 'f32' ? '0.' : '0'
-      return `${sourceTypeName(t)!}(${Array(t.n).fill(zero).join(', ')})`
+      const zero = t.elem === 'f32' ? '0.' : '0';
+      return `${sourceTypeName(t)!}(${Array(t.n).fill(zero).join(', ')})`;
     }
     default:
-      return undefined
+      return undefined;
   }
 }
 
 /** Every struct name reachable from a type, so its declaration is emitted with it. */
 function structsIn(t: ShaderType, into: Set<string>): void {
-  if (t.kind === 'struct') into.add(t.name)
-  else if (t.kind === 'array') structsIn(t.elem, into)
+  if (t.kind === 'struct') into.add(t.name);
+  else if (t.kind === 'array') structsIn(t.elem, into);
 }
 
 /** `class Name { field: type }` for every struct the scope or a redeclared helper mentions. */
 function declareStructs(structs: readonly StructDecl[], needed: ReadonlySet<string>): string[] {
-  const out: string[] = []
+  const out: string[] = [];
   for (const s of structs) {
-    if (!needed.has(s.name)) continue
-    const fields: string[] = []
+    if (!needed.has(s.name)) continue;
+    const fields: string[] = [];
     for (const f of s.fields) {
-      const spelling = sourceTypeName(f.type)
+      const spelling = sourceTypeName(f.type);
       // A struct with one unspellable field is emitted without it. The field is then unknown
       // to the snippet, so watching it is a compile error naming the field, which is what a
       // watch box should say, rather than the struct silently not existing at all.
-      if (spelling !== undefined) fields.push(`  ${f.name}: ${spelling}`)
+      if (spelling !== undefined) fields.push(`  ${f.name}: ${spelling}`);
     }
-    out.push(`class ${s.name} {\n${fields.join('\n')}\n}`)
+    out.push(`class ${s.name} {\n${fields.join('\n')}\n}`);
   }
-  return out
+  return out;
 }
 
 /** The module's own helpers, redeclared with a body that is never executed.
@@ -170,32 +170,32 @@ function declareStructs(structs: readonly StructDecl[], needed: ReadonlySet<stri
  *  is never entered.
  */
 function declareHelpers(m: ModuleDecl, structs: Set<string>): string[] {
-  const out: string[] = []
+  const out: string[] = [];
   for (const f of m.funcs) {
-    if (f.stage !== undefined) continue // an entry point is invoked by the GPU, not by a watch
-    if (f.ret === undefined) continue
-    const ret = sourceTypeName(f.ret)
-    const zero = zeroLiteral(f.ret)
-    if (ret === undefined || zero === undefined) continue
-    const params: string[] = []
-    let spellable = true
+    if (f.stage !== undefined) continue; // an entry point is invoked by the GPU, not by a watch
+    if (f.ret === undefined) continue;
+    const ret = sourceTypeName(f.ret);
+    const zero = zeroLiteral(f.ret);
+    if (ret === undefined || zero === undefined) continue;
+    const params: string[] = [];
+    let spellable = true;
     for (const p of f.params) {
-      const spelling = sourceTypeName(p.type)
-      if (spelling === undefined) spellable = false
+      const spelling = sourceTypeName(p.type);
+      if (spelling === undefined) spellable = false;
       else {
-        params.push(`${p.name}: ${spelling}`)
-        structsIn(p.type, structs)
+        params.push(`${p.name}: ${spelling}`);
+        structsIn(p.type, structs);
       }
     }
-    if (!spellable) continue
-    structsIn(f.ret, structs)
-    out.push(`function ${f.name}(${params.join(', ')}): ${ret} { return ${zero} }`)
+    if (!spellable) continue;
+    structsIn(f.ret, structs);
+    out.push(`function ${f.name}(${params.join(', ')}): ${ret} { return ${zero} }`);
   }
-  return out
+  return out;
 }
 
-const FN = '__typeshade_watch__'
-const VALUE = '__typeshade_watch_value__'
+const FN = '__typeshade_watch__';
+const VALUE = '__typeshade_watch_value__';
 
 /** Compile one watch expression against the names a paused frame can see.
  *
@@ -222,20 +222,20 @@ export function compileWatch(
   scope: ReadonlyMap<string, ShaderType>,
   expression: string,
 ): CompiledWatch {
-  const trimmed = expression.trim()
-  if (trimmed === '') throw new DebugWatchError(expression, ['the expression is empty'])
+  const trimmed = expression.trim();
+  if (trimmed === '') throw new DebugWatchError(expression, ['the expression is empty']);
 
-  const structs = new Set<string>()
-  const params: string[] = []
-  const bound: string[] = []
+  const structs = new Set<string>();
+  const params: string[] = [];
+  const bound: string[] = [];
   for (const [name, type] of scope) {
-    const spelling = sourceTypeName(type)
-    if (spelling === undefined) continue
-    params.push(`${name}: ${spelling}`)
-    bound.push(name)
-    structsIn(type, structs)
+    const spelling = sourceTypeName(type);
+    if (spelling === undefined) continue;
+    params.push(`${name}: ${spelling}`);
+    bound.push(name);
+    structsIn(type, structs);
   }
-  const helpers = declareHelpers(m, structs)
+  const helpers = declareHelpers(m, structs);
 
   const source = [
     '"use typeshade"',
@@ -249,7 +249,7 @@ export function compileWatch(
     // error, which is the right answer to a text that is not one expression.
     `  const ${VALUE} = (${trimmed})`,
     '}',
-  ].join('\n')
+  ].join('\n');
 
   // `checkReservedNames: false` because the two names this file wraps the expression in,
   // `__typeshade_watch__` and its value local, deliberately begin with two underscores — the
@@ -259,21 +259,21 @@ export function compileWatch(
     fileName: `watch:${trimmed}`,
     emit: false,
     checkReservedNames: false,
-  })
-  const errors = r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)
-  if (errors.length > 0) throw new DebugWatchError(expression, errors)
+  });
+  const errors = r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message);
+  if (errors.length > 0) throw new DebugWatchError(expression, errors);
 
-  const fn = r.funcs.find((f) => f.name === FN)
-  const stmt = fn?.body[0]
+  const fn = r.funcs.find((f) => f.name === FN);
+  const stmt = fn?.body[0];
   if (!fn || stmt?.s !== 'let' || stmt.name !== VALUE) {
     // Unreachable through the front end as it stands: a source with no error diagnostic always
     // lowers this one function to this one statement. Named rather than asserted so that a
     // future lowering change is reported here instead of throwing on `undefined`.
-    throw new DebugWatchError(expression, ['the compiler did not lower the watch to a value'])
+    throw new DebugWatchError(expression, ['the compiler did not lower the watch to a value']);
   }
-  const reads = new Set<string>()
-  collectReads(stmt.expr, reads)
-  return { expr: stmt.expr, type: stmt.expr.type, reads: bound.filter((n) => reads.has(n)) }
+  const reads = new Set<string>();
+  collectReads(stmt.expr, reads);
+  return { expr: stmt.expr, type: stmt.expr.type, reads: bound.filter((n) => reads.has(n)) };
 }
 
 /** Every name the expression reads, so a caller binds what it uses and nothing else.
@@ -291,8 +291,8 @@ export function compileWatch(
  */
 function collectReads(e: Expr, into: Set<string>): void {
   eachExpr(e, (x) => {
-    if (x.op === 'varref' || x.op === 'param') into.add(x.name)
-  })
+    if (x.op === 'varref' || x.op === 'param') into.add(x.name);
+  });
 }
 
 /** A watch's answer.
@@ -301,14 +301,14 @@ function collectReads(e: Expr, into: Set<string>): void {
  */
 export interface DebugWatchValue {
   /** The value, in the CPU value model: a number, a flat array, an object by field name. */
-  readonly value: CpuValue
+  readonly value: CpuValue;
   /** The type the compiler gave the expression, for rendering it. */
-  readonly type: ShaderType
+  readonly type: ShaderType;
   /** Whether the answer is a stand-in rather than a result: the expression read a name the
    *  frame had marked, or called a helper that reached a GPU stub. The same meaning as
    *  `DebugStackFrame.stubbedLocals`, applied to a value that has no name, and the only thing
    *  distinguishing `d * 1000.` from `clean * 1000.` when a stub made both of them zero. */
-  readonly stubbed: boolean
+  readonly stubbed: boolean;
 }
 
 /** A cache key for one compiled watch: the text, plus the SHAPE of the scope it was compiled
@@ -325,6 +325,6 @@ export function watchCacheKey(scope: ReadonlyMap<string, ShaderType>, expression
   const shape = [...scope]
     .map(([n, t]) => `${n}:${typeKey(t)}`)
     .sort()
-    .join(',')
-  return `${shape} ${expression.trim()}`
+    .join(',');
+  return `${shape} ${expression.trim()}`;
 }

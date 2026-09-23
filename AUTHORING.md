@@ -1973,7 +1973,7 @@ that is not core, and a device refuses the bind group layout unless it requested
 capability carries the requirement to the host). `enables` is typed to exclude every derived
 id, so naming one is a compile error.
 
-A capability is not the only thing a host may have to check. A WGSL *language* feature is a
+A capability is not the only thing a host may have to check. A WGSL _language_ feature is a
 property of the browser's shading-language implementation rather than of the device, so it is
 not requested at `requestDevice` at all. `reflect().requiredLanguageFeatures` lists the ones a
 module's source uses, for `navigator.gpu.wgslLanguageFeatures` to answer. The WGSL writer emits

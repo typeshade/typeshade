@@ -27,14 +27,14 @@
 function lcs(a: readonly string[], b: readonly string[]): number[][] {
   const table: number[][] = Array.from({ length: a.length + 1 }, () =>
     new Array<number>(b.length + 1).fill(0),
-  )
+  );
   for (let i = a.length - 1; i >= 0; i--) {
     for (let j = b.length - 1; j >= 0; j--) {
       table[i]![j] =
-        a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!)
+        a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
     }
   }
-  return table
+  return table;
 }
 
 /**
@@ -56,26 +56,26 @@ export function unifiedDiff(
   originalLabel: string,
   twinLabel: string,
 ): string {
-  const a = original.replace(/\n$/, '').split('\n')
-  const b = twin.replace(/\n$/, '').split('\n')
-  const table = lcs(a, b)
-  const out: string[] = [`--- ${originalLabel}`, `+++ ${twinLabel}`]
-  let i = 0
-  let j = 0
+  const a = original.replace(/\n$/, '').split('\n');
+  const b = twin.replace(/\n$/, '').split('\n');
+  const table = lcs(a, b);
+  const out: string[] = [`--- ${originalLabel}`, `+++ ${twinLabel}`];
+  let i = 0;
+  let j = 0;
   while (i < a.length && j < b.length) {
     if (a[i] === b[j]) {
-      out.push(` ${a[i]!}`)
-      i++
-      j++
+      out.push(` ${a[i]!}`);
+      i++;
+      j++;
     } else if (table[i + 1]![j]! >= table[i]![j + 1]!) {
-      out.push(`-${a[i]!}`)
-      i++
+      out.push(`-${a[i]!}`);
+      i++;
     } else {
-      out.push(`+${b[j]!}`)
-      j++
+      out.push(`+${b[j]!}`);
+      j++;
     }
   }
-  for (; i < a.length; i++) out.push(`-${a[i]!}`)
-  for (; j < b.length; j++) out.push(`+${b[j]!}`)
-  return `${out.join('\n')}\n`
+  for (; i < a.length; i++) out.push(`-${a[i]!}`);
+  for (; j < b.length; j++) out.push(`+${b[j]!}`);
+  return `${out.join('\n')}\n`;
 }

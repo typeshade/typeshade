@@ -6,23 +6,23 @@
 // the class shapes that already worked keep working, and the two body-less declarations that
 // are not overloads keep their error.
 
-import { describe, expect, it } from 'vitest'
-import { compile } from './compile.js'
-import { compileTsSource } from './source-file.js'
-import { TS_CODES } from './codes.js'
-import { compileModule } from '../../core/oracle.js'
-import { compileModuleJs } from '../../core/cpu-codegen.js'
+import { describe, expect, it } from 'vitest';
+import { compile } from './compile.js';
+import { compileTsSource } from './source-file.js';
+import { TS_CODES } from './codes.js';
+import { compileModule } from '../../core/oracle.js';
+import { compileModuleJs } from '../../core/cpu-codegen.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => `${d.code} ${d.message}`)
+    .map((d) => `${d.code} ${d.message}`);
 
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {
-    expect(make(r.module).fns['fs']!(), make.name).toEqual(expected)
+    expect(make(r.module).fns['fs']!(), make.name).toEqual(expected);
   }
-}
+};
 
 describe('an overload signature is skipped and the implementation is lowered', () => {
   it('once, however many signatures stand above it', () => {
@@ -36,13 +36,13 @@ export function lum(c: vec3): f32 {
 export function fs(): vec4 {
   return vec4(lum(vec3(1., 0., 0.)), 0., 0., 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl?.match(/fn lum\(/g)).toHaveLength(1)
-    expect(r.wgsl).toContain('fn lum(c: vec3<f32>) -> f32 {')
-    expect(r.glsl?.fragment?.match(/float lum\(/g)).toHaveLength(1)
-    agree(r, [0.2126, 0, 0, 1])
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl?.match(/fn lum\(/g)).toHaveLength(1);
+    expect(r.wgsl).toContain('fn lum(c: vec3<f32>) -> f32 {');
+    expect(r.glsl?.fragment?.match(/float lum\(/g)).toHaveLength(1);
+    agree(r, [0.2126, 0, 0, 1]);
+  });
 
   it('inside a namespace, under the flattened name', () => {
     const r = compile(`"use typeshade";
@@ -56,11 +56,11 @@ namespace Color {
 export function fs(): vec4 {
   return vec4(Color.lum(vec3(0., 1., 0.)), 0., 0., 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl?.match(/fn Color_lum\(/g)).toHaveLength(1)
-    agree(r, [0.7152, 0, 0, 1])
-  })
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl?.match(/fn Color_lum\(/g)).toHaveLength(1);
+    agree(r, [0.7152, 0, 0, 1]);
+  });
 
   it('on a method, a static function and a constructor', () => {
     const r = compile(`"use typeshade";
@@ -85,14 +85,14 @@ export function fs(): vec4 {
   const b = new C(3.);
   return vec4(a.at(5.), b.at(5.), 0., 1.);
 }
-`)
-    expect(r.diagnostics).toEqual([])
-    expect(r.wgsl?.match(/fn C_at\(/g)).toHaveLength(1)
-    expect(r.wgsl?.match(/fn C_mk\(/g)).toHaveLength(1)
-    expect(r.wgsl?.match(/fn C_new\(/g)).toHaveLength(1)
-    agree(r, [10, 15, 0, 1])
-  })
-})
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.wgsl?.match(/fn C_at\(/g)).toHaveLength(1);
+    expect(r.wgsl?.match(/fn C_mk\(/g)).toHaveLength(1);
+    expect(r.wgsl?.match(/fn C_new\(/g)).toHaveLength(1);
+    agree(r, [10, 15, 0, 1]);
+  });
+});
 
 describe('a body-less declaration that is not an overload keeps its error', () => {
   it('with no implementation anywhere', () => {
@@ -104,8 +104,8 @@ export function fs(): vec4 {
   return vec4(1.);
 }
 `)[0],
-    ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`)
-  })
+    ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`);
+  });
 
   it('and when it is ambient, even beside an implementation', () => {
     expect(
@@ -116,7 +116,7 @@ export function fs(): vec4 {
   return vec4(1.);
 }
 `)[0],
-    ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`)
+    ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`);
     expect(
       errorsOf(`"use typeshade";
 declare function lum(c: vec3): f32;
@@ -128,8 +128,8 @@ export function fs(): vec4 {
   return vec4(lum(vec3(1.)), 0., 0., 1.);
 }
 `)[0],
-    ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`)
-  })
+    ).toBe(`${TS_CODES.FUNCTION_SHAPE} Function "lum" needs a body (no ambient declarations).`);
+  });
 
   it('and two implementations of one name are still a duplicate', () => {
     expect(
@@ -145,6 +145,6 @@ export function fs(): vec4 {
   return vec4(lum(vec3(1.)), 0., 0., 1.);
 }
 `)[0],
-    ).toBe(`${TS_CODES.DUPLICATE_SYMBOL} Duplicate function "lum".`)
-  })
-})
+    ).toBe(`${TS_CODES.DUPLICATE_SYMBOL} Duplicate function "lum".`);
+  });
+});

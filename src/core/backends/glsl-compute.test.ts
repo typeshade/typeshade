@@ -5,9 +5,9 @@
 // `emulateCompute` opt-in, instead of fail-closing. WGSL is untouched; the default
 // (no opt-in) still throws. See render-graph-pass-scheduler.md §6.5 + the M2 design.
 
-import { describe, it, expect } from 'vitest'
-import { emitGlslModule, UnsupportedFeatureError } from 'typeshade'
-import { requiredCaps } from 'typeshade/dev'
+import { describe, it, expect } from 'vitest';
+import { emitGlslModule, UnsupportedFeatureError } from 'typeshade';
+import { requiredCaps } from 'typeshade/dev';
 import {
   f32T,
   u32T,
@@ -18,35 +18,35 @@ import {
   type ShaderType,
   type Expr,
   type ModuleDecl,
-} from 'typeshade'
+} from 'typeshade';
 
-const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
-const arrF32 = { kind: 'array', elem: f32T } as ShaderType // runtime-sized storage array<f32>
-const arrU32 = { kind: 'array', elem: u32T } as ShaderType // runtime-sized storage array<u32>
+const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType;
+const arrF32 = { kind: 'array', elem: f32T } as ShaderType; // runtime-sized storage array<f32>
+const arrU32 = { kind: 'array', elem: u32T } as ShaderType; // runtime-sized storage array<u32>
 
 // raw-IR node builders (no authoring layer — matches glsl.test.ts fixture style)
-const lit = (value: number, type: ShaderType): Expr => ({ op: 'lit', type, value })
-const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name })
+const lit = (value: number, type: ShaderType): Expr => ({ op: 'lit', type, value });
+const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name });
 const member = (base: Expr, field: string, type: ShaderType): Expr => ({
   op: 'member',
   type,
   base,
   field,
-})
-const index = (base: Expr, idx: Expr, type: ShaderType): Expr => ({ op: 'index', type, base, idx })
+});
+const index = (base: Expr, idx: Expr, type: ShaderType): Expr => ({ op: 'index', type, base, idx });
 
 // gid.x — the linear invocation index (the param node is reused at every use site, exactly
 // like compute-gen.ts: `const fid = gid.x` is a JS const holding ONE Node).
-const gidParam = { op: 'param', type: vec3uT, name: 'gid' } as Expr
-const fid = member(gidParam, 'x', u32T)
-const count = member(varref('u_count', vec4uT), 'x', u32T) // u_count.x = feature count
-const featAtFid = index(varref('feat_data', arrF32), fid, f32T) // feat_data[fid]
+const gidParam = { op: 'param', type: vec3uT, name: 'gid' } as Expr;
+const fid = member(gidParam, 'x', u32T);
+const count = member(varref('u_count', vec4uT), 'x', u32T); // u_count.x = feature count
+const featAtFid = index(varref('feat_data', arrF32), fid, f32T); // feat_data[fid]
 const color: Expr = {
   op: 'construct',
   type: vec4fT,
   args: [featAtFid, lit(0, f32T), lit(0, f32T), lit(1, f32T)],
-}
-const packed: Expr = { op: 'call', type: u32T, fn: 'pack4x8unorm', args: [color] }
+};
+const packed: Expr = { op: 'call', type: u32T, fn: 'pack4x8unorm', args: [color] };
 
 // The fixed per-feature paint kernel shell (compute-gen.ts:408-417), as raw IR.
 const computeMod: ModuleDecl = {
@@ -86,62 +86,62 @@ const computeMod: ModuleDecl = {
       ],
     },
   ],
-}
+};
 
 describe('glsl-es300 — compute → fragment-GPGPU lowering (emulateCompute)', () => {
   it('lowers the per-feature @compute kernel to a @fragment GPGPU pass (no UnsupportedFeatureError)', () => {
-    const fs = emitGlslModule(computeMod, 'fragment', { emulateCompute: true })
+    const fs = emitGlslModule(computeMod, 'fragment', { emulateCompute: true });
     // a real GLSL ES 3.00 fragment shader
-    expect(fs).toContain('#version 300 es')
-    expect(fs).toContain('void main()')
+    expect(fs).toContain('#version 300 es');
+    expect(fs).toContain('void main()');
     // the output storage write → an R32UI draw buffer (out uint @location 0)
-    expect(fs).toMatch(/layout\(location = 0\) out uint \w+;/)
+    expect(fs).toMatch(/layout\(location = 0\) out uint \w+;/);
     // the read storage array → a data texture sampled with texelFetch (storage-emul reuse)
-    expect(fs).toContain('uniform sampler2D feat_data;')
-    expect(fs).toContain('_sfetch(feat_data,')
+    expect(fs).toContain('uniform sampler2D feat_data;');
+    expect(fs).toContain('_sfetch(feat_data,');
     // u_count survives as a bare default-block uniform (gated behind emulateCompute)
-    expect(fs).toContain('uniform uvec4 u_count;')
+    expect(fs).toContain('uniform uvec4 u_count;');
     // global_invocation_id.x synthesised from gl_FragCoord + the output-row width u_count.y
-    expect(fs).toMatch(/gl_FragCoord/)
-    expect(fs).toMatch(/floor/)
-    expect(fs).toContain('u_count.y')
+    expect(fs).toMatch(/gl_FragCoord/);
+    expect(fs).toMatch(/floor/);
+    expect(fs).toContain('u_count.y');
     // the packed colour is written bit-exact. GLSL ES 3.00 has NO packUnorm4x8 (4.00/3.10
     // only), so pack4x8unorm lowers to the hand-inlined floor(0.5 + clamp(v,0,1)*255) byte
     // pack — WGSL's own formula, rather than a round() whose exact half a driver may resolve
     // either way (#141)
     // (verified byte-equal vs the oracle on real WebGL2 — the _compute-parity gate).
-    expect(fs).not.toContain('packUnorm4x8(') // not a GLSL ES 3.00 builtin
-    expect(fs).toContain('floor(0.5 + clamp(') // the hand-inlined byte pack, WGSL's own rule
-    expect(fs).toContain('255.0')
-    expect(fs).toContain('<< 24') // the alpha byte shifted to the high bits
+    expect(fs).not.toContain('packUnorm4x8('); // not a GLSL ES 3.00 builtin
+    expect(fs).toContain('floor(0.5 + clamp('); // the hand-inlined byte pack, WGSL's own rule
+    expect(fs).toContain('255.0');
+    expect(fs).toContain('<< 24'); // the alpha byte shifted to the high bits
     // the per-fid guard early-out lowers to discard
-    expect(fs).toContain('discard;')
+    expect(fs).toContain('discard;');
     // nothing compute / storage / scatter survives
-    expect(fs).not.toContain('@compute')
-    expect(fs).not.toContain('@workgroup_size')
-    expect(fs).not.toContain('out_color')
-    expect(fs).not.toMatch(/\bstorage\b/)
-  })
+    expect(fs).not.toContain('@compute');
+    expect(fs).not.toContain('@workgroup_size');
+    expect(fs).not.toContain('out_color');
+    expect(fs).not.toMatch(/\bstorage\b/);
+  });
 
   it('STILL fails closed without the opt-in (default GLSL contract preserved)', () => {
-    expect(() => emitGlslModule(computeMod, 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(computeMod, 'fragment')).toThrow(UnsupportedFeatureError);
     // The DIAGNOSIS must stay the compute caps error — the default storage lowering
     // skips @compute modules precisely so this does not degrade into a storage-shape
     // message pointing away from the missing {emulateCompute} opt-in (X-GIS #1648 review).
     expect(() => emitGlslModule(computeMod, 'fragment')).toThrow(
       /missing capabilities:[\s\S]*compute/,
-    )
-  })
+    );
+  });
 
   it('leaves the WGSL caps contract intact (requiredCaps still demands compute + storage)', () => {
     // the source module is unchanged — the WGSL path still needs the real caps.
-    const caps = requiredCaps(computeMod)
-    expect(caps).toContain('compute')
-    expect(caps).toContain('storageBuffer')
+    const caps = requiredCaps(computeMod);
+    expect(caps).toContain('compute');
+    expect(caps).toContain('storageBuffer');
     // …yet emulateCompute emits without throwing, because the REWRITE cleared those caps
     // before assertCaps ran (no caps loosening on the backend).
-    expect(() => emitGlslModule(computeMod, 'fragment', { emulateCompute: true })).not.toThrow()
-  })
+    expect(() => emitGlslModule(computeMod, 'fragment', { emulateCompute: true })).not.toThrow();
+  });
 
   it('fail-closes a non-gather (scatter) kernel — output write not at the invocation index', () => {
     const scatter: ModuleDecl = {
@@ -159,9 +159,9 @@ describe('glsl-es300 — compute → fragment-GPGPU lowering (emulateCompute)', 
           ],
         },
       ],
-    }
+    };
     expect(() => emitGlslModule(scatter, 'fragment', { emulateCompute: true })).toThrow(
       UnsupportedFeatureError,
-    )
-  })
-})
+    );
+  });
+});

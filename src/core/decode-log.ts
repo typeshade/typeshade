@@ -19,12 +19,12 @@
 
 /** How a decoded name was resolved — the count is the ambiguity. */
 export interface DecodedName {
-  readonly emitted: string
+  readonly emitted: string;
   /** Authored names that could have produced it, in the map's insertion order. */
-  readonly authored: readonly string[]
+  readonly authored: readonly string[];
 }
 
-const KEY_SCOPE = /^(.+)\.([^.]+)$/
+const KEY_SCOPE = /^(.+)\.([^.]+)$/;
 
 /** Invert an authored → emitted rename map. A function-scoped key
  *  (`authoredFn.authoredName`) contributes its LOCAL half, qualified back to the
@@ -33,19 +33,19 @@ const KEY_SCOPE = /^(.+)\.([^.]+)$/
 export function invertRenames(
   renames: ReadonlyMap<string, string>,
 ): ReadonlyMap<string, DecodedName> {
-  const byEmitted = new Map<string, string[]>()
+  const byEmitted = new Map<string, string[]>();
   for (const [from, to] of renames) {
-    const scoped = KEY_SCOPE.exec(from)
+    const scoped = KEY_SCOPE.exec(from);
     // A type spelling is the one key that legitimately contains no scope but may
     // contain punctuation (`vec2<f32>`); it is not a `fn.local` pair.
-    const label = scoped !== null && !/[<>]/.test(from) ? `${scoped[2]!} (in ${scoped[1]!})` : from
-    const list = byEmitted.get(to)
-    if (list) list.push(label)
-    else byEmitted.set(to, [label])
+    const label = scoped !== null && !/[<>]/.test(from) ? `${scoped[2]!} (in ${scoped[1]!})` : from;
+    const list = byEmitted.get(to);
+    if (list) list.push(label);
+    else byEmitted.set(to, [label]);
   }
-  const out = new Map<string, DecodedName>()
-  for (const [emitted, authored] of byEmitted) out.set(emitted, { emitted, authored })
-  return out
+  const out = new Map<string, DecodedName>();
+  for (const [emitted, authored] of byEmitted) out.set(emitted, { emitted, authored });
+  return out;
 }
 
 /** Rewrite a driver log or a GPU capture back into authored names, using the map
@@ -90,11 +90,11 @@ export function invertRenames(
  *  @see {@link mangle} for what fills the map.
  */
 export function decodeShaderLog(log: string, renames: ReadonlyMap<string, string>): string {
-  const table = invertRenames(renames)
-  if (table.size === 0) return log
+  const table = invertRenames(renames);
+  if (table.size === 0) return log;
   return log.replace(/[A-Za-z_]\w*/g, (word) => {
-    const hit = table.get(word)
-    if (hit === undefined) return word
-    return hit.authored.length === 1 ? hit.authored[0]! : `${word}⟨${hit.authored.join(' | ')}⟩`
-  })
+    const hit = table.get(word);
+    if (hit === undefined) return word;
+    return hit.authored.length === 1 ? hit.authored[0]! : `${word}⟨${hit.authored.join(' | ')}⟩`;
+  });
 }

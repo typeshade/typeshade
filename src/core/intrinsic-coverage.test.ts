@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest';
 import {
   INTRINSICS,
   PORTABLE_INTRINSICS,
   PRE_EMIT_INTRINSICS,
   isKnownIntrinsic,
-} from './intrinsics.js'
+} from './intrinsics.js';
 import {
   f32,
   u32,
@@ -86,47 +86,47 @@ import {
   type FuncDecl,
   type ModuleDecl,
   type Node,
-} from './ir/index.js'
-import { emitModule } from './backends/wgsl.js'
-import { emitGlslModule } from './backends/glsl.js'
-import { MATH_FN_ARITY } from '../compiler/ts/math-alias.js'
+} from './ir/index.js';
+import { emitModule } from './backends/wgsl.js';
+import { emitGlslModule } from './backends/glsl.js';
+import { MATH_FN_ARITY } from '../compiler/ts/math-alias.js';
 
 describe('intrinsic registry coverage (the spelling agreement surface)', () => {
   it('no id is BOTH divergent and portable (single classification)', () => {
-    const overlap = Object.keys(INTRINSICS).filter((k) => PORTABLE_INTRINSICS.has(k))
-    expect(overlap).toEqual([])
-  })
+    const overlap = Object.keys(INTRINSICS).filter((k) => PORTABLE_INTRINSICS.has(k));
+    expect(overlap).toEqual([]);
+  });
 
   it('pre-emit ids overlap NEITHER emit classification (they must never be spellable)', () => {
     const overlap = [...PRE_EMIT_INTRINSICS].filter(
       (k) => Object.prototype.hasOwnProperty.call(INTRINSICS, k) || PORTABLE_INTRINSICS.has(k),
-    )
-    expect(overlap).toEqual([])
-  })
+    );
+    expect(overlap).toEqual([]);
+  });
 
   it('every INTRINSICS entry is GENUINELY divergent (wgsl ≠ glsl) — a portable one belongs in the set, not the map', () => {
-    const args = ['a', 'b', 'c'] // enough positional args for every entry's spelling
+    const args = ['a', 'b', 'c']; // enough positional args for every entry's spelling
     // A column that THROWS (a builtin one target has no form for, such as `arrayLength` on
     // GLSL ES 3.00, which has no storage buffers) is the most divergent spelling there is.
     const spell = (f: (a: readonly string[]) => string): string | undefined => {
       try {
-        return f(args)
+        return f(args);
       } catch {
-        return undefined
+        return undefined;
       }
-    }
+    };
     // An entry earns its place unless BOTH columns agree AND the spelling they agree on is
     // exactly the one the portable fall-through already writes. `spellIntrinsic` spells an id
     // with no entry as `name(args)`, so that is the test for redundancy — not mere agreement.
     // The OPERATOR ids are why: `~` is `~a` on both targets, identical and still not movable,
     // because a portable `~` would be spelled `~(a, b, c)`, which is neither language.
-    const fallThrough = (k: string): string => `${k}(${args.join(', ')})`
+    const fallThrough = (k: string): string => `${k}(${args.join(', ')})`;
     const redundant = Object.entries(INTRINSICS)
       .filter(([, s]) => spell(s.wgsl) === spell(s.glsl))
       .filter(([k, s]) => spell(s.wgsl) === fallThrough(k))
-      .map(([k]) => k)
-    expect(redundant).toEqual([])
-  })
+      .map(([k]) => k);
+    expect(redundant).toEqual([]);
+  });
 
   // Deliberate-diff catalogue: adding/removing a classified builtin must touch this snapshot,
   // which forces the author to classify a new builtin as divergent (INTRINSICS) or portable.
@@ -135,7 +135,7 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       ...Object.keys(INTRINSICS),
       ...PORTABLE_INTRINSICS,
       ...PRE_EMIT_INTRINSICS,
-    ].sort()
+    ].sort();
     expect(catalogue).toMatchInlineSnapshot(`
       [
         "abs",
@@ -303,15 +303,15 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
         "workgroupUniformLoad",
         "~",
       ]
-    `)
-  })
+    `);
+  });
 
   it('every call id the builtin surface emits is classified (no silent identity fall-through)', () => {
     const f = f32(0),
       v3 = vec3(1, 2, 3),
       v4 = vec4(1, 2, 3, 4),
-      u = u32(0)
-    void bool(true)
+      u = u32(0);
+    void bool(true);
     const samples: Node[] = [
       sin(f),
       cos(f),
@@ -388,15 +388,15 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
       // X-GIS #1658 — the layer-count query is a FOURTH array id (WGSL has a dedicated
       // function, GLSL reads textureSize's .z), so it must be swept too.
       textureNumLayers(bindingRef('ta', texture2dArrayfT)),
-    ]
+    ];
     const unclassified = samples
       .map((n) => n.expr)
       .filter((e): e is Extract<typeof e, { op: 'call' }> => e.op === 'call')
       .map((e) => e.fn)
-      .filter((id) => !isKnownIntrinsic(id) && !PRE_EMIT_INTRINSICS.has(id))
-    expect(unclassified).toEqual([])
-  })
-})
+      .filter((id) => !isKnownIntrinsic(id) && !PRE_EMIT_INTRINSICS.has(id));
+    expect(unclassified).toEqual([]);
+  });
+});
 
 // ═══ P1-34 of #155 — a portable id is spelled identically by the REAL writers ═══
 //
@@ -412,13 +412,13 @@ describe('intrinsic registry coverage (the spelling agreement surface)', () => {
 // pass, a backend's own special case. So the assertion runs the whole writer and reads the
 // call out of the emitted text.
 describe('every PORTABLE id survives both writers under its own name', () => {
-  const ARG_NAMES = ['a', 'b', 'c', 'd'] as const
+  const ARG_NAMES = ['a', 'b', 'c', 'd'] as const;
 
   /** `fn probe(a: f32, …) -> f32 { return <id>(a, …) }`, with the arity the front end's own
    *  table gives the id. The parameters are `f32` because what is measured is the call TEXT,
    *  not the type: a writer that rewrites `mod` or `round` does it by name. */
   const probeModule = (id: string, arity: number): ModuleDecl => {
-    const params = ARG_NAMES.slice(0, arity).map((name) => ({ name, type: f32T }))
+    const params = ARG_NAMES.slice(0, arity).map((name) => ({ name, type: f32T }));
     return module({
       funcs: [
         {
@@ -438,31 +438,31 @@ describe('every PORTABLE id survives both writers under its own name', () => {
           ],
         } as unknown as FuncDecl,
       ],
-    })
-  }
+    });
+  };
 
-  const returnedCall = (text: string): string => /return ([^;]*);/.exec(text)?.[1] ?? '<no return>'
+  const returnedCall = (text: string): string => /return ([^;]*);/.exec(text)?.[1] ?? '<no return>';
 
   it('spells every portable id the same way on WGSL and on GLSL ES 3.00, and that way is the id', () => {
-    const wrong: string[] = []
+    const wrong: string[] = [];
     for (const id of [...PORTABLE_INTRINSICS].sort()) {
-      const arity = MATH_FN_ARITY[id] ?? 1
-      const m = probeModule(id, arity)
-      const expected = `${id}(${ARG_NAMES.slice(0, arity).join(', ')})`
-      const wgsl = returnedCall(emitModule(m))
-      const glsl = returnedCall(emitGlslModule(m, 'fragment'))
+      const arity = MATH_FN_ARITY[id] ?? 1;
+      const m = probeModule(id, arity);
+      const expected = `${id}(${ARG_NAMES.slice(0, arity).join(', ')})`;
+      const wgsl = returnedCall(emitModule(m));
+      const glsl = returnedCall(emitGlslModule(m, 'fragment'));
       if (wgsl !== expected || glsl !== expected) {
-        wrong.push(`${id}: wgsl ${wgsl}, glsl ${glsl}, expected ${expected}`)
+        wrong.push(`${id}: wgsl ${wgsl}, glsl ${glsl}, expected ${expected}`);
       }
     }
-    expect(wrong).toEqual([])
-  })
+    expect(wrong).toEqual([]);
+  });
 
   it('sees a DIVERGENT id through the same probe, so the arm above is not measuring nothing', () => {
     // `round` is in `INTRINSICS` precisely because GLSL ES 3.00's `round()` is
     // implementation-chosen at exact halves; it must come out as `roundEven` on the GLSL side.
-    const m = probeModule('round', 1)
-    expect(returnedCall(emitModule(m))).toBe('round(a)')
-    expect(returnedCall(emitGlslModule(m, 'fragment'))).toBe('roundEven(a)')
-  })
-})
+    const m = probeModule('round', 1);
+    expect(returnedCall(emitModule(m))).toBe('round(a)');
+    expect(returnedCall(emitGlslModule(m, 'fragment'))).toBe('roundEven(a)');
+  });
+});

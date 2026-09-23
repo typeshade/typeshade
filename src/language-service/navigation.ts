@@ -8,22 +8,22 @@
 // ambient vocabulary, a `@builtin(...)` string or the `"use typeshade"` directive — none is a
 // renamable program symbol, and `prepareRename` and `rename` share one predicate for that.
 
-import ts from 'typescript'
-import type { CompileTsSourceResult } from '../compiler/ts/source-file.js'
-import { isUseTypeshadeDirective } from '../compiler/ts/directive.js'
-import { AMBIENT_LIB_URI } from './host.js'
-import { nodeAtPosition, rangeForSpan } from './positions.js'
-import { WGSL_BUILTIN_NAMES } from './ambient.js'
+import ts from 'typescript';
+import type { CompileTsSourceResult } from '../compiler/ts/source-file.js';
+import { isUseTypeshadeDirective } from '../compiler/ts/directive.js';
+import { AMBIENT_LIB_URI } from './host.js';
+import { nodeAtPosition, rangeForSpan } from './positions.js';
+import { WGSL_BUILTIN_NAMES } from './ambient.js';
 import type {
   TypeshadeDocumentSymbol,
   TypeshadeLocation,
   TypeshadeRange,
   TypeshadeSymbolKind,
   TypeshadeTextEdit,
-} from './types.js'
+} from './types.js';
 
 function spanOfNode(node: ts.Node): { start: number; length: number } {
-  return { start: node.getStart(), length: node.getEnd() - node.getStart() }
+  return { start: node.getStart(), length: node.getEnd() - node.getStart() };
 }
 
 /**
@@ -40,19 +40,19 @@ function spanOfNode(node: ts.Node): { start: number; length: number } {
  */
 function isDecoratorOnFunctionDeclarationAt(sourceFile: ts.SourceFile, offset: number): boolean {
   const onDecorator = (pos: number): boolean => {
-    let node: ts.Node | undefined = nodeAtPosition(sourceFile, pos)
+    let node: ts.Node | undefined = nodeAtPosition(sourceFile, pos);
     while (node !== undefined) {
-      if (ts.isDecorator(node)) return ts.isFunctionDeclaration(node.parent)
-      node = node.parent
+      if (ts.isDecorator(node)) return ts.isFunctionDeclaration(node.parent);
+      node = node.parent;
     }
-    return false
-  }
+    return false;
+  };
   // `nodeAtPosition`'s span test is `start <= pos < end`, so the position immediately after the
   // decorator's last character (e.g. right after `@vertex`, before the newline) is already
   // outside it by that test — yet `ts`'s own position-based APIs still resolve a cursor there as
   // touching the preceding token (the same "adjacent token" convention every LSP cursor position
   // follows), and still throw. Checking `offset - 1` as well as `offset` matches that.
-  return onDecorator(offset) || (offset > 0 && onDecorator(offset - 1))
+  return onDecorator(offset) || (offset > 0 && onDecorator(offset - 1));
 }
 
 /** `ts.canHaveDecorators` says a function declaration cannot syntactically carry a decorator,
@@ -60,13 +60,13 @@ function isDecoratorOnFunctionDeclarationAt(sourceFile: ts.SourceFile, offset: n
  * fires; see `diagnostics.ts`), so a decorator must be read off `modifiers` directly rather
  * than through the `canHaveDecorators`-gated helper. */
 function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
-  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? []
-  const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? []
-  return modifiers.filter(ts.isDecorator)
+  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? [];
+  const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? [];
+  return modifiers.filter(ts.isDecorator);
 }
 
 function decoratorTextsOf(node: ts.Node, sourceFile: ts.SourceFile): readonly string[] {
-  return decoratorsOf(node).map((d) => d.getText(sourceFile))
+  return decoratorsOf(node).map((d) => d.getText(sourceFile));
 }
 
 /** The pipeline stage a function declaration is an entry point for, or `undefined` when it is
@@ -77,11 +77,11 @@ export function stageOf(
   sourceFile: ts.SourceFile,
 ): string | undefined {
   for (const text of decoratorTextsOf(node, sourceFile)) {
-    if (/^@vertex\b/.test(text)) return 'vertex'
-    if (/^@fragment\b/.test(text)) return 'fragment'
-    if (/^@compute\b/.test(text)) return 'compute'
+    if (/^@vertex\b/.test(text)) return 'vertex';
+    if (/^@fragment\b/.test(text)) return 'fragment';
+    if (/^@compute\b/.test(text)) return 'compute';
   }
-  return undefined
+  return undefined;
 }
 
 /** Drops any entry whose `fileName` is the ambient lib's virtual uri — it is never a real
@@ -92,14 +92,14 @@ function locationsFrom(
   program: ts.Program,
   entries: readonly { fileName: string; textSpan: ts.TextSpan }[],
 ): TypeshadeLocation[] {
-  const out: TypeshadeLocation[] = []
+  const out: TypeshadeLocation[] = [];
   for (const entry of entries) {
-    if (entry.fileName === AMBIENT_LIB_URI) continue
-    const sf = program.getSourceFile(entry.fileName)
-    if (!sf) continue
-    out.push({ uri: entry.fileName, range: rangeForSpan(sf, entry.textSpan) })
+    if (entry.fileName === AMBIENT_LIB_URI) continue;
+    const sf = program.getSourceFile(entry.fileName);
+    if (!sf) continue;
+    out.push({ uri: entry.fileName, range: rangeForSpan(sf, entry.textSpan) });
   }
-  return out
+  return out;
 }
 
 /** Every location `offset` in `uri` is defined at, with any ambient-lib result dropped. Returns
@@ -112,11 +112,11 @@ export function getDefinition(
   uri: string,
   offset: number,
 ): TypeshadeLocation[] {
-  const sourceFile = program.getSourceFile(uri)
-  if (sourceFile && isDecoratorOnFunctionDeclarationAt(sourceFile, offset)) return []
-  const defs = languageService.getDefinitionAtPosition(uri, offset)
-  if (!defs) return []
-  return locationsFrom(program, defs)
+  const sourceFile = program.getSourceFile(uri);
+  if (sourceFile && isDecoratorOnFunctionDeclarationAt(sourceFile, offset)) return [];
+  const defs = languageService.getDefinitionAtPosition(uri, offset);
+  if (!defs) return [];
+  return locationsFrom(program, defs);
 }
 
 /** Every reference to the symbol at `offset` in `uri`, with any ambient-lib result dropped. */
@@ -127,13 +127,13 @@ export function getReferences(
   offset: number,
   options?: { includeDeclaration?: boolean },
 ): TypeshadeLocation[] {
-  const symbols = languageService.findReferences(uri, offset)
-  if (!symbols) return []
-  const includeDeclaration = options?.includeDeclaration ?? true
+  const symbols = languageService.findReferences(uri, offset);
+  if (!symbols) return [];
+  const includeDeclaration = options?.includeDeclaration ?? true;
   const entries = symbols.flatMap((s) =>
     s.references.filter((r) => includeDeclaration || !r.isDefinition),
-  )
-  return locationsFrom(program, entries)
+  );
+  return locationsFrom(program, entries);
 }
 
 /** The name and members of an `interface X { … }` or a `type X = { … }`, or undefined for any
@@ -141,11 +141,11 @@ export function getReferences(
 function interfaceOrAliasMembers(
   stmt: ts.Statement,
 ): { nameNode: ts.Identifier; members: readonly ts.TypeElement[] } | undefined {
-  if (ts.isInterfaceDeclaration(stmt)) return { nameNode: stmt.name, members: stmt.members }
+  if (ts.isInterfaceDeclaration(stmt)) return { nameNode: stmt.name, members: stmt.members };
   if (ts.isTypeAliasDeclaration(stmt) && ts.isTypeLiteralNode(stmt.type)) {
-    return { nameNode: stmt.name, members: stmt.type.members }
+    return { nameNode: stmt.name, members: stmt.type.members };
   }
-  return undefined
+  return undefined;
 }
 
 /** The outline of `sourceFile`: its structs, entries, functions, resources and constants,
@@ -156,15 +156,15 @@ export function getDocumentSymbols(
   sourceFile: ts.SourceFile,
   analysis: CompileTsSourceResult,
 ): TypeshadeDocumentSymbol[] {
-  const structNames = new Set(analysis.structs.map((s) => s.decl.name))
-  const bindingNames = new Set(analysis.bindings.map((b) => b.name))
-  const constNames = new Set(analysis.consts.map((c) => c.name))
+  const structNames = new Set(analysis.structs.map((s) => s.decl.name));
+  const bindingNames = new Set(analysis.bindings.map((b) => b.name));
+  const constNames = new Set(analysis.consts.map((c) => c.name));
 
-  const symbols: TypeshadeDocumentSymbol[] = []
+  const symbols: TypeshadeDocumentSymbol[] = [];
   for (const stmt of sourceFile.statements) {
     if (ts.isClassDeclaration(stmt) && stmt.name) {
-      const kind: TypeshadeSymbolKind = structNames.has(stmt.name.text) ? 'struct' : 'variable'
-      const children: TypeshadeDocumentSymbol[] = []
+      const kind: TypeshadeSymbolKind = structNames.has(stmt.name.text) ? 'struct' : 'variable';
+      const children: TypeshadeDocumentSymbol[] = [];
       for (const member of stmt.members) {
         if (ts.isPropertyDeclaration(member) && ts.isIdentifier(member.name)) {
           children.push({
@@ -172,7 +172,7 @@ export function getDocumentSymbols(
             kind: 'field',
             range: rangeForSpan(sourceFile, spanOfNode(member)),
             selectionRange: rangeForSpan(sourceFile, spanOfNode(member.name)),
-          })
+          });
         }
       }
       symbols.push({
@@ -181,15 +181,15 @@ export function getDocumentSymbols(
         range: rangeForSpan(sourceFile, spanOfNode(stmt)),
         selectionRange: rangeForSpan(sourceFile, spanOfNode(stmt.name)),
         ...(children.length ? { children } : {}),
-      })
+      });
     } else if (interfaceOrAliasMembers(stmt)) {
       // A struct written as `interface X { … }` or `type X = { … }` (#8 A4). Only the names
       // the analysis actually collected are structs: an object type nothing refers to is a
       // host-shaped declaration, not a shader type, and is left out of the outline as it is
       // left out of the emit.
-      const { nameNode, members } = interfaceOrAliasMembers(stmt)!
+      const { nameNode, members } = interfaceOrAliasMembers(stmt)!;
       if (structNames.has(nameNode.text)) {
-        const children: TypeshadeDocumentSymbol[] = []
+        const children: TypeshadeDocumentSymbol[] = [];
         for (const member of members) {
           if (ts.isPropertySignature(member) && ts.isIdentifier(member.name)) {
             children.push({
@@ -197,7 +197,7 @@ export function getDocumentSymbols(
               kind: 'field',
               range: rangeForSpan(sourceFile, spanOfNode(member)),
               selectionRange: rangeForSpan(sourceFile, spanOfNode(member.name)),
-            })
+            });
           }
         }
         symbols.push({
@@ -206,11 +206,11 @@ export function getDocumentSymbols(
           range: rangeForSpan(sourceFile, spanOfNode(stmt)),
           selectionRange: rangeForSpan(sourceFile, spanOfNode(nameNode)),
           ...(children.length ? { children } : {}),
-        })
+        });
       }
     } else if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      const stage = stageOf(stmt, sourceFile)
-      const children: TypeshadeDocumentSymbol[] = []
+      const stage = stageOf(stmt, sourceFile);
+      const children: TypeshadeDocumentSymbol[] = [];
       for (const param of stmt.parameters) {
         if (ts.isIdentifier(param.name)) {
           children.push({
@@ -218,7 +218,7 @@ export function getDocumentSymbols(
             kind: 'parameter',
             range: rangeForSpan(sourceFile, spanOfNode(param)),
             selectionRange: rangeForSpan(sourceFile, spanOfNode(param.name)),
-          })
+          });
         }
       }
       symbols.push({
@@ -228,41 +228,41 @@ export function getDocumentSymbols(
         range: rangeForSpan(sourceFile, spanOfNode(stmt)),
         selectionRange: rangeForSpan(sourceFile, spanOfNode(stmt.name)),
         ...(children.length ? { children } : {}),
-      })
+      });
     } else if (ts.isVariableStatement(stmt)) {
       for (const decl of stmt.declarationList.declarations) {
-        if (!ts.isIdentifier(decl.name)) continue
-        const name = decl.name.text
+        if (!ts.isIdentifier(decl.name)) continue;
+        const name = decl.name.text;
         const kind: TypeshadeSymbolKind = bindingNames.has(name)
           ? 'resource'
           : constNames.has(name)
             ? 'constant'
-            : 'variable'
+            : 'variable';
         symbols.push({
           name,
           kind,
           range: rangeForSpan(sourceFile, spanOfNode(decl)),
           selectionRange: rangeForSpan(sourceFile, spanOfNode(decl.name)),
-        })
+        });
       }
     }
   }
-  return symbols
+  return symbols;
 }
 
 /** Whether the string literal at `offset` is a `@builtin("...")` id, not a renamable program
  * symbol. */
 function isBuiltinStringLiteralAt(sourceFile: ts.SourceFile, offset: number): boolean {
-  const node = nodeAtPosition(sourceFile, offset)
-  if (!ts.isStringLiteralLike(node)) return false
-  const call = node.parent
+  const node = nodeAtPosition(sourceFile, offset);
+  if (!ts.isStringLiteralLike(node)) return false;
+  const call = node.parent;
   return (
     ts.isCallExpression(call) &&
     ts.isIdentifier(call.expression) &&
     call.expression.text === 'builtin' &&
     call.arguments[0] === node &&
     WGSL_BUILTIN_NAMES.includes(node.text)
-  )
+  );
 }
 
 /** Whether `offset` is on the `"use typeshade"` directive string itself. `ts.getRenameInfo`
@@ -271,8 +271,8 @@ function isBuiltinStringLiteralAt(sourceFile: ts.SourceFile, offset: number): bo
  * which is how `rename` used to turn the directive into `"nope"` while `prepareRename` had
  * refused the same position. */
 function isUseTypeshadeDirectiveAt(sourceFile: ts.SourceFile, offset: number): boolean {
-  const node = nodeAtPosition(sourceFile, offset)
-  return ts.isStringLiteral(node) && isUseTypeshadeDirective(node.parent)
+  const node = nodeAtPosition(sourceFile, offset);
+  return ts.isStringLiteral(node) && isUseTypeshadeDirective(node.parent);
 }
 
 /** Whether the symbol at `offset` is (at least partly) declared in the ambient lib: a user
@@ -283,8 +283,8 @@ function definesInAmbientLib(
   uri: string,
   offset: number,
 ): boolean {
-  const defs = languageService.getDefinitionAtPosition(uri, offset)
-  return defs !== undefined && defs.some((d) => d.fileName === AMBIENT_LIB_URI)
+  const defs = languageService.getDefinitionAtPosition(uri, offset);
+  return defs !== undefined && defs.some((d) => d.fileName === AMBIENT_LIB_URI);
 }
 
 /**
@@ -307,7 +307,7 @@ function isRenameRefusedAt(
     isBuiltinStringLiteralAt(sourceFile, offset) ||
     isDecoratorOnFunctionDeclarationAt(sourceFile, offset) ||
     definesInAmbientLib(languageService, uri, offset)
-  )
+  );
 }
 
 /** Whether the symbol at `offset` in `uri` can be renamed, and its current display range;
@@ -319,10 +319,10 @@ export function prepareRename(
   uri: string,
   offset: number,
 ): { range: TypeshadeRange; placeholder: string } | undefined {
-  if (isRenameRefusedAt(languageService, sourceFile, uri, offset)) return undefined
-  const info = languageService.getRenameInfo(uri, offset, {})
-  if (!info.canRename) return undefined
-  return { range: rangeForSpan(sourceFile, info.triggerSpan), placeholder: info.displayName }
+  if (isRenameRefusedAt(languageService, sourceFile, uri, offset)) return undefined;
+  const info = languageService.getRenameInfo(uri, offset, {});
+  if (!info.canRename) return undefined;
+  return { range: rangeForSpan(sourceFile, info.triggerSpan), placeholder: info.displayName };
 }
 
 /** Every edit, across every affected document, to rename the symbol at `offset` in `uri` to
@@ -339,16 +339,16 @@ export function rename(
   offset: number,
   newName: string,
 ): Readonly<Record<string, readonly TypeshadeTextEdit[]>> {
-  if (prepareRename(languageService, sourceFile, uri, offset) === undefined) return {}
-  const locations = languageService.findRenameLocations(uri, offset, false, false, false)
-  if (!locations) return {}
-  const out: Record<string, TypeshadeTextEdit[]> = {}
+  if (prepareRename(languageService, sourceFile, uri, offset) === undefined) return {};
+  const locations = languageService.findRenameLocations(uri, offset, false, false, false);
+  if (!locations) return {};
+  const out: Record<string, TypeshadeTextEdit[]> = {};
   for (const loc of locations) {
-    if (loc.fileName === AMBIENT_LIB_URI) continue
-    const sf = program.getSourceFile(loc.fileName)
-    if (!sf) continue
-    const edits = (out[loc.fileName] ??= [])
-    edits.push({ range: rangeForSpan(sf, loc.textSpan), newText: newName })
+    if (loc.fileName === AMBIENT_LIB_URI) continue;
+    const sf = program.getSourceFile(loc.fileName);
+    if (!sf) continue;
+    const edits = (out[loc.fileName] ??= []);
+    edits.push({ range: rangeForSpan(sf, loc.textSpan), newText: newName });
   }
-  return out
+  return out;
 }

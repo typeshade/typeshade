@@ -37,44 +37,44 @@
 // `Set` whose iteration order reaches emitted text, so reordering here would move
 // bytes.
 
-import type { Expr, Stmt } from './nodes.js'
+import type { Expr, Stmt } from './nodes.js';
 
 /** Visit `e` and every descendant (pre-order). */
 export function eachExpr(e: Expr, visit: (e: Expr) => void): void {
-  visit(e)
+  visit(e);
   switch (e.op) {
     case 'binop':
     case 'compare':
     case 'logical':
-      eachExpr(e.a, visit)
-      eachExpr(e.b, visit)
-      break
+      eachExpr(e.a, visit);
+      eachExpr(e.b, visit);
+      break;
     case 'unop':
-      eachExpr(e.a, visit)
-      break
+      eachExpr(e.a, visit);
+      break;
     case 'call':
     case 'construct':
-      for (const a of e.args) eachExpr(a, visit)
-      break
+      for (const a of e.args) eachExpr(a, visit);
+      break;
     case 'member':
-      eachExpr(e.base, visit)
-      break
+      eachExpr(e.base, visit);
+      break;
     case 'index':
-      eachExpr(e.base, visit)
-      eachExpr(e.idx, visit)
-      break
+      eachExpr(e.base, visit);
+      eachExpr(e.idx, visit);
+      break;
     case 'select':
-      eachExpr(e.cond, visit)
-      eachExpr(e.ifTrue, visit)
-      eachExpr(e.ifFalse, visit)
-      break
+      eachExpr(e.cond, visit);
+      eachExpr(e.ifTrue, visit);
+      eachExpr(e.ifFalse, visit);
+      break;
     case 'matchExpr':
-      eachExpr(e.scrutinee, visit)
-      for (const [, v] of e.cases) eachExpr(v, visit)
-      eachExpr(e.default, visit)
-      break
+      eachExpr(e.scrutinee, visit);
+      for (const [, v] of e.cases) eachExpr(v, visit);
+      eachExpr(e.default, visit);
+      break;
     default:
-      break // lit / constref / externref / overrideref / param / varref — leaves
+      break; // lit / constref / externref / overrideref / param / varref — leaves
   }
 }
 
@@ -87,32 +87,32 @@ export function mapChildren(e: Expr, f: (c: Expr) => Expr): Expr {
     case 'externref':
     case 'param':
     case 'varref':
-      return e
+      return e;
     case 'binop':
-      return { ...e, a: f(e.a), b: f(e.b) }
+      return { ...e, a: f(e.a), b: f(e.b) };
     case 'compare':
-      return { ...e, a: f(e.a), b: f(e.b) }
+      return { ...e, a: f(e.a), b: f(e.b) };
     case 'logical':
-      return { ...e, a: f(e.a), b: f(e.b) }
+      return { ...e, a: f(e.a), b: f(e.b) };
     case 'unop':
-      return { ...e, a: f(e.a) }
+      return { ...e, a: f(e.a) };
     case 'call':
-      return { ...e, args: e.args.map(f) }
+      return { ...e, args: e.args.map(f) };
     case 'construct':
-      return { ...e, args: e.args.map(f) }
+      return { ...e, args: e.args.map(f) };
     case 'member':
-      return { ...e, base: f(e.base) }
+      return { ...e, base: f(e.base) };
     case 'index':
-      return { ...e, base: f(e.base), idx: f(e.idx) }
+      return { ...e, base: f(e.base), idx: f(e.idx) };
     case 'select':
-      return { ...e, cond: f(e.cond), ifTrue: f(e.ifTrue), ifFalse: f(e.ifFalse) }
+      return { ...e, cond: f(e.cond), ifTrue: f(e.ifTrue), ifFalse: f(e.ifFalse) };
     case 'matchExpr':
       return {
         ...e,
         scrutinee: f(e.scrutinee),
         cases: e.cases.map(([n, v]) => [n, f(v)] as const),
         default: f(e.default),
-      }
+      };
   }
 }
 
@@ -121,45 +121,45 @@ export function mapChildren(e: Expr, f: (c: Expr) => Expr): Expr {
  *  `onStmt` overrides how a nested statement is walked (open recursion); omit it and
  *  the nested walk comes back here with the same `visit`. */
 export function eachStmtExpr(s: Stmt, visit: (e: Expr) => void, onStmt?: (s: Stmt) => void): void {
-  const S = onStmt ?? ((b: Stmt): void => eachStmtExpr(b, visit))
+  const S = onStmt ?? ((b: Stmt): void => eachStmtExpr(b, visit));
   switch (s.s) {
     case 'let':
-      visit(s.expr)
-      break
+      visit(s.expr);
+      break;
     case 'var':
-      if (s.init !== undefined) visit(s.init)
-      break
+      if (s.init !== undefined) visit(s.init);
+      break;
     case 'assign':
     case 'assignOp':
-      visit(s.target)
-      visit(s.expr)
-      break
+      visit(s.target);
+      visit(s.expr);
+      break;
     case 'call':
-      visit(s.expr)
-      break
+      visit(s.expr);
+      break;
     case 'return':
-      if (s.expr !== undefined) visit(s.expr)
-      break
+      if (s.expr !== undefined) visit(s.expr);
+      break;
     case 'if':
       for (const a of s.arms) {
-        visit(a.cond)
-        for (const b of a.body) S(b)
+        visit(a.cond);
+        for (const b of a.body) S(b);
       }
-      if (s.elseBody) for (const b of s.elseBody) S(b)
-      break
+      if (s.elseBody) for (const b of s.elseBody) S(b);
+      break;
     case 'for':
-      S(s.init)
-      visit(s.cond)
-      S(s.update)
-      for (const b of s.body) S(b)
-      break
+      S(s.init);
+      visit(s.cond);
+      S(s.update);
+      for (const b of s.body) S(b);
+      break;
     case 'switch':
-      visit(s.scrut)
-      for (const c of s.cases) for (const b of c.body) S(b)
-      if (s.defaultBody) for (const b of s.defaultBody) S(b)
-      break
+      visit(s.scrut);
+      for (const c of s.cases) for (const b of c.body) S(b);
+      if (s.defaultBody) for (const b of s.defaultBody) S(b);
+      break;
     default:
-      break // break / continue / discard / placeholder / raw — no Expr to walk
+      break; // break / continue / discard / placeholder / raw — no Expr to walk
   }
 }
 
@@ -171,25 +171,25 @@ export function eachStmtExpr(s: Stmt, visit: (e: Expr) => void, onStmt?: (s: Stm
  *  and a `var` with no initialiser — is returned UNCHANGED, so an untouched subtree
  *  keeps its identity. */
 export function mapStmtExpr(s: Stmt, f: (e: Expr) => Expr, onStmt?: (s: Stmt) => Stmt): Stmt {
-  const S = onStmt ?? ((b: Stmt): Stmt => mapStmtExpr(b, f))
+  const S = onStmt ?? ((b: Stmt): Stmt => mapStmtExpr(b, f));
   switch (s.s) {
     case 'let':
-      return { ...s, expr: f(s.expr) }
+      return { ...s, expr: f(s.expr) };
     case 'var':
-      return s.init !== undefined ? { ...s, init: f(s.init) } : s
+      return s.init !== undefined ? { ...s, init: f(s.init) } : s;
     case 'assign':
     case 'assignOp':
-      return { ...s, target: f(s.target), expr: f(s.expr) }
+      return { ...s, target: f(s.target), expr: f(s.expr) };
     case 'call':
-      return { ...s, expr: f(s.expr) }
+      return { ...s, expr: f(s.expr) };
     case 'return':
-      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
+      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s;
     case 'if':
       return {
         ...s,
         arms: s.arms.map((a) => ({ cond: f(a.cond), body: a.body.map(S) })),
         elseBody: s.elseBody?.map(S),
-      }
+      };
     case 'for':
       return {
         ...s,
@@ -197,15 +197,15 @@ export function mapStmtExpr(s: Stmt, f: (e: Expr) => Expr, onStmt?: (s: Stmt) =>
         cond: f(s.cond),
         update: S(s.update),
         body: s.body.map(S),
-      }
+      };
     case 'switch':
       return {
         ...s,
         scrut: f(s.scrut),
         cases: s.cases.map((c) => ({ values: c.values, body: c.body.map(S) })),
         defaultBody: s.defaultBody?.map(S),
-      }
+      };
     default:
-      return s // break / continue / discard / placeholder / raw — no Expr to rewrite
+      return s; // break / continue / discard / placeholder / raw — no Expr to rewrite
   }
 }

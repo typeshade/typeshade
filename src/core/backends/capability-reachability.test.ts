@@ -37,8 +37,8 @@
 // probed per kind with BOTH a known-good and a known-bad witness, so a resolver that
 // broke into always-true or always-false cannot carry the two ratchet arms above.
 
-import { describe, it, expect } from 'vitest'
-import * as IR from '../ir/index.js'
+import { describe, it, expect } from 'vitest';
+import * as IR from '../ir/index.js';
 import {
   module,
   fn,
@@ -52,14 +52,14 @@ import {
   type DeclarableCapability,
   type ModuleDecl,
   type ShaderType,
-} from '../ir/index.js'
-import { isKnownIntrinsic } from '../intrinsics.js'
-import { requiredCaps } from '../passes/required-caps.js'
-import { reflect } from '../reflect.js'
-import { emitModule, wgslBackend } from './wgsl.js'
-import { emitGlslModule, glslEs300Backend } from './glsl.js'
-import { compile } from '../../compiler/ts/compile.js'
-import { ALL_CAPABILITIES } from '../ir/nodes.js'
+} from '../ir/index.js';
+import { isKnownIntrinsic } from '../intrinsics.js';
+import { requiredCaps } from '../passes/required-caps.js';
+import { reflect } from '../reflect.js';
+import { emitModule, wgslBackend } from './wgsl.js';
+import { emitGlslModule, glslEs300Backend } from './glsl.js';
+import { compile } from '../../compiler/ts/compile.js';
+import { ALL_CAPABILITIES } from '../ir/nodes.js';
 
 // ── The probe module: the smallest thing that emits on BOTH backends ──
 const fragProbe = (enables?: readonly DeclarableCapability[]): ModuleDecl =>
@@ -68,22 +68,22 @@ const fragProbe = (enables?: readonly DeclarableCapability[]): ModuleDecl =>
     funcs: [
       fn('fs_probe', {}, () => vec4(1, 0, 0, 1), { stage: 'fragment', retAttr: '@location(0)' }),
     ],
-  })
+  });
 
 /** The probe with ONE entry param carrying `@builtin(<id>)`. Every entry param goes
  *  through the GLSL writer's `builtinInRead` whether the body reads it or not
  *  (backends/glsl.ts — main() gathers each param before the call), so an unmapped
  *  builtin throws here rather than silently emitting nothing. */
 const builtinProbe = (id: string): ModuleDecl => {
-  const base = fragProbe()
+  const base = fragProbe();
   return {
     ...base,
     funcs: base.funcs.map((f) => ({
       ...f,
       params: [{ name: 'probe', type: u32T, builtin: id, attr: `@builtin(${id})` }],
     })),
-  }
-}
+  };
+};
 
 // ── Witness kinds ──
 //
@@ -107,83 +107,83 @@ type Witness =
    *  (zero emitted bytes), `reflect().requiredFeatures` reports it, and the emit really is
    *  byte-identical to the enables-free one. A cap whose row carries a directive fails
    *  this by construction — which is what stops `hostOnly` becoming a rubber stamp. */
-  | { readonly kind: 'hostOnly'; readonly cap: DeclarableCapability }
+  | { readonly kind: 'hostOnly'; readonly cap: DeclarableCapability };
 
-const hostOnly = (cap: DeclarableCapability): Witness => ({ kind: 'hostOnly', cap })
+const hostOnly = (cap: DeclarableCapability): Witness => ({ kind: 'hostOnly', cap });
 
 /** Human-readable identity of a witness — used in the failure messages so the report
  *  names the missing surface, not merely the capability. */
 const describeWitness = (w: Witness): string => {
   switch (w.kind) {
     case 'moduleShape':
-      return `module shape: ${w.what}`
+      return `module shape: ${w.what}`;
     case 'typeConstant':
-      return `ShaderType constant \`${w.id}\` on core/ir`
+      return `ShaderType constant \`${w.id}\` on core/ir`;
     case 'intrinsic':
-      return `intrinsic \`${w.id}\` in the registry`
+      return `intrinsic \`${w.id}\` in the registry`;
     case 'builtin':
-      return `@builtin(${w.id}) readable by an entry`
+      return `@builtin(${w.id}) readable by an entry`;
     case 'hostOnly':
-      return `host-side only (declare \`${w.cap}\` → reflect().requiredFeatures), nothing to author`
+      return `host-side only (declare \`${w.cap}\` → reflect().requiredFeatures), nothing to author`;
   }
-}
+};
 
 // ── The resolvers — every one asks the REAL surface ──
 
 const resolveModuleShape = (cap: Capability, build: () => ModuleDecl): boolean =>
-  requiredCaps(build()).includes(cap)
+  requiredCaps(build()).includes(cap);
 
 const resolveTypeConstant = (id: string): boolean => {
-  const v = (IR as unknown as Record<string, unknown>)[id]
-  if (v === undefined || typeof v !== 'object' || v === null || !('kind' in v)) return false
+  const v = (IR as unknown as Record<string, unknown>)[id];
+  if (v === undefined || typeof v !== 'object' || v === null || !('kind' in v)) return false;
   try {
-    return wgslBackend.typeName(v as ShaderType).length > 0
+    return wgslBackend.typeName(v as ShaderType).length > 0;
   } catch {
-    return false
+    return false;
   }
-}
+};
 
 const resolveBuiltin = (id: string): boolean => {
   try {
-    return emitGlslModule(builtinProbe(id), 'fragment').length > 0
+    return emitGlslModule(builtinProbe(id), 'fragment').length > 0;
   } catch {
-    return false
+    return false;
   }
-}
+};
 
 const resolveHostOnly = (cap: DeclarableCapability): boolean => {
   // A backend that SUPPORTS the cap and spends no source bytes on it. `directive`
   // present ⇒ the feature does have a source token, so "nothing to author" is a lie.
   const zeroCost = [glslEs300Backend, wgslBackend].find(
     (be) => be.capProfile[cap] !== undefined && be.capProfile[cap]?.directive === undefined,
-  )
-  if (zeroCost === undefined) return false
+  );
+  if (zeroCost === undefined) return false;
   const emitOn = (m: ModuleDecl): string =>
-    zeroCost === wgslBackend ? emitModule(m) : emitGlslModule(m, 'fragment')
+    zeroCost === wgslBackend ? emitModule(m) : emitGlslModule(m, 'fragment');
   try {
     // The host must LEARN of it (that is the entire surface) …
-    if (!reflect(fragProbe([cap])).requiredFeatures.includes(cap)) return false
+    if (!reflect(fragProbe([cap])).requiredFeatures.includes(cap)) return false;
     // … and declaring it must move zero bytes.
-    return emitOn(fragProbe([cap])) === emitOn(fragProbe())
+    return emitOn(fragProbe([cap])) === emitOn(fragProbe());
   } catch {
-    return false
+    return false;
   }
-}
+};
 
 const resolve = (cap: Capability, w: Witness): boolean => {
   switch (w.kind) {
     case 'moduleShape':
-      return resolveModuleShape(cap, w.build)
+      return resolveModuleShape(cap, w.build);
     case 'typeConstant':
-      return resolveTypeConstant(w.id)
+      return resolveTypeConstant(w.id);
     case 'intrinsic':
-      return isKnownIntrinsic(w.id)
+      return isKnownIntrinsic(w.id);
     case 'builtin':
-      return resolveBuiltin(w.id)
+      return resolveBuiltin(w.id);
     case 'hostOnly':
-      return resolveHostOnly(w.cap)
+      return resolveHostOnly(w.cap);
   }
-}
+};
 
 // ── THE WITNESS TABLE ──
 //
@@ -534,7 +534,7 @@ const WITNESSES: Readonly<Record<Capability, Witness>> = {
   // The builtin is the half a witness can resolve mechanically; the qualifier has no
   // authoring surface at all, so a resolving witness here is necessary, not sufficient.
   multiview: { kind: 'builtin', id: 'view_index' },
-}
+};
 
 /** Capabilities that are KNOWINGLY unreachable — declarable, gated, directive-emitting,
  *  and with nothing behind them. Each entry is a debt with a reason and an issue, not a
@@ -551,7 +551,7 @@ const UNREACHABLE_ALLOWLIST: Readonly<Partial<Record<Capability, string>>> = {
   // path end to end (backends/glsl.ts GLSL_CAP_PROFILE says so in its own comment), and
   // this entry is the machine-checked version of that admission.
   multiview: 'directive-only — no gl_ViewID_OVR / num_views authoring surface — X-GIS #1681',
-}
+};
 
 describe('capability reachability (X-GIS #1681 A3)', () => {
   // ── NON-VACUITY (X-GIS #996) — the resolver SEES a known-good witness of every kind, and
@@ -613,7 +613,7 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
       // WGSL) — "nothing to author" must not be satisfiable by a cap with a source token.
       ['hostOnly +', 'floatRenderTarget', hostOnly('floatRenderTarget'), true],
       ['hostOnly -', 'f16', hostOnly('f16'), false],
-    ]
+    ];
     expect(
       probes
         .filter(([, cap, w, want]) => resolve(cap, w) !== want)
@@ -623,15 +623,15 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
         'surface from an absent one, so both ratchet arms below are vacuous. Fix the ' +
         'resolver (or the probe, if the surface it names legitimately moved) before ' +
         'trusting anything else in this file.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   // ── The witness table is not stale (X-GIS #996's companion assertion) ──
   it('every witnessed capability is one a backend actually profiles', () => {
     const profiled = new Set<string>([
       ...Object.keys(glslEs300Backend.capProfile),
       ...Object.keys(wgslBackend.capProfile),
-    ])
+    ]);
     expect(
       Object.keys(WITNESSES)
         .filter((c) => !profiled.has(c))
@@ -639,8 +639,8 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
       'Capability with a witness here but NO row in either backend capProfile — the ' +
         'cap is unsupported everywhere and the witness is pointing at nothing. Delete ' +
         'the capability, or give some backend a row.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   // ── ARM 1 — no unreachable capability outside the allowlist ──
   it('every capability outside the allowlist has a witness that RESOLVES', () => {
@@ -648,7 +648,7 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
       .filter((c) => UNREACHABLE_ALLOWLIST[c] === undefined)
       .filter((c) => !resolve(c, WITNESSES[c]))
       .map((c) => `${c} (witness: ${describeWitness(WITNESSES[c])})`)
-      .sort()
+      .sort();
     expect(
       unreachable,
       'Capability an author can DECLARE but cannot USE — its witness does not resolve ' +
@@ -658,21 +658,21 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
         'surface the witness names instead; if the capability is genuinely principled ' +
         'without one, add it to UNREACHABLE_ALLOWLIST here, in this commit, with a ' +
         'rationale and an issue number.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   // ── ARM 2 — the allowlist only shrinks ──
   it('an allowlisted capability that BECAME reachable must lose its entry', () => {
     const stale = (Object.keys(UNREACHABLE_ALLOWLIST) as Capability[])
       .filter((c) => resolve(c, WITNESSES[c]))
-      .sort()
+      .sort();
     expect(
       stale,
       'Allowlisted capability is now REACHABLE — its witness resolves. Delete the ' +
         'UNREACHABLE_ALLOWLIST entry in the SAME commit that made it reachable; this ' +
         'ratchet shrinks in both directions, so a stale exemption is a failure, not slack.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   // ── The allowlist entries must be reasons, not placeholders ──
   it('every allowlist entry states a reason and cites an issue', () => {
@@ -683,9 +683,9 @@ describe('capability reachability (X-GIS #1681 A3)', () => {
         .sort(),
       'UNREACHABLE_ALLOWLIST entry with no issue number — an exemption nobody can trace ' +
         'is an exemption nobody will remove.',
-    ).toEqual([])
-  })
-})
+    ).toEqual([]);
+  });
+});
 
 // ═══ S3 — a `"use typeshade"` SOURCE witness per capability ═══
 //
@@ -843,7 +843,7 @@ export function fs(v: V): vec4 {
   return textureGather(0, atlas, smp, v.uv);
 }
 `,
-}
+};
 
 /** A capability no `"use typeshade"` program reaches today. `probe` is the program that WILL
  *  be the witness once the gap closes — it is compiled below and must still fail, so an entry
@@ -896,61 +896,61 @@ export function vs(@builtin("view_index") vi: u32): Clip {
   float32Filterable: {
     reason: 'host-only: a device feature about FILTERING an f32 texture, which no module implies',
   },
-}
+};
 
 describe('every capability has a "use typeshade" source witness (S3)', () => {
   it('claims every capability exactly once, as reachable from source or as not', () => {
     const unclaimed = ALL_CAPABILITIES.filter(
       (cap) => !(cap in SOURCE_WITNESSES) && !(cap in NO_SOURCE_WITNESS),
-    )
-    expect(unclaimed).toEqual([])
+    );
+    expect(unclaimed).toEqual([]);
     const both = ALL_CAPABILITIES.filter(
       (cap) => cap in SOURCE_WITNESSES && cap in NO_SOURCE_WITNESS,
-    )
-    expect(both).toEqual([])
-  })
+    );
+    expect(both).toEqual([]);
+  });
 
   it('compiles every source witness clean, and reflect().requiredFeatures names the capability', () => {
-    const wrong: string[] = []
+    const wrong: string[] = [];
     for (const [cap, src] of Object.entries(SOURCE_WITNESSES)) {
-      const result = compile(src)
-      const errors = result.diagnostics.filter((d) => d.category === 'error')
+      const result = compile(src);
+      const errors = result.diagnostics.filter((d) => d.category === 'error');
       if (errors.length > 0) {
-        wrong.push(`${cap}: ${errors[0]?.message ?? ''}`)
-        continue
+        wrong.push(`${cap}: ${errors[0]?.message ?? ''}`);
+        continue;
       }
       if (result.module === undefined) {
-        wrong.push(`${cap}: compiled with no module`)
-        continue
+        wrong.push(`${cap}: compiled with no module`);
+        continue;
       }
-      const features = reflect(result.module).requiredFeatures
+      const features = reflect(result.module).requiredFeatures;
       if (!features.includes(cap as Capability)) {
-        wrong.push(`${cap}: requiredFeatures is ${JSON.stringify(features)}`)
+        wrong.push(`${cap}: requiredFeatures is ${JSON.stringify(features)}`);
       }
     }
-    expect(wrong).toEqual([])
-  })
+    expect(wrong).toEqual([]);
+  });
 
   it('loses the NO_SOURCE_WITNESS entry of a capability an author can now reach', () => {
     // Shrink-only by measurement: the probe is the program the entry says cannot be written.
-    const reachable: string[] = []
+    const reachable: string[] = [];
     for (const [cap, entry] of Object.entries(NO_SOURCE_WITNESS)) {
-      if (entry.probe === undefined) continue
-      const result = compile(entry.probe)
-      const errors = result.diagnostics.filter((d) => d.category === 'error')
-      if (errors.length === 0) reachable.push(cap)
+      if (entry.probe === undefined) continue;
+      const result = compile(entry.probe);
+      const errors = result.diagnostics.filter((d) => d.category === 'error');
+      if (errors.length === 0) reachable.push(cap);
     }
     expect(
       reachable,
       'This capability now compiles from source — move it to SOURCE_WITNESSES in the same ' +
         'commit, so the host learns it needs the device feature.',
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('states a reason that cites an issue, a roadmap row or the host-only rule', () => {
     const vague = Object.entries(NO_SOURCE_WITNESS)
       .filter(([, entry]) => !/#\d+|roadmap|host-only/.test(entry.reason))
-      .map(([cap]) => cap)
-    expect(vague).toEqual([])
-  })
-})
+      .map(([cap]) => cap);
+    expect(vague).toEqual([]);
+  });
+});

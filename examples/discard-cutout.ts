@@ -22,39 +22,39 @@ import {
   Let,
   length,
   mix,
-} from '../src/index.js'
-import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
 
-const U = fullscreenUniforms()
+const U = fullscreenUniforms();
 
-const FsOut = ioStruct('FsOut', { color: location(0, vec4fT) })
+const FsOut = ioStruct('FsOut', { color: location(0, vec4fT) });
 
 // Discards outside the unit circle; inside, a radial gradient from a bright
 // centre to a dim rim.
 const discardOutsideCircle = fn('discard_outside_circle', { p: vec2fT }, ({ p }) => {
-  const r = Let(length(p))
+  const r = Let(length(p));
   If(r.gt(1), () => {
-    Discard()
-  })
-  return vec4(mix(vec3(1, 1, 1), vec3(0.06, 0.1, 0.35), r), 1)
-})
+    Discard();
+  });
+  return vec4(mix(vec3(1, 1, 1), vec3(0.06, 0.1, 0.35), r), 1);
+});
 
 const fs = fn(
   'fs',
   { vo: VsOut },
   ({ vo }) => {
-    const p = screenCoords(vo.uv, U.field.resolution)
-    return FsOut.construct({ color: discardOutsideCircle({ p }) })
+    const p = screenCoords(vo.uv, U.field.resolution);
+    return FsOut.construct({ color: discardOutsideCircle({ p }) });
   },
   { stage: 'fragment' },
-)
+);
 
 const discardCutoutModule = module({
   structs: [U.struct, VsOut.decl, FsOut.decl],
   bindings: [U.binding],
   funcs: [vs, fs],
-})
+});
 
 export const discardCutout: ShaderExample = {
   id: 'discard-cutout',
@@ -69,4 +69,4 @@ export const discardCutout: ShaderExample = {
     time: { kind: 'time' },
     resolution: { kind: 'resolution' },
   },
-}
+};

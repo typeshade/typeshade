@@ -20,13 +20,13 @@
 // compile gate already runs Tint's own check on every example, and #161's acceptance item
 // asking for a pipeline leg rests on a premise the measurement disproves.
 
-import { describe, expect, it } from 'vitest'
-import { compile } from '../../compiler/ts/compile.js'
-import { compileTsSource } from '../../compiler/ts/source-file.js'
-import { TS_CODES } from '../../compiler/ts/codes.js'
-import { uniformityViolations } from './uniformity.js'
-import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js'
-import { boolT, f32T, u32T, vec2fT, vec3uT, vec4fT, voidT } from '../ir/types.js'
+import { describe, expect, it } from 'vitest';
+import { compile } from '../../compiler/ts/compile.js';
+import { compileTsSource } from '../../compiler/ts/source-file.js';
+import { TS_CODES } from '../../compiler/ts/codes.js';
+import { uniformityViolations } from './uniformity.js';
+import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
+import { boolT, f32T, u32T, vec2fT, vec3uT, vec4fT, voidT } from '../ir/types.js';
 
 const HEAD = `declare const t: texture_2d<f32>
 declare const s: sampler
@@ -36,24 +36,24 @@ class VsOut {
   @location(0) uv: vec2
 }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) } }
-`
+`;
 
 const frag = (
   body: string,
   attrs = '',
 ) => `${HEAD}${attrs}@fragment export function fs(v: VsOut): vec4 {
 ${body}
-}`
+}`;
 
 const errorsOf = (source: string) =>
   compileTsSource(`"use typeshade"\n${source}`)
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => `${d.code ?? ''} ${d.message}`)
+    .map((d) => `${d.code ?? ''} ${d.message}`);
 
 function compiled(source: string) {
-  const c = compile(`"use typeshade"\n${source}`)
-  expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-  return c
+  const c = compile(`"use typeshade"\n${source}`);
+  expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  return c;
 }
 
 describe('a derivative under a branch the invocations do not share', () => {
@@ -61,16 +61,16 @@ describe('a derivative under a branch the invocations do not share', () => {
     const [first, ...rest] = errorsOf(
       frag(`  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`),
-    )
-    expect(rest).toEqual([])
-    expect(first).toContain(TS_CODES.UNIFORMITY)
-    expect(first).toContain('textureSample() is reached under "VsOut.uv"')
-    expect(first).toContain('a fragment input at @location(0)')
-    expect(first).toContain('derivative_uniformity')
+    );
+    expect(rest).toEqual([]);
+    expect(first).toContain(TS_CODES.UNIFORMITY);
+    expect(first).toContain('textureSample() is reached under "VsOut.uv"');
+    expect(first).toContain('a fragment input at @location(0)');
+    expect(first).toContain('derivative_uniformity');
     // The three fixes are named, because "not allowed" alone leaves an author guessing.
-    expect(first).toContain('textureSampleLevel')
-    expect(first).toContain('@diagnostic("off", "derivative_uniformity")')
-  })
+    expect(first).toContain('textureSampleLevel');
+    expect(first).toContain('@diagnostic("off", "derivative_uniformity")');
+  });
 
   it('follows the condition through a local it was copied into, to its ROOT', () => {
     // The message names the value an author would change, which is the input the local came
@@ -79,9 +79,9 @@ describe('a derivative under a branch the invocations do not share', () => {
       frag(`  const edge = v.uv.x > 0.5
   if (edge) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`),
-    )
-    expect(first).toContain('textureSample() is reached under "VsOut.uv"')
-  })
+    );
+    expect(first).toContain('textureSample() is reached under "VsOut.uv"');
+  });
 
   it('is FLOW-SENSITIVE: a local overwritten with a constant is uniform after that', () => {
     // Joining every write to a name regardless of order refused this, which Tint accepts —
@@ -93,7 +93,7 @@ describe('a derivative under a branch the invocations do not share', () => {
   if (g > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`),
       ).wgsl,
-    ).toContain('textureSample(t, s,')
+    ).toContain('textureSample(t, s,');
     // …and a write UNDER a branch is only as uniform as the branch, so this one stays refused.
     expect(
       errorsOf(
@@ -102,16 +102,16 @@ describe('a derivative under a branch the invocations do not share', () => {
   if (g > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`),
       )[0],
-    ).toContain('textureSample() is reached under')
-  })
+    ).toContain('textureSample() is reached under');
+  });
 
   it('refuses a derivative builtin for the same reason', () => {
     const [first] = errorsOf(
       frag(`  if (v.uv.x > 0.5) { return vec4(dpdx(v.uv.x), 0., 0., 1.) }
   return vec4(0., 0., 0., 1.)`),
-    )
-    expect(first).toContain('dpdx() is reached under')
-  })
+    );
+    expect(first).toContain('dpdx() is reached under');
+  });
 
   it('reaches a switch scrutinee, not only an if', () => {
     expect(
@@ -121,7 +121,7 @@ describe('a derivative under a branch the invocations do not share', () => {
     default: return vec4(0., 0., 0., 1.)
   }`),
       )[0],
-    ).toContain('textureSample() is reached under')
+    ).toContain('textureSample() is reached under');
     // A `for` CONDITION cannot be non-uniform in this surface: §17 requires a constant bound,
     // so `for (let i = 0; f32(i) < v.uv.x; i++)` is `TS8006 for exit must compare "i" to a
     // constant bound`, which is the stricter rule and fires first. The walk classifies a loop
@@ -133,8 +133,8 @@ describe('a derivative under a branch the invocations do not share', () => {
   for (let i = 0; f32(i) < v.uv.x; i++) { acc = textureSample(t, s, v.uv) }
   return acc`),
       )[0],
-    ).toContain('constant bound')
-  })
+    ).toContain('constant bound');
+  });
 
   it('makes everything after a non-uniform `return` non-uniform, and nothing after a discard', () => {
     // Measured on Tint: `if (uv.x > 1.0) { return … }` above a textureSample is
@@ -147,15 +147,15 @@ describe('a derivative under a branch the invocations do not share', () => {
         frag(`  if (v.uv.x > 1.) { return vec4(0., 0., 0., 1.) }
   return textureSample(t, s, v.uv)`),
       )[0],
-    ).toContain('textureSample() is reached under')
+    ).toContain('textureSample() is reached under');
     expect(
       compiled(
         frag(`  if (v.uv.x > 1.) { discard }
   return textureSample(t, s, v.uv)`),
       ).wgsl,
-    ).toContain('textureSample(t, s,')
-  })
-})
+    ).toContain('textureSample(t, s,');
+  });
+});
 
 // Every acceptance below was measured ACCEPTED on Tint, not assumed: an acceptance a pass
 // asserts without a verdict beside it is the shape both of this arm's earlier mistakes took.
@@ -166,8 +166,8 @@ describe('what stays legal', () => {
         frag(`  if (k > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`),
       ).wgsl,
-    ).toContain('textureSample(t, s,')
-  })
+    ).toContain('textureSample(t, s,');
+  });
 
   it('accepts textureSample under a counted loop, whose bound is a constant', () => {
     expect(
@@ -176,8 +176,8 @@ describe('what stays legal', () => {
   for (let i = 0; i < 2; i++) { acc = textureSample(t, s, v.uv) }
   return acc`),
       ).wgsl,
-    ).toContain('textureSample(t, s,')
-  })
+    ).toContain('textureSample(t, s,');
+  });
 
   it('accepts textureSampleLevel anywhere, which is the fix the message names', () => {
     expect(
@@ -185,41 +185,41 @@ describe('what stays legal', () => {
         frag(`  if (v.uv.x > 0.5) { return textureSampleLevel(t, s, v.uv, 0.) }
   return vec4(0., 0., 0., 1.)`),
       ).wgsl,
-    ).toContain('textureSampleLevel(t, s,')
-  })
+    ).toContain('textureSampleLevel(t, s,');
+  });
 
   it('accepts a sample at the top of the entry, which is every shader that has one', () => {
-    expect(compiled(frag(`  return textureSample(t, s, v.uv)`)).wgsl).toContain('textureSample(')
-  })
-})
+    expect(compiled(frag(`  return textureSample(t, s, v.uv)`)).wgsl).toContain('textureSample(');
+  });
+});
 
 describe('@diagnostic("off", "derivative_uniformity")', () => {
-  const OFF = '@diagnostic("off", "derivative_uniformity")\n'
+  const OFF = '@diagnostic("off", "derivative_uniformity")\n';
   const SRC = frag(
     `  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`,
     OFF,
-  )
+  );
 
   it('emits the directive when asked, and takes the module as written', () => {
-    const c = compiled(SRC)
-    expect(c.wgsl).toContain('diagnostic(off, derivative_uniformity);')
+    const c = compiled(SRC);
+    expect(c.wgsl).toContain('diagnostic(off, derivative_uniformity);');
     // Before every other directive, and before the declarations.
-    expect(c.wgsl!.indexOf('diagnostic(off')).toBeLessThan(c.wgsl!.indexOf('struct '))
+    expect(c.wgsl!.indexOf('diagnostic(off')).toBeLessThan(c.wgsl!.indexOf('struct '));
     // GLSL ES 3.00 has no equivalent and needs none: an implicit derivative in non-uniform
     // control flow is undefined there, not refused. The text does not move.
-    expect(c.glsl!.fragment).not.toContain('diagnostic')
-  })
+    expect(c.glsl!.fragment).not.toContain('diagnostic');
+  });
 
   it('leaves the emit byte-identical for a module that does not ask', () => {
-    const body = `  return textureSample(t, s, v.uv)`
-    const without = compiled(frag(body))
-    expect(without.wgsl).not.toContain('diagnostic(')
+    const body = `  return textureSample(t, s, v.uv)`;
+    const without = compiled(frag(body));
+    expect(without.wgsl).not.toContain('diagnostic(');
     // Byte for byte, not merely "no directive line": the whole point is that a module that
     // asks for nothing emits what it always did.
-    const withOff = compiled(frag(body, OFF))
-    expect(withOff.wgsl).toBe(`diagnostic(off, derivative_uniformity);\n\n${String(without.wgsl)}`)
-  })
+    const withOff = compiled(frag(body, OFF));
+    expect(withOff.wgsl).toBe(`diagnostic(off, derivative_uniformity);\n\n${String(without.wgsl)}`);
+  });
 
   it('honours the severity rather than emitting one and ignoring it', () => {
     // `warning` and `info` demote the rule; `error` is the default it already has. A directive
@@ -229,14 +229,14 @@ describe('@diagnostic("off", "derivative_uniformity")', () => {
       `  if (v.uv.x > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)`,
       '@diagnostic("warning", "derivative_uniformity")\n',
-    )
-    const c = compile(`"use typeshade"\n${src}`)
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
+    );
+    const c = compile(`"use typeshade"\n${src}`);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.diagnostics.filter((d) => d.category === 'warning').map((d) => d.code)).toContain(
       TS_CODES.UNIFORMITY,
-    )
-    expect(c.wgsl).toContain('diagnostic(warning, derivative_uniformity);')
-  })
+    );
+    expect(c.wgsl).toContain('diagnostic(warning, derivative_uniformity);');
+  });
 
   it('does not let the filter silence a BARRIER, which is not that rule', () => {
     // Measured: `workgroupBarrier` under a non-uniform condition is `'workgroupBarrier' must
@@ -250,9 +250,9 @@ let tile: workgroup<array<f32, 64>>
   tile[lid.x] = 1.
   if (lid.x < u32(4)) { workgroupBarrier() }
   out[lid.x] = tile[lid.x]
-}`)
-    expect(errors.join('\n')).toContain('workgroupBarrier() is reached under')
-  })
+}`);
+    expect(errors.join('\n')).toContain('workgroupBarrier() is reached under');
+  });
 
   it('refuses two directives that set one rule two ways, rather than emitting both', () => {
     // WGSL takes one severity per rule per scope, so both lines in one module is
@@ -264,13 +264,13 @@ let tile: workgroup<array<f32, 64>>
         `  return textureSample(t, s, v.uv)`,
         '@diagnostic("off", "derivative_uniformity")\n@diagnostic("error", "derivative_uniformity")\n',
       ),
-    )
-    expect(conflict.join('\n')).toContain('conflicting diagnostic directive')
+    );
+    expect(conflict.join('\n')).toContain('conflicting diagnostic directive');
     // ONE conflict, ONE diagnostic. Reporting it at both decorators with byte-identical text
     // made a reader check whether two conflicts had been found.
-    expect(conflict).toHaveLength(1)
-    expect(conflict[0]).toContain('set to "off" by the @diagnostic on "fs"')
-    expect(conflict[0]).toContain('to "error" by the one on "fs"')
+    expect(conflict).toHaveLength(1);
+    expect(conflict[0]).toContain('set to "off" by the @diagnostic on "fs"');
+    expect(conflict[0]).toContain('to "error" by the one on "fs"');
     // The SAME severity written twice says one thing twice, which is not a conflict — and one
     // directive is emitted, not two.
     const twice = compiled(
@@ -278,9 +278,9 @@ let tile: workgroup<array<f32, 64>>
         `  return textureSample(t, s, v.uv)`,
         '@diagnostic("off", "derivative_uniformity")\n@diagnostic("off", "derivative_uniformity")\n',
       ),
-    )
-    expect(twice.wgsl!.match(/diagnostic\(off, derivative_uniformity\);/g)).toHaveLength(1)
-  })
+    );
+    expect(twice.wgsl!.match(/diagnostic\(off, derivative_uniformity\);/g)).toHaveLength(1);
+  });
 
   it('names the two FUNCTIONS when the conflicting directives sit on different ones', () => {
     // The shape the message exists for: a directive on a helper and another on the entry.
@@ -288,13 +288,13 @@ let tile: workgroup<array<f32, 64>>
     const errors = errorsOf(`${HEAD}@diagnostic("off", "derivative_uniformity")
 export function helper(uv: vec2): vec4 { return textureSample(t, s, uv) }
 @diagnostic("error", "derivative_uniformity")
-@fragment export function fs(v: VsOut): vec4 { return helper(v.uv) }`)
+@fragment export function fs(v: VsOut): vec4 { return helper(v.uv) }`);
     // One diagnostic, on the SECOND directive — the one that introduced the disagreement —
     // naming the function each side sits on so the other is findable without searching.
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toContain('set to "off" by the @diagnostic on "helper"')
-    expect(errors[0]).toContain('to "error" by the one on "fs"')
-  })
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('set to "off" by the @diagnostic on "helper"');
+    expect(errors[0]).toContain('to "error" by the one on "fs"');
+  });
 
   it('refuses a severity and a rule it does not know, and a wrong argument shape', () => {
     for (const [attr, want] of [
@@ -304,10 +304,10 @@ export function helper(uv: vec2): vec4 { return textureSample(t, s, uv) }
     ] as const) {
       expect(errorsOf(frag(`  return textureSample(t, s, v.uv)`, attr)).join('\n'), attr).toContain(
         want,
-      )
+      );
     }
-  })
-})
+  });
+});
 
 describe('the walk itself, on a module the front end never saw', () => {
   const entry = (
@@ -315,7 +315,7 @@ describe('the walk itself, on a module the front end never saw', () => {
     stage: FuncDecl['stage'],
     params: FuncDecl['params'],
     body: FuncDecl['body'],
-  ): FuncDecl => ({ name, params, ret: vec4fT, body, stage })
+  ): FuncDecl => ({ name, params, ret: vec4fT, body, stage });
 
   it('says nothing about a helper whose parameters it cannot classify', () => {
     // A non-entry function's parameters are `unknown`: the walk does not follow call
@@ -360,9 +360,9 @@ describe('the walk itself, on a module the front end never saw', () => {
           ],
         },
       ],
-    }
-    expect(uniformityViolations(m)).toEqual([])
-  })
+    };
+    expect(uniformityViolations(m)).toEqual([]);
+  });
 
   it('still reports a BARRIER under the same unclassifiable condition', () => {
     // The opposite threshold, and the reason the walk is three-valued: a barrier is accepted
@@ -406,13 +406,13 @@ describe('the walk itself, on a module the front end never saw', () => {
           ],
         ),
       ],
-    }
-    const found = uniformityViolations(m)
-    expect(found).toHaveLength(1)
-    expect(found[0]!.kind).toBe('barrier')
-    expect(found[0]!.cause).toContain('cannot prove uniform')
-  })
-})
+    };
+    const found = uniformityViolations(m);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.kind).toBe('barrier');
+    expect(found[0]!.cause).toContain('cannot prove uniform');
+  });
+});
 
 // ═══ The four proofs the walk makes, each pinned by the shape that once broke it ═══
 //
@@ -435,7 +435,7 @@ describe('the walk claims only what it has proven', () => {
   return textureSample(t, s, v.uv)
 }`,
       ).wgsl,
-    ).toContain('textureSample(t, s,')
+    ).toContain('textureSample(t, s,');
     // The BARRIER threshold is untouched by that: `unknown` is still not `uniform`.
     expect(
       errorsOf(`declare let out: storage<array<f32>>
@@ -445,8 +445,8 @@ export function opaque(): f32 { return 0.5 }
   workgroupBarrier()
   out[lid.x] = 1.
 }`)[0],
-    ).toContain('workgroupBarrier() is reached under')
-  })
+    ).toContain('workgroupBarrier() is reached under');
+  });
 
   it('rebinds the ROOT of a write, so `v.x = …` is a write to `v`', () => {
     // Reading only a bare `varref` target left `g` at the class its initialiser had, so the
@@ -459,9 +459,9 @@ export function opaque(): f32 { return 0.5 }
   g.x = f32(lid.x)
   if (g.x > 4.) { workgroupBarrier() }
   out[lid.x] = g.x
-}`)
-    expect(member[0]).toContain('workgroupBarrier() is reached under')
-    expect(member[0]).toContain('local_invocation_id')
+}`);
+    expect(member[0]).toContain('workgroupBarrier() is reached under');
+    expect(member[0]).toContain('local_invocation_id');
     // The same through an index, which reaches the root the same way.
     const index = errorsOf(`declare let out: storage<array<f32>>
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
@@ -469,9 +469,9 @@ export function opaque(): f32 { return 0.5 }
   g[0] = f32(lid.x)
   if (g[0] > 4.) { workgroupBarrier() }
   out[lid.x] = g[1]
-}`)
-    expect(index[0]).toContain('workgroupBarrier() is reached under')
-  })
+}`);
+    expect(index[0]).toContain('workgroupBarrier() is reached under');
+  });
 
   it('reports a call under a branch once, not once per loop iteration', () => {
     // The loop fixpoint walks a body more than once — that is what follows a value carried
@@ -491,10 +491,10 @@ export function opaque(): f32 { return 0.5 }
     b = c
   }
   out[lid.x] = a
-}`)
-    expect(errors.filter((e) => e.includes('workgroupBarrier() is reached under'))).toHaveLength(1)
-  })
-})
+}`);
+    expect(errors.filter((e) => e.includes('workgroupBarrier() is reached under'))).toHaveLength(1);
+  });
+});
 
 // ═══ A one-line helper is not a policy boundary (§54) ═══
 //
@@ -531,7 +531,7 @@ export function opaque(): f32 { return 0.5 }
 // broken-shader instrument reporting `fn broken( {` first, and the ACCEPTED rows were emitted
 // and handed to Tint whole.
 describe('a value that goes through a helper keeps its class', () => {
-  const EDGE = 'export function edge(x: f32): bool { return x > 0.5 }\n'
+  const EDGE = 'export function edge(x: f32): bool { return x > 0.5 }\n';
 
   it.each([
     [
@@ -571,10 +571,10 @@ describe('a value that goes through a helper keeps its class', () => {
     // A call into a user function returns at most the join of its arguments, never more
     // uniform: returning a bare `unknown` laundered the input, and `unknown` is below the
     // derivative threshold. The message still names the ROOT — the input, not the helper.
-    const errors = errorsOf(source)
-    expect(errors[0], _what).toContain(want)
-    expect(errors[0]).toContain('a fragment input at @location(0)')
-  })
+    const errors = errorsOf(source);
+    expect(errors[0], _what).toContain(want);
+    expect(errors[0]).toContain('a fragment input at @location(0)');
+  });
 
   it('refuses a derivative INSIDE a helper, under a branch on its own parameter', () => {
     // The other direction: the argument classes are seeded onto the callee's parameters, so a
@@ -585,9 +585,9 @@ describe('a value that goes through a helper keeps its class', () => {
   if (x > 0.5) { return textureSample(t, s, uv) }
   return vec4(0., 0., 0., 1.)
 }
-@fragment export function fs(v: VsOut): vec4 { return shade(v.uv.x, v.uv) }`)
-    expect(errors[0]).toContain('textureSample() is reached under "VsOut.uv"')
-  })
+@fragment export function fs(v: VsOut): vec4 { return shade(v.uv.x, v.uv) }`);
+    expect(errors[0]).toContain('textureSample() is reached under "VsOut.uv"');
+  });
 
   it.each([
     [
@@ -610,8 +610,8 @@ describe('a value that goes through a helper keeps its class', () => {
     // storage buffer this walk never sees. `unknown` is below the derivative threshold, so
     // these compile — and both were measured ACCEPTED on Tint, so refusing them would be a
     // false positive on a program both targets run.
-    expect(compiled(source).wgsl).toContain('textureSample(t, s,')
-  })
+    expect(compiled(source).wgsl).toContain('textureSample(t, s,');
+  });
 
   it.each([
     [
@@ -674,8 +674,8 @@ export function outer2(p: f32, q: f32): f32 { return inner2(p, q) }
     // The argument reaches the helper and never reaches its return value, so it cannot make
     // the value vary. Joining every argument refused all six; Tint accepts all six. The
     // summary pass is what tells the two halves of this table apart.
-    expect(compiled(src).wgsl).toContain('textureSample(t, s,')
-  })
+    expect(compiled(src).wgsl).toContain('textureSample(t, s,');
+  });
 
   it.each([
     [
@@ -726,8 +726,8 @@ export function outer(p: f32, q: f32): f32 { return inner(q, p) }
     // a branch it does not appear in, or through a callee's own dependent slot. Each of these
     // is refused by Tint, and each would be accepted by a summary that read only the
     // `return` expressions.
-    expect(errorsOf(src)[0]).toContain('is reached under "VsOut.uv"')
-  })
+    expect(errorsOf(src)[0]).toContain('is reached under "VsOut.uv"');
+  });
 
   it('keeps the BARRIER threshold where it was: unknown is still not uniform', () => {
     // A barrier is accepted only when the flow is PROVABLY uniform, so a helper call in the
@@ -740,11 +740,11 @@ export function edge(x: f32): bool { return x > 0.5 }
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   if (${cond}) { workgroupBarrier() }
   out[lid.x] = 1.
-}`)
-      expect(errors.join('\n'), cond).toContain('workgroupBarrier() is reached under')
+}`);
+      expect(errors.join('\n'), cond).toContain('workgroupBarrier() is reached under');
     }
-  })
-})
+  });
+});
 
 describe('where the diagnostic points', () => {
   it('underlines the barrier call, not the entry it sits in', () => {
@@ -757,30 +757,30 @@ declare let out: storage<array<f32>>;
 @compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
   if (lid.x > u32(4)) { workgroupBarrier(); }
   out[lid.x] = 1.;
-}`
-    const [d, ...rest] = compileTsSource(source).diagnostics.filter((x) => x.category === 'error')
-    expect(rest).toEqual([])
-    expect(d!.code).toBe(TS_CODES.UNIFORMITY)
-    expect(source.slice(d!.start, d!.start + d!.length)).toBe('workgroupBarrier()')
-    expect([d!.line, d!.endLine]).toEqual([4, 4])
-  })
-})
+}`;
+    const [d, ...rest] = compileTsSource(source).diagnostics.filter((x) => x.category === 'error');
+    expect(rest).toEqual([]);
+    expect(d!.code).toBe(TS_CODES.UNIFORMITY);
+    expect(source.slice(d!.start, d!.start + d!.length)).toBe('workgroupBarrier()');
+    expect([d!.line, d!.endLine]).toEqual([4, 4]);
+  });
+});
 
 describe('the call graph, walked to a fixpoint that does not read declaration order', () => {
   const BARRIER: Stmt = {
     s: 'call',
     expr: { op: 'call', type: voidT, fn: 'workgroupBarrier', args: [] },
-  }
+  };
   const calls = (name: string): Stmt => ({
     s: 'call',
     expr: { op: 'call', type: voidT, fn: name, args: [] },
-  })
+  });
   const helper = (name: string, body: readonly Stmt[]): FuncDecl => ({
     name,
     params: [],
     ret: voidT,
     body,
-  })
+  });
   /** `lid.x > 4u`, on a `@builtin(local_invocation_id)` parameter: the seed table's own
    *  non-uniform value, and what Tint refuses a barrier under. */
   const lidOver4: Expr = {
@@ -794,20 +794,20 @@ describe('the call graph, walked to a fixpoint that does not read declaration or
       field: 'x',
     },
     b: { op: 'lit', type: u32T, value: 4 },
-  }
+  };
   const compute = (body: readonly Stmt[]): FuncDecl => ({
     name: 'cs',
     params: [{ name: 'lid', type: vec3uT, builtin: 'local_invocation_id' }],
     ret: voidT,
     body,
     stage: 'compute',
-  })
+  });
   const moduleOf = (funcs: readonly FuncDecl[]): ModuleDecl => ({
     consts: [],
     structs: [],
     bindings: [],
     funcs,
-  })
+  });
 
   it('answers a call chain the same whichever end of it is declared first', () => {
     // Accumulating the start classes into ONE map made the answer depend on `m.funcs` order:
@@ -815,30 +815,30 @@ describe('the call graph, walked to a fixpoint that does not read declaration or
     // set yet, and `joinKnown` can only degrade, so a function two calls below an entry stayed
     // at that first guess forever. The same program compiled with the entry declared first and
     // did not with the helpers first — a difference an author has no way to read.
-    const inner = helper('inner', [BARRIER])
-    const outer = helper('outer', [calls('inner')])
-    const entry = compute([calls('outer')])
-    expect(uniformityViolations(moduleOf([inner, outer, entry]))).toEqual([])
-    expect(uniformityViolations(moduleOf([entry, outer, inner]))).toEqual([])
-  })
+    const inner = helper('inner', [BARRIER]);
+    const outer = helper('outer', [calls('inner')]);
+    const entry = compute([calls('outer')]);
+    expect(uniformityViolations(moduleOf([inner, outer, entry]))).toEqual([]);
+    expect(uniformityViolations(moduleOf([entry, outer, inner]))).toEqual([]);
+  });
 
   it('still carries a caller’s non-uniform control flow two calls down, in either order', () => {
     // The relaxation only ever admits what is proven, so the same chain under a branch on
     // `local_invocation_id` keeps the refusal — from the entry, through `outer`, into `inner`.
-    const inner = helper('inner', [BARRIER])
-    const outer = helper('outer', [calls('inner')])
-    const entry = compute([{ s: 'if', arms: [{ cond: lidOver4, body: [calls('outer')] }] }])
+    const inner = helper('inner', [BARRIER]);
+    const outer = helper('outer', [calls('inner')]);
+    const entry = compute([{ s: 'if', arms: [{ cond: lidOver4, body: [calls('outer')] }] }]);
     for (const funcs of [
       [inner, outer, entry],
       [entry, outer, inner],
     ]) {
-      const found = uniformityViolations(moduleOf(funcs))
+      const found = uniformityViolations(moduleOf(funcs));
       expect(found.map((v) => [v.fn, v.callee, v.kind])).toEqual([
         ['inner', 'workgroupBarrier', 'barrier'],
-      ])
-      expect(found[0]!.cause).toContain('local_invocation_id')
+      ]);
+      expect(found[0]!.cause).toContain('local_invocation_id');
     }
-  })
+  });
 
   it('takes a helper NOTHING calls on its own terms, as WGSL does', () => {
     // A module of helpers alone — a fragment of a shader under test, or a library compiled by
@@ -846,16 +846,16 @@ describe('the call graph, walked to a fixpoint that does not read declaration or
     // pessimistic seed refused a barrier at the top level of such a module, under no branch at
     // all, with a message about moving it out of one; and no spelling got the module through,
     // since the diagnostic filter does not reach the barrier rule.
-    expect(uniformityViolations(moduleOf([helper('sync', [BARRIER])]))).toEqual([])
+    expect(uniformityViolations(moduleOf([helper('sync', [BARRIER])]))).toEqual([]);
     // Not vacuous: the same barrier under a branch this walk cannot classify is still
     // reported, because `unknown` is not `uniform`.
-    const opaque: Expr = { op: 'call', type: boolT, fn: 'hostSaysSo', args: [] }
+    const opaque: Expr = { op: 'call', type: boolT, fn: 'hostSaysSo', args: [] };
     const found = uniformityViolations(
       moduleOf([helper('sync', [{ s: 'if', arms: [{ cond: opaque, body: [BARRIER] }] }])]),
-    )
-    expect(found.map((v) => [v.fn, v.kind])).toEqual([['sync', 'barrier']])
-  })
-})
+    );
+    expect(found.map((v) => [v.fn, v.kind])).toEqual([['sync', 'barrier']]);
+  });
+});
 
 // ═══ A write's target, and WGSL's address-space table ═══
 //
@@ -874,7 +874,7 @@ describe("a write's target, and the address space a read comes from", () => {
 ${decls}@compute([64, 1, 1]) export function cs(@builtin("local_invocation_id") lid: vec3u): void {
 ${body}
   out[lid.x] = 1.
-}`
+}`;
 
   it('joins the INDEX a write lands on, through a helper (the summary)', () => {
     // `a[u32(x)] = y` makes every element of `a` depend on `x`: which element took `y` is what
@@ -892,8 +892,8 @@ ${body}
   if (idx(v.uv.x, k) > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)
 }`)[0],
-    ).toContain('textureSample() is reached under "VsOut.uv"')
-  })
+    ).toContain('textureSample() is reached under "VsOut.uv"');
+  });
 
   it('joins it in the flow walk too, with no helper in sight (the same omission)', () => {
     // The same one-line gap one level out, and pre-existing rather than introduced: the walk's
@@ -906,8 +906,8 @@ ${body}
   if (a[0] > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)
 }`)[0],
-    ).toContain('textureSample() is reached under "VsOut.uv"')
-  })
+    ).toContain('textureSample() is reached under "VsOut.uv"');
+  });
 
   it('leaves a write whose index depends on nothing non-uniform alone', () => {
     // The triangulation that makes the two rows above about the INDEX and not about writes in
@@ -922,8 +922,8 @@ ${body}
   if (idx3(v.uv.x, k) > 0.5) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)
 }`).wgsl,
-    ).toContain('textureSample(t, s,')
-  })
+    ).toContain('textureSample(t, s,');
+  });
 
   it.each([
     [
@@ -976,8 +976,8 @@ export function stow2(x: f32): void { scratch[0] = x }
     // about the result in each of these and says nothing about the write, so the pass accepted
     // programs whose inline forms it already refused — the same program passing or failing on
     // whether its write went through a helper. Tint refuses every row.
-    expect(errorsOf(src)[0]).toContain('is reached under')
-  })
+    expect(errorsOf(src)[0]).toContain('is reached under');
+  });
 
   it('does not assert `uniform` about a location a callee overwrote', () => {
     // The worse half, and a hang if it ships: the caller's own `stash = 1.` was bound into the
@@ -991,12 +991,12 @@ export function stow2(x: f32): void { scratch[0] = x }
         `let stash: f32 = 0.\nexport function stow(x: f32): void { stash = x }\n`,
         `  stash = 1.\n  stow(f32(lid.x))\n  if (stash > 0.5) { workgroupBarrier() }`,
       ),
-    )
-    expect(errors[0]).toContain('workgroupBarrier() is reached under')
+    );
+    expect(errors[0]).toContain('workgroupBarrier() is reached under');
     // Named by its ADDRESS SPACE now, not by the argument that was stowed into it: a read of
     // a module variable is non-uniform on sight, so the write side never enters the answer.
-    expect(errors[0]).toContain('a module variable')
-  })
+    expect(errors[0]).toContain('a module variable');
+  });
 
   it('refuses a read of shared memory whatever was written into it', () => {
     // An earlier round claimed a location written only constants, or only a uniform buffer's
@@ -1008,10 +1008,10 @@ export function stow2(x: f32): void { scratch[0] = x }
       const src = CS(
         `declare const k2: uniform<f32>\nlet flag: f32 = 1.\n`,
         `${write}\n  if (flag > 0.5) { workgroupBarrier() }`,
-      )
-      expect(errorsOf(src)[0], write).toContain('workgroupBarrier() is reached under')
+      );
+      expect(errorsOf(src)[0], write).toContain('workgroupBarrier() is reached under');
     }
-  })
+  });
 
   it.each([
     ['a module const', 'const MODE: f32 = 1.\n', 'MODE'],
@@ -1021,8 +1021,8 @@ export function stow2(x: f32): void { scratch[0] = x }
   ])('leaves the uniform side of the address-space table alone: %s', (_what, decl, read) => {
     // The other half of the table, and the half that keeps it from being a blanket ban. Each
     // measured ACCEPTED on Tint.
-    expect(errorsOf(CS(decl, `  if (${read} > 0.5) { workgroupBarrier() }`))).toEqual([])
-  })
+    expect(errorsOf(CS(decl, `  if (${read} > 0.5) { workgroupBarrier() }`))).toEqual([]);
+  });
 
   it('accepts workgroupUniformLoad, the one way left to branch on workgroup memory', () => {
     // With a workgroup read non-uniform on sight, this builtin is the only spelling that can
@@ -1032,8 +1032,8 @@ export function stow2(x: f32): void { scratch[0] = x }
     const src = CS(
       `let tile4: workgroup<array<f32, 4>>\n`,
       `  tile4[lid.x] = f32(lid.x)\n  if (workgroupUniformLoad(tile4[0]) > 0.5) { workgroupBarrier() }`,
-    )
-    expect(errorsOf(src)).toEqual([])
+    );
+    expect(errorsOf(src)).toEqual([]);
     expect(
       errorsOf(
         CS(
@@ -1041,8 +1041,8 @@ export function stow2(x: f32): void { scratch[0] = x }
           `  tile5[lid.x] = f32(lid.x)\n  if (tile5[0] > 0.5) { workgroupBarrier() }`,
         ),
       )[0],
-    ).toContain('workgroupBarrier() is reached under')
-  })
+    ).toContain('workgroupBarrier() is reached under');
+  });
 
   it.each([
     [
@@ -1068,8 +1068,8 @@ export function peek2(): f32 { return scratch[0] }
     // parameters had an empty summary and went through. One bit on the summary carries it.
     // Both measured REFUSED on Tint; the same helper returning a `uniform` is ACCEPTED by both
     // and is the row below.
-    expect(errorsOf(src)[0]).toContain('is reached under')
-  })
+    expect(errorsOf(src)[0]).toContain('is reached under');
+  });
 
   it('and leaves a nullary helper that returns a UNIFORM alone', () => {
     expect(
@@ -1078,6 +1078,6 @@ export function peek2(): f32 { return scratch[0] }
   if (peek3() > 0.25) { return textureSample(t, s, v.uv) }
   return vec4(0., 0., 0., 1.)
 }`).wgsl,
-    ).toContain('textureSample(t, s,')
-  })
-})
+    ).toContain('textureSample(t, s,');
+  });
+});

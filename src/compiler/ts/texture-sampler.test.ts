@@ -6,35 +6,37 @@
 // `resource(name, texture2dfT, …)` and `overrideConst(name, type, default)`, and both backends
 // already emit every form. What was missing was a way to say it in source.
 
-import { describe, expect, it } from 'vitest'
-import { compileTsSource } from './source-file.js'
-import { compile } from './compile.js'
-import { typeKey } from '../../core/ir/types.js'
+import { describe, expect, it } from 'vitest';
+import { compileTsSource } from './source-file.js';
+import { compile } from './compile.js';
+import { typeKey } from '../../core/ir/types.js';
 
 function wgslOf(source: string): string {
-  const r = compileTsSource(`"use typeshade";\n${source}`)
-  expect(r.diagnostics).toEqual([])
-  return r.wgsl!
+  const r = compileTsSource(`"use typeshade";\n${source}`);
+  expect(r.diagnostics).toEqual([]);
+  return r.wgsl!;
 }
 
 function diagnose(source: string): string {
-  const r = compileTsSource(`"use typeshade";\n${source}`)
-  expect(r.diagnostics.length).toBeGreaterThan(0)
-  return r.diagnostics[0]!.message
+  const r = compileTsSource(`"use typeshade";\n${source}`);
+  expect(r.diagnostics.length).toBeGreaterThan(0);
+  return r.diagnostics[0]!.message;
 }
 
-const TEX = 'declare const tex: texture_2d<f32>\ndeclare const smp: sampler\n'
-const ARR = 'declare const atlas: texture_2d_array<f32>\ndeclare const smp: sampler\n'
+const TEX = 'declare const tex: texture_2d<f32>\ndeclare const smp: sampler\n';
+const ARR = 'declare const atlas: texture_2d_array<f32>\ndeclare const smp: sampler\n';
 
 describe('a texture and a sampler declaration', () => {
   it('is a binding with a handle type, written bare', () => {
-    const r = compileTsSource(`"use typeshade";\n${TEX}export function f(): f32 {\n  return 1.;\n}`)
-    expect(r.diagnostics).toEqual([])
+    const r = compileTsSource(
+      `"use typeshade";\n${TEX}export function f(): f32 {\n  return 1.;\n}`,
+    );
+    expect(r.diagnostics).toEqual([]);
     expect(r.bindings.map((b) => [b.name, typeKey(b.type), b.binding])).toEqual([
       ['tex', 'texture_2d<f32>', 0],
       ['smp', 'sampler', 1],
-    ])
-  })
+    ]);
+  });
 
   it('emits the WGSL handle declarations, and fuses into a sampler2D on GLSL', () => {
     const c = compile(`
@@ -55,15 +57,15 @@ describe('a texture and a sampler declaration', () => {
       export function fs(v: VsOut): Color {
         return { color: textureSample(tex, smp, v.uv) };
       }
-    `)
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(c.wgsl).toContain('@group(0) @binding(0) var tex: texture_2d<f32>;')
-    expect(c.wgsl).toContain('@group(0) @binding(1) var smp: sampler;')
+    `);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(c.wgsl).toContain('@group(0) @binding(0) var tex: texture_2d<f32>;');
+    expect(c.wgsl).toContain('@group(0) @binding(1) var smp: sampler;');
     // GLSL ES 3.00 has no separate sampler object: the pair becomes one combined sampler,
     // and the sampler argument disappears from the call.
-    expect(c.glsl?.fragment).toContain('uniform sampler2D tex;')
-    expect(c.glsl?.fragment).toContain('texture(tex, uv)')
-  })
+    expect(c.glsl?.fragment).toContain('uniform sampler2D tex;');
+    expect(c.glsl?.fragment).toContain('texture(tex, uv)');
+  });
 
   it('takes the integer element kinds and the array dimension', () => {
     const w = wgslOf(`
@@ -73,21 +75,21 @@ describe('a texture and a sampler declaration', () => {
       export function f(): f32 {
         return 1.;
       }
-    `)
-    expect(w).toContain('var ti: texture_2d<i32>;')
-    expect(w).toContain('var tu: texture_2d<u32>;')
-    expect(w).toContain('var ta: texture_2d_array<f32>;')
-  })
+    `);
+    expect(w).toContain('var ti: texture_2d<i32>;');
+    expect(w).toContain('var tu: texture_2d<u32>;');
+    expect(w).toContain('var ta: texture_2d_array<f32>;');
+  });
 
   it('refuses a handle declared let, and an element kind that is not a native scalar', () => {
     expect(
       diagnose('declare let tex: texture_2d<f32>\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('"tex" is a texture_2d; declare it const, not let.')
+    ).toBe('"tex" is a texture_2d; declare it const, not let.');
     expect(
       diagnose('declare const tex: texture_2d<f64>\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('texture_2d<T> T must be f32, i32, or u32.')
-  })
-})
+    ).toBe('texture_2d<T> T must be f32, i32, or u32.');
+  });
+});
 
 describe('textureSample and its siblings', () => {
   it('picks the neutral id from the texture, not from an argument count', () => {
@@ -96,13 +98,13 @@ describe('textureSample and its siblings', () => {
     // overload makes, so the two surfaces build the same node.
     const r = compileTsSource(
       `"use typeshade";\n${ARR}export function f(uv: vec2): vec4 {\n  return textureSample(atlas, smp, uv, 1);\n}`,
-    )
-    expect(r.diagnostics).toEqual([])
-    const ret = r.funcs[0]!.body[0]!
-    if (ret.s !== 'return' || ret.expr?.op !== 'call') throw new Error('expected a call')
-    expect(ret.expr.fn).toBe('textureSampleArray')
-    expect(typeKey(ret.expr.type)).toBe('vec4<f32>')
-  })
+    );
+    expect(r.diagnostics).toEqual([]);
+    const ret = r.funcs[0]!.body[0]!;
+    if (ret.s !== 'return' || ret.expr?.op !== 'call') throw new Error('expected a call');
+    expect(ret.expr.fn).toBe('textureSampleArray');
+    expect(typeKey(ret.expr.type)).toBe('vec4<f32>');
+  });
 
   it('types a layer as an i32 and a textureLoad level as a u32', () => {
     // A bare number lowers to f32 here, and `textureLoad(t, c, 0.0)` is not valid WGSL — the
@@ -112,53 +114,53 @@ describe('textureSample and its siblings', () => {
       wgslOf(
         `${ARR}export function f(uv: vec2): vec4 {\n  return textureSample(atlas, smp, uv, 1);\n}`,
       ),
-    ).toContain('textureSample(atlas, smp, uv, 1)')
+    ).toContain('textureSample(atlas, smp, uv, 1)');
     expect(
       wgslOf(
         'declare const t: texture_2d<u32>\nexport function f(c: vec2i): vec4u {\n  return textureLoad(t, c, 0);\n}',
       ),
-    ).toContain('textureLoad(t, c, 0u)')
+    ).toContain('textureLoad(t, c, 0u)');
     expect(
       wgslOf(
         'declare const t: texture_2d_array<u32>\nexport function f(c: vec2i): vec4u {\n  return textureLoad(t, c, 2, 0);\n}',
       ),
-    ).toContain('textureLoad(t, c, 2, 0u)')
-  })
+    ).toContain('textureLoad(t, c, 2, 0u)');
+  });
 
   it('carries the texture element into the result type', () => {
     expect(
       wgslOf(
         'declare const t: texture_2d<i32>\nexport function f(c: vec2i): vec4i {\n  return textureLoad(t, c, 0);\n}',
       ),
-    ).toContain('-> vec4<i32>')
+    ).toContain('-> vec4<i32>');
     expect(
       wgslOf(`${TEX}export function f(): vec2u {\n  return textureDimensions(tex);\n}`),
-    ).toContain('-> vec2<u32>')
+    ).toContain('-> vec2<u32>');
     expect(
       wgslOf(`${ARR}export function f(): u32 {\n  return textureNumLayers(atlas);\n}`),
-    ).toContain('-> u32')
-  })
+    ).toContain('-> u32');
+  });
 
   it('refuses a sampled read of an integer texture, a layer query on a plain 2D, and a bad arity', () => {
     expect(
       diagnose(
         'declare const t: texture_2d<u32>\ndeclare const smp: sampler\nexport function f(uv: vec2): vec4u {\n  return textureSample(t, smp, uv);\n}',
       ),
-    ).toBe('textureSample needs a float texture; texture_2d<u32> is read with textureLoad.')
+    ).toBe('textureSample needs a float texture; texture_2d<u32> is read with textureLoad.');
     expect(diagnose(`${TEX}export function f(): u32 {\n  return textureNumLayers(tex);\n}`)).toBe(
       'textureNumLayers needs a texture_2d_array; a plain 2D texture has no layers.',
-    )
+    );
     // The expected count follows the TEXTURE's shape, so the message names it.
     expect(
       diagnose(
         `${ARR}export function f(uv: vec2): vec4 {\n  return textureSample(atlas, smp, uv);\n}`,
       ),
-    ).toBe('textureSample on a texture_2d_array<f32> expects 4 argument(s), got 3.')
+    ).toBe('textureSample on a texture_2d_array<f32> expects 4 argument(s), got 3.');
     expect(
       diagnose('export function f(uv: vec2): vec4 {\n  return textureSample(uv, uv, uv);\n}'),
-    ).toBe('textureSample takes a texture as its first argument.')
-  })
-})
+    ).toBe('textureSample takes a texture as its first argument.');
+  });
+});
 
 describe('override constants', () => {
   it('declares with a stated default, or the type zero without one', () => {
@@ -171,15 +173,15 @@ describe('override constants', () => {
       export function f(): f32 {
         return quality;
       }
-    `)
-    expect(r.diagnostics).toEqual([])
+    `);
+    expect(r.diagnostics).toEqual([]);
     expect(r.overrides.map((o) => [o.name, typeKey(o.type), o.default])).toEqual([
       ['quality', 'f32', 0],
       ['steps', 'i32', 8],
       ['fancy', 'bool', true],
       ['bias', 'f32', -0.5],
-    ])
-  })
+    ]);
+  });
 
   it('emits an override on WGSL and a #define on GLSL, and takes no bind slot', () => {
     // A render entry, because `compile()` returns `glsl` only for a module that has stages to
@@ -209,13 +211,13 @@ describe('override constants', () => {
       export function fs(): Color {
         return { color: vec4(quality * camera.k, 0., 0., 1.) };
       }
-    `)
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(c.wgsl).toContain('override quality: f32 = 0.5;')
-    expect(c.glsl?.fragment).toContain('#define quality 0.5')
+    `);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(c.wgsl).toContain('override quality: f32 = 0.5;');
+    expect(c.glsl?.fragment).toContain('#define quality 0.5');
     // The uniform still takes binding 0: an override is not a binding.
-    expect(c.module.bindings.map((b) => [b.name, b.binding])).toEqual([['camera', 0]])
-  })
+    expect(c.module.bindings.map((b) => [b.name, b.binding])).toEqual([['camera', 0]]);
+  });
 
   it('reads as an overrideref, which no pass folds', () => {
     const r = compileTsSource(`
@@ -224,34 +226,34 @@ describe('override constants', () => {
       export function f(): f32 {
         return quality * 2.;
       }
-    `)
-    expect(r.diagnostics).toEqual([])
-    const ret = r.funcs[0]!.body[0]!
-    if (ret.s !== 'return' || ret.expr?.op !== 'binop') throw new Error('expected a binop')
-    expect(ret.expr.a.op).toBe('overrideref')
+    `);
+    expect(r.diagnostics).toEqual([]);
+    const ret = r.funcs[0]!.body[0]!;
+    if (ret.s !== 'return' || ret.expr?.op !== 'binop') throw new Error('expected a binop');
+    expect(ret.expr.a.op).toBe('overrideref');
     // …and it is still a binop in the emit: a module const would have folded to 4.0.
-    expect(r.wgsl).toContain('(quality * 2.0)')
-  })
+    expect(r.wgsl).toContain('(quality * 2.0)');
+  });
 
   it('refuses a non-scalar type, a non-literal default, a let, and a write', () => {
     expect(
       diagnose('const v: override<vec3> = 1.\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('override "v" must be f32, i32, u32 or bool, not vec3<f32>.')
+    ).toBe('override "v" must be f32, i32, u32 or bool, not vec3<f32>.');
     expect(
       diagnose(
         'const k: f32 = 2.\nconst q: override<f32> = k\nexport function f(): f32 {\n  return q;\n}',
       ),
-    ).toContain('default must be a literal')
+    ).toContain('default must be a literal');
     expect(
       diagnose('declare let q: override<f32>\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('override "q" must be const, not let.')
+    ).toBe('override "q" must be const, not let.');
     expect(
       diagnose(
         'const q: override<f32> = 1.\nexport function f(): f32 {\n  q = 2.;\n  return q;\n}',
       ),
-    ).toBe('Cannot assign to "q" — it is an override constant, set by the pipeline.')
-  })
-})
+    ).toBe('Cannot assign to "q" — it is an override constant, set by the pipeline.');
+  });
+});
 
 describe('what the review of #54 found (the four majors)', () => {
   it('checks an override default against its declared type', () => {
@@ -262,19 +264,19 @@ describe('what the review of #54 found (the four majors)', () => {
     // field and both backends print what they are given; nothing downstream could catch it.
     expect(
       diagnose('const fancy: override<bool> = 1\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('override "fancy" is bool; its default must be true or false.')
+    ).toBe('override "fancy" is bool; its default must be true or false.');
     expect(
       diagnose('const q: override<f32> = true\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('override "q" is f32; its default must be a number.')
+    ).toBe('override "q" is f32; its default must be a number.');
     expect(
       diagnose('const q: override<i32> = false\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('override "q" is i32; its default must be a number.')
+    ).toBe('override "q" is i32; its default must be a number.');
     expect(
       diagnose('const q: override<i32> = 1.5\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('override "q" is i32; its default must be a whole number.')
+    ).toBe('override "q" is i32; its default must be a whole number.');
     expect(
       diagnose('const q: override<u32> = -1\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('override "q" is u32; its default cannot be negative.')
+    ).toBe('override "q" is u32; its default cannot be negative.');
     // …and every well-typed default still lands, negative i32 included.
     for (const [src, want] of [
       ['const q: override<bool> = true', 'override q: bool = true;'],
@@ -284,11 +286,11 @@ describe('what the review of #54 found (the four majors)', () => {
     ] as const) {
       const r = compileTsSource(
         `"use typeshade";\n${src}\nexport function f(): f32 {\n  return 1.;\n}`,
-      )
-      expect(r.diagnostics).toEqual([])
-      expect(r.wgsl).toContain(want)
+      );
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain(want);
     }
-  })
+  });
 
   it('reports a repeated or colliding module-scope name instead of throwing', () => {
     // `scope.define` THROWS on a repeat, and it was the first thing to see these — so
@@ -314,11 +316,11 @@ describe('what the review of #54 found (the four majors)', () => {
           'an override is a #define, so it would rewrite that declaration; rename the override.',
       ],
     ] as const) {
-      const body = `"use typeshade";\n${src}\nexport function f(): f32 {\n  return 1.;\n}`
-      expect(() => compileTsSource(body)).not.toThrow()
-      expect(compileTsSource(body).diagnostics.map((d) => d.message)).toContain(want)
+      const body = `"use typeshade";\n${src}\nexport function f(): f32 {\n  return 1.;\n}`;
+      expect(() => compileTsSource(body)).not.toThrow();
+      expect(compileTsSource(body).diagnostics.map((d) => d.message)).toContain(want);
     }
-  })
+  });
 
   it('refuses an override whose name the GLSL #define would capture', () => {
     // On GLSL ES 3.00 an override is a `#define`, and a #define rewrites every later
@@ -347,15 +349,15 @@ describe('what the review of #54 found (the four majors)', () => {
       export function fs(v: VsOut): Color {
         return { color: vec4(v.uv, ${name} + params.k, 1.) };
       }
-    `
+    `;
     for (const name of ['uv', 'color', 'k', 'params']) {
-      expect(diagnose(prog(name))).toContain(`override "${name}" collides with a struct field`)
+      expect(diagnose(prog(name))).toContain(`override "${name}" collides with a struct field`);
     }
     // A name of its own still compiles, and the #define is still what GLSL gets.
-    const ok = compile(prog('quality'))
-    expect(ok.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(ok.glsl?.fragment).toContain('#define quality 0.85')
-  })
+    const ok = compile(prog('quality'));
+    expect(ok.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(ok.glsl?.fragment).toContain('#define quality 0.85');
+  });
 
   it('refuses a fractional or negative texture layer and mip level', () => {
     // `intArg` bailed on these and its comment claimed a downstream check that does not exist.
@@ -375,24 +377,24 @@ describe('what the review of #54 found (the four majors)', () => {
         const c: vec2i = vec2i(i32(0), i32(0));
         return { color: ${call} };
       }
-    `
+    `;
     expect(diagnose(prog('textureLoad(tex, c, 2.5)'))).toBe(
       'A texture mip level must be a whole number of 0 or more, got 2.5. WGSL rejects a ' +
         'fractional or negative one and GLSL ES 3.00 silently rounds it, so the two targets ' +
         'would disagree.',
-    )
-    expect(diagnose(prog('textureLoad(tex, c, -1)'))).toContain('got -1')
+    );
+    expect(diagnose(prog('textureLoad(tex, c, -1)'))).toContain('got -1');
     expect(diagnose(prog('textureSample(atlas, smp, p.xy, 1.5)'))).toContain(
       'A texture layer must be a whole number of 0 or more, got 1.5',
-    )
-    expect(diagnose(prog('textureSample(atlas, smp, p.xy, -1)'))).toContain('layer')
-    expect(diagnose(prog('textureLoad(atlas, c, 1, 2.5)'))).toContain('mip level')
+    );
+    expect(diagnose(prog('textureSample(atlas, smp, p.xy, -1)'))).toContain('layer');
+    expect(diagnose(prog('textureLoad(atlas, c, 1, 2.5)'))).toContain('mip level');
     // …and a whole one still lowers to the integer the neutral id wants.
-    const ok = compile(prog('textureLoad(atlas, c, 1, 2)'))
-    expect(ok.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(ok.wgsl).toContain('textureLoad(atlas, c, 1, 2u)')
-  })
-})
+    const ok = compile(prog('textureLoad(atlas, c, 1, 2)'));
+    expect(ok.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(ok.wgsl).toContain('textureLoad(atlas, c, 1, 2u)');
+  });
+});
 
 describe('the smaller findings of that review', () => {
   it('reports a texture element that is not a type name, rather than defaulting to f32', () => {
@@ -400,24 +402,24 @@ describe('the smaller findings of that review', () => {
     for (const t of ['texture_2d<{ a: f32 }>', 'texture_2d<f32[]>', 'texture_2d<bool>']) {
       expect(diagnose(`declare const t: ${t}\nexport function f(): f32 {\n  return 1.;\n}`)).toBe(
         'texture_2d<T> T must be f32, i32, or u32.',
-      )
+      );
     }
-  })
+  });
 
   it('refuses a type argument on a sampler, and a handle inside uniform<>', () => {
     expect(
       diagnose('declare const s: sampler<f32>\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toBe('sampler takes no type argument.')
+    ).toBe('sampler takes no type argument.');
     expect(
       diagnose('declare const s: uniform<sampler>\nexport function f(): f32 {\n  return 1.;\n}'),
-    ).toContain('is a sampler; it is declared bare, not inside uniform<...>')
+    ).toContain('is a sampler; it is declared bare, not inside uniform<...>');
     expect(
       diagnose(
         'declare const s: uniform<texture_2d<f32>>\nexport function f(): f32 {\n  return 1.;\n}',
       ),
-    ).toContain('is a texture; it is declared bare, not inside uniform<...>')
-  })
-})
+    ).toContain('is a texture; it is declared bare, not inside uniform<...>');
+  });
+});
 
 // P1-7 of the spec audit's tests critique (#155). `wgsl.txt:24129`, `:24155`, `:25316`,
 // `:25352` — and `core.def`'s `implicit(T: fiu32, C: iu32, A: iu32, L: iu32)` — say the
@@ -445,34 +447,34 @@ class V {
 }
 @fragment
 export function fs(v: V): vec4 {
-`
+`;
 
-  const read = (body: string): string => wgslOf(`${HEAD}  return ${body}\n}\n`)
+  const read = (body: string): string => wgslOf(`${HEAD}  return ${body}\n}\n`);
 
   it('takes an unsigned coordinate on textureLoad, and keeps the level unsigned with it', () => {
     expect(read('textureLoad(tex, vec2u(0, 0), 0)')).toContain(
       'textureLoad(tex, vec2<u32>(0u, 0u), 0u)',
-    )
-  })
+    );
+  });
 
   it('takes a u32 layer beside an i32 level on an array load, which are separate type parameters', () => {
     expect(read('textureLoad(atlas, vec2i(0, 0), u.layerU, u.lvlI)')).toContain(
       'textureLoad(atlas, vec2<i32>(0, 0), u.layerU, u.lvlI)',
-    )
-  })
+    );
+  });
 
   it('takes a u32 level on a plain 2d load', () => {
     expect(read('textureLoad(tex, vec2i(0, 0), u.lvlU)')).toContain(
       'textureLoad(tex, vec2<i32>(0, 0), u.lvlU)',
-    )
-  })
+    );
+  });
 
   it('takes either signedness as the layer of textureSampleLevel', () => {
     expect(read('textureSampleLevel(atlas, smp, v.uv, u.layerU, 1.)')).toContain(
       'textureSampleLevel(atlas, smp, v.uv, u.layerU, 1.0)',
-    )
+    );
     expect(read('textureSampleLevel(atlas, smp, v.uv, u.layerI, 1.)')).toContain(
       'textureSampleLevel(atlas, smp, v.uv, u.layerI, 1.0)',
-    )
-  })
-})
+    );
+  });
+});

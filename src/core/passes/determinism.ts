@@ -37,8 +37,8 @@
 // `x - floor(x)` and its own note says `fract` of a tiny negative may be 1.0, so it has two
 // allowed answers; the fold picks one of them, which is const-fold's matter, not this table's.
 
-import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
+import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 
 /** Why an operation's result may differ by driver, in WGSL §15.7.4's own categories plus
  *  three of TypeShade's. `ulp` and `absolute` are the spec's numeric bounds (`absolute` also
@@ -54,7 +54,7 @@ import { eachExpr, eachStmtExpr } from '../ir/visit.js'
  *  Exported from `typeshade`.
  */
 export type DeterminismKind =
-  'ulp' | 'absolute' | 'inherited' | 'unbounded' | 'filtered' | 'target' | 'emulated'
+  'ulp' | 'absolute' | 'inherited' | 'unbounded' | 'filtered' | 'target' | 'emulated';
 
 /** What {@link accuracyOf} says about one operation: `exact` when WGSL gives it one answer
  *  (a correct or correctly rounded result, with the rounding-mode assumption the module header
@@ -66,10 +66,10 @@ export type DeterminismKind =
 export type DeterminismAccuracy =
   | { readonly kind: 'exact' }
   | {
-      readonly kind: Exclude<DeterminismKind, 'emulated'>
-      readonly bound: string
-      readonly note?: string
-    }
+      readonly kind: Exclude<DeterminismKind, 'emulated'>;
+      readonly bound: string;
+      readonly note?: string;
+    };
 
 /** One row of {@link determinismReport}: an operation the module uses whose result may differ
  *  by driver, with the spec's bound, how many times it occurs and where, in declaration order.
@@ -82,62 +82,62 @@ export interface DeterminismEntry {
    *  operator (`/`, `%`, and for `f64` every arithmetic operator), or a matrix product
    *  (`mat * vec`, `vec * mat`, `mat * mat`), which is a sum of products and not the
    *  component-wise `*`. */
-  readonly op: string
+  readonly op: string;
   /** The float the operation computes in: native `f32`, or emulated `f64`. */
-  readonly elem: 'f32' | 'f64'
+  readonly elem: 'f32' | 'f64';
   /** Why the result may differ. */
-  readonly kind: DeterminismKind
+  readonly kind: DeterminismKind;
   /** The bound in words, from WGSL §15.7.4 for `f32`, from the emulation for `f64`. */
-  readonly accuracy: string
+  readonly accuracy: string;
   /** How many times the operation occurs in the module. */
-  readonly count: number
+  readonly count: number;
   /** Where it occurs: the module constants, module variables and functions whose initializer
    *  or body holds it, by name, in declaration order, each once. */
-  readonly where: readonly string[]
+  readonly where: readonly string[];
   /** What the GLSL ES 3.00 spelling does differently, when that matters. */
-  readonly note?: string
+  readonly note?: string;
 }
 
-const ulp = (bound: string): DeterminismAccuracy => ({ kind: 'ulp', bound })
-const absolute = (bound: string): DeterminismAccuracy => ({ kind: 'absolute', bound })
+const ulp = (bound: string): DeterminismAccuracy => ({ kind: 'ulp', bound });
+const absolute = (bound: string): DeterminismAccuracy => ({ kind: 'absolute', bound });
 const inherited = (from: string, note?: string): DeterminismAccuracy =>
   note === undefined
     ? { kind: 'inherited', bound: `inherited from ${from}` }
-    : { kind: 'inherited', bound: `inherited from ${from}`, note }
+    : { kind: 'inherited', bound: `inherited from ${from}`, note };
 const target = (bound: string, note: string): DeterminismAccuracy => ({
   kind: 'target',
   bound,
   note,
-})
+});
 const UNBOUNDED: DeterminismAccuracy = {
   kind: 'unbounded',
   bound: 'no bound: the spec asks only for a pragmatically useful result',
-}
+};
 const FILTERED: DeterminismAccuracy = {
   kind: 'filtered',
   bound: 'texture filtering and level of detail selection are implementation-defined',
-}
+};
 const GATHERED: DeterminismAccuracy = {
   kind: 'filtered',
   bound:
     'the four texel values are read unfiltered, but which four the level 0 footprint selects, and the edge and cube corner handling, follow texture sampling',
-}
-const EXACT: DeterminismAccuracy = { kind: 'exact' }
+};
+const EXACT: DeterminismAccuracy = { kind: 'exact' };
 
 const EMULATED_BOUND =
-  'emulated double: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them, which WGSL §15.7.5 allows and the _fp64 guard texture prevents'
+  'emulated double: f32 pairs whose error terms hold while the driver neither reassociates nor fuses them, which WGSL §15.7.5 allows and the _fp64 guard texture prevents';
 
 const HALF_NOTE =
-  'GLSL ES 3.00 rounds the scaled value with round(), whose exact half goes in an implementation-chosen direction; WGSL takes floor(0.5 + x), so an input that lands on a half may pack one step apart'
+  'GLSL ES 3.00 rounds the scaled value with round(), whose exact half goes in an implementation-chosen direction; WGSL takes floor(0.5 + x), so an input that lands on a half may pack one step apart';
 
 const UNORM_HALF_NOTE =
-  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 255 * clamp(e, 0, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to EVEN; swept at runtime over 511 inputs e = f32(i) / 510, both e and the f32 product clamp(e, 0, 1) * 255 come back bit-identical from the two targets, so nothing upstream of the rounding differs; 66 of those products land exactly on k + 0.5, and on the 34 with an even k the builtin answers k while the GLSL inline AND a WGSL inline of the same formula answer k + 1 (i = 1 packs 0 against 1, i = 5 packs 2 against 3)'
+  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 255 * clamp(e, 0, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to EVEN; swept at runtime over 511 inputs e = f32(i) / 510, both e and the f32 product clamp(e, 0, 1) * 255 come back bit-identical from the two targets, so nothing upstream of the rounding differs; 66 of those products land exactly on k + 0.5, and on the 34 with an even k the builtin answers k while the GLSL inline AND a WGSL inline of the same formula answer k + 1 (i = 1 packs 0 against 1, i = 5 packs 2 against 3)';
 
 const SNORM_HALF_NOTE =
-  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 127 * clamp(e, -1, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to EVEN; swept at runtime over 509 inputs e = (f32(i) - 254) / 254, both e and the f32 product come back bit-identical from the two targets, 244 products land exactly on a half and 122 of them part — at a product of -125.5 the builtin packs the byte 130, which is -126, the even one, and both inlines pack 131, which is -125'
+  'the GLSL ES 3.00 spelling is hand-inlined as floor(0.5 + 127 * clamp(e, -1, 1)), which is the rule WGSL states, while a WGSL driver rounds the same exact half to EVEN; swept at runtime over 509 inputs e = (f32(i) - 254) / 254, both e and the f32 product come back bit-identical from the two targets, 244 products land exactly on a half and 122 of them part — at a product of -125.5 the builtin packs the byte 130, which is -126, the even one, and both inlines pack 131, which is -125';
 
 const QUANTIZE_NOTE =
-  'GLSL ES 3.00 has no such builtin and the backend spells it as packHalf2x16 then unpackHalf2x16, one component at a time; measured against a WGSL driver, the two part in three places — a value exactly halfway between two binary16 neighbours (the GLSL round trip rounds to nearest even, the driver moved), a magnitude above the largest finite binary16 (WGSL gives an infinity, the GLSL round trip a NaN), and a magnitude below the smallest normal one (the driver flushed it to zero, the GLSL round trip kept the subnormal)'
+  'GLSL ES 3.00 has no such builtin and the backend spells it as packHalf2x16 then unpackHalf2x16, one component at a time; measured against a WGSL driver, the two part in three places — a value exactly halfway between two binary16 neighbours (the GLSL round trip rounds to nearest even, the driver moved), a magnitude above the largest finite binary16 (WGSL gives an infinity, the GLSL round trip a NaN), and a magnitude below the smallest normal one (the driver flushed it to zero, the GLSL round trip kept the subnormal)';
 
 /** WGSL §15.7.4.1, the rows that are not "correctly rounded" or "correct result", keyed by the
  *  IR's name for the operation, plus the `target` rows where the GLSL ES 3.00 spelling can
@@ -234,7 +234,7 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   unpack2x16unorm: ulp('3 ULP'),
   unpack4x8snorm: ulp('3 ULP'),
   unpack4x8unorm: ulp('3 ULP'),
-}
+};
 
 /** The matrix products, which the IR spells as `binop '*'` like the component-wise product
  *  but which WGSL §8.8 defines through `dot`, an inherited row. */
@@ -242,7 +242,7 @@ const MATRIX_PRODUCT: Readonly<Record<string, DeterminismAccuracy>> = {
   'mat * vec': inherited('dot(transpose(m)[i], v) for component i'),
   'vec * mat': inherited('dot(v, m[i]) for component i'),
   'mat * mat': inherited('the matrix product, each element a sum of products'),
-}
+};
 
 /** Every id whose name begins with one of these has one answer: a texel fetch, a size, a
  *  store, an atomic, the storage emulation's fetches, a bit cast and the f64 plumbing (`f64`,
@@ -257,7 +257,7 @@ const EXACT_PREFIXES: readonly string[] = [
   'storageFetch',
   'bitcast',
   'f64',
-]
+];
 
 /** The correctly rounded and correct-result rows of §15.7.4.1 that the compiler can emit and
  *  both targets agree on, the integer and bit builtins (a correct result), the conversions
@@ -330,7 +330,7 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'textureBarrier',
   'atomicCompareExchangeWeak',
   'workgroupUniformLoad',
-])
+]);
 
 /** What WGSL §15.7.4 allows the result of one operation to be, for a builtin id, a binary
  *  operator or a matrix product (`mat * vec`, `vec * mat`, `mat * mat`) as the IR names it,
@@ -342,50 +342,50 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
  *  Exported from `typeshade`.
  */
 export function accuracyOf(op: string): DeterminismAccuracy | undefined {
-  const row = F32_ACCURACY[op] ?? MATRIX_PRODUCT[op]
-  if (row !== undefined) return row
-  if (op.startsWith('textureSample')) return FILTERED
-  if (op.startsWith('textureGather')) return GATHERED
-  if (EXACT_PREFIXES.some((p) => op.startsWith(p))) return EXACT
-  return EXACT_OPS.has(op) ? EXACT : undefined
+  const row = F32_ACCURACY[op] ?? MATRIX_PRODUCT[op];
+  if (row !== undefined) return row;
+  if (op.startsWith('textureSample')) return FILTERED;
+  if (op.startsWith('textureGather')) return GATHERED;
+  if (EXACT_PREFIXES.some((p) => op.startsWith(p))) return EXACT;
+  return EXACT_OPS.has(op) ? EXACT : undefined;
 }
 
 function floatElemOf(t: ShaderType): 'f32' | 'f64' | undefined {
   switch (t.kind) {
     case 'scalar':
-      return t.scalar === 'f32' ? 'f32' : undefined
+      return t.scalar === 'f32' ? 'f32' : undefined;
     case 'vec':
-      return t.elem === 'f32' ? 'f32' : undefined
+      return t.elem === 'f32' ? 'f32' : undefined;
     case 'f64':
     case 'vec64':
-      return 'f64'
+      return 'f64';
     case 'mat':
-      return t.elem
+      return t.elem;
     default:
-      return undefined
+      return undefined;
   }
 }
 
-const isMat = (t: ShaderType): boolean => t.kind === 'mat'
-const isVector = (t: ShaderType): boolean => t.kind === 'vec' || t.kind === 'vec64'
+const isMat = (t: ShaderType): boolean => t.kind === 'mat';
+const isVector = (t: ShaderType): boolean => t.kind === 'vec' || t.kind === 'vec64';
 
 /** The report's name for a `binop`: the operator, or the matrix product it spells. */
 function binopName(e: Extract<Expr, { op: 'binop' }>): string {
-  if (e.bop !== '*') return e.bop
-  const a = e.a.type
-  const b = e.b.type
-  if (isMat(a) && isMat(b)) return 'mat * mat'
-  if (isMat(a) && isVector(b)) return 'mat * vec'
-  if (isVector(a) && isMat(b)) return 'vec * mat'
-  return '*'
+  if (e.bop !== '*') return e.bop;
+  const a = e.a.type;
+  const b = e.b.type;
+  if (isMat(a) && isMat(b)) return 'mat * mat';
+  if (isMat(a) && isVector(b)) return 'mat * vec';
+  if (isVector(a) && isMat(b)) return 'vec * mat';
+  return '*';
 }
 
-type Hit = Omit<DeterminismEntry, 'count' | 'where'>
+type Hit = Omit<DeterminismEntry, 'count' | 'where'>;
 
 /** On `f64` every arithmetic operator is an error-free transformation, and so is `floor`,
  *  whose df64 twin renormalises through one; `abs`, `min`, `max`, `select` and the casts are
  *  selections and stay exact on a double. */
-const F64_EMULATED: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%', 'floor'])
+const F64_EMULATED: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%', 'floor']);
 
 /** The builtins whose float kind is the ARGUMENT's, because the result is a `u32` of bytes.
  *
@@ -407,30 +407,30 @@ const PACK_FLOAT_ARG: ReadonlySet<string> = new Set([
   'pack4x8snorm',
   'pack2x16unorm',
   'pack2x16snorm',
-])
+]);
 
 function hitOf(e: Expr): Hit | undefined {
-  let op: string
-  if (e.op === 'binop') op = binopName(e)
-  else if (e.op === 'call' && e.declRef === undefined) op = e.fn
-  else return undefined
+  let op: string;
+  if (e.op === 'binop') op = binopName(e);
+  else if (e.op === 'call' && e.declRef === undefined) op = e.fn;
+  else return undefined;
   const from =
-    e.op === 'call' && PACK_FLOAT_ARG.has(op) && e.args[0] !== undefined ? e.args[0].type : e.type
-  const elem = floatElemOf(from)
-  if (elem === undefined) return undefined
-  const acc = accuracyOf(op)
+    e.op === 'call' && PACK_FLOAT_ARG.has(op) && e.args[0] !== undefined ? e.args[0].type : e.type;
+  const elem = floatElemOf(from);
+  if (elem === undefined) return undefined;
+  const acc = accuracyOf(op);
   if (elem === 'f64') {
     const listed =
       F64_EMULATED.has(op) ||
       op.startsWith('mat') ||
       op.startsWith('vec * ') ||
-      (acc !== undefined && acc.kind !== 'exact')
-    return listed ? { op, elem, kind: 'emulated', accuracy: EMULATED_BOUND } : undefined
+      (acc !== undefined && acc.kind !== 'exact');
+    return listed ? { op, elem, kind: 'emulated', accuracy: EMULATED_BOUND } : undefined;
   }
-  if (acc === undefined || acc.kind === 'exact') return undefined
+  if (acc === undefined || acc.kind === 'exact') return undefined;
   return acc.note === undefined
     ? { op, elem, kind: acc.kind, accuracy: acc.bound }
-    : { op, elem, kind: acc.kind, accuracy: acc.bound, note: acc.note }
+    : { op, elem, kind: acc.kind, accuracy: acc.bound, note: acc.note };
 }
 
 /** The operations in `m` whose result may differ by driver, one entry per operation and float
@@ -449,23 +449,24 @@ function hitOf(e: Expr): Hit | undefined {
  *  Exported from `typeshade`; `compile()` returns it as `determinism`.
  */
 export function determinismReport(m: ModuleDecl): readonly DeterminismEntry[] {
-  const rows = new Map<string, { hit: Hit; count: number; where: Set<string> }>()
+  const rows = new Map<string, { hit: Hit; count: number; where: Set<string> }>();
   const visitorFor = (site: string) => (e: Expr) => {
-    const hit = hitOf(e)
-    if (hit === undefined) return
-    const key = `${hit.elem} ${hit.op}`
-    const row = rows.get(key)
-    if (row === undefined) rows.set(key, { hit, count: 1, where: new Set([site]) })
+    const hit = hitOf(e);
+    if (hit === undefined) return;
+    const key = `${hit.elem} ${hit.op}`;
+    const row = rows.get(key);
+    if (row === undefined) rows.set(key, { hit, count: 1, where: new Set([site]) });
     else {
-      row.count++
-      row.where.add(site)
+      row.count++;
+      row.where.add(site);
     }
-  }
-  for (const c of m.consts) if (c.valueExpr !== undefined) eachExpr(c.valueExpr, visitorFor(c.name))
-  for (const v of m.vars ?? []) if (v.init !== undefined) eachExpr(v.init, visitorFor(v.name))
+  };
+  for (const c of m.consts)
+    if (c.valueExpr !== undefined) eachExpr(c.valueExpr, visitorFor(c.name));
+  for (const v of m.vars ?? []) if (v.init !== undefined) eachExpr(v.init, visitorFor(v.name));
   for (const fn of m.funcs) {
-    const visit = visitorFor(fn.name)
-    for (const s of fn.body) eachStmtExpr(s, (e) => eachExpr(e, visit))
+    const visit = visitorFor(fn.name);
+    for (const s of fn.body) eachStmtExpr(s, (e) => eachExpr(e, visit));
   }
-  return [...rows.values()].map(({ hit, count, where }) => ({ ...hit, count, where: [...where] }))
+  return [...rows.values()].map(({ hit, count, where }) => ({ ...hit, count, where: [...where] }));
 }

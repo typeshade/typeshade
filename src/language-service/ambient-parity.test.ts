@@ -14,21 +14,21 @@
 // accept — and a row that flips from "both refuse" to "both accept" is a feature, not a
 // regression this test should hide.
 
-import { describe, expect, it } from 'vitest'
-import { createTypeshadeLanguageService } from './service.js'
-import { compileTsSource } from '../compiler/ts/source-file.js'
+import { describe, expect, it } from 'vitest';
+import { createTypeshadeLanguageService } from './service.js';
+import { compileTsSource } from '../compiler/ts/source-file.js';
 
 const editorRefusal = (source: string): string | null => {
-  const service = createTypeshadeLanguageService()
-  service.openDocument('a.ts', source)
-  const d = service.getDiagnostics('a.ts')
-  return d.length === 0 ? null : `${d[0]!.source} ${String(d[0]!.code)}: ${String(d[0]!.message)}`
-}
+  const service = createTypeshadeLanguageService();
+  service.openDocument('a.ts', source);
+  const d = service.getDiagnostics('a.ts');
+  return d.length === 0 ? null : `${d[0]!.source} ${String(d[0]!.code)}: ${String(d[0]!.message)}`;
+};
 
 const compilerRefusal = (source: string): string | null => {
-  const d = compileTsSource(source).diagnostics.filter((x) => x.category === 'error')
-  return d.length === 0 ? null : `${d[0]!.code}: ${d[0]!.message}`
-}
+  const d = compileTsSource(source).diagnostics.filter((x) => x.category === 'error');
+  return d.length === 0 ? null : `${d[0]!.code}: ${d[0]!.message}`;
+};
 
 const FS = (decl: string, body: string): string => `"use typeshade"
 ${decl}
@@ -36,7 +36,7 @@ ${decl}
 export function fs(@location(0) uv: vec2): vec4 {
 ${body}
 }
-`
+`;
 
 /** A row is `[name, program, 'both accept' | 'both refuse']`. The expectation is written out
  *  rather than inferred so a row that changes verdict has to be edited deliberately. */
@@ -180,26 +180,26 @@ const ROWS: readonly (readonly [string, string, 'accept' | 'refuse'])[] = [
     ),
     'accept',
   ],
-]
+];
 
 describe('the ambient library declares what the compiler lowers, no wider and no narrower', () => {
   it('has rows on both sides, so neither verdict can carry the suite alone', () => {
-    expect(ROWS.filter((r) => r[2] === 'accept').length).toBeGreaterThanOrEqual(10)
-    expect(ROWS.filter((r) => r[2] === 'refuse').length).toBeGreaterThanOrEqual(5)
-  })
+    expect(ROWS.filter((r) => r[2] === 'accept').length).toBeGreaterThanOrEqual(10);
+    expect(ROWS.filter((r) => r[2] === 'refuse').length).toBeGreaterThanOrEqual(5);
+  });
 
   for (const [name, source, verdict] of ROWS) {
     it(`${name}: the editor and the compiler both ${verdict}`, () => {
-      const editor = editorRefusal(source)
-      const compiler = compilerRefusal(source)
+      const editor = editorRefusal(source);
+      const compiler = compilerRefusal(source);
       expect(
         {
           editor: editor === null ? 'accept' : 'refuse',
           compiler: compiler === null ? 'accept' : 'refuse',
         },
         `editor: ${editor ?? '(clean)'}\ncompiler: ${compiler ?? '(clean)'}`,
-      ).toEqual({ editor: verdict, compiler: verdict })
-    })
+      ).toEqual({ editor: verdict, compiler: verdict });
+    });
   }
 
   // The two compositions left UNDECLARED on purpose, with the cost that declaring them carries.
@@ -216,8 +216,8 @@ describe('the ambient library declares what the compiler lowers, no wider and no
       // arithmetic erased rather than from the `vec3` the context supplied. `vec4(c * 0.5, 1.)`
       // is a far more common spelling than either of these two, so the editor is better off
       // without them until the #43 filter can restore a shape through a NESTED call.
-      expect(editorRefusal(source)).toBeNull()
-      expect(compilerRefusal(source)).toBeNull()
-    })
+      expect(editorRefusal(source)).toBeNull();
+      expect(compilerRefusal(source)).toBeNull();
+    });
   }
-})
+});

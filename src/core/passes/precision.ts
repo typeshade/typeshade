@@ -13,12 +13,12 @@
 // It runs on the CPU engines only — `compileModule(m, { precision: 'f32' })` and its codegen
 // twin — and never before a WGSL/GLSL writer, which would reject `__fround` as unknown.
 
-import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js'
-import { mapModuleExprs } from './opt/ir-transform.js'
+import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js';
+import { mapModuleExprs } from './opt/ir-transform.js';
 
 /** f32 scalar or a vector of f32 — the values the GPU rounds and the host does not. */
 const isF32ish = (t: ShaderType): boolean =>
-  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32')
+  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32');
 
 /** The forms that COMPUTE an f32 value, and therefore need rounding after the fact.
  *
@@ -45,7 +45,7 @@ const COMPUTES_VALUE = new Set([
   'param',
   'constref',
   'overrideref',
-])
+]);
 
 /** Rewrite `m` so its f32 arithmetic rounds to f32 after every operation. Idempotent. */
 export function froundF32(m: ModuleDecl): ModuleDecl {
@@ -56,10 +56,10 @@ export function froundF32(m: ModuleDecl): ModuleDecl {
     // idempotent instead of merely value-idempotent (fround(fround(x)) === fround(x), but an
     // IR that grows on every application is a footgun).
     if (e.op === 'call' && e.fn === '__fround') {
-      const inner = e.args[0]
-      return inner !== undefined && inner.op === 'call' && inner.fn === '__fround' ? inner : e
+      const inner = e.args[0];
+      return inner !== undefined && inner.op === 'call' && inner.fn === '__fround' ? inner : e;
     }
-    if (!isF32ish(e.type) || !COMPUTES_VALUE.has(e.op)) return e
-    return { op: 'call', type: e.type, fn: '__fround', args: [e] }
-  })
+    if (!isF32ish(e.type) || !COMPUTES_VALUE.has(e.op)) return e;
+    return { op: 'call', type: e.type, fn: '__fround', args: [e] };
+  });
 }

@@ -22,23 +22,23 @@
 // section says so and gives the tsconfig that works; the measurements are in the PR that added
 // this script.
 
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { SHADE_DTS } from '../src/language-service/ambient.js'
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { SHADE_DTS } from '../src/language-service/ambient.js';
 
 /** Where the emitted lib lives, package-relative. `package.json` `exports` names this same
  *  path for the `./shade` subpath — there is no source form of this file to point at. */
-export const SHADE_DTS_PATH = 'dist/shade.d.ts'
+export const SHADE_DTS_PATH = 'dist/shade.d.ts';
 
-const PKG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const PKG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 function main(): number {
-  const out = join(PKG_DIR, SHADE_DTS_PATH)
-  mkdirSync(dirname(out), { recursive: true })
-  writeFileSync(out, SHADE_DTS)
-  console.error(`wrote ${SHADE_DTS_PATH} (${SHADE_DTS.length} chars) from SHADE_DTS`)
-  return 0
+  const out = join(PKG_DIR, SHADE_DTS_PATH);
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, SHADE_DTS);
+  console.error(`wrote ${SHADE_DTS_PATH} (${SHADE_DTS.length} chars) from SHADE_DTS`);
+  return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(main())
+if (import.meta.url === `file://${process.argv[1]}`) process.exit(main());

@@ -21,47 +21,47 @@ import {
   smoothstep,
   Let,
   f32T,
-} from '../src/index.js'
-import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
-const U = fullscreenUniforms({ twist: f32T })
+} from '../src/index.js';
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
+const U = fullscreenUniforms({ twist: f32T });
 
 const fs = fn(
   'fs',
   { vo: VsOut },
   ({ vo }) => {
-    const t = U.field.time
-    const res = U.field.resolution
+    const t = U.field.time;
+    const res = U.field.resolution;
     // centred, aspect-corrected plane
-    const p = screenCoords(vo.uv, res)
-    const r = Let(length(p))
-    const a = atan2(p.y, p.x)
+    const p = screenCoords(vo.uv, res);
+    const r = Let(length(p));
+    const a = atan2(p.y, p.x);
     // tunnel-surface coordinates: 1/r is the distance into the bore, the
     // angle wraps around it. Adding time to the depth flies the camera forward;
     // the twist uniform shears the angle by depth so the bore corkscrews.
-    const depth = Let(f32(0.3).div(max(r, 0.001)).add(t.mul(1.4)))
-    const ang = a.div(3.14159265).add(depth.mul(U.field.twist).mul(0.08))
+    const depth = Let(f32(0.3).div(max(r, 0.001)).add(t.mul(1.4)));
+    const ang = a.div(3.14159265).add(depth.mul(U.field.twist).mul(0.08));
     // checkerboard walls: two perpendicular square-ish waves
-    const cw = sin(ang.mul(12.566)).mul(sin(depth.mul(9.4248)))
-    const shade = smoothstep(-0.6, 0.6, cw).mul(0.55).add(0.35)
+    const cw = sin(ang.mul(12.566)).mul(sin(depth.mul(9.4248)));
+    const shade = smoothstep(-0.6, 0.6, cw).mul(0.55).add(0.35);
     // warm→cool tint cycling with depth, then fog toward the far centre
     const tint = mix(
       vec3(1.0, 0.62, 0.28),
       vec3(0.42, 0.3, 0.55),
       sin(depth.mul(0.9)).mul(0.5).add(0.5),
-    )
-    const fog = smoothstep(0.0, 0.55, r)
-    const vig = clamp(f32(1.15).sub(r.mul(0.35)), 0, 1)
-    return vec4(tint.mul(shade).mul(fog).mul(vig), 1)
+    );
+    const fog = smoothstep(0.0, 0.55, r);
+    const vig = clamp(f32(1.15).sub(r.mul(0.35)), 0, 1);
+    return vec4(tint.mul(shade).mul(fog).mul(vig), 1);
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 const tunnelModule = module({
   structs: [U.struct, VsOut.decl],
   bindings: [U.binding],
   funcs: [vs, fs],
-})
+});
 
 export const tunnel: ShaderExample = {
   id: 'tunnel',
@@ -77,4 +77,4 @@ export const tunnel: ShaderExample = {
     resolution: { kind: 'resolution' },
     twist: { kind: 'slider', label: 'Twist', min: 0, max: 3, step: 0.1, value: 1 },
   },
-}
+};

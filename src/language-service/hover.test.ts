@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { createTypeshadeLanguageService } from './service.js'
-import { TS_CODES } from '../compiler/ts/codes.js'
-import { spellShaderType } from './hover.js'
+import { describe, expect, it } from 'vitest';
+import { createTypeshadeLanguageService } from './service.js';
+import { TS_CODES } from '../compiler/ts/codes.js';
+import { spellShaderType } from './hover.js';
 import {
   arrayT,
   boolT,
@@ -20,69 +20,69 @@ import {
   vec3uT,
   voidT,
   type ShaderType,
-} from '../core/ir/types.js'
+} from '../core/ir/types.js';
 
 describe('getHover', () => {
   it('documents a GPU type name in a type position', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
-      '"use typeshade";\nexport function f(): vec4 {\n  return vec4(0., 0., 0., 1.)\n}\n'
-    service.openDocument('a.ts', source)
-    const offset = source.indexOf('vec4')
-    const position = service.positionAt('a.ts', offset)
-    const hover = service.getHover('a.ts', position)
-    expect(hover?.contents).toContain('four-component')
-  })
+      '"use typeshade";\nexport function f(): vec4 {\n  return vec4(0., 0., 0., 1.)\n}\n';
+    service.openDocument('a.ts', source);
+    const offset = source.indexOf('vec4');
+    const position = service.positionAt('a.ts', offset);
+    const hover = service.getHover('a.ts', position);
+    expect(hover?.contents).toContain('four-component');
+  });
 
   it('documents every matrix type name, not only mat4', () => {
     // Regression: TYPE_DOCS had only `mat4` and `mat4x4`, so hovering `mat3x2` said nothing.
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nexport function f(m: mat3x2): f32 {\n  return m[0].x\n}\n'
-    service.openDocument('m.ts', source)
-    const position = service.positionAt('m.ts', source.indexOf('mat3x2') + 2)
-    expect(service.getHover('m.ts', position)?.contents).toContain('3x2 matrix')
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nexport function f(m: mat3x2): f32 {\n  return m[0].x\n}\n';
+    service.openDocument('m.ts', source);
+    const position = service.positionAt('m.ts', source.indexOf('mat3x2') + 2);
+    expect(service.getHover('m.ts', position)?.contents).toContain('3x2 matrix');
+  });
 
   it('documents an attribute name', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\n@vertex\nexport function vs(): f32 {\n  return 1\n}\n'
-    service.openDocument('b.ts', source)
-    const offset = source.indexOf('@vertex') + 2
-    const position = service.positionAt('b.ts', offset)
-    const hover = service.getHover('b.ts', position)
-    expect(hover?.contents).toContain('vertex')
-    expect(hover?.contents.toLowerCase()).toContain('entry point')
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\n@vertex\nexport function vs(): f32 {\n  return 1\n}\n';
+    service.openDocument('b.ts', source);
+    const offset = source.indexOf('@vertex') + 2;
+    const position = service.positionAt('b.ts', offset);
+    const hover = service.getHover('b.ts', position);
+    expect(hover?.contents).toContain('vertex');
+    expect(hover?.contents.toLowerCase()).toContain('entry point');
+  });
 
   it('documents a builtin name inside @builtin("...")', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nclass Clip {\n  @builtin("vertex_index") i: u32\n}\n'
-    service.openDocument('c.ts', source)
-    const offset = source.indexOf('vertex_index') + 2
-    const position = service.positionAt('c.ts', offset)
-    const hover = service.getHover('c.ts', position)
-    expect(hover?.contents).toContain('vertex')
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nclass Clip {\n  @builtin("vertex_index") i: u32\n}\n';
+    service.openDocument('c.ts', source);
+    const offset = source.indexOf('vertex_index') + 2;
+    const position = service.positionAt('c.ts', offset);
+    const hover = service.getHover('c.ts', position);
+    expect(hover?.contents).toContain('vertex');
+  });
 
   it('falls back to TypeScript quick info for a user-defined function', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nexport function origin(): f32 {\n  return 1\n}\n'
-    service.openDocument('d.ts', source)
-    const offset = source.indexOf('origin')
-    const position = service.positionAt('d.ts', offset)
-    const hover = service.getHover('d.ts', position)
-    expect(hover?.contents).toContain('origin')
-    expect(hover?.contents).toContain('f32')
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nexport function origin(): f32 {\n  return 1\n}\n';
+    service.openDocument('d.ts', source);
+    const offset = source.indexOf('origin');
+    const position = service.positionAt('d.ts', offset);
+    const hover = service.getHover('d.ts', position);
+    expect(hover?.contents).toContain('origin');
+    expect(hover?.contents).toContain('f32');
+  });
 
   it('returns undefined off in whitespace with nothing to document', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\n\n\nexport function f(): f32 {\n  return 1\n}\n'
-    service.openDocument('e.ts', source)
-    const position = service.positionAt('e.ts', source.indexOf('\n\n\n') + 1)
-    expect(service.getHover('e.ts', position)).toBeUndefined()
-  })
-})
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\n\n\nexport function f(): f32 {\n  return 1\n}\n';
+    service.openDocument('e.ts', source);
+    const position = service.positionAt('e.ts', source.indexOf('\n\n\n') + 1);
+    expect(service.getHover('e.ts', position)).toBeUndefined();
+  });
+});
 
 describe('getHover: resource bindings (from the cached front-end analysis, §8)', () => {
   const source =
@@ -95,26 +95,26 @@ describe('getHover: resource bindings (from the cached front-end analysis, §8)'
     'export function fs(): vec4 {\n' +
     '  const local = camera\n' +
     '  return camera.position\n' +
-    '}\n'
+    '}\n';
 
   it('adds the address space and @group/@binding slot under the quick info of a binding', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('r.ts', source)
-    const position = service.positionAt('r.ts', source.lastIndexOf('camera.position'))
-    const hover = service.getHover('r.ts', position)
-    expect(hover?.contents).toContain('const camera: Camera')
-    expect(hover?.contents).toContain('uniform resource at @group(0) @binding(0)')
-  })
+    const service = createTypeshadeLanguageService();
+    service.openDocument('r.ts', source);
+    const position = service.positionAt('r.ts', source.lastIndexOf('camera.position'));
+    const hover = service.getHover('r.ts', position);
+    expect(hover?.contents).toContain('const camera: Camera');
+    expect(hover?.contents).toContain('uniform resource at @group(0) @binding(0)');
+  });
 
   it('says nothing about a binding for a local that merely holds one', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('r.ts', source)
-    const position = service.positionAt('r.ts', source.indexOf('local'))
-    const hover = service.getHover('r.ts', position)
-    expect(hover?.contents).toContain('local')
-    expect(hover?.contents).not.toContain('@binding')
-  })
-})
+    const service = createTypeshadeLanguageService();
+    service.openDocument('r.ts', source);
+    const position = service.positionAt('r.ts', source.indexOf('local'));
+    const hover = service.getHover('r.ts', position);
+    expect(hover?.contents).toContain('local');
+    expect(hover?.contents).not.toContain('@binding');
+  });
+});
 
 describe("getHover: the compiler's type for a symbol declared in this document", () => {
   // The types below are the ones the FRONT END gave each declaration. TypeScript, over the
@@ -142,72 +142,72 @@ describe("getHover: the compiler's type for a symbol declared in this document",
     '  }',
     '  return vec4(x * K, half, p.pos.x, clamp01(v.x));',
     '}',
-  ].join('\n')
+  ].join('\n');
 
   function hoverAt(offset: number): string | undefined {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('t.ts', source)
-    return service.getHover('t.ts', service.positionAt('t.ts', offset))?.contents
+    const service = createTypeshadeLanguageService();
+    service.openDocument('t.ts', source);
+    return service.getHover('t.ts', service.positionAt('t.ts', offset))?.contents;
   }
 
   it('shows f32, not number, for a local bound to a numeric literal', () => {
-    const declaration = hoverAt(source.indexOf('let x = 1.') + 4)
-    expect(declaration).toContain('let x: f32')
-    expect(declaration).not.toContain('number')
-  })
+    const declaration = hoverAt(source.indexOf('let x = 1.') + 4);
+    expect(declaration).toContain('let x: f32');
+    expect(declaration).not.toContain('number');
+  });
 
   it('shows the same f32 at a use of that local', () => {
-    const use = hoverAt(source.indexOf('x * K'))
-    expect(use).toContain('let x: f32')
-    expect(use).not.toContain('number')
-  })
+    const use = hoverAt(source.indexOf('x * K'));
+    expect(use).toContain('let x: f32');
+    expect(use).not.toContain('number');
+  });
 
   it('shows f32 for a const bound to a fractional literal, not the literal type', () => {
-    expect(hoverAt(source.indexOf('const half') + 6)).toContain('const half: f32')
-    expect(hoverAt(source.lastIndexOf('half'))).toContain('const half: f32')
-  })
+    expect(hoverAt(source.indexOf('const half') + 6)).toContain('const half: f32');
+    expect(hoverAt(source.lastIndexOf('half'))).toContain('const half: f32');
+  });
 
   it('shows u32 for a local bound to a u32 conversion', () => {
-    expect(hoverAt(source.indexOf('let n = u32') + 4)).toContain('let n: u32')
-  })
+    expect(hoverAt(source.indexOf('let n = u32') + 4)).toContain('let n: u32');
+  });
 
   it('spells a parameter with the WGSL element type', () => {
-    expect(hoverAt(source.indexOf('v: vec3'))).toContain('(parameter) v: vec3<f32>')
-    expect(hoverAt(source.indexOf('v.x'))).toContain('(parameter) v: vec3<f32>')
-  })
+    expect(hoverAt(source.indexOf('v: vec3'))).toContain('(parameter) v: vec3<f32>');
+    expect(hoverAt(source.indexOf('v.x'))).toContain('(parameter) v: vec3<f32>');
+  });
 
   it('shows a module const with the compiler type', () => {
-    expect(hoverAt(source.indexOf('const K') + 6)).toContain('const K: f32')
-    expect(hoverAt(source.indexOf('K, half'))).toContain('const K: f32')
-  })
+    expect(hoverAt(source.indexOf('const K') + 6)).toContain('const K: f32');
+    expect(hoverAt(source.indexOf('K, half'))).toContain('const K: f32');
+  });
 
   it('shows a function signature with the compiler types', () => {
     expect(hoverAt(source.indexOf('function clamp01') + 9)).toContain(
       'function clamp01(x: f32): f32',
-    )
-    expect(hoverAt(source.indexOf('clamp01(v.x)'))).toContain('function clamp01(x: f32): f32')
-  })
+    );
+    expect(hoverAt(source.indexOf('clamp01(v.x)'))).toContain('function clamp01(x: f32): f32');
+  });
 
   it('resolves a shadowing declaration by position, outer and inner', () => {
-    expect(hoverAt(source.indexOf('let x = u32(7)') + 4)).toContain('let x: u32')
-    expect(hoverAt(source.indexOf('n = x') + 4)).toContain('let x: u32')
-    expect(hoverAt(source.indexOf('let x = 1.') + 4)).toContain('let x: f32')
-  })
+    expect(hoverAt(source.indexOf('let x = u32(7)') + 4)).toContain('let x: u32');
+    expect(hoverAt(source.indexOf('n = x') + 4)).toContain('let x: u32');
+    expect(hoverAt(source.indexOf('let x = 1.') + 4)).toContain('let x: f32');
+  });
 
   it('shows a struct field access with the field type the compiler collected', () => {
-    expect(hoverAt(source.indexOf('p.pos.x') + 2)).toContain('(property) Vertex.pos: vec3<f32>')
-  })
+    expect(hoverAt(source.indexOf('p.pos.x') + 2)).toContain('(property) Vertex.pos: vec3<f32>');
+  });
 
   it('keeps the resource line under a binding, and names its struct', () => {
-    const hover = hoverAt(source.indexOf('camera'))
-    expect(hover).toContain('const camera: Vertex')
-    expect(hover).toContain('uniform resource at @group(0) @binding(0)')
-  })
+    const hover = hoverAt(source.indexOf('camera'));
+    expect(hover).toContain('const camera: Vertex');
+    expect(hover).toContain('uniform resource at @group(0) @binding(0)');
+  });
 
   it("leaves TypeScript's quick info for a data class name", () => {
-    expect(hoverAt(source.indexOf('class Vertex') + 6)).toContain('class Vertex')
-  })
-})
+    expect(hoverAt(source.indexOf('class Vertex') + 6)).toContain('class Vertex');
+  });
+});
 
 // #56 — `nodeAtPosition`'s span test is half-open, so one offset past a name was the
 // whitespace or the punctuation after it, and the hover fell through to TypeScript's quick
@@ -225,12 +225,12 @@ describe("getHover: the touching rule at a name's end position (#56)", () => {
     '  let k = 1.;',
     '  return vec4(k, p.pos.x, f32(i), 1.);',
     '}',
-  ].join('\n')
+  ].join('\n');
 
   function hoverAt(offset: number): string | undefined {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('touch.ts', source)
-    return service.getHover('touch.ts', service.positionAt('touch.ts', offset))?.contents
+    const service = createTypeshadeLanguageService();
+    service.openDocument('touch.ts', source);
+    return service.getHover('touch.ts', service.positionAt('touch.ts', offset))?.contents;
   }
 
   it.each([
@@ -239,25 +239,25 @@ describe("getHover: the touching rule at a name's end position (#56)", () => {
     ['a parameter', 'vs(i'.length, 'vs(i', '(parameter) i: u32'],
     ['a struct field', 'p.pos'.length, 'p.pos', '(property) Vertex.pos: vec3<f32>'],
   ])('answers for %s at name.end', (_label, length, prefix, expected) => {
-    const end = source.indexOf(prefix) + length
+    const end = source.indexOf(prefix) + length;
     // The offset really is one past the name: the character there is not part of it.
-    expect(/[A-Za-z0-9_]/.test(source[end]!)).toBe(false)
-    expect(hoverAt(end)).toContain(expected)
-  })
+    expect(/[A-Za-z0-9_]/.test(source[end]!)).toBe(false);
+    expect(hoverAt(end)).toContain(expected);
+  });
 
   it('still answers for the name the position is INSIDE, never the one after it', () => {
     // `k` ends where the space before `p` begins, and `p` starts one offset later: a caret on
     // `p` is `p`'s, not `k`'s, which is what the rule has to leave alone.
-    const p = source.indexOf('p.pos')
-    expect(hoverAt(p)).toContain('(parameter) p: Vertex')
-  })
+    const p = source.indexOf('p.pos');
+    expect(hoverAt(p)).toContain('(parameter) p: Vertex');
+  });
 
   it('leaves a position that touches no name alone', () => {
     // The offset after `{` is neither inside a name nor at the end of one.
-    const brace = source.indexOf('vec4 {') + 'vec4 {'.length
-    expect(hoverAt(brace)).toBeUndefined()
-  })
-})
+    const brace = source.indexOf('vec4 {') + 'vec4 {'.length;
+    expect(hoverAt(brace)).toBeUndefined();
+  });
+});
 
 describe('getHover: an ambient name this document declares nothing of', () => {
   // The pre-filter in `getHover` skips the definition query for an identifier whose text is in
@@ -269,17 +269,17 @@ describe('getHover: an ambient name this document declares nothing of', () => {
     'export function f(a: f32, b: f32): f32 {',
     '  return max(a, b);',
     '}',
-  ].join('\n')
+  ].join('\n');
 
   it("keeps TypeScript's quick info for a builtin, and the compiler's for the args", () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('m.ts', source)
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.ts', source);
     const hoverAt = (offset: number) =>
-      service.getHover('m.ts', service.positionAt('m.ts', offset))?.contents
-    expect(hoverAt(source.indexOf('max(a, b)'))).toContain('function max')
-    expect(hoverAt(source.indexOf('a, b'))).toContain('(parameter) a: f32')
-  })
-})
+      service.getHover('m.ts', service.positionAt('m.ts', offset))?.contents;
+    expect(hoverAt(source.indexOf('max(a, b)'))).toContain('function max');
+    expect(hoverAt(source.indexOf('a, b'))).toContain('(parameter) a: f32');
+  });
+});
 
 describe('getHover: a function with no return annotation', () => {
   // `parseSignature` defaults an unannotated return to `void` and warns (TS8021), so the IR
@@ -291,17 +291,17 @@ describe('getHover: a function with no return annotation', () => {
     'export function helperNoRet(a: f32) {',
     '  return a;',
     '}',
-  ].join('\n')
+  ].join('\n');
 
   it('hovers as the void the front end gave it, alongside its TS8021 warning', () => {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('v.ts', source)
-    const offset = source.indexOf('helperNoRet') + 3
-    const hover = service.getHover('v.ts', service.positionAt('v.ts', offset))
-    expect(hover?.contents).toContain('function helperNoRet(a: f32): void')
-    expect(service.getDiagnostics('v.ts').some((d) => d.code === TS_CODES.RETURN_SHAPE)).toBe(true)
-  })
-})
+    const service = createTypeshadeLanguageService();
+    service.openDocument('v.ts', source);
+    const offset = source.indexOf('helperNoRet') + 3;
+    const hover = service.getHover('v.ts', service.positionAt('v.ts', offset));
+    expect(hover?.contents).toContain('function helperNoRet(a: f32): void');
+    expect(service.getDiagnostics('v.ts').some((d) => d.code === TS_CODES.RETURN_SHAPE)).toBe(true);
+  });
+});
 
 describe('getHover: a resource binding declared let', () => {
   // `declare let` is how a storage buffer asks for `read_write`, and the hover has to keep
@@ -315,48 +315,48 @@ describe('getHover: a resource binding declared let', () => {
     'export function cs(@builtin("global_invocation_id") gid: vec3u): void {',
     '  rw[gid.x] = ro[gid.x];',
     '}',
-  ].join('\n')
+  ].join('\n');
 
   function hoverAt(offset: number): string | undefined {
-    const service = createTypeshadeLanguageService()
-    service.openDocument('w.ts', source)
-    return service.getHover('w.ts', service.positionAt('w.ts', offset))?.contents
+    const service = createTypeshadeLanguageService();
+    service.openDocument('w.ts', source);
+    return service.getHover('w.ts', service.positionAt('w.ts', offset))?.contents;
   }
 
   it('keeps the declaration keyword of each binding', () => {
-    expect(hoverAt(source.indexOf('rw[gid.x]'))).toContain('let rw: array<f32>')
-    expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain('const ro: array<f32>')
-  })
+    expect(hoverAt(source.indexOf('rw[gid.x]'))).toContain('let rw: array<f32>');
+    expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain('const ro: array<f32>');
+  });
 
   it('still adds the resource line under both', () => {
     expect(hoverAt(source.indexOf('rw[gid.x]'))).toContain(
       'storage resource at @group(0) @binding(1)',
-    )
+    );
     expect(hoverAt(source.indexOf('ro[gid.x]'))).toContain(
       'storage resource at @group(0) @binding(0)',
-    )
-  })
-})
+    );
+  });
+});
 
 describe('getHover: a symbol declared in another document', () => {
   it("keeps TypeScript's quick info, since the compiler's table is this document's", () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     service.openDocument(
       '/lib.ts',
       '"use typeshade"\nexport const K = 1.\nexport function k(): f32 {\n  return 1.\n}\n',
-    )
+    );
     const main =
-      '"use typeshade"\nimport { k, K } from "./lib.ts"\nexport function f(): f32 {\n  return k() * K\n}\n'
-    service.openDocument('/main.ts', main)
+      '"use typeshade"\nimport { k, K } from "./lib.ts"\nexport function f(): f32 {\n  return k() * K\n}\n';
+    service.openDocument('/main.ts', main);
     const hover = service.getHover(
       '/main.ts',
       service.positionAt('/main.ts', main.indexOf('* K') + 2),
-    )
+    );
     // `K` is declared in `/lib.ts`, so `/main.ts`'s symbol table says nothing about it and
     // TypeScript answers, exactly as before: a span belongs to the file it indexes.
-    expect(hover?.contents).toContain('const K: 1')
-  })
-})
+    expect(hover?.contents).toContain('const K: 1');
+  });
+});
 
 describe('spellShaderType', () => {
   // One row per `ShaderType` kind, so a new kind (or a changed spelling) shows up here as a
@@ -383,71 +383,74 @@ describe('spellShaderType', () => {
     [texture2dMsfT, 'texture_multisampled_2d<f32>'],
     [samplerT, 'sampler'],
     [voidT, 'void'],
-  ]
+  ];
 
   for (const [type, spelling] of rows) {
     it(`spells ${spelling}`, () => {
-      expect(spellShaderType(type)).toBe(spelling)
-    })
+      expect(spellShaderType(type)).toBe(spelling);
+    });
   }
-})
+});
 
 describe('builtin JSDoc in hover', () => {
-  const service = createTypeshadeLanguageService()
+  const service = createTypeshadeLanguageService();
 
   it('mix function hover shows its documentation', () => {
-    const source = '"use typeshade"\nexport function f(): f32 {\n  return mix(1., 2., 0.5)\n}\n'
-    service.openDocument('/test.ts', source)
+    const source = '"use typeshade"\nexport function f(): f32 {\n  return mix(1., 2., 0.5)\n}\n';
+    service.openDocument('/test.ts', source);
     const hover = service.getHover(
       '/test.ts',
       service.positionAt('/test.ts', source.indexOf('mix')),
-    )
-    expect(hover?.contents).toContain('a * (1 - t) + b * t')
-  })
+    );
+    expect(hover?.contents).toContain('a * (1 - t) + b * t');
+  });
 
   it('Math.sin hover shows its documentation', () => {
-    const source = '"use typeshade"\nexport function f(x: f32): f32 {\n  return Math.sin(x)\n}\n'
-    service.openDocument('/test.ts', source)
+    const source = '"use typeshade"\nexport function f(x: f32): f32 {\n  return Math.sin(x)\n}\n';
+    service.openDocument('/test.ts', source);
     const hover = service.getHover(
       '/test.ts',
       service.positionAt('/test.ts', source.indexOf('sin')),
-    )
-    expect(hover?.contents).toContain('sine')
-    expect(hover?.contents).toContain('radians')
-  })
+    );
+    expect(hover?.contents).toContain('sine');
+    expect(hover?.contents).toContain('radians');
+  });
 
   it('PI constant hover shows its documentation', () => {
-    const source = '"use typeshade"\nexport const p = PI\n'
-    service.openDocument('/test.ts', source)
-    const hover = service.getHover('/test.ts', service.positionAt('/test.ts', source.indexOf('PI')))
-    expect(hover?.contents).toContain('mathematical constant π')
-  })
+    const source = '"use typeshade"\nexport const p = PI\n';
+    service.openDocument('/test.ts', source);
+    const hover = service.getHover(
+      '/test.ts',
+      service.positionAt('/test.ts', source.indexOf('PI')),
+    );
+    expect(hover?.contents).toContain('mathematical constant π');
+  });
 
   it('vec3 constructor hover shows its documentation', () => {
-    const source = '"use typeshade"\nexport function f(): vec3 {\n  return vec3(1., 2., 3.)\n}\n'
-    service.openDocument('/test.ts', source)
+    const source = '"use typeshade"\nexport function f(): vec3 {\n  return vec3(1., 2., 3.)\n}\n';
+    service.openDocument('/test.ts', source);
     const hover = service.getHover(
       '/test.ts',
       service.positionAt('/test.ts', source.indexOf('vec3')),
-    )
+    );
     // Either the JSDoc is shown, or the type definition - both are acceptable
     expect(
       hover?.contents?.includes('Builds a `vec3`') ||
         hover?.contents?.includes('A three-component vector'),
-    ).toBe(true)
-  })
+    ).toBe(true);
+  });
 
   it('smoothstep function hover shows its documentation', () => {
     const source =
-      '"use typeshade"\nexport function f(x: f32): f32 {\n  return smoothstep(0., 1., x)\n}\n'
-    service.openDocument('/test.ts', source)
+      '"use typeshade"\nexport function f(x: f32): f32 {\n  return smoothstep(0., 1., x)\n}\n';
+    service.openDocument('/test.ts', source);
     const hover = service.getHover(
       '/test.ts',
       service.positionAt('/test.ts', source.indexOf('smoothstep')),
-    )
-    expect(hover?.contents).toContain('Hermite interpolation')
-  })
-})
+    );
+    expect(hover?.contents).toContain('Hermite interpolation');
+  });
+});
 
 describe('getHover: class members (#86 step 3)', () => {
   // The TypeScript checker knows a class's members, so the service adds nothing for them; this
@@ -477,33 +480,35 @@ export function fs(@location(0) uv: vec2): vec4 {
   r.advance(1.);
   return vec4(r.at(2.) + Ray.up(), 1.);
 }
-`
-  const service = createTypeshadeLanguageService()
-  service.openDocument('m.ts', source)
+`;
+  const service = createTypeshadeLanguageService();
+  service.openDocument('m.ts', source);
   const hoverAt = (needle: string, plus = 0) =>
-    service.getHover('m.ts', service.positionAt('m.ts', source.indexOf(needle) + plus))?.contents
+    service.getHover('m.ts', service.positionAt('m.ts', source.indexOf(needle) + plus))?.contents;
 
   it('a method reads as the class member at its declaration and at a call', () => {
-    expect(hoverAt('at(t: f32)')).toBe('```ts\n(method) Ray.at(t: f32): vec3\n```')
-    expect(hoverAt('r.at(2.)', 2)).toBe('```ts\n(method) Ray.at(t: f32): vec3\n```')
-    expect(hoverAt('r.advance(1.)', 2)).toBe('```ts\n(method) Ray.advance(t: f32): void\n```')
-    expect(hoverAt('Ray.up()', 4)).toBe('```ts\n(method) Ray.up(): vec3\n```')
-  })
+    expect(hoverAt('at(t: f32)')).toBe('```ts\n(method) Ray.at(t: f32): vec3\n```');
+    expect(hoverAt('r.at(2.)', 2)).toBe('```ts\n(method) Ray.at(t: f32): vec3\n```');
+    expect(hoverAt('r.advance(1.)', 2)).toBe('```ts\n(method) Ray.advance(t: f32): void\n```');
+    expect(hoverAt('Ray.up()', 4)).toBe('```ts\n(method) Ray.up(): vec3\n```');
+  });
 
   it('the constructor, a field through this, and a local holding the class', () => {
-    expect(hoverAt('new Ray(', 4)).toBe('```ts\nconstructor Ray(origin: vec3, dir: vec3): Ray\n```')
-    expect(hoverAt('this.origin = origin', 5)).toBe('```ts\n(property) Ray.origin: vec3<f32>\n```')
-    expect(hoverAt('let r', 4)).toBe('```ts\nlet r: Ray\n```')
-  })
+    expect(hoverAt('new Ray(', 4)).toBe(
+      '```ts\nconstructor Ray(origin: vec3, dir: vec3): Ray\n```',
+    );
+    expect(hoverAt('this.origin = origin', 5)).toBe('```ts\n(property) Ray.origin: vec3<f32>\n```');
+    expect(hoverAt('let r', 4)).toBe('```ts\nlet r: Ray\n```');
+  });
 
   it('go to definition from a call lands on the method', () => {
     const defs = service.getDefinition(
       'm.ts',
       service.positionAt('m.ts', source.indexOf('r.at(2.)') + 2),
-    )
+    );
     expect(defs).toEqual([
       { uri: 'm.ts', range: { start: { line: 8, character: 2 }, end: { line: 8, character: 4 } } },
-    ])
-    expect(service.getDiagnostics('m.ts')).toEqual([])
-  })
-})
+    ]);
+    expect(service.getDiagnostics('m.ts')).toEqual([]);
+  });
+});

@@ -1,268 +1,268 @@
-import { describe, expect, it } from 'vitest'
-import { createTypeshadeLanguageService } from './service.js'
-import { BUILTIN_DOCS } from './docs.js'
-import { WGSL_BUILTIN_NAMES } from './ambient.js'
+import { describe, expect, it } from 'vitest';
+import { createTypeshadeLanguageService } from './service.js';
+import { BUILTIN_DOCS } from './docs.js';
+import { WGSL_BUILTIN_NAMES } from './ambient.js';
 
 describe('getCompletions: TypeShade context items', () => {
   it('offers the attribute list right after @', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\n@ver'
-    service.openDocument('a.ts', source)
-    const items = service.getCompletions('a.ts', { line: 1, character: 4 })
-    expect(items.map((i) => i.label)).toContain('@vertex')
-    expect(items.every((i) => i.kind === 'attribute')).toBe(true)
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\n@ver';
+    service.openDocument('a.ts', source);
+    const items = service.getCompletions('a.ts', { line: 1, character: 4 });
+    expect(items.map((i) => i.label)).toContain('@vertex');
+    expect(items.every((i) => i.kind === 'attribute')).toBe(true);
+  });
 
   it('offers WgslBuiltinName entries inside @builtin("', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nclass Clip {\n  @builtin("ver") pos: vec4\n}\n'
-    service.openDocument('b.ts', source)
-    const offset = source.indexOf('"ver') + 4
-    const position = service.positionAt('b.ts', offset)
-    const items = service.getCompletions('b.ts', position)
-    expect(items.map((i) => i.label)).toContain('vertex_index')
-    expect(items.every((i) => i.kind === 'builtin')).toBe(true)
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nclass Clip {\n  @builtin("ver") pos: vec4\n}\n';
+    service.openDocument('b.ts', source);
+    const offset = source.indexOf('"ver') + 4;
+    const position = service.positionAt('b.ts', offset);
+    const items = service.getCompletions('b.ts', position);
+    expect(items.map((i) => i.label)).toContain('vertex_index');
+    expect(items.every((i) => i.kind === 'builtin')).toBe(true);
+  });
 
   it('filters @builtin(" completions to the enclosing function\'s stage', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
-      '"use typeshade";\n@fragment\nexport function fs(@builtin("") x: u32): f32 {\n  return x\n}\n'
-    service.openDocument('c.ts', source)
-    const offset = source.indexOf('@builtin("') + '@builtin("'.length
-    const position = service.positionAt('c.ts', offset)
-    const items = service.getCompletions('c.ts', position)
-    const labels = items.map((i) => i.label)
-    expect(labels).toContain('position')
-    expect(labels).not.toContain('vertex_index')
+      '"use typeshade";\n@fragment\nexport function fs(@builtin("") x: u32): f32 {\n  return x\n}\n';
+    service.openDocument('c.ts', source);
+    const offset = source.indexOf('@builtin("') + '@builtin("'.length;
+    const position = service.positionAt('c.ts', offset);
+    const items = service.getCompletions('c.ts', position);
+    const labels = items.map((i) => i.label);
+    expect(labels).toContain('position');
+    expect(labels).not.toContain('vertex_index');
     // §50 — the two extension-gated fragment inputs and the subgroup pair, which used to be
     // offered on compute alone even though WGSL gives both a fragment row.
-    expect(labels).toContain('primitive_index')
-    expect(labels).toContain('subgroup_invocation_id')
-    expect(labels).toContain('subgroup_size')
+    expect(labels).toContain('primitive_index');
+    expect(labels).toContain('subgroup_invocation_id');
+    expect(labels).toContain('subgroup_size');
     // `clip_distances` is a vertex OUTPUT, so no parameter position offers it.
-    expect(labels).not.toContain('clip_distances')
-  })
+    expect(labels).not.toContain('clip_distances');
+  });
 
   it('documents every builtin it offers', () => {
     // `BUILTIN_DOCS` is a `Record<string, string>`, so nothing else forces an entry per id: a
     // builtin added to the vocabulary with no sentence here hovers and completes blank.
     for (const name of WGSL_BUILTIN_NAMES) {
-      expect(BUILTIN_DOCS[name], `no BUILTIN_DOCS sentence for '${name}'`).toBeTruthy()
+      expect(BUILTIN_DOCS[name], `no BUILTIN_DOCS sentence for '${name}'`).toBeTruthy();
     }
-  })
+  });
 
   it('offers vec2/vec3/vec4 as snippet completions', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nexport function f(): vec4 {\n  return vec\n}\n'
-    service.openDocument('d.ts', source)
-    const offset = source.lastIndexOf('vec') + 3
-    const position = service.positionAt('d.ts', offset)
-    const items = service.getCompletions('d.ts', position)
-    const vec4Item = items.find((i) => i.label === 'vec4')
-    expect(vec4Item?.kind).toBe('snippet')
-    expect(vec4Item?.insertTextFormat).toBe('snippet')
-    expect(vec4Item?.insertText).toContain('vec4(')
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nexport function f(): vec4 {\n  return vec\n}\n';
+    service.openDocument('d.ts', source);
+    const offset = source.lastIndexOf('vec') + 3;
+    const position = service.positionAt('d.ts', offset);
+    const items = service.getCompletions('d.ts', position);
+    const vec4Item = items.find((i) => i.label === 'vec4');
+    expect(vec4Item?.kind).toBe('snippet');
+    expect(vec4Item?.insertTextFormat).toBe('snippet');
+    expect(vec4Item?.insertText).toContain('vec4(');
+  });
 
   it('dedupes completion items by label', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
-      '"use typeshade";\nexport function f(): vec4 {\n  return vec4(0., 0., 0., 1.)\n}\n'
-    service.openDocument('e.ts', source)
-    const offset = source.indexOf('return vec4')
-    const position = service.positionAt('e.ts', offset)
-    const items = service.getCompletions('e.ts', position)
-    const labels = items.map((i) => i.label)
-    expect(new Set(labels).size).toBe(labels.length)
-  })
-})
+      '"use typeshade";\nexport function f(): vec4 {\n  return vec4(0., 0., 0., 1.)\n}\n';
+    service.openDocument('e.ts', source);
+    const offset = source.indexOf('return vec4');
+    const position = service.positionAt('e.ts', offset);
+    const items = service.getCompletions('e.ts', position);
+    const labels = items.map((i) => i.label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+});
 
-type Service = ReturnType<typeof createTypeshadeLanguageService>
+type Service = ReturnType<typeof createTypeshadeLanguageService>;
 
 function completionsAt(service: Service, uri: string, source: string, cursor: string) {
-  const offset = source.indexOf(cursor) + cursor.length
+  const offset = source.indexOf(cursor) + cursor.length;
   expect(offset, `cursor text ${JSON.stringify(cursor)} not found`).toBeGreaterThan(
     cursor.length - 1,
-  )
-  return service.getCompletions(uri, service.positionAt(uri, offset))
+  );
+  return service.getCompletions(uri, service.positionAt(uri, offset));
 }
 
 const typeshadeSpecific = (items: readonly { kind: string }[]) =>
-  items.filter((i) => i.kind === 'attribute' || i.kind === 'builtin' || i.kind === 'snippet')
+  items.filter((i) => i.kind === 'attribute' || i.kind === 'builtin' || i.kind === 'snippet');
 
 // Regression: the attribute, builtin-id and vec-snippet triggers were regexes over the raw
 // text before the cursor, so they fired inside comments and string literals alike, and the
 // vec snippets were merged into every completion list, type positions included.
 describe('getCompletions: context is decided by the syntax tree, not the raw text', () => {
   it('offers nothing TypeShade-specific inside a line comment ending in @', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\n// see @ver\nexport function f(): f32 {\n  return 1\n}\n'
-    service.openDocument('c1.ts', source)
-    expect(typeshadeSpecific(completionsAt(service, 'c1.ts', source, '// see @ver'))).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\n// see @ver\nexport function f(): f32 {\n  return 1\n}\n';
+    service.openDocument('c1.ts', source);
+    expect(typeshadeSpecific(completionsAt(service, 'c1.ts', source, '// see @ver'))).toEqual([]);
+  });
 
   it('offers nothing TypeShade-specific inside a trailing comment on a code line', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nconst a = 1 // vec\nconst b = 2\n'
-    service.openDocument('c2.ts', source)
-    expect(typeshadeSpecific(completionsAt(service, 'c2.ts', source, '// vec'))).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nconst a = 1 // vec\nconst b = 2\n';
+    service.openDocument('c2.ts', source);
+    expect(typeshadeSpecific(completionsAt(service, 'c2.ts', source, '// vec'))).toEqual([]);
+  });
 
   it('offers nothing TypeShade-specific inside a block comment, @builtin(" included', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\n/* @builtin("ver */\nconst a = 1\n'
-    service.openDocument('c3.ts', source)
-    expect(typeshadeSpecific(completionsAt(service, 'c3.ts', source, '@builtin("ver'))).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\n/* @builtin("ver */\nconst a = 1\n';
+    service.openDocument('c3.ts', source);
+    expect(typeshadeSpecific(completionsAt(service, 'c3.ts', source, '@builtin("ver'))).toEqual([]);
+  });
 
   it('offers nothing TypeShade-specific in a comment that closes the file', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nconst a = 1\n// @'
-    service.openDocument('c4.ts', source)
-    expect(typeshadeSpecific(completionsAt(service, 'c4.ts', source, '// @'))).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nconst a = 1\n// @';
+    service.openDocument('c4.ts', source);
+    expect(typeshadeSpecific(completionsAt(service, 'c4.ts', source, '// @'))).toEqual([]);
+  });
 
   it('offers nothing at all inside an ordinary string literal', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nconst a = "vec"\nconst b = "@ver"\n'
-    service.openDocument('s1.ts', source)
-    expect(completionsAt(service, 's1.ts', source, '"vec')).toEqual([])
-    expect(completionsAt(service, 's1.ts', source, '"@ver')).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nconst a = "vec"\nconst b = "@ver"\n';
+    service.openDocument('s1.ts', source);
+    expect(completionsAt(service, 's1.ts', source, '"vec')).toEqual([]);
+    expect(completionsAt(service, 's1.ts', source, '"@ver')).toEqual([]);
+  });
 
   it('offers nothing inside a regular expression literal either', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nconst r = /vec/\nconst b = builtin(/ver/)\n'
-    service.openDocument('s4.ts', source)
-    expect(completionsAt(service, 's4.ts', source, '/vec')).toEqual([])
-    expect(completionsAt(service, 's4.ts', source, '/ver')).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nconst r = /vec/\nconst b = builtin(/ver/)\n';
+    service.openDocument('s4.ts', source);
+    expect(completionsAt(service, 's4.ts', source, '/vec')).toEqual([]);
+    expect(completionsAt(service, 's4.ts', source, '/ver')).toEqual([]);
+  });
 
   it('offers nothing inside a template literal either', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nconst a = `vec`\n'
-    service.openDocument('s2.ts', source)
-    expect(completionsAt(service, 's2.ts', source, '`vec')).toEqual([])
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nconst a = `vec`\n';
+    service.openDocument('s2.ts', source);
+    expect(completionsAt(service, 's2.ts', source, '`vec')).toEqual([]);
+  });
 
   it('still offers builtin ids inside an unterminated @builtin(" while it is being typed', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nclass Clip {\n  @builtin("ver\n  pos: vec4\n}\n'
-    service.openDocument('s3.ts', source)
-    const items = completionsAt(service, 's3.ts', source, '@builtin("ver')
-    expect(items.map((i) => i.label)).toContain('vertex_index')
-    expect(items.every((i) => i.kind === 'builtin')).toBe(true)
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nclass Clip {\n  @builtin("ver\n  pos: vec4\n}\n';
+    service.openDocument('s3.ts', source);
+    const items = completionsAt(service, 's3.ts', source, '@builtin("ver');
+    expect(items.map((i) => i.label)).toContain('vertex_index');
+    expect(items.every((i) => i.kind === 'builtin')).toBe(true);
+  });
 
   it('does not offer vec snippets in a type position', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
       '"use typeshade";\n' +
       'class Clip {\n  pos: vec\n}\n' +
       'let x: vec\n' +
-      'export function f(): vec {\n  return vec4(0., 0., 0., 1.)\n}\n'
-    service.openDocument('t1.ts', source)
+      'export function f(): vec {\n  return vec4(0., 0., 0., 1.)\n}\n';
+    service.openDocument('t1.ts', source);
     for (const cursor of ['pos: vec', 'let x: vec', 'f(): vec']) {
-      const items = completionsAt(service, 't1.ts', source, cursor)
+      const items = completionsAt(service, 't1.ts', source, cursor);
       expect(
         items.filter((i) => i.kind === 'snippet'),
         cursor,
-      ).toEqual([])
+      ).toEqual([]);
     }
-  })
+  });
 
   // Regression: with nothing typed after the colon the parser's zero-width missing type node
   // was only taken as the slot when it was the last child, so `f(a: |)` resolved to the
   // FunctionDeclaration and `let x: |` at the end of the file to the EndOfFileToken, both of
   // which counted as expression slots.
   it('does not offer vec snippets in an empty type slot with nothing typed yet', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
       '"use typeshade";\n' +
       'export function f(a: ): f32 {\n  return 1\n}\n' +
       'class V {\n  pos: \n}\n' +
-      'let x: '
-    service.openDocument('t5.ts', source)
+      'let x: ';
+    service.openDocument('t5.ts', source);
     for (const cursor of ['f(a: ', 'pos: ', 'let x: ']) {
-      const items = completionsAt(service, 't5.ts', source, cursor)
-      expect(items.length, cursor).toBeGreaterThan(0)
+      const items = completionsAt(service, 't5.ts', source, cursor);
+      expect(items.length, cursor).toBeGreaterThan(0);
       expect(
         items.filter((i) => i.kind === 'snippet'),
         cursor,
-      ).toEqual([])
+      ).toEqual([]);
     }
-  })
+  });
 
   // Regression: the same empty type slot on the line before a decorated member or function
   // resolved to the decorator's name in the next sibling's leading trivia and returned the
   // attribute list alone, hiding TypeScript's type completions.
   it("offers TypeScript's own answer, not attributes, in an empty type slot before a decorated sibling", () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
       '"use typeshade";\n' +
       'class V {\n  @location(0) pos: \n  @location(1) uv: vec2\n}\n' +
       'let x: \n' +
-      '@vertex\nexport function f(): V {\n  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }\n}\n'
-    service.openDocument('t6.ts', source)
+      '@vertex\nexport function f(): V {\n  return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.) }\n}\n';
+    service.openDocument('t6.ts', source);
     // TypeScript's own answer at `pos: ` before a decorated member is its class-member keyword
     // list; before a decorated function it is the type list. Either way it is TypeScript's.
     for (const cursor of ['pos: ', 'let x: ']) {
-      const items = completionsAt(service, 't6.ts', source, cursor)
-      expect(items.length, cursor).toBeGreaterThan(0)
-      expect(typeshadeSpecific(items), cursor).toEqual([])
+      const items = completionsAt(service, 't6.ts', source, cursor);
+      expect(items.length, cursor).toBeGreaterThan(0);
+      expect(typeshadeSpecific(items), cursor).toEqual([]);
     }
-    expect(completionsAt(service, 't6.ts', source, 'let x: ').map((i) => i.label)).toContain('f32')
-  })
+    expect(completionsAt(service, 't6.ts', source, 'let x: ').map((i) => i.label)).toContain('f32');
+  });
 
   it('does not offer vec snippets inside type arguments', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\ndeclare const camera: uniform<vec>\n'
-    service.openDocument('t2.ts', source)
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\ndeclare const camera: uniform<vec>\n';
+    service.openDocument('t2.ts', source);
     expect(
       completionsAt(service, 't2.ts', source, 'uniform<vec').filter((i) => i.kind === 'snippet'),
-    ).toEqual([])
-  })
+    ).toEqual([]);
+  });
 
   it('does not offer vec snippets right after @, only attributes', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\n@\nexport function f(): f32 {\n  return 1\n}\n'
-    service.openDocument('t3.ts', source)
-    const items = completionsAt(service, 't3.ts', source, '"use typeshade";\n@')
-    expect(items.length).toBeGreaterThan(0)
-    expect(items.every((i) => i.kind === 'attribute')).toBe(true)
-  })
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\n@\nexport function f(): f32 {\n  return 1\n}\n';
+    service.openDocument('t3.ts', source);
+    const items = completionsAt(service, 't3.ts', source, '"use typeshade";\n@');
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i) => i.kind === 'attribute')).toBe(true);
+  });
 
   it('does not offer vec snippets for a declaration name or a property access member', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
-      '"use typeshade";\nconst vec = 1.\nexport function f(a: vec4): f32 {\n  return a.vec\n}\n'
-    service.openDocument('t4.ts', source)
+      '"use typeshade";\nconst vec = 1.\nexport function f(a: vec4): f32 {\n  return a.vec\n}\n';
+    service.openDocument('t4.ts', source);
     for (const cursor of ['const vec', 'a.vec']) {
-      const items = completionsAt(service, 't4.ts', source, cursor)
+      const items = completionsAt(service, 't4.ts', source, cursor);
       expect(
         items.filter((i) => i.kind === 'snippet'),
         cursor,
-      ).toEqual([])
+      ).toEqual([]);
     }
-  })
+  });
 
   it('offers vec snippets where a value expression starts: after return, in an initializer, in an argument', () => {
-    const service = createTypeshadeLanguageService()
+    const service = createTypeshadeLanguageService();
     const source =
       '"use typeshade";\n' +
       'export function f(): vec4 {\n' +
       '  const a = vec\n' +
       '  const b = dot(vec\n' +
       '  return \n' +
-      '}\n'
-    service.openDocument('e1.ts', source)
+      '}\n';
+    service.openDocument('e1.ts', source);
     for (const cursor of ['const a = vec', 'dot(vec', 'return ']) {
-      const items = completionsAt(service, 'e1.ts', source, cursor)
-      expect(items.find((i) => i.label === 'vec4')?.kind, cursor).toBe('snippet')
+      const items = completionsAt(service, 'e1.ts', source, cursor);
+      expect(items.find((i) => i.label === 'vec4')?.kind, cursor).toBe('snippet');
     }
-  })
-})
+  });
+});
 
 // Regression: the comment check only looked at the leading trivia of the slot the cursor
 // resolved to, so a comment with no following sibling (after the last statement of a body, on
@@ -307,20 +307,20 @@ describe('getCompletions: a comment anywhere in the trivia before the cursor', (
       '"use typeshade";\n/**\n * @param vec\n */\nfunction f(): f32 {\n  return 1\n}\n',
       '@param vec',
     ],
-  ]
+  ];
   for (const [name, source, cursor] of cases) {
     it(`offers nothing TypeShade-specific in a comment ${name}`, () => {
-      const service = createTypeshadeLanguageService()
-      service.openDocument('cm.ts', source)
-      expect(typeshadeSpecific(completionsAt(service, 'cm.ts', source, cursor))).toEqual([])
-    })
+      const service = createTypeshadeLanguageService();
+      service.openDocument('cm.ts', source);
+      expect(typeshadeSpecific(completionsAt(service, 'cm.ts', source, cursor))).toEqual([]);
+    });
   }
 
   it('still offers completions in the code right after a closed block comment', () => {
-    const service = createTypeshadeLanguageService()
-    const source = '"use typeshade";\nexport function f(): vec4 {\n  return /* c */ \n}\n'
-    service.openDocument('cm2.ts', source)
-    const items = completionsAt(service, 'cm2.ts', source, '/* c */ ')
-    expect(items.find((i) => i.label === 'vec4')?.kind).toBe('snippet')
-  })
-})
+    const service = createTypeshadeLanguageService();
+    const source = '"use typeshade";\nexport function f(): vec4 {\n  return /* c */ \n}\n';
+    service.openDocument('cm2.ts', source);
+    const items = completionsAt(service, 'cm2.ts', source, '/* c */ ');
+    expect(items.find((i) => i.label === 'vec4')?.kind).toBe('snippet');
+  });
+});

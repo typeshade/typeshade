@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import ts from 'typescript'
-import { compileTsSource } from './source-file.js'
-import { mapTsTypeToShaderType } from './type-map.js'
+import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
+import { compileTsSource } from './source-file.js';
+import { mapTsTypeToShaderType } from './type-map.js';
 
 function map(src: string) {
   const sf = ts.createSourceFile(
@@ -10,10 +10,10 @@ function map(src: string) {
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS,
-  )
-  const alias = sf.statements[0] as ts.TypeAliasDeclaration
-  const diagnostics: { message: string }[] = []
-  return { type: mapTsTypeToShaderType(alias.type, sf, diagnostics as never), diagnostics }
+  );
+  const alias = sf.statements[0] as ts.TypeAliasDeclaration;
+  const diagnostics: { message: string }[] = [];
+  return { type: mapTsTypeToShaderType(alias.type, sf, diagnostics as never), diagnostics };
 }
 
 describe('switch', () => {
@@ -27,11 +27,11 @@ describe('switch', () => {
           default: return c;
         }
       }
-    `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.funcs[0]!.body.some((s) => s.s === 'switch')).toBe(true)
-    expect(r.wgsl).toMatch(/switch/)
-  })
+    `);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.funcs[0]!.body.some((s) => s.s === 'switch')).toBe(true);
+    expect(r.wgsl).toMatch(/switch/);
+  });
 
   it('rejects a float scrutinee', () => {
     const r = compileTsSource(`
@@ -39,9 +39,9 @@ describe('switch', () => {
       export function pick(x: f32, a: f32): f32 {
         switch (x) { default: return a; }
       }
-    `)
-    expect(r.diagnostics.some((d) => /i32 or u32/.test(d.message))).toBe(true)
-  })
+    `);
+    expect(r.diagnostics.some((d) => /i32 or u32/.test(d.message))).toBe(true);
+  });
 
   it('shares one body between two selectors, on both targets', () => {
     // This used to be `switch case fall-through is not allowed` — the one shape that is NOT
@@ -56,12 +56,12 @@ describe('switch', () => {
           default: return a * 2.;
         }
       }
-    `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('case 0, 1: {')
-    const sw = r.funcs[0]!.body.find((s) => s.s === 'switch')!
-    expect(sw.s === 'switch' && sw.cases.map((c) => c.values)).toEqual([[0, 1]])
-  })
+    `);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('case 0, 1: {');
+    const sw = r.funcs[0]!.body.find((s) => s.s === 'switch')!;
+    expect(sw.s === 'switch' && sw.cases.map((c) => c.values)).toEqual([[0, 1]]);
+  });
 
   it("rejects an empty selector that would share the default's body", () => {
     const r = compileTsSource(`
@@ -73,19 +73,19 @@ describe('switch', () => {
           default: return a * 2.;
         }
       }
-    `)
+    `);
     // Not "has no body": the clause below it IS a body, it is just `default:`, and carrying
     // the selector past it is what made `case 1` run the case AFTER the default (§52).
-    expect(r.diagnostics.some((d) => /sits above "default:"/.test(d.message))).toBe(true)
-  })
-})
+    expect(r.diagnostics.some((d) => /sits above "default:"/.test(d.message))).toBe(true);
+  });
+});
 
 describe('array<T, N>', () => {
   it('maps array<f32, 4>', () => {
-    const r = map('array<f32, 4>')
-    expect(r.diagnostics).toEqual([])
-    expect(r.type).toMatchObject({ kind: 'array', size: 4 })
-  })
+    const r = map('array<f32, 4>');
+    expect(r.diagnostics).toEqual([]);
+    expect(r.type).toMatchObject({ kind: 'array', size: 4 });
+  });
 
   it('indexes an array parameter', () => {
     const r = compileTsSource(`
@@ -93,9 +93,9 @@ describe('array<T, N>', () => {
       export function at(xs: array<f32, 4>, i: i32): f32 {
         return xs[i];
       }
-    `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    const ret = r.funcs[0]!.body[0]
-    if (ret!.s === 'return') expect(ret.expr?.op).toBe('index')
-  })
-})
+    `);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const ret = r.funcs[0]!.body[0];
+    if (ret!.s === 'return') expect(ret.expr?.op).toBe('index');
+  });
+});

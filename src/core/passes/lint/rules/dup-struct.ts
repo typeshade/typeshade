@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine.js'
+import type { LintRule } from '../engine.js';
 
 /** Duplicate struct name in the module. */
 export const dupStruct: LintRule = {
@@ -8,11 +8,11 @@ export const dupStruct: LintRule = {
   category: 'correctness',
   create: (ctx) => ({
     Module(m) {
-      const seen = new Set<string>()
+      const seen = new Set<string>();
       for (const s of m.structs) {
-        if (seen.has(s.name)) ctx.report(`duplicate struct '${s.name}'`)
-        seen.add(s.name)
+        if (seen.has(s.name)) ctx.report(`duplicate struct '${s.name}'`);
+        seen.add(s.name);
       }
     },
   }),
-}
+};

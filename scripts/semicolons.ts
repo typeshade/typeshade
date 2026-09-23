@@ -28,57 +28,57 @@
 // An example file or a directive fence that does not parse is an error, not a skip: shader
 // source a reader copies out of the docs should parse.
 
-import ts from 'typescript'
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { insertSemicolons } from '../src/compiler/ts/semicolons.js'
+import ts from 'typescript';
+import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { insertSemicolons } from '../src/compiler/ts/semicolons.js';
 
-const DIRECTIVE = /^(["'])use typeshade\1;?$/
-const FENCE_OPEN = /^```(ts|typescript)\s*$/
+const DIRECTIVE = /^(["'])use typeshade\1;?$/;
+const FENCE_OPEN = /^```(ts|typescript)\s*$/;
 /** The opt-out for a test file's inline sources; the reason after the dash is required. */
-const SKIP_MARKER = /^\/\/ format:semicolons skip — \S/m
+const SKIP_MARKER = /^\/\/ format:semicolons skip — \S/m;
 /** The one doc whose every fence is shader source, directive or not. */
-const ALL_FENCES_DOC = 'docs/use-typeshade-surface.md'
+const ALL_FENCES_DOC = 'docs/use-typeshade-surface.md';
 
 /** One file's worth of findings: the rewritten text, the 1-based lines that gained a `;`. */
 export interface FileReport {
-  readonly file: string
-  readonly original: string
-  readonly text: string
-  readonly lines: readonly number[]
-  readonly errors: readonly string[]
+  readonly file: string;
+  readonly original: string;
+  readonly text: string;
+  readonly lines: readonly number[];
+  readonly errors: readonly string[];
 }
 
 function walk(dir: string, keep: (path: string) => boolean): string[] {
-  const out: string[] = []
+  const out: string[] = [];
   for (const name of readdirSync(dir).sort()) {
-    if (name === 'node_modules' || name === 'dist' || name.startsWith('.')) continue
-    const path = join(dir, name)
-    if (statSync(path).isDirectory()) out.push(...walk(path, keep))
-    else if (keep(path)) out.push(path)
+    if (name === 'node_modules' || name === 'dist' || name.startsWith('.')) continue;
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) out.push(...walk(path, keep));
+    else if (keep(path)) out.push(path);
   }
-  return out
+  return out;
 }
 
 function firstCodeLine(code: string): string {
   for (const line of code.split('\n')) {
-    const t = line.trim()
-    if (t !== '' && !t.startsWith('//')) return t
+    const t = line.trim();
+    if (t !== '' && !t.startsWith('//')) return t;
   }
-  return ''
+  return '';
 }
 
 /** 1-based line of each offset. */
 function linesOf(text: string, offsets: readonly number[]): number[] {
-  const out: number[] = []
-  let line = 1
-  let i = 0
+  const out: number[] = [];
+  let line = 1;
+  let i = 0;
   for (const at of offsets) {
-    for (; i < at; i++) if (text.charCodeAt(i) === 10) line++
-    if (out[out.length - 1] !== line) out.push(line)
+    for (; i < at; i++) if (text.charCodeAt(i) === 10) line++;
+    if (out[out.length - 1] !== line) out.push(line);
   }
-  return out
+  return out;
 }
 
 /** Rewrite each region [start, end) of `text` with `insertSemicolons`. */
@@ -87,84 +87,84 @@ function rewriteRegions(
   text: string,
   regions: readonly { start: number; end: number; strict: boolean }[],
 ): FileReport {
-  let out = ''
-  let from = 0
-  const offsets: number[] = []
-  const errors: string[] = []
+  let out = '';
+  let from = 0;
+  const offsets: number[] = [];
+  const errors: string[] = [];
   for (const { start, end, strict } of regions) {
-    const code = text.slice(start, end)
-    const r = insertSemicolons(code, file)
+    const code = text.slice(start, end);
+    const r = insertSemicolons(code, file);
     if (!r.ok) {
-      if (strict) errors.push(`${file}:${linesOf(text, [start + r.at])[0]}: ${r.message}`)
-      continue
+      if (strict) errors.push(`${file}:${linesOf(text, [start + r.at])[0]}: ${r.message}`);
+      continue;
     }
-    out += text.slice(from, start) + r.text
-    from = end
-    r.inserted.forEach((at) => offsets.push(start + at))
+    out += text.slice(from, start) + r.text;
+    from = end;
+    r.inserted.forEach((at) => offsets.push(start + at));
   }
-  out += text.slice(from)
-  return { file, original: text, text: out, lines: linesOf(text, offsets), errors }
+  out += text.slice(from);
+  return { file, original: text, text: out, lines: linesOf(text, offsets), errors };
 }
 
 function fenceRegions(
   file: string,
   text: string,
 ): { start: number; end: number; strict: boolean }[] {
-  const all = file === ALL_FENCES_DOC
-  const regions: { start: number; end: number; strict: boolean }[] = []
-  const lines = text.split('\n')
-  let offset = 0
+  const all = file === ALL_FENCES_DOC;
+  const regions: { start: number; end: number; strict: boolean }[] = [];
+  const lines = text.split('\n');
+  let offset = 0;
   const starts = lines.map((l) => {
-    const s = offset
-    offset += l.length + 1
-    return s
-  })
+    const s = offset;
+    offset += l.length + 1;
+    return s;
+  });
   for (let i = 0; i < lines.length; i++) {
-    if (!FENCE_OPEN.test(lines[i]!.trim())) continue
-    let end = i + 1
-    while (end < lines.length && lines[end]!.trim() !== '```') end++
-    const code = lines.slice(i + 1, end).join('\n')
-    const unit = code.split('\n').some((l) => DIRECTIVE.test(l.trim()))
+    if (!FENCE_OPEN.test(lines[i]!.trim())) continue;
+    let end = i + 1;
+    while (end < lines.length && lines[end]!.trim() !== '```') end++;
+    const code = lines.slice(i + 1, end).join('\n');
+    const unit = code.split('\n').some((l) => DIRECTIVE.test(l.trim()));
     // A compilation unit has to parse. A fragment of the surface doc may elide with `…` or
     // `{ ... }`, which no parser reads, and is formatted only when it parses.
     if (unit || all) {
-      regions.push({ start: starts[i + 1]!, end: starts[i + 1]! + code.length, strict: unit })
+      regions.push({ start: starts[i + 1]!, end: starts[i + 1]! + code.length, strict: unit });
     }
-    i = end
+    i = end;
   }
-  return regions
+  return regions;
 }
 
 function templateRegions(
   file: string,
   text: string,
 ): { start: number; end: number; strict: boolean }[] {
-  if (!text.includes('use typeshade') || SKIP_MARKER.test(text)) return []
-  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true)
-  const regions: { start: number; end: number; strict: boolean }[] = []
+  if (!text.includes('use typeshade') || SKIP_MARKER.test(text)) return [];
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const regions: { start: number; end: number; strict: boolean }[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isNoSubstitutionTemplateLiteral(node)) {
-      const start = node.getStart(sf) + 1
-      const end = node.getEnd() - 1
-      const raw = text.slice(start, end)
+      const start = node.getStart(sf) + 1;
+      const end = node.getEnd() - 1;
+      const raw = text.slice(start, end);
       if (raw === node.text && DIRECTIVE.test(firstCodeLine(raw))) {
-        regions.push({ start, end, strict: false })
+        regions.push({ start, end, strict: false });
       }
-      return
+      return;
     }
-    ts.forEachChild(node, visit)
-  }
-  visit(sf)
-  return regions
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return regions;
 }
 
 /** Every shader source under `root`, each with the `;` it is missing written in. */
 export function scanShaderSources(root: string): FileReport[] {
-  const rel = (p: string) => relative(root, p).split('\\').join('/')
-  const reports: FileReport[] = []
+  const rel = (p: string) => relative(root, p).split('\\').join('/');
+  const reports: FileReport[] = [];
   for (const path of walk(join(root, 'examples'), (p) => p.endsWith('.shade.ts'))) {
-    const text = readFileSync(path, 'utf8')
-    reports.push(rewriteRegions(rel(path), text, [{ start: 0, end: text.length, strict: true }]))
+    const text = readFileSync(path, 'utf8');
+    reports.push(rewriteRegions(rel(path), text, [{ start: 0, end: text.length, strict: true }]));
   }
   const docs = [
     'README.md',
@@ -175,45 +175,45 @@ export function scanShaderSources(root: string): FileReport[] {
     ...readdirSync(join(root, 'examples'))
       .filter((f) => f.endsWith('.md'))
       .map((f) => `examples/${f}`),
-  ].sort()
+  ].sort();
   for (const file of docs) {
-    const text = readFileSync(join(root, file), 'utf8')
-    reports.push(rewriteRegions(file, text, fenceRegions(file, text)))
+    const text = readFileSync(join(root, file), 'utf8');
+    reports.push(rewriteRegions(file, text, fenceRegions(file, text)));
   }
   const hosts = [
     ...walk(join(root, 'src'), (p) => p.endsWith('.ts')),
     ...walk(join(root, 'examples'), (p) => p.endsWith('.ts') && !p.endsWith('.shade.ts')),
-  ]
+  ];
   for (const path of hosts) {
-    const text = readFileSync(path, 'utf8')
-    reports.push(rewriteRegions(rel(path), text, templateRegions(rel(path), text)))
+    const text = readFileSync(path, 'utf8');
+    reports.push(rewriteRegions(rel(path), text, templateRegions(rel(path), text)));
   }
-  return reports.filter((r) => r.lines.length > 0 || r.errors.length > 0)
+  return reports.filter((r) => r.lines.length > 0 || r.errors.length > 0);
 }
 
 function main(): void {
-  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-  const check = process.argv.includes('--check')
-  const reports = scanShaderSources(root)
-  let missing = 0
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const check = process.argv.includes('--check');
+  const reports = scanShaderSources(root);
+  let missing = 0;
   for (const r of reports) {
-    for (const e of r.errors) console.error(e)
-    if (r.lines.length === 0) continue
-    missing += r.lines.length
-    if (check) console.log(`${r.file}: line ${r.lines.join(', ')}`)
-    else writeFileSync(join(root, r.file), r.text)
+    for (const e of r.errors) console.error(e);
+    if (r.lines.length === 0) continue;
+    missing += r.lines.length;
+    if (check) console.log(`${r.file}: line ${r.lines.join(', ')}`);
+    else writeFileSync(join(root, r.file), r.text);
   }
-  const errors = reports.reduce((n, r) => n + r.errors.length, 0)
-  const files = reports.filter((r) => r.lines.length > 0).length
+  const errors = reports.reduce((n, r) => n + r.errors.length, 0);
+  const files = reports.filter((r) => r.lines.length > 0).length;
   if (check) {
     if (missing > 0)
       console.log(
         `\n${missing} line(s) in ${files} file(s) end a statement without ';'. Run: bun run format:semicolons`,
-      )
+      );
   } else {
-    console.log(`wrote ';' on ${missing} line(s) in ${files} file(s)`)
+    console.log(`wrote ';' on ${missing} line(s) in ${files} file(s)`);
   }
-  if (errors > 0 || (check && missing > 0)) process.exit(1)
+  if (errors > 0 || (check && missing > 0)) process.exit(1);
 }
 
-if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) main()
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) main();

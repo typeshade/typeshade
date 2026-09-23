@@ -38,22 +38,22 @@ import {
   Let,
   u32,
   uniformStruct,
-} from '../src/index.js'
-import { VsOut, vs } from './_fullscreen.js'
-import type { ShaderExample } from './_shared.js'
+} from '../src/index.js';
+import { VsOut, vs } from './_fullscreen.js';
+import type { ShaderExample } from './_shared.js';
 
 // Seed of the Julia set; both components are exactly f32-representable, so the
 // f32 half degrades ONLY through the pixel coordinate — the cleanest A/B.
-const C_RE = -0.8
-const C_IM = 0.156
+const C_RE = -0.8;
+const C_IM = 0.156;
 // On the Julia set beside the repelling fixed point (|2z*| ≈ 3.06 > 1):
 // y is EXACTLY f32-representable (toF32(Im z*)), x is CPU-bisected onto the
 // escape boundary along that line — verified to keep 44+ distinct escape
 // bands per 40² window down to a 1e-12 span, with ~7 surviving row bands on
 // the narrowed f32 side.
-const CENTER_X = 1.5255044073468653
-const CENTER_Y = -0.07591217756271362
-const ITER = 128
+const CENTER_X = 1.5255044073468653;
+const CENTER_Y = -0.07591217756271362;
+const ITER = 128;
 
 const U = uniformStruct(
   'Uniforms',
@@ -64,81 +64,81 @@ const U = uniformStruct(
     zoom_exp: f32T, // view span = 10^-zoom_exp complex units
     fp64: f32T, // toggle: 1 = split-screen f32 | f64 (canonical), 0 = all-f32
   },
-)
+);
 
 const fsJulia = fn(
   'fs_julia',
   { vo: VsOut },
   (p) => {
-    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()))
+    const span = Let(pow(f32(10.0), U.field.zoom_exp.neg()));
     // Each half maps its own 0..1 sub-range onto the SAME complex window
     // (pan lives on the HOST in full double precision — see fp64-mandelbrot.ts).
-    const half = Let(p.vo.uv.x.mul(2.0))
-    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)))
-    const dx = Let(sx.sub(0.5).mul(span))
+    const half = Let(p.vo.uv.x.mul(2.0));
+    const sx = Let(half.sub(p.vo.uv.x.lt(0.5).select(0.0, 1.0)));
+    const dx = Let(sx.sub(0.5).mul(span));
     const dy = Let(
       p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
-    )
+    );
 
-    const it = Var(f32(0))
-    const m2 = Var(f32(0)) // |z|² at escape (frozen once the guard fails)
+    const it = Var(f32(0));
+    const m2 = Var(f32(0)); // |z|² at escape (frozen once the guard fails)
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
       // f32 twin — z₀ built from the narrowed center: at deep zoom the pixel
       // coordinate quantizes to f32 ulps and whole columns collapse.
-      const zx = Var(toF32(U.field.center.x).add(dx))
-      const zy = Var(toF32(U.field.center.y).add(dy))
+      const zx = Var(toF32(U.field.center.x).add(dx));
+      const zy = Var(toF32(U.field.center.y).add(dy));
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
           If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
-            zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
-            zx.assign(nzx)
-            it.assign(it.add(1.0))
-          })
+            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE));
+            zy.assign(zx.mul(zy).mul(2.0).add(C_IM));
+            zx.assign(nzx);
+            it.assign(it.add(1.0));
+          });
         },
-      )
-      m2.assign(zx.mul(zx).add(zy.mul(zy)))
+      );
+      m2.assign(zx.mul(zx).add(zy.mul(zy)));
     }).else(() => {
       // f64 — identical authoring; z₀ keeps its extended-precision position.
-      const zx = Var(U.field.center.x.add(toF64(dx)))
-      const zy = Var(U.field.center.y.add(toF64(dy)))
+      const zx = Var(U.field.center.x.add(toF64(dx)));
+      const zy = Var(U.field.center.y.add(toF64(dy)));
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
           If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE))
-            zy.assign(zx.mul(zy).mul(2.0).add(C_IM))
-            zx.assign(nzx)
-            it.assign(it.add(1.0))
-          })
+            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(C_RE));
+            zy.assign(zx.mul(zy).mul(2.0).add(C_IM));
+            zx.assign(nzx);
+            it.assign(it.add(1.0));
+          });
         },
-      )
-      m2.assign(toF32(zx.mul(zx).add(zy.mul(zy))))
-    })
+      );
+      m2.assign(toF32(zx.mul(zx).add(zy.mul(zy))));
+    });
 
     // Smooth escape time (same log₂ log₂ treatment as fp64-mandelbrot.ts)
     // through a cool cosine palette; interior stays black.
-    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0))
-    const inside = Let(step(f32(ITER).sub(0.5), it))
-    const s = Let(sn.div(ITER))
-    const ph = vec3(0.0, 0.25, 0.6)
+    const sn = Let(it.sub(log2(max(log2(max(m2, 1.0001)), 0.0001))).add(1.0));
+    const inside = Let(step(f32(ITER).sub(0.5), it));
+    const s = Let(sn.div(ITER));
+    const ph = vec3(0.0, 0.25, 0.6);
     const rgb = vec3(0.5)
       .add(cos(ph.add(s.mul(5.5)).add(2.2)).mul(0.5))
       .mul(mix(f32(0.35), f32(1.0), s))
-      .mul(f32(1).sub(inside))
-    return vec4(rgb, f32(1))
+      .mul(f32(1).sub(inside));
+    return vec4(rgb, f32(1));
   },
   { stage: 'fragment', retAttr: '@location(0)' },
-)
+);
 
 // `_fp64` guard lands at (group 0, binding 1) automatically.
 const fp64JuliaModule = module({
   funcs: [vs, fsJulia],
   uses: [U, VsOut],
-})
+});
 
 export const fp64Julia: ShaderExample = {
   id: 'fp64-julia',
@@ -169,4 +169,4 @@ export const fp64Julia: ShaderExample = {
     },
     fp64: { kind: 'toggle', label: 'fp64 emulation', value: true },
   },
-}
+};

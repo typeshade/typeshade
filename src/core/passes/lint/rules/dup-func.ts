@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine.js'
+import type { LintRule } from '../engine.js';
 
 /** Duplicate function name in the module. */
 export const dupFunc: LintRule = {
@@ -8,11 +8,11 @@ export const dupFunc: LintRule = {
   category: 'correctness',
   create: (ctx) => ({
     Module(m) {
-      const seen = new Set<string>()
+      const seen = new Set<string>();
       for (const f of m.funcs) {
-        if (seen.has(f.name)) ctx.report(`duplicate function '${f.name}'`)
-        seen.add(f.name)
+        if (seen.has(f.name)) ctx.report(`duplicate function '${f.name}'`);
+        seen.add(f.name);
       }
     },
   }),
-}
+};
