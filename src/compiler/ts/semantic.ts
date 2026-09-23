@@ -172,12 +172,15 @@ function visit(
       TS_CODES.HOST_STMT,
     );
   }
-  if (ts.isForOfStatement(node) || ts.isForInStatement(node)) {
+  // `for…of` over an array is a counted loop (Rule 7.5) and is lowered in control.ts.
+  // `for…in` enumerates an object's keys, which no shader value has.
+  if (ts.isForInStatement(node)) {
     push(
       diagnostics,
       sourceFile,
       node,
-      'for-of / for-in iterate JS objects. Use a counted `for (let i: i32 = 0; i < N; i++)`.',
+      "for-in enumerates a JS object's keys, which a shader value does not have. Iterate an " +
+        'array with `for (const x of xs)`, or count with `for (let i = 0; i < n; i++)`.',
       TS_CODES.HOST_STMT,
     );
   }

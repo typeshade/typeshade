@@ -1275,6 +1275,43 @@ which loses the device. `examples/loops-over-data.shade.ts` holds all three loop
 uniform-bounded `for`, a stack walk and a converging `while (true)`, and the compile gate runs it
 on Tint and on WebGL2.
 
+**`for (const x of xs)` iterates an array.** It is the other loop a TypeScript author writes
+over data, and it was `TS8013 for-of / for-in iterate JS objects`. Over an `array<T, N>` or a
+runtime-sized storage array it is a counted loop over the indices: the trip count is the array's
+length, which the body cannot change, so there is nothing left to check.
+
+```ts
+"use typeshade";
+
+class Light {
+  pos: vec3;
+  power: f32;
+}
+class Scene {
+  lights: array<Light, 4>;
+}
+declare const scene: uniform<Scene>;
+
+export function lit(p: vec3): f32 {
+  let s = 0.;
+  for (const l of scene.lights) {
+    s += l.power / (1. + distance(p, l.pos));
+  }
+  return s;
+}
+```
+
+It lowers to `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { let l = scene.lights[_i]; … }`,
+with `arrayLength(&xs)` as the bound of a runtime-sized array. The element is read at the top
+of each trip, as TypeScript's array iterator reads it, and `for (let x of xs)` gives a copy the
+body may change without writing the array. `break` and `continue` do what they do in any loop.
+
+Three shapes are refused. A vector is not an array (`TS8003`): index it, or write it into an
+`array<T, N>`. The array has to be a name, or a member or index path to one (`TS8006`), because
+it is read on every trip: `const xs = make(); for (const x of xs)`. And `for…in` stays `TS8013`,
+since a shader value has no keys to enumerate. In the editor the ambient `array` and list types
+are iterable, so the loop type-checks there too.
+
 **Before #203**, three things about the counted loop changed, and they still hold.
 
 **The step may scale, not only add.** The four update forms are `+=`, `-=`, `*=` and `/=`:

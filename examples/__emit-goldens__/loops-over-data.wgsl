@@ -1,3 +1,5 @@
+const WEIGHTS: array<f32, 3> = array<f32, 3>(0.25, 0.5, 0.25);
+
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
@@ -69,8 +71,15 @@ fn isqrt(x: f32) -> f32 {
 
 @fragment
 fn fs(v: VsOut) -> Color {
+  let _licm0 = (v.uv.x * 4.0);
   let ring = march(v.uv, frame.steps);
   let n = f32(leaves(frame.depth));
-  let s = (isqrt((v.uv.x * 4.0)) * 0.5);
+  var s: f32 = 0.0;
+  var k: f32 = 0.0;
+  for (var _i: u32 = 0u; (_i < 3u); _i = (_i + 1u)) {
+    let w = WEIGHTS[_i];
+    s += ((w * isqrt((_licm0 + k))) * 0.5);
+    k += 1.0;
+  }
   return Color(vec4<f32>(ring, fract((n / 7.0)), s, 1.0));
 }

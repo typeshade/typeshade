@@ -149,6 +149,11 @@ const ECMASCRIPT_LIB_STANDINS = new Set([
   'Pick',
   'RegExp',
   'String',
+  // lib.es2015.iterable.d.ts and lib.es2015.symbol.d.ts: what `[Symbol.iterator]` resolves
+  // through, so `for (const x of xs)` type-checks (Rule 7.5). The compiler refuses `Symbol` as a
+  // value (it is a host API), so an author still cannot write it.
+  'Symbol',
+  'SymbolConstructor',
   'console',
 ]);
 

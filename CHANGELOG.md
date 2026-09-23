@@ -221,6 +221,18 @@ uniform control flow`. The rule is now the uniformity walk's verdict, which repo
 
 ### Added
 
+- **`for (const x of xs)` over an array** (Rules 7.2, 7.5). The other loop a TypeScript author
+  writes over data was `TS8013 for-of / for-in iterate JS objects`. Over an `array<T, N>` or a
+  runtime-sized storage array it is now a counted loop over the indices. The element is read at
+  the top of each trip, and `let x` is a copy the body may change. The bound is the array's size,
+  or `arrayLength(&xs)`. A vector (`TS8003`) and an array that is not a name or a path to one
+  (`TS8006`) are refused with the remedy. `for…in` stays `TS8013`, now with a message that names
+  both loops to use instead. The editor used to report TS2488 (the type "must have a
+  `[Symbol.iterator]()` method") on every such loop. The ambient `array<T, N>` and list types are now iterable: the
+  ambient file restates `Symbol` and `SymbolConstructor` as the standard library spells them,
+  and the compiler still refuses `Symbol` as a value. `examples/loops-over-data.shade.ts` weighs
+  its samples with one, on the compile gate.
+
 - **Hover documents every type name the compiler takes.** `TYPE_DOCS` has rows for
   `sampler`, `sampler_comparison` and every `texture_*` name, each with its `declare const` form
   and the capability that keeps it off GLSL ES 3.00 where one does. `DOCUMENTED_TYPE_NAMES` is
