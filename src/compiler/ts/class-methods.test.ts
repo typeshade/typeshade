@@ -313,7 +313,7 @@ export function run(): f32 { let b = new B(); b.bump(); return b.x }${TAIL}`);
 // spells it its own way.
 describe('class members: a method that changes its object', () => {
   const PARTICLES = `"use typeshade";
-declare let ps: storage<array<Particle>>;
+declare const ps: storage<array<Particle>, "read_write">;
 class Particle {
   pos: vec2;
   vel: vec2;

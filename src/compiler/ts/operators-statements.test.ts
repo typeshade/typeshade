@@ -376,7 +376,7 @@ export function g(): vec4 { return fs() }`);
     // A callee that writes survives, and then the emit is the bare call: WGSL takes a user
     // function's dropped result without the phony assignment, which `emit.ts` reserves for a
     // `@must_use` builtin (issue #47).
-    const live = compiled(`declare let dst: storage<array<f32>>
+    const live = compiled(`declare const dst: storage<array<f32>, "read_write">
 export function g(x: f32): f32 { dst[0] = x; return x }
 @compute([64, 1, 1]) export function cs() { _ = g(1.); }`);
     expect(live.wgsl).toContain('  g(1.0);');

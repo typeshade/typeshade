@@ -1,4 +1,4 @@
-// Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 12.7, Rule 6.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -7,7 +7,12 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { analyzeSourceFile, createTypeshadeLanguageServiceWith } from './service.js';
 import { TypeshadeHost, AMBIENT_LIB_URI } from './host.js';
-import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
+import {
+  ATTRIBUTE_NAMES,
+  SHADE_DTS,
+  STORAGE_BUFFER_ACCESS,
+  WGSL_BUILTIN_NAMES,
+} from './ambient.js';
 import { compile } from '../compiler/ts/compile.js';
 
 /** The service with its two halves unmerged. This file is about what TypeScript says over the
@@ -83,7 +88,7 @@ describe('SHADE_DTS: every .shade.ts example produces zero diagnostics', () => {
 describe('a storage array is writable in the editor, as it is in the compiler', () => {
   const kernel = (body: string): string =>
     '"use typeshade"\n' +
-    'declare let out: storage<array<f32>>\n' +
+    'declare const out: storage<array<f32>, "read_write">\n' +
     '@compute([64, 1, 1])\n' +
     'export function k(@builtin("global_invocation_id") gid: vec3u): void {\n' +
     `  ${body}\n` +
@@ -102,6 +107,260 @@ describe('a storage array is writable in the editor, as it is in the compiler', 
     service.openDocument('a.ts', kernel('out.length = 2'));
     const diagnostics = service.getDiagnostics('a.ts');
     expect(diagnostics.some((d) => d.source === 'typescript' && d.code === 2540)).toBe(true);
+  });
+});
+
+// The inverse of the arm above, and the reason the index signature could be made readonly again
+// without bringing back the false positive it was removed for: the readonly-ness is PER BINDING
+// now. `storage<T>` resolves to `ReadView<T>`, whose index signature only permits reading;
+// `storage<T, "read_write">` resolves to `T` itself. The mechanism that once made every compute
+// kernel report TS2542 is back, and it is back only where the declared type asked for it.
+//
+// Measured on main, every one of these read cases reported NO TypeScript error: the compiler's
+// TS8005 was the only refusal, so the editor was silent about a write it would refuse.
+describe("a storage binding's access mode reaches the editor", () => {
+  const program = (head: string, body: string): string =>
+    `"use typeshade"
+interface Item { p: vec2; q: f32 }
+interface Bundle { w: array<f32, 4>; n: f32 }
+${head}
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  ${body}
+}
+`;
+
+  const typescriptDiagnostics = (head: string, body: string): string[] => {
+    const service = ambientService();
+    service.openDocument('a.ts', program(head, body));
+    return service
+      .getDiagnostics('a.ts')
+      .filter((d) => d.source === 'typescript')
+      .map((d) => `${d.code}: ${d.message}`);
+  };
+
+  const READ = 'declare const src: storage<array<f32>>';
+  const WRITE = 'declare const dst: storage<array<f32>, "read_write">';
+
+  it('src[0] = 1. on a read binding reports TS2542', () => {
+    const got = typescriptDiagnostics(READ, 'src[0] = 1.');
+    expect(
+      got.some((d) => d.startsWith('2542: ')),
+      got.join('; '),
+    ).toBe(true);
+  });
+
+  it('src[gid.x] += 1. on a read binding reports TS2542 too', () => {
+    const got = typescriptDiagnostics(READ, 'src[gid.x] += 1.');
+    expect(
+      got.some((d) => d.startsWith('2542: ')),
+      got.join('; '),
+    ).toBe(true);
+  });
+
+  it('dst[0] = 1. on a storage<T, "read_write"> binding reports nothing', () => {
+    expect(typescriptDiagnostics(WRITE, 'dst[0] = 1.')).toEqual([]);
+  });
+
+  it('a read binding still READS clean, which is what the view must not cost', () => {
+    expect(
+      typescriptDiagnostics(
+        `${READ}
+${WRITE}`,
+        'dst[gid.x] = src[gid.x] + f32(src.length)',
+      ),
+    ).toEqual([]);
+  });
+
+  // Surface section 7 says a uniform is read-only, and TypeScript used to be silent about it:
+  // this is the hole Appendix B recorded.
+  it('a field write through a uniform binding reports TS2540', () => {
+    const got = typescriptDiagnostics('declare const u: uniform<Item>', 'u.q = 1.');
+    expect(
+      got.some((d) => d.startsWith('2540: ')),
+      got.join('; '),
+    ).toBe(true);
+  });
+
+  it('keeps length read-only on both modes', () => {
+    for (const [head, name] of [
+      [READ, 'src'],
+      [WRITE, 'dst'],
+    ] as const) {
+      const got = typescriptDiagnostics(head, `${name}.length = 2`);
+      expect(
+        got.some((d) => d.startsWith('2540: ')),
+        `${head} => ${got.join('; ')}`,
+      ).toBe(true);
+    }
+  });
+
+  // The view goes ALL THE WAY DOWN, because WGSL's access mode covers the whole binding: a
+  // struct's array field and an array's struct element are each a place in the same buffer.
+  // Measured, a one-level view left both of these green while the compiler refused them.
+  it('keeps the view deep: b.w[0] = 1. and xs[0].q = 1. on a read binding both report', () => {
+    const bundle = typescriptDiagnostics('declare const b: storage<Bundle>', 'b.w[0] = 1.');
+    expect(
+      bundle.some((d) => d.startsWith('2542: ')),
+      bundle.join('; '),
+    ).toBe(true);
+    const items = typescriptDiagnostics('declare const xs: storage<array<Item>>', 'xs[0].q = 1.');
+    expect(
+      items.some((d) => d.startsWith('2540: ')),
+      items.join('; '),
+    ).toBe(true);
+  });
+
+  it('a read_write binding is writable all the way down as well', () => {
+    expect(
+      typescriptDiagnostics('declare const b: storage<Bundle, "read_write">', 'b.w[0] = 1.'),
+    ).toEqual([]);
+    expect(
+      typescriptDiagnostics('declare const xs: storage<array<Item>, "read_write">', 'xs[0].q = 1.'),
+    ).toEqual([]);
+  });
+
+  // `K extends string | number` is what leaves the SYMBOL-keyed brand alone. Recursing into it
+  // rewrites the tuple it holds, and a read view then stops being a view of its own type:
+  // measured, `length(p.offset)` reported TS2345 and `array<f32, 4>` stopped being assignable to
+  // `array<f32, 4>`.
+  it('passes the brand through, so a read view is still assignable to its own type', () => {
+    expect(
+      typescriptDiagnostics(
+        `declare const xs: storage<array<Item>>
+${WRITE}`,
+        `const it: Item = xs[0]
+  dst[gid.x] = length(it.p) + it.q`,
+      ),
+    ).toEqual([]);
+  });
+
+  // The constraint on the second type argument is what makes a bad word a fast squiggle rather
+  // than something only `compile()` answers.
+  it('refuses an access word outside the two with TS2344', () => {
+    const got = typescriptDiagnostics(
+      'declare const bad: storage<array<f32>, "write">',
+      'bad[0] = 1.',
+    );
+    expect(
+      got.some((d) => d.startsWith('2344: ')),
+      got.join('; '),
+    ).toBe(true);
+  });
+
+  // TS2314 is the TYPE-alias arity code; the call form `uniform<Item, "read">()` is TS2558.
+  // `uniform<T>` keeps its one type parameter on purpose: a uniform buffer is read-only in
+  // WGSL, so there is no mode to write, and the arity alone says so.
+  it('refuses a second type argument on a uniform with TS2314', () => {
+    const got = typescriptDiagnostics('declare const cam: uniform<Item, "read">', 'cam.q');
+    expect(
+      got.some((d) => d.startsWith('2314: ')),
+      got.join('; '),
+    ).toBe(true);
+  });
+
+  // A method survives the view, which is the arm the recursion needs: without it `cam.scaled`
+  // measured as `{}` with zero call signatures, and because `lib: []` leaves `{}` with no "not
+  // callable" error to report, `cam.scaled(2.)` typed silently as `any`.
+  it('keeps a class-typed read binding callable, and its fields read-only', () => {
+    const head = `class Camera {
+  view: vec4 = vec4(0.)
+  fov: f32 = 1.
+  scaled(k: f32): f32 { return this.fov * k }
+}
+declare const cam: storage<Camera>
+${WRITE}`;
+    expect(typescriptDiagnostics(head, 'dst[gid.x] = cam.scaled(2.)')).toEqual([]);
+    const write = typescriptDiagnostics(head, 'cam.fov = 1.');
+    expect(
+      write.some((d) => d.startsWith('2540: ')),
+      write.join('; '),
+    ).toBe(true);
+  });
+
+  // A LOCAL and a PARAMETER never reach `ReadView`: only a binding's declared type does. The
+  // compiler has its own refusals for both, and the editor must not add a second one.
+  it('leaves a local array alone', () => {
+    expect(
+      typescriptDiagnostics(
+        WRITE,
+        `const xs: array<f32, 3> = array<f32, 3>(1., 2., 3.)
+  xs[0] = 4.
+  dst[gid.x] = xs[0]`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+// SHADE_DTS IS AUTHOR-FACING TEXT, not an internal comment: `scripts/emit-shade-dts.ts` writes
+// it verbatim to `dist/shade.d.ts` and it is what hover shows. Two of its doc comments still
+// told an author that a binding is transparent after the read view had made that false, which
+// no test could see, because every other arm here reads the library's TYPES and none read its
+// prose. These two sentences are pinned as gone.
+describe("the library's prose says what its types do", () => {
+  it('no longer calls a uniform or a read storage binding transparent', () => {
+    expect(SHADE_DTS).not.toContain('Transparent for the same reason as `uniform<T>`');
+    expect(SHADE_DTS).not.toContain('Transparent like `storage<T>`');
+  });
+
+  it('says what each wrapper resolves to now', () => {
+    // `override<T>` and `workgroup<T>` ARE transparent, for reasons of their own: an override
+    // is fixed before the shader runs and workgroup memory has no access mode in WGSL at all.
+    expect(SHADE_DTS).toContain('TRANSPARENT, which `uniform<T>` no longer is');
+    expect(SHADE_DTS).toContain('TRANSPARENT, which `storage<T>` no longer is');
+  });
+});
+
+// ONE LIST, AND A TEST THAT SAYS SO. The claim that the words the editor accepts and the words
+// the front end reads cannot drift was a comment: the union's TEXT was generated from
+// `STORAGE_BUFFER_ACCESS`, but nothing walked the array against either layer, and the parser
+// narrowed through two words written out by hand. Both halves are pinned here, from the array
+// itself, so a word added to it must reach the declaration, the union and the editor together
+// (`declare-bind.test.ts` walks the same array against the compiler).
+describe('the two access words are one list', () => {
+  const binding = (access: string): string =>
+    `"use typeshade"
+declare const dst: storage<array<f32>, ${access}>
+@compute([64, 1, 1])
+export function k(@builtin("global_invocation_id") gid: vec3u): void {
+  dst[gid.x] = 1.
+}
+`;
+
+  const diagnosticsOf = (source: string): string[] => {
+    const service = ambientService();
+    service.openDocument('access.ts', source);
+    return service
+      .getDiagnostics('access.ts')
+      .filter((d) => d.source === 'typescript')
+      .map((d) => `${d.code}: ${d.message}`);
+  };
+
+  it("generates the library's union from the compiler's array", () => {
+    expect(SHADE_DTS).toContain(
+      `type StorageBufferAccess = ${STORAGE_BUFFER_ACCESS.map((w) => `'${w}'`).join(' | ')}`,
+    );
+  });
+
+  it('accepts every word in the array', () => {
+    for (const word of STORAGE_BUFFER_ACCESS) {
+      const got = diagnosticsOf(binding(`"${word}"`));
+      // `"read"` leaves the write below it as TS2542, which is the point of the read view;
+      // what must not appear is a complaint about the WORD.
+      expect(
+        got.filter((d) => d.startsWith('2344: ')),
+        `${word} => ${got.join('; ')}`,
+      ).toEqual([]);
+    }
+  });
+
+  it('refuses a word outside it, against the union by name', () => {
+    const got = diagnosticsOf(binding('"write_only"'));
+    expect(
+      got.some((d) => d.startsWith('2344: ')),
+      got.join('; '),
+    ).toBe(true);
+    expect(got.join('; ')).toContain("'StorageBufferAccess'");
   });
 });
 
@@ -621,7 +880,7 @@ export function fs(@builtin("position") p: vec4): vec4 {
     'textureLoad with a vec3 coordinate on a 2d storage texture': {
       from: ['typescript 2345', 'typeshade TS8041'],
       src: `declare const src: texture_storage_2d<"r32float", "read">
-declare let out: storage<array<vec4>>
+declare const out: storage<array<vec4>, "read_write">
 @compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
   out[gid.x] = textureLoad(src, vec3i(0, 0, 0))
@@ -642,7 +901,7 @@ export function fs(@builtin("position") p: vec4): vec4 {
     // G34: an atomic in a vertex entry (wgsl.txt:25422). A stage rule: compiler only.
     'atomicAdd in a vertex entry': {
       from: ['typeshade TS8099'],
-      src: `declare let total: storage<atomic<u32>>
+      src: `declare const total: storage<atomic<u32>, "read_write">
 ${VS_HEAD}export function vs(@builtin("vertex_index") i: u32): Clip {
   const n = atomicAdd(total, 1)
   return { pos: vec4(f32(n), 0., 0., 1.) }

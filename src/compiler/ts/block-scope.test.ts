@@ -124,7 +124,7 @@ export function fs(): vec4 {
 
   it('a local that shadows a resource binding is renamed; the binding keeps its name', () => {
     const r = compile(`"use typeshade";
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x > 0) {

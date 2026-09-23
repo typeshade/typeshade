@@ -7,7 +7,14 @@ import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { isF64, isVec, isVec64, typeKey, u32T } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
-import { LoweringScope, irNameOf, readOnlyPhrase, writeRules, type Binding } from '../context.js';
+import {
+  LoweringScope,
+  irNameOf,
+  readOnlyPhrase,
+  writableRemedy,
+  writeRules,
+  type Binding,
+} from '../context.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { parseSwizzle } from '../swizzle.js';
 import { staticThisClass } from '../class-names.js';
@@ -1468,7 +1475,16 @@ export function lowerLValue(
     // The root of the chain decides writability, exactly as it does for a member target:
     // `cam.xs[i] = 1.` on a uniform and `p.xs[i] = 1.` on a parameter used to reach the
     // backend, because the binding was resolved only when the base was a bare identifier.
-    if (!checkRootWritable(node, sourceFile, scope, diagnostics)) return undefined;
+    //
+    // THE ROOT'S ACCESS MODE IS CHECKED LAST, for the reason {@link lowerMemberLValue} checks
+    // it last: the read-only refusal names the declaration that WOULD permit the write, and an
+    // element that is not a place on ANY mode has no such declaration. Measured: `md[0] = …`
+    // on `storage<mat3<f64>>` read `Cannot assign to "md" … Write "declare const md:
+    // storage<mat3x3<f64>, "read_write">" to write to it.`, and with that declaration the
+    // program is still refused, `TS8003 Cannot index mat3x3<f64>` — an f64 matrix is not
+    // indexable on either mode. The root's IDENTITY is still checked first, so an unknown
+    // name, a parameter and a `this` outside a method keep their sentences.
+    if (!checkRootNamed(node, sourceFile, scope, diagnostics)) return undefined;
     const baseExpr = lowerExpression(node.expression, sourceFile, scope, diagnostics);
     if (
       baseExpr !== undefined &&
@@ -1497,6 +1513,7 @@ export function lowerLValue(
       refuseWriteThroughGetter(node, getter, sourceFile, diagnostics);
       return undefined;
     }
+    if (!checkRootMutable(node, sourceFile, scope, diagnostics)) return undefined;
     // The lvalue carries its own span (docs/debugging.md §5 decision 3): a debugger stopped on
     // this statement can highlight what is about to change, not just the line it is on.
     return withSpan(idx, sourceFile, node);
@@ -1544,7 +1561,7 @@ export function lowerLValue(
       node,
       into && rules.kind === 'local' && isComposite(rules.type)
         ? constCopyWrite(node.text)
-        : `Cannot assign to "${node.text}" — it is ${ro}.`,
+        : `Cannot assign to "${node.text}" — it is ${ro}.${writableRemedy(rules, sourceFile)}`,
       TS_CODES.CONST_ASSIGN,
     );
     return undefined;
@@ -1631,8 +1648,29 @@ function unwrapParens(node: ts.Expression): ts.Expression {
 /** The writability of the binding at the root of a member or element chain, diagnosed. Shared
  *  by both branches of {@link lowerLValue} so a write through a field and a write through an
  *  element answer the same way: a write lands on the root, so the root is what has to accept
- *  it. Returns false having pushed a diagnostic. */
+ *  it. Returns false having pushed a diagnostic.
+ *
+ *  It is the two halves below run in order. The member and element branches run them APART,
+ *  with the "is this a place at all" check between: see {@link lowerMemberLValue} and the
+ *  element arm of {@link lowerLValue}. */
 function checkRootWritable(
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  /** The write lands inside `node`, on a field or an element of it, and not on `node`. */
+  into = false,
+): boolean {
+  return (
+    checkRootNamed(node, sourceFile, scope, diagnostics, into) &&
+    checkRootMutable(node, sourceFile, scope, diagnostics, into)
+  );
+}
+
+/** The first half: the root of the chain names something that could be written — not a
+ *  parenthesised expression, not an unknown name, not a parameter, not a `this` outside a
+ *  method. Returns false having pushed a diagnostic. */
+function checkRootNamed(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
@@ -1733,6 +1771,29 @@ function checkRootWritable(
     );
     return false;
   }
+  return true;
+}
+
+/** The second half: the binding at the root accepts a write. Returns false having pushed a
+ *  diagnostic. Run only after {@link checkRootNamed}, which is what guarantees the root
+ *  resolves. */
+function checkRootMutable(
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+  /** The write lands inside `node`, on a field or an element of it, and not on `node`. */
+  into = false,
+): boolean {
+  const root = rootLValueName(node);
+  if (!root) return true;
+  // A static root was judged whole by {@link checkRootNamed} (Rule 8.13).
+  if (staticRootOf(node, scope, sourceFile, into) !== undefined) return true;
+  const rootName = ts.isIdentifier(root) ? root.text : 'this';
+  const binding = scope.resolve(rootName);
+  if (!binding) return true;
+  // A captured variable's parameter keeps the variable's rules (Rule 8.17).
+  const rules = writeRules(binding);
   if (!rules.mutable) {
     // A write INTO a local `const`, not to the name: TypeScript allows it (Rule 6.10).
     const through = into || !ts.isIdentifier(unwrapParens(node));
@@ -1750,7 +1811,8 @@ function checkRootWritable(
       node,
       through && rules.kind === 'local' && isComposite(rules.type)
         ? constCopyWrite(rootName)
-        : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(rules.kind)}.`,
+        : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(rules.kind)}.` +
+            writableRemedy(rules, sourceFile),
       TS_CODES.CONST_ASSIGN,
     );
     return false;
@@ -1797,7 +1859,17 @@ function lowerMemberLValue(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  if (!checkRootWritable(node.expression, sourceFile, scope, diagnostics, true)) return undefined;
+  // THE ROOT'S ACCESS MODE IS CHECKED LAST, after the target is known to be a place at all,
+  // because the read-only refusal now names the declaration that WOULD permit the write
+  // (design rule 6.2) and that declaration does not permit a write to something no access mode
+  // makes assignable. Measured: `src.length = 2` on a read binding read `Cannot assign to
+  // "src" … Write "declare const src: storage<array<f32>, "read_write">" to write to it.`, and
+  // with that declaration the program is still refused, `TS8018 Cannot assign to "src.length"`.
+  // "Last" is the bottom of this function, not the middle of it: the lane and swizzle refusals
+  // below are the same kind of thing as the one above.
+  // The root's IDENTITY is still checked first, so an unknown name, a parameter and a `this`
+  // outside a method keep the sentences they had, in the order they had them.
+  if (!checkRootNamed(node.expression, sourceFile, scope, diagnostics, true)) return undefined;
   const target = lowerExpression(node, sourceFile, scope, diagnostics);
   if (!target) return undefined;
   // A write through what a getter returns lands on a copy (Rule 8.11): `o.pos.x = 1.` with
@@ -1832,6 +1904,13 @@ function lowerMemberLValue(
     );
     return undefined;
   }
+  // LAST, once every "this is no place" refusal above has had its turn: all three of them —
+  // `.length`, an emulated-double lane and a multi-component swizzle — hold on either access
+  // mode, so a read-only sentence naming the writable declaration would name a line the next
+  // compile refuses. Measured: `dv[0].x = f64(1.)` and `v.xy = vec2(1., 2.)` on a read binding
+  // each drew `TS8005 … Write "declare const … "read_write">"`, and with that declaration each
+  // is `TS8018`.
+  if (!checkRootMutable(node.expression, sourceFile, scope, diagnostics, true)) return undefined;
   return target;
 }
 

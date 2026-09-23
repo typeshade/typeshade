@@ -45,7 +45,7 @@ describe('module const', () => {
       "use typeshade";
       const WINDOW: u32 = 8;
       declare const input: storage<array<f32>>;
-      declare let output: storage<array<f32>>;
+      declare const output: storage<array<f32>, "read_write">;
       @compute([64, 1, 1])
       export function reduce_windows(@builtin("global_invocation_id") gid: vec3u): void {
         let sum = 0.;

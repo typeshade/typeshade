@@ -22,7 +22,7 @@ import { TS_CODES } from './codes.js';
 
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= u32(src.length)) { return; }
@@ -50,7 +50,7 @@ describe('#46 — a runtime-sized storage array reads its length from the buffer
     // now a counted loop, and the length reaches the header as the buffer's own.
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   for (let i: u32 = 0; i < src.length; i++) { dst[gid.x] = dst[gid.x] + src[i]; }
@@ -65,7 +65,7 @@ export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   it('a storage array read WITHOUT .length still compiles and emits', () => {
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32>>;
-declare let dst: storage<array<f32>>;
+declare const dst: storage<array<f32>, "read_write">;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   dst[gid.x] = src[gid.x] * 2.;
@@ -176,7 +176,7 @@ export function fs(): vec4 {
   it('a sized storage binding keeps its length', () => {
     const r = compileTsSource(`"use typeshade";
 declare const src: storage<array<f32, 8>>;
-declare let dst: storage<array<f32, 8>>;
+declare const dst: storage<array<f32, 8>, "read_write">;
 @compute([64, 1, 1])
 export function main_k(@builtin("global_invocation_id") gid: vec3u): void {
   if (gid.x >= u32(src.length)) { return; }

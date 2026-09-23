@@ -114,7 +114,7 @@ export function fs(): vec4 {
 
     // A compute-only module has no GLSL stage to miss, so its GLSL refusal is not news.
     const compute = `"use typeshade";
-declare let data: storage<array<f32>>;
+declare const data: storage<array<f32>, "read_write">;
 
 @compute([64])
 export function main(@builtin("global_invocation_id") gid: vec3u) {

@@ -25,7 +25,7 @@
 // The diff goldens in `shade-twins.test.ts` pin what the remaining differences cost.
 
 declare const input: storage<array<f32>>;
-declare let output: storage<array<f32>>;
+declare const output: storage<array<f32>, "read_write">;
 // .x = number of output elements (one reduced window each).
 declare const params: uniform<vec4u>;
 

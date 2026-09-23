@@ -495,7 +495,7 @@ export function f(): f32 {
   return x * 2.;
 }
 `,
-      'needs declare: declare let x: uniform<f32>.',
+      'needs declare: write "declare const x: uniform<f32>".',
     );
   });
 

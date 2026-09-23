@@ -104,7 +104,7 @@ describe('GLSL ES 3.00 spells it inout, with no pointer and one function', () =>
 
 describe('one WGSL function per address space its calls use', () => {
   const SPACES = `"use typeshade";
-declare let ps: storage<array<P>>;
+declare const ps: storage<array<P>, "read_write">;
 let held: P = { v: 0. };
 class P {
   v: f32;
@@ -163,7 +163,7 @@ describe('a write through a reference is an effect', () => {
 
   it("the caller writes what the argument is rooted at, not the callee's word for it", () => {
     const r = compile(`"use typeshade";
-declare let ps: storage<array<P>>;
+declare const ps: storage<array<P>, "read_write">;
 class P {
   v: f32;
   bump(d: f32): void {
@@ -214,7 +214,7 @@ export function fs(): vec4 {
 
   it('a dispatch writes through to the storage buffer', () => {
     const r = compile(`"use typeshade";
-declare let ps: storage<array<P>>;
+declare const ps: storage<array<P>, "read_write">;
 class P {
   v: f32;
   bump(d: f32): void {
