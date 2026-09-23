@@ -84,7 +84,7 @@ describe('vec64 lowering', () => {
     expect(lowered.bindings.some((b) => b.name === FP64_GUARD_NAME)).toBe(true)
     const wgsl = emitModule(module({ funcs: [k] }))
     expect(wgsl).toContain('fn k(a: DF64Vec3, b: DF64Vec3) -> DF64Vec3')
-    expect(wgsl).toContain('df64_v3_mul(df64_v3_add(a, b), a)')
+    expect(wgsl).toContain('df64_v3_mul(df64_v3_add(a, b, _fp64_g), a, _fp64_g)')
   })
 
   it('components/swizzles reassemble from the hi/lo planes', () => {
@@ -97,7 +97,7 @@ describe('vec64 lowering', () => {
     const k = fn('k', { a: vec2f64T, b: vec2f64T }, (p) => toF32(dot(p.a, p.b)))
     const wgsl = emitModule(module({ funcs: [k] }))
     expect(wgsl).toContain(
-      'df64_add(df64_mul(vec2<f32>(a.hi.x, a.lo.x), vec2<f32>(b.hi.x, b.lo.x)), df64_mul(vec2<f32>(a.hi.y, a.lo.y), vec2<f32>(b.hi.y, b.lo.y)))',
+      'df64_add(df64_mul(vec2<f32>(a.hi.x, a.lo.x), vec2<f32>(b.hi.x, b.lo.x), _fp64_g), df64_mul(vec2<f32>(a.hi.y, a.lo.y), vec2<f32>(b.hi.y, b.lo.y), _fp64_g), _fp64_g)',
     )
   })
 

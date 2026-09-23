@@ -23,7 +23,9 @@
 // emulation helper additionally gets the `_fp64` guard uniform AUTO-INJECTED
 // (see injectGuard below; a conflicting `_fp64`/`Fp64Guard` declaration is
 // SD0042) — the host writes 1.0f into it (df64-lib's header explains why the
-// guard must be a runtime input).
+// guard must be a runtime input). The guard is read ONCE per function that calls
+// a helper and handed down as a parameter, never fetched per helper call (see
+// "The guard: fold its chains, read it once per function" below).
 //
 // Wiring: inside lowerForBackend (core/emit.ts), AFTER match-lower and BEFORE
 // the backend optimizer — so WGSL, GLSL, and any future backend lower
@@ -46,7 +48,7 @@ import type {
   CmpOp,
 } from '../ir/nodes.js'
 import { stageOf } from '../ir/nodes.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
+import { eachExpr, eachStmtExpr, mapChildren, mapStmtExpr } from '../ir/visit.js'
 import { F64_SCALAR_TWIN_FN, F64_VEC_TWIN_KIND } from '../fp64/twins.js'
 import {
   type ShaderType,
@@ -881,26 +883,223 @@ function helperClosure(
   return order.filter((d) => need.has(d.name))
 }
 
-/** Does any helper body actually fetch the `f64Guard` intrinsic? The EFT helpers
- *  (add/mul/twoSum/…) do; the comparisons (df64_lt/le/gt/ge/eq/ne) and df64_narrow
- *  do NOT — they carry no error term to protect. Injecting the `_fp64` binding for
- *  a comparison-ONLY closure would declare a binding the shader never reads, which
- *  WebGPU `layout:'auto'` (Tint/Dawn) strips from the derived bind-group layout →
- *  a bind-group mismatch → a no-op draw on D3D12/NVIDIA (WebKit keeps the unused
- *  binding, GLSL has no such layout — hence the WGSL-only, vendor-specific break).
- *  So only inject when a used helper truly references the guard. */
-function helpersUseGuard(decls: readonly FuncDecl[]): boolean {
-  let found = false
+// ── The guard: fold its chains, read it once per function ──
+//
+// Every error term in a float helper body rides the runtime-opaque ONE, the `f64Guard`
+// intrinsic (df64-lib's header says why it has to be a runtime input). The registry writes
+// it where it GUARDS, inside each helper body, and read there it is a texel fetch per helper
+// CALL: `acc * k + c` in a loop fetched eight times per iteration, every one inside the loop.
+// Its value never changes within an invocation, so three rewrites move it:
+//
+//   1. foldGuardChain (here) — `guard(guard(x))` is `guard(x)`: `(x * G) * G` becomes
+//      `x * G`. Once a value is a product with the opaque G, no compiler can prove it equal
+//      to anything it could fold, and multiplying it by G again proves nothing more. The
+//      value is the same too: at run time G is 1.0, and `x * 1.0` is exact.
+//   2. threadHelper (here) — a helper that reads the guard, directly or through a helper it
+//      calls, takes it as a trailing `_fp64_g: f32` parameter instead of fetching it, and
+//      every call of such a helper from the module's own functions passes the FETCH itself
+//      as that argument.
+//   3. hoistGuardFetch (after the optimizer, core/emit.ts) — a function whose body fetches
+//      the guard reads it ONCE, into a `let _fp64_g` at the top of its body, and every
+//      fetch becomes that name. A loop in an entry reads the guard before the loop starts.
+//
+// WHY THE READ MOVES AFTER THE OPTIMIZER, NOT HERE. Until step 3 the fetch is an argument
+// that reads only a binding, so a df64 call over loop-invariant operands is as input-only as
+// it was when the helper fetched the guard itself: LICM still hoists `df64_mul(k, k, G)` out
+// of a loop and CSE still shares it. Bound to a `let` here, the call would reference a LOCAL,
+// and LICM (which hoists only what references no local) would leave it inside the loop,
+// recomputed every iteration. The optimizer treats the fetch as a leaf for the same reason
+// (opt/expr-utils.ts `isCompound`): binding it to a CSE temp would localise every call that
+// carries it. Step 3 runs after every optimizer tier, so the single read holds at O0 too.
+//
+// WHY A PARAMETER AND NOT A MODULE-SCOPE VARIABLE. WGSL's uniformity analysis treats a read
+// of `var<private>` as non-uniform, so a guard held in one would make every df64 value
+// non-uniform, and with it every branch an f64 comparison decides. Measured with Tint: an f64
+// comparison that decides a branch around `textureSample` is REFUSED with the guard in a
+// `var<private>` and ACCEPTED with it passed as a parameter from a `let` at the top of the
+// entry. A texel load at a constant coordinate is uniform, and a parameter is as uniform as
+// its arguments.
+//
+// WHY IT STAYS A RUNTIME VALUE. The `let` holds the FETCH, never the literal 1.0 the fetch
+// returns, and the helpers receive it as a parameter. Nothing downstream may treat it as a
+// constant, and nothing can: const-prop substitutes only literal bindings, copy-prop only bare
+// copies, and a `call` is neither. A guard a compiler could infer is 1.0 would guard nothing.
+//
+// User functions keep their signatures: the metamorphic gates call them by name on the
+// lowered module (`compileModule(fp64Lower(m)).fns.k(...)`), and a stage entry's signature is
+// its IO contract. Each one that calls a guarded helper therefore reads the texel once itself.
+
+/** The name of the guard VALUE: the parameter a guarded helper takes, and the `let` a
+ *  function that fetches the guard reads it into (hoistGuardFetch). */
+const GUARD_VALUE = '_fp64_g'
+
+const isGuardFetch = (x: Expr): boolean => x.op === 'call' && x.fn === 'f64Guard'
+
+/** One read of the guard texel. */
+const guardFetch = (): Expr => ({ op: 'call', type: f32T, fn: 'f64Guard', args: [] })
+
+/** `x` already rides the guard: the guard itself, or a product with it. */
+const isGuarded = (x: Expr): boolean =>
+  isGuardFetch(x) || (x.op === 'binop' && x.bop === '*' && (isGuardFetch(x.a) || isGuardFetch(x.b)))
+
+/** `guard(guard(x))` → `guard(x)`, bottom-up over one expression tree: a product with the
+ *  guard whose other factor already rides the guard IS that factor. Folds `(x * G) * G`,
+ *  `G * (x * G)` and `G * G`. Exported for its unit test; not part of the package surface. */
+export function foldGuardChain(e: Expr): Expr {
+  const r = mapChildren(e, foldGuardChain)
+  if (r.op !== 'binop' || r.bop !== '*') return r
+  const other = isGuardFetch(r.b) ? r.a : isGuardFetch(r.a) ? r.b : undefined
+  return other !== undefined && isGuarded(other) && typeKey(other.type) === typeKey(r.type)
+    ? other
+    : r
+}
+
+/** The helpers that need the guard: those whose body fetches it, and, to a fixpoint, those
+ *  that call one that does, because they have to hand it on. Whether a helper is in the set
+ *  depends only on the helper and its callees, so the answer over a whole registry is the
+ *  answer over any closure of it. */
+function guardUsers(decls: readonly FuncDecl[]): Set<string> {
+  const users = new Set<string>()
+  const callees = new Map<string, string[]>()
   for (const d of decls) {
+    let reads = false
     for (const s of d.body)
       eachStmtExpr(s, (e) =>
         eachExpr(e, (x) => {
-          if (x.op === 'call' && x.fn === 'f64Guard') found = true
+          if (isGuardFetch(x)) reads = true
         }),
       )
-    if (found) return true
+    if (reads) users.add(d.name)
+    callees.set(d.name, helperCallees(d))
   }
+  for (let grew = true; grew;) {
+    grew = false
+    for (const [name, cs] of callees)
+      if (!users.has(name) && cs.some((c) => users.has(c))) {
+        users.add(name)
+        grew = true
+      }
+  }
+  return users
+}
+
+/** Every guard fetch in `e` becomes `g`, and every call of a guard user gains `g` as its
+ *  trailing argument. */
+function passGuard(e: Expr, users: ReadonlySet<string>, g: Expr): Expr {
+  if (isGuardFetch(e)) return g
+  const r = mapChildren(e, (c) => passGuard(c, users, g))
+  if (r.op !== 'call' || !users.has(r.fn)) return r
+  // `declRef` would still name the decl WITHOUT the guard parameter. Nothing after module
+  // assembly reads it (ir/nodes.ts), so it is dropped rather than left pointing at a
+  // signature the call no longer matches.
+  const { declRef: _stale, ...call } = r
+  return { ...call, args: [...r.args, g] }
+}
+
+/** A registry helper with its guard chains folded and, when it is a guard user, its guard
+ *  taken as the trailing `_fp64_g` parameter. */
+function threadHelper(d: FuncDecl, users: ReadonlySet<string>): FuncDecl {
+  if (!users.has(d.name)) return d
+  const g: Expr = { op: 'param', type: f32T, name: GUARD_VALUE }
+  return {
+    ...d,
+    params: [...d.params, { name: GUARD_VALUE, type: f32T }],
+    body: d.body.map((s) => mapStmtExpr(s, (e) => passGuard(foldGuardChain(e), users, g))),
+  }
+}
+
+/** Every name `f` binds: its parameters and each `let` / `var` at any depth. */
+function boundNames(f: FuncDecl): Set<string> {
+  const names = new Set(f.params.map((p) => p.name))
+  const visit = (s: Stmt): void => {
+    if (s.s === 'let' || s.s === 'var') names.add(s.name)
+    eachStmtExpr(s, () => {}, visit)
+  }
+  for (const s of f.body) visit(s)
+  return names
+}
+
+/** Does `f`'s body contain an expression `hit` accepts? */
+function bodyHas(f: FuncDecl, hit: (x: Expr) => boolean): boolean {
+  let found = false
+  for (const s of f.body)
+    eachStmtExpr(s, (e) =>
+      eachExpr(e, (x) => {
+        if (hit(x)) found = true
+      }),
+    )
   return found
+}
+
+/** `f` already has the shape hoistGuardFetch gives it: its first statement binds the one
+ *  fetch in its body. A second run leaves it alone rather than binding the binding. */
+function readsGuardOnce(f: FuncDecl): boolean {
+  const first = f.body[0]
+  if (first?.s !== 'let' || !isGuardFetch(first.expr)) return false
+  let n = 0
+  for (const s of f.body)
+    eachStmtExpr(s, (e) =>
+      eachExpr(e, (x) => {
+        if (isGuardFetch(x)) n++
+      }),
+    )
+  return n === 1
+}
+
+/** Read the fp64 guard once per function: a function whose body fetches the guard texel
+ *  gets `let _fp64_g = <fetch>` as its first statement, and every fetch in it becomes that
+ *  name. Step 3 of "The guard" above; `core/emit.ts` runs it after every optimizer tier, and
+ *  it is the identity (the same object) for a module that never fetches the guard. The
+ *  helpers {@link fp64Lower} injects take the guard as a parameter, so after this a module
+ *  reads the texel at most once per function execution. */
+export function hoistGuardFetch(m: ModuleDecl): ModuleDecl {
+  if (!m.funcs.some((f) => bodyHas(f, isGuardFetch) && !readsGuardOnce(f))) return m
+  const replace = (g: Expr): ((e: Expr) => Expr) => {
+    const r = (e: Expr): Expr => (isGuardFetch(e) ? g : mapChildren(e, r))
+    return r
+  }
+  // A module-scope name the `let` would shadow is taken too: a function reading that
+  // binding, constant or variable must still reach it.
+  const moduleNames = new Set<string>([
+    ...m.bindings.map((b) => b.name),
+    ...m.consts.map((c) => c.name),
+    ...(m.vars ?? []).map((v) => v.name),
+    ...(m.externs ?? []).map((v) => v.name),
+    ...(m.overrides ?? []).map((o) => o.name),
+    ...m.funcs.map((f) => f.name),
+  ])
+  const funcs = m.funcs.map((f) => {
+    if (!bodyHas(f, isGuardFetch) || readsGuardOnce(f)) return f
+    const taken = boundNames(f)
+    let name = GUARD_VALUE
+    for (let i = 1; taken.has(name) || moduleNames.has(name); i++) name = `${GUARD_VALUE}${i}`
+    const to = replace({ op: 'varref', type: f32T, name })
+    return {
+      ...f,
+      body: [
+        { s: 'let' as const, name, expr: guardFetch() },
+        ...f.body.map((s) => mapStmtExpr(s, to)),
+      ],
+    }
+  })
+  return { ...m, funcs }
+}
+
+/** A registry's guard users and its helpers rewritten for them, computed once per registry:
+ *  the rewrite is a pure function of the registry, and a module takes a closure of it. */
+interface GuardPlan {
+  readonly users: ReadonlySet<string>
+  readonly helpers: ReadonlyMap<string, FuncDecl>
+}
+const GUARD_PLANS = new WeakMap<readonly FuncDecl[], GuardPlan>()
+function guardPlan(order: readonly FuncDecl[]): GuardPlan {
+  let plan = GUARD_PLANS.get(order)
+  if (plan === undefined) {
+    const users = guardUsers(order)
+    plan = { users, helpers: new Map(order.map((d) => [d.name, threadHelper(d, users)])) }
+    GUARD_PLANS.set(order, plan)
+  }
+  return plan
 }
 
 // ── Guard auto-injection ──
@@ -920,14 +1119,17 @@ function helpersUseGuard(decls: readonly FuncDecl[]): boolean {
 // SD0042 — the emulation would be precision-dead against a mis-shaped guard.
 
 function injectGuard(bindings: BindingDecl[]): void {
-  const existing = bindings.find((b) => b.name === FP64_GUARD_NAME)
-  if (existing) {
+  const at = bindings.findIndex((b) => b.name === FP64_GUARD_NAME)
+  if (at >= 0) {
+    const existing = bindings[at]!
     if (typeKey(existing.type) !== typeKey(FP64_GUARD_TYPE)) {
       throw dslError(
         'SD0042',
         `binding '${FP64_GUARD_NAME}' exists but is ${existing.space} ${typeKey(existing.type)}`,
       )
     }
+    // A guard declared by hand with no qualifier still reads at highp on GLSL (below).
+    if (existing.precision === undefined) bindings[at] = { ...existing, precision: 'highp' }
   } else {
     const g0 = bindings.filter((b) => b.group === 0)
     const slot = g0.length ? Math.max(...g0.map((b) => b.binding)) + 1 : 0
@@ -937,6 +1139,11 @@ function injectGuard(bindings: BindingDecl[]): void {
       name: FP64_GUARD_NAME,
       space: 'uniform',
       type: FP64_GUARD_TYPE,
+      // GLSL ES 3.00 gives `sampler2D` a DEFAULT precision of lowp, in both stages, and a
+      // texel fetch returns its sampler's precision. 1.0 is exact at lowp, so the guard
+      // reads correctly without this; it is what keeps it correct if the guard ever holds
+      // a value lowp cannot, and under a host preamble that lowers the default.
+      precision: 'highp',
     })
   }
 }
@@ -959,6 +1166,10 @@ function injectGuard(bindings: BindingDecl[]): void {
  *  When an injected helper reads the runtime guard, the pass also declares the `_fp64` guard
  *  binding at group 0, first index past the module's own group-0 bindings. Declare
  *  {@link fp64Guard} in the module to pin that slot yourself. The host writes `1.0` into it.
+ *  Those helpers take the guard as a trailing `_fp64_g: f32` parameter rather than fetching
+ *  it themselves, and every call of one from the module's own functions passes the texel
+ *  fetch as that argument. The emit functions then read it once per function, into a `let`
+ *  named `_fp64_g` at the top of the body, after the optimizer has run.
  *
  *  The emit functions run this pass for you; pass `fp64Flavor` in {@link EmitOptions} to select
  *  the flavour there. Call it directly when you want to inspect the lowered module.
@@ -1087,8 +1298,34 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   // because this is the ONLY route by which a df64 helper enters a module — the
   // `df64_` prefix is reserved (SD0043) and authors never list them — so one site
   // covers both the float and integer registries and any future one.
-  const helpers = helperClosure(ctx.used, REG_FNS, REG_ORDER).map((d) => ({ ...d, opaque: true }))
-  if (helpers.length > 0 && helpersUseGuard(helpers)) injectGuard(bindings)
+  const plan = guardPlan(REG_ORDER)
+  const helpers = helperClosure(ctx.used, REG_FNS, REG_ORDER).map((d) => ({
+    ...plan.helpers.get(d.name)!,
+    opaque: true,
+  }))
+  // Only a module that READS the guard gets the binding. The comparisons (df64_lt/le/gt/ge/
+  // eq/ne) and df64_narrow carry no error term and never read it, and a binding the shader
+  // never reads is stripped from a WebGPU `layout: 'auto'` bind-group layout by Tint/Dawn:
+  // a bind-group mismatch, and a no-op draw on D3D12/NVIDIA (WebKit keeps the unused binding
+  // and GLSL has no such layout, hence the WGSL-only, vendor-specific break).
+  if (helpers.some((d) => plan.users.has(d.name))) injectGuard(bindings)
+  // The module's own functions pass the FETCH to a guarded helper; hoistGuardFetch reads it
+  // into one `let` per function after the optimizer has run (see "The guard" above).
+  const threaded = funcs.map((f) =>
+    bodyHas(f, (x) => x.op === 'call' && plan.users.has(x.fn))
+      ? {
+          ...f,
+          body: f.body.map((s) => mapStmtExpr(s, (e) => passGuard(e, plan.users, guardFetch()))),
+        }
+      : f,
+  )
+  // A const initialiser is a literal by the builder's contract and calls no helper; were it
+  // ever to, the call reads the guard in place rather than losing its trailing argument.
+  const guardedConsts = consts.map((c) =>
+    c.valueExpr === undefined
+      ? c
+      : { ...c, valueExpr: passGuard(c.valueExpr, plan.users, guardFetch()) },
+  )
 
   // SPREAD the source module, then override the four fields this pass actually rewrites
   // — the sibling idiom every other rebuilding pass uses. That carries `overrides`,
@@ -1098,5 +1335,11 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   // so the loss only surfaced through a consumer deriving from the LOWERED module —
   // reflect() of a lowered module (emitModuleWithReflection) losing `requiredFeatures` on
   // f64 modules ONLY. Pinned by backends/extension-profile.test.ts.
-  return { ...m, consts, structs, bindings, funcs: [...funcs, ...helpers] }
+  return {
+    ...m,
+    consts: guardedConsts,
+    structs,
+    bindings,
+    funcs: [...threaded, ...helpers],
+  }
 }

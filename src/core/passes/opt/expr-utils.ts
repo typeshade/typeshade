@@ -167,14 +167,22 @@ function keyOfUncached(e: Expr): string {
   }
 }
 
-/** Compound = a non-leaf expr (worth hoisting / counting). */
+/** Compound = a non-leaf expr (worth hoisting / counting).
+ *
+ *  The fp64 guard fetch (`f64Guard()`, zero arguments) is a LEAF here although it is a call.
+ *  It names one runtime input, the guard texel, which fp64-lower passes to every guarded
+ *  df64 helper call as its trailing argument and `hoistGuardFetch` reads once per function
+ *  AFTER the optimizer. Were it compound, CSE would bind a repeated fetch to a temp, every
+ *  df64 call carrying it would then reference a LOCAL, and LICM, which hoists only what
+ *  references no local, would leave a loop-invariant `df64_mul(k, k, G)` inside its loop. */
 export const isCompound = (e: Expr): boolean =>
   e.op !== 'lit' &&
   e.op !== 'constref' &&
   e.op !== 'overrideref' &&
   e.op !== 'externref' &&
   e.op !== 'param' &&
-  e.op !== 'varref'
+  e.op !== 'varref' &&
+  !(e.op === 'call' && e.fn === 'f64Guard' && e.args.length === 0)
 
 /** The unconditionally-evaluated VALUE positions of a statement, rewritten through `f`
  *  (the lvalue TARGET is not one, and the nested block bodies are their own blocks).
