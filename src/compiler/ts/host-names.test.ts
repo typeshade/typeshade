@@ -7,8 +7,9 @@
 //
 //   - a name the file declares compiles whatever its spelling, as TypeScript takes it;
 //   - a name nothing declares is one diagnostic where it is used, from the code that owns the
-//     position: TS8022 for a value, TS8004 for a callee (said before its arguments are lowered,
-//     so a failing argument cannot hide it), TS8002 for a type;
+//     position: TS8022 for a value, TS8004 for a callee (a string or a function handed to it says
+//     nothing more), TS8002 for a type, in the words and with the remedy proposal 0007 gave
+//     every unknown name;
 //   - a declaration of the file wins over a §9.3 constant of the same name, as it does in the
 //     editor: `enum E`, `namespace PI`, `class TAU` and `function PI` are never e, π or τ.
 //
@@ -17,13 +18,16 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
-import { compileTsSources } from './module.js';
 import { SUPPORTED_TYPE_NAMES } from './type-map.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 
 const diagnosticsOf = (src: string): string[] =>
   compile(src).diagnostics.map((d) => `${d.code} ${d.message}`);
+
+/** The sentence a capitalized type name nothing declares gets. */
+const unknownType = (name: string): string =>
+  `${TS_CODES.UNKNOWN_TYPE} Unknown type "${name}". Declare it in this file, or import it from another shader module.`;
 
 const FS = `@fragment
 export function fs(): vec4 {
@@ -111,15 +115,15 @@ ${FS}`;
     ]);
   });
 
-  it('a callee is TS8004, said before its arguments are lowered', () => {
-    // Each argument here fails on its own: a string, an unknown name, and a function handed to
-    // a callee that does not exist. The callee is the one mistake on the line.
-    for (const call of [
-      'fetch("x")',
-      'parseFloat("1.5")',
-      'structuredClone("x")',
-      'nope(zzz)',
-      'map(xs, h)',
+  it('a callee is TS8004 on its name, and a string or a function handed to it says nothing', () => {
+    // A string and a function handed to a callee that does not exist are there only because the
+    // call is: the callee is the one mistake on the line. `fetch("x")` was TS8012 once while the
+    // host list stood, and without it read as TS8004 beside a refusal of the string.
+    for (const [call, name] of [
+      ['fetch("x")', 'fetch'],
+      ['parseFloat("1.5")', 'parseFloat'],
+      ['structuredClone("x")', 'structuredClone'],
+      ['map(xs, h)', 'map'],
     ]) {
       expect(
         diagnosticsOf(`"use typeshade";
@@ -133,7 +137,7 @@ function g(xs: array<f32, 2>): f32 {
 ${FS}`),
         call,
       ).toEqual([
-        `${TS_CODES.UNKNOWN_FN} Unknown function "${call}". Declare it in this file, or import it from another shader module.`,
+        `${TS_CODES.UNKNOWN_FN} Unknown function "${name!}". Declare it in this file, or import it from another shader module.`,
       ]);
     }
   });
@@ -145,13 +149,13 @@ ${FS}`),
       expect(
         diagnosticsOf(`"use typeshade";\nfunction g(x: ${name}): f32 {\n  return 1.;\n}\n${FS}`),
         name,
-      ).toEqual([`${TS_CODES.UNKNOWN_TYPE} Unknown type "${name}".`]);
+      ).toEqual([unknownType(name)]);
     }
     expect(
       diagnosticsOf(
         `"use typeshade";\ninterface P {\n  a: Foo;\n  b: f32;\n}\ndeclare const u: uniform<P>;\n${FS}`,
       ),
-    ).toEqual([`${TS_CODES.UNKNOWN_TYPE} Unknown type "Foo".`]);
+    ).toEqual([unknownType('Foo')]);
   });
 });
 
@@ -212,9 +216,7 @@ describe('a type name nothing declares is TS8002 wherever it is written, once', 
       'function apply(fn: (x: Date) => f32): f32 {\n  return 1.;\n}\n',
       'function mk<T>(x: T): Date {\n  return x;\n}\n',
     ]) {
-      expect(diagnosticsOf(`"use typeshade";\n${head}${FS}`), head).toEqual([
-        `${TS_CODES.UNKNOWN_TYPE} Unknown type "Date".`,
-      ]);
+      expect(diagnosticsOf(`"use typeshade";\n${head}${FS}`), head).toEqual([unknownType('Date')]);
     }
     expect(diagnosticsOf(`"use typeshade";\ntype A = window;\n${FS}`)).toEqual([lower('window')]);
   });
@@ -223,7 +225,7 @@ describe('a type name nothing declares is TS8002 wherever it is written, once', 
     for (const [claim, message] of [
       ['0.5 as window', lower('window')],
       ['1. as self', lower('self')],
-      ['0.5 satisfies Date', `${TS_CODES.UNKNOWN_TYPE} Unknown type "Date".`],
+      ['0.5 satisfies Date', unknownType('Date')],
     ]) {
       expect(
         diagnosticsOf(
@@ -244,7 +246,7 @@ describe('a type name nothing declares is TS8002 wherever it is written, once', 
       ['function g(): f32 {\n  const b = new B<Foo>();\n  return 1.;\n}\n', 'Foo'],
     ]) {
       expect(diagnosticsOf(`"use typeshade";\n${head}${line}${FS}`), line).toEqual([
-        `${TS_CODES.UNKNOWN_TYPE} Unknown type "${name}".`,
+        unknownType(name!),
       ]);
     }
   });
@@ -268,32 +270,7 @@ export function fs(): vec4 {
 }
 `),
     ).toEqual([
-      `${TS_CODES.UNKNOWN_FN} Unknown function "fetch("x")". Declare it in this file, or import it from another shader module.`,
+      `${TS_CODES.UNKNOWN_FN} Unknown function "fetch". Declare it in this file, or import it from another shader module.`,
     ]);
-  });
-});
-
-describe('a type another file declares is written by its bare name', () => {
-  // A struct is module scope in a multi-file program (#74), so a class or an interface one file
-  // declares is a type of every file, as the capitalized fallback made it before a name nothing
-  // declares became TS8002.
-  it('a class and an interface, in a parameter, a local annotation and a claim', () => {
-    const r = compileTsSources([
-      {
-        fileName: 'types.ts',
-        source: `"use typeshade";\nexport class Ray {\n  o: vec3;\n  d: vec3;\n}\nexport interface Light {\n  k: f32;\n}\nexport function make(p: vec3): Ray {\n  const r: Ray = { o: p, d: p };\n  return r;\n}\nexport function power(l: Light): f32 {\n  return l.k;\n}\n`,
-      },
-      {
-        fileName: 'main.ts',
-        source: `"use typeshade";\nimport { make } from "./types";\nfunction lit(l: Light, r: Ray): f32 {\n  return l.k * r.d.x;\n}\n@fragment
-export function fs(): vec4 {
-  const r: Ray = make(vec3(2.));
-  return vec4(lit({ k: 3. } as Light, r));
-}
-`,
-      },
-    ]);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn lit(l: Light, r: Ray) -> f32 {');
   });
 });

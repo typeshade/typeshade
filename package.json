@@ -27,6 +27,9 @@
     "node": ">=20"
   },
   "main": "./src/index.ts",
+  "bin": {
+    "typeshade": "./src/cli/bin.ts"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./dev": "./src/dev.ts",
@@ -62,6 +65,7 @@
   "scripts": {
     "build": "tsc --build && bun scripts/emit-shade-dts.ts && tsc -p tsconfig.tests.json",
     "test": "vitest run",
+    "typeshade": "bun src/cli/bin.ts",
     "bench:stepping": "bun scripts/bench-stepping.ts",
     "gate:compile": "bun scripts/compile-gate.ts",
     "gate:journeys": "bun scripts/user-journey.ts",

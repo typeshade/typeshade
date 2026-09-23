@@ -9,7 +9,8 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
-import { undeclaredTypeName, unknownTypeMessage } from './type-map.js';
+import { undeclaredTypeName, unknownTypeSentence } from './type-map.js';
+import { namesInScope } from './unknown-names.js';
 import { newRefusal } from './lower/new-target.js';
 
 function push(
@@ -35,7 +36,8 @@ function visit(
   }
   const unknownType = undeclaredTypeName(node, sourceFile);
   if (unknownType !== undefined) {
-    push(diagnostics, sourceFile, node, unknownTypeMessage(unknownType), TS_CODES.UNKNOWN_TYPE);
+    const sentence = unknownTypeSentence(unknownType.text, namesInScope(node, 'type'));
+    push(diagnostics, sourceFile, unknownType, sentence, TS_CODES.UNKNOWN_TYPE);
   }
   if (ts.isAwaitExpression(node)) {
     push(

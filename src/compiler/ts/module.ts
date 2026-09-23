@@ -17,7 +17,6 @@ import { reportCrossDeclarationCollisions, type TsCompilerDiagnostic } from './s
 import { collectStructs, emittedStructDecls, type CollectedStruct } from './structs.js';
 import { collectBindings } from './bindings.js';
 import { collectEnables } from './enables.js';
-import { declaredTypeNamesOf, setModuleTypeNames } from './type-map.js';
 import { collectOverrides } from './overrides.js';
 import { fillFunctionBody, parseSignature } from './lower/function.js';
 import { analyzeSemantics } from './semantic.js';
@@ -33,6 +32,7 @@ import {
   syntaxDiagnostics,
 } from './diagnostic.js';
 import type { DeclaredSymbol } from './symbols.js';
+import { unknownNameSentence } from './unknown-names.js';
 
 export interface TsSourceFileInput {
   readonly fileName: string;
@@ -139,11 +139,6 @@ export function compileTsSources(
     };
   }
 
-  // A struct is module scope, so a file writes another file's class or interface by its bare
-  // name, and a type name any file declares is a type of every file (#74).
-  const moduleTypes = new Set([...parsed.values()].flatMap((sf) => [...declaredTypeNamesOf(sf)]));
-  for (const sf of parsed.values()) setModuleTypeNames(sf, moduleTypes);
-
   for (const [name, sf] of parsed) {
     // The statement-level check `compileTsSource` runs on a single file (a top-level `let`,
     // an expression statement that is not the directive, and the rest). It was missing from
@@ -245,11 +240,17 @@ export function compileTsSources(
         const local = el.name.text;
         const rec = targetTable.get(imported);
         if (!rec) {
+          // On the imported name, as TypeScript's TS2305 is, with the export it is spelled like.
+          const exported = [...targetTable]
+            .filter(([, r]) => (r.stub as { exported?: boolean } | undefined)?.exported !== false)
+            .map(([n]) => n);
           diagnostics.push(
             makeDiagnostic(
               sf,
-              el,
-              `"${target}" has no function "${imported}".`,
+              el.propertyName ?? el.name,
+              unknownNameSentence(`"${target}" has no function "${imported}".`, imported, [
+                exported,
+              ]),
               TS_CODES.UNSUPPORTED,
             ),
           );

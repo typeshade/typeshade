@@ -21,6 +21,10 @@ import {
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import {
+  MATH_EXPAND_ALIAS,
+  MATH_FN_ALIAS,
+  MATH_FN_ARITY,
+  MATH_MEMBER_NAMES,
   USER_FIRST_BUILTINS,
   expectedArity,
   isCanonicalMathFn,
@@ -43,7 +47,13 @@ import { lowerAtomicCall } from './atomics.js';
 import { lowerWorkgroupUniformLoad } from './barriers.js';
 import { lowerClassCall } from './class-methods.js';
 import { isArrayMethod, lowerArrayMethod, otherArrayMethod } from './array-methods.js';
-import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js';
+import {
+  ATOMIC_INTRINSICS,
+  BARRIER_INTRINSICS,
+  isAtomicIntrinsic,
+  isBarrierIntrinsic,
+  PACKED_4X8_IDS,
+} from '../../../core/intrinsics.js';
 import { divergentIntegerId } from '../../../core/ir/divergent-int.js';
 import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js';
 import {
@@ -58,6 +68,7 @@ import { captureArguments, declaresFunction } from './local-functions.js';
 import { declarationOf, functionAround } from './closures.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
+import { namesInScope, unknownNameSentence, type NameScopes } from '../unknown-names.js';
 import { checkMathArgs, mathTakesElem } from './math-args.js';
 import { isConsoleMethod } from '../../../core/console.js';
 
@@ -218,11 +229,14 @@ export function lowerCall(
         return lowerExpandCall(jsName, node, sourceFile, scope, diagnostics);
       intrinsicId = resolveMathFn(jsName);
       if (!intrinsicId) {
+        // On the member, the name that is wrong, as TypeScript's TS2551 is.
         pushDiag(
           diagnostics,
           sourceFile,
-          node,
-          `"Math.${jsName}(...)" is not a TypeShade Math alias.`,
+          callee.name,
+          unknownNameSentence(`"Math.${jsName}(...)" is not a TypeShade Math alias.`, jsName, [
+            MATH_MEMBER_NAMES,
+          ]),
           TS_CODES.UNKNOWN_NAME,
         );
         return undefined;
@@ -407,21 +421,26 @@ export function lowerCall(
         if (scope.isGenericFunction(name)) {
           return lowerGenericCall(node, name, name, sourceFile, scope, diagnostics);
         }
-        // No builtin, no function of the file and no local one: the callee is the mistake, and
-        // it is said before any argument is lowered, so an argument that fails (`nope(zzz)`, a
-        // string, a function name handed to it) cannot stand in for it (Rule 12.4). A function
-        // the file declares and refused said why on its declaration.
-        if (scope.declarationRefused(name)) return undefined;
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          node,
-          `Unknown function "${node.getText(sourceFile)}". Declare it in this file, or import it from another shader module.`,
-          TS_CODES.UNKNOWN_FN,
-        );
-        return undefined;
       }
     }
+  }
+
+  // A name that resolves to nothing callable is said here, on the name, as TypeScript's TS2304
+  // is. The arguments are still lowered, for their own mistakes: `colr` in `g(colr)` is a second
+  // one, and a build that stopped at `g` would hide it until `g` was fixed. An argument that is
+  // a function or a string is left alone, since whether one may be passed is the unknown
+  // callee's to say, and a refusal of it would be a second report of the first mistake: `fetch`
+  // in `fetch("x")` is a name nothing declares, and the string is there only because the call is
+  // (Rule 12.4).
+  if (ts.isIdentifier(callee) && ctor === undefined && intrinsicId === undefined) {
+    // One refused where it is declared said why there (roadmap 0.3 item T10, #92).
+    if (scope.declarationRefused(callee.text)) return undefined;
+    pushDiag(diagnostics, sourceFile, callee, unknownFunctionSentence(callee), TS_CODES.UNKNOWN_FN);
+    for (const arg of node.arguments) {
+      if (isFunctionArgument(arg, scope) || ts.isStringLiteralLike(arg)) continue;
+      lowerExpression(arg, sourceFile, scope, diagnostics);
+    }
+    return undefined;
   }
 
   const args: Expr[] = [];
@@ -657,15 +676,13 @@ export function lowerCall(
     return lowerBitBuiltinCall(intrinsicId, args, node, sourceFile, diagnostics);
   }
   if (!intrinsicId) {
-    // A call to a function this file declares and could not lower says nothing here: the
-    // declaration already said why it names no callee, and "Unknown function" on top of that
-    // is both a second complaint about one mistake and untrue (roadmap 0.3 item T10, #92).
-    if (ts.isIdentifier(callee) && scope.declarationRefused(callee.text)) return undefined;
+    // A callee that is not a name (`(f)(x)`, `f()(x)`): a name was answered above.
     pushDiag(
       diagnostics,
       sourceFile,
-      node,
-      `Unknown function "${node.getText(sourceFile)}". Declare it in this file, or import it from another shader module.`,
+      callee,
+      `Unknown function "${callee.getText(sourceFile)}". Declare it in this file, or import it ` +
+        `from another shader module.`,
       TS_CODES.UNKNOWN_FN,
     );
     return undefined;
@@ -1050,6 +1067,26 @@ function lowerSelectCall(
   }
   // A vector of bools picks per component (§27), so the arms are vectors of its size.
   if (perComponent && cond.type.kind === 'vec') {
+    // Arms that are vectors of doubles of the mask's size fit that shape, and the fp64 pass
+    // cannot lower it: it picks a DF64VecN whole, by one bool (an `if` with a temporary,
+    // `select-composite.ts`), and has no per-component pick over the hi/lo planes. The count
+    // refusal below answered this with "needs 3-component arms" to arms that had three. This
+    // sentence names the spellings that lower instead: the narrowed pick, and min and max,
+    // which the pass lowers on a vec64 (§39).
+    if (ifTrue.type.kind === 'vec64' && ifTrue.type.n === cond.type.n) {
+      const n = cond.type.n;
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node,
+        `select with a ${typeKey(cond.type)} condition has no emulated-double form; got ` +
+          `${typeKey(ifTrue.type)} arms. The fp64 pass picks a vector of doubles whole, by one ` +
+          `bool — narrow the arms, select(vec${n}(a), vec${n}(b), m), or keep the doubles with ` +
+          `min(a, b) or max(a, b) where the pick is a componentwise minimum or maximum.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
     if (ifTrue.type.kind !== 'vec' || ifTrue.type.n !== cond.type.n) {
       pushDiag(
         diagnostics,
@@ -2492,6 +2529,85 @@ function vectorComponentCount(args: readonly Expr[]): number {
     if (arg.type.kind === 'vec' || arg.type.kind === 'vec64') return count + arg.type.n;
     return count + 1;
   }, 0);
+}
+
+// --- A callee that names nothing (Rule 12.1) ---
+
+/** The forms `lowerCall` resolves by name before any table: the array forms and folds, and the
+ *  builtins with a lowering of their own. */
+const NAMED_FORMS: readonly string[] = [
+  'array',
+  'fill',
+  'sum',
+  'min',
+  'max',
+  'any',
+  'all',
+  'none',
+  'zip',
+  'select',
+  'arrayLength',
+  'workgroupUniformLoad',
+  'random',
+  'mod',
+];
+
+let builtinCallees: readonly string[] | undefined;
+
+/** Every name `lowerCall` resolves to a builtin, read from the tables it resolves through: the
+ *  named forms, the atomics and barriers, the scalar casts, the matrix and vector constructors,
+ *  the math expansions, the texture and bit builtins, and every canonical math function. What a
+ *  misspelled callee is measured against; `unknown-names.test.ts` holds it to the functions the
+ *  ambient library declares, so a name the editor could suggest the compiler suggests too. */
+export function builtinCalleeNames(): readonly string[] {
+  builtinCallees ??= [
+    ...new Set([
+      ...NAMED_FORMS,
+      ...Object.keys(ATOMIC_INTRINSICS),
+      ...BARRIER_INTRINSICS,
+      ...Object.keys(SCALAR_CAST),
+      ...Object.keys(MAT_CTOR),
+      ...Object.keys(VEC_CTOR),
+      ...Object.keys(MATH_EXPAND_ALIAS),
+      ...TEXTURE_CALLS,
+      ...BIT_CALLS,
+      ...[...Object.keys(MATH_FN_ARITY), ...Object.values(MATH_FN_ALIAS)].filter(isCanonicalMathFn),
+    ]),
+  ];
+  return builtinCallees;
+}
+
+/** The candidates for a misspelled callee: the functions in scope where it is written,
+ *  innermost first, then the builtins. */
+export const calleeScopes = (callee: ts.Node): NameScopes => [
+  ...namesInScope(callee, 'callee'),
+  builtinCalleeNames(),
+];
+
+/** The sentence for a call of `callee` that names nothing callable: TypeShade's spelling of a
+ *  GLSL or HLSL name, the function a misspelled one is spelled like, or the declaration it
+ *  needs. `discard` is a statement, which a call of it is not. */
+function unknownFunctionSentence(callee: ts.Identifier): string {
+  if (callee.text === 'discard') {
+    return `"discard" is a statement, not a function. Write it without the parentheses: "discard;".`;
+  }
+  return unknownNameSentence(
+    `Unknown function "${callee.text}".`,
+    callee.text,
+    calleeScopes(callee),
+    'Declare it in this file, or import it from another shader module.',
+  );
+}
+
+/** Whether a call's argument is a function: written in place, or a function named by its name,
+ *  which a callee may take (Rule 8.18). */
+function isFunctionArgument(arg: ts.Expression, scope: LoweringScope): boolean {
+  if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) return true;
+  return (
+    ts.isIdentifier(arg) &&
+    scope.resolve(arg.text) === undefined &&
+    (scope.resolveCallee(arg.text) !== undefined || scope.isGenericFunction(arg.text))
+  );
 }
 
 function pushDiag(

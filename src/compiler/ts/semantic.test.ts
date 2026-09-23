@@ -18,8 +18,8 @@ describe('Phase 12 semantic bans', () => {
   });
 
   it('rejects fetch, as a function nothing declares', () => {
-    // There is no list of host names (Rule 2.1): `fetch` is an unknown callee, said once, and
-    // the string handed to it is not lowered to say a second thing (host-names.test.ts).
+    // There is no list of host names (Rule 2.1): `fetch` is an unknown callee, said once on its
+    // name, and the string handed to it is not lowered to say a second thing (host-names.test.ts).
     const r = compileTsSource(`
       "use typeshade";
       export function f(): f32 {
@@ -28,7 +28,7 @@ describe('Phase 12 semantic bans', () => {
       }
     `);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
-      `${TS_CODES.UNKNOWN_FN} Unknown function "fetch("x")". Declare it in this file, or import it from another shader module.`,
+      `${TS_CODES.UNKNOWN_FN} Unknown function "fetch". Declare it in this file, or import it from another shader module.`,
     ]);
   });
 
