@@ -54,43 +54,55 @@ export function fs_ship(vo: VsOut): vec4 {
   const dx = (sx - 0.5) * span;
   const dy = (vo.uv.y - 0.5) * span * (u.resolution.y / u.resolution.x * 2.0);
 
-  let it = 0.;
-  let m2 = 0.; // |z|^2 at escape (frozen once the guard fails)
+  let it = 0.
+  let m2 = 0. // |z|^2 of the last z the loop reached: the escape test and the colouring's input
   if (vo.uv.x < 0.5 || u.fp64 < 0.5) {
     // f32 twin, SAME fold-and-square, center narrowed.
-    const cx = f32(u.center.x) + dx;
-    const cy = f32(u.center.y) + dy;
-    let zx = 0.;
-    let zy = 0.;
+    const cx = f32(u.center.x) + dx
+    const cy = f32(u.center.y) + dy
+    // The escape loop is written as fp64-julia's (fp64-julia.ts records why and what it
+    // saves): |z|^2 is carried in m2 beside z, the squares beside it so none is computed
+    // twice a trip, and the loop leaves at the first escaped z with a `break` (the
+    // condition `j < 128 && m2 <= 16.0` is TS8006, Rule 7.5). z0 = 0, so all start at 0.
+    let zx = 0.
+    let zy = 0.
+    let x2 = 0.
+    let y2 = 0.
     for (let j: u32 = 0; j < 128; j++) {
-      if (zx * zx + zy * zy <= 16.0) {
-        const nzx = zx * zx - zy * zy + cx;
-        zy = abs(zx * zy) * 2.0 + cy;
-        zx = nzx;
-        it = it + 1.0;
+      if (m2 > 16.0) {
+        break
       }
+      const nzx = x2 - y2 + cx
+      zy = abs(zx * zy) * 2.0 + cy
+      zx = nzx
+      it = it + 1.0
+      x2 = zx * zx
+      y2 = zy * zy
+      m2 = x2 + y2
     }
-    m2 = zx * zx + zy * zy;
   } else {
     // f64: the |Re|, |Im| fold in extended precision. 2|zx*zy| is the |Im| fold of the
     // squared form: (|zx| + i|zy|)^2 has Im = 2|zx||zy| = 2|zx*zy|. The lane reads
     // `u.center.x` and `u.center.y` stay doubles, and every literal beside one is lifted
     // to the full double (§39), so nothing in the loop narrows.
-    const cx = u.center.x + f64(dx);
-    const cy = u.center.y + f64(dy);
-    let zx: f64 = 0.;
-    let zy: f64 = 0.;
+    const cx = u.center.x + f64(dx)
+    const cy = u.center.y + f64(dy)
+    // The escape test reads an f32 |z|^2 squared from the narrowed words, as in
+    // fp64-julia: 48 bits move |z|^2 across 16 only from within an f32 rounding of it.
+    let zx: f64 = 0.
+    let zy: f64 = 0.
     for (let j: u32 = 0; j < 128; j++) {
-      if (zx * zx + zy * zy <= 16.0) {
-        const nzx = zx * zx - zy * zy + cx;
-        zy = abs(zx * zy) * 2.0 + cy;
-        zx = nzx;
-        it = it + 1.0;
+      if (m2 > 16.0) {
+        break
       }
+      const nzx = zx * zx - zy * zy + cx
+      zy = abs(zx * zy) * 2.0 + cy
+      zx = nzx
+      it = it + 1.0
+      const hx = f32(zx)
+      const hy = f32(zy)
+      m2 = hx * hx + hy * hy
     }
-    // `it` and the palette below are f32: the escape count and the colour need no double,
-    // so the one narrow in this branch is the |z|^2 handed to the smoothing.
-    m2 = f32(zx * zx + zy * zy);
   }
 
   // Smooth escape time through an ember palette (dark hull, orange flame, pale smoke);

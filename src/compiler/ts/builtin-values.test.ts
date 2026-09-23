@@ -5,7 +5,7 @@
 // '@builtin(clip_distances)' requires enabling extension 'clip_distances'`. So the directive
 // is DERIVED from the use here, not declared — writing the id is the whole declaration — and
 // what is pinned below is that derivation, the stage and type rules each id carries, the
-// author spelling for the two extensions no use can derive, and the `requires` axis.
+// author spelling for an extension no use in the file derives, and the `requires` axis.
 //
 // `examples/clip-planes.shade.ts` carries the clip_distances emit through the compile gate on
 // real Tint; `primitive_index` has no example, because the gate's adapter does not have that
@@ -18,18 +18,20 @@
 // Tint at the comma (`expected ')' for builtin attribute`). Admitting either would move the
 // failure further from the author, not closer.
 
-import { describe, expect, it } from 'vitest';
-import { compile } from './compile.js';
-import { compileTsSource } from './source-file.js';
-import { compileTsSources } from './module.js';
-import { arrayT, f32T, fn, module } from '../../core/ir/index.js';
-import { builtin } from '../../core/sot.js';
-import { emitModule } from '../../core/backends/wgsl.js';
-import { TS_CODES } from './codes.js';
-import { reflect } from '../../core/reflect.js';
-import { hostFeaturesFor } from '../../core/backend.js';
-import { wgslBackend } from '../../core/backends/wgsl.js';
-import { emitGlslModule } from '../../core/backends/glsl.js';
+import { describe, expect, it } from 'vitest'
+import { compile } from './compile.js'
+import { compileTsSource } from './source-file.js'
+import { compileTsSources } from './module.js'
+import { arrayT, f32T, fn, module } from '../../core/ir/index.js'
+import { builtin } from '../../core/sot.js'
+import { emitModule } from '../../core/backends/wgsl.js'
+import { TS_CODES } from './codes.js'
+import { reflect } from '../../core/reflect.js'
+import { hostFeaturesFor } from '../../core/backend.js'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { wgslBackend } from '../../core/backends/wgsl.js'
+import { emitGlslModule } from '../../core/backends/glsl.js'
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -134,8 +136,29 @@ describe('an extension-gated built-in value derives its enable, its host feature
   });
 });
 
+describe('surface §50 names only the extension no use can derive', () => {
+  // §50 called subgroups one of "the two extensions no use can derive", while its own table
+  // (and the compiler) derive `enable subgroups;` from `@builtin("subgroup_invocation_id")`.
+  const SURFACE = fileURLToPath(new URL('../../../docs/use-typeshade-surface.md', import.meta.url))
+  const text = readFileSync(SURFACE, 'utf8')
+  const s50 = text.slice(text.indexOf('\n## 50.'), text.indexOf('\n## 51.'))
+
+  it('names one underivable extension, and no row of its table derives it', () => {
+    const named = /`(\w+)` is\s+the\s+one\s+no\s+use\s+can\s+derive/.exec(s50)
+    expect(named, '§50 names the extension no use can derive').not.toBeNull()
+    const derived = [...s50.matchAll(/· `enable (\w+);` ·/g)].map((m) => m[1])
+    expect(derived).toContain('subgroups')
+    expect(derived).not.toContain(named![1])
+    expect(s50).not.toMatch(/two\s+extensions\s+no\s+use\s+can\s+derive/)
+  })
+
+  it('derives the subgroups enable from a subgroup built-in, as the table says', () => {
+    expect(compiled(FS_SUBGROUP).wgsl).toContain('enable subgroups;')
+  })
+})
+
 describe('the "enable ..." file directive', () => {
-  it('turns on an extension no use can derive, and emits the WGSL directive', () => {
+  it('turns on an extension no use in the file derives, and emits the WGSL directive', () => {
     const c = compiled(`"enable subgroups"
 @fragment export function fs(): vec4 { return vec4(0.) }`);
     expect(c.wgsl).toContain('enable subgroups;');

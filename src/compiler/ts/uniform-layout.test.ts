@@ -411,8 +411,67 @@ declare const u: uniform<U>
     const c = compiled(`class U { ms: array<mat3x4, 2> }
 declare const u: uniform<U>
 @vertex export function vs(): vec4 { return vec4(u.ms[0][0].x, 0., 0., 1.) }
-@fragment export function fs(): vec4 { return vec4(u.ms[1][0].x, 0., 0., 1.) }`);
-    expect(c.wgsl).toContain('ms: array<mat3x4<f32>, 2>,');
-    expect(c.wgsl).not.toContain('_Pad16_');
-  });
-});
+@fragment export function fs(): vec4 { return vec4(u.ms[1][0].x, 0., 0., 1.) }`)
+    expect(c.wgsl).toContain('ms: array<mat3x4<f32>, 2>,')
+    expect(c.wgsl).not.toContain('_Pad16_')
+  })
+})
+
+describe('a two-row matrix in a uniform is refused (Rule 4.8, surface §40)', () => {
+  // Rule 4.8 says a mat2x2, mat3x2 or mat4x2 in a uniform block "must be refused with the
+  // remedy". It reached the author as a TS8015 WARNING from the GLSL writer's layout, with the
+  // WGSL kept, so a render module shipped a uniform the two targets lay out at different
+  // offsets. It is an error at the binding now, with the remedy the warning carried.
+  const REMEDY = (c: number): string =>
+    `mat${c}x2 in std140 is not supported — WGSL gives a two-row matrix a column stride of 8 ` +
+    `and GLSL std140 rounds every column to 16, so the two targets would disagree on this ` +
+    `field and every field after it; carry it as mat${c}x4 (measured: both targets stride 16) ` +
+    `or as ${c} vec2 fields.`
+  const RENDER = (field: string): string => `"use typeshade"
+class U { ${field}; k: f32 }
+declare const u: uniform<U>
+@vertex export function vs(): vec4 { return vec4(u.k, 0., 0., 1.) }
+@fragment export function fs(): vec4 { return vec4(u.k, 0., 0., 1.) }`
+
+  it('refuses mat2x2, mat3x2, mat4x2 and mat2 with an error, and emits neither target', () => {
+    for (const [field, cols] of [
+      ['m: mat2x2', 2],
+      ['m: mat3x2', 3],
+      ['m: mat4x2', 4],
+      ['m: mat2', 2],
+      ['m: array<mat3x2, 2>', 3],
+    ] as const) {
+      const c = compile(RENDER(field))
+      expect(c.diagnostics, field).toHaveLength(1)
+      const d = c.diagnostics[0]!
+      expect(d.category, field).toBe('error')
+      expect(d.code, field).toBe(TS_CODES.LAYOUT)
+      expect(d.message, field).toContain(REMEDY(cols))
+      expect(c.wgsl, field).toBeUndefined()
+      expect(c.glsl, field).toBeUndefined()
+    }
+  })
+
+  it('names the field that holds it, and refuses a bare uniform matrix too', () => {
+    expect(diagnose(RENDER('m: mat3x2').replace('"use typeshade"\n', '')).message).toBe(
+      `"U.m" is in a uniform: ${REMEDY(3)}`,
+    )
+    expect(
+      diagnose(`declare const m: uniform<mat2x2>
+@compute([64]) export function cs() { let x = m[0].x; }`).message,
+    ).toBe(`"m" is in a uniform: ${REMEDY(2)}`)
+  })
+
+  it('keeps every other shape, and a two-row matrix in storage, where std430 agrees', () => {
+    for (const field of ['m: mat2x4', 'm: mat2x3', 'm: mat3', 'm: mat4x3']) {
+      const c = compile(RENDER(field))
+      expect(c.diagnostics, field).toEqual([])
+      expect(c.wgsl, field).toBeDefined()
+    }
+    const s = compile(`"use typeshade"
+class S { m: mat2x2 }
+declare let s: storage<S, "read_write">
+@compute([64]) export function cs() { s.m = mat2x2(1., 0., 0., 1.); }`)
+    expect(s.diagnostics.filter((d) => d.code === TS_CODES.LAYOUT)).toEqual([])
+  })
+})

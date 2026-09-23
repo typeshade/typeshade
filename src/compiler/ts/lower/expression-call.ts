@@ -34,16 +34,17 @@ import {
   isIntegerLiteralTree,
   retargetIntLit,
   retargetIntLitCtx,
-} from '../lit-coerce.js';
-import { spanOf } from '../span.js';
-import { lowerExpression } from './expression.js';
-import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js';
-import { lowerAtomicCall } from './atomics.js';
-import { lowerWorkgroupUniformLoad } from './barriers.js';
-import { lowerClassCall } from './class-methods.js';
-import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js';
-import { divergentIntegerId } from '../../../core/ir/divergent-int.js';
-import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js';
+  reportIntLitRange,
+} from '../lit-coerce.js'
+import { spanOf } from '../span.js'
+import { lowerExpression } from './expression.js'
+import { JS_ARRAY_METHODS, arrayLengthOf } from './expression-prop.js'
+import { lowerAtomicCall } from './atomics.js'
+import { lowerWorkgroupUniformLoad } from './barriers.js'
+import { lowerClassCall } from './class-methods.js'
+import { isAtomicIntrinsic, isBarrierIntrinsic, PACKED_4X8_IDS } from '../../../core/intrinsics.js'
+import { divergentIntegerId } from '../../../core/ir/divergent-int.js'
+import { lowerArrayCtor, lowerArrayFold, lowerFill } from './expression-array.js'
 import {
   lowerExpandCall,
   lowerRandomCall,
@@ -413,7 +414,9 @@ export function lowerCall(
     const elem = ctorElemType(vc.elem);
     if (elem) {
       for (let i = 0; i < args.length; i++) {
-        args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem);
+        args[i] = retargetIntLitCtx(args[i]!, node.arguments[i]!, elem)
+        args[i] =
+          reportIntLitRange(args[i]!, node.arguments[i]!, elem, sourceFile, diagnostics) ?? args[i]!
       }
     }
     if (args.length === 1 && isVectorCtorScalar(args[0]!.type, vc.elem)) {

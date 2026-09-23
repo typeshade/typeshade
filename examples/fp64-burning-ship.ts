@@ -33,6 +33,7 @@ import {
   vec2f64T,
   If,
   Loop,
+  Break,
   Var,
   Let,
   u32,
@@ -70,48 +71,61 @@ const fsShip = fn(
       p.vo.uv.y.sub(0.5).mul(span).mul(U.field.resolution.y.div(U.field.resolution.x).mul(2.0)),
     );
 
-    const it = Var(f32(0));
-    const m2 = Var(f32(0)); // |z|² at escape (frozen once the guard fails)
+    const it = Var(f32(0))
+    const m2 = Var(f32(0)) // |z|² of the last z the loop reached: the escape test and the colouring's input
     If(p.vo.uv.x.lt(0.5).or(U.field.fp64.lt(0.5)), () => {
       // f32 twin — SAME fold-and-square, center narrowed.
-      const cx = Let(toF32(U.field.center.x).add(dx));
-      const cy = Let(toF32(U.field.center.y).add(dy));
-      const zx = Var(f32(0));
-      const zy = Var(f32(0));
+      const cx = Let(toF32(U.field.center.x).add(dx))
+      const cy = Let(toF32(U.field.center.y).add(dy))
+      // The escape loop is written as fp64-julia.ts's (which records why and what it saves):
+      // |z|² is carried in m2 beside z, the squares beside it so none is computed twice a
+      // trip, and the loop leaves at the first escaped z. z₀ = 0, so all three start at 0.
+      const zx = Var(f32(0))
+      const zy = Var(f32(0))
+      const x2 = Var(f32(0))
+      const y2 = Var(f32(0))
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx));
-            zy.assign(abs(zx.mul(zy)).mul(2.0).add(cy));
-            zx.assign(nzx);
-            it.assign(it.add(1.0));
-          });
+          If(m2.gt(16.0), () => {
+            Break()
+          })
+          const nzx = Let(x2.sub(y2).add(cx))
+          zy.assign(abs(zx.mul(zy)).mul(2.0).add(cy))
+          zx.assign(nzx)
+          it.assign(it.add(1.0))
+          x2.assign(zx.mul(zx))
+          y2.assign(zy.mul(zy))
+          m2.assign(x2.add(y2))
         },
-      );
-      m2.assign(zx.mul(zx).add(zy.mul(zy)));
+      )
     }).else(() => {
       // f64 — |Re|, |Im| fold in extended precision (2|zx·zy| ≡ the |Im| fold
       // of the squared form: (|zx|+i|zy|)² has Im = 2|zx||zy| = 2|zx·zy|).
-      const cx = Let(U.field.center.x.add(toF64(dx)));
-      const cy = Let(U.field.center.y.add(toF64(dy)));
-      const zx = Var(f64(0));
-      const zy = Var(f64(0));
+      const cx = Let(U.field.center.x.add(toF64(dx)))
+      const cy = Let(U.field.center.y.add(toF64(dy)))
+      // The escape test reads an f32 |z|² squared from the narrowed words, as in
+      // fp64-julia.ts: 48 bits move |z|² across 16 only from within an f32 rounding of it.
+      const zx = Var(f64(0))
+      const zy = Var(f64(0))
       Loop(
         u32(0),
         (j) => j.lt(u32(ITER)),
         () => {
-          If(zx.mul(zx).add(zy.mul(zy)).le(16.0), () => {
-            const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx));
-            zy.assign(abs(zx.mul(zy)).mul(2.0).add(cy));
-            zx.assign(nzx);
-            it.assign(it.add(1.0));
-          });
+          If(m2.gt(16.0), () => {
+            Break()
+          })
+          const nzx = Let(zx.mul(zx).sub(zy.mul(zy)).add(cx))
+          zy.assign(abs(zx.mul(zy)).mul(2.0).add(cy))
+          zx.assign(nzx)
+          it.assign(it.add(1.0))
+          const hx = Let(toF32(zx))
+          const hy = Let(toF32(zy))
+          m2.assign(hx.mul(hx).add(hy.mul(hy)))
         },
-      );
-      m2.assign(toF32(zx.mul(zx).add(zy.mul(zy))));
-    });
+      )
+    })
 
     // Smooth escape time through an ember palette (dark hull → orange flame →
     // pale smoke); interior stays black. Same log₂ log₂ smoothing as

@@ -1,21 +1,21 @@
-import ts from 'typescript';
-import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
-import type { ShaderType } from '../../../core/ir/types.js';
-import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js';
-import type { TsCompilerDiagnostic } from '../source-file.js';
-import type { LoweringScope } from '../context.js';
-import { irNameOf, readOnlyPhrase } from '../context.js';
-import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js';
-import { fitsTarget, isIntScalar } from '../lit-coerce.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
-import { numericMismatch } from '../numeric.js';
-import { makeDiagnostic } from '../diagnostic.js';
-import { withSpan } from '../span.js';
-import { TS_CODES, type TsCode } from '../codes.js';
-import { retargetDeclaredIntLit } from '../lit-coerce.js';
-import { lowerExpression } from './expression.js';
-import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js';
-import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
+import ts from 'typescript'
+import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js'
+import type { ShaderType } from '../../../core/ir/types.js'
+import { i32T, isVec, isVec64, typeKey } from '../../../core/ir/types.js'
+import type { TsCompilerDiagnostic } from '../source-file.js'
+import type { LoweringScope } from '../context.js'
+import { irNameOf, readOnlyPhrase } from '../context.js'
+import { analyzeCountedFor, foldConstNumber, loopConditionError } from '../loop-bound.js'
+import { fitsTarget, isIntScalar } from '../lit-coerce.js'
+import { mapTsTypeToShaderType } from '../type-map.js'
+import { numericMismatch } from '../numeric.js'
+import { makeDiagnostic } from '../diagnostic.js'
+import { withSpan } from '../span.js'
+import { TS_CODES, type TsCode } from '../codes.js'
+import { reportIntLitRange, retargetDeclaredIntLit } from '../lit-coerce.js'
+import { lowerExpression } from './expression.js'
+import { lowerLValue, lowerStatement, lowerStatements, refuseParamWrite } from './statement.js'
+import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js'
 
 export function lowerFor(
   node: ts.ForStatement,
@@ -143,7 +143,12 @@ function lowerForInit(
   // rather than a NumericLiteral, which the `init.op === 'lit'` special case this replaces
   // never matched — so the initializer kept the f32 the bare `1` was given and the loop emitted
   // `var j: i32 = -1.0`, with no diagnostic, which neither Tint nor ANGLE accepts (issue #40).
-  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T);
+  init = retargetDeclaredIntLit(init, decl.initializer, annotated ?? i32T)
+  // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk below would
+  // otherwise add a second one about a start value the author has already been told about.
+  if (reportIntLitRange(init, decl.initializer, annotated ?? i32T, sourceFile, diagnostics)) {
+    return undefined
+  }
   if (annotated && typeKey(annotated) !== typeKey(init.type)) {
     // The check statement.ts has always had at its own declaration site, and the reason this
     // one was silent rather than merely wrong: nothing compared the two.

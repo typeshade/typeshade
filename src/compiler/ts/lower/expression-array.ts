@@ -34,9 +34,22 @@ export function lowerArrayCtor(
     // `mapped.elem` is the position each element sits in, so an object-literal element knows
     // which struct it builds: `array<A, 2>({ … }, { … })` is two DECLARED positions, spelled
     // in the constructor's own type argument rather than on a variable (#8 A11).
-    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem);
-    if (!lowered) return undefined;
-    args.push(lowered);
+    const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem)
+    if (!lowered) return undefined
+    // Each argument takes the element type by the rule the list form uses, so the two
+    // spellings stay one program: `array<i32, 3>(1, 2, 3)` emitted `(1.0, 2.0, 3.0)` before
+    // this, which neither target accepts, while `array<i32, 3> = [1, 2, 3]` emitted integers.
+    const typed = typeArrayElement(
+      arg,
+      lowered,
+      mapped.elem,
+      n,
+      args.length,
+      sourceFile,
+      diagnostics,
+    )
+    if (!typed) return undefined
+    args.push(typed)
   }
   if (n !== undefined && args.length !== n) {
     pushDiag(
@@ -105,8 +118,8 @@ function inferredArrayCtor(
  *  test that compares the two bodies. The list form carries no type of its own, which is why it
  *  is only accepted where one is declared and why `target` is passed in rather than inferred.
  *
- *  Unlike the call form it checks its elements, because it can: `target` says what each element
- *  must be. A bare numeric literal is retyped to the element type first — the same retarget the
+ *  Each element is checked against `target`'s element type by {@link typeArrayElement}, the
+ *  helper the call form shares. A bare numeric literal is retyped to the element type first — the same retarget the
  *  scalar declaration does for `const x: i32 = 1` — so `array<i32, 3> = [1, 2, 3]` emits
  *  `array<i32, 3>(1, 2, 3)` rather than the float literals an i32 array cannot take. */
 export function lowerArrayLiteral(
@@ -193,39 +206,64 @@ export function lowerArrayLiteral(
       );
       return undefined;
     }
-    let lowered = lowerExpression(element, sourceFile, scope, diagnostics);
-    if (!lowered) return undefined;
-    // An element takes the element type by exactly the rule a scalar declaration uses, which
-    // is `retargetDeclaredIntLit` itself (#8 A3): what is WRITTEN as an integer and FITS is
-    // retyped, and a single literal written as a float but valued as a whole number is kept,
-    // the way `const x: i32 = 1.` is. Everything else is left alone and reported by the
-    // element check below, so `[1.5, 2]`, `[-1, 2]` into a u32 array and `[3000000000, 2]`
-    // get the element message rather than reaching the backend as an unspellable literal.
-    // `i32(2)` states its own type and is not a literal waiting for one, so it stays i32 and
-    // is reported against an f32 element, the same line `const x: f32 = i32(2)` draws.
-    lowered = retargetDeclaredIntLit(lowered, element, target.elem);
-    if (isBareNumericLiteral(element) && isNumericScalar(target.elem)) {
-      // Folded first, so a leading minus is part of the number: `-1.` reaches here as a unop
-      // over a literal, and an f64 array would otherwise be told its element is an f32. Only
-      // where the retarget above declined, which for a float element type is always.
-      const folded = foldNumericLit(lowered);
-      if (folded.op === 'lit' && typeof folded.value === 'number' && !isIntScalar(target.elem)) {
-        lowered = { op: 'lit', type: target.elem, value: folded.value };
-      }
-    }
-    if (typeKey(lowered.type) !== typeKey(target.elem)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        element,
-        `array<${typeKey(target.elem)}, ${target.size}> element ${i} must be ${typeKey(target.elem)}, got ${typeKey(lowered.type)}. There is no implicit conversion; cast it.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    args.push(lowered);
+    const lowered = lowerExpression(element, sourceFile, scope, diagnostics)
+    if (!lowered) return undefined
+    const typed = typeArrayElement(
+      element,
+      lowered,
+      target.elem,
+      target.size,
+      i,
+      sourceFile,
+      diagnostics,
+    )
+    if (!typed) return undefined
+    args.push(typed)
   }
   return { op: 'construct', type: target, args };
+}
+
+/** One element of an `array<T, N>`, list or call, given the element type it sits in. Shared by
+ *  {@link lowerArrayLiteral} and {@link lowerArrayCtor} so the two spellings cannot drift.
+ *
+ *  An element takes the element type by exactly the rule a scalar declaration uses, which is
+ *  `retargetDeclaredIntLit` itself (#8 A3): what is WRITTEN as an integer and FITS is retyped,
+ *  and a single literal written as a float but valued as a whole number is kept, the way
+ *  `const x: i32 = 1.` is. Everything else is left alone and reported by the element check
+ *  below, so `[1.5, 2]`, `[-1, 2]` into a u32 array and `[3000000000, 2]` get the element
+ *  message rather than reaching the backend as an unspellable literal. `i32(2)` states its own
+ *  type and is not a literal waiting for one, so it stays i32 and is reported against an f32
+ *  element, the same line `const x: f32 = i32(2)` draws. */
+function typeArrayElement(
+  node: ts.Expression,
+  lowered: Expr,
+  elem: ShaderType,
+  size: number | undefined,
+  i: number,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  let out = retargetDeclaredIntLit(lowered, node, elem)
+  if (isBareNumericLiteral(node) && isNumericScalar(elem)) {
+    // Folded first, so a leading minus is part of the number: `-1.` reaches here as a unop
+    // over a literal, and an f64 array would otherwise be told its element is an f32. Only
+    // where the retarget above declined, which for a float element type is always.
+    const folded = foldNumericLit(out)
+    if (folded.op === 'lit' && typeof folded.value === 'number' && !isIntScalar(elem)) {
+      out = { op: 'lit', type: elem, value: folded.value }
+    }
+  }
+  if (typeKey(out.type) !== typeKey(elem)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `array<${typeKey(elem)}${size === undefined ? '' : `, ${size}`}> element ${i} must be ${typeKey(elem)}, got ${typeKey(out.type)}. There is no implicit conversion; cast it.`,
+      TS_CODES.TYPE_MISMATCH,
+    )
+    return undefined
+  }
+  return out
 }
 
 /** A number as written in the source — `1.`, `2`, `-3` — through parentheses and a leading

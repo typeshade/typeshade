@@ -42,8 +42,8 @@ import {
   collectMutatedRoots,
   refsLocal,
   isWorthHoisting,
-} from './expr-utils.js';
-import { bodyHasEffectfulCall, fnWrites, type FnWrites } from '../effects.js';
+} from './expr-utils.js'
+import { bodyHasEffectfulCall, fnReads, fnWrites, type FnReads, type FnWrites } from '../effects.js'
 
 /** Where one occurrence of a subexpression lives: the placement BLOCK (a path of
  *  `${stmtIndex}#${childBlockId}` steps from the fn body) and the index, within that
@@ -106,16 +106,18 @@ function placementOf(list: readonly Occurrence[]): { bp: readonly string[]; idx:
   return { bp, idx };
 }
 
-function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
-  if (bodyHasRaw(f.body)) return f;
+function cseFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+  if (bodyHasRaw(f.body)) return f
   // A call that writes a binding is not shareable: hoisting `store(i)` to one temp would
   // make two writes one (issue #47).
   if (bodyHasEffectfulCall(f.body, writes)) return f;
   // Non-invariant names: function locals AND any mutated name (incl. a read_write
-  // binding written in this fn). A read of a mutated name is not safely shareable.
-  const noHoist = new Set<string>();
-  collectLocals(f.body, noHoist);
-  collectMutatedRoots(f.body, noHoist, writes);
+  // binding written in this fn). A read of a mutated name is not safely shareable, and
+  // neither is a call to a helper that reads one (`reads`): `h(x)` is not input-only when
+  // `h` reads a `var<private>` this function writes.
+  const noHoist = new Set<string>()
+  collectLocals(f.body, noHoist)
+  collectMutatedRoots(f.body, noHoist, writes)
 
   // Count occurrences of every compound, input-only subexpression — and record WHERE
   // each one occurs, so the temp can be bound at their common block instead of fn top.
@@ -123,16 +125,16 @@ function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
   const exemplar = new Map<string, Expr>();
   const sites = new Map<string, Occurrence[]>();
   eachOccurrence(f.body, [], (e, bp, idx) => {
-    if (!isCompound(e) || !isWorthHoisting(e) || refsLocal(e, noHoist)) return;
-    const k = keyOf(e);
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-    if (!exemplar.has(k)) exemplar.set(k, e);
-    const at = sites.get(k);
-    if (at) at.push({ bp, idx });
-    else sites.set(k, [{ bp, idx }]);
-  });
-  const repeated = new Set<string>([...counts].filter(([, n]) => n >= 2).map(([k]) => k));
-  if (repeated.size === 0) return f;
+    if (!isCompound(e) || !isWorthHoisting(e) || refsLocal(e, noHoist, reads)) return
+    const k = keyOf(e)
+    counts.set(k, (counts.get(k) ?? 0) + 1)
+    if (!exemplar.has(k)) exemplar.set(k, e)
+    const at = sites.get(k)
+    if (at) at.push({ bp, idx })
+    else sites.set(k, [{ bp, idx }])
+  })
+  const repeated = new Set<string>([...counts].filter(([, n]) => n >= 2).map(([k]) => k))
+  if (repeated.size === 0) return f
 
   // Keep only the MAXIMAL repeated exprs — those NOT nested inside another repeated
   // expr. Hoisting the outermost (e.g. `sqrt(dot(p,p))`) binds the whole shared value
@@ -245,6 +247,7 @@ function cseFn(f: FuncDecl, writes: FnWrites): FuncDecl {
  * @returns A new module with the rewritten functions; `m` is not modified.
  */
 export function cse(m: ModuleDecl): ModuleDecl {
-  const writes = fnWrites(m);
-  return { ...m, funcs: m.funcs.map((f) => cseFn(f, writes)) };
+  const writes = fnWrites(m)
+  const reads = fnReads(m)
+  return { ...m, funcs: m.funcs.map((f) => cseFn(f, writes, reads)) }
 }

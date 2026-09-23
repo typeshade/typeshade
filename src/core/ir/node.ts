@@ -2382,8 +2382,10 @@ export const toF64 = (x: ReadonlyNode<'f32'> | number): Node<'f64'> =>
 /** Assemble an f64 from its (hi, lo) f32 halves, the shader-side counterpart of `splitF64` for
  *  a value that arrives as two f32 components (a hi/lo vertex attribute pair, a packed buffer).
  *  It costs nothing: the result is the pair `(hi, lo)` itself. The halves must be a normalized
- *  split, `lo = x − hi` as `splitF64` produces; an un-normalized pair weakens the arithmetic's
- *  error bounds. */
+ *  split, `lo = x − hi` as `splitF64` produces. Nothing renormalizes a pair that is not: the
+ *  comparisons decide on hi first and can answer wrongly for it (`(1, 1)` is 2, yet it compares
+ *  below `(1.5, 0)`), and a multiply or divide by a power-of-two literal scales the two words as
+ *  they are, so the product is exactly as un-normalized as the operand. */
 export const f64FromParts = (
   hi: ReadonlyNode<'f32'> | number,
   lo: ReadonlyNode<'f32'> | number,
