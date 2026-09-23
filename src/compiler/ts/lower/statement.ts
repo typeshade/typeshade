@@ -541,8 +541,51 @@ function lowerDeclarationKind(
   // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
   // the function (#38); the symbol table and every diagnostic keep the source name.
   const ir = irNameOf(bound)
-  if (isConst) return withSpan({ s: 'let', name: ir, expr: init } as Stmt, sourceFile, spanNode)
+  if (isConst) {
+    const stmt = withSpan({ s: 'let', name: ir, expr: init } as Stmt, sourceFile, spanNode)
+    // `const v = new V()` binds `v` once and leaves what it holds writable, as TypeScript's
+    // `const` does (Rule 6.10). The declaration stays a `let` until something writes into
+    // `v`, and becomes a `var` then: nothing else holds the value, so the copy is the object.
+    if (isComposite(bindingType) && decl.initializer && buildsFreshValue(decl.initializer, init)) {
+      ;(bound as { toVar?: () => void }).toVar = (): void => {
+        const st = stmt as { s: string; type?: ShaderType; init?: Expr; expr?: Expr }
+        if (st.s === 'var') return
+        st.s = 'var'
+        st.type = bindingType
+        st.init = st.expr
+        delete st.expr
+        ;(bound as { mutable: boolean }).mutable = true
+      }
+    }
+    return stmt
+  }
   return withSpan({ s: 'var', name: ir, type: bindingType, init } as Stmt, sourceFile, spanNode)
+}
+
+/** A value a name can be written through: a struct, an array, a vector or a matrix. */
+const isComposite = (t: ShaderType): boolean =>
+  t.kind === 'struct' || t.kind === 'array' || t.kind === 'vec' || t.kind === 'mat'
+
+/** Whether a `const`'s initializer builds a value nothing else holds (Rule 6.10): `new`, an
+ *  object or an array literal, a type's constructor, or calls on one of those, which leave
+ *  nothing else holding what they return. A name, a field, an element or a function's result
+ *  may be a value something else holds, which TypeScript would share and a copy here would not. */
+function buildsFreshValue(init: ts.Expression, lowered: Expr): boolean {
+  if (lowered.op === 'construct') return true
+  let x = unwrapParens(init)
+  while (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)) {
+    x = unwrapParens(x.expression.expression)
+  }
+  return ts.isNewExpression(x) || ts.isObjectLiteralExpression(x) || ts.isArrayLiteralExpression(x)
+}
+
+/** Why a write through a `const` that holds a copy is refused (Rule 6.10). */
+export function constCopyWrite(name: string): string {
+  return (
+    `"${name}" is a const whose value may be one something else holds, which TypeScript would ` +
+    `change with it and a copy here would not. Declare it with let to write a copy, or write ` +
+    `through the value itself.`
+  )
 }
 
 /** `super(a, b)` in a derived class's constructor (roadmap 0.3 item T5, #92).
@@ -1403,13 +1446,16 @@ export function lowerLValue(
     )
     return undefined
   }
+  if (!binding.mutable && into && binding.toVar !== undefined) binding.toVar()
   if (!binding.mutable) {
     const ro = readOnlyPhrase(binding.kind)
     pushDiag(
       diagnostics,
       sourceFile,
       node,
-      `Cannot assign to "${node.text}" — it is ${ro}.`,
+      into && binding.kind === 'local' && isComposite(binding.type)
+        ? constCopyWrite(node.text)
+        : `Cannot assign to "${node.text}" — it is ${ro}.`,
       TS_CODES.CONST_ASSIGN,
     )
     return undefined
@@ -1588,6 +1634,12 @@ function checkRootWritable(
     return false
   }
   if (!binding.mutable) {
+    // A write INTO a local `const`, not to the name: TypeScript allows it (Rule 6.10).
+    const through = into || !ts.isIdentifier(unwrapParens(node))
+    if (through && binding.toVar !== undefined) {
+      binding.toVar()
+      return true
+    }
     // readOnlyPhrase, not a local ternary: #18 gave a binding its own BindingKind, so the
     // message can say WHICH of the two a name is — and the root of a chain deserves the same
     // sentence a bare name gets.
@@ -1595,7 +1647,9 @@ function checkRootWritable(
       diagnostics,
       sourceFile,
       node,
-      `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(binding.kind)}.`,
+      through && binding.kind === 'local' && isComposite(binding.type)
+        ? constCopyWrite(rootName)
+        : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(binding.kind)}.`,
       TS_CODES.CONST_ASSIGN,
     )
     return false

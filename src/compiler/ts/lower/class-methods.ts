@@ -283,19 +283,39 @@ const memberKeyOf = (node: MemberFunction): string | undefined => {
  *  through methods that return `this` (`chainable`), is a call on `this` (Rule 8.10). */
 function writesThis(
   body: ts.Block,
-  mutating: ReadonlySet<string>,
-  chainable: ReadonlySet<string> = new Set(),
+  self: string,
+  table: MutationTable,
+  byName: ReadonlyMap<string, CollectedStruct>,
 ): boolean {
-  const rootOf = (e: ts.Expression): ts.Expression => {
-    let x = unparen(e)
-    while (
-      ts.isCallExpression(x) &&
-      ts.isPropertyAccessExpression(x.expression) &&
-      chainable.has(x.expression.name.text)
-    ) {
-      x = unparen(x.expression.expression)
+  /** The type of a place reached from `this`: a field, an element, or what a method that
+   *  returns `this` hands back, which is its receiver. Undefined for anything not rooted in
+   *  `this`, which a write through cannot change. */
+  const placeType = (e: ts.Expression): ShaderType | undefined => {
+    const x = unparen(e)
+    if (x.kind === ts.SyntaxKind.ThisKeyword) return structT(self)
+    if (ts.isPropertyAccessExpression(x)) {
+      const base = placeType(x.expression)
+      if (base?.kind !== 'struct') return undefined
+      const field = emittedMemberName(x.name.text)
+      return byName.get(base.name)?.decl.fields.find((f) => f.name === field)?.type
     }
-    return x
+    if (ts.isElementAccessExpression(x)) {
+      const base = placeType(x.expression)
+      return base?.kind === 'array' ? base.elem : undefined
+    }
+    if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)) {
+      const base = placeType(x.expression.expression)
+      return base?.kind === 'struct' && table.chainable(base.name).has(x.expression.name.text)
+        ? base
+        : undefined
+    }
+    return undefined
+  }
+  /** Whether `key` names a member of the class a place rooted in `this` holds that changes its
+   *  object: `this.m()`, and `this.inner.m()` or `this.items[i].m()` on a field's class. */
+  const changes = (receiver: ts.Expression, key: string): boolean => {
+    const t = placeType(receiver)
+    return t?.kind === 'struct' && table.keys(t.name).has(key)
   }
   let found = false
   const walk = (n: ts.Node): void => {
@@ -321,17 +341,12 @@ function writesThis(
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
-      rootOf(n.expression.expression).kind === ts.SyntaxKind.ThisKeyword &&
-      mutating.has(n.expression.name.text)
+      changes(n.expression.expression, n.expression.name.text)
     ) {
       found = true
       return
     }
-    if (
-      ts.isPropertyAccessExpression(n) &&
-      unparen(n.expression).kind === ts.SyntaxKind.ThisKeyword &&
-      mutating.has(`get ${n.name.text}`)
-    ) {
+    if (ts.isPropertyAccessExpression(n) && changes(n.expression, `get ${n.name.text}`)) {
       found = true
       return
     }
@@ -341,39 +356,69 @@ function writesThis(
   return found
 }
 
-/** The bodies a class emits that change their object, by the function each is emitted as, to
- *  a fixpoint: one that writes a field directly, one that calls such a method or reads such a
- *  getter on `this`, and one that reaches such a base body through `super`, which runs on the
- *  same object (Rule 8.10). A call on `this` resolves to the class's own member, so only a body
- *  the class emits under its own name answers to one. */
-function mutatingBodiesOf(bodies: readonly ClassBody[]): Set<string> {
-  const fns = new Set<string>()
-  const keys = new Set<string>()
-  const candidates = bodies.filter(
-    (b) => !b.isStatic && b.node.body !== undefined && memberKeyOf(b.node) !== undefined,
-  )
-  // The class's own methods that hand back `this`, which a chain on `this` runs through.
-  const chainable = new Set(
-    candidates
-      .filter((b) => !b.isSuper && b.accessor === undefined && returnsThis(b.node.body))
-      .map((b) => b.member),
-  )
-  const throughSuper = (b: ClassBody): boolean => {
+/** Which members of each class change their object, by the key a call names them with
+ *  (`step`, `get x`, `set x`), and which hand back `this`: what a body in one class needs to
+ *  know about a field's class to tell whether `this.inner.bump()` writes its own object. */
+interface MutationTable {
+  keys(struct: string): ReadonlySet<string>
+  chainable(struct: string): ReadonlySet<string>
+}
+
+/** The bodies each class emits that change their object, by the function each is emitted as,
+ *  to a fixpoint over every class of the file at once: one that writes a field directly, one
+ *  that calls such a method or reads such a getter on `this` or on a field or an element of it,
+ *  whatever class that field is, and one that reaches such a base body through `super`, which
+ *  runs on the same object (Rule 8.10). A call on `this` resolves to the class's own member, so
+ *  only a body the class emits under its own name answers to one. */
+function mutatingBodiesOfAll(
+  classes: readonly { readonly name: string; readonly bodies: readonly ClassBody[] }[],
+  byName: ReadonlyMap<string, CollectedStruct>,
+): Map<string, Set<string>> {
+  const fns = new Map<string, Set<string>>()
+  const keys = new Map<string, Set<string>>()
+  const chainable = new Map<string, Set<string>>()
+  const candidatesOf = new Map<string, ClassBody[]>()
+  for (const { name, bodies } of classes) {
+    const candidates = bodies.filter(
+      (b) => !b.isStatic && b.node.body !== undefined && memberKeyOf(b.node) !== undefined,
+    )
+    candidatesOf.set(name, candidates)
+    fns.set(name, new Set())
+    keys.set(name, new Set())
+    // The class's own methods that hand back `this`, which a chain runs through.
+    chainable.set(
+      name,
+      new Set(
+        candidates
+          .filter((b) => !b.isSuper && b.accessor === undefined && returnsThis(b.node.body))
+          .map((b) => b.member),
+      ),
+    )
+  }
+  const none: ReadonlySet<string> = new Set()
+  const table: MutationTable = {
+    keys: (struct) => keys.get(struct) ?? none,
+    chainable: (struct) => chainable.get(struct) ?? none,
+  }
+  const throughSuper = (b: ClassBody, own: ReadonlySet<string>): boolean => {
     let found = false
     eachSuperRef(b.node.body!, (ref) => {
       const fn = b.superMethods.get(superKey(ref))
-      if (fn !== undefined && fns.has(fn)) found = true
+      if (fn !== undefined && own.has(fn)) found = true
     })
     return found
   }
   for (;;) {
     let grew = false
-    for (const b of candidates) {
-      if (fns.has(b.fnName)) continue
-      if (writesThis(b.node.body!, keys, chainable) || throughSuper(b)) {
-        fns.add(b.fnName)
-        if (!b.isSuper) keys.add(memberKeyOf(b.node)!)
-        grew = true
+    for (const { name } of classes) {
+      const own = fns.get(name)!
+      for (const b of candidatesOf.get(name)!) {
+        if (own.has(b.fnName)) continue
+        if (writesThis(b.node.body!, name, table, byName) || throughSuper(b, own)) {
+          own.add(b.fnName)
+          if (!b.isSuper) keys.get(name)!.add(memberKeyOf(b.node)!)
+          grew = true
+        }
       }
     }
     if (!grew) return fns
@@ -944,6 +989,26 @@ export function collectClassFunctions(
   const byName = new Map(structs.map((s) => [s.decl.name, s]))
   const constructed = namesConstructed(sourceFile, structs, byName)
   const reported = new Set<string>()
+  // The bodies each class emits, found for every class before any is lowered: whether a method
+  // changes its object can depend on another class's, `this.inner.bump()` on `Inner.bump`.
+  const effectiveOf = new Map(structs.map((s) => [s.decl.name, effectiveMembers(s, byName)]))
+  const bodiesOf = (struct: CollectedStruct): readonly ClassBody[] => {
+    const effective = effectiveOf.get(struct.decl.name)!
+    // A generic class's INSTANCE contributes no static: a static cannot mention the class's
+    // type parameters, so it is one function however many instances there are, carried once
+    // by the collection under the class's own name (T9, #92). Keeping it here would emit one
+    // dead copy per instance, under a name no call site can reach.
+    const own =
+      struct.binding !== undefined ? effective.bodies.filter((b) => !b.isStatic) : effective.bodies
+    // An abstract class is a base and never a value, so it contributes no instance method and
+    // no constructor of its own; its bodies are lowered into each concrete class below. Its
+    // statics are functions like any other and are kept.
+    return struct.abstract ? own.filter((b) => b.isStatic) : own
+  }
+  const mutatingOf = mutatingBodiesOfAll(
+    structs.map((s) => ({ name: s.decl.name, bodies: bodiesOf(s) })),
+    byName,
+  )
   for (const struct of structs) {
     // A generic class's instance carries what its type parameters are bound to (roadmap 0.3
     // item T9, #92): its methods are written in terms of `T`, so their signatures are parsed
@@ -955,20 +1020,9 @@ export function collectClassFunctions(
       const name = struct.decl.name
       const selfT = structT(name)
       const members = struct.members
-      const effective = effectiveMembers(struct, byName)
-      // A generic class's INSTANCE contributes no static: a static cannot mention the class's
-      // type parameters, so it is one function however many instances there are, carried once
-      // by the collection under the class's own name (T9, #92). Keeping it here would emit one
-      // dead copy per instance, under a name no call site can reach.
-      const own =
-        struct.binding !== undefined
-          ? effective.bodies.filter((b) => !b.isStatic)
-          : effective.bodies
-      // An abstract class is a base and never a value, so it contributes no instance method and
-      // no constructor of its own; its bodies are lowered into each concrete class below. Its
-      // statics are functions like any other and are kept.
-      const bodies = struct.abstract ? own.filter((b) => b.isStatic) : own
-      const mutating = mutatingBodiesOf(bodies)
+      const effective = effectiveOf.get(name)!
+      const bodies = bodiesOf(struct)
+      const mutating = mutatingOf.get(name)!
       // The function names a member of the chain lost to another, already reported where the
       // two were declared (structs.ts); a call that misses because of it adds nothing.
       const lost = new Set(
@@ -1792,13 +1846,21 @@ export function mutatingReceiver(
       )
       return undefined
     }
+    // `const v = new V(); v.setX(1.)`: a `const` that holds a value nothing else does is
+    // written through as TypeScript's is, and becomes a `var` (Rule 6.10).
+    if (b !== undefined && !b.mutable && b.toVar !== undefined) b.toVar()
     if (b !== undefined && !b.mutable) {
+      const copy = b.kind === 'local' && b.type.kind === 'struct'
       pushDiag(
         diagnostics,
         sourceFile,
         node,
-        `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
-          `declare it with let.`,
+        copy
+          ? `"${shown}" changes its object, and "${bare.text}" is a const whose value may be ` +
+              `one something else holds, which TypeScript would change with it and a copy here ` +
+              `would not. Declare it with let to change a copy, or call it on the value itself.`
+          : `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
+              `declare it with let.`,
       )
       return undefined
     }

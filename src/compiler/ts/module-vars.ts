@@ -37,6 +37,7 @@ import { isFoldableConstExpr, staticConstName } from './module-const.js'
 import { eachNamespaceStatement } from './namespaces.js'
 import {
   emittedMemberName,
+  holdsFunction,
   isStaticMember,
   shadowedStaticFields,
   writtenMemberName,
@@ -169,6 +170,8 @@ export function collectModuleVars(
     const shadowed = shadowedStaticFields(cls)
     for (const member of cls.members) {
       if (!ts.isPropertyDeclaration(member) || !isStaticMember(member)) continue
+      // A static field that holds a function is a static method, and structs.ts says so.
+      if (holdsFunction(member)) continue
       if (shadowed.has(member)) continue
       const written = writtenMemberName(member.name)
       if (written === undefined || !writtenStatics.has(`${owner}.${written}`)) continue

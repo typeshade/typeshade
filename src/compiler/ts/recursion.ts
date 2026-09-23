@@ -51,8 +51,11 @@
 // module outright" justification does NOT hold for this class.
 
 import ts from 'typescript'
+import type { FuncDecl } from '../../core/ir/nodes.js'
+import type { SourceSpan } from '../../core/ir/span.js'
+import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js'
 import { TS_CODES } from './codes.js'
-import { makeDiagnostic } from './diagnostic.js'
+import { diagnosticAtSpan, makeDiagnostic } from './diagnostic.js'
 import type { TsCompilerDiagnostic } from './source-file.js'
 
 /** One node of the call graph, as the caller's own compile path already knows it.
@@ -64,6 +67,9 @@ import type { TsCompilerDiagnostic } from './source-file.js'
 export interface RecursionNode {
   /** The canonical graph key — the name the emitted WGSL function will carry. */
   readonly name: string
+  /** The name a diagnostic gives it when an author writes it otherwise: `N.f` for the class
+   *  static `N_f`. */
+  readonly shown?: string
   readonly decl: ts.FunctionLikeDeclarationBase
   readonly sourceFile: ts.SourceFile
   /** A called identifier's text to the canonical name it refers to, or `undefined` when it is
@@ -174,6 +180,7 @@ export function checkRecursion(
   for (const name of outgoing.keys()) colour.set(name, WHITE)
   const stack: string[] = []
   const reported = new Set<string>()
+  const shown = new Map(nodes.map((n) => [n.name, n.shown ?? n.name] as const))
 
   const visit = (name: string): void => {
     colour.set(name, GREY)
@@ -191,7 +198,7 @@ export function checkRecursion(
             makeDiagnostic(
               edge.sourceFile,
               edge.node,
-              `Recursive call: ${renderCycle([...cycle, edge.to])}. WGSL has no call stack, so a function must not take part in a call cycle.`,
+              `Recursive call: ${renderCycle([...cycle, edge.to].map((n) => shown.get(n)!))}. WGSL has no call stack, so a function must not take part in a call cycle.`,
               TS_CODES.RECURSION,
             ),
           )
@@ -206,4 +213,70 @@ export function checkRecursion(
 
   // Declaration order, so the diagnostics of a file with several cycles are stable.
   for (const n of nodes) if (colour.get(n.name) === WHITE) visit(n.name)
+}
+
+/**
+ * Report the call cycles only the lowered bodies show (Rule 8.4): one that runs through a call
+ * on a value (`this.g(n)`, `o.m()`), a getter, a setter or `new`, none of which names a function
+ * in its text for `checkRecursion` to follow. Tint was the first to refuse such a module.
+ *
+ * The same walk, on the calls each body lowered to. A cycle every hop of which `nodes` has too
+ * is `checkRecursion`'s, which has said one already. The rest are said here, once per call that
+ * closes one: a body a class inherits is lowered once more for that class, and the cycle it
+ * closes there is the same mistake in the same place (Rule 12.4), and so is the cycle each
+ * instance of a generic function closes. A cycle is named the way an author writes its members,
+ * `"N.f" -> "N.g" -> "N.f"`, through `shownOf`.
+ */
+export function checkLoweredRecursion(
+  nodes: readonly RecursionNode[],
+  funcs: readonly FuncDecl[],
+  shownOf: ReadonlyMap<string, string>,
+  nodeOf: ReadonlyMap<string, ts.Node>,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const written = new Set<string>()
+  for (const n of nodes) for (const e of edgesOf(n)) written.add(`${n.name} ${e.to}`)
+  const outgoing = new Map<string, { to: string; span: SourceSpan | undefined }[]>()
+  for (const f of funcs) {
+    const calls: { to: string; span: SourceSpan | undefined }[] = []
+    for (const st of f.body) {
+      eachStmtExpr(st, (e) =>
+        eachExpr(e, (x) => {
+          if (x.op === 'call') calls.push({ to: x.fn, span: (x as { span?: SourceSpan }).span })
+        }),
+      )
+    }
+    outgoing.set(f.name, calls)
+  }
+  const colour = new Map<string, 'grey' | 'black'>()
+  const stack: string[] = []
+  const said = new Set<number>()
+  const visit = (name: string): void => {
+    colour.set(name, 'grey')
+    stack.push(name)
+    for (const edge of outgoing.get(name) ?? []) {
+      if (!outgoing.has(edge.to)) continue // an intrinsic
+      const state = colour.get(edge.to)
+      if (state === undefined) visit(edge.to)
+      if (state !== 'grey') continue
+      const cycle = [...stack.slice(stack.lastIndexOf(edge.to)), edge.to]
+      const hops = cycle.slice(1).map((to, i) => `${cycle[i]} ${to}`)
+      const at = edge.span?.start ?? -1
+      if (hops.every((h) => written.has(h)) || said.has(at)) continue
+      said.add(at)
+      diagnostics.push(
+        diagnosticAtSpan(
+          sourceFile,
+          edge.span,
+          nodeOf.get(name),
+          `Recursive call: ${renderCycle(cycle.map((n) => shownOf.get(n) ?? n))}. WGSL has no call stack, so a function must not take part in a call cycle.`,
+          TS_CODES.RECURSION,
+        ),
+      )
+    }
+    stack.pop()
+    colour.set(name, 'black')
+  }
+  for (const f of funcs) if (!colour.has(f.name)) visit(f.name)
 }

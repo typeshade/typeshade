@@ -194,6 +194,10 @@ export interface Binding {
    *  `aliasOf: 'src'`, so a question about what `a` denotes (is it a storage array, for
    *  `arrayLength`) follows the chain to the binding instead of stopping at the local (#46). */
   readonly aliasOf?: string
+  /** For a local `const` whose initializer built a value nothing else holds (Rule 6.10): makes
+   *  the declaration a `var` and the name writable through, the first time something writes
+   *  into what it holds. The name itself is never assigned again. */
+  readonly toVar?: () => void
   /** For a `kind: 'module'` const whose value is not a scalar (a vector, an array), the
    *  initializer as lowered, so a division inside a function body can be proven zero
    *  componentwise the way a module const's own initializer is (#68). A scalar const carries

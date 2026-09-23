@@ -47,7 +47,7 @@ import { ATOMIC_INTRINSICS } from '../../../core/intrinsics.js'
 import { makeDiagnostic } from '../diagnostic.js'
 import { spanOf, withSpan } from '../span.js'
 import { TS_CODES, type TsCode } from '../codes.js'
-import { checkRecursion } from '../recursion.js'
+import { checkLoweredRecursion, checkRecursion, type RecursionNode } from '../recursion.js'
 import {
   eachNamespaceStatement,
   namespaceMemberName,
@@ -314,6 +314,8 @@ export function lowerSourceFunctions(
   // asked for it — WGSL wants a function declared before it is called, and the bodies below
   // push themselves only after they are filled.
   const instances = new Map<string, FuncDecl>()
+  // The name each instance's author wrote: `pick` for `pick_f32`.
+  const writtenAs = new Map<string, string>()
   fns.instantiate = (name, node, argTypes, sf, diags): FuncDecl | undefined => {
     const generic = generics.get(name)
     if (generic === undefined) return undefined
@@ -337,6 +339,7 @@ export function lowerSourceFunctions(
     // finds this instance rather than making another one forever.
     instances.set(emitted, stub)
     callees.set(emitted, stub)
+    writtenAs.set(emitted, name)
     withTypeArguments(bound, () => {
       fillFunctionBody(
         generic.node,
@@ -456,33 +459,42 @@ export function lowerSourceFunctions(
   // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
   // downstream of here was looking for one. In a single file a function is called by the name
   // it is declared under, so the graph key and the resolver are both just `callees`. A method
-  // called through its object (`r.at(t)`) is not an identifier call and is not in this graph
-  // yet; Tint still refuses the cycle, as a backend diagnostic (#86).
-  checkRecursion(
-    [
-      ...ready.map(({ node, stub }) => ({
-        // The EMITTED name, which for a namespace's function is the flattened one (T4, #92):
-        // the graph's keys and the call resolver are both `callees`, which is keyed by it.
-        name: stub.name,
-        decl: node,
-        sourceFile,
-        resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
-        filled: filledCallsOf(stub),
-      })),
-      ...classFns.flatMap((cf) =>
-        cf.node === undefined
-          ? []
-          : [
-              {
-                name: cf.stub.name,
-                decl: cf.node,
-                sourceFile,
-                resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
-                filled: filledCallsOf(cf.stub),
-              },
-            ],
-      ),
-    ],
+  // called through its object (`r.at(t)`) is not an identifier call and is not in this graph;
+  // the lowered calls below are where its cycle shows.
+  const graph: RecursionNode[] = [
+    ...ready.map(({ node, stub }) => ({
+      // The EMITTED name, which for a namespace's function is the flattened one (T4, #92):
+      // the graph's keys and the call resolver are both `callees`, which is keyed by it.
+      name: stub.name,
+      decl: node,
+      sourceFile,
+      resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+      filled: filledCallsOf(stub),
+    })),
+    ...classFns.flatMap((cf) =>
+      cf.node === undefined
+        ? []
+        : [
+            {
+              name: cf.stub.name,
+              shown: cf.shown,
+              decl: cf.node,
+              sourceFile,
+              resolve: (callee: string) => (callees.has(callee) ? callee : undefined),
+              filled: filledCallsOf(cf.stub),
+            },
+          ],
+    ),
+  ]
+  checkRecursion(graph, diagnostics)
+  // A cycle through a call on a value (`this.g(n)`, `o.m()`), a getter, a setter or `new`, none
+  // of which names a function in its text: read off the calls the bodies lowered to (Rule 8.4).
+  checkLoweredRecursion(
+    graph,
+    funcs,
+    new Map([...writtenAs, ...classFns.map((cf) => [cf.stub.name, cf.shown] as const)]),
+    nodeByName,
+    sourceFile,
     diagnostics,
   )
   checkFragmentOnlyOps(funcs, nodeByName, sourceFile, diagnostics)

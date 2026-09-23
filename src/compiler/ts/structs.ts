@@ -5,11 +5,14 @@ import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.
 import type { TsCompilerDiagnostic } from './source-file.js'
 import { lookupTypeName, mapTsTypeToShaderType } from './type-map.js'
 import {
+  baseClassOf,
   emittedMemberName,
+  holdsFunction,
   isPrivateName,
   isReadonlyMember,
   isStaticMember,
   keywordAccessOf,
+  memberDeclarationInChain,
   writtenMemberName,
   type KeywordAccess,
 } from './class-names.js'
@@ -646,6 +649,23 @@ export function collectStructs(
           // collects and folds it, exactly as it does a top-level `const`. Before this it was
           // refused, and the fix it named was to write the const by hand. One the file writes is
           // a module variable instead, which `module-vars.ts` collects (Rule 8.13).
+          // A field that holds a function is a method (Rule 8.16), a static one included.
+          if (holdsFunction(member)) {
+            const fn = member.initializer as ts.ArrowFunction | ts.FunctionExpression
+            const why = functionFieldRefusal(member, fn, structName, memberName)
+            if (why !== undefined) {
+              diagnostics.push(classDiag(sourceFile, why.at, why.message))
+              continue
+            }
+            const twice =
+              `"${structName}.${memberName}" is declared twice; a method has one body ` +
+              `and no overloads.`
+            if (!claimFunction(emittedMemberName(memberName), memberName, member.name, twice))
+              continue
+            if (!claimKind(memberName, 'method', member.name, memberName)) continue
+            methods.push(methodOfField(member, fn))
+            continue
+          }
           if (isStaticMember(member)) {
             if (!claimKind(`static ${memberName}`, 'field', member.name, memberName)) continue
             // `static #n` and `static n` would be one module constant, `Cls_n` (Rule 8.12).
@@ -665,19 +685,6 @@ export function collectStructs(
             }
             staticFieldNames.set(emitted, memberName)
             staticFields++
-            continue
-          }
-          if (
-            member.initializer !== undefined &&
-            (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer))
-          ) {
-            diagnostics.push(
-              classDiag(
-                sourceFile,
-                member,
-                `A field holding a function is a method: write "${memberName}(...) { ... }".`,
-              ),
-            )
             continue
           }
           for (const d of member.modifiers ?? []) {
@@ -905,6 +912,7 @@ export function collectStructs(
   for (const s of inherited) {
     checkLocationSlots(diagnostics, sourceFile, nodeOf.get(s.decl.name), s.decl.name, s.decl.fields)
   }
+  checkOverrideKinds(sourceFile, diagnostics)
   return inherited
 }
 
@@ -914,6 +922,117 @@ function classDiag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompile
 
 /** `a field`, `a method`, `an accessor`. */
 const a = (kind: string): string => (/^[aeiou]/.test(kind) ? `an ${kind}` : `a ${kind}`)
+
+/** What TypeScript tells a class member apart as where a class that extends declares it again:
+ *  a field (a parameter property is one), a field that holds a function (a method here, Rule
+ *  8.16, and a property to TypeScript), a method, or an accessor. */
+type OverrideKind = 'field' | 'field that holds a function' | 'method' | 'accessor'
+
+function overrideKindOf(d: ts.ClassElement | ts.ParameterDeclaration): OverrideKind | undefined {
+  if (ts.isParameter(d)) return 'field'
+  if (ts.isPropertyDeclaration(d)) return holdsFunction(d) ? 'field that holds a function' : 'field'
+  if (ts.isMethodDeclaration(d)) return 'method'
+  if (ts.isGetAccessorDeclaration(d) || ts.isSetAccessorDeclaration(d)) return 'accessor'
+  return undefined
+}
+
+/** Whether TypeScript lets a member of kind `mine` stand where the class above declares one of
+ *  kind `theirs`: the same kind, a property over a method, and a field over an abstract accessor.
+ *  It refuses the rest: TS2423, TS2425 and TS2426 between a method and a property or an
+ *  accessor, TS2610 and TS2611 between a property and an accessor, and TS2416 between a field of
+ *  a shader type and a function. An accessor over an abstract field is the one TypeScript takes
+ *  and this does not (see `checkOverrideKinds`). */
+function mayOverride(mine: OverrideKind, theirs: OverrideKind, abstract: boolean): boolean {
+  if (mine === theirs) return true
+  if (mine === 'field that holds a function' && theirs === 'method') return true
+  return abstract && mine === 'field' && theirs === 'accessor'
+}
+
+/** A member a class that extends declares again as another kind than the class above declares
+ *  it, and `super.f` where the `f` above is a field that holds a function, which is the object's
+ *  own (TS2855): what TypeScript refuses, and what would otherwise compile to one class's member
+ *  where TypeScript's object holds the other's (Rule 8.16). Read off each declaration once, so a
+ *  generic class says it once however many instances the file writes. */
+function checkOverrideKinds(sourceFile: ts.SourceFile, diagnostics: TsCompilerDiagnostic[]): void {
+  const ownerOf = (d: ts.ClassElement | ts.ParameterDeclaration): string => {
+    const cls = ts.isParameter(d) ? d.parent.parent : d.parent
+    return ts.isClassLike(cls) && cls.name !== undefined ? cls.name.text : ''
+  }
+  const visit = (node: ts.Node): void => {
+    ts.forEachChild(node, visit)
+    if (!ts.isClassDeclaration(node) || node.name === undefined) return
+    const base = baseClassOf(node)
+    if (base === undefined) return
+    const cls = node.name.text
+    const said = new Set<string>()
+    const check = (name: string, mine: OverrideKind, at: ts.Node): void => {
+      if (said.has(name) || isPrivateName(name)) return
+      const prior = memberDeclarationInChain(base, name, false)
+      const theirs = prior === undefined ? undefined : overrideKindOf(prior)
+      if (prior === undefined || theirs === undefined) return
+      const abstract =
+        (ts.getCombinedModifierFlags(prior as ts.Declaration) & ts.ModifierFlags.Abstract) !== 0
+      if (mayOverride(mine, theirs, abstract)) return
+      said.add(name)
+      const owner = ownerOf(prior)
+      // TypeScript takes an accessor over an abstract field, which it emits nothing for. Here
+      // the field is a member of every struct below it, and a body the base wrote would read
+      // that member, never the accessor: 0 where TypeScript computes the getter's value.
+      const type = ts.isPropertyDeclaration(prior) ? prior.type?.getText(sourceFile) : undefined
+      diagnostics.push(
+        classDiag(
+          sourceFile,
+          at,
+          abstract && mine === 'accessor' && theirs === 'field'
+            ? `"${cls}.${name}" is an accessor, and the "${owner}.${name}" it overrides is an ` +
+                `abstract field, which every struct below "${owner}" holds as a member, so a ` +
+                `read of it would never reach the accessor. Declare it in "${owner}" as ` +
+                `"abstract get ${name}(): ${type ?? 'T'}".`
+            : `"${cls}.${name}" is ${a(mine)}, and the "${owner}.${name}" it overrides is ` +
+                `${a(theirs)}; TypeScript refuses an override of another kind. Declare it as ` +
+                `${a(theirs)}, or rename it.`,
+        ),
+      )
+    }
+    for (const m of node.members) {
+      if (ts.isConstructorDeclaration(m)) {
+        for (const p of m.parameters) {
+          if (ts.isIdentifier(p.name) && ts.isParameterPropertyDeclaration(p, m)) {
+            check(p.name.text, 'field', p.name)
+          }
+        }
+        continue
+      }
+      if (m.name === undefined || isStaticMember(m)) continue
+      const name = writtenMemberName(m.name)
+      const mine = overrideKindOf(m)
+      if (name !== undefined && mine !== undefined) check(name, mine, m.name)
+    }
+    // `super` in an instance member's body, an arrow function's included; a nested class and a
+    // `function` have a `super` of their own, or none.
+    const walk = (n: ts.Node): void => {
+      if (ts.isClassLike(n) || ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n)) return
+      if (ts.isPropertyAccessExpression(n) && n.expression.kind === ts.SyntaxKind.SuperKeyword) {
+        const name = n.name.text
+        const prior = memberDeclarationInChain(base, name, false)
+        if (prior !== undefined && ts.isPropertyDeclaration(prior) && holdsFunction(prior)) {
+          diagnostics.push(
+            classDiag(
+              sourceFile,
+              n,
+              `"super.${name}" names a field that holds a function, and a field is the object's ` +
+                `own, which "super" does not reach. Declare "${ownerOf(prior)}.${name}" as a ` +
+                `method, or write "this.${name}".`,
+            ),
+          )
+        }
+      }
+      ts.forEachChild(n, walk)
+    }
+    for (const m of node.members) if (!isStaticMember(m)) ts.forEachChild(m, walk)
+  }
+  visit(sourceFile)
+}
 
 /** The type a field written without one takes from its initializer, or `undefined` when the
  *  initializer does not name one (Rule 8.14). Read off the syntax, since no scope exists yet to
@@ -1023,6 +1142,10 @@ function collectCandidates(sourceFile: ts.SourceFile): Map<string, Candidate> {
 function eachTypeName(node: ts.Node, f: (name: string) => void): void {
   if (ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)) f(node.typeName.text)
   node.forEachChild((child) => {
+    // A type parameter's constraint and default describe what an argument may be, and no
+    // value has them: `<T extends HasArea>` names a contract, which an interface with methods
+    // is (Rule 6.9). The type the parameter is bound to is what a call consumes.
+    if (ts.isTypeParameterDeclaration(child)) return
     eachTypeName(child, f)
   })
 }
@@ -1321,6 +1444,91 @@ function applyInheritance(
   return out
 }
 
+/** Why the function a field holds cannot be a method, with the fix; undefined when it can. */
+function functionFieldRefusal(
+  member: ts.PropertyDeclaration,
+  fn: ts.ArrowFunction | ts.FunctionExpression,
+  structName: string,
+  memberName: string,
+): { at: ts.Node; message: string } | undefined {
+  const shown = `${structName}.${memberName}`
+  if (isStaticMember(member)) {
+    return {
+      at: member,
+      message: `A static field holding a function is a static method: write "static ${memberName}(...) { ... }".`,
+    }
+  }
+  if ((fn.typeParameters?.length ?? 0) > 0) {
+    return {
+      at: fn,
+      message: `"${shown}" takes type parameters, and a method does not; write it as a generic function of the module.`,
+    }
+  }
+  // The sentence a method of the same shape gets.
+  if (
+    (ts.isFunctionExpression(fn) && fn.asteriskToken !== undefined) ||
+    fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+  ) {
+    return { at: fn, message: `"${shown}" is a plain method or nothing: no async, no generator.` }
+  }
+  if (!ts.isBlock(fn.body) && fn.type === undefined) {
+    return {
+      at: fn,
+      message: `"${shown}" returns a value straight away, so it needs a return type: write "(x: f32): f32 => ...".`,
+    }
+  }
+  return undefined
+}
+
+/** The method a field that holds a function is: the field's name and modifiers, the function's
+ *  parameters, return type and body, an expression body being a `return` of it. Its nodes are
+ *  the source's own, so what is said about them is said where they are written. */
+function methodOfField(
+  member: ts.PropertyDeclaration,
+  fn: ts.ArrowFunction | ts.FunctionExpression,
+): ts.MethodDeclaration {
+  const setParent = (node: ts.Node, parent: ts.Node): void => {
+    ;(node as { parent: ts.Node }).parent = parent
+  }
+  let body: ts.Block
+  if (ts.isBlock(fn.body)) body = fn.body
+  else {
+    const ret = ts.setTextRange(ts.factory.createReturnStatement(fn.body), fn.body)
+    body = ts.setTextRange(ts.factory.createBlock([ret], true), fn.body)
+    setParent(ret, body)
+    setParent(fn.body, ret)
+  }
+  const modifiers = (ts.getModifiers(member) ?? []).filter(
+    (m) =>
+      m.kind === ts.SyntaxKind.PublicKeyword ||
+      m.kind === ts.SyntaxKind.PrivateKeyword ||
+      m.kind === ts.SyntaxKind.ProtectedKeyword ||
+      m.kind === ts.SyntaxKind.OverrideKeyword,
+  )
+  const method = ts.setTextRange(
+    ts.factory.createMethodDeclaration(
+      modifiers,
+      undefined,
+      member.name,
+      undefined,
+      undefined,
+      // `function (this: A)` types `this`; it is not a parameter anything passes.
+      ts.factory.createNodeArray(
+        fn.parameters.filter(
+          (p, i) => !(i === 0 && ts.isIdentifier(p.name) && p.name.text === 'this'),
+        ),
+      ),
+      fn.type,
+      body,
+    ),
+    member,
+  )
+  setParent(method, member.parent)
+  // The body reads as the method's own, as a method's body does, for every walk up from it.
+  setParent(body, method)
+  return method
+}
+
 function memberNameDiag(
   sourceFile: ts.SourceFile,
   member: ts.Node,
@@ -1350,7 +1558,15 @@ function signatureFields(
   const fields: StructField[] = []
   for (const member of members) {
     if (ts.isMethodSignature(member)) {
-      diagnostics.push(diag(sourceFile, member, `Data type "${owner}" cannot have methods.`))
+      diagnostics.push(
+        diag(
+          sourceFile,
+          member,
+          `"${owner}" declares a method, so it is a contract a class implements and not a ` +
+            `value a shader holds: take the class that implements it, or a type parameter it ` +
+            `constrains, "<T extends ${owner}>(v: T)".`,
+        ),
+      )
       continue
     }
     if (ts.isCallSignatureDeclaration(member) || ts.isConstructSignatureDeclaration(member)) {

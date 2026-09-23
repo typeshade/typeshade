@@ -3,7 +3,9 @@
 // a static field the file writes and `this` in a static member, and `readonly`; then `super` on
 // an accessor and on a base method that writes its object, statics through a class that
 // extends, `new this()` and `super` in a static member, `private` and `protected`, and a chain of
-// calls on one object.
+// calls on one object; then a method that changes an object its object holds, a `const` that
+// holds an object, a field that holds a function, an interface with methods, and a call cycle
+// through methods (Rules 6.9, 6.10, 8.4, 8.10 and 8.16).
 //
 // Measured on the branch before this: a getter or a setter was TS8035 "write it as a method",
 // `#x` was TS8010 "Field names must be plain identifiers", a parameter property declared no
@@ -997,9 +999,11 @@ export function run(): f32 { let p = new P(); p.init(); return p.x * 10. + p.y }
     expect(
       only(
         V +
-          `export function run(): f32 { const v = new V(); v.setX(3.).setY(4.); return v.x }${TAIL}`,
+          `export function run(): f32 { let a = new V(); const v = a; v.setX(3.).setY(4.); return v.x }${TAIL}`,
       ),
-    ).toBe(`${M} "V.setX" changes its object, and "v" is declared with const; declare it with let.`)
+    ).toBe(
+      `${M} "V.setX" changes its object, and "v" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
+    )
   })
 })
 
@@ -1183,6 +1187,407 @@ export function run(): f32 {
   })
 })
 
+describe('a method that changes an object its object holds (Rule 8.10)', () => {
+  const SHIP = `"use typeshade"
+class Body {
+  pos: vec2 = vec2(0.)
+  vel: vec2 = vec2(1., 0.5)
+  step(dt: f32): void { this.pos += this.vel * dt }
+}
+class Ship {
+  hull: Body = new Body()
+  drift(dt: f32): vec2 {
+    this.hull.step(dt)
+    return this.hull.pos
+  }
+}
+export function run(): f32 {
+  let ship = new Ship()
+  const at = ship.drift(0.5)
+  ship.drift(1.)
+  return at.x * 100. + ship.hull.pos.y
+}${RUN_TAIL}`
+
+  it('a changing call on a field of this takes this by reference, whichever class it is', () => {
+    const r = compile(SHIP)
+    expect(r.diagnostics).toEqual([])
+    expect(r.wgsl).toContain(
+      'fn Ship_drift(self_: ptr<function, Ship>, dt: f32) -> vec2<f32> {\n  Body_step(&(*self_).hull, dt);\n  return (*self_).hull.pos;\n}',
+    )
+    expect(r.glsl!.fragment).toContain('vec2 Ship_drift(inout Ship self_, float dt) {')
+    // 0.5 from the first drift, then 0.25 + 0.5 on y.
+    expect(runAll(SHIP)).toBeCloseTo(50.75, 5)
+  })
+
+  it('at any depth, through an element, a getter and a chain, and before the class is declared', () => {
+    // Three levels: Top.run calls Mid.go, which calls Leaf.bump.
+    expect(
+      runAll(`"use typeshade"
+class Leaf { v: f32 = 1.; bump(): void { this.v *= 2. } }
+class Mid { leaf: Leaf = new Leaf(); go(): void { this.leaf.bump() } }
+class Top { mid: Mid = new Mid(); run(): f32 { this.mid.go(); this.mid.leaf.bump(); return this.mid.leaf.v } }
+export function run(): f32 { let t = new Top(); const r = t.run(); return r + t.mid.leaf.v * 10. }${RUN_TAIL}`),
+    ).toBe(44)
+    // An element of a field.
+    expect(
+      runAll(`"use typeshade"
+class Leaf { v: f32 = 1.; bump(): void { this.v *= 2. } }
+class Pool { items: array<Leaf, 2> = [new Leaf(), new Leaf()]; bumpAt(i: i32): void { this.items[i].bump() } }
+export function run(): f32 { let p = new Pool(); p.bumpAt(1); p.bumpAt(1); return p.items[0].v + p.items[1].v * 10. }${RUN_TAIL}`),
+    ).toBe(41)
+    // The class that holds the field is declared first.
+    expect(
+      runAll(`"use typeshade"
+class Outer { inner: Inner = new Inner(); step(): f32 { return this.inner.next() } }
+class Inner { v: f32 = 0.; next(): f32 { this.v += 1.; return this.v } }
+export function run(): f32 { let o = new Outer(); o.step(); return o.step() }${RUN_TAIL}`),
+    ).toBe(2)
+    // A chain of return-this methods on a field.
+    expect(
+      runAll(`"use typeshade"
+class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this } setY(v: f32): V { this.y = v; return this } }
+class Holder { v: V = new V(); init(): void { this.v.setX(1.).setY(2.) } }
+export function run(): f32 { let h = new Holder(); h.init(); return h.v.x * 10. + h.v.y }${RUN_TAIL}`),
+    ).toBe(12)
+    // A getter that writes its object, read on a field.
+    expect(
+      runAll(`"use typeshade"
+class Cache { hits: f32 = 0.; get value(): f32 { this.hits += 1.; return this.hits } }
+class User { c: Cache = new Cache(); read(): f32 { return this.c.value + this.c.value } }
+export function run(): f32 { let u = new User(); return u.read() * 10. + u.c.hits }${RUN_TAIL}`),
+    ).toBe(32)
+  })
+
+  it("a method that reads a field's object only keeps its object by value", () => {
+    const src = `"use typeshade"
+class Inner { v: f32 = 1.; get(): f32 { return this.v } }
+class Outer { inner: Inner = new Inner(); peek(): f32 { return this.inner.get() } }
+export function run(): f32 { const o = new Outer(); return o.peek() }${RUN_TAIL}`
+    expect(compile(src).wgsl).toContain('fn Outer_peek(self_: Outer) -> f32 {')
+    expect(runAll(src)).toBe(1)
+  })
+})
+
+describe('a const that holds an object (Rule 6.10)', () => {
+  const V = `"use typeshade"
+class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this } bump(): void { this.x += 1. } }
+`
+
+  it('a write through a const that built its value changes it, and the const is a var from then', () => {
+    const src = `${V}export function run(): f32 { const v = new V(); v.bump(); v.bump(); return v.x }${RUN_TAIL}`
+    const r = compile(src)
+    expect(r.wgsl).toContain('var v: V = V_new();\n  V_bump(&v);\n  V_bump(&v);')
+    expect(runAll(src)).toBe(2)
+    const cases: [string, number][] = [
+      [`${V}export function run(): f32 { const v = new V(); v.x = 3.; return v.x }`, 3],
+      [`${V}export function run(): f32 { const v: V = { x: 5., y: 0. }; v.bump(); return v.x }`, 6],
+      [
+        `"use typeshade"\nexport function run(): f32 { const v = vec3(0.); v.x = 4.; return v.x }`,
+        4,
+      ],
+      [
+        `"use typeshade"\nexport function run(): f32 { const xs: array<f32, 3> = [1., 2., 3.]; xs[1] = 9.; return xs[1] }`,
+        9,
+      ],
+      [`${V}export function run(): f32 { const v = new V().setX(2.); v.bump(); return v.x }`, 3],
+      [`${V}export function run(): f32 { const v = new V(); v.setX(2.).bump(); return v.x }`, 3],
+      [
+        `"use typeshade"\nclass In { v: f32 = 1.; bump(): void { this.v += 1. } }\nclass Out { i: In = new In() }\nexport function run(): f32 { const o = new Out(); o.i.bump(); o.i.v *= 10.; return o.i.v }`,
+        20,
+      ],
+      [
+        `${V}export function run(): f32 { let s = 0.; for (let k = 0; k < 3; k++) { const v = new V(); v.x = f32(k); s += v.x } return s }`,
+        3,
+      ],
+    ]
+    for (const [body, want] of cases) expect(runAll(body + RUN_TAIL), body).toBe(want)
+  })
+
+  it('a const nothing writes through stays a let', () => {
+    const src = `${V}export function run(): f32 { const v = new V(); return v.x + 1. }${RUN_TAIL}`
+    expect(compile(src).wgsl).toContain('let v = V_new();')
+    expect(runAll(src)).toBe(1)
+  })
+
+  it('a const whose value something else may hold is refused, with both fixes', () => {
+    expect(
+      only(
+        `${V}export function run(): f32 { let a = new V(); const b = a; b.x = 5.; return a.x }${RUN_TAIL}`,
+      ),
+    ).toBe(
+      `${TS_CODES.CONST_ASSIGN} "b" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to write a copy, or write through the value itself.`,
+    )
+    expect(
+      only(
+        `${V}export function run(): f32 { let a = new V(); const b = a; b.bump(); return a.x }${RUN_TAIL}`,
+      ),
+    ).toBe(
+      `${M} "V.bump" changes its object, and "b" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
+    )
+    // A function's result may be a value something else holds.
+    expect(
+      only(
+        `${V}function mk(): V { return new V() }\nexport function run(): f32 { const b = mk(); b.bump(); return b.x }${RUN_TAIL}`,
+      ),
+    ).toContain(`${M} "V.bump" changes its object, and "b" is a const whose value may be`)
+    // The name itself is still bound once.
+    expect(
+      only(
+        `${V}export function run(): f32 { const v = new V(); v = new V(); return v.x }${RUN_TAIL}`,
+      ),
+    ).toBe(`${TS_CODES.CONST_ASSIGN} Cannot assign to "v" — it is declared with const.`)
+  })
+})
+
+describe('a field that holds a function (Rule 8.16)', () => {
+  it("is a method under the field's name, with this the object", () => {
+    const cases: [string, number][] = [
+      [
+        `class A { x: f32 = 2.; double = (): f32 => this.x * 2. }\nexport function run(): f32 { return new A().double() }`,
+        4,
+      ],
+      [
+        `class A { x: f32 = 2.; bump = (by: f32): void => { this.x += by } }\nexport function run(): f32 { let a = new A(); a.bump(3.); return a.x }`,
+        5,
+      ],
+      [
+        `class A { x: f32 = 2.; triple = function (this: A): f32 { return this.x * 3. } }\nexport function run(): f32 { return new A().triple() }`,
+        6,
+      ],
+      [
+        `class A { x: f32 = 2.; #half = (): f32 => this.x * 0.5; get h(): f32 { return this.#half() } }\nexport function run(): f32 { return new A().h }`,
+        1,
+      ],
+      // An override by another field, and one of a method, as TypeScript lets a property stand
+      // where a method was.
+      [
+        `class A { x: f32 = 2.; f = (): f32 => this.x; g(): f32 { return this.f() * 10. } }\nclass B extends A { f = (): f32 => this.x + 1. }\nexport function run(): f32 { return new B().g() + new A().g() }`,
+        50,
+      ],
+      [
+        `class A { x: f32 = 1.; f(): f32 { return 1. } g(): f32 { return this.f() } }\nclass B extends A { f = (): f32 => 2. }\nexport function run(): f32 { return new B().g() + new A().g() * 10. }`,
+        12,
+      ],
+      [
+        `abstract class A { x: f32 = 1.; abstract f(): f32; g(): f32 { return this.f() * 10. } }\nclass B extends A { f = (): f32 => 2. }\nexport function run(): f32 { return new B().g() }`,
+        20,
+      ],
+    ]
+    for (const [body, want] of cases) {
+      expect(runAll(`"use typeshade"\n${body}${RUN_TAIL}`), body).toBe(want)
+    }
+    const w = compile(
+      `"use typeshade"\nclass A { x: f32 = 2.; bump = (by: f32): void => { this.x += by } }\nexport function run(): f32 { let a = new A(); a.bump(3.); return a.x }${RUN_TAIL}`,
+    ).wgsl
+    expect(w).toContain('fn A_bump(self_: ptr<function, A>, by: f32) {')
+    expect(w).toContain('A_bump(&a, 3.0);')
+  })
+
+  it('what is refused, with the fix', () => {
+    const C = (member: string): string =>
+      `"use typeshade"\nclass A { x: f32 = 1.; ${member} }\nexport function run(): f32 { return 1. }${RUN_TAIL}`
+    expect(only(C('static f = (): f32 => 1.'))).toBe(
+      `${M} A static field holding a function is a static method: write "static f(...) { ... }".`,
+    )
+    expect(only(C('f = <T>(v: T): T => v'))).toBe(
+      `${M} "A.f" takes type parameters, and a method does not; write it as a generic function of the module.`,
+    )
+    expect(only(C('f = () => this.x'))).toBe(
+      `${M} "A.f" returns a value straight away, so it needs a return type: write "(x: f32): f32 => ...".`,
+    )
+    // The sentence a method of the same shape gets, beside the one its `Promise` gets.
+    expect(errorsOf(C('f = async (): Promise<f32> => 1.'))).toContain(
+      `${M} "A.f" is a plain method or nothing: no async, no generator.`,
+    )
+  })
+
+  it('a member keeps its kind down a class chain, as TypeScript requires', () => {
+    const R = (classes: string): string =>
+      only(`"use typeshade"\n${classes}\nexport function run(): f32 { return 1. }${RUN_TAIL}`)
+    // TS2425, through a class that does not declare it.
+    expect(
+      R(
+        `class A { x: f32 = 1.; f = (): f32 => 1. }\nclass B extends A { }\nclass C extends B { f(): f32 { return 2. } }`,
+      ),
+    ).toBe(
+      `${M} "C.f" is a method, and the "A.f" it overrides is a field that holds a function; TypeScript refuses an override of another kind. Declare it as a field that holds a function, or rename it.`,
+    )
+    // TS2425 on a field of a shader type, TS2426, TS2423, TS2610: each compiled before, to the
+    // derived class's member.
+    expect(
+      R(`class A { x: f32 = 1.; f: f32 = 1. }\nclass B extends A { f(): f32 { return 2. } }`),
+    ).toBe(
+      `${M} "B.f" is a method, and the "A.f" it overrides is a field; TypeScript refuses an override of another kind. Declare it as a field, or rename it.`,
+    )
+    expect(
+      R(
+        `class A { x: f32 = 1.; get f(): f32 { return 1. } }\nclass B extends A { f(): f32 { return 2. } }`,
+      ),
+    ).toBe(
+      `${M} "B.f" is a method, and the "A.f" it overrides is an accessor; TypeScript refuses an override of another kind. Declare it as an accessor, or rename it.`,
+    )
+    // A getter and a setter are one member, said once.
+    expect(
+      R(
+        `class A { x: f32 = 1.; f(): f32 { return 1. } }\nclass B extends A { get f(): f32 { return 2. } set f(v: f32) { this.x = v } }`,
+      ),
+    ).toBe(
+      `${M} "B.f" is an accessor, and the "A.f" it overrides is a method; TypeScript refuses an override of another kind. Declare it as a method, or rename it.`,
+    )
+    expect(
+      R(
+        `class A { x: f32 = 1.; get f(): f32 { return 1. } }\nclass B extends A { f = (): f32 => 2. }`,
+      ),
+    ).toBe(
+      `${M} "B.f" is a field that holds a function, and the "A.f" it overrides is an accessor; TypeScript refuses an override of another kind. Declare it as an accessor, or rename it.`,
+    )
+    // A parameter property is a field.
+    expect(
+      R(`class A { constructor(public f: f32) {} }\nclass B extends A { f(): f32 { return 2. } }`),
+    ).toContain(`${M} "B.f" is a method, and the "A.f" it overrides is a field;`)
+    // TS2855: a field is the object's own.
+    expect(
+      R(
+        `class A { x: f32 = 1.; f = (): f32 => 1. }\nclass B extends A { g(): f32 { return super.f() } }`,
+      ),
+    ).toBe(
+      `${M} "super.f" names a field that holds a function, and a field is the object's own, which "super" does not reach. Declare "A.f" as a method, or write "this.f".`,
+    )
+    // TypeScript takes this one; a struct here cannot mean it.
+    expect(
+      R(
+        `abstract class A { x: f32 = 1.; abstract f: f32; g(): f32 { return this.f * 10. } }\nclass B extends A { get f(): f32 { return 2. } }`,
+      ),
+    ).toBe(
+      `${M} "B.f" is an accessor, and the "A.f" it overrides is an abstract field, which every struct below "A" holds as a member, so a read of it would never reach the accessor. Declare it in "A" as "abstract get f(): f32".`,
+    )
+    // What TypeScript allows compiles: a field over an abstract accessor, and the fix above.
+    expect(
+      runAll(`"use typeshade"
+abstract class A { x: f32 = 1.; abstract get f(): f32; g(): f32 { return this.f * 10. } }
+class B extends A { f: f32 = 2. }
+export function run(): f32 { return new B().g() }${RUN_TAIL}`),
+    ).toBe(20)
+    expect(
+      runAll(`"use typeshade"
+abstract class A { x: f32 = 1.; abstract get f(): f32; g(): f32 { return this.f * 10. } }
+class B extends A { get f(): f32 { return 2. } }
+export function run(): f32 { return new B().g() }${RUN_TAIL}`),
+    ).toBe(20)
+  })
+})
+
+describe('an interface with methods is a contract (Rule 6.9)', () => {
+  const I = `"use typeshade"
+interface HasArea { area(): f32 }
+class Sq implements HasArea { s: f32 = 2.; area(): f32 { return this.s * this.s } }
+class Ci implements HasArea { r: f32 = 1.; area(): f32 { return 3. * this.r * this.r } }
+`
+
+  it('implements and a type parameter it constrains compile, one function per class', () => {
+    expect(runAll(`${I}export function run(): f32 { return new Sq().area() }${RUN_TAIL}`)).toBe(4)
+    const src = `${I}function total<T extends HasArea>(a: T): f32 { return a.area() }\nexport function run(): f32 { return total(new Sq()) + total(new Ci()) }${RUN_TAIL}`
+    const w = compile(src).wgsl!
+    expect(w).toContain('fn total_Sq(a: Sq) -> f32 {\n  return Sq_area(a);\n}')
+    expect(w).toContain('fn total_Ci(a: Ci) -> f32 {')
+    expect(w).not.toContain('struct HasArea')
+    expect(runAll(src)).toBe(7)
+  })
+
+  it('a value of its own type is refused once, where it declares the method, with the fix', () => {
+    const refusal = `${F} "HasArea" declares a method, so it is a contract a class implements and not a value a shader holds: take the class that implements it, or a type parameter it constrains, "<T extends HasArea>(v: T)".`
+    expect(
+      only(
+        `${I}function total(a: HasArea): f32 { return a.area() }\nexport function run(): f32 { return total(new Sq()) }${RUN_TAIL}`,
+      ),
+    ).toBe(refusal)
+    expect(
+      only(
+        `${I}class Holder { shape: HasArea; x: f32 = 1. }\nexport function run(): f32 { return 1. }${RUN_TAIL}`,
+      ),
+    ).toBe(refusal)
+  })
+
+  it('an interface of fields alone is a struct, as it was', () => {
+    expect(
+      runAll(`"use typeshade"
+interface P { x: f32; y: f32 }
+function len(p: P): f32 { return p.x + p.y }
+export function run(): f32 { const p: P = { x: 1., y: 2. }; return len(p) }${RUN_TAIL}`),
+    ).toBe(3)
+  })
+})
+
+describe('a call cycle through methods (Rule 8.4)', () => {
+  const cycle = (names: string): string =>
+    `${TS_CODES.RECURSION} Recursive call: ${names}. WGSL has no call stack, so a function must not take part in a call cycle.`
+  const R = (body: string): string => only(`"use typeshade"\n${body}${RUN_TAIL}`)
+
+  it('is said at the call that closes it, named as written', () => {
+    const src = `"use typeshade"
+class N { x: f32 = 1.; f(n: i32): f32 { return n <= 0 ? this.x : this.g(n - 1) } g(n: i32): f32 { return this.f(n) } }
+export function run(): f32 { return new N().f(2) }${RUN_TAIL}`
+    const d = compile(src).diagnostics.filter((x) => x.category === 'error')
+    expect(d.map((x) => `${x.code} ${x.message}`)).toEqual([cycle('"N.f" -> "N.g" -> "N.f"')])
+    expect(src.slice(d[0]!.start, d[0]!.start + d[0]!.length)).toBe('this.f(n)')
+    expect(
+      R(`class N { x: f32 = 1.; f(n: i32): f32 { return n <= 0 ? this.x : this.f(n - 1) } }
+export function run(): f32 { return new N().f(2) }`),
+    ).toBe(cycle('"N.f" -> "N.f"'))
+    // Through a top-level function, a getter, a setter and new.
+    expect(
+      R(`class N { x: f32 = 1.; f(n: i32): f32 { return top(this, n) } }
+function top(o: N, n: i32): f32 { return n <= 0 ? o.x : o.f(n - 1) }
+export function run(): f32 { return new N().f(2) }`),
+    ).toBe(cycle('"N.f" -> "top" -> "N.f"'))
+    expect(
+      R(`class N { x: f32 = 1.; get a(): f32 { return this.b } get b(): f32 { return this.a } }
+export function run(): f32 { return new N().a }`),
+    ).toBe(cycle('"N.a" -> "N.b" -> "N.a"'))
+    expect(
+      R(`class N { x: f32 = 1.; set v(a: f32) { this.x = a; this.w = a } set w(a: f32) { this.v = a } }
+export function run(): f32 { let n = new N(); n.v = 2.; return n.x }`),
+    ).toBe(cycle('"N.v" -> "N.w" -> "N.v"'))
+    expect(
+      R(`class N { x: f32 = 1.; constructor() { this.x = new N().x } }
+export function run(): f32 { return new N().x }`),
+    ).toBe(cycle('"new N" -> "new N"'))
+    // In a branch the optimizer would drop, as a call written by name is (Rule 8.4).
+    expect(
+      R(`class N { x: f32 = 1.; f(n: i32): f32 { if (false) { return this.f(n) } return this.x } }
+export function run(): f32 { return new N().f(2) }`),
+    ).toBe(cycle('"N.f" -> "N.f"'))
+  })
+
+  it('once for a body a class inherits, once for a generic, and a static by its written name', () => {
+    expect(
+      R(`class A { x: f32 = 1.; f(n: i32): f32 { return n <= 0 ? this.x : this.g(n - 1) } g(n: i32): f32 { return this.f(n) } }
+class B extends A { y: f32 = 2. }
+export function run(): f32 { return new B().f(2) + new A().f(1) }`),
+    ).toBe(cycle('"A.f" -> "A.g" -> "A.f"'))
+    expect(
+      R(`function top<T>(n: i32, v: T): T { return n <= 0 ? v : top(n - 1, v) }
+export function run(): f32 { return top(2, 1.) + f32(top(1, 2)) }`),
+    ).toBe(cycle('"top" -> "top"'))
+    expect(
+      R(`class N { static f(n: i32): f32 { return n <= 0 ? 1. : N.f(n - 1) } }
+export function run(): f32 { return N.f(2) }`),
+    ).toBe(cycle('"N.f" -> "N.f"'))
+    expect(
+      R(`class N { static f(n: i32): f32 { return n <= 0 ? 1. : this.f(n - 1) } }
+export function run(): f32 { return N.f(2) }`),
+    ).toBe(cycle('"N.f" -> "N.f"'))
+  })
+
+  it('a method called twice is no cycle', () => {
+    expect(
+      runAll(`"use typeshade"
+class A { x: f32 = 1.; f(): f32 { return this.x } g(): f32 { return this.f() + this.f() } }
+export function run(): f32 { return new A().g() }${RUN_TAIL}`),
+    ).toBe(2)
+  })
+})
+
 describe('the example', () => {
   it('examples/class-syntax.shade.ts renders the two rings on every CPU path', async () => {
     const { readFileSync } = await import('node:fs')
@@ -1216,5 +1621,22 @@ describe('the example', () => {
     // 0.32 from the blue disc's centre: outside, since its setter clamped `SIZE` and the doubling
     // to 0.3, where either unclamped would cover it.
     at([0.72, 0], [0.07, 0.08, 0.14, 1])
+  })
+
+  it('examples/class-parts.shade.ts renders the ring and the dot on every CPU path', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const src = readFileSync(
+      fileURLToPath(new URL('../../../examples/class-parts.shade.ts', import.meta.url)),
+      'utf8',
+    )
+    const at = (uv: number[], color: number[]): void =>
+      expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color })
+    // On the ring, whose centre `advance` moved to (0.25, 0.1) through the `Mover` it holds: a
+    // ring left at the origin would not reach this point.
+    at([0.55, 0.1], [0.95, 0.7, 0.3, 1])
+    // The dot's centre, and the ring's, which neither covers.
+    at([-0.45, -0.3], [0.3, 0.7, 0.95, 1])
+    at([0.25, 0.1], [0.06, 0.07, 0.12, 1])
   })
 })

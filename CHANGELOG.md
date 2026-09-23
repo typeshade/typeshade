@@ -218,6 +218,38 @@ no fields`), a field written without a type was dropped from the struct with not
   `examples/class-builder.shade.ts` compiles on Tint and links on a WebGL2 driver, and
   `class-syntax.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle, the codegen and the debugger to
   one value for each form.
+- **A method that changes an object its object holds, a `const` object, a field that holds a
+  function, an interface with methods, and a call cycle through methods** (§26, Rules 6.9, 6.10,
+  8.4, 8.10 and 8.16). `this.hull.step(dt)` changes `this` when `step` changes its object,
+  whichever class declares `step`: which methods change their object is worked out for every
+  class of the file at once, through a field, an element, a getter and a `return this` chain, so
+  `fn Ship_drift(self_: ptr<function, Ship>, dt: f32)` calls `Body_step(&(*self_).hull, dt)`. A
+  local `const` leaves what it holds writable, as TypeScript's does: after
+  `const ship = new Ship()`, the call `ship.drift(0.5)` makes the declaration a `var` at the first
+  write through it, for `new`, an object literal, an array literal and a type's constructor, and
+  a `const` nothing writes through stays WGSL's `let`; one that copies another name's value is
+  refused as before, now saying why (TypeScript would change the object both names hold) and
+  naming both fixes. A field that holds
+  an arrow function or a function expression is the method it is written as:
+  `focus = (d: f32): f32 => d * this.gain` is `fn Lens_focus(self_: Lens, d: f32) -> f32`, and
+  `this` is the object. A static one, type parameters, `async`, a generator and an expression
+  body with no return type are refused with the fix. An interface that declares a method is a
+  contract: `implements Shape` and `<T extends Shape>` compile, `total<T extends Shape>` being one
+  function for each class it is called with, and a value of the interface's own type is refused
+  once, where the interface declares the method, with the type parameter to write. A call cycle
+  through methods, accessors or `new` is TS8031 at the call that closes it
+  (`Recursive call: "N.f" -> "N.g" -> "N.f".`), read off the lowered calls; a static called
+  through its class is named `"N.f"` rather than `"N_f"`, and a generic function's cycle is said
+  once, under the name it was written with. What was measured on `main` before this: `drift`
+  above was TS8035 ("reads its object only, so it cannot write "this""), a changing call on
+  `const ship` TS8035 ("declare it with let"), each arrow field TS8035 ("A field holding a
+  function is a method") with `"Lens" has no method "focus"` after it, `<T extends Shape>`
+  TS8010 ("cannot have methods"), and mutual recursion through `this` compiled to WGSL that Tint
+  refuses. Rules 6.10 and 8.16 are new, Rules 6.9, 8.4 and 8.10 say the rest, and Rule 7.2's
+  table gains the `const` and the field. `examples/class-parts.shade.ts` compiles on Tint and
+  links on a WebGL2 driver, a pointer to a field of the object behind a pointer,
+  `Mover_step(&(*self_).center, dt)`, among it, and `class-syntax.test.ts` holds WGSL, GLSL ES
+  3.00, the CPU oracle, the codegen and the debugger to one value for each form.
 - **Each `.shade.ts` example registers itself** (#65). Every example used to be registered by
   appending an object literal to one hand-ordered array in `examples/_shade.ts`, so two branches
   that each added an example added adjacent lines to the same region and git could not tell the
@@ -923,6 +955,15 @@ readonly_and_readwrite_storage_textures;` for its `read_write` binding; that dir
   class does not declare) is reported when an entry or a top-level function reaches it through
   calls, and dropped, with every function that calls it, when nothing does: a derived class that
   never called `score()` could not be declared before.
+- **A member a class that extends declares as another kind is refused, as TypeScript refuses
+  it** (Rule 8.16, §26). A method over a field of the class above, a method over an accessor
+  and an accessor over a method compiled, each to the derived class's member, where TypeScript
+  refuses the program (TS2425, TS2426, TS2423); each is TS8035 now, naming both members, and so
+  are the same changes where one side is a field that holds a function, and `super.f` on such a
+  field (TS2855). An accessor over an abstract field, which TypeScript takes, computed 0 where
+  TypeScript computes the getter's value: the abstract field is a member of every struct below
+  the class that declares it, and a body that class wrote read the member. It is refused with the
+  fix, `abstract get f(): f32`, which means the same and reaches the accessor.
 - **Field initializers run in TypeScript's order** (Rule 8.14, §26). Every initializer ran
   before the constructor's body, base first, and a derived class's initializer for a field its
   base initializes too was dropped: `class B extends A { limit: f32 = 5. }` built a `B` whose

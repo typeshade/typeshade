@@ -231,8 +231,11 @@ export function run(): f32 { let b = new B(); b.bump(); return b.x }${TAIL}`)
     expect(only(C('  static { }'))).toBe(
       `${M} A static block runs when the class is defined, and a shader has no such moment. Give each static field its value where it is declared.`,
     )
-    expect(only(C('  f = (): f32 => 1.'))).toBe(
-      `${M} A field holding a function is a method: write "f(...) { ... }".`,
+    // A field that holds a function is a method (Rule 8.16); a static one is a static method,
+    // which is written as one.
+    expect(errorsOf(C('  f = (): f32 => 1.'))).toEqual([])
+    expect(only(C('  static f = (): f32 => 1.'))).toBe(
+      `${M} A static field holding a function is a static method: write "static f(...) { ... }".`,
     )
     expect(only(C('  constructor() { this.x = 1. }\n  constructor(a: f32) { this.x = a }'))).toBe(
       `${M} "C" declares two constructors; a shader function has one body.`,
@@ -465,9 +468,18 @@ export function fs(@location(0) uv: vec2): vec4 {
       return errors[0]!
     }
     const M = TS_CODES.CLASS_MEMBER
+    // A `const` that holds a value nothing else does is written through, as TypeScript's is
+    // (Rule 6.10); one that copies another value is refused, since TypeScript would share it.
     expect(
-      only(`${C}function g(): f32 { const c: C = { x: 1. }\n  c.bump()\n  return c.x }${TAIL}`),
-    ).toBe(`${M} "C.bump" changes its object, and "c" is declared with const; declare it with let.`)
+      errorsOf(`${C}function g(): f32 { const c: C = { x: 1. }\n  c.bump()\n  return c.x }${TAIL}`),
+    ).toEqual([])
+    expect(
+      only(
+        `${C}function g(): f32 { let a: C = { x: 1. }\n  const c = a\n  c.bump()\n  return c.x }${TAIL}`,
+      ),
+    ).toBe(
+      `${M} "C.bump" changes its object, and "c" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
+    )
     expect(only(`${C}function g(c: C): f32 { c.bump()\n  return c.x }${TAIL}`)).toBe(
       `${M} "C.bump" changes its object, and "c" is a parameter, which a function cannot write; copy it into a let first.`,
     )
@@ -560,9 +572,11 @@ export function fs(@location(0) uv: vec2): vec4 {
     }
     const M = TS_CODES.CLASS_MEMBER
     expect(
-      only(`${Gen}function g(): u32 { const r: Gen = { s: 1 }\n  return r.next() }${TAIL}`),
+      only(
+        `${Gen}function g(): u32 { let r0: Gen = { s: 1 }\n  const r = r0\n  return r.next() }${TAIL}`,
+      ),
     ).toBe(
-      `${M} "Gen.next" changes its object, and "r" is declared with const; declare it with let.`,
+      `${M} "Gen.next" changes its object, and "r" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
     )
     expect(only(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toBe(
       `${M} "Gen.next" changes its object, and "r" is a parameter, which a function cannot write; copy it into a let first.`,

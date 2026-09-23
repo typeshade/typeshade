@@ -253,7 +253,7 @@ entry may also return nothing, which is what a program that only writes to stora
 | Per-decl binding numbers as the happy path | Host mismatch is silent on GPU |
 | JS `Array` / lambdas / `filter` length change | IR + WGSL constraints |
 | Implicit `gid` / `vid` / `pid` globals | Hidden stage inputs make dependencies less explicit |
-| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check is SYNTACTIC, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
+| Recursion, direct or mutual | WGSL has no call stack; Tint rejects the module outright. The check reads the calls as written, and a method call, an accessor and `new` as they lower, before the optimizer runs, so a call in code the optimizer would drop (`if (false) { f() }`, an unread `const x = f()`) is a cycle too. That is stricter than Tint for that class, and deliberately so: matching the optimizer would accept `if (false)` and reject `if (DEBUG)` for `const DEBUG: bool = false`, which no author could predict |
 
 ---
 
@@ -310,7 +310,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `.length` or `arrayLength(x)` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | A module variable declared or used where its address space forbids | `TS8033`. A `let` with neither type nor initializer, a resource type without `declare`, a `const` with a wrapper, a `workgroup` initializer, a type the space cannot hold, an initializer that is not a constant, or workgroup memory read from a vertex or fragment entry (§24) |
 | A barrier where one cannot stand | `TS8034`. `workgroupBarrier()` or `storageBarrier()` in a vertex or fragment entry, or used as a value (§25). One under a branch the invocations may not share is `TS8052` (§54) |
-| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. An arrow-function field, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a method that changes its object called on a `const`, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
+| A class member the surface does not take, or a method call the class rules refuse | `TS8035`. A static field that holds a function, a decorator on a method, `this` outside a method, a method called on the class or a static function on a value, a member the class does not have, a member a class that extends declares as another kind than its base, `super.f` on a field that holds a function, a method that changes its object called on a `const` whose value something else may hold, a parameter or a dropped value, one that returns nothing used as a value, a `private`, `protected` or `#x` member named where TypeScript does not allow it, or a changing call on the copy a `return this` method hands back inside an expression (§26) |
 | A call that writes in a `while` condition, anywhere but as one side of its comparison | `TS8006`. The condition runs on every iteration, so the call cannot move ahead of the loop to run in source order; compare the call alone, or call it into a `let` at the end of the body (§26, Rule 7.9) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 
@@ -1859,10 +1859,13 @@ void Particle_step(inout Particle self_, float dt) {
 // Particle_step(ps[i], 0.5);
 ```
 
-The receiver has to be a place a function may write: a `let` local, a module variable, a storage
-element, or `this` inside a constructor or another changing method. Which methods change their
-object is read from their bodies, to a fixpoint: one that assigns to a field of `this` (or
-`++`/`--` on one), and one that calls such a method on `this` or through `super`. The effect table (§19) counts a
+The receiver has to be a place a function may write: a `let` local, a `const` whose initializer
+built its value (below), a module variable, a storage element, or `this` inside a constructor or
+another changing method, or a field or an element of one of those. Which methods change their
+object is read from their bodies, to a fixpoint over every class of the file at once: one that
+assigns to a field of `this` (or `++`/`--` on one), one that calls such a method or reads such a
+getter on `this` or on a field or an element of it, whatever class that field is, and one that
+reaches such a body through `super`. The effect table (§19) counts a
 write through a reference as it counts any other, and names it as the CALLER knows it:
 `ps[gid.x].step(dt)` writes `ps`, because `step` writes its receiver and the receiver is reached
 through `ps`.
@@ -1960,12 +1963,15 @@ that declares the member, or one that inherits it (below), so `this.K`, `this.f(
 TypeScript refuses would compile. They were accepted and meant nothing until this.
 
 **Refused, with the fix (TS8035).** A static block (give each static field its value where it
-is declared), a field holding an arrow function (a method), a decorator on a method (an entry is
-a top-level function), an `async` or generator method, two constructors or two
+is declared), a static field holding a function (a static method), a decorator on a method (an
+entry is a top-level function), an `async` or generator method, two constructors or two
 methods of one name (no overloads), a call of a method on the class or of a static function on
 a value, a member the class does not have, a field called as a method and an accessor called as
-one, a method that changes its object called on a `const`, a parameter or a value that is
-dropped, one that returns nothing used as a value, and a parameter named `self_`. A write to
+one, a member a class that extends declares as another kind than its base does, a method that
+changes its object called on a `const` whose value something else may hold, a parameter or a
+value that is dropped, one that returns nothing used as a value, and a parameter named `self_`.
+A field holding an arrow function was on this list; it is the method it is written as now
+(below). A write to
 `this` in a base's body called through `super` was refused too, since that body read its object
 only; it takes the object by reference now, as any method that writes it does (below). A class
 with only static functions and no fields is a namespace of functions (below). `abstract` and
@@ -1999,9 +2005,8 @@ definition from `r.at` lands on the method. The TypeScript checker already knows
 members, so the language service adds nothing for them and the compiler's symbols record each
 method under its class name.
 
-**Not yet.** A cycle through method calls in the recursion check (Tint still refuses it, as a
-backend diagnostic). A chain through a changing method, `v.setX(1.).setY(2.)`, was on this list
-until it compiled (below).
+A cycle through method calls is TS8031 at the call that closes it (below). It reached Tint until
+then, as did a chain through a changing method, `v.setX(1.).setY(2.)`, until it compiled (below).
 
 ### Getters and setters
 
@@ -2462,6 +2467,196 @@ The statics of a generic base are its class's, one for every instance, so `FPair
 class inherits (Rule 8.9): an instance method whose body calls `weigh(this)` with `weigh` taking
 the base fails for the derived class alone, since a derived value is not a base one here, and it
 is refused when something calls it on a derived object, and not at all while nothing does.
+
+### A method that changes an object its object holds, and a `const` object
+
+A field of `this` is part of `this`. So a method that calls a changing method on one,
+`this.hull.step(dt)`, changes its own object too, whichever class declares `step`, and takes it by
+reference as any changing method does (Rule 8.10). The same holds for an element,
+`this.parts[i].step(dt)`, for a getter that writes its object, and at any depth: which methods
+change their object is worked out for every class of the file at once, so a class may hold one
+declared after it. Until this, `drift` below was TS8035, `"Ship.drift" reads its object only, so
+it cannot write "this" (§26).`
+
+```ts
+"use typeshade"
+class Body {
+  pos: vec2 = vec2(0.)
+  vel: vec2 = vec2(1., 0.5)
+  step(dt: f32): void {
+    this.pos += this.vel * dt
+  }
+}
+
+class Ship {
+  hull: Body = new Body()
+  drift(dt: f32): vec2 {
+    this.hull.step(dt)
+    return this.hull.pos
+  }
+}
+
+@fragment
+export function fs(): vec4 {
+  const ship = new Ship()
+  const at = ship.drift(0.5)
+  return vec4(at, ship.hull.pos.x, 1.)
+}
+```
+
+```wgsl
+fn Ship_drift(self_: ptr<function, Ship>, dt: f32) -> vec2<f32> {
+  Body_step(&(*self_).hull, dt);
+  return (*self_).hull.pos;
+}
+fn fs() -> @location(0) vec4<f32> {
+  var ship: Ship = Ship_new();
+  let at = Ship_drift(&ship, 0.5);
+  return vec4<f32>(at, ship.hull.pos.x, 1.0);
+}
+```
+
+`const ship = new Ship()` is how TypeScript writes that: a `const` fixes the name and not the
+object, so a method may change what it holds (Rule 6.10). Nothing else holds the object `new`
+built, so the local is that object, and the declaration is a `var` from the first write through
+it; a `const` nothing writes through stays WGSL's `let`. An object literal, an array literal and a
+type's constructor build a value of their own too, so `const v = vec3(0.); v.x = 1.` is a write to
+`v`. A `const` that copies what another name holds is where TypeScript and a struct part: its write
+would reach the object both names hold, and a write here the copy alone. So it is refused, and the
+message asks which is meant, `let c = a` to write a copy or the write on `a` itself:
+
+```
+TS8035  "C.bump" changes its object, and "c" is a const whose value may be one something else
+        holds, which TypeScript would change with it and a copy here would not. Declare it with
+        let to change a copy, or call it on the value itself.
+```
+
+Until this, every write through a `const` was refused, with `let` as the fix: `"Ship.drift"
+changes its object, and "ship" is declared with const; declare it with let.`
+
+### A field that holds a function
+
+`focus = (d: f32): f32 => d * this.gain` is how TypeScript code often writes a method, to keep
+`this` bound. A shader has no function value to hand anywhere, so such a field is the method it
+is written as (Rule 8.16): the function's parameters, return type and body are the method's, an
+expression body is what it returns, and `this` is the object, as in TypeScript. `lens.focus(x)`
+is `Lens_focus(lens, x)`. A `function` expression is taken the same way, its `this` parameter
+dropped.
+
+```ts
+"use typeshade"
+class Lens {
+  gain: f32 = 2.
+  focus = (d: f32): f32 => d * this.gain
+  blur = (d: f32): f32 => {
+    const k = this.focus(d)
+    return k / (1. + k)
+  }
+}
+
+@fragment
+export function fs(@location(0) uv: vec2): vec4 {
+  const lens = new Lens()
+  return vec4(lens.focus(uv.x), lens.blur(uv.y), 0., 1.)
+}
+```
+
+```wgsl
+fn Lens_focus(self_: Lens, d: f32) -> f32 {
+  return (d * self_.gain);
+}
+fn Lens_blur(self_: Lens, d: f32) -> f32 {
+  let k = Lens_focus(self_, d);
+  return (k / (1.0 + k));
+}
+```
+
+Refused, with the fix: a static field that holds a function, since an arrow there binds `this` to
+the class that declares it where a static method binds the class a call names (Rule 8.13), so it
+is written as the static method; type parameters; an `async` or generator function; and an
+expression body with no return type, which has nothing to infer one from here, as a local
+function's has not (§4). Until this, every such field was `A field holding a function is a
+method: write "focus(...) { ... }".`
+
+A class that extends keeps the kind each member has above it, as TypeScript requires: a field
+that holds a function may stand where a method was, and a method may not stand where such a field
+was (TS2425); a method, an accessor and a field of a shader type may not stand in for one another
+either. Those that did not involve a function field compiled before, to the derived class's member
+where TypeScript's object holds the base's. Each is TS8035 now, naming both members. `super.f` on a
+field that holds a function is refused as TypeScript refuses it (TS2855), since a field is the
+object's own. An accessor over an abstract field is refused too, although TypeScript takes it: the
+abstract field is a member of every struct below the class that declares it, so a body that class
+wrote would read the member and never the accessor, 0 where TypeScript computes the getter's value.
+The fix is named, `abstract get f(): f32`, which means the same and reaches the accessor.
+
+### An interface with methods is a contract
+
+An interface that declares a method says what a class supplies. `implements Shape` and a type
+parameter's constraint, `<T extends Shape>`, are how TypeScript uses one, and both compile: a call
+on a `T` reaches the method of the class the call binds, one function for each class, which is
+the static dispatch of Rule 8.9. A value of type `Shape` itself would have to pick its body at run
+time, which no WGSL function can, so a parameter, a field or a local of that type is refused once,
+where the interface declares the method, with the type parameter to write instead (Rule 6.9). An
+interface of fields alone is a struct, as it was.
+
+```ts
+"use typeshade"
+interface Shape {
+  area(): f32
+}
+
+class Square implements Shape {
+  side: f32 = 2.
+  area(): f32 {
+    return this.side * this.side
+  }
+}
+
+class Disc implements Shape {
+  r: f32 = 1.
+  area(): f32 {
+    return 3.14159 * this.r * this.r
+  }
+}
+
+function total<T extends Shape>(a: T, b: T): f32 {
+  return a.area() + b.area()
+}
+
+@fragment
+export function fs(): vec4 {
+  return vec4(total(new Square(), new Square()), total(new Disc(), new Disc()), 0., 1.)
+}
+```
+
+```wgsl
+fn total_Square(a: Square, b: Square) -> f32 {
+  return (Square_area(a) + Square_area(b));
+}
+fn total_Disc(a: Disc, b: Disc) -> f32 {
+  return (Disc_area(a) + Disc_area(b));
+}
+```
+
+Until this, the constraint was TS8010, `Data type "Shape" cannot have methods.`, and a value of the
+interface's type said so again at each use.
+
+### A call cycle through methods
+
+`this.g(n)` names no function in its text, so the recursion check (§4) could not follow a call on
+a value, and a cycle through methods reached Tint. The check reads the calls each body lowers to
+now, a method call, a getter, a setter and `new` included, and says TS8031 at the call that closes
+the cycle, naming it as written (Rule 8.4):
+
+```
+TS8031  Recursive call: "N.f" -> "N.g" -> "N.f". WGSL has no call stack, so a function must not
+        take part in a call cycle.
+```
+
+A body a class inherits is lowered once more for that class, and the cycle it closes there is said
+once, as is the one each instance of a generic function closes, under the name the function was
+written with. A static called through its class, `N.f()`, is named `"N.f"` too, where the check
+said `"N_f"` before.
 
 ### `namespace`
 

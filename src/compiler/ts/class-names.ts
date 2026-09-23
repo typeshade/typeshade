@@ -95,6 +95,12 @@ export function returnsThis(body: ts.Block | undefined): boolean {
   return found > 0 && !other
 }
 
+/** Whether a field's initializer is a function: an arrow function or a function expression,
+ *  which is a method under the field's name (Rule 8.16) and never a value. */
+export const holdsFunction = (member: ts.PropertyDeclaration): boolean =>
+  member.initializer !== undefined &&
+  (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer))
+
 /** Whether a class member is `readonly`. */
 export const isReadonlyMember = (node: ts.Node): boolean =>
   (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some(
@@ -369,7 +375,6 @@ export function memberDeclarationInChain(
   member: string,
   isStatic: boolean,
 ): ts.ClassElement | ts.ParameterDeclaration | undefined {
-  const byName = classesByName(cls.getSourceFile())
   const seen = new Set<ts.ClassLikeDeclaration>()
   let at: ts.ClassLikeDeclaration | undefined = cls
   while (at !== undefined && !seen.has(at)) {
@@ -387,14 +392,21 @@ export function memberDeclarationInChain(
       if (m.name === undefined || isStaticMember(m) !== isStatic) continue
       if (writtenMemberName(m.name) === member) return m
     }
-    const e: ts.Expression | undefined = at.heritageClauses?.find(
-      (h) => h.token === ts.SyntaxKind.ExtendsKeyword,
-    )?.types[0]?.expression
-    const found: readonly ts.ClassDeclaration[] | undefined =
-      e !== undefined && ts.isIdentifier(e) ? byName.get(e.text) : undefined
-    at = found?.length === 1 ? found[0] : undefined
+    at = baseClassOf(at)
   }
   return undefined
+}
+
+/** The class `cls` extends, when its `extends` names one class the file declares. */
+export function baseClassOf(cls: ts.ClassLikeDeclaration): ts.ClassDeclaration | undefined {
+  const e: ts.Expression | undefined = cls.heritageClauses?.find(
+    (h) => h.token === ts.SyntaxKind.ExtendsKeyword,
+  )?.types[0]?.expression
+  const found: readonly ts.ClassDeclaration[] | undefined =
+    e !== undefined && ts.isIdentifier(e)
+      ? classesByName(cls.getSourceFile()).get(e.text)
+      : undefined
+  return found?.length === 1 ? found[0] : undefined
 }
 
 /** Whether `cls` extends `owner`, at any depth, as far as the file shows it: an `extends X`
