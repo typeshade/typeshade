@@ -4,34 +4,34 @@
 // create rules/<id>.ts exporting a LintRule, import it here, append it to RULES. The
 // engine walks the IR once and dispatches to whichever handler each rule implements.
 
-import type { LintRule } from '../engine.js'
-import { dupStruct } from './dup-struct.js'
-import { dupFunc } from './dup-func.js'
-import { bindingCollision } from './binding-collision.js'
-import { allPathsReturn } from './all-paths-return.js'
-import { singleExit } from './single-exit.js'
-import { mixedScalarRule } from './mixed-scalar.js'
-import { noRecursion } from './no-recursion.js'
-import { noUnreachable } from './no-unreachable-code.js'
-import { noFloatEq } from './no-float-eq.js'
-import { cyclomaticComplexity } from './cyclomatic-complexity.js'
-import { paramCount } from './param-count.js'
-import { namingConvention } from './naming-convention.js'
-import { maxNesting } from './max-nesting-depth.js'
-import { noSelfAssign } from './no-self-assign.js'
-import { noAssignToLet } from './no-assign-to-let.js'
-import { noEmptyFunction } from './no-empty-function.js'
-import { maxFunctionLength } from './max-function-length.js'
-import { preferLetOverVar } from './prefer-let-over-var.js'
-import { noDeadBinding } from './no-dead-binding.js'
-import { callSignature } from './call-signature.js'
-import { smoothstepEdgeOrder } from './smoothstep-edge-order.js'
-import { fragmentOnlyBuiltin } from './fragment-only-builtin.js'
-import { portableKernel } from './portable-kernel.js'
-import { noShadowedLocal } from './no-shadowed-local.js'
-import { usesDeclared } from './uses-declared.js'
-import { builtinValueType } from './builtin-value-type.js'
-import { interstageIo } from './interstage-io.js'
+import type { LintRule } from '../engine.js';
+import { dupStruct } from './dup-struct.js';
+import { dupFunc } from './dup-func.js';
+import { bindingCollision } from './binding-collision.js';
+import { allPathsReturn } from './all-paths-return.js';
+import { singleExit } from './single-exit.js';
+import { mixedScalarRule } from './mixed-scalar.js';
+import { noRecursion } from './no-recursion.js';
+import { noUnreachable } from './no-unreachable-code.js';
+import { noFloatEq } from './no-float-eq.js';
+import { cyclomaticComplexity } from './cyclomatic-complexity.js';
+import { paramCount } from './param-count.js';
+import { namingConvention } from './naming-convention.js';
+import { maxNesting } from './max-nesting-depth.js';
+import { noSelfAssign } from './no-self-assign.js';
+import { noAssignToLet } from './no-assign-to-let.js';
+import { noEmptyFunction } from './no-empty-function.js';
+import { maxFunctionLength } from './max-function-length.js';
+import { preferLetOverVar } from './prefer-let-over-var.js';
+import { noDeadBinding } from './no-dead-binding.js';
+import { callSignature } from './call-signature.js';
+import { smoothstepEdgeOrder } from './smoothstep-edge-order.js';
+import { fragmentOnlyBuiltin } from './fragment-only-builtin.js';
+import { portableKernel } from './portable-kernel.js';
+import { noShadowedLocal } from './no-shadowed-local.js';
+import { usesDeclared } from './uses-declared.js';
+import { builtinValueType } from './builtin-value-type.js';
+import { interstageIo } from './interstage-io.js';
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -65,7 +65,7 @@ export const RULES: readonly LintRule[] = [
   // the middle moves every message after the insertion point for a module that trips two.
   builtinValueType,
   interstageIo,
-]
+];
 
 export {
   dupStruct,
@@ -95,7 +95,7 @@ export {
   portableKernel,
   noShadowedLocal,
   usesDeclared,
-}
+};
 
 /** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules
  *  like eval_match): only the structural invariants that PROVABLY hold for any valid WGSL
@@ -135,4 +135,4 @@ export const CORE_RULES: readonly LintRule[] = [
   // CORE for the same reason: both writers emit the two declarations from the same fields, and
   // a drift between them is clean text on both targets that fails at pipeline creation.
   interstageIo,
-]
+];

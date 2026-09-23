@@ -14,22 +14,22 @@
 // raw WGSL referenced by plain name, so a name rule cannot tell an injected name from a
 // typo (it once broke the polygon VT variant on `OPACITY` at runtime).
 
-import type { ModuleDecl } from '../ir/index.js'
-import { lint, type Diagnostic, type LintConfig } from './lint/engine.js'
-import { RULES, CORE_RULES } from './lint/rules/index.js'
-import { TypeShadeError, formatLoc } from '../diagnostics/error.js'
+import type { ModuleDecl } from '../ir/index.js';
+import { lint, type Diagnostic, type LintConfig } from './lint/engine.js';
+import { RULES, CORE_RULES } from './lint/rules/index.js';
+import { TypeShadeError, formatLoc } from '../diagnostics/error.js';
 
 /** Render every error diagnostic on its own line — `[SD####] (fn X) message @ file:line:col`
  *  — so an aggregated validation failure shows ALL problems, not just the first. */
 function formatValidationMessage(diags: readonly Diagnostic[]): string {
-  const head = `typeshade [SD0020]: module validation failed (${diags.length} error${diags.length === 1 ? '' : 's'}):`
+  const head = `typeshade [SD0020]: module validation failed (${diags.length} error${diags.length === 1 ? '' : 's'}):`;
   const lines = diags.map((d) => {
-    const code = d.code ? `[${d.code}] ` : ''
-    const fn = d.fn ? ` (fn ${d.fn})` : ''
-    const at = d.loc ? ` @ ${formatLoc(d.loc)}` : ''
-    return `  - ${code}${d.ruleId}${fn}: ${d.message}${at}`
-  })
-  return [head, ...lines].join('\n')
+    const code = d.code ? `[${d.code}] ` : '';
+    const fn = d.fn ? ` (fn ${d.fn})` : '';
+    const at = d.loc ? ` @ ${formatLoc(d.loc)}` : '';
+    return `  - ${code}${d.ruleId}${fn}: ${d.message}${at}`;
+  });
+  return [head, ...lines].join('\n');
 }
 
 /** Thrown by {@link validate} when a module fails one of the structural rules every emit
@@ -59,18 +59,18 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
 export class ValidationError extends TypeShadeError {
   /** Every error-severity diagnostic that caused the failure, in the order the rules
    *  reported them. */
-  readonly diagnostics: readonly Diagnostic[]
+  readonly diagnostics: readonly Diagnostic[];
   constructor(diags: readonly Diagnostic[]) {
-    super({ code: 'SD0020', message: formatValidationMessage(diags) })
-    this.name = 'ValidationError'
-    this.diagnostics = diags
+    super({ code: 'SD0020', message: formatValidationMessage(diags) });
+    this.name = 'ValidationError';
+    this.diagnostics = diags;
   }
 }
 
 /** Run the lint ruleset and return all diagnostics (errors + warnings). Does not
  *  throw — callers that want the full report (e.g. a static-analysis test) use this. */
 export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
-  return lint(m, RULES, config)
+  return lint(m, RULES, config);
 }
 
 /** Check an authored module against the structural rules every emit depends on, and throw a
@@ -117,6 +117,6 @@ export function lintModule(m: ModuleDecl, config?: LintConfig): Diagnostic[] {
  *  @see {@link setSourceTracing} for `file:line:col` on each diagnostic.
  */
 export function validate(m: ModuleDecl): void {
-  const errors = lint(m, CORE_RULES).filter((d) => d.severity === 'error')
-  if (errors.length) throw new ValidationError(errors)
+  const errors = lint(m, CORE_RULES).filter((d) => d.severity === 'error');
+  if (errors.length) throw new ValidationError(errors);
 }

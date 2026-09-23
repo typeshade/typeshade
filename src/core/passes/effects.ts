@@ -23,10 +23,10 @@
 // Building the table is 35-40 ms of that, over 861 builds, one for each module object the
 // write table is also built for (which takes 71-88 ms); the rest is the passes asking it.
 
-import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js'
-import { eachExpr, eachStmtExpr } from '../ir/visit.js'
-import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js'
-import { bodyHasRaw, collectLocals } from './opt/expr-utils.js'
+import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js';
+import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js';
+import { bodyHasRaw, collectLocals } from './opt/expr-utils.js';
 
 /** Intrinsic ids whose call has an effect beyond its value: the atomic builtins, `atomicLoad`
  *  included, since two loads must not be shared across a store to the same location; the
@@ -42,7 +42,7 @@ export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
   ...BARRIER_INTRINSICS,
   'workgroupUniformLoad',
   'textureStore',
-])
+]);
 
 /** The intrinsics that SYNCHRONISE the workgroup: the barriers, and `workgroupUniformLoad`
  *  for the two it carries. Unlike an atomic store they write no location of their own, so the
@@ -53,29 +53,29 @@ export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
 const SYNC_INTRINSICS: ReadonlySet<string> = new Set<string>([
   ...BARRIER_INTRINSICS,
   'workgroupUniformLoad',
-])
+]);
 
 /** What a function that synchronises the workgroup WRITES, in the table: the memory the other
  *  invocations share, which a barrier is where their writes land. No program can spell the
  *  name, so it never meets a root, and its only work is to make the function's write set
  *  non-empty — which is what {@link exprHasEffect} reads for every call to it, and what the
  *  call-graph fixpoint below carries to every caller. */
-export const SYNC_WRITE = '<workgroup sync>'
+export const SYNC_WRITE = '<workgroup sync>';
 
 /** The module-level names each function writes, itself or through the functions it calls, and
  *  {@link SYNC_WRITE} for one that synchronises the workgroup. */
-export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>
+export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>;
 
-const memo = new WeakMap<ModuleDecl, FnWrites>()
+const memo = new WeakMap<ModuleDecl, FnWrites>();
 
 /** The parameters of every function a table was computed over, keyed by the table itself, so a
  *  per-function view that inherits the table ({@link inheritEffects}) can still translate a
  *  callee's write through one of its own `inout` parameters into the argument passed there.
  *  The view holds one function; the table, and so this, describes them all. */
-const paramsOf = new WeakMap<FnWrites, ReadonlyMap<string, FuncDecl['params']>>()
+const paramsOf = new WeakMap<FnWrites, ReadonlyMap<string, FuncDecl['params']>>();
 
 const targetRoot = (e: Expr): Expr =>
-  e.op === 'index' || e.op === 'member' ? targetRoot(e.base) : e
+  e.op === 'index' || e.op === 'member' ? targetRoot(e.base) : e;
 
 /** The name an atomic builtin call writes: the root of its location argument, for every
  *  atomic but `atomicLoad`. Also the storage texture a `textureStore` writes, which is the same
@@ -83,17 +83,17 @@ const targetRoot = (e: Expr): Expr =>
  *  other expression, and for a call that resolved to a function the module declares under one
  *  of those names. */
 export function atomicWriteRoot(x: Expr): string | undefined {
-  if (x.op !== 'call' || x.declRef !== undefined) return undefined
+  if (x.op !== 'call' || x.declRef !== undefined) return undefined;
   if (x.fn === 'textureStore') {
-    const target = x.args[0]
-    if (target === undefined) return undefined
-    const root = targetRoot(target)
-    return root.op === 'varref' || root.op === 'param' ? root.name : undefined
+    const target = x.args[0];
+    if (target === undefined) return undefined;
+    const root = targetRoot(target);
+    return root.op === 'varref' || root.op === 'param' ? root.name : undefined;
   }
-  if (!isAtomicIntrinsic(x.fn)) return undefined
-  if (x.fn === 'atomicLoad' || x.args[0] === undefined) return undefined
-  const root = targetRoot(x.args[0])
-  return root.op === 'varref' || root.op === 'param' ? root.name : undefined
+  if (!isAtomicIntrinsic(x.fn)) return undefined;
+  if (x.fn === 'atomicLoad' || x.args[0] === undefined) return undefined;
+  const root = targetRoot(x.args[0]);
+  return root.op === 'varref' || root.op === 'param' ? root.name : undefined;
 }
 
 function directWrites(f: FuncDecl, out: Set<string>): void {
@@ -101,8 +101,8 @@ function directWrites(f: FuncDecl, out: Set<string>): void {
   // the caller's own value, which is the whole point of it. Writing to any other parameter is
   // local and invisible outside. Before `inout` existed every parameter was owned, and a
   // method that changed its object took it by value and returned it, so this list was complete.
-  const owned = new Set<string>(f.params.filter((p) => p.mode !== 'inout').map((p) => p.name))
-  collectLocals(f.body, owned)
+  const owned = new Set<string>(f.params.filter((p) => p.mode !== 'inout').map((p) => p.name));
+  collectLocals(f.body, owned);
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {
       // An atomic store or read-modify-write anywhere in the statement's own expressions
@@ -112,31 +112,31 @@ function directWrites(f: FuncDecl, out: Set<string>): void {
         s,
         (e) => {
           eachExpr(e, (x) => {
-            const root = atomicWriteRoot(x)
-            if (root !== undefined && !owned.has(root)) out.add(root)
+            const root = atomicWriteRoot(x);
+            if (root !== undefined && !owned.has(root)) out.add(root);
             if (x.op === 'call' && x.declRef === undefined && SYNC_INTRINSICS.has(x.fn))
-              out.add(SYNC_WRITE)
-          })
+              out.add(SYNC_WRITE);
+          });
         },
         () => {},
-      )
+      );
       if (s.s === 'assign' || s.s === 'assignOp') {
-        const root = targetRoot(s.target)
+        const root = targetRoot(s.target);
         if ((root.op === 'varref' || root.op === 'param') && !owned.has(root.name))
-          out.add(root.name)
+          out.add(root.name);
       } else if (s.s === 'if') {
-        for (const a of s.arms) walk(a.body)
-        if (s.elseBody) walk(s.elseBody)
+        for (const a of s.arms) walk(a.body);
+        if (s.elseBody) walk(s.elseBody);
       } else if (s.s === 'for') {
-        walk([s.init, s.update])
-        walk(s.body)
+        walk([s.init, s.update]);
+        walk(s.body);
       } else if (s.s === 'switch') {
-        for (const c of s.cases) walk(c.body)
-        if (s.defaultBody) walk(s.defaultBody)
+        for (const c of s.cases) walk(c.body);
+        if (s.defaultBody) walk(s.defaultBody);
       }
     }
-  }
-  walk(f.body)
+  };
+  walk(f.body);
 }
 
 /** What one call adds to its CALLER's write set, given what the callee writes.
@@ -158,23 +158,23 @@ function inheritedWrites(
   ownedByCaller: ReadonlySet<string>,
   out: Set<string>,
 ): void {
-  const throughParam = new Map<string, string | undefined>()
+  const throughParam = new Map<string, string | undefined>();
   for (const [i, p] of callee.params.entries()) {
-    if (p.mode !== 'inout') continue
-    const arg = call.args[i]
-    const root = arg === undefined ? undefined : targetRoot(arg)
+    if (p.mode !== 'inout') continue;
+    const arg = call.args[i];
+    const root = arg === undefined ? undefined : targetRoot(arg);
     throughParam.set(
       p.name,
       root !== undefined && (root.op === 'varref' || root.op === 'param') ? root.name : undefined,
-    )
+    );
   }
   for (const name of calleeWrites) {
     if (!throughParam.has(name)) {
-      out.add(name)
-      continue
+      out.add(name);
+      continue;
     }
-    const here = throughParam.get(name)
-    if (here !== undefined && !ownedByCaller.has(here)) out.add(here)
+    const here = throughParam.get(name);
+    if (here !== undefined && !ownedByCaller.has(here)) out.add(here);
   }
 }
 
@@ -182,9 +182,9 @@ function calleesOf(f: FuncDecl, declared: ReadonlySet<string>, out: Set<string>)
   for (const s of f.body) {
     eachStmtExpr(s, (e) => {
       eachExpr(e, (x) => {
-        if (x.op === 'call' && (x.declRef !== undefined || declared.has(x.fn))) out.add(x.fn)
-      })
-    })
+        if (x.op === 'call' && (x.declRef !== undefined || declared.has(x.fn))) out.add(x.fn);
+      });
+    });
   }
 }
 
@@ -196,17 +196,17 @@ function calleesOf(f: FuncDecl, declared: ReadonlySet<string>, out: Set<string>)
  *  carrying it forward is safe. The read table ({@link fnReads}) rides along the same way and
  *  for the same reason: a view cannot see what `h` reads, only that it is called. */
 export function inheritEffects(from: ModuleDecl, to: ModuleDecl): void {
-  if (to === from) return
-  const table = memo.get(from)
-  if (table !== undefined && !memo.has(to)) memo.set(to, table)
-  const reads = readMemo.get(from)
-  if (reads !== undefined && !readMemo.has(to)) readMemo.set(to, reads)
+  if (to === from) return;
+  const table = memo.get(from);
+  if (table !== undefined && !memo.has(to)) memo.set(to, table);
+  const reads = readMemo.get(from);
+  if (reads !== undefined && !readMemo.has(to)) readMemo.set(to, reads);
 }
 
 /** The module-level names each function READS, itself or through the functions it calls. */
-export type FnReads = ReadonlyMap<string, ReadonlySet<string>>
+export type FnReads = ReadonlyMap<string, ReadonlySet<string>>;
 
-const readMemo = new WeakMap<ModuleDecl, FnReads>()
+const readMemo = new WeakMap<ModuleDecl, FnReads>();
 
 /** The names each function of `m` reads that it does not own, transitively: every name a
  *  `varref`, `constref` or `externref` in its body spells that is neither one of its
@@ -222,20 +222,20 @@ const readMemo = new WeakMap<ModuleDecl, FnReads>()
  *  a local of its own over-approximates (a write to the local retires the call too), which is
  *  the safe direction. */
 export function fnReads(m: ModuleDecl): FnReads {
-  const hit = readMemo.get(m)
-  if (hit !== undefined) return hit
-  const declared = new Set(m.funcs.map((f) => f.name))
+  const hit = readMemo.get(m);
+  if (hit !== undefined) return hit;
+  const declared = new Set(m.funcs.map((f) => f.name));
   const opaque = [
     ...m.bindings.map((b) => b.name),
     ...(m.vars ?? []).map((v) => v.name),
     ...(m.externs ?? []).map((v) => v.name),
-  ]
-  const reads = new Map<string, Set<string>>()
-  const callees = new Map<string, Set<string>>()
+  ];
+  const reads = new Map<string, Set<string>>();
+  const callees = new Map<string, Set<string>>();
   for (const f of m.funcs) {
-    const owned = new Set<string>(f.params.map((p) => p.name))
-    collectLocals(f.body, owned)
-    const r = new Set<string>()
+    const owned = new Set<string>(f.params.map((p) => p.name));
+    collectLocals(f.body, owned);
+    const r = new Set<string>();
     for (const s of f.body)
       eachStmtExpr(s, (e) =>
         eachExpr(e, (x) => {
@@ -243,27 +243,27 @@ export function fnReads(m: ModuleDecl): FnReads {
             (x.op === 'varref' || x.op === 'constref' || x.op === 'externref') &&
             !owned.has(x.name)
           )
-            r.add(x.name)
+            r.add(x.name);
         }),
-      )
-    if (bodyHasRaw(f.body)) for (const n of opaque) r.add(n)
-    reads.set(f.name, r)
-    const c = new Set<string>()
-    calleesOf(f, declared, c)
-    callees.set(f.name, c)
+      );
+    if (bodyHasRaw(f.body)) for (const n of opaque) r.add(n);
+    reads.set(f.name, r);
+    const c = new Set<string>();
+    calleesOf(f, declared, c);
+    callees.set(f.name, c);
   }
-  let changed = true
+  let changed = true;
   while (changed) {
-    changed = false
+    changed = false;
     for (const f of m.funcs) {
-      const r = reads.get(f.name)!
-      const before = r.size
-      for (const callee of callees.get(f.name)!) for (const n of reads.get(callee) ?? []) r.add(n)
-      if (r.size !== before) changed = true
+      const r = reads.get(f.name)!;
+      const before = r.size;
+      for (const callee of callees.get(f.name)!) for (const n of reads.get(callee) ?? []) r.add(n);
+      if (r.size !== before) changed = true;
     }
   }
-  readMemo.set(m, reads)
-  return reads
+  readMemo.set(m, reads);
+  return reads;
 }
 
 /** Does `x`, a call, read any of `names` through its callee (the module names the callee
@@ -274,75 +274,75 @@ export function callReadsAny(
   names: ReadonlySet<string>,
   reads: FnReads | undefined,
 ): boolean {
-  if (x.op !== 'call' || reads === undefined || names.size === 0) return false
-  const r = reads.get(x.fn)
-  if (r === undefined) return false
-  for (const n of r) if (names.has(n)) return true
-  return false
+  if (x.op !== 'call' || reads === undefined || names.size === 0) return false;
+  const r = reads.get(x.fn);
+  if (r === undefined) return false;
+  for (const n of r) if (names.has(n)) return true;
+  return false;
 }
 
 /** The names each function of `m` writes, transitively. Cached per module object; the IR is
  *  immutable, so a pass that rewrites builds a new module and gets a fresh answer, unless
  *  {@link inheritEffects} handed it the table of the module it is a view of. */
 export function fnWrites(m: ModuleDecl): FnWrites {
-  const hit = memo.get(m)
-  if (hit !== undefined) return hit
-  const declared = new Set(m.funcs.map((f) => f.name))
-  const writes = new Map<string, Set<string>>()
-  const callees = new Map<string, Set<string>>()
-  const byName = new Map(m.funcs.map((f) => [f.name, f]))
+  const hit = memo.get(m);
+  if (hit !== undefined) return hit;
+  const declared = new Set(m.funcs.map((f) => f.name));
+  const writes = new Map<string, Set<string>>();
+  const callees = new Map<string, Set<string>>();
+  const byName = new Map(m.funcs.map((f) => [f.name, f]));
   for (const f of m.funcs) {
-    const w = new Set<string>()
-    directWrites(f, w)
-    writes.set(f.name, w)
-    const c = new Set<string>()
-    calleesOf(f, declared, c)
-    callees.set(f.name, c)
+    const w = new Set<string>();
+    directWrites(f, w);
+    writes.set(f.name, w);
+    const c = new Set<string>();
+    calleesOf(f, declared, c);
+    callees.set(f.name, c);
   }
   // What each function owns, for translating a callee's parameter writes below.
-  const owned = new Map<string, Set<string>>()
+  const owned = new Map<string, Set<string>>();
   for (const f of m.funcs) {
-    const o = new Set<string>(f.params.filter((p) => p.mode !== 'inout').map((p) => p.name))
-    collectLocals(f.body, o)
-    owned.set(f.name, o)
+    const o = new Set<string>(f.params.filter((p) => p.mode !== 'inout').map((p) => p.name));
+    collectLocals(f.body, o);
+    owned.set(f.name, o);
   }
   // Fixpoint over the call graph: a function inherits what its callees write, with a name a
   // callee writes through one of its own `inout` parameters translated into the argument this
   // caller passed there.
-  let changed = true
+  let changed = true;
   while (changed) {
-    changed = false
+    changed = false;
     for (const f of m.funcs) {
-      const w = writes.get(f.name)!
-      const before = w.size
+      const w = writes.get(f.name)!;
+      const before = w.size;
       for (const s of f.body) {
         eachStmtExpr(s, (e) => {
           eachExpr(e, (x) => {
-            if (x.op !== 'call') return
-            const callee = byName.get(x.fn)
-            if (callee === undefined) return
-            inheritedWrites(x, callee, writes.get(x.fn) ?? new Set(), owned.get(f.name)!, w)
-          })
-        })
+            if (x.op !== 'call') return;
+            const callee = byName.get(x.fn);
+            if (callee === undefined) return;
+            inheritedWrites(x, callee, writes.get(x.fn) ?? new Set(), owned.get(f.name)!, w);
+          });
+        });
       }
       // A call inside a nested block reaches the walk above through `eachStmtExpr`'s own
       // recursion into the statement's expressions only, so the plain-name inheritance below
       // keeps a callee's MODULE writes flowing through a branch or a loop.
       for (const callee of callees.get(f.name)!) {
-        const decl = byName.get(callee)
+        const decl = byName.get(callee);
         const through = new Set(
           (decl?.params ?? []).filter((p) => p.mode === 'inout').map((p) => p.name),
-        )
+        );
         for (const name of writes.get(callee) ?? []) {
-          if (!through.has(name)) w.add(name)
+          if (!through.has(name)) w.add(name);
         }
       }
-      if (w.size !== before) changed = true
+      if (w.size !== before) changed = true;
     }
   }
-  memo.set(m, writes)
-  paramsOf.set(writes, new Map(m.funcs.map((f) => [f.name, f.params])))
-  return writes
+  memo.set(m, writes);
+  paramsOf.set(writes, new Map(m.funcs.map((f) => [f.name, f.params])));
+  return writes;
 }
 
 /** The names one call writes, in its CALLER's words: what the callee writes of the module, the
@@ -351,21 +351,21 @@ export function fnWrites(m: ModuleDecl): FnWrites {
  *  call that writes nothing, `atomicLoad` included, which reads. The callee's own word for an
  *  `inout` parameter means nothing where the call stands and is never returned. */
 export function callWrites(x: Expr & { op: 'call' }, writes: FnWrites): ReadonlySet<string> {
-  const out = new Set<string>()
-  const params = paramsOf.get(writes)?.get(x.fn)
+  const out = new Set<string>();
+  const params = paramsOf.get(writes)?.get(x.fn);
   for (const name of writes.get(x.fn) ?? []) {
-    const at = params?.findIndex((p) => p.mode === 'inout' && p.name === name) ?? -1
+    const at = params?.findIndex((p) => p.mode === 'inout' && p.name === name) ?? -1;
     if (at < 0) {
-      out.add(name)
-      continue
+      out.add(name);
+      continue;
     }
-    const arg = x.args[at]
-    const root = arg === undefined ? undefined : targetRoot(arg)
-    if (root !== undefined && (root.op === 'varref' || root.op === 'param')) out.add(root.name)
+    const arg = x.args[at];
+    const root = arg === undefined ? undefined : targetRoot(arg);
+    if (root !== undefined && (root.op === 'varref' || root.op === 'param')) out.add(root.name);
   }
-  const root = atomicWriteRoot(x)
-  if (root !== undefined) out.add(root)
-  return out
+  const root = atomicWriteRoot(x);
+  if (root !== undefined) out.add(root);
+  return out;
 }
 
 /** Does evaluating `e` WRITE something: a call to a function that writes a module name or its
@@ -374,44 +374,44 @@ export function callWrites(x: Expr & { op: 'call' }, writes: FnWrites): Readonly
  *  barriers: a read and a fence order what is around them, and only a write leaves something
  *  behind that dropping the expression would lose. */
 export function exprWrites(e: Expr, writes: FnWrites): boolean {
-  let found = false
+  let found = false;
   eachExpr(e, (x) => {
-    if (found || x.op !== 'call') return
-    if ((writes.get(x.fn)?.size ?? 0) > 0 || atomicWriteRoot(x) !== undefined) found = true
-  })
-  return found
+    if (found || x.op !== 'call') return;
+    if ((writes.get(x.fn)?.size ?? 0) > 0 || atomicWriteRoot(x) !== undefined) found = true;
+  });
+  return found;
 }
 
 /** Does evaluating `e` do anything besides produce a value: a call to a function that writes
  *  a binding, or to an intrinsic in {@link EFFECTFUL_INTRINSICS}? */
 export function exprHasEffect(e: Expr, writes: FnWrites): boolean {
-  let found = false
+  let found = false;
   eachExpr(e, (x) => {
-    if (x.op !== 'call') return
-    if (EFFECTFUL_INTRINSICS.has(x.fn)) found = true
-    const w = writes.get(x.fn)
-    if (w !== undefined && w.size > 0) found = true
-  })
-  return found
+    if (x.op !== 'call') return;
+    if (EFFECTFUL_INTRINSICS.has(x.fn)) found = true;
+    const w = writes.get(x.fn);
+    if (w !== undefined && w.size > 0) found = true;
+  });
+  return found;
 }
 
 /** Does any statement of `body`, nested blocks included, contain an effectful call? The
  *  value-hoisting passes leave such a function alone: deduping or moving a call that writes
  *  a binding would change how many times, or when, it writes. */
 export function bodyHasEffectfulCall(body: readonly Stmt[], writes: FnWrites): boolean {
-  let found = false
+  let found = false;
   const walk = (s: Stmt): void => {
-    if (found) return
+    if (found) return;
     eachStmtExpr(
       s,
       (e) => {
-        if (!found && exprHasEffect(e, writes)) found = true
+        if (!found && exprHasEffect(e, writes)) found = true;
       },
       walk,
-    )
-  }
-  for (const s of body) walk(s)
-  return found
+    );
+  };
+  for (const s of body) walk(s);
+  return found;
 }
 
 /** The names the calls inside one statement's own expressions write (not its nested blocks,
@@ -425,10 +425,10 @@ export function calleeWritesOf(s: Stmt, writes: FnWrites, out: Set<string>): voi
     s,
     (e) => {
       eachExpr(e, (x) => {
-        if (x.op !== 'call') return
-        for (const name of callWrites(x, writes)) out.add(name)
-      })
+        if (x.op !== 'call') return;
+        for (const name of callWrites(x, writes)) out.add(name);
+      });
     },
     () => {},
-  )
+  );
 }

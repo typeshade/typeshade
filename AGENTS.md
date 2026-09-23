@@ -14,21 +14,21 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
 
 ## Key files
 
-| File | What it is |
-| --- | --- |
-| `package.json` | `typeshade`, ESM. One runtime dependency: `typescript`, as a REQUIRED peer pinned to `>=5.0.0 <6`, because `compile()` is a TypeScript front end, so the `.` entry imports the parser at module scope and TypeScript 7 throws on import. `main` and `exports` point at `src/index.ts`: in THIS tree, and for a submodule consumer, the package resolves to source. The npm tarball is different: `scripts/publish-manifest.ts` derives a dist-facing manifest from the same `exports` map at publish time. Scripts: `build`, `test`, `gate:compile`, `bake:api-surface`, `manifest:publish`. |
-| `tsconfig.json` | Standalone project, and the EMITTING one: `rootDir: "."` / `outDir: "./dist"` over `src/` plus the `examples/index.ts` closure, so `dist/` mirrors the source tree (`dist/src/…`, `dist/examples/…`) and the `../src/…` specifiers `tsc` copies verbatim into the emitted examples still resolve. It extends the package-local `tsconfig.base.json`; nothing tracked here may name a path outside this tree, or the vendored copy stops compiling. `tsc --build` (`bun run build`) is the canonical type check. |
-| `vitest.config.ts` | Test config: `src/**` and `examples/**` specs, 30 s timeout because the df64 property suites run 8 to 16 s. |
-| `scripts/compile-gate.ts` | `bun run gate:compile`. Emits every registered example and hands the WGSL to Tint (Chromium's headless WebGPU) and both GLSL ES 3.00 stages to a real WebGL2 context. Each compiler is fed a broken shader first, so an instrument that cannot fail cannot pass. |
-| `.github/workflows/ci.yml` | Type check, unit suite and compile gate on every push and pull request. |
-| `AUTHORING.md` | The authoring guide. Read it before writing a shader. |
-| `src/index.ts` | The public barrel and the only import surface for consumers. `core/` is private. |
+| File                       | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`             | `typeshade`, ESM. One runtime dependency: `typescript`, as a REQUIRED peer pinned to `>=5.0.0 <6`, because `compile()` is a TypeScript front end, so the `.` entry imports the parser at module scope and TypeScript 7 throws on import. `main` and `exports` point at `src/index.ts`: in THIS tree, and for a submodule consumer, the package resolves to source. The npm tarball is different: `scripts/publish-manifest.ts` derives a dist-facing manifest from the same `exports` map at publish time. Scripts: `build`, `test`, `gate:compile`, `bake:api-surface`, `manifest:publish`. |
+| `tsconfig.json`            | Standalone project, and the EMITTING one: `rootDir: "."` / `outDir: "./dist"` over `src/` plus the `examples/index.ts` closure, so `dist/` mirrors the source tree (`dist/src/…`, `dist/examples/…`) and the `../src/…` specifiers `tsc` copies verbatim into the emitted examples still resolve. It extends the package-local `tsconfig.base.json`; nothing tracked here may name a path outside this tree, or the vendored copy stops compiling. `tsc --build` (`bun run build`) is the canonical type check.                                                                              |
+| `vitest.config.ts`         | Test config: `src/**` and `examples/**` specs, 30 s timeout because the df64 property suites run 8 to 16 s.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `scripts/compile-gate.ts`  | `bun run gate:compile`. Emits every registered example and hands the WGSL to Tint (Chromium's headless WebGPU) and both GLSL ES 3.00 stages to a real WebGL2 context. Each compiler is fed a broken shader first, so an instrument that cannot fail cannot pass.                                                                                                                                                                                                                                                                                                                             |
+| `.github/workflows/ci.yml` | Type check, unit suite and compile gate on every push and pull request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `AUTHORING.md`             | The authoring guide. Read it before writing a shader.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `src/index.ts`             | The public barrel and the only import surface for consumers. `core/` is private.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ## Subdirectories
 
-| Directory | Purpose |
-| --- | --- |
-| `src/` | All source. `core/` holds the IR, the neutral emitter and backend contract, the pass pipeline and the layout layer. The entry points beside it (`index.ts`, `dev.ts`, `compute.ts`, `emit-prod.ts`) are the public surface. Concrete shader graphs live in consuming projects. See `src/AGENTS.md`. |
+| Directory | Purpose                                                                                                                                                                                                                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/`    | All source. `core/` holds the IR, the neutral emitter and backend contract, the pass pipeline and the layout layer. The entry points beside it (`index.ts`, `dev.ts`, `compute.ts`, `emit-prod.ts`) are the public surface. Concrete shader graphs live in consuming projects. See `src/AGENTS.md`. |
 
 ## Working in this repository
 
@@ -39,11 +39,26 @@ The authoring surface is plain TypeScript: `const x = expr`, method operators, `
   gated by the emit goldens. A semantic change (the emitted text changes) needs the CPU
   oracle parity gate and a real compile through `bun run gate:compile`.
 - `core/` is private. Do not widen the public barrel to export it.
+- Shader source ends every statement with `;`, as the guide spells `"use typeshade";`. That
+  covers the `examples/*.shade.ts` files, the `"use typeshade"` fences in the docs, every fence
+  in `docs/use-typeshade-surface.md`, and the inline sources the tests compile. Do not write
+  the `;` by hand: run `bun run format:semicolons` after writing shader source (`--check` lists
+  what is missing without writing). It inserts a `;` only where the parser already ended a
+  statement, so the program means the same thing afterwards. `src/compiler/ts/semicolons.test.ts`
+  fails `bun run test` on a missing one. Prettier cannot do this part: it does not parse a
+  decorated top-level function (`*.shade.ts` is prettierignored) and does not format a string a
+  test compiles. It leaves Markdown fences alone too (`embeddedLanguageFormatting: "off"` for
+  `*.md`), because the docs' shader fences are hand-formatted.
+- Everything else is Prettier (`semi: true`, `.prettierrc.json`) and ESLint
+  (`typescript-eslint` recommended, `eslint.config.mjs`; a `_` prefix marks a binding unused on
+  purpose). `bun run format` writes both kinds of `;`; `bun run format:check` and
+  `bun run lint` are CI steps, so run them before pushing.
 
 ## Tests
 
 - `bun run build`: `tsc --build` (dist and `.d.ts`), then `tsc -p tsconfig.tests.json`, the
   noEmit pass over tests, examples and scripts.
+- `bun run lint` (ESLint) and `bun run format:check` (Prettier, then the shader-source `;`).
 - `bun run test`: vitest over `src/**` and `examples/**` (146 test files).
 - `bun run gate:compile`: every registered example emitted and compiled. Needs Chromium once:
   `./node_modules/.bin/playwright install --only-shell chromium`.

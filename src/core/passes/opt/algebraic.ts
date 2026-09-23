@@ -31,99 +31,99 @@
 // about what "the same expression" is). Shader expressions are pure, so collapsing two
 // structurally identical operands cannot drop an effect.
 
-import type { Expr, ModuleDecl, ShaderType } from '../../ir/index.js'
-import { mapModuleExprs } from './ir-transform.js'
-import { intElemOf, keyOf } from './expr-utils.js'
+import type { Expr, ModuleDecl, ShaderType } from '../../ir/index.js';
+import { mapModuleExprs } from './ir-transform.js';
+import { intElemOf, keyOf } from './expr-utils.js';
 
 const isLit = (e: Expr, v: number): boolean =>
-  e.op === 'lit' && typeof e.value === 'number' && e.value === v
+  e.op === 'lit' && typeof e.value === 'number' && e.value === v;
 
-const same = (a: Expr, b: Expr): boolean => keyOf(a) === keyOf(b)
+const same = (a: Expr, b: Expr): boolean => keyOf(a) === keyOf(b);
 
-const zeroOf = (t: ShaderType): Expr => ({ op: 'lit', type: t, value: 0 })
+const zeroOf = (t: ShaderType): Expr => ({ op: 'lit', type: t, value: 0 });
 
 /** True for a native f32 scalar / vector — the only types the reciprocal rewrite may touch.
  *  `f64T` is its own kind and is NOT matched: an emulated double divides through the df64
  *  library, where a "multiply by the reciprocal instead" is a different algorithm. */
 const isF32ish = (t: ShaderType): boolean =>
-  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32')
+  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32');
 
 /** `1/c` when `c` is a literal power of two whose reciprocal is exact and stays f32-normal,
  *  else undefined. The bound is |k| <= 126 so neither `c` nor `1/c` reaches a subnormal or
  *  an overflow, where the two spellings could stop agreeing. */
 function exactReciprocal(e: Expr): number | undefined {
-  if (e.op !== 'lit' || typeof e.value !== 'number' || !isF32ish(e.type)) return undefined
-  const c = e.value
-  if (!Number.isFinite(c) || c === 0) return undefined
-  const k = Math.log2(Math.abs(c))
-  if (!Number.isInteger(k) || Math.abs(k) > 126) return undefined
-  return 1 / c
+  if (e.op !== 'lit' || typeof e.value !== 'number' || !isF32ish(e.type)) return undefined;
+  const c = e.value;
+  if (!Number.isFinite(c) || c === 0) return undefined;
+  const k = Math.log2(Math.abs(c));
+  if (!Number.isInteger(k) || Math.abs(k) > 126) return undefined;
+  return 1 / c;
 }
 
 function simplifyNode(e: Expr): Expr {
   // -(-x) -> x
-  if (e.op === 'unop' && e.a.op === 'unop') return e.a.a
+  if (e.op === 'unop' && e.a.op === 'unop') return e.a.a;
   // select(c, x, x) -> x
-  if (e.op === 'select' && same(e.ifTrue, e.ifFalse)) return e.ifTrue
-  if (e.op !== 'binop') return e
+  if (e.op === 'select' && same(e.ifTrue, e.ifFalse)) return e.ifTrue;
+  if (e.op !== 'binop') return e;
 
-  const int = intElemOf(e.type)
+  const int = intElemOf(e.type);
   switch (e.bop) {
     case '+':
-      if (isLit(e.b, 0)) return e.a
-      if (isLit(e.a, 0)) return e.b
-      break
+      if (isLit(e.b, 0)) return e.a;
+      if (isLit(e.a, 0)) return e.b;
+      break;
     case '-':
-      if (isLit(e.b, 0)) return e.a // x - 0 -> x (NOT 0 - x)
-      if (e.b.op === 'unop') return { op: 'binop', type: e.type, bop: '+', a: e.a, b: e.b.a }
-      if (int !== undefined && same(e.a, e.b)) return zeroOf(e.type)
-      break
+      if (isLit(e.b, 0)) return e.a; // x - 0 -> x (NOT 0 - x)
+      if (e.b.op === 'unop') return { op: 'binop', type: e.type, bop: '+', a: e.a, b: e.b.a };
+      if (int !== undefined && same(e.a, e.b)) return zeroOf(e.type);
+      break;
     case '*':
-      if (isLit(e.b, 1)) return e.a
-      if (isLit(e.a, 1)) return e.b
-      if (int !== undefined && (isLit(e.b, 0) || isLit(e.a, 0))) return zeroOf(e.type)
-      break
+      if (isLit(e.b, 1)) return e.a;
+      if (isLit(e.a, 1)) return e.b;
+      if (int !== undefined && (isLit(e.b, 0) || isLit(e.a, 0))) return zeroOf(e.type);
+      break;
     case '/': {
-      if (isLit(e.b, 1)) return e.a // x / 1 -> x (NOT 1 / x)
-      if (int !== undefined) break // integer division is not a scaling
-      const r = exactReciprocal(e.b)
+      if (isLit(e.b, 1)) return e.a; // x / 1 -> x (NOT 1 / x)
+      if (int !== undefined) break; // integer division is not a scaling
+      const r = exactReciprocal(e.b);
       if (r !== undefined) {
-        const recip: Expr = { op: 'lit', type: e.b.type, value: r }
-        return { op: 'binop', type: e.type, bop: '*', a: e.a, b: recip }
+        const recip: Expr = { op: 'lit', type: e.b.type, value: r };
+        return { op: 'binop', type: e.type, bop: '*', a: e.a, b: recip };
       }
-      break
+      break;
     }
     case '%':
-      if (int !== undefined && isLit(e.b, 1)) return zeroOf(e.type)
-      break
+      if (int !== undefined && isLit(e.b, 1)) return zeroOf(e.type);
+      break;
     case '&':
-      if (int === undefined) break
-      if (isLit(e.b, 0) || isLit(e.a, 0)) return zeroOf(e.type)
-      if (same(e.a, e.b)) return e.a
-      break
+      if (int === undefined) break;
+      if (isLit(e.b, 0) || isLit(e.a, 0)) return zeroOf(e.type);
+      if (same(e.a, e.b)) return e.a;
+      break;
     case '|':
-      if (int === undefined) break
-      if (isLit(e.b, 0)) return e.a
-      if (isLit(e.a, 0)) return e.b
-      if (same(e.a, e.b)) return e.a
-      break
+      if (int === undefined) break;
+      if (isLit(e.b, 0)) return e.a;
+      if (isLit(e.a, 0)) return e.b;
+      if (same(e.a, e.b)) return e.a;
+      break;
     case '^':
-      if (int === undefined) break
-      if (isLit(e.b, 0)) return e.a
-      if (isLit(e.a, 0)) return e.b
-      if (same(e.a, e.b)) return zeroOf(e.type)
-      break
+      if (int === undefined) break;
+      if (isLit(e.b, 0)) return e.a;
+      if (isLit(e.a, 0)) return e.b;
+      if (same(e.a, e.b)) return zeroOf(e.type);
+      break;
     case '<<':
     case '>>':
-      if (int !== undefined && isLit(e.b, 0)) return e.a
-      break
+      if (int !== undefined && isLit(e.b, 0)) return e.a;
+      break;
   }
-  return e
+  return e;
 }
 
 /** Apply the sound algebraic identities throughout a module. Pure (module -> module).
  *  Raw-Stmt fns are skipped (X-GIS #763 P1) — identity rewrites must not touch authored
  *  arithmetic around a verbatim raw splice. */
 export function algebraicSimplify(m: ModuleDecl): ModuleDecl {
-  return mapModuleExprs(m, simplifyNode, { skipRawBodies: true })
+  return mapModuleExprs(m, simplifyNode, { skipRawBodies: true });
 }

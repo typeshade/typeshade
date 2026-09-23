@@ -19,5 +19,5 @@ export function twoRowStd140Reason(cols: number): string {
     `matrix a column stride of 8 and GLSL std140 rounds every column to 16, so the ` +
     `two targets would disagree on this field and every field after it; carry it as ` +
     `mat${String(cols)}x4 (measured: both targets stride 16) or as ${String(cols)} vec2 fields`
-  )
+  );
 }

@@ -34,32 +34,32 @@
 // this repository. They are kept verbatim so a row here can be matched against the issue
 // that filed it; `core.def:N` is Tint's intrinsic table, of which
 // `src/core/spec-conformance/fixtures/` holds the checked-in texture and stage slices.
-import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { compile } from '../../compiler/ts/compile.js'
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { compile } from '../../compiler/ts/compile.js';
 
 /** One `fn texture*` overload of `core.def`, as `scripts/bake-coredef-textures.ts` writes it. */
 interface CoreDefRow {
-  readonly fn: string
+  readonly fn: string;
   /** `@stage(...)`; empty means the overload is legal in every entry stage. */
-  readonly stages: readonly string[]
+  readonly stages: readonly string[];
   /** `implicit(A: iu32)` — the row's type parameters and what each ranges over. */
-  readonly implicit: Readonly<Record<string, string>>
-  readonly params: readonly { readonly name: string; readonly type: string }[]
-  readonly ret: string
+  readonly implicit: Readonly<Record<string, string>>;
+  readonly params: readonly { readonly name: string; readonly type: string }[];
+  readonly ret: string;
   /** The row key every claim below is written against. */
-  readonly signature: string
+  readonly signature: string;
 }
 
-const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'coredef-textures.json')
+const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'coredef-textures.json');
 const fixture = JSON.parse(readFileSync(FIXTURE, 'utf8')) as {
-  readonly source: string
-  readonly sha256: string
-  readonly rows: readonly CoreDefRow[]
-}
-const ROWS = fixture.rows
+  readonly source: string;
+  readonly sha256: string;
+  readonly rows: readonly CoreDefRow[];
+};
+const ROWS = fixture.rows;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The witness synthesiser
@@ -71,7 +71,7 @@ const ROWS = fixture.rows
 // own parameter list makes the claim cheap and, more to the point, makes it impossible to
 // claim a row with a witness that calls something else: the call text comes from the row.
 
-type Stage = 'fragment' | 'vertex' | 'compute'
+type Stage = 'fragment' | 'vertex' | 'compute';
 
 /** Format literals by the texel kind the row's `implicit(...)` names, per access mode.
  *  `read_write` uses `r32*` because a DEVICE reads and writes only those three
@@ -83,29 +83,29 @@ const FORMAT: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   i32_texel_format: { read: 'r32sint', write: 'rgba8sint', read_write: 'r32sint' },
   u32_texel_format: { read: 'r32uint', write: 'rgba8uint', read_write: 'r32uint' },
   texel_format: { read: 'r32float', write: 'rgba8unorm', read_write: 'r32float' },
-}
+};
 
 /** `core.def`'s access type names to the WGSL access mode each stands for. */
 const ACCESS: Readonly<Record<string, string>> = {
   read: 'read',
   writable: 'write',
   read_write: 'read_write',
-}
+};
 
 /** The handle declaration for the row's `texture:` parameter, or `null` when this package has
  *  no spelling for the type at all (`texel_buffer`, `texture_external`). */
 function textureDecl(type: string, implicit: Readonly<Record<string, string>>): string | null {
-  const storage = /^texture_storage_(\w+)<(\w+), (\w+)>$/.exec(type)
+  const storage = /^texture_storage_(\w+)<(\w+), (\w+)>$/.exec(type);
   if (storage !== null) {
-    const kind = implicit[storage[2] ?? ''] ?? 'texel_format'
-    const access = ACCESS[implicit[storage[3] ?? ''] ?? storage[3] ?? ''] ?? 'write'
-    const format = FORMAT[kind]?.[access]
-    if (format === undefined) return null
-    return `texture_storage_${storage[1] ?? ''}<"${format}", "${access}">`
+    const kind = implicit[storage[2] ?? ''] ?? 'texel_format';
+    const access = ACCESS[implicit[storage[3] ?? ''] ?? storage[3] ?? ''] ?? 'write';
+    const format = FORMAT[kind]?.[access];
+    if (format === undefined) return null;
+    return `texture_storage_${storage[1] ?? ''}<"${format}", "${access}">`;
   }
-  if (type.includes('texel_buffer') || type === 'texture_external') return null
+  if (type.includes('texel_buffer') || type === 'texture_external') return null;
   // `implicit(T: fiu32)` ranges over the three element kinds; f32 stands for the row.
-  return type.replace('<T>', '<f32>')
+  return type.replace('<T>', '<f32>');
 }
 
 /** How a witness CONSUMES the result, as one `f32`. Without a use the optimizer may drop the
@@ -119,87 +119,87 @@ const SINK: Readonly<Record<string, string>> = {
   u32: 'f32(r)',
   'vec2<u32>': 'f32(r.x)',
   'vec3<u32>': 'f32(r.x)',
-}
+};
 
 /** One argument, by the parameter's NAME in `core.def`: the type alone does not say, because
  *  `C` is a gather component in one row and a coordinate in the next. `null` means the
  *  package has no spelling for that argument — today only `@const offset` (F11). */
 function argOf(name: string, type: string, stage: Stage): string | null {
-  const uv = stage === 'fragment' ? 'v.uv' : 'vec2(0.5, 0.5)'
+  const uv = stage === 'fragment' ? 'v.uv' : 'vec2(0.5, 0.5)';
   switch (name) {
     case 'coords':
-      if (type === 'vec2<f32>') return uv
-      if (type === 'vec3<f32>') return 'vec3(0., 0., 1.)'
-      if (type === 'f32') return '0.5'
-      if (type === 'vec2<C>') return 'vec2i(0, 0)'
-      if (type === 'vec3<C>') return 'vec3i(0, 0, 0)'
-      return '0'
+      if (type === 'vec2<f32>') return uv;
+      if (type === 'vec3<f32>') return 'vec3(0., 0., 1.)';
+      if (type === 'f32') return '0.5';
+      if (type === 'vec2<C>') return 'vec2i(0, 0)';
+      if (type === 'vec3<C>') return 'vec3i(0, 0, 0)';
+      return '0';
     case 'array_index':
     case 'level':
     case 'sample_index':
     case 'component':
-      return type === 'f32' ? '0.' : '0'
+      return type === 'f32' ? '0.' : '0';
     case 'bias':
     case 'depth_ref':
-      return '0.5'
+      return '0.5';
     case 'ddx':
     case 'ddy':
-      return type === 'vec2<f32>' ? 'vec2(0., 0.)' : 'vec3(0., 0., 0.)'
+      return type === 'vec2<f32>' ? 'vec2(0., 0.)' : 'vec3(0., 0., 0.)';
     case 'value':
-      if (type === 'vec4<f32>') return 'vec4(1., 0., 0., 1.)'
-      if (type === 'vec4<i32>') return 'vec4i(1, 0, 0, 1)'
-      return 'vec4u(1, 0, 0, 1)'
+      if (type === 'vec4<f32>') return 'vec4(1., 0., 0., 1.)';
+      if (type === 'vec4<i32>') return 'vec4i(1, 0, 0, 1)';
+      return 'vec4u(1, 0, 0, 1)';
     default:
-      return null
+      return null;
   }
 }
 
 /** A complete `"use typeshade"` module calling the row's overload once in `stage`, or `null`
  *  when the row names a type or an argument this package cannot spell at all. */
 function witnessFor(row: CoreDefRow, stage: Stage): string | null {
-  const decls: string[] = []
-  const args: string[] = []
+  const decls: string[] = [];
+  const args: string[] = [];
   for (const p of row.params) {
-    const name = p.name.replace('@const ', '')
+    const name = p.name.replace('@const ', '');
     if (name === 'texture') {
-      const decl = textureDecl(p.type, row.implicit)
-      if (decl === null) return null
-      decls.push(`declare const tex: ${decl}`)
-      args.push('tex')
-      continue
+      const decl = textureDecl(p.type, row.implicit);
+      if (decl === null) return null;
+      decls.push(`declare const tex: ${decl}`);
+      args.push('tex');
+      continue;
     }
     if (name === 'sampler') {
-      decls.push(`declare const smp: ${p.type}`)
-      args.push('smp')
-      continue
+      decls.push(`declare const smp: ${p.type}`);
+      args.push('smp');
+      continue;
     }
-    const arg = argOf(name, p.type, stage)
-    if (arg === null) return null
-    args.push(arg)
+    const arg = argOf(name, p.type, stage);
+    if (arg === null) return null;
+    args.push(arg);
   }
-  const call = `${row.fn}(${args.join(', ')})`
-  let sink: string | null = null
+  const call = `${row.fn}(${args.join(', ')})`;
+  let sink: string | null = null;
   if (row.ret !== '') {
-    const s = SINK[row.ret]
-    if (s === undefined) return null
-    sink = s
+    const s = SINK[row.ret];
+    if (s === undefined) return null;
+    sink = s;
   }
-  const head = `"use typeshade"\n${decls.join('\n')}\n`
+  const head = `"use typeshade"\n${decls.join('\n')}\n`;
 
   if (stage === 'compute') {
-    const sinkDecl = sink === null ? '' : 'declare let out: storage<array<f32>>\n'
-    const body = sink === null ? `  ${call}` : `  const r = ${call}\n  out[gid.x] = ${sink}`
+    const sinkDecl = sink === null ? '' : 'declare let out: storage<array<f32>>\n';
+    const body = sink === null ? `  ${call}` : `  const r = ${call}\n  out[gid.x] = ${sink}`;
     return `${head}${sinkDecl}@compute([64, 1, 1])
 export function cs(@builtin("global_invocation_id") gid: vec3u): void {
 ${body}
 }
-`
+`;
   }
   if (stage === 'vertex') {
     const body =
       sink === null
         ? `  ${call}\n  return { pos: vec4(0., 0., 0., 1.) }`
-        : `  const r = ${call}\n  return { pos: vec4(${sink}, 0., 0., 1.) }`
+        : `  const r = ${call}\n  return { pos: vec4(${sink}, 0., 0., 1.) }`;
     return `${head}class Clip {
   @builtin("position") pos: vec4;
 }
@@ -207,12 +207,12 @@ ${body}
 export function vs(@builtin("vertex_index") i: u32): Clip {
 ${body}
 }
-`
+`;
   }
   const body =
     sink === null
       ? `  ${call}\n  return vec4(0., 0., 0., 1.)`
-      : `  const r = ${call}\n  return vec4(${sink}, 0., 0., 1.)`
+      : `  const r = ${call}\n  return vec4(${sink}, 0., 0., 1.)`;
   return `${head}class V {
   @builtin("position") pos: vec4;
   @location(0) uv: vec2;
@@ -221,19 +221,19 @@ ${body}
 export function fs(v: V): vec4 {
 ${body}
 }
-`
+`;
 }
 
 /** The stage a SUPPORTED row's witness is written in: a `@stage(..., "compute")` row is a
  *  storage-texture op, which is what a compute entry is for; everything else reads in a
  *  fragment entry, where every stage rule admits it. */
 const homeStage = (row: CoreDefRow): Stage =>
-  row.stages.includes('compute') ? 'compute' : 'fragment'
+  row.stages.includes('compute') ? 'compute' : 'fragment';
 
 const errorsOf = (src: string): string[] =>
   compile(src)
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => d.message)
+    .map((d) => d.message);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The deferrals
@@ -244,18 +244,18 @@ const errorsOf = (src: string): string[] =>
 // the arm below compiles every deferral that can be spelled at all and fails if one passes.
 
 const OFFSET =
-  'the `@const offset` argument has no authoring spelling (audit F11); deferred by docs/use-typeshade-surface.md §36 and roadmap row 13c'
-const NUM_LEVELS = '`textureNumLevels` absent (audit F3); deferred by docs §36 and roadmap row 13c'
+  'the `@const offset` argument has no authoring spelling (audit F11); deferred by docs/use-typeshade-surface.md §36 and roadmap row 13c';
+const NUM_LEVELS = '`textureNumLevels` absent (audit F3); deferred by docs §36 and roadmap row 13c';
 const BASE_CLAMP =
-  '`textureSampleBaseClampToEdge` absent (audit F5); deferred by docs §36 and roadmap row 13c'
+  '`textureSampleBaseClampToEdge` absent (audit F5); deferred by docs §36 and roadmap row 13c';
 const EXTERNAL =
-  '`texture_external` absent (audit T6/F18); deferred by docs §36 and roadmap row 13c'
+  '`texture_external` absent (audit T6/F18); deferred by docs §36 and roadmap row 13c';
 const STORAGE_1D_3D =
-  'storage textures of dimension 1d and 3d absent (audit T7/T8/F17); deferred by docs §36 and roadmap row 13c'
+  'storage textures of dimension 1d and 3d absent (audit T7/T8/F17); deferred by docs §36 and roadmap row 13c';
 const DEPTH_PLAIN_READ =
-  'a plain, non-comparison read of a depth texture needs separate samplers on GLSL ES 3.00, where a texture and its sampler are one object (audit F7/F9/F10); part of #133'
+  'a plain, non-comparison read of a depth texture needs separate samplers on GLSL ES 3.00, where a texture and its sampler are one object (audit F7/F9/F10); part of #133';
 const TEXEL_BUFFER =
-  '`texel_buffer` is a Dawn extension (`chromium_experimental_texel_buffer`), outside the WGSL 1.0 surface this package targets (docs/use-typeshade-surface.md); nothing spells it and no issue asks for one'
+  '`texel_buffer` is a Dawn extension (`chromium_experimental_texel_buffer`), outside the WGSL 1.0 surface this package targets (docs/use-typeshade-surface.md); nothing spells it and no issue asks for one';
 
 // THREE REASON GROUPS LEFT THIS LIST when #164 landed, and the shrink arm below named every
 // row: DIMENSIONS_LEVEL (the ten `textureDimensions(t, level)` overloads, audit F12),
@@ -364,7 +364,7 @@ const DEFERRED: Readonly<Record<string, string>> = {
   'textureStore(texel_buffer<F, RW>, C, vec4<f32>)': TEXEL_BUFFER,
   'textureStore(texel_buffer<F, RW>, C, vec4<i32>)': TEXEL_BUFFER,
   'textureStore(texel_buffer<F, RW>, C, vec4<u32>)': TEXEL_BUFFER,
-}
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The stage holes that are open TODAY
@@ -383,95 +383,95 @@ const STAGE_GAPS: Readonly<Record<string, string>> = {
   // which `core.def` stages the same way. #164 closed it by recognising the rule the spec
   // actually states — a resource with write access is not reachable from a vertex stage, which
   // is about the RESOURCE and not the builtin name — and the arm below named all eight.
-}
+};
 
 describe('every core.def texture overload is claimed (S1)', () => {
   it('reads a fixture whose rows are unique, so a claim names exactly one overload', () => {
     // The parser, not the table, is what a duplicate key would indict.
-    const seen = new Set<string>()
+    const seen = new Set<string>();
     const duplicates = ROWS.filter((r) =>
       seen.has(r.signature) ? true : (seen.add(r.signature), false),
-    )
-    expect(duplicates.map((r) => r.signature)).toEqual([])
-    expect(ROWS.length).toBeGreaterThan(100)
-  })
+    );
+    expect(duplicates.map((r) => r.signature)).toEqual([]);
+    expect(ROWS.length).toBeGreaterThan(100);
+  });
 
   it('is SUPPORTED by a compile() witness, or DEFERRED with a reason and an issue', () => {
-    const unclaimed: string[] = []
+    const unclaimed: string[] = [];
     for (const row of ROWS) {
-      if (row.signature in DEFERRED) continue
-      const src = witnessFor(row, homeStage(row))
+      if (row.signature in DEFERRED) continue;
+      const src = witnessFor(row, homeStage(row));
       if (src === null) {
-        unclaimed.push(`${row.signature} — no witness can be synthesised, and no deferral`)
-        continue
+        unclaimed.push(`${row.signature} — no witness can be synthesised, and no deferral`);
+        continue;
       }
-      const result = compile(src)
-      const errors = result.diagnostics.filter((d) => d.category === 'error')
+      const result = compile(src);
+      const errors = result.diagnostics.filter((d) => d.category === 'error');
       if (errors.length > 0) {
-        unclaimed.push(`${row.signature} — ${errors[0]?.message ?? ''}`)
-        continue
+        unclaimed.push(`${row.signature} — ${errors[0]?.message ?? ''}`);
+        continue;
       }
       if (!(result.wgsl ?? '').includes(`${row.fn}(`)) {
-        unclaimed.push(`${row.signature} — witness compiled but emitted no ${row.fn}( call`)
+        unclaimed.push(`${row.signature} — witness compiled but emitted no ${row.fn}( call`);
       }
     }
-    expect(unclaimed).toEqual([])
-  })
+    expect(unclaimed).toEqual([]);
+  });
 
   it('has no stale deferral: every deferred key is a row of the fixture', () => {
-    const known = new Set(ROWS.map((r) => r.signature))
-    expect(Object.keys(DEFERRED).filter((k) => !known.has(k))).toEqual([])
-  })
+    const known = new Set(ROWS.map((r) => r.signature));
+    expect(Object.keys(DEFERRED).filter((k) => !known.has(k))).toEqual([]);
+  });
 
   it('states a reason that names an issue or a recorded deferral, for every deferral', () => {
     const vague = [...new Set(Object.values(DEFERRED))].filter(
       (reason) => !/#\d+|roadmap|docs/.test(reason),
-    )
-    expect(vague).toEqual([])
-  })
+    );
+    expect(vague).toEqual([]);
+  });
 
   it('loses the entry of a DEFERRED row the compiler has since learned', () => {
     // Shrink-only, by measurement rather than by a count: a deferral that has quietly
     // started to work is a lie the next reader would trust.
-    const learned: string[] = []
+    const learned: string[] = [];
     for (const row of ROWS) {
-      if (!(row.signature in DEFERRED)) continue
-      const src = witnessFor(row, homeStage(row))
-      if (src === null) continue // no spelling at all — the deferral is its own evidence
-      const result = compile(src)
-      const errors = result.diagnostics.filter((d) => d.category === 'error')
+      if (!(row.signature in DEFERRED)) continue;
+      const src = witnessFor(row, homeStage(row));
+      if (src === null) continue; // no spelling at all — the deferral is its own evidence
+      const result = compile(src);
+      const errors = result.diagnostics.filter((d) => d.category === 'error');
       if (errors.length === 0 && (result.wgsl ?? '').includes(`${row.fn}(`)) {
-        learned.push(row.signature)
+        learned.push(row.signature);
       }
     }
-    expect(learned).toEqual([])
-  })
+    expect(learned).toEqual([]);
+  });
 
   it('refuses a fragment-only overload from a vertex entry, by the overload OWN witness', () => {
     // `wgsl.txt:24435` "Must only be used in a fragment shader stage."; `core.def` says it as
     // `@stage("fragment")`. This is the per-row half of the stage rule; `stage-rules.test.ts`
     // compares the compiler's two hand-written sets against the whole table.
-    const accepted: string[] = []
+    const accepted: string[] = [];
     for (const row of ROWS) {
-      if (row.signature in DEFERRED) continue
-      if (row.stages.length === 0 || row.stages.includes('vertex')) continue
-      const src = witnessFor(row, 'vertex')
-      if (src === null) continue
-      const refused = errorsOf(src).length > 0
-      if (!refused && !(row.signature in STAGE_GAPS)) accepted.push(row.signature)
+      if (row.signature in DEFERRED) continue;
+      if (row.stages.length === 0 || row.stages.includes('vertex')) continue;
+      const src = witnessFor(row, 'vertex');
+      if (src === null) continue;
+      const refused = errorsOf(src).length > 0;
+      if (!refused && !(row.signature in STAGE_GAPS)) accepted.push(row.signature);
     }
-    expect(accepted).toEqual([])
-  })
+    expect(accepted).toEqual([]);
+  });
 
   it('loses the entry of a STAGE_GAPS row the compiler has since learned to refuse', () => {
-    const closed: string[] = []
+    const closed: string[] = [];
     for (const signature of Object.keys(STAGE_GAPS)) {
-      const row = ROWS.find((r) => r.signature === signature)
-      expect(row, `${signature} is not a row of the fixture`).toBeDefined()
-      if (row === undefined) continue
-      const src = witnessFor(row, 'vertex')
-      if (src !== null && errorsOf(src).length > 0) closed.push(signature)
+      const row = ROWS.find((r) => r.signature === signature);
+      expect(row, `${signature} is not a row of the fixture`).toBeDefined();
+      if (row === undefined) continue;
+      const src = witnessFor(row, 'vertex');
+      if (src !== null && errorsOf(src).length > 0) closed.push(signature);
     }
-    expect(closed).toEqual([])
-  })
-})
+    expect(closed).toEqual([]);
+  });
+});

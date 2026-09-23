@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -21,33 +21,33 @@
 // No bindings on purpose: a binding would drag in #14, which drops a source-compiled
 // module's uniform block from the GLSL while keeping the uses.
 
-const TILES: u32 = 8
-const PHASE: i32 = -3
-const GAMMA: f32 = 2.2
-const INVERT: bool = true
+const TILES: u32 = 8;
+const PHASE: i32 = -3;
+const GAMMA: f32 = 2.2;
+const INVERT: bool = true;
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 // Oversized fullscreen triangle — 3 verts, no vertex buffer.
 @vertex
 export function vs(@builtin("vertex_index") idx: u32): VsOut {
-  const x = f32(idx & 1) * 4. - 1.
-  const y = f32(idx >> 1) * 4. - 1.
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) }
+  const x = f32(idx & 1) * 4. - 1.;
+  const y = f32(idx >> 1) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x * 0.5 + 0.5, y * 0.5 + 0.5) };
 }
 
 // A checkerboard: TILES sets the frequency, PHASE shifts which square is lit, GAMMA shapes
 // the vertical ramp, INVERT flips the two shades.
 @fragment
 export function fs(vo: VsOut): vec4 {
-  const cx = u32(vo.uv.x * f32(TILES))
-  const cy = u32(vo.uv.y * f32(TILES))
-  const parity = (cx + cy + u32(PHASE + 8)) & 1
-  const ramp = pow(vo.uv.y, GAMMA)
-  const dark = ramp * 0.25
-  const v = parity === 0 ? (INVERT ? dark : ramp) : (INVERT ? ramp : dark)
-  return vec4(v, v, v, 1.)
+  const cx = u32(vo.uv.x * f32(TILES));
+  const cy = u32(vo.uv.y * f32(TILES));
+  const parity = (cx + cy + u32(PHASE + 8)) & 1;
+  const ramp = pow(vo.uv.y, GAMMA);
+  const dark = ramp * 0.25;
+  const v = parity === 0 ? (INVERT ? dark : ramp) : (INVERT ? ramp : dark);
+  return vec4(v, v, v, 1.);
 }

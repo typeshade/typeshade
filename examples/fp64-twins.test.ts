@@ -40,39 +40,39 @@
 // them. The `_fp64` guard the lowering injects needs no binding: on the CPU it is the
 // `f64Guard` intrinsic, which answers exactly 1.
 
-import { describe, it, expect } from 'vitest'
-import { SHADE_TWINS, shadeExamples } from './_shade.js'
-import { examples } from './index.js'
-import { compileModule } from '../src/core/oracle.js'
-import { fp64Lower } from '../src/core/passes/fp64-lower.js'
-import { splitF64 } from '../src/core/fp64/df64-lib.js'
-import { zeroOf, type CpuValue } from '../src/core/cpu-runtime.js'
-import { stageOf, type ModuleDecl, type StructDecl } from '../src/core/ir/nodes.js'
-import type { ShaderType } from '../src/core/ir/types.js'
+import { describe, it, expect } from 'vitest';
+import { SHADE_TWINS, shadeExamples } from './_shade.js';
+import { examples } from './index.js';
+import { compileModule } from '../src/core/oracle.js';
+import { fp64Lower } from '../src/core/passes/fp64-lower.js';
+import { splitF64 } from '../src/core/fp64/df64-lib.js';
+import { zeroOf, type CpuValue } from '../src/core/cpu-runtime.js';
+import { stageOf, type ModuleDecl, type StructDecl } from '../src/core/ir/nodes.js';
+import type { ShaderType } from '../src/core/ir/types.js';
 
 /** Twin against original, on both rows. Measured at exactly 0 on every sample here. */
-const TOL = 1e-9
+const TOL = 1e-9;
 /** Emulated against double, the bound `fp64-lane-stripes.test.ts` holds the df64 pair to: a
  *  thousand times tighter than one f32 ulp at 1e7, which is the distance these examples draw. */
-const EMU_TOL = 1e-6
+const EMU_TOL = 1e-6;
 
-type UniformValue = number | readonly number[]
+type UniformValue = number | readonly number[];
 
 interface Sample {
   /** What the porter's sample file called it: which half of the screen, and why this input. */
-  readonly label: string
-  readonly uv: readonly [number, number]
+  readonly label: string;
+  readonly uv: readonly [number, number];
   /** Merged over the set's defaults. */
-  readonly uniforms?: Readonly<Record<string, UniformValue>>
+  readonly uniforms?: Readonly<Record<string, UniformValue>>;
   /** MEASURED on the original: the emulated row lands within EMU_TOL of the double row here.
    *  False is not a defect, it is the f32 collapse (or, in `fp64-julia`'s deepest samples, the
    *  df64 pair's own ~48-bit floor) that the example is drawn to show. */
-  readonly tracks: boolean
+  readonly tracks: boolean;
 }
 
 interface SampleSet {
-  readonly uniforms: Readonly<Record<string, UniformValue>>
-  readonly samples: readonly Sample[]
+  readonly uniforms: Readonly<Record<string, UniformValue>>;
+  readonly samples: readonly Sample[];
 }
 
 /** The inputs each twin was ported against, keyed by the EDSL example id. */
@@ -779,18 +779,18 @@ const SAMPLES: Readonly<Record<string, SampleSet>> = {
       },
     ],
   },
-}
+};
 
 const structsOf = (m: ModuleDecl): ReadonlyMap<string, StructDecl> =>
-  new Map(m.structs.map((s) => [s.name, s]))
+  new Map(m.structs.map((s) => [s.name, s]));
 
 /** The fragment entry. The EDSL's `fn()` records its stage in `attrs`, the source language in
  *  `stage`, and `stageOf` reads both, which is what `reflect()` does too. */
 const fragmentEntry = (m: ModuleDecl): string => {
-  const f = m.funcs.find((x) => stageOf(x) === 'fragment')
-  if (!f) throw new Error('no fragment entry')
-  return f.name
-}
+  const f = m.funcs.find((x) => stageOf(x) === 'fragment');
+  if (!f) throw new Error('no fragment entry');
+  return f.name;
+};
 
 /** A sample's JSON as the CPU value of `type` in the AUTHORED module: an `f64` is one JS
  *  number, a `vec2f64` a pair of them, a struct its fields, a field the sample omits zero. */
@@ -800,15 +800,15 @@ function asDouble(
   structs: ReadonlyMap<string, StructDecl>,
 ): CpuValue {
   if (type.kind === 'struct') {
-    const decl = structs.get(type.name)
-    if (!decl) throw new Error(`no struct ${type.name}`)
-    const src = (v ?? {}) as Record<string, unknown>
-    const out: Record<string, CpuValue> = {}
-    for (const f of decl.fields) out[f.name] = asDouble(src[f.name], f.type, structs)
-    return out
+    const decl = structs.get(type.name);
+    if (!decl) throw new Error(`no struct ${type.name}`);
+    const src = (v ?? {}) as Record<string, unknown>;
+    const out: Record<string, CpuValue> = {};
+    for (const f of decl.fields) out[f.name] = asDouble(src[f.name], f.type, structs);
+    return out;
   }
-  if (v === undefined || v === null) return zeroOf(type, structs)
-  return v as CpuValue
+  if (v === undefined || v === null) return zeroOf(type, structs);
+  return v as CpuValue;
 }
 
 /** The same value as the LOWERED module takes it: an `f64` field becomes the `splitF64` pair
@@ -820,45 +820,45 @@ function asLowered(
   type: ShaderType,
   structs: ReadonlyMap<string, StructDecl>,
 ): CpuValue {
-  if (type.kind === 'f64') return splitF64(v as number)
+  if (type.kind === 'f64') return splitF64(v as number);
   if (type.kind === 'vec64') {
-    const pairs = (v as number[]).map((x) => splitF64(x))
-    return { hi: pairs.map((p) => p[0]!), lo: pairs.map((p) => p[1]!) } as unknown as CpuValue
+    const pairs = (v as number[]).map((x) => splitF64(x));
+    return { hi: pairs.map((p) => p[0]!), lo: pairs.map((p) => p[1]!) } as unknown as CpuValue;
   }
   if (type.kind === 'struct') {
-    const decl = structs.get(type.name)
-    if (!decl) throw new Error(`no struct ${type.name}`)
-    const src = v as Record<string, CpuValue>
-    const out: Record<string, CpuValue> = {}
-    for (const f of decl.fields) out[f.name] = asLowered(src[f.name]!, f.type, structs)
-    return out
+    const decl = structs.get(type.name);
+    if (!decl) throw new Error(`no struct ${type.name}`);
+    const src = v as Record<string, CpuValue>;
+    const out: Record<string, CpuValue> = {};
+    for (const f of decl.fields) out[f.name] = asLowered(src[f.name]!, f.type, structs);
+    return out;
   }
-  return v
+  return v;
 }
 
 const flatten = (v: CpuValue): number[] => {
-  if (typeof v === 'number') return [v]
-  if (typeof v === 'boolean') return [v ? 1 : 0]
-  if (Array.isArray(v)) return (v as CpuValue[]).flatMap(flatten)
+  if (typeof v === 'number') return [v];
+  if (typeof v === 'boolean') return [v ? 1 : 0];
+  if (Array.isArray(v)) return (v as CpuValue[]).flatMap(flatten);
   if (v && typeof v === 'object')
-    return Object.values(v as Record<string, CpuValue>).flatMap(flatten)
-  return [NaN]
-}
+    return Object.values(v as Record<string, CpuValue>).flatMap(flatten);
+  return [NaN];
+};
 
 /** Largest absolute component difference. `Infinity` when the two are not the same shape, so a
  *  mismatch fails the assertion rather than passing on a short walk. */
 const maxAbsDiff = (a: CpuValue, b: CpuValue): number => {
-  const xs = flatten(a)
-  const ys = flatten(b)
-  if (xs.length !== ys.length) return Infinity
-  let m = 0
+  const xs = flatten(a);
+  const ys = flatten(b);
+  if (xs.length !== ys.length) return Infinity;
+  let m = 0;
   for (let i = 0; i < xs.length; i++) {
-    const d = Math.abs(xs[i]! - ys[i]!)
-    if (Number.isNaN(d)) return Infinity
-    m = Math.max(m, d)
+    const d = Math.abs(xs[i]! - ys[i]!);
+    if (Number.isNaN(d)) return Infinity;
+    m = Math.max(m, d);
   }
-  return m
-}
+  return m;
+};
 
 /** One sample on one module: the fragment entry evaluated as authored and as lowered. */
 function evaluate(
@@ -866,10 +866,10 @@ function evaluate(
   set: SampleSet,
   s: Sample,
 ): { double: CpuValue; emulated: CpuValue } {
-  const structs = structsOf(m)
-  const name = fragmentEntry(m)
-  const f = m.funcs.find((x) => x.name === name)!
-  const uniforms = { ...set.uniforms, ...(s.uniforms ?? {}) }
+  const structs = structsOf(m);
+  const name = fragmentEntry(m);
+  const f = m.funcs.find((x) => x.name === name)!;
+  const uniforms = { ...set.uniforms, ...(s.uniforms ?? {}) };
 
   // Every binding is set: a struct one from the sample, anything else (the guard's texture
   // handle) zero, which `gpuStubs` answers.
@@ -877,37 +877,37 @@ function evaluate(
     name: b.name,
     type: b.type,
     value: b.type.kind === 'struct' ? asDouble(uniforms, b.type, structs) : zeroOf(b.type, structs),
-  }))
+  }));
 
   // The IO struct parameter, field by field: `uv` from the sample, `pos` derived from it and
   // the resolution the way a rasterizer would, anything else zero.
-  const res = (uniforms['resolution'] as readonly number[] | undefined) ?? [1, 1]
-  const pos = [s.uv[0] * res[0]!, s.uv[1] * res[1]!, 0, 1]
+  const res = (uniforms['resolution'] as readonly number[] | undefined) ?? [1, 1];
+  const pos = [s.uv[0] * res[0]!, s.uv[1] * res[1]!, 0, 1];
   const fieldOf = (fieldName: string, type: ShaderType): CpuValue =>
     fieldName === 'uv'
       ? [...s.uv]
       : fieldName === 'pos' || fieldName === 'position'
         ? [...pos]
-        : zeroOf(type, structs)
+        : zeroOf(type, structs);
   const args: CpuValue[] = f.params.map((p) => {
     if (p.type.kind === 'struct') {
-      const decl = structs.get(p.type.name)!
-      const out: Record<string, CpuValue> = {}
-      for (const fl of decl.fields) out[fl.name] = fieldOf(fl.name, fl.type)
-      return out
+      const decl = structs.get(p.type.name)!;
+      const out: Record<string, CpuValue> = {};
+      for (const fl of decl.fields) out[fl.name] = fieldOf(fl.name, fl.type);
+      return out;
     }
-    return fieldOf(p.name, p.type)
-  })
+    return fieldOf(p.name, p.type);
+  });
 
-  const cpu = compileModule(m, { precision: 'f64', gpuStubs: true })
-  for (const b of bindings) cpu.setBinding(b.name, b.value)
-  const double = cpu.fns[name]!(...args)
+  const cpu = compileModule(m, { precision: 'f64', gpuStubs: true });
+  for (const b of bindings) cpu.setBinding(b.name, b.value);
+  const double = cpu.fns[name]!(...args);
 
-  const lowered = compileModule(fp64Lower(m), { precision: 'f32', gpuStubs: true })
-  for (const b of bindings) lowered.setBinding(b.name, asLowered(b.value, b.type, structs))
-  const emulated = lowered.fns[name]!(...args)
+  const lowered = compileModule(fp64Lower(m), { precision: 'f32', gpuStubs: true });
+  for (const b of bindings) lowered.setBinding(b.name, asLowered(b.value, b.type, structs));
+  const emulated = lowered.fns[name]!(...args);
 
-  return { double, emulated }
+  return { double, emulated };
 }
 
 /** The registered fp64 twins, paired with the EDSL example each mirrors. */
@@ -919,77 +919,77 @@ const pairs = [...SHADE_TWINS]
     twin: shadeExamples.find((e) => e.id === twinId)!.module,
     original: examples.find((e) => e.id === ofId)!.module,
     set: SAMPLES[ofId],
-  }))
+  }));
 
 describe('fp64 twins: the sample sets are the ones the port was measured on', () => {
   it('every registered fp64 twin carries a sample set, and every set names a twin', () => {
     // The floor. A twin registered without samples would be pinned by the goldens and the
     // compile gate and checked numerically by nothing, which is the hole this file fills.
-    for (const p of pairs) expect(p.set, `${p.twinId}: no samples for ${p.ofId}`).toBeDefined()
+    for (const p of pairs) expect(p.set, `${p.twinId}: no samples for ${p.ofId}`).toBeDefined();
     for (const ofId of Object.keys(SAMPLES))
       expect(
         pairs.some((p) => p.ofId === ofId),
         `SAMPLES has ${ofId}, which no registered twin mirrors`,
-      ).toBe(true)
-    expect(pairs.length).toBeGreaterThanOrEqual(11)
-  })
+      ).toBe(true);
+    expect(pairs.length).toBeGreaterThanOrEqual(11);
+  });
 
   for (const p of pairs) {
     it(`${p.twinId}: the set carries both a tracking sample and a parting one`, () => {
       // Neither assertion below may be vacuous. A set of only f32-half samples would never
       // exercise the emulation; a set of only tracking ones would never cover the half the
       // example exists to contrast it with.
-      const samples = p.set!.samples
+      const samples = p.set!.samples;
       expect(
         samples.filter((s) => s.tracks).length,
         'no sample where the emulation tracks',
-      ).toBeGreaterThan(0)
+      ).toBeGreaterThan(0);
       expect(
         samples.filter((s) => !s.tracks).length,
         'no sample where the two precisions part',
-      ).toBeGreaterThan(0)
-    })
+      ).toBeGreaterThan(0);
+    });
   }
-})
+});
 
 describe('fp64 twins: the twin computes what its original computes', () => {
   for (const p of pairs) {
-    const samples = p.set!.samples
+    const samples = p.set!.samples;
     it.each(samples.map((s, i) => [i, s.label, s] as const))(
       `${p.twinId}: sample %i (%s) agrees on both rows`,
       (_i, _label, s) => {
-        const o = evaluate(p.original, p.set!, s)
-        const t = evaluate(p.twin, p.set!, s)
+        const o = evaluate(p.original, p.set!, s);
+        const t = evaluate(p.twin, p.set!, s);
         // The double row: the same algebra, evaluated in binary64. A reassociated sum or a
         // constant the EDSL folded in JavaScript would move this and nothing else would.
-        expect(maxAbsDiff(o.double, t.double), 'double row').toBeLessThanOrEqual(TOL)
+        expect(maxAbsDiff(o.double, t.double), 'double row').toBeLessThanOrEqual(TOL);
         // The emulated row: the same df64 calls in the same order, under f32 rounding. This is
         // the one that catches a narrow moved by one step, which the double row cannot see
         // because it does no rounding at all.
-        expect(maxAbsDiff(o.emulated, t.emulated), 'emulated row').toBeLessThanOrEqual(TOL)
+        expect(maxAbsDiff(o.emulated, t.emulated), 'emulated row').toBeLessThanOrEqual(TOL);
       },
-    )
+    );
   }
-})
+});
 
 describe('fp64 twins: the emulation is the double, where the example says it is', () => {
   for (const p of pairs) {
-    const tracking = p.set!.samples.filter((s) => s.tracks)
+    const tracking = p.set!.samples.filter((s) => s.tracks);
     it.each(tracking.map((s, i) => [i, s.label, s] as const))(
       `${p.twinId}: tracking sample %i (%s) lowers to its own double`,
       (_i, _label, s) => {
         // `oracle(fp64Lower(m)) ≈ oracle(m)`, the metamorphic relation the fp64 pass is
         // designed around, asserted on the TWIN: the source surface reaches the same df64
         // bodies the EDSL does, and they carry the value a double carries.
-        const t = evaluate(p.twin, p.set!, s)
-        expect(maxAbsDiff(t.double, t.emulated), 'twin: emulated vs double').toBeLessThan(EMU_TOL)
+        const t = evaluate(p.twin, p.set!, s);
+        expect(maxAbsDiff(t.double, t.emulated), 'twin: emulated vs double').toBeLessThan(EMU_TOL);
         // And on the original, so a sample that stopped tracking is read as a change in the
         // shader or in the df64 library rather than as a defect in the twin.
-        const o = evaluate(p.original, p.set!, s)
+        const o = evaluate(p.original, p.set!, s);
         expect(maxAbsDiff(o.double, o.emulated), 'original: emulated vs double').toBeLessThan(
           EMU_TOL,
-        )
+        );
       },
-    )
+    );
   }
-})
+});

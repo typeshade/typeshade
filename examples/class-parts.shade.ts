@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -19,76 +19,76 @@
 //   constraint, never a value's type (Rule 6.9).
 
 class VsOut {
-  @builtin("position") pos: vec4
-  @location(0) uv: vec2
+  @builtin("position") pos: vec4;
+  @location(0) uv: vec2;
 }
 
 class FsOut {
-  @location(0) color: vec4
+  @location(0) color: vec4;
 }
 
 // Fullscreen triangle, as `rng-method.shade.ts` draws it.
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): VsOut {
-  const x = f32(vi & u32(1)) * 4. - 1.
-  const y = f32(vi >> u32(1)) * 4. - 1.
-  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) }
+  const x = f32(vi & u32(1)) * 4. - 1.;
+  const y = f32(vi >> u32(1)) * 4. - 1.;
+  return { pos: vec4(x, y, 0., 1.), uv: vec2(x, y) };
 }
 
 /** Something that covers part of the screen, which a ring and a dot each supply. */
 interface Mark {
-  cover(p: vec2): f32
+  cover(p: vec2): f32;
 }
 
 /** A point that moves: `step` changes its object. */
 class Mover {
-  pos: vec2 = vec2(0.)
-  vel: vec2 = vec2(0.)
+  pos: vec2 = vec2(0.);
+  vel: vec2 = vec2(0.);
   step(dt: f32): void {
-    this.pos += this.vel * dt
+    this.pos += this.vel * dt;
   }
 }
 
 /** A ring around a moving centre. */
 class Ring implements Mark {
-  center: Mover = new Mover()
-  radius: f32 = 0.3
-  width: f32 = 0.04
+  center: Mover = new Mover();
+  radius: f32 = 0.3;
+  width: f32 = 0.04;
   // A field that holds a function: `Ring_cover(self_: Ring, p: vec2<f32>) -> f32`.
   cover = (p: vec2): f32 => {
-    const d = abs(length(p - this.center.pos) - this.radius)
-    return 1. - smoothstep(this.width * 0.5, this.width, d)
-  }
+    const d = abs(length(p - this.center.pos) - this.radius);
+    return 1. - smoothstep(this.width * 0.5, this.width, d);
+  };
   // Changes the ring through the `Mover` it holds.
   advance(dt: f32): void {
-    this.center.step(dt)
+    this.center.step(dt);
   }
 }
 
 /** A dot, with a plain method for the contract. */
 class Dot implements Mark {
-  center: Mover = new Mover()
-  size: f32 = 0.1
+  center: Mover = new Mover();
+  size: f32 = 0.1;
   cover(p: vec2): f32 {
-    return 1. - smoothstep(this.size * 0.8, this.size, length(p - this.center.pos))
+    return 1. - smoothstep(this.size * 0.8, this.size, length(p - this.center.pos));
   }
 }
 
 /** Any mark's coverage: one function for each class it is called with. */
 function coverOf<T extends Mark>(m: T, p: vec2): f32 {
-  return m.cover(p)
+  return m.cover(p);
 }
 
 @fragment
 export function fs(v: VsOut): FsOut {
   // Nothing else holds what `new` built, so the const is the ring itself.
-  const ring = new Ring()
-  ring.center.vel = vec2(0.5, 0.2)
-  ring.advance(0.5)
-  const spot = new Dot()
-  spot.center.pos = vec2(-0.45, -0.3)
-  let col = vec3(0.06, 0.07, 0.12)
-  col = mix(col, vec3(0.95, 0.7, 0.3), coverOf(ring, v.uv))
-  col = mix(col, vec3(0.3, 0.7, 0.95), coverOf(spot, v.uv))
-  return { color: vec4(col, 1.) }
+  const ring = new Ring();
+  ring.center.vel = vec2(0.5, 0.2);
+  ring.advance(0.5);
+  const spot = new Dot();
+  spot.center.pos = vec2(-0.45, -0.3);
+  let col = vec3(0.06, 0.07, 0.12);
+  col = mix(col, vec3(0.95, 0.7, 0.3), coverOf(ring, v.uv));
+  col = mix(col, vec3(0.3, 0.7, 0.95), coverOf(spot, v.uv));
+  return { color: vec4(col, 1.) };
 }

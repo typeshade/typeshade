@@ -1,8 +1,8 @@
 // Scalar numeric policy: NO implicit i32 ↔ u32 ↔ f32 conversion.
 
-import ts from 'typescript'
-import type { BinOp, Expr } from '../../core/ir/nodes.js'
-import type { ShaderType } from '../../core/ir/types.js'
+import ts from 'typescript';
+import type { BinOp, Expr } from '../../core/ir/nodes.js';
+import type { ShaderType } from '../../core/ir/types.js';
 import {
   boolT,
   f32T,
@@ -14,9 +14,9 @@ import {
   isVec,
   isVec64,
   typeKey,
-} from '../../core/ir/types.js'
-import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js'
-import { wrapInt } from '../../core/passes/opt/expr-utils.js'
+} from '../../core/ir/types.js';
+import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js';
+import { wrapInt } from '../../core/passes/opt/expr-utils.js';
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   f32: f32T,
@@ -24,11 +24,11 @@ export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
   u32: u32T,
   bool: boolT,
   f64: f64T,
-}
+};
 
 export function isNumericScalarType(t: ShaderType): boolean {
-  const k = typeKey(t)
-  return k === 'f32' || k === 'i32' || k === 'u32'
+  const k = typeKey(t);
+  return k === 'f32' || k === 'i32' || k === 'u32';
 }
 
 /** The type a bare numeric literal should take when it meets `peer` in an arithmetic op: the
@@ -36,12 +36,12 @@ export function isNumericScalarType(t: ShaderType): boolean {
  *  the peer itself otherwise, so the scalar-scalar behaviour of the literal retarget is
  *  unchanged. */
 export function literalPeerType(peer: ShaderType): ShaderType {
-  if (isVec(peer)) return peer.elem === 'f32' ? f32T : peer.elem === 'i32' ? i32T : u32T
-  return peer
+  if (isVec(peer)) return peer.elem === 'f32' ? f32T : peer.elem === 'i32' ? i32T : u32T;
+  return peer;
 }
 
 function stripParens(node: ts.Expression): ts.Expression {
-  return ts.isParenthesizedExpression(node) ? stripParens(node.expression) : node
+  return ts.isParenthesizedExpression(node) ? stripParens(node.expression) : node;
 }
 
 /** Retargets a bare numeric literal on one side of an arithmetic op to the kind its `peer`
@@ -50,8 +50,8 @@ function stripParens(node: ts.Expression): ts.Expression {
  *  scalar peer behaves as before). Against an emulated double — a `vec64` or, since #151, a
  *  scalar `f64` — it is {@link retargetF64Lit}. */
 export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
-  if (isF64(peer) || isVec64(peer)) return retargetF64Lit(expr, node)
-  return retargetIntLit(expr, node, literalPeerType(peer))
+  if (isF64(peer) || isVec64(peer)) return retargetF64Lit(expr, node);
+  return retargetIntLit(expr, node, literalPeerType(peer));
 }
 
 /** The emulated-double arm of {@link retargetLit}, kept apart from the integer one so the two
@@ -65,14 +65,14 @@ export function retargetLit(expr: Expr, node: ts.Expression, peer: ShaderType): 
  *  type mismatch with nothing an author could write instead (#151 F64-02). An explicit call
  *  such as `f32(0.1)` is left alone: it says which precision it means. */
 function retargetF64Lit(expr: Expr, node: ts.Expression): Expr {
-  const folded = foldNumericLit(expr)
-  if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded
-  if (typeKey(folded.type) !== 'f32') return folded
-  if (ts.isCallExpression(stripParens(node))) return folded
-  return { op: 'lit', type: f64T, value: folded.value }
+  const folded = foldNumericLit(expr);
+  if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded;
+  if (typeKey(folded.type) !== 'f32') return folded;
+  if (ts.isCallExpression(stripParens(node))) return folded;
+  return { op: 'lit', type: f64T, value: folded.value };
 }
 
-const BROADCAST_OPS: ReadonlySet<BinOp> = new Set<BinOp>(['+', '-', '*', '/', '%'])
+const BROADCAST_OPS: ReadonlySet<BinOp> = new Set<BinOp>(['+', '-', '*', '/', '%']);
 
 /** Result type of an arithmetic op between a scalar `f64` and a scalar `f32`: `f64`, the rule
  *  `binResultType` in src/core/ir/node.ts applies in the fn() EDSL and the one the fp64 pass
@@ -86,10 +86,10 @@ export function f64WidenResultType(
   right: ShaderType,
   bop: BinOp,
 ): ShaderType | undefined {
-  if (!BROADCAST_OPS.has(bop) || bop === '%') return undefined
-  if (!isF64(left) && !isF64(right)) return undefined
-  const other = isF64(left) ? right : left
-  return isScalar(other) && other.scalar === 'f32' ? f64T : undefined
+  if (!BROADCAST_OPS.has(bop) || bop === '%') return undefined;
+  if (!isF64(left) && !isF64(right)) return undefined;
+  const other = isF64(left) ? right : left;
+  return isScalar(other) && other.scalar === 'f32' ? f64T : undefined;
 }
 
 /** Result type of an arithmetic op (`+ - * / %`) between a vector and a scalar, or undefined
@@ -108,29 +108,29 @@ export function broadcastResultType(
   right: ShaderType,
   bop: BinOp,
 ): ShaderType | undefined {
-  if (!BROADCAST_OPS.has(bop)) return undefined
-  const [vec, other] = isVec(left) || isVec64(left) ? [left, right] : [right, left]
-  if (isVec(vec)) return isScalar(other) && other.scalar === vec.elem ? vec : undefined
+  if (!BROADCAST_OPS.has(bop)) return undefined;
+  const [vec, other] = isVec(left) || isVec64(left) ? [left, right] : [right, left];
+  if (isVec(vec)) return isScalar(other) && other.scalar === vec.elem ? vec : undefined;
   if (isVec64(vec)) {
-    if (bop === '%') return undefined
-    return isF64(other) || (isScalar(other) && other.scalar === 'f32') ? vec : undefined
+    if (bop === '%') return undefined;
+    return isF64(other) || (isScalar(other) && other.scalar === 'f32') ? vec : undefined;
   }
-  return undefined
+  return undefined;
 }
 
-const VEC_CTOR_SUFFIX: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u' }
+const VEC_CTOR_SUFFIX: Readonly<Record<string, string>> = { f32: '', i32: 'i', u32: 'u' };
 
 export function numericMismatch(op: string, left: ShaderType, right: ShaderType): string {
-  const lk = typeKey(left)
-  const rk = typeKey(right)
-  if (lk === rk) return `Type mismatch in ${op}: unexpected same-type mismatch.`
-  const pair = `${lk} and ${rk}`
-  const ints = (lk === 'i32' && rk === 'u32') || (lk === 'u32' && rk === 'i32')
+  const lk = typeKey(left);
+  const rk = typeKey(right);
+  if (lk === rk) return `Type mismatch in ${op}: unexpected same-type mismatch.`;
+  const pair = `${lk} and ${rk}`;
+  const ints = (lk === 'i32' && rk === 'u32') || (lk === 'u32' && rk === 'i32');
   if (ints) {
     return (
       `Type mismatch: cannot ${op} ${pair} — WGSL has no implicit integer conversion. ` +
       `Cast one side: ${lk}(…) or ${rk}(…), e.g. a + ${lk === 'i32' ? 'i32' : 'u32'}(b).`
-    )
+    );
   }
   if (
     (lk === 'f32' && (rk === 'i32' || rk === 'u32')) ||
@@ -139,11 +139,11 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
     return (
       `Type mismatch: cannot ${op} ${pair} — no implicit int/float conversion. ` +
       `Cast explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).`
-    )
+    );
   }
   if (isVec(left) && isVec(right)) {
     if (left.n !== right.n) {
-      return `Type mismatch: cannot ${op} ${pair}. Vectors must have the same size.`
+      return `Type mismatch: cannot ${op} ${pair}. Vectors must have the same size.`;
     }
     // There is no element-converting vector constructor yet (#8 A8): vec3u(v) with v a
     // vec3<f32> is rejected, so the only spelling that compiles today casts per component.
@@ -151,38 +151,38 @@ export function numericMismatch(op: string, left: ShaderType, right: ShaderType)
       .slice(0, left.n)
       .split('')
       .map((c) => `${left.elem}(b.${c})`)
-      .join(', ')})`
-    const example = /^[-+*/%]$/.test(op) ? op : '+'
+      .join(', ')})`;
+    const example = /^[-+*/%]$/.test(op) ? op : '+';
     return (
       `Type mismatch: cannot ${op} ${pair}. Vectors must have the same element type. ` +
       `Cast one side per component, e.g. a ${example} ${rebuilt}.`
-    )
+    );
   }
   if ((op === '%' || op === '%=') && (isVec64(left) || isVec64(right))) {
     return (
       `Type mismatch: cannot ${op} ${pair}. % has no f64 emulation; ` +
       `a vec64 takes a scalar only through + - * /.`
-    )
+    );
   }
-  const [vec, scalar] = isVec(left) ? [left, right] : [right, left]
+  const [vec, scalar] = isVec(left) ? [left, right] : [right, left];
   if (isVec(vec) && isScalar(scalar) && scalar.scalar in VEC_CTOR_SUFFIX) {
-    const splat = `vec${vec.n}${VEC_CTOR_SUFFIX[vec.elem]}(x)`
+    const splat = `vec${vec.n}${VEC_CTOR_SUFFIX[vec.elem]}(x)`;
     if (scalar.scalar === vec.elem) {
       return (
         `Type mismatch: cannot ${op} ${pair}. ` +
         `A vector combines with a scalar of its element type only through + - * / %; ` +
         `splat the scalar with ${splat} to get a vector.`
-      )
+      );
     }
     return (
       `Type mismatch: cannot ${op} ${pair}. A vector takes a scalar of its own element type. ` +
       `Cast the scalar: ${vec.elem}(x).`
-    )
+    );
   }
   if (isScalar(left) && isScalar(right)) {
-    return `Type mismatch: cannot ${op} ${pair}. Types must match, or cast with f32()/i32()/u32().`
+    return `Type mismatch: cannot ${op} ${pair}. Types must match, or cast with f32()/i32()/u32().`;
   }
-  return `Type mismatch: cannot ${op} ${pair}. Types must match.`
+  return `Type mismatch: cannot ${op} ${pair}. Types must match.`;
 }
 
 /** A scalar cast: `f32(x)`, `i32(x)`, `u32(x)`, and now `bool(x)` and `f64(x)`, the two WGSL
@@ -199,15 +199,15 @@ export function lowerScalarCast(
   arg: Expr,
   constOf?: (e: Expr) => number | undefined,
 ): Expr | string {
-  const type = SCALAR_CAST[name]
-  if (!type) return `Unknown scalar cast "${name}".`
+  const type = SCALAR_CAST[name];
+  if (!type) return `Unknown scalar cast "${name}".`;
   if (name === 'bool') {
-    if (typeKey(arg.type) === 'bool') return arg
+    if (typeKey(arg.type) === 'bool') return arg;
     if (!isNumericScalarType(arg.type)) {
-      return `bool() takes a numeric scalar, got ${typeKey(arg.type)}.`
+      return `bool() takes a numeric scalar, got ${typeKey(arg.type)}.`;
     }
     if (arg.op === 'lit' && typeof arg.value === 'number') {
-      return { op: 'lit', type: boolT, value: arg.value !== 0 }
+      return { op: 'lit', type: boolT, value: arg.value !== 0 };
     }
     // WGSL's `bool(x)` is "x is not zero", and that is what this lowers to: the IR has no
     // bool-cast intrinsic (the EDSL's `bool()` builds a boolean literal, not a cast), so
@@ -220,17 +220,17 @@ export function lowerScalarCast(
       cop: '!=',
       a: arg,
       b: { op: 'lit', type: arg.type, value: 0 },
-    }
+    };
   }
   if (name === 'f64') {
-    if (isF64(arg.type)) return arg
+    if (isF64(arg.type)) return arg;
     if (arg.op === 'lit' && typeof arg.value === 'number') {
-      return { op: 'lit', type: f64T, value: arg.value }
+      return { op: 'lit', type: f64T, value: arg.value };
     }
     if (typeKey(arg.type) !== 'f32') {
-      return `f64() widens an f32, got ${typeKey(arg.type)}. Cast to f32 first, e.g. f64(f32(x)).`
+      return `f64() widens an f32, got ${typeKey(arg.type)}. Cast to f32 first, e.g. f64(f32(x)).`;
     }
-    return { op: 'call', type: f64T, fn: 'f64', args: [arg] }
+    return { op: 'call', type: f64T, fn: 'f64', args: [arg] };
   }
   // An emulated double has a narrow to f32 (`df64_narrow`) and no direct integer one: the
   // fp64 pass raises SD0041 for `i32()`/`u32()` on an f64, which reached the author as a
@@ -239,7 +239,7 @@ export function lowerScalarCast(
     return (
       `${name}() has no emulated-double form, got ${typeKey(arg.type)}. A double narrows to ` +
       `f32 first, so write ${name}(f32(x)).`
-    )
+    );
   }
   // `f32(vec3(...))` was accepted and emitted `f32(vec3<f32>(...))` on WGSL and `float(vec3)`
   // on GLSL. Measured: Tint REFUSES it ("no matching constructor for 'f32(vec3<f32>)'"), and a
@@ -250,31 +250,31 @@ export function lowerScalarCast(
   // above and which `u32(b)` converts) or an emulated double — `f32(f64(x))` is the narrowing
   // the surface documents. A vector of any kind is not.
   if (arg.type.kind !== 'scalar' && arg.type.kind !== 'f64') {
-    const width = arg.type.kind === 'vec' || arg.type.kind === 'vec64' ? arg.type.n : undefined
+    const width = arg.type.kind === 'vec' || arg.type.kind === 'vec64' ? arg.type.n : undefined;
     return (
       `${name}() takes a scalar; got ${typeKey(arg.type)}.` +
       (width === undefined
         ? ''
         : ` A vector is converted component-wise by its own constructor, ` +
           `e.g. vec${width}${VEC_CTOR_SUFFIX[name] ?? ''}(v).`)
-    )
+    );
   }
   // A NEGATED literal is a unop, not a lit, so `u32(-1)` used to reach the backend as
   // `u32(-1.0)`. Folded first, which is also what makes the range rule below see the number
   // the author wrote.
-  const lit = foldNumericLit(arg)
-  const litValue = lit.op === 'lit' && typeof lit.value === 'number' ? lit.value : undefined
+  const lit = foldNumericLit(arg);
+  const litValue = lit.op === 'lit' && typeof lit.value === 'number' ? lit.value : undefined;
   // A reference to a `const` is a compile-time value too, and by the time the backend sees it
   // the const-propagation pass has substituted it: `const k: i32 = -1; u32(k)` EMITS `u32(-1)`,
   // measured on the dev pipeline. So the range rule has to see through the reference, which is
   // what `constOf` is — the caller's scope-aware folder, since this module knows nothing about
   // scopes. Only the CHECK looks through it; the call itself is still emitted as written, so an
   // in-range `u32(k)` keeps its name and the substitution stays the optimizer's business.
-  const v = litValue ?? constOf?.(arg)
+  const v = litValue ?? constOf?.(arg);
   if (v !== undefined) {
-    if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`
+    if (name !== 'f32' && !Number.isFinite(v)) return `${name}() needs a finite number.`;
     if (name !== 'f32') {
-      const truncated = Math.trunc(v)
+      const truncated = Math.trunc(v);
       // An INT -> INT conversion is never out of range. It is a bit reinterpretation, which
       // both targets perform and agree on: measured, `u32(-1i)` compiles on Tint and is
       // 4294967295, and GLSL ES 3.00 compiles `uint(-1)` and answers 4294967295 too. What
@@ -288,20 +288,20 @@ export function lowerScalarCast(
       // it undefined, so `u32(-1.)` is 0 on Tint and 4294967295 on a WebGL2 driver, and
       // `u32(4.3e9)` is 4294967295 there and 5032960 here. Two targets, two answers, and no
       // diagnostic anywhere — which is what this refusal is for.
-      const fromInteger = typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32'
+      const fromInteger = typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32';
       if (fromInteger) {
         // Folded rather than refused, and folded with the target's OWN wrap, so the front end
         // agrees with the const-fold pass instead of contradicting it.
         return litValue === undefined
           ? { op: 'call', type, fn: name, args: [arg] }
-          : { op: 'lit', type, value: wrapInt(truncated, typeKey(type) === 'u32' ? 'u32' : 'i32') }
+          : { op: 'lit', type, value: wrapInt(truncated, typeKey(type) === 'u32' ? 'u32' : 'i32') };
       }
       if (!fitsTarget(truncated, type)) {
-        const unsigned = typeKey(type) === 'u32'
+        const unsigned = typeKey(type) === 'u32';
         // The clamp names the TARGET's own bounds. `clamp(x, 0., 1.)` was the example whatever
         // the cast was, which for `i32(…)` proposed clamping into [0, 1] — advice that loses
         // every value the type holds.
-        const bounds = unsigned ? '0., 4294967295.' : '-2147483648., 2147483647.'
+        const bounds = unsigned ? '0., 4294967295.' : '-2147483648., 2147483647.';
         return (
           `${name}(${String(v)}) is out of range: ${unsigned ? 'a' : 'an'} ${typeKey(type)} ` +
           `holds ${unsigned ? '0 to 4294967295' : '-2147483648 to 2147483647'}, and the two ` +
@@ -309,12 +309,12 @@ export function lowerScalarCast(
           `0 on WGSL and 4294967295 on GLSL ES 3.00, and u32(4.3e9) is 4294967295 there and ` +
           `5032960 here. Clamp it first if you want one answer, e.g. ` +
           `${name}(clamp(x, ${bounds})).`
-        )
+        );
       }
-      if (litValue !== undefined) return { op: 'lit', type, value: truncated }
+      if (litValue !== undefined) return { op: 'lit', type, value: truncated };
     } else if (litValue !== undefined) {
-      return { op: 'lit', type: f32T, value: v }
+      return { op: 'lit', type: f32T, value: v };
     }
   }
-  return { op: 'call', type, fn: name, args: [arg] }
+  return { op: 'call', type, fn: name, args: [arg] };
 }

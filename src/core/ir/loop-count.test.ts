@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { fn, module, Loop, Var, Break, If, toF32, f32, f32T, u32, u32T } from './index.js'
-import { emitModule } from '../backends/wgsl.js'
+import { describe, it, expect } from 'vitest';
+import { fn, module, Loop, Var, Break, If, toF32, f32, f32T, u32, u32T } from './index.js';
+import { emitModule } from '../backends/wgsl.js';
 
 // ═══ #8 B2 — the trip-count Loop ═══
 //
@@ -11,92 +11,92 @@ import { emitModule } from '../backends/wgsl.js'
 // hand-written expectation the sugar could drift from.
 
 const emit = (body: () => void): string =>
-  emitModule(module({ funcs: [fn('f', {}, f32T, () => (body(), f32(0)))] }))
+  emitModule(module({ funcs: [fn('f', {}, f32T, () => (body(), f32(0)))] }));
 
 describe('#8 B2 — Loop(count, body)', () => {
   it('emits the same for-header as the spelled-out loop', () => {
     const short = emit(() => {
-      const acc = Var('acc', f32(0))
+      const acc = Var('acc', f32(0));
       Loop(96, (i) => {
-        acc.assign(acc.add(toF32(i)))
-      })
-    })
+        acc.assign(acc.add(toF32(i)));
+      });
+    });
     const long = emit(() => {
-      const acc = Var('acc', f32(0))
+      const acc = Var('acc', f32(0));
       Loop(
         u32(0),
         (i) => i.lt(u32(96)),
         (i) => {
-          acc.assign(acc.add(toF32(i)))
+          acc.assign(acc.add(toF32(i)));
         },
-      )
-    })
-    expect(short).toBe(long)
-    expect(short).toContain('for (var _v0: u32 = 0u; (_v0 < 96u); _v0 = (_v0 + 1u))')
-  })
+      );
+    });
+    expect(short).toBe(long);
+    expect(short).toContain('for (var _v0: u32 = 0u; (_v0 < 96u); _v0 = (_v0 + 1u))');
+  });
 
   it('takes a name in the same leading slot the three-part form does', () => {
     const short = emit(() => {
-      const acc = Var('acc', f32(0))
+      const acc = Var('acc', f32(0));
       Loop('k', 8, (i) => {
-        acc.assign(acc.add(toF32(i)))
-      })
-    })
+        acc.assign(acc.add(toF32(i)));
+      });
+    });
     const long = emit(() => {
-      const acc = Var('acc', f32(0))
+      const acc = Var('acc', f32(0));
       Loop(
         'k',
         u32(0),
         (i) => i.lt(u32(8)),
         (i) => {
-          acc.assign(acc.add(toF32(i)))
+          acc.assign(acc.add(toF32(i)));
         },
-      )
-    })
-    expect(short).toBe(long)
-    expect(short).toContain('for (var k: u32 = 0u; (k < 8u); k = (k + 1u))')
-  })
+      );
+    });
+    expect(short).toBe(long);
+    expect(short).toContain('for (var k: u32 = 0u; (k < 8u); k = (k + 1u))');
+  });
 
   it('hands the body a u32 counter, so a u32 comparison needs no cast', () => {
     const src = emit(() => {
-      const acc = Var('acc', f32(0))
+      const acc = Var('acc', f32(0));
       Loop(4, (i) => {
-        If(i.gt(u32(2)), () => Break())
-        acc.assign(acc.add(toF32(i)))
-      })
-    })
-    expect(src).toContain('> 2u')
-    expect(src).toContain('break;')
-  })
+        If(i.gt(u32(2)), () => Break());
+        acc.assign(acc.add(toF32(i)));
+      });
+    });
+    expect(src).toContain('> 2u');
+    expect(src).toContain('break;');
+  });
 
   it('runs the body once per iteration on the CPU oracle', async () => {
-    const { compileModule } = await import('../oracle.js')
+    const { compileModule } = await import('../oracle.js');
     const m = module({
       funcs: [
         fn('sum_to', { n: u32T }, f32T, () => {
-          const acc = Var('acc', f32(0))
+          const acc = Var('acc', f32(0));
           Loop(5, (i) => {
-            acc.assign(acc.add(toF32(i)))
-          })
-          return acc
+            acc.assign(acc.add(toF32(i)));
+          });
+          return acc;
         }),
       ],
-    })
-    expect(compileModule(m).fns.sum_to!(0)).toBe(0 + 1 + 2 + 3 + 4)
-  })
+    });
+    expect(compileModule(m).fns.sum_to!(0)).toBe(0 + 1 + 2 + 3 + 4);
+  });
 
   it('leaves the three-part form untouched — a node init still types its counter', () => {
     const src = emit(() => {
-      const acc = Var('acc', f32(0))
+      const acc = Var('acc', f32(0));
       Loop(
         f32(0),
         (i) => i.lt(2),
         (i) => {
-          acc.assign(acc.add(i))
+          acc.assign(acc.add(i));
         },
         0.5,
-      )
-    })
-    expect(src).toContain('for (var _v0: f32 = 0.0; (_v0 < 2.0); _v0 = (_v0 + 0.5))')
-  })
-})
+      );
+    });
+    expect(src).toContain('for (var _v0: f32 = 0.0; (_v0 < 2.0); _v0 = (_v0 + 0.5))');
+  });
+});

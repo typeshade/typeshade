@@ -28,4 +28,4 @@ export {
   type ComputeRunnerOptions,
   type GpuDeviceLike,
   type RejectedBackend,
-} from './core/compute/runner.js'
+} from './core/compute/runner.js';

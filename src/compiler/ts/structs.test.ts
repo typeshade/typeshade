@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { compileTsSource } from './source-file.js'
+import { describe, expect, it } from 'vitest';
+import { compileTsSource } from './source-file.js';
 
 describe('data class + annotations', () => {
   it('collects class fields as a struct', () => {
@@ -10,13 +10,13 @@ describe('data class + annotations', () => {
         pos: vec3;
       }
       export function f(): f32 { return 0.; }
-    `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.structs).toHaveLength(1)
-    expect(r.structs[0]!.decl.name).toBe('Camera')
-    expect(r.structs[0]!.decl.fields.map((f) => f.name)).toEqual(['view', 'pos'])
-    expect(r.structs[0]!.packing).toBe('wgsl')
-  })
+    `);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.structs).toHaveLength(1);
+    expect(r.structs[0]!.decl.name).toBe('Camera');
+    expect(r.structs[0]!.decl.fields.map((f) => f.name)).toEqual(['view', 'pos']);
+    expect(r.structs[0]!.packing).toBe('wgsl');
+  });
 
   it('errors on class-level packing attrs that are not applied', () => {
     const r = compileTsSource(`
@@ -27,14 +27,14 @@ describe('data class + annotations', () => {
         pos: vec3;
       }
       export function f(): f32 { return 0.; }
-    `)
+    `);
     expect(
       r.diagnostics.some((d) => /@std140/.test(d.message) && /not applied/.test(d.message)),
-    ).toBe(true)
+    ).toBe(true);
     expect(
       r.diagnostics.some((d) => /@align/.test(d.message) && /not applied/.test(d.message)),
-    ).toBe(true)
-  })
+    ).toBe(true);
+  });
 
   it('keeps @location and rejects unused @align on fields', () => {
     const r = compileTsSource(`
@@ -44,13 +44,13 @@ describe('data class + annotations', () => {
         @align(16) uv: vec2;
       }
       export function f(): f32 { return 0.; }
-    `)
+    `);
     expect(
       r.diagnostics.some((d) => /@align/.test(d.message) && /not applied/.test(d.message)),
-    ).toBe(true)
-    const fields = r.structs[0]!.decl.fields
-    expect(fields[0]).toMatchObject({ name: 'position', location: 0 })
-  })
+    ).toBe(true);
+    const fields = r.structs[0]!.decl.fields;
+    expect(fields[0]).toMatchObject({ name: 'position', location: 0 });
+  });
 
   it('rejects @compute on a data class', () => {
     const r = compileTsSource(`
@@ -60,9 +60,9 @@ describe('data class + annotations', () => {
         pos: vec3;
       }
       export function f(): f32 { return 0.; }
-    `)
-    expect(r.diagnostics.some((d) => /does not belong on a data class/.test(d.message))).toBe(true)
-  })
+    `);
+    expect(r.diagnostics.some((d) => /does not belong on a data class/.test(d.message))).toBe(true);
+  });
 
   it('a method on a class is a function whose first parameter is the struct (#86)', () => {
     // Before #86 this was "Data class cannot have methods"; class-methods.test.ts has the rest.
@@ -73,9 +73,9 @@ describe('data class + annotations', () => {
         forward(): vec3 { return this.pos; }
       }
       export function f(c: Camera): f32 { return c.forward().x; }
-    `)
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([])
-    expect(r.wgsl).toContain('fn Camera_forward(self_: Camera) -> vec3<f32> {')
-    expect(r.wgsl).toContain('return Camera_forward(c).x;')
-  })
-})
+    `);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(r.wgsl).toContain('fn Camera_forward(self_: Camera) -> vec3<f32> {');
+    expect(r.wgsl).toContain('return Camera_forward(c).x;');
+  });
+});

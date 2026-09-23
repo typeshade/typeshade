@@ -1,4 +1,4 @@
-"use typeshade"
+"use typeshade";
 
 /* @example
 {
@@ -24,90 +24,90 @@
 
 /** Two of something, and a run-time choice between them. */
 class Slot<T> {
-  a: T
-  b: T
+  a: T;
+  b: T;
 
   constructor(a: T, b: T) {
-    this.a = a
-    this.b = b
+    this.a = a;
+    this.b = b;
   }
 
   // Written once in terms of `T`, compiled once per instance: at f32 and at vec3 below.
   either(c: bool): T {
-    return c ? this.a : this.b
+    return c ? this.a : this.b;
   }
 
   first(): T {
-    return this.a
+    return this.a;
   }
 }
 
 /** A fixed-length list of `T`, with the index kept inside. A type parameter is a type wherever
  *  a type is written, `array<T, 3>` included. */
 class Bag<T> {
-  xs: array<T, 3>
+  xs: array<T, 3>;
 
   constructor(xs: array<T, 3>) {
-    this.xs = xs
+    this.xs = xs;
   }
 
   nth(i: i32): T {
-    return this.xs[i]
+    return this.xs[i];
   }
 }
 
 /** Every type parameter has a default, so the bare name is the instance those defaults give:
  *  `Level` and `Level<f32>` are one struct, exactly as TypeScript reads them. */
 class Level<T = f32> {
-  edge: T
+  edge: T;
 
   constructor(edge: T) {
-    this.edge = edge
+    this.edge = edge;
   }
 
   // A static cannot mention `T` — TypeScript refuses that outright — so it is ONE function
   // however many instances there are, and is emitted under the class's own name, `Level_unit`.
   static unit(): f32 {
-    return 0.75
+    return 0.75;
   }
 }
 
 /** A base written with type arguments is the INSTANCE it names: this inherits `Slot_f32`'s two
  *  f32 fields and its methods, not a layout `Slot` would have had. */
 class Marked extends Slot<f32> {
-  tag: f32
+  tag: f32;
 
   constructor(a: f32, b: f32, tag: f32) {
-    super(a, b)
-    this.tag = tag
+    super(a, b);
+    this.tag = tag;
   }
 }
 
 @vertex
 export function vs(@builtin("vertex_index") vi: u32): vec4 {
-  const xs: array<f32, 3> = [-1., 3., -1.]
-  const ys: array<f32, 3> = [-1., -1., 3.]
-  const i = i32(vi)
-  return vec4(xs[i], ys[i], 0., 1.)
+  const xs: array<f32, 3> = [-1., 3., -1.];
+  const ys: array<f32, 3> = [-1., -1., 3.];
+  const i = i32(vi);
+  return vec4(xs[i], ys[i], 0., 1.);
 }
 
 @fragment
 export function fs(@builtin("position") p: vec4): vec4 {
-  const uv: vec2 = fract(p.xy * 0.006)
+  const uv: vec2 = fract(p.xy * 0.006);
 
   // One declaration, two instances: a scalar one and a vector one.
-  const gain = new Slot<f32>(1.15, 0.55)
-  const tint = new Slot<vec3>(vec3(0.95, 0.45, 0.28), vec3(0.18, 0.55, 0.92))
+  const gain = new Slot<f32>(1.15, 0.55);
+  const tint = new Slot<vec3>(vec3(0.95, 0.45, 0.28), vec3(0.18, 0.55, 0.92));
 
-  const band = new Bag<f32>([0.2, 0.55, 0.9])
-  const step = band.nth(i32(floor(uv.y * 3.)))
+  const band = new Bag<f32>([0.2, 0.55, 0.9]);
+  const step = band.nth(i32(floor(uv.y * 3.)));
 
   // The type argument is left out, and the class's default supplies it.
-  const level = new Level(0.35)
-  const edge = smoothstep(0., level.edge, uv.y) * Level.unit()
+  const level = new Level(0.35);
+  const edge = smoothstep(0., level.edge, uv.y) * Level.unit();
 
-  const marked = new Marked(0.4, 0.8, 0.5)
+  const marked = new Marked(0.4, 0.8, 0.5);
 
-  const k = gain.either(uv.x > 0.5) * step * marked.first() * marked.tag
-  return vec4(tint.either(uv.y > 0.5) * k * edge, 1.)
+  const k = gain.either(uv.x > 0.5) * step * marked.first() * marked.tag;
+  return vec4(tint.either(uv.y > 0.5) * k * edge, 1.);
 }

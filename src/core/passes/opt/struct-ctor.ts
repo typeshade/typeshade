@@ -32,72 +32,72 @@
 //   • a partially-written aggregate — a ctor must supply every field;
 //   • a `raw` body, whose text can touch the local invisibly, as in every other pass.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl, StructDecl } from '../../ir/index.js'
-import { exprHasEffect, fnWrites, type FnWrites } from '../effects.js'
-import { bodyHasRaw } from './expr-utils.js'
-import { mapExpr } from './ir-transform.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl, StructDecl } from '../../ir/index.js';
+import { exprHasEffect, fnWrites, type FnWrites } from '../effects.js';
+import { bodyHasRaw } from './expr-utils.js';
+import { mapExpr } from './ir-transform.js';
 
 /** Does any expression in `s` (nested blocks included) mention `name`? */
 function mentions(stmts: readonly Stmt[], name: string): boolean {
-  let found = false
+  let found = false;
   const see = (e: Expr): Expr => {
-    if ((e.op === 'varref' || e.op === 'param') && e.name === name) found = true
-    return e
-  }
+    if ((e.op === 'varref' || e.op === 'param') && e.name === name) found = true;
+    return e;
+  };
   const walk = (list: readonly Stmt[]): void => {
     for (const s of list) {
       switch (s.s) {
         case 'if':
           for (const a of s.arms) {
-            mapExpr(a.cond, see)
-            walk(a.body)
+            mapExpr(a.cond, see);
+            walk(a.body);
           }
-          if (s.elseBody) walk(s.elseBody)
-          break
+          if (s.elseBody) walk(s.elseBody);
+          break;
         case 'for':
-          walk([s.init])
-          mapExpr(s.cond, see)
-          walk([s.update])
-          walk(s.body)
-          break
+          walk([s.init]);
+          mapExpr(s.cond, see);
+          walk([s.update]);
+          walk(s.body);
+          break;
         case 'switch':
-          mapExpr(s.scrut, see)
-          for (const c of s.cases) walk(c.body)
-          if (s.defaultBody) walk(s.defaultBody)
-          break
+          mapExpr(s.scrut, see);
+          for (const c of s.cases) walk(c.body);
+          if (s.defaultBody) walk(s.defaultBody);
+          break;
         case 'let':
-          mapExpr(s.expr, see)
-          break
+          mapExpr(s.expr, see);
+          break;
         case 'var':
-          if (s.init !== undefined) mapExpr(s.init, see)
-          break
+          if (s.init !== undefined) mapExpr(s.init, see);
+          break;
         case 'assign':
         case 'assignOp':
-          mapExpr(s.target, see)
-          mapExpr(s.expr, see)
-          break
+          mapExpr(s.target, see);
+          mapExpr(s.expr, see);
+          break;
         case 'return':
-          if (s.expr !== undefined) mapExpr(s.expr, see)
-          break
+          if (s.expr !== undefined) mapExpr(s.expr, see);
+          break;
         case 'call':
-          mapExpr(s.expr, see)
-          break
+          mapExpr(s.expr, see);
+          break;
         default:
-          break
+          break;
       }
     }
-  }
-  walk(stmts)
-  return found
+  };
+  walk(stmts);
+  return found;
 }
 
 /** `name`'s field if `e` is exactly `<name>.<field>` — not a deeper path, which would
  *  mean the aggregate is being read back rather than assembled. */
 function directField(e: Expr, name: string): string | undefined {
-  if (e.op !== 'member') return undefined
-  const b = e.base
-  if ((b.op !== 'varref' && b.op !== 'param') || b.name !== name) return undefined
-  return e.field
+  if (e.op !== 'member') return undefined;
+  const b = e.base;
+  if ((b.op !== 'varref' && b.op !== 'param') || b.name !== name) return undefined;
+  return e.field;
 }
 
 /** Rewrite one fn, or return it unchanged. */
@@ -106,47 +106,47 @@ function collapseFn(
   structs: ReadonlyMap<string, StructDecl>,
   writes: FnWrites,
 ): FuncDecl {
-  if (bodyHasRaw(f.body)) return f
-  const body = f.body
-  const last = body[body.length - 1]
-  if (last?.s !== 'return' || last.expr === undefined) return f
-  const ret = last.expr
-  if (ret.op !== 'varref' && ret.op !== 'param') return f
-  const name = ret.name
+  if (bodyHasRaw(f.body)) return f;
+  const body = f.body;
+  const last = body[body.length - 1];
+  if (last?.s !== 'return' || last.expr === undefined) return f;
+  const ret = last.expr;
+  if (ret.op !== 'varref' && ret.op !== 'param') return f;
+  const name = ret.name;
 
-  const decl = structs.get(ret.type.kind === 'struct' ? ret.type.name : '')
-  if (decl === undefined || decl.fields.length === 0) return f
+  const decl = structs.get(ret.type.kind === 'struct' ? ret.type.name : '');
+  if (decl === undefined || decl.fields.length === 0) return f;
 
   // Walk BACK from the return over a contiguous run of `<name>.<field> = expr`. Contiguity
   // is what makes the value claim hold with no dataflow analysis: nothing but these
   // assignments separates a field's expression from the constructor that will hold it,
   // and none of them writes anything an expression here reads (the aggregate is proven
   // read-free below).
-  const byField = new Map<string, Expr>()
-  let i = body.length - 2
+  const byField = new Map<string, Expr>();
+  let i = body.length - 2;
   for (; i >= 0; i--) {
-    const s = body[i]!
-    if (s.s !== 'assign') break
-    const fld = directField(s.target, name)
-    if (fld === undefined || byField.has(fld)) break
-    byField.set(fld, s.expr)
+    const s = body[i]!;
+    if (s.s !== 'assign') break;
+    const fld = directField(s.target, name);
+    if (fld === undefined || byField.has(fld)) break;
+    byField.set(fld, s.expr);
   }
-  if (byField.size !== decl.fields.length) return f // partial — a ctor needs every field
-  if (!decl.fields.every((sf) => byField.has(sf.name))) return f
+  if (byField.size !== decl.fields.length) return f; // partial — a ctor needs every field
+  if (!decl.fields.every((sf) => byField.has(sf.name))) return f;
   // Field order is not assignment order, and a call with an effect keeps the order it was
   // written in (see the header).
-  if ([...byField.values()].some((e) => exprHasEffect(e, writes))) return f
+  if ([...byField.values()].some((e) => exprHasEffect(e, writes))) return f;
 
   // The declaration must be an uninitialised `var` of that struct, and nothing outside
   // the run may mention the local — a single read would make this a real variable.
-  const declAt = body.findIndex((s) => s.s === 'var' && s.name === name)
-  if (declAt < 0 || declAt >= i + 1) return f
-  const d = body[declAt]!
-  if (d.s !== 'var' || d.init !== undefined) return f
-  const outside = [...body.slice(0, declAt), ...body.slice(declAt + 1, i + 1)]
-  if (mentions(outside, name)) return f
+  const declAt = body.findIndex((s) => s.s === 'var' && s.name === name);
+  if (declAt < 0 || declAt >= i + 1) return f;
+  const d = body[declAt]!;
+  if (d.s !== 'var' || d.init !== undefined) return f;
+  const outside = [...body.slice(0, declAt), ...body.slice(declAt + 1, i + 1)];
+  if (mentions(outside, name)) return f;
 
-  const args = decl.fields.map((sf) => byField.get(sf.name)!)
+  const args = decl.fields.map((sf) => byField.get(sf.name)!);
   return {
     ...f,
     body: [
@@ -154,13 +154,13 @@ function collapseFn(
       ...body.slice(declAt + 1, i + 1),
       { s: 'return', expr: { op: 'construct', type: ret.type, args } },
     ],
-  }
+  };
 }
 
 /** Collapse every write-once struct local that is only ever assembled and returned. */
 export function structCtor(m: ModuleDecl): ModuleDecl {
-  const structs = new Map(m.structs.map((s) => [s.name, s]))
-  if (structs.size === 0) return m
-  const writes = fnWrites(m)
-  return { ...m, funcs: m.funcs.map((f) => collapseFn(f, structs, writes)) }
+  const structs = new Map(m.structs.map((s) => [s.name, s]));
+  if (structs.size === 0) return m;
+  const writes = fnWrites(m);
+  return { ...m, funcs: m.funcs.map((f) => collapseFn(f, structs, writes)) };
 }

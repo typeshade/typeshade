@@ -33,62 +33,62 @@
 // and `map/src/shaders/baked/ids.ts:64-70` records the near-miss it already cost. A key
 // DERIVED from the axes cannot omit one.
 
-import type { ModuleDecl } from './ir/index.js'
-import { reflect, type Reflection } from './reflect.js'
-import { emitGlslFragment, type GlslEmitOptions } from './backends/glsl.js'
-import { emitModule } from './backends/wgsl.js'
-import type { EmitOptions } from './emit.js'
-import type { EmitFragment, FragmentDeclares } from './fragment.js'
+import type { ModuleDecl } from './ir/index.js';
+import { reflect, type Reflection } from './reflect.js';
+import { emitGlslFragment, type GlslEmitOptions } from './backends/glsl.js';
+import { emitModule } from './backends/wgsl.js';
+import type { EmitOptions } from './emit.js';
+import type { EmitFragment, FragmentDeclares } from './fragment.js';
 
 /** One point in the axis space: each axis name mapped to one of its declared values. */
 export type AxisValues<A extends Record<string, readonly unknown[]>> = {
-  readonly [K in keyof A]: A[K][number]
-}
+  readonly [K in keyof A]: A[K][number];
+};
 
 /** What `variantFamily` is given. */
 export interface VariantFamilySpec<A extends Record<string, readonly unknown[]>> {
   /** The axes, each as the list of values the host can select. */
-  readonly axes: A
+  readonly axes: A;
   /** Build the module for one point in the space. Ordinary TypeScript branching: read the
    *  axis values and construct only what this point needs, so the losing arm is never built. */
-  readonly build: (axes: AxisValues<A>) => ModuleDecl
+  readonly build: (axes: AxisValues<A>) => ModuleDecl;
   /** The program's identity. Must mention every axis `build` reads: two points that derive
    *  the same key would share one cache id while naming different programs, and
    *  {@link variantFamily} throws when that happens. Derive it from `axes`; a key written by
    *  hand is how an axis gets left out. */
-  readonly key: (axes: AxisValues<A>) => string
+  readonly key: (axes: AxisValues<A>) => string;
 }
 
 /** One built variant. */
 export interface Variant<A extends Record<string, readonly unknown[]>> {
-  readonly key: string
-  readonly axes: AxisValues<A>
-  readonly module: ModuleDecl
+  readonly key: string;
+  readonly axes: AxisValues<A>;
+  readonly module: ModuleDecl;
   /** This variant's own {@link reflect} result, so each program the host can select is
    *  described separately. */
-  readonly reflection: Reflection
+  readonly reflection: Reflection;
 }
 
 /** How to spell each axis value as a preprocessor define for `emitGuarded`. A boolean axis
  *  takes a single name, defined when true; any other axis takes one name per value. */
 export type GuardDefines<A extends Record<string, readonly unknown[]>> = {
-  readonly [K in keyof A]: string | Readonly<Record<string, string>>
-}
+  readonly [K in keyof A]: string | Readonly<Record<string, string>>;
+};
 
 /** A built family. */
 export interface VariantFamily<A extends Record<string, readonly unknown[]>> {
-  readonly variants: readonly Variant<A>[]
+  readonly variants: readonly Variant<A>[];
   /** Every key, in `variants` order: the id set a pipeline cache keys its programs by. */
-  readonly keys: readonly string[]
+  readonly keys: readonly string[];
   /** Look one variant up by key; `undefined` when the key names no variant. */
-  get(key: string): Variant<A> | undefined
+  get(key: string): Variant<A> | undefined;
   /** One preprocessor-free source per key. The only shape WGSL can take, and the one a
    *  pipeline cache should prefer on GLSL too. */
-  emit(target: 'wgsl', opts?: EmitOptions): ReadonlyMap<string, string>
+  emit(target: 'wgsl', opts?: EmitOptions): ReadonlyMap<string, string>;
   emit(
     target: 'glsl-es300',
     opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
-  ): ReadonlyMap<string, string>
+  ): ReadonlyMap<string, string>;
   /** One GLSL source whose arms are selected by preprocessor defines the host owns.
    *
    *  Opt in to this when the host already sets the define per draw and cannot pick a source
@@ -104,7 +104,7 @@ export interface VariantFamily<A extends Record<string, readonly unknown[]>> {
   emitGuarded(
     defines: GuardDefines<A>,
     opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
-  ): string
+  ): string;
   /** The same generated ladder as {@link VariantFamily.emitGuarded}, returned as a
    *  header-less fragment for a host that owns the program and composes these declarations
    *  into it.
@@ -121,20 +121,20 @@ export interface VariantFamily<A extends Record<string, readonly unknown[]>> {
   emitGuardedFragment(
     defines: GuardDefines<A>,
     opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
-  ): EmitFragment
+  ): EmitFragment;
 }
 
 /** The cartesian product of the axes, in declaration order — the FIRST axis varies
  *  slowest, so the enumeration reads like nested loops written in the same order. */
 function product<A extends Record<string, readonly unknown[]>>(axes: A): AxisValues<A>[] {
-  let rows: Record<string, unknown>[] = [{}]
+  let rows: Record<string, unknown>[] = [{}];
   for (const name of Object.keys(axes)) {
-    const values = axes[name] as readonly unknown[]
+    const values = axes[name] as readonly unknown[];
     if (values.length === 0)
-      throw new Error(`typeshade: variantFamily axis '${name}' declares no values`)
-    rows = rows.flatMap((r) => values.map((v) => ({ ...r, [name]: v })))
+      throw new Error(`typeshade: variantFamily axis '${name}' declares no values`);
+    rows = rows.flatMap((r) => values.map((v) => ({ ...r, [name]: v })));
   }
-  return rows as AxisValues<A>[]
+  return rows as AxisValues<A>[];
 }
 
 /** The `#if` condition selecting one variant: every axis's define, conjoined. */
@@ -142,27 +142,27 @@ function guardCondition<A extends Record<string, readonly unknown[]>>(
   axes: AxisValues<A>,
   defines: GuardDefines<A>,
 ): string {
-  const terms: string[] = []
+  const terms: string[] = [];
   for (const name of Object.keys(axes)) {
-    const spec = defines[name as keyof A]
-    const value = (axes as Record<string, unknown>)[name]
+    const spec = defines[name as keyof A];
+    const value = (axes as Record<string, unknown>)[name];
     if (typeof spec === 'string') {
       if (typeof value !== 'boolean')
         throw new Error(
           `typeshade: variantFamily axis '${name}' has non-boolean value ${JSON.stringify(value)}` +
             ` but a single define name — give it one define per value`,
-        )
-      terms.push(value ? `defined(${spec})` : `!defined(${spec})`)
+        );
+      terms.push(value ? `defined(${spec})` : `!defined(${spec})`);
     } else {
-      const named = spec[String(value)]
+      const named = spec[String(value)];
       if (named === undefined)
         throw new Error(
           `typeshade: variantFamily axis '${name}' value ${JSON.stringify(value)} has no define`,
-        )
-      terms.push(`defined(${named})`)
+        );
+      terms.push(`defined(${named})`);
     }
   }
-  return terms.join(' && ')
+  return terms.join(' && ');
 }
 
 /** Recover the arm a set of defined macros selects from an `emitGuarded` source.
@@ -178,32 +178,32 @@ function guardCondition<A extends Record<string, readonly unknown[]>>(
  *  @throws `Error` when a condition in `source` is not of the form the ladder generates.
  */
 export function selectGuardedArm(source: string, defined: Iterable<string>): string | undefined {
-  const on = new Set(defined)
+  const on = new Set(defined);
   const holds = (cond: string): boolean =>
     cond.split('&&').every((raw) => {
-      const t = raw.trim()
-      const neg = t.startsWith('!')
-      const m = /^!?defined\(([^)]+)\)$/.exec(t)
-      if (!m) throw new Error(`typeshade: selectGuardedArm cannot read condition '${t}'`)
-      return neg ? !on.has(m[1]!) : on.has(m[1]!)
-    })
+      const t = raw.trim();
+      const neg = t.startsWith('!');
+      const m = /^!?defined\(([^)]+)\)$/.exec(t);
+      if (!m) throw new Error(`typeshade: selectGuardedArm cannot read condition '${t}'`);
+      return neg ? !on.has(m[1]!) : on.has(m[1]!);
+    });
 
-  const lines = source.split('\n')
-  let active: string[] | undefined
-  let collecting = false
+  const lines = source.split('\n');
+  let active: string[] | undefined;
+  let collecting = false;
   for (const line of lines) {
     if (line.startsWith('#if ') || line.startsWith('#elif ')) {
-      collecting = active === undefined && holds(line.slice(line.indexOf(' ') + 1))
-      if (collecting) active = []
-      continue
+      collecting = active === undefined && holds(line.slice(line.indexOf(' ') + 1));
+      if (collecting) active = [];
+      continue;
     }
     if (line.startsWith('#endif')) {
-      collecting = false
-      continue
+      collecting = false;
+      continue;
     }
-    if (collecting) active!.push(line)
+    if (collecting) active!.push(line);
   }
-  return active?.join('\n')
+  return active?.join('\n');
 }
 
 /** Build a family of shader variants from a typed axis matrix. Give it the axes a host can
@@ -267,18 +267,18 @@ export function variantFamily<A extends Record<string, readonly unknown[]>>(
   spec: VariantFamilySpec<A>,
 ): VariantFamily<A> {
   const variants: Variant<A>[] = product(spec.axes).map((axes) => {
-    const m = spec.build(axes)
-    return { key: spec.key(axes), axes, module: m, reflection: reflect(m) }
-  })
+    const m = spec.build(axes);
+    return { key: spec.key(axes), axes, module: m, reflection: reflect(m) };
+  });
 
-  const byKey = new Map<string, Variant<A>>()
+  const byKey = new Map<string, Variant<A>>();
   for (const v of variants) {
     if (byKey.has(v.key))
       throw new Error(
         `typeshade: variantFamily key collision '${v.key}' — the key must mention every` +
           ` axis the builder reads, or two different programs share one cache id`,
-      )
-    byKey.set(v.key, v)
+      );
+    byKey.set(v.key, v);
   }
 
   const emit = (
@@ -292,7 +292,7 @@ export function variantFamily<A extends Record<string, readonly unknown[]>>(
           ? emitModule(v.module, opts)
           : emitGuardedArmSource(v, opts as GlslEmitOptions & { stage?: 'vertex' | 'fragment' }),
       ]),
-    )
+    );
 
   return {
     variants,
@@ -300,23 +300,23 @@ export function variantFamily<A extends Record<string, readonly unknown[]>>(
     get: (k) => byKey.get(k),
     emit: emit as VariantFamily<A>['emit'],
     emitGuarded(defines, opts) {
-      const { preamble, ladder } = buildGuarded(variants, defines, opts)
-      return [...preamble, '', ...ladder, '#endif', ''].join('\n')
+      const { preamble, ladder } = buildGuarded(variants, defines, opts);
+      return [...preamble, '', ...ladder, '#endif', ''].join('\n');
     },
     emitGuardedFragment(defines, opts) {
-      const { preamble, ladder, declares, requires } = buildGuarded(variants, defines, opts)
+      const { preamble, ladder, declares, requires } = buildGuarded(variants, defines, opts);
       // Same pieces, joined one level up by the composer instead of here — which is what
       // makes `[...preamble, '', source]` reproduce emitGuarded byte for byte.
-      return { source: [...ladder, '#endif', ''].join('\n'), preamble, declares, requires }
+      return { source: [...ladder, '#endif', ''].join('\n'), preamble, declares, requires };
     },
-  }
+  };
 }
 
 /** De-duplicate, preserving first-seen order — deterministic without imposing an order the
  *  per-arm manifests do not have (theirs is emit order, not alphabetical). */
 const union = (lists: readonly (readonly string[])[]): readonly string[] => [
   ...new Set(lists.flat()),
-]
+];
 
 /** The pieces both guarded emits are made of: the ONE preamble every arm must agree on, the
  *  `#if`/`#elif` arms, and the manifests unioned across them.
@@ -328,16 +328,16 @@ function buildGuarded<A extends Record<string, readonly unknown[]>>(
   defines: GuardDefines<A>,
   opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
 ): {
-  preamble: readonly string[]
-  ladder: readonly string[]
-  declares: FragmentDeclares
-  requires: readonly string[]
+  preamble: readonly string[];
+  ladder: readonly string[];
+  declares: FragmentDeclares;
+  requires: readonly string[];
 } {
   const frags = variants.map((v) => ({
     v,
     f: emitGlslFragment(v.module, opts?.stage, { ...opts, entryPoints: true }),
-  }))
-  const preamble = frags[0]!.f.preamble
+  }));
+  const preamble = frags[0]!.f.preamble;
   for (const { v, f } of frags)
     if (f.preamble.join('\n') !== preamble.join('\n'))
       throw new Error(
@@ -345,12 +345,12 @@ function buildGuarded<A extends Record<string, readonly unknown[]>>(
           ` preamble than '${frags[0]!.v.key}':\n  ${f.preamble.join(' | ')}\n  vs\n  ` +
           `${preamble.join(' | ')}\nOne guarded source can carry only one #version` +
           ` block, so these variants cannot share it — emit them separately.`,
-      )
+      );
   const ladder = frags.map(({ v, f }, i) => {
-    const head = `#${i === 0 ? 'if' : 'elif'} ${guardCondition(v.axes, defines)}`
-    return `${head}\n${f.source.replace(/\n$/, '')}`
-  })
-  const d = frags.map(({ f }) => f.declares)
+    const head = `#${i === 0 ? 'if' : 'elif'} ${guardCondition(v.axes, defines)}`;
+    return `${head}\n${f.source.replace(/\n$/, '')}`;
+  });
+  const d = frags.map(({ f }) => f.declares);
   return {
     preamble,
     ladder,
@@ -363,7 +363,7 @@ function buildGuarded<A extends Record<string, readonly unknown[]>>(
       entryPoints: union(d.map((x) => x.entryPoints)),
     },
     requires: union(frags.map(({ f }) => f.requires)),
-  }
+  };
 }
 
 /** `emit('glsl-es300')`'s per-key source: the WHOLE stage, preamble included, since a
@@ -372,6 +372,6 @@ function emitGuardedArmSource(
   v: { readonly module: ModuleDecl },
   opts?: GlslEmitOptions & { stage?: 'vertex' | 'fragment' },
 ): string {
-  const f = emitGlslFragment(v.module, opts?.stage, { ...opts, entryPoints: true })
-  return [...f.preamble, '', f.source].join('\n')
+  const f = emitGlslFragment(v.module, opts?.stage, { ...opts, entryPoints: true });
+  return [...f.preamble, '', f.source].join('\n');
 }
