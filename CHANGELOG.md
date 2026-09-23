@@ -266,6 +266,21 @@ f32)` called as `run_inc(&n, k)` in WGSL and `void run_inc(inout float n, float 
   precisions, the debugger, and the oracle over the optimized module to one value for each form;
   `examples/closures.shade.ts` is in the compile gate.
 
+- **`grad(m, fn, param)` differentiates a function in forward mode** (roadmap 0.7 item 18). It
+  is an IR → IR pass exported from `typeshade`: it adds `<fn>_d_<param>`, which takes `fn`'s
+  arguments and returns the derivative of its result, and a `<g>_jvp` helper for each function
+  the parameter reaches through a call. Every `f32`, float vector and float matrix carries a
+  tangent beside its value; `if`, `switch` and `for` keep their primal conditions; the
+  component-wise builtins, `dot`, `cross`, `length`, `distance`, `normalize`, `reflect`,
+  `transpose`, `mix`, `smoothstep`, `pow` and `atan(y, x)` have their textbook rules; and
+  `floor`, `ceil`, `round`, `trunc`, `sign` and `step` differentiate to zero. A vector parameter
+  takes `{ direction }` and gives the directional derivative. Anything else the parameter
+  reaches, a texture sample, `refract`, a struct or an array that would carry the derivative, a
+  module variable written with it, is refused with the new `SD0118`, naming it, rather than
+  given a zero derivative. Every rule is checked against a central finite difference on both
+  CPU modules, and the generated functions for three modules covering every rule compile on
+  Tint and on ANGLE. `grad` is a host API: no `"use typeshade"` spelling is added (Rule 2.1,
+  §2.1), so the §9.3 extension table does not change.
 - **A user-journey gate, `bun run gate:journeys`, in CI as `user-journeys`.** It packs the
   tarball the way the publish workflow does and installs it into a fresh project, with the
   README's `tsconfig.shade.json` copied verbatim. Then it checks each program in `journeys/`
